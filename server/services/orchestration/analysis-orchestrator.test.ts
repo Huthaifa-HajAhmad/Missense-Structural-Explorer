@@ -255,6 +255,36 @@ describe("Analysis Orchestrator Unit Tests", () => {
     });
   });
 
+  /**
+   * The SECOND predictor call site.
+   *
+   * `fetchCoreVariantData` queries the predictor when the caller did not pre-fetch it, but this
+   * stream's fast triage queries it FIRST (to emit chunk 1 without waiting on the other nine
+   * sources) and hands the promise down as `prefetched.predictorPromise`. Both sites built the
+   * coordinate by hand from the SUBMITTED pair before, so both had to be converted; pinning only
+   * the core-data-fetcher one left this path handing GRCh37 coordinates to a GRCh38-only index
+   * (the wrong-locus hazard: a coinciding reference base scores a different locus and the numbers
+   * are attributed to this variant).
+   */
+  it("pairs the fast-triage predictor query with the lift-verified canonical build", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
+    const { fetchPredictorData } = await import("../prediction/index.ts");
+
+    const liftedContext: ParsedVariantContext = {
+      ...baseContext,
+      assembly: "GRCh37",
+      genomicCoordinates: "1-1256452-C-A",
+      resolvedAssembly: "GRCh38",
+      liftedGenomicCoordinates: "1-1321072-C-A"
+    };
+
+    await streamCoreAnalysis(liftedContext, () => {});
+
+    expect(vi.mocked(fetchPredictorData)).toHaveBeenCalled();
+    const coordinate = vi.mocked(fetchPredictorData).mock.calls[0][3];
+    expect(coordinate).toEqual({ chrom: "1", pos: 1321072, ref: "C", alt: "A", assembly: "GRCh38" });
+  });
+
   it("should execute runStructuralAnalysis and merge deep model evaluations", async () => {
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
 

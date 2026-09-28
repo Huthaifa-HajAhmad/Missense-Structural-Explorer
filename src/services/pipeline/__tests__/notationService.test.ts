@@ -76,5 +76,74 @@ describe("notationService", () => {
       expect(result.transcriptMeta.isManeSelect).toBe(true);
       expect(addTraceSpan).toHaveBeenCalled();
     });
+
+    /**
+     * The build trail must survive translation, or nothing downstream can state it.
+     *
+     * `assembly` is what the reader submitted; `resolvedAssembly` is what the annotation ran against;
+     * `liftedGenomicCoordinates` is the verified canonical locus; `coordinateLift` is the decision
+     * that connects them. Dropping any of them here is how a GRCh37 coordinate would reach the
+     * predictors labelled — or paired — with the wrong build.
+     *
+     * The locus is the REAL `Chr1(GRCh37):g.1256452C>A` → `Chr1(GRCh38):g.1321072C>A` lift. The
+     * fixture used to lift an INDEL (`7-117199644-ATCT-A` → `7-117548628-ATCT-A`), which the server
+     * can never emit — `liftover.ts` refuses anything but a single-base substitution.
+     */
+    it("carries the resolved build, the verified canonical locus and the lift record", async () => {
+      const coordinateLift = {
+        status: "lifted" as const,
+        fromAssembly: "GRCh37" as const,
+        toAssembly: "GRCh38" as const,
+        fromCoordinates: "1-1256452-C-A",
+        toCoordinates: "1-1321072-C-A",
+        reverseVerified: true
+      };
+      const mockApiClient = {
+        translateVariant: vi.fn().mockResolvedValue({
+          gene: "CFTR",
+          variant: "p.Phe508del",
+          uniprotId: "P13569",
+          assembly: "GRCh37",
+          genomicCoordinates: "1-1256452-C-A",
+          resolvedAssembly: "GRCh38",
+          liftedGenomicCoordinates: "1-1321072-C-A",
+          coordinateLift
+        })
+      };
+
+      const result = await translateVariantNotation(
+        "Chr1(GRCh37):g.1256452C>A",
+        mockApiClient,
+        new AbortController().signal
+      );
+
+      expect(result.transcriptMeta.assembly).toBe("GRCh37");
+      expect(result.transcriptMeta.resolvedAssembly).toBe("GRCh38");
+      expect(result.transcriptMeta.liftedGenomicCoordinates).toBe("1-1321072-C-A");
+      expect(result.transcriptMeta.coordinateLift).toEqual(coordinateLift);
+    });
+
+    it("reports the canonical-pair fields as null when the route did not lift", async () => {
+      const mockApiClient = {
+        translateVariant: vi.fn().mockResolvedValue({
+          gene: "PAH",
+          variant: "p.Arg408Trp",
+          uniprotId: "P00439",
+          assembly: "GRCh38"
+        })
+      };
+
+      const result = await translateVariantNotation(
+        "p.Arg408Trp",
+        mockApiClient,
+        new AbortController().signal
+      );
+
+      // Null rather than absent: "no lift was recorded" must be stated, not left to inference from a
+      // missing key (which is indistinguishable from a payload cached before the field existed).
+      expect(result.transcriptMeta.liftedGenomicCoordinates).toBeNull();
+      expect(result.transcriptMeta.coordinateLift).toBeNull();
+      expect(result.transcriptMeta.resolvedAssembly).toBeUndefined();
+    });
   });
 });

@@ -24,13 +24,18 @@ export default function NumberingChoicePrompt({
   onChoose: (choice: NumberingChoice) => void;
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const titleId = React.useId();
 
   /**
-   * Takes focus when it appears, and announces itself (`role="alert"`).
+   * Takes focus when it appears, and is labelled by its own question.
    *
    * The prompt is inserted ABOVE the fields while the Analyze button is at the bottom, so a keyboard
    * user who pressed Enter would otherwise re-submit the same refused notation; focus lands on the
-   * question instead, and a screen reader is told the question exists.
+   * question instead.
+   *
+   * `role="group"`, NOT `role="alert"`: the refusal itself is announced by the header's live region,
+   * and two alerts for one event make a screen reader read the message and the question over each
+   * other. The focus move is what makes the question heard.
    */
   React.useEffect(() => {
     containerRef.current?.focus();
@@ -39,17 +44,18 @@ export default function NumberingChoicePrompt({
   return (
     <div
       ref={containerRef}
-      role="alert"
+      role="group"
+      aria-labelledby={titleId}
       tabIndex={-1}
-      aria-label="Choose the numbering for this notation"
       data-testid="numbering-choice-prompt"
-      className="rounded-lg border px-3 py-3 flex flex-col gap-2 outline-none"
+      // focus-guard-allow: programmatic focus target (tabIndex={-1}); the choice buttons inside carry the ring.
+      className="rounded-lg border px-3 py-3 flex flex-col gap-2 focus:outline-none"
       style={{
-        borderColor: "var(--cs-border-strong, var(--cs-border))",
+        borderColor: "var(--cs-border)",
         background: "var(--cs-surface)",
       }}
     >
-      <div className="text-[12px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
+      <div id={titleId} className="text-[12px] font-semibold" style={{ color: "var(--cs-text-primary)" }}>
         Which numbering did you mean?
       </div>
       <p className="text-[11px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
@@ -65,7 +71,7 @@ export default function NumberingChoicePrompt({
             type="button"
             onClick={() => onChoose(choice)}
             data-testid={`numbering-choice-${choice.basisId}`}
-            className="text-left rounded-md border px-2.5 py-2 text-[11px] transition-colors"
+            className="text-left rounded-md border px-2.5 py-2 text-[11px] transition-colors cursor-pointer hover:bg-cs-bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-1"
             style={{
               borderColor: "var(--cs-border)",
               color: "var(--cs-text-primary)",

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { apiRouter } from "../../routes.ts";
 import { clearAllCaches } from "../../services/infra/cache.ts";
+import { resetHostStateForTests } from "../../services/infra/http-client.ts";
 import { ACOT9_CANONICAL, ACOT9_ISOFORM_4 } from "../../services/translation/__fixtures__/acot9.ts";
 import { translateVariantResponseSchema } from "../../../src/shared/contracts.ts";
 
@@ -96,9 +97,19 @@ async function invokeTranslate(
 
   const rawUrl = fetchSpy.mock.calls[0]?.[0];
   const calledUrl = rawUrl ? decodeURIComponent(String(rawUrl)) : "";
+  /**
+   * EVERY upstream call, in order.
+   *
+   * The first call is no longer always the annotation query: a submitted GRCh37 coordinate is
+   * lifted onto the canonical build first (assembly map + reference base), so a test that means
+   * "which host answered the annotation" must filter for the VEP call rather than read call[0].
+   */
+  const calledUrls = fetchSpy.mock.calls.map((call: any[]) =>
+    decodeURIComponent(String(call[0]))
+  );
   fetchSpy.mockRestore();
 
-  return { statusCode, body, calledUrl, headers };
+  return { statusCode, body, calledUrl, calledUrls, headers };
 }
 
 /**
@@ -207,6 +218,164 @@ describe("POST /translate-variant — notation normalization & assembly routing"
     ]);
   });
 
+  /**
+   * Regression (reported from the DevConsole):
+   *
+   *   POST /api/v1/translate-variant -> 422
+   *   Resolved variant values are invalid: Invalid UniProt accession ID format: "INT11_HUMAN".
+   *
+   * Ensembl's GRCh37 archive answers VEP with an annotation release that predates three things this
+   * pipeline needs: `swissprot` carries the UniProt entry NAME (`INT11_HUMAN`) instead of the
+   * accession (`Q5TA45.162` on the GRCh38 host), `uniprot_isoform` is absent, and the gene is named
+   * with its RETIRED symbol (`CPSF3L`, now `INTS11`). All of it is verified live for
+   * `Chr1(GRCh37):g.1256452C>A`, whose archive-canonical transcript is numbered on isoform
+   * `Q5TA45-5` (`p.Arg23Leu`) while the canonical sequence carries `S` at position 23.
+   */
+  const GRCH37_CONS = (overrides: Record<string, any> = {}) => ({
+    transcript_id: "ENST00000540437",
+    canonical: 1,
+    consequence_terms: ["missense_variant"],
+    hgvsp: "ENSP00000445001.1:p.Arg23Leu",
+    amino_acids: "R/L",
+    gene_symbol: "CPSF3L",
+    swissprot: ["INT11_HUMAN"],
+    ...overrides,
+  });
+
+  /** Same substitution on the canonical isoform — present in the payload, but unmarked by GRCh37. */
+  const GRCH37_CANONICAL_SIBLING = GRCH37_CONS({
+    transcript_id: "ENST00000435064",
+    canonical: undefined,
+    hgvsp: "ENSP00000413493.2:p.Arg17Leu",
+  });
+
+  const grch37Payload = (consequences: any[]) => [
+    {
+      seq_region_name: "1",
+      start: 1256452,
+      allele_string: "C/A",
+      assembly_name: "GRCh37",
+      transcript_consequences: consequences,
+    },
+  ];
+
+  const ENTRY_NAME_SEARCH_HIT = {
+    ok: true,
+    status: 200,
+    json: async () => ({ results: [{ primaryAccession: "Q5TA45", uniProtkbId: "INT11_HUMAN" }] }),
+    text: async () => "",
+  };
+
+  /** `GET /uniprotkb/Q5TA45.json?fields=xref_ensembl,gene_primary,gene_synonym`, verbatim. */
+  const ENTRY_REFERENCE_HIT = {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      genes: [{ geneName: { value: "INTS11" }, synonyms: [{ value: "CPSF3L" }] }],
+      uniProtKBCrossReferences: [
+        {
+          database: "Ensembl",
+          id: "ENST00000435064.6",
+          properties: [{ key: "ProteinId", value: "ENSP00000413493.2" }],
+          isoformId: "Q5TA45-1",
+        },
+        {
+          database: "Ensembl",
+          id: "ENST00000540437.5",
+          properties: [{ key: "ProteinId", value: "ENSP00000445001.1" }],
+          isoformId: "Q5TA45-5",
+        },
+      ],
+    }),
+    text: async () => "",
+  };
+
+  const grch37Fetch = (consequences: any[], uniprot: { name?: any; entry?: any }) => async (url: string) => {
+    if (url.includes("rest.uniprot.org")) {
+      return (url.includes("/search?") ? uniprot.name : uniprot.entry) as any;
+    }
+    return { ok: true, status: 200, json: async () => grch37Payload(consequences), text: async () => "" } as any;
+  };
+
+  it("resolves the reported GRCh37 coordinate to canonical numbering, not a 422", async () => {
+    const { statusCode, body, calledUrls } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      grch37Fetch([GRCH37_CONS(), GRCH37_CANONICAL_SIBLING], {
+        name: ENTRY_NAME_SEARCH_HIT,
+        entry: ENTRY_REFERENCE_HIT,
+      })
+    );
+
+    // No lift can be verified from this mock (the map endpoint answers the VEP payload), so the
+    // inline annotation still routes the annotation to the GRCh37 host.
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl).toContain("grch37.rest.ensembl.org");
+    expect(statusCode).toBe(200);
+    // The retired symbol is refreshed; the swap is recorded rather than hidden.
+    expect(body.gene).toBe("INTS11");
+    expect(body.geneSymbolUpdated).toEqual({ from: "CPSF3L", to: "INTS11" });
+    // Canonical numbering — the only sequence the structural pipeline can model.
+    expect(body.variant).toBe("p.Arg17Leu");
+    expect(body.uniprotId).toBe("Q5TA45");
+    expect(body.uniprotIsoform).toBe("Q5TA45-1");
+    expect(body.numberingBasis).toBe("remapped");
+    expect(body.numberingVerified).toBe(true);
+    // And the remap is disclosed in full, both machine-readably and in prose.
+    expect(body.numberingRemap).toMatchObject({
+      from: { hgvsp: "ENSP00000445001.1:p.Arg23Leu", isoform: "Q5TA45-5" },
+      to: { hgvsp: "ENSP00000413493.2:p.Arg17Leu", isoform: "Q5TA45-1" },
+    });
+    expect(body.transcriptWarning).toContain("p.Arg23Leu");
+    expect(body.transcriptWarning).toContain("p.Arg17Leu");
+  });
+
+  it("still resolves that coordinate when the entry-name lookup is unavailable", async () => {
+    // The accession is optional enrichment: losing it costs the client one gene -> UniProt
+    // resolution, whereas a 422 would cost the whole analysis.
+    const { statusCode, body } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      grch37Fetch([GRCH37_CONS(), GRCH37_CANONICAL_SIBLING], {
+        name: {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: "service unavailable" }),
+          text: async () => "service unavailable",
+        },
+      })
+    );
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Arg23Leu");
+    expect(body.uniprotId).toBe("");
+    expect(body.gene).toBe("CPSF3L");
+    expect(body.numberingBasis).toBe("unverified");
+  });
+
+  /**
+   * The unpredictable end of the repair: the numbering is provably non-canonical and the payload
+   * offers no canonically-numbered sibling to renumber onto. Refusing is the doctrine (forwarding
+   * the numbers models a residue the canonical sequence does not have), but the refusal must offer
+   * a route that works for someone who already entered a coordinate.
+   */
+  it("refuses with a usable escape hatch when the isoform basis cannot be renumbered here", async () => {
+    const { statusCode, body } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      grch37Fetch([GRCH37_CONS()], { name: ENTRY_NAME_SEARCH_HIT, entry: ENTRY_REFERENCE_HIT })
+    );
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("ISOFORM_NUMBERING_MISMATCH");
+    expect(body.error.message).toContain("Q5TA45-5");
+    expect(body.error.message).toContain("Q5TA45-5:p.Arg23Leu");
+    expect(body.error.details).toMatchObject({
+      isoform: "Q5TA45-5",
+      uniprotId: "Q5TA45",
+    });
+  });
+
   it("reports a total provider outage as 503 TRANSLATION_UNAVAILABLE, not a 500", async () => {
     // Retry-After: 0 makes fetchWithRetry's backoff instant, so an all-5xx outage is
     // simulated deterministically without waiting out real retry delays.
@@ -257,18 +426,24 @@ describe("POST /translate-variant — notation normalization & assembly routing"
   });
 
   it("routes a (GRCh37) annotation to the GRCh37 Ensembl host", async () => {
-    const { statusCode, calledUrl, body } = await invokeTranslate("chr1(GRCh37):g.25484258G>A");
+    const { statusCode, calledUrls, body } = await invokeTranslate("chr1(GRCh37):g.25484258G>A");
 
     expect(statusCode).toBe(200);
-    expect(calledUrl.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
     expect(body.assembly).toBe("GRCh37");
   });
 
   it("treats the hg19 alias as GRCh37 (hg19 does not contain '37')", async () => {
-    const { calledUrl, body } = await invokeTranslate("chr1(hg19):g.25484258G>A");
+    const { calledUrls, body } = await invokeTranslate("chr1(hg19):g.25484258G>A");
 
-    expect(calledUrl.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
+    // The pairwise default mock answers the assembly map with a VEP payload, so no lift can be
+    // verified and the annotation runs on the submitted build.
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
     expect(body.assembly).toBe("GRCh37");
+    expect(body.resolvedAssembly).toBe("GRCh37");
+    expect(body.coordinateLift?.status).toBe("unavailable");
   });
 
   it("treats the hg38 alias as GRCh38 and keeps the default host", async () => {
@@ -301,6 +476,34 @@ describe("POST /translate-variant — notation normalization & assembly routing"
     expect(calledUrl).toContain("/vep/human/hgvs/NM_000277.5:c.1222C>T");
   });
 
+  /**
+   * cDNA with a stated build.
+   *
+   * A transcript is read against a reference sequence, so an hg19 transcript against GRCh38 is the
+   * same wrong-reference hazard a genomic coordinate has — and the build annotation goes on the
+   * transcript accession rather than on the coordinate. The route has honoured this spelling since
+   * the annotation was read off the raw request; what did not was the shared grammar the CLIENT
+   * classifies with, so the field silently stopped stating the build it had been given.
+   */
+  it("honours a build annotation on a cDNA notation's transcript accession", async () => {
+    const { statusCode, calledUrls, body } = await invokeTranslate("NM_000277.5(GRCh37):c.1222C>T");
+
+    expect(statusCode).toBe(200);
+    // The archive host, chosen by the annotation — and the annotation itself is NOT in the query.
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
+    expect(vepUrl).toContain("/vep/human/hgvs/NM_000277.5:c.1222C>T");
+    expect(vepUrl).not.toContain("GRCh37");
+
+    // The build the caller stated is reported, and the note says the annotation ran against it.
+    expect(body.assembly).toBe("GRCh37");
+    expect(body.resolvedAssembly).toBe("GRCh37");
+    // A cDNA position carries no genomic locus, so there is nothing to lift — stated, not implied.
+    expect(body.coordinateLift.status).toBe("not-applicable");
+    expect(body.coordinateLift.buildDeclared).toBe(true);
+    expect(body.assemblyNote).toContain("GRCh37");
+  });
+
   it("rejects unsupported notations with a message listing the accepted forms", async () => {
     const { statusCode, body, calledUrl } = await invokeTranslate("not-a-variant");
 
@@ -317,6 +520,64 @@ describe("POST /translate-variant — notation normalization & assembly routing"
 
     expect(statusCode).toBe(200);
     expect(calledUrl).toContain("/vep/human/hgvs/NC_000001.11:g.25484258G>A");
+  });
+
+  /**
+   * A chromosome accession states the build for a cDNA notation too.
+   *
+   * `NC_000001.10` IS GRCh37 — the module's own table says so — so reading the build only from the
+   * genomic parser sent this request to the GRCh38 host while its own text named a GRCh37 sequence.
+   */
+  it("routes a cDNA notation on a GRCh37 chromosome accession to the archive", async () => {
+    const { statusCode, calledUrls, body } = await invokeTranslate("NC_000001.10:c.1222C>T");
+
+    expect(statusCode).toBe(200);
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
+    expect(body.assembly).toBe("GRCh37");
+    expect(body.coordinateLift.status).toBe("not-applicable");
+    expect(body.coordinateLift.buildDeclared).toBe(true);
+  });
+
+  /**
+   * The cDNA admission gate: three notations no provider can parse, refused with the FIX in the
+   * message rather than after a ladder run that could only answer "the providers returned unusable
+   * responses … check the genome build".
+   *
+   * Measured live: Ensembl VEP answers `Unable to parse HGVS notation 'c.1799T>A'` and
+   * VariantValidator answers `VariantSyntaxError: Unable to identify a colon (:)`, neither of which
+   * names the missing transcript.
+   */
+  it.each([
+    ["c.1222C>T", /must name the reference sequence/i],
+    ["NP_001032248.1:c.1222C>T", /PROTEIN accession/i],
+    ["C.1222C>T", /type prefix in lower case/i],
+  ])("refuses the unanswerable cDNA notation %s before any provider call", async (notation, expected) => {
+    const { statusCode, body, calledUrl } = await invokeTranslate(notation);
+
+    expect(statusCode).toBe(400);
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(expected);
+    expect(calledUrl).toBe("");
+  });
+
+  /**
+   * Two build annotations are a contradiction, and both families are refused rather than resolved to
+   * whichever came first — the reading that put one build in the query string and the other in the
+   * response's own note.
+   */
+  it.each([
+    "NM_004333.6(GRCh37)(GRCh38):c.1799T>A",
+    "chr1(GRCh37)(GRCh38):g.1256452C>A",
+  ])("refuses the doubly-annotated %s", async (notation) => {
+    const { statusCode, body, calledUrl } = await invokeTranslate(notation);
+
+    expect(statusCode).toBe(400);
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("more than one genome build");
+    expect(body.error.message).toContain("GRCh37");
+    expect(body.error.message).toContain("GRCh38");
+    expect(calledUrl).toBe("");
   });
 });
 
@@ -920,5 +1181,865 @@ describe("POST /translate-variant — accession-qualified protein notation", () 
     expect(body.error.message).toContain("no entry cross-referenced");
     expect(body.error.message).toContain("reviewed, human");
     expect(body.error.details.accession).toBe("NP_999999.9");
+  });
+});
+
+/**
+ * Lift-first intake: a GRCh37 coordinate is annotated on the canonical build.
+ *
+ * POLICY UNDER TEST (`src/shared/assembly.ts`): "Coordinates are LIFTED to the canonical build when
+ * the input build differs, and the lift is REVERSE-VERIFIED before use."
+ *
+ * WHY IT MATTERS: Ensembl's GRCh37 host serves a frozen archive — no MANE Select, no
+ * `uniprot_isoform`, retired gene symbols — while every consumer below this route is pinned to
+ * GRCh38. Measured on the reported coordinate `Chr1(GRCh37):g.1256452C>A`, the archive numbers it
+ * `p.Arg23Leu` on isoform `Q5TA45-5` while MANE numbers the same substitution `p.Arg17Leu` on
+ * canonical `Q5TA45-1`; annotating on the canonical build makes a GRCh37 and a GRCh38 spelling of
+ * one variant converge on one answer, and it is the answer the structural pipeline can model.
+ */
+describe("POST /translate-variant — lift-first genome-build intake", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+  });
+
+  /** MANE Select consequence for INTS11 at the canonical locus, as the GRCh38 host reports it. */
+  const INTS11_MANE_CONSEQUENCE = {
+    transcript_id: "ENST00000435064",
+    canonical: 1,
+    mane_select: "NM_017871.6",
+    consequence_terms: ["missense_variant"],
+    hgvsp: "ENSP00000413493.2:p.Arg17Leu",
+    amino_acids: "R/L",
+    uniprot_isoform: ["Q5TA45-1"],
+    gene_symbol: "INTS11",
+    swissprot: ["Q5TA45.162"],
+  };
+
+  const jsonResponse = (body: unknown) =>
+    ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }) as any;
+
+  /** The canonical-build VEP answer for the LIFTED locus (chr1:1,321,072 C>A). */
+  const vepPayloadAtLiftedLocus = () =>
+    jsonResponse([
+      {
+        seq_region_name: "1",
+        start: 1321072,
+        allele_string: "C/A",
+        assembly_name: "GRCh38",
+        transcript_consequences: [INTS11_MANE_CONSEQUENCE],
+      },
+    ]);
+
+  /** Ensembl assembly-map answers: forward chr1:1,256,452 → 1,321,072 and the exact reverse. */
+  const liftAwareFetch = (mapOverride?: any) => async (url: string) => {
+    if (url.includes("/map/human/GRCh37/")) {
+      return mapOverride ?? jsonResponse({ mappings: [{ mapped: { seq_region_name: "1", start: 1321072, end: 1321072, strand: 1 } }] });
+    }
+    if (url.includes("/map/human/GRCh38/")) {
+      return jsonResponse({ mappings: [{ mapped: { seq_region_name: "1", start: 1256452, end: 1256452, strand: 1 } }] });
+    }
+    if (url.includes("/sequence/region/human/")) {
+      // The GRCh38 reference base at the lifted position must equal the submitted REF allele.
+      return { ok: true, status: 200, json: async () => ({}), text: async () => "C" } as any;
+    }
+    return vepPayloadAtLiftedLocus();
+  };
+
+  /**
+   * ── HOST-AWARE provider transport ───────────────────────────────────────────────
+   *
+   * `liftAwareFetch` above is HOST-BLIND: it answers EVERY VEP query with the GRCh38-locus
+   * INTS11 answer, so a request that (by regression) queried `grch37.rest.ensembl.org` still
+   * received the canonical-build payload and every convergence assertion passed. That certified
+   * convergence by URL assertion only — the very thing the fix is about (the GRCh37 archive
+   * answers with a DIFFERENT release: the retired symbol, the entry NAME where an accession
+   * belongs, and no isoform metadata at all).
+   *
+   * This transport answers each host with its own release's payload, so a mis-routed request
+   * produces the archive's answer and the assertions below fail on the CONTENT.
+   */
+  const UNIPROT_ENTRY_NAME_ACCESSIONS: Record<string, string> = {
+    INT11_HUMAN: "Q5TA45",
+    CPTP_HUMAN: "Q5TA50",
+  };
+
+  /**
+   * `GET /uniprotkb/Q5TA45.json?fields=xref_ensembl,gene_primary,gene_synonym`, trimmed to the two
+   * Ensembl cross-references the archive's rows need (the live entry carries five, one per
+   * isoform Q5TA45-1…-5; `coordinate-resolver.test.ts` holds the full set).
+   */
+  const UNIPROT_Q5TA45_REFERENCE = {
+    genes: [{ geneName: { value: "INTS11" }, synonyms: [{ value: "CPSF3L" }, { value: "RC68" }] }],
+    uniProtKBCrossReferences: [
+      {
+        database: "Ensembl",
+        id: "ENST00000435064.6",
+        properties: [{ key: "ProteinId", value: "ENSP00000413493.2" }],
+        isoformId: "Q5TA45-1",
+      },
+      {
+        database: "Ensembl",
+        id: "ENST00000540437.5",
+        properties: [{ key: "ProteinId", value: "ENSP00000445001.1" }],
+        isoformId: "Q5TA45-5",
+      },
+    ],
+  };
+
+  /**
+   * The REAL GRCh37 archive answer for the submitted locus, trimmed to the two consequences that
+   * matter out of the live 40: the archive's own canonical transcript (numbered on isoform
+   * `Q5TA45-5`) and the canonically-numbered sibling it does not mark. It carries the archive's
+   * three signature defects — `swissprot: ["INT11_HUMAN"]` (an entry NAME), no `uniprot_isoform`,
+   * and the retired symbol `CPSF3L`.
+   */
+  const grch37ArchivePayload = () =>
+    jsonResponse([
+      {
+        seq_region_name: "1",
+        start: 1256452,
+        allele_string: "C/A",
+        assembly_name: "GRCh37",
+        transcript_consequences: [
+          {
+            transcript_id: "ENST00000540437",
+            canonical: 1,
+            consequence_terms: ["missense_variant"],
+            hgvsp: "ENSP00000445001.1:p.Arg23Leu",
+            amino_acids: "R/L",
+            gene_symbol: "CPSF3L",
+            swissprot: ["INT11_HUMAN"],
+          },
+          {
+            transcript_id: "ENST00000435064",
+            consequence_terms: ["missense_variant"],
+            hgvsp: "ENSP00000413493.2:p.Arg17Leu",
+            amino_acids: "R/L",
+            gene_symbol: "CPSF3L",
+            swissprot: ["INT11_HUMAN"],
+          },
+        ],
+      },
+    ]);
+
+  /**
+   * Host-aware transport. `calls` (optional) records every URL, so a test can count the VEP
+   * queries a request actually made instead of diffing the whole call list.
+   */
+  const hostAwareFetch = (options: { calls?: string[]; liftRefused?: boolean } = {}) => async (url: string) => {
+    options.calls?.push(url);
+    if (url.includes("/map/human/GRCh37/")) {
+      return options.liftRefused
+        ? jsonResponse({
+            // Two mappings for one point: a paralogous/ambiguous region. The lift is REFUSED,
+            // never guessed at — so the annotation must stay on the submitted build.
+            mappings: [
+              { mapped: { seq_region_name: "1", start: 1321072, end: 1321072, strand: 1 } },
+              { mapped: { seq_region_name: "1", start: 1321073, end: 1321073, strand: 1 } },
+            ],
+          })
+        : jsonResponse({ mappings: [{ mapped: { seq_region_name: "1", start: 1321072, end: 1321072, strand: 1 } }] });
+    }
+    if (url.includes("/map/human/GRCh38/")) {
+      return jsonResponse({ mappings: [{ mapped: { seq_region_name: "1", start: 1256452, end: 1256452, strand: 1 } }] });
+    }
+    if (url.includes("/sequence/region/human/")) {
+      return { ok: true, status: 200, json: async () => ({}), text: async () => "C" } as any;
+    }
+    // The frozen archive answers its own release's payload…
+    if (url.includes("grch37.rest.ensembl.org")) return grch37ArchivePayload();
+    // …and the current site answers the current one.
+    if (url.includes("rest.uniprot.org")) {
+      if (url.includes("/search?")) {
+        const name = Object.keys(UNIPROT_ENTRY_NAME_ACCESSIONS).find((entry) => url.includes(entry));
+        return name
+          ? jsonResponse({
+              results: [{ primaryAccession: UNIPROT_ENTRY_NAME_ACCESSIONS[name], uniProtkbId: name }],
+            })
+          : jsonResponse({ results: [] });
+      }
+      return jsonResponse(UNIPROT_Q5TA45_REFERENCE);
+    }
+    return vepPayloadAtLiftedLocus();
+  };
+
+  /** Count of annotation queries (as opposed to assembly-map / sequence / UniProt traffic). */
+  const vepCallCount = (calls: string[]) =>
+    calls.filter((url) => url.includes("/vep/human/hgvs/")).length;
+
+  it("verifies the coordinate on GRCh38, annotates there, and reports both builds", async () => {
+    const { statusCode, body, calledUrls } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      INTS11_MANE_CONSEQUENCE,
+      liftAwareFetch()
+    );
+
+    expect(statusCode).toBe(200);
+
+    // The annotation ran on the CURRENT release, not the frozen archive.
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://rest.ensembl.org")).toBe(true);
+    expect(vepUrl).toContain("chr1:g.1321072C>A");
+    expect(calledUrls.some((u) => u.includes("grch37.rest.ensembl.org"))).toBe(false);
+
+    // Submitted build and locus are preserved; the verified canonical locus travels beside them.
+    expect(body.assembly).toBe("GRCh37");
+    expect(body.resolvedAssembly).toBe("GRCh38");
+    expect(body.genomicCoordinates).toBe("1-1256452-C-A");
+    expect(body.liftedGenomicCoordinates).toBe("1-1321072-C-A");
+    expect(body.coordinateLift).toMatchObject({
+      status: "lifted",
+      fromAssembly: "GRCh37",
+      toAssembly: "GRCh38",
+      fromCoordinates: "1-1256452-C-A",
+      toCoordinates: "1-1321072-C-A",
+      reverseVerified: true,
+    });
+    expect(body.assemblyNote).toContain("GRCh38");
+
+    // Canonical numbering arrived directly from MANE — the whole point of annotating on GRCh38.
+    expect(body.variant).toBe("p.Arg17Leu");
+    expect(body.gene).toBe("INTS11");
+    expect(body.uniprotId).toBe("Q5TA45");
+    expect(body.uniprotIsoform).toBe("Q5TA45-1");
+    expect(body.numberingBasis).toBe("canonical");
+    expect(body.numberingVerified).toBe(true);
+    // No remap note: nothing had to be renumbered, so nothing needs disclosing beyond the lift.
+    expect(body.numberingRemap).toBeUndefined();
+    expect(body.transcriptWarning).toBeUndefined();
+  });
+
+  /**
+   * A GRCh37 and a GRCh38 spelling of the SAME variant must produce the SAME answer. Before
+   * lift-first they could not: the archive's numbering came from its own (older) canonical
+   * transcript set, so one spelling resolved `p.Arg23Leu` and the other `p.Arg17Leu`.
+   */
+  it("gives a GRCh37 and a GRCh38 spelling of one variant the same answer", async () => {
+    const fromGRCh37 = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      INTS11_MANE_CONSEQUENCE,
+      liftAwareFetch()
+    );
+    const fromGRCh38 = await invokeTranslate(
+      "Chr1(GRCh38):g.1321072C>A",
+      INTS11_MANE_CONSEQUENCE,
+      liftAwareFetch()
+    );
+
+    expect(fromGRCh38.body.coordinateLift.status).toBe("not-needed");
+    for (const field of ["gene", "variant", "uniprotId", "uniprotIsoform", "numberingBasis"]) {
+      expect(fromGRCh37.body[field]).toBe(fromGRCh38.body[field]);
+    }
+    // …and the canonical query still resolves against the same (lifted) locus.
+    expect(fromGRCh38.body.genomicCoordinates).toBe("1-1321072-C-A");
+    expect(fromGRCh37.body.liftedGenomicCoordinates).toBe(fromGRCh38.body.genomicCoordinates);
+  });
+
+  /**
+   * The SAME convergence, certified against a HOST-AWARE provider.
+   *
+   * The test above asserts convergence while every host returns the GRCh38 answer, so it proves
+   * the ANSWER converges — not that the annotation ran on the canonical release. A regression that
+   * queried the frozen archive (or a lift that stopped rewriting the notation) would still pass it.
+   * Here each host serves its own release, so the assertions are on content the archive cannot
+   * produce: MANE Select, a UniProt ACCESSion, isoform `Q5TA45-1` and `numberingBasis: "canonical"`.
+   * The archive's answer is `remapped` (its own canonical transcript is numbered on `Q5TA45-5`),
+   * carries the retired symbol `CPSF3L` and the entry NAME `INT11_HUMAN`.
+   */
+  it("converges a GRCh37 and a GRCh38 spelling on one canonical answer against host-specific payloads", async () => {
+    const fromGRCh37 = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      INTS11_MANE_CONSEQUENCE,
+      hostAwareFetch()
+    );
+    const fromGRCh38 = await invokeTranslate(
+      "Chr1(GRCh38):g.1321072C>A",
+      INTS11_MANE_CONSEQUENCE,
+      hostAwareFetch()
+    );
+
+    // ── The GRCh37 request: lifted, then annotated on the CURRENT release ──────────
+    expect(fromGRCh37.statusCode).toBe(200);
+    const vepUrl = fromGRCh37.calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://rest.ensembl.org")).toBe(true);
+    expect(vepUrl).toContain("chr1:g.1321072C>A");
+    // The frozen archive was never asked: it can neither lift nor number this variant canonically.
+    expect(fromGRCh37.calledUrls.some((u) => u.includes("grch37.rest.ensembl.org"))).toBe(false);
+
+    expect(fromGRCh37.body.assembly).toBe("GRCh37");
+    expect(fromGRCh37.body.resolvedAssembly).toBe("GRCh38");
+    expect(fromGRCh37.body.coordinateLift.status).toBe("lifted");
+    expect(fromGRCh37.body.coordinateLift.buildDeclared).toBe(true);
+    /**
+     * THE GUARD, with a host-aware echo. The GRCh38 payload's echo is the CANONICAL locus
+     * (chr1:1,321,072) while the caller submitted chr1:1,256,452, so a route that forwarded the
+     * echo would answer `genomicCoordinates: "1-1321072-C-A"` under `assembly: "GRCh37"` — a
+     * canonical position wearing the submitted build's tag.
+     */
+    expect(fromGRCh37.body.genomicCoordinates).toBe("1-1256452-C-A");
+    expect(fromGRCh37.body.liftedGenomicCoordinates).toBe("1-1321072-C-A");
+
+    // ── The GRCh38 request: no lift involved ──────────────────────────────────────
+    expect(fromGRCh38.statusCode).toBe(200);
+    expect(fromGRCh38.body.coordinateLift.status).toBe("not-needed");
+    expect(fromGRCh38.body.resolvedAssembly).toBe("GRCh38");
+    // Its own locus IS the canonical one, echoed by the provider it asked.
+    expect(fromGRCh38.body.genomicCoordinates).toBe("1-1321072-C-A");
+    expect(fromGRCh38.body.liftedGenomicCoordinates).toBeUndefined();
+
+    // ── One answer, on every field a consumer keys on ─────────────────────────────
+    expect(fromGRCh37.body.gene).toBe("INTS11");
+    expect(fromGRCh37.body.variant).toBe("p.Arg17Leu");
+    expect(fromGRCh37.body.uniprotId).toBe("Q5TA45");
+    expect(fromGRCh37.body.uniprotIsoform).toBe("Q5TA45-1");
+    expect(fromGRCh37.body.numberingBasis).toBe("canonical");
+
+    for (const field of ["gene", "variant", "uniprotId", "uniprotIsoform", "numberingBasis"]) {
+      expect(fromGRCh37.body[field]).toBe(fromGRCh38.body[field]);
+    }
+    // Canonical numbering arrived directly from MANE, so there is nothing to renumber.
+    expect(fromGRCh37.body.numberingRemap).toBeUndefined();
+
+    /**
+     * The disclosure must name the release the annotation came from — and must NOT assert the
+     * submitted build in a sentence that reads as "resolved against the GRCh37 reference", which is
+     * the wrong-release claim this note exists to avoid.
+     */
+    expect(fromGRCh37.body.assemblyNote).toContain(
+      "The coordinate is stated in GRCh37 and was verified on the GRCh38 reference"
+    );
+    expect(fromGRCh37.body.assemblyNote).not.toContain("resolved against the GRCh37 reference");
+    /**
+     * The GRCh38 spelling is ANNOTATED, so it keeps the historical note — which names the build
+     * the annotation ran on (GRCh38, the same one) and mentions no lift.
+     */
+    expect(fromGRCh38.body.assemblyNote).toContain("resolved against the GRCh38 reference assembly");
+    expect(fromGRCh38.body.assemblyNote).not.toContain("verified on the GRCh38 reference");
+    expect(fromGRCh38.body.assemblyNote).not.toContain("GRCh37");
+  });
+
+  /**
+   * THE NO-LIFT PAIRING, on the branch where no lift verifies.
+   *
+   * A refused lift leaves the annotation on the SUBMITTED build (`resolvedAssembly === "GRCh37"`),
+   * and `genomicCoordinates` must then be the coordinate the CALLER submitted — paired with
+   * `assembly: "GRCh37"` — never the canonical locus. That pairing is what a report cites and what
+   * the client forwards to the build-pinned predictors, so a canonical position wearing the
+   * submitted build's tag would be the wrong-locus hazard itself.
+   *
+   * The transport here is HOST-AWARE, so the body under test is genuinely the archive's answer:
+   * the retired symbol, the entry NAME in `swissprot`, no isoform metadata — and the archive's own
+   * canonical numbering, which is why the protein change arrives via a disclosed remap.
+   */
+  it("keeps the submitted locus and the submitted build when the lift is refused", async () => {
+    const { statusCode, body, calledUrls } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      hostAwareFetch({ liftRefused: true })
+    );
+
+    expect(statusCode).toBe(200);
+
+    // ── The lift was refused, and the decision says why ───────────────────────────
+    expect(body.coordinateLift.status).toBe("unavailable");
+    expect(body.coordinateLift.reason).toContain("could not be verified");
+    expect(body.coordinateLift.fromAssembly).toBe("GRCh37");
+    // `toAssembly` is the build the annotation ACTUALLY ran against, so a refused lift reports the
+    // submitted build on both sides — not the canonical build the lift could not reach.
+    expect(body.coordinateLift.toAssembly).toBe("GRCh37");
+    expect(body.assembly).toBe("GRCh37");
+    expect(body.resolvedAssembly).toBe("GRCh37");
+    expect(body.liftedGenomicCoordinates).toBeUndefined();
+
+    // ── It was asked at the SUBMITTED locus, on the submitted build's host ────────
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
+    expect(vepUrl).toContain("chr1:g.1256452C>A");
+
+    /**
+     * …and the pair the response publishes is the SUBMITTED one: the submitted locus beside the
+     * submitted build. The canonical locus is a different string, and it appears NOWHERE in the
+     * pair — `liftedGenomicCoordinates` is absent, and `genomicCoordinates` is not it.
+     */
+    expect(body.genomicCoordinates).toBe("1-1256452-C-A");
+    expect(body.genomicCoordinates).not.toBe("1-1321072-C-A");
+
+    /**
+     * The archive branch really is the one under test (so a future change that silently lifted
+     * anyway, or that routed this request to the current release, cannot pass): the retired symbol
+     * arrives from the archive, and the numbering is the archive's own — `remapped` onto canonical
+     * `Q5TA45-1`, never the direct `canonical` verdict MANE Select gives.
+     */
+    expect(body.gene).toBe("INTS11");
+    expect(body.variant).toBe("p.Arg17Leu");
+    expect(body.uniprotIsoform).toBe("Q5TA45-1");
+    expect(body.numberingBasis).toBe("remapped");
+    expect(body.numberingRemap).toBeDefined();
+    expect(body.assemblyNote).toContain("predates MANE Select");
+    // The note says the lift could NOT be verified — it must not claim one was.
+    expect(body.assemblyNote).not.toContain("was verified on");
+  });
+
+  /**
+   * The resolution cache is keyed by (assembly, notation) — and after lift-first, a GRCh37 request
+   * and a GRCh38 request for the SAME variant share ONE entry, because the lift rewrites the
+   * notation onto the canonical build before the cache is consulted. The easy order (identical
+   * spelling twice) was covered; this covers the order a real user produces, and the thing that
+   * order breaks: EVERY other response field is served from the shared entry, but the build trail
+   * must still be PER REQUEST — the second response is a GRCh37 submission whose lift is its own
+   * fact, not the cached GRCh38 one's.
+   */
+  it("shares the resolution cache with the lift, while each request keeps its own build trail", async () => {
+    const calls: string[] = [];
+    const fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(async (url: any) => hostAwareFetch({ calls })(String(url)) as any);
+
+    try {
+      // 1. The canonical spelling first: no lift, one VEP query, one cache entry.
+      const first = await invokeTranslateWithSpy("Chr1(GRCh38):g.1321072C>A");
+      const vepCallsAfterFirst = vepCallCount(calls);
+
+      // 2. The GRCh37 spelling of the SAME variant: lifted, then served from that entry.
+      const second = await invokeTranslateWithSpy("Chr1(GRCh37):g.1256452C>A");
+
+      expect(first.statusCode).toBe(200);
+      expect(first.body.provenance.cacheHit).toBe(false);
+      expect(vepCallsAfterFirst).toBe(1);
+
+      expect(second.statusCode).toBe(200);
+      // Served from the shared entry …
+      expect(second.body.provenance.cacheHit).toBe(true);
+      // … so the lift it performed was the ONLY provider traffic left: zero further VEP queries.
+      expect(vepCallCount(calls)).toBe(vepCallsAfterFirst);
+      // …and the shared answer is the same answer.
+      expect(second.body.gene).toBe("INTS11");
+      expect(second.body.variant).toBe("p.Arg17Leu");
+      expect(second.body.uniprotIsoform).toBe("Q5TA45-1");
+      expect(second.body.numberingBasis).toBe("canonical");
+
+      // Its OWN build trail, though — the lift happened for THIS request.
+      expect(second.body.assembly).toBe("GRCh37");
+      expect(second.body.resolvedAssembly).toBe("GRCh38");
+      expect(second.body.coordinateLift).toMatchObject({
+        status: "lifted",
+        fromAssembly: "GRCh37",
+        toAssembly: "GRCh38",
+        fromCoordinates: "1-1256452-C-A",
+        toCoordinates: "1-1321072-C-A",
+        reverseVerified: true,
+      });
+      expect(second.body.liftedGenomicCoordinates).toBe("1-1321072-C-A");
+      // …and the submitted locus, not the cache entry's canonical one.
+      expect(second.body.genomicCoordinates).toBe("1-1256452-C-A");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps the submitted build and explains the older annotation when no lift verifies", async () => {
+    // An ambiguous mapping (a paralogous region maps more than once) is a REFUSAL, not a guess.
+    const ambiguous = jsonResponse({
+      mappings: [
+        { mapped: { seq_region_name: "1", start: 1321072, end: 1321072, strand: 1 } },
+        { mapped: { seq_region_name: "1", start: 1321073, end: 1321073, strand: 1 } },
+      ],
+    });
+
+    const { statusCode, body, calledUrls } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      liftAwareFetch(ambiguous)
+    );
+
+    expect(statusCode).toBe(200);
+    expect(calledUrls.some((u) => u.includes("/map/human/GRCh37/"))).toBe(true);
+    const vepUrl = calledUrls.find((u) => u.includes("/vep/human/hgvs/"));
+    expect(vepUrl?.startsWith("https://grch37.rest.ensembl.org")).toBe(true);
+
+    expect(body.assembly).toBe("GRCh37");
+    expect(body.resolvedAssembly).toBe("GRCh37");
+    expect(body.liftedGenomicCoordinates).toBeUndefined();
+    expect(body.coordinateLift.status).toBe("unavailable");
+    expect(body.coordinateLift.reason).toContain("could not be verified");
+    // The reader is told WHY this answer may be numbered on an older transcript set.
+    // The note must say the release is OLDER, without naming a provider (the build-aware fallback
+    // may have answered) and without claiming the annotation came from the submitted build.
+    expect(body.assemblyNote).toContain("predates MANE Select");
+    expect(body.assemblyNote).not.toContain("Ensembl");
+    expect(body.assemblyNote).not.toContain("resolved against the GRCh37 reference");
+    expect(body.coordinateLift.buildDeclared).toBe(true);
+    expect(body.assemblyNote).toContain("MANE");
+  });
+
+  it("survives an unreachable assembly map and still answers on the submitted build", async () => {
+    const mapDown = async (url: string) => {
+      if (url.includes("/map/human/")) {
+        throw new Error("fetch failed");
+      }
+      return url.includes("/vep/human/hgvs/")
+        ? ({ ok: true, status: 200, json: async () => [{
+            seq_region_name: "1",
+            start: 1256452,
+            allele_string: "C/A",
+            transcript_consequences: [{ ...MISSENSE_CONSEQUENCE, gene_symbol: "CPSF3L" }],
+          }], text: async () => "" } as any)
+        : jsonResponse({ results: [{ primaryAccession: "Q8N5G0", uniProtkbId: "MACO1_HUMAN" }] });
+    };
+
+    const { statusCode, body } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      mapDown
+    );
+
+    // A lift is auxiliary: losing it must never lose the variant.
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Glu433Lys");
+    expect(body.coordinateLift.status).toBe("unavailable");
+  });
+
+  it("states the resolved build when a lifted coordinate turns out to have no protein change", async () => {
+    const noProteinChange = async (url: string) => {
+      if (url.includes("/map/human/GRCh37/")) {
+        return jsonResponse({ mappings: [{ mapped: { seq_region_name: "1", start: 1321072, end: 1321072, strand: 1 } }] });
+      }
+      if (url.includes("/map/human/GRCh38/")) {
+        return jsonResponse({ mappings: [{ mapped: { seq_region_name: "1", start: 1256452, end: 1256452, strand: 1 } }] });
+      }
+      if (url.includes("/sequence/region/human/")) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => "C" } as any;
+      }
+      if (url.includes("/vep/human/hgvs/")) {
+        return jsonResponse([{
+          seq_region_name: "1",
+          start: 1321072,
+          allele_string: "C/A",
+          transcript_consequences: [{
+            transcript_id: "ENST00000435064",
+            canonical: 1,
+            gene_symbol: "INTS11",
+            consequence_terms: ["intron_variant"],
+            hgvsc: "ENST00000435064.6:c.50+5G>A",
+          }],
+        }]);
+      }
+      return jsonResponse({ error: "not a transcript envelope" });
+    };
+
+    const { statusCode, body } = await invokeTranslate(
+      "Chr1(GRCh37):g.1256452C>A",
+      MISSENSE_CONSEQUENCE,
+      noProteinChange
+    );
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("NON_MISSENSE_VARIANT");
+    // The message names the build the ANNOTATION came from (GRCh38), while `details` keeps the
+    // build the caller submitted — the two build questions must never be conflated.
+    expect(body.error.message).toContain("GRCh38");
+    expect(body.error.details.assembly).toBe("GRCh37");
+    expect(body.error.details.resolvedAssembly).toBe("GRCh38");
+    expect(body.error.details.coordinateLift.status).toBe("lifted");
+  });
+});
+
+/**
+ * The reference-allele mismatch.
+ *
+ * THE COORDINATE HERE IS LIVE-VERIFIED, and the earlier version of this suite was not: it used
+ * `chr1:g.1256452C>A` and asserted a 400 that CANNOT occur for it — the GRCh38 reference base at
+ * chr1:1,256,452 is `C`, and Ensembl answers that query 200 with an intron_variant in UBE2J2. A
+ * fixture that no provider can produce proves nothing about the case it names, and it documented the
+ * opposite of the truth for whoever read it next.
+ *
+ * The real shape, measured on `chrX:g.23723975C>A` (an hg19 ACOT9 allele): the GRCh38 base at that
+ * position is `A` while the submitted REF is `C`, so Ensembl VEP answers 400 "Reference allele
+ * extracted from chrX:23723975-23723975 (A) does not match …", and GRCh37 carries `C` — which is why
+ * offering the GRCh37 spelling is a remedy rather than a guess.
+ */
+describe("POST /translate-variant — reference-allele mismatch", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+    // Caches, breakers and semaphores are per-host module-globals: without this, a rung SKIPPED by an
+    // open breaker from an earlier test can pass these assertions for the wrong reason.
+    resetHostStateForTests();
+  });
+
+  const MISMATCH_NOTATION = "chrX:g.23723975C>A";
+
+  /** VERBATIM live Ensembl VEP 400 body for the coordinate above. */
+  const VEP_MISMATCH_400 = (notation: string) =>
+    `Unable to parse HGVS notation '${notation}': Reference allele extracted from ` +
+    `chrX:23723975-23723975 (A) does not match reference allele given by HGVS notation ${notation} (C)`;
+
+  /** VERBATIM live VariantValidator 200 body: no payload, the finding only inside the warning list. */
+  const vvMismatch200 = (notation: string) =>
+    new Response(
+      JSON.stringify({
+        flag: "warning",
+        validation_warning_1: {
+          gene_symbol: "",
+          annotations: {},
+          hgvs_predicted_protein_consequence: {},
+          primary_assembly_loci: {},
+          submitted_variant: notation,
+          validation_warnings: [
+            "This is not a valid HGVS variant description, because no reference sequence ID has been provided",
+            "ReferenceMismatchError: NC_000023.11:g.23723975C>A: Variant reference (C) does not agree with reference sequence (A)",
+          ],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+  /**
+   * Every provider refuses the coordinate, and the reference bases the hint check reads are supplied
+   * per host — `grch37` carries the submitted allele (as it really does), `grch38` does not.
+   */
+  const mismatchFetch = (
+    options: { calls?: string[]; otherBuildBase?: string; sameBuildBase?: string; notation?: string } = {}
+  ) => async (url: string) => {
+    const notation = options.notation ?? MISMATCH_NOTATION;
+    options.calls?.push(url);
+    if (url.includes("/map/human/")) {
+      return new Response(JSON.stringify({ mappings: [] }), { status: 200 });
+    }
+    if (url.includes("/sequence/region/human/")) {
+      // The archive is the build being OFFERED, so it is the one that must carry the submitted REF.
+      const base = url.includes("grch37.rest.ensembl.org")
+        ? options.otherBuildBase ?? "C"
+        : options.sameBuildBase ?? "A";
+      return new Response(base, { status: 200 });
+    }
+    if (url.includes("rest.uniprot.org")) {
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    }
+    // The ladder: the primary answers the live 400, the fallback the live 200-with-warnings.
+    if (url.includes("variantvalidator")) return vvMismatch200(notation);
+    return new Response(JSON.stringify({ error: VEP_MISMATCH_400(notation) }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  it("answers 422 COORDINATE_REFERENCE_MISMATCH and hands back the other build's spelling", async () => {
+    const { statusCode, body, headers } = await invokeTranslate(
+      MISMATCH_NOTATION,
+      MISSENSE_CONSEQUENCE,
+      mismatchFetch()
+    );
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("COORDINATE_REFERENCE_MISMATCH");
+    // A fact about the request, so the reader is told what to change — not to retry.
+    expect(body.error.message).toContain("reference allele does not match");
+    expect(body.error.message).toContain("genome-build mismatch");
+    /**
+     * The remedy, ready to submit: the SAME coordinate stated in the other build. Composed by the
+     * server, so the client never splices a build into a coordinate grammar of its own.
+     */
+    expect(body.error.details.buildHint).toEqual({
+      assembly: "GRCh37",
+      triedAssembly: "GRCh38",
+      notation: "ChrX(GRCh37):g.23723975C>A",
+      reason: expect.stringContaining("reference allele"),
+    });
+    // The build trail travels with the failure, including the fact that no lift was involved.
+    expect(body.error.details.assembly).toBe("GRCh38");
+    expect(body.error.details.resolvedAssembly).toBe("GRCh38");
+    expect(body.error.details.coordinateLift.status).toBe("not-needed");
+    // Both rungs really were asked — a single-rung run would pass the assertions above by accident.
+    expect(body.error.details.attempts.map((a: any) => a.provider)).toEqual([
+      "ensembl-vep",
+      "variant-validator",
+    ]);
+    /**
+     * No cooldown: `Retry-After` is what stops the client re-running a whole ladder, and here the
+     * client must NOT re-run it — the same coordinate will be refused identically.
+     */
+    expect(headers["Retry-After"]).toBeUndefined();
+  });
+
+  /**
+   * The offer is CHECKED, not assumed.
+   *
+   * `chr1:g.999999999A>G` has no base in either build — chr1 ends at 248,956,422 — yet the first
+   * version offered "Chr1(GRCh37):g.999999999A>G" with equal confidence, a coordinate nobody can
+   * resolve. Neither build carrying the allele means the POSITION or the ALLELES are wrong, and the
+   * message must say so rather than lead with the build.
+   */
+  it("withholds the offer when neither build carries the submitted allele", async () => {
+    const { statusCode, body } = await invokeTranslate(
+      "chr1:g.999999999A>G",
+      MISSENSE_CONSEQUENCE,
+      mismatchFetch({ notation: "chr1:g.999999999A>G", otherBuildBase: "N", sameBuildBase: "N" })
+    );
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("COORDINATE_REFERENCE_MISMATCH");
+    expect(body.error.details.buildHint).toBeUndefined();
+    expect(body.error.message).toContain("neither carries the submitted allele");
+    // The build trail still travels: the refusal states what it was read against either way.
+    expect(body.error.details.coordinateLift.status).toBe("not-needed");
+  });
+
+  /**
+   * …and the mirror case, which is the one a retry would make worse: if the build ALREADY read against
+   * carries the submitted allele, then the build is not what disagrees, whatever the provider said.
+   */
+  it("withholds the offer when the build it was read against already carries the allele", async () => {
+    const { body } = await invokeTranslate(
+      MISMATCH_NOTATION,
+      MISSENSE_CONSEQUENCE,
+      mismatchFetch({ sameBuildBase: "C", otherBuildBase: "C" })
+    );
+
+    expect(body.error.details.buildHint).toBeUndefined();
+    expect(body.error.message).toContain("the build is not what disagrees here");
+  });
+
+  /**
+   * A coordinate can legitimately belong to the OTHER build and be annotated with the wrong one. The
+   * evidence — the allele matching the other build — points at the annotation being the mistake, so the
+   * offer stands even though a build was stated; withdrawing it here would remove the remedy from
+   * exactly the case the evidence supports.
+   */
+  it("offers the other build even when the caller stated one, while saying which build was tried", async () => {
+    const calls: string[] = [];
+    const archiveMismatch = async (url: string) => {
+      calls.push(url);
+      const notation = "chrX:g.23723975C>A";
+      if (url.includes("/map/human/GRCh37/")) {
+        // An ambiguous mapping: the lift is refused, so the annotation stays on the STATED build.
+        return new Response(JSON.stringify({
+          mappings: [
+            { mapped: { seq_region_name: "X", start: 23705858, end: 23705858, strand: 1 } },
+            { mapped: { seq_region_name: "X", start: 23705859, end: 23705859, strand: 1 } },
+          ],
+        }), { status: 200 });
+      }
+      if (url.includes("/sequence/region/human/")) {
+        // GRCh38 (the offered build) carries C; GRCh37 (the stated one) does not.
+        return new Response(url.includes("grch37.rest.ensembl.org") ? "A" : "C", { status: 200 });
+      }
+      if (url.includes("rest.uniprot.org")) {
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      }
+      if (url.includes("variantvalidator")) return vvMismatch200(notation);
+      return new Response(JSON.stringify({ error: VEP_MISMATCH_400(notation) }), { status: 400 });
+    };
+
+    const { statusCode, body } = await invokeTranslate(
+      "ChrX(GRCh37):g.23723975C>A",
+      MISSENSE_CONSEQUENCE,
+      archiveMismatch
+    );
+
+    expect(statusCode).toBe(422);
+    // The hint points at the build that was NOT tried, and names the one that WAS.
+    expect(body.error.details.buildHint).toMatchObject({
+      assembly: "GRCh38",
+      triedAssembly: "GRCh37",
+      notation: "ChrX(GRCh38):g.23723975C>A",
+    });
+    // …and the trail explains why it was read on GRCh37 at all.
+    expect(body.error.details.coordinateLift.status).toBe("unavailable");
+    expect(body.error.details.coordinateLift.buildDeclared).toBe(true);
+    expect(calls.some((u) => u.includes("grch37.rest.ensembl.org"))).toBe(true);
+  });
+
+  /**
+   * cDNA carries a build on the TRANSCRIPT, and the route accepts it from either notation field — but a
+   * `c.` position is a place in a transcript, not in a reference assembly, so there is no base to check
+   * an alternative against. The offer is therefore WITHHELD (rather than made unverified, which is what
+   * the first version did and what the copy then overclaimed), and the remedy is stated in words.
+   */
+  it("withholds the offer for cDNA, naming the transcript-level remedy instead", async () => {
+    const cdna = "NM_000277.5:c.1222C>A";
+    const fetchImpl = async (url: string) => {
+      if (url.includes("/sequence/region/human/")) return new Response("C", { status: 200 });
+      if (url.includes("rest.uniprot.org")) {
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      }
+      if (url.includes("variantvalidator")) return vvMismatch200(cdna);
+      return new Response(JSON.stringify({ error: VEP_MISMATCH_400(cdna) }), { status: 400 });
+    };
+
+    const { statusCode, body } = await invokeTranslate(cdna, MISSENSE_CONSEQUENCE, fetchImpl);
+
+    expect(statusCode).toBe(422);
+    expect(body.error.code).toBe("COORDINATE_REFERENCE_MISMATCH");
+    expect(body.error.details.buildHint).toBeUndefined();
+    // The actionable half is in the message, since there is no verified spelling to offer.
+    expect(body.error.message).toContain("no alternative spelling could be verified");
+    expect(body.error.message).toContain("NM_000277.5(GRCh37):c.1222C>A");
+  });
+
+  it("keeps a genuinely unusable provider answer as a 502 with no build hint", async () => {
+    // The hint must be a statement about THIS failure, not decoration every refusal carries: without
+    // this case, attaching it unconditionally would still pass the tests above. A generic 4xx (a
+    // validation refusal that names no reference) stays `invalid_response` — 502 — exactly as before.
+    const { statusCode, body, headers } = await invokeTranslate(
+      MISMATCH_NOTATION,
+      MISSENSE_CONSEQUENCE,
+      async (url: string) =>
+        url.includes("rest.uniprot.org")
+          ? new Response(JSON.stringify({ results: [] }), { status: 200 })
+          : new Response(JSON.stringify({ error: "Invalid region notation" }), { status: 400 })
+    );
+
+    expect(statusCode).toBe(502);
+    expect(body.error.code).toBe("TRANSLATION_FAILED");
+    expect(body.error.details.buildHint).toBeUndefined();
+    // The temporary-failure cooldown still applies where it should.
+    expect(headers["Retry-After"]).toBe("60");
+  });
+
+  /**
+   * The two other failure kinds that must NOT carry a build hint. A 404's own text asks the reader to
+   * "verify the chromosome, position, alleles and genome build", and a hint whose `reason` claims the
+   * alleles matched no reference base would be a false statement bolted to it.
+   */
+  it("never attaches a build hint to a not-found or an outage", async () => {
+    const noProtein = async (url: string) => {
+      if (url.includes("rest.uniprot.org")) {
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      }
+      if (url.includes("variantvalidator")) {
+        return new Response(JSON.stringify({ flag: "intergenic", intergenic_variant_1: {} }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            seq_region_name: "X",
+            start: 23723975,
+            allele_string: "C/A",
+            transcript_consequences: [
+              {
+                transcript_id: "ENST00000347370",
+                gene_symbol: "UBE2J2",
+                consequence_terms: ["intron_variant"],
+                hgvsc: "ENST00000347370.8:c.415-327G>T",
+              },
+            ],
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    };
+
+    const notFound = await invokeTranslate(MISMATCH_NOTATION, MISSENSE_CONSEQUENCE, noProtein);
+    expect(notFound.body.error.details.buildHint).toBeUndefined();
+
+    const outage = await invokeTranslate(
+      MISMATCH_NOTATION,
+      MISSENSE_CONSEQUENCE,
+      async () => new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500 })
+    );
+    expect(outage.statusCode).toBe(503);
+    expect(outage.body.error.details.buildHint).toBeUndefined();
   });
 });

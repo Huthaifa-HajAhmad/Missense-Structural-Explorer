@@ -119,6 +119,19 @@ export function assembleCoreResponsePayload(
           ...(context.numberingDisambiguated ? { numberingDisambiguated: true } : {}),
         }),
     landscapeData: null,
+    /**
+     * Genome-build trail, carried like the numbering provenance above and for the same reason: it
+     * only ever reached the UI on the route the client does not use. Without it a surface has to
+     * infer a build — which is how a panel came to certify GRCh38 beside an HG19 header chip.
+     * `assembly` is the build the caller's coordinate is expressed in; `resolvedAssembly` is the
+     * build the annotation came from; they differ exactly when a lift was verified.
+     */
+    ...(context.assembly ? { assembly: context.assembly } : {}),
+    ...(context.resolvedAssembly ? { resolvedAssembly: context.resolvedAssembly } : {}),
+    ...(context.liftedGenomicCoordinates
+      ? { liftedGenomicCoordinates: context.liftedGenomicCoordinates }
+      : {}),
+    ...(context.coordinateLift ? { coordinateLift: context.coordinateLift } : {}),
     stringInteractions: coreData.stringInteractions,
     disruptionPredictor: coreData.disruptionPredictor,
     gnomadConstraint: coreData.gnomadConstraint ?? null,

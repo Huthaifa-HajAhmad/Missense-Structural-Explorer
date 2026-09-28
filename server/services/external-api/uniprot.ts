@@ -5,11 +5,17 @@ import {
   buildUniprotFeaturesKey,
   buildUniprotSequenceKey,
   buildUniprotIdKey,
+  buildUniprotEntryNameKey,
+  buildUniprotEntryReferenceKey,
   buildRefSeqProteinKey,
   buildUniprotIsoformKey,
   buildManeIsoformKey,
   buildDisplayedIsoformKey,
 } from "../infra/cache-keys.ts";
+// Imported from the module that OWNS the accession grammar (not the `utils.ts` barrel, which would
+// make this service part of that barrel's import cycle): the entry-name conversion below must hand
+// back exactly what `validateUniProt` accepts, and a second copy of the pattern here would drift.
+import { UNIPROT_PATTERN } from "../../utils/validation.ts";
 
 export interface UniprotCacheOptions {
   l1Cache?: LRUCache<string, any>;
@@ -77,6 +83,245 @@ export async function resolveGeneToUniprot(gene: string, options?: UniprotCacheO
       }
       return null;
     }
+  });
+}
+
+/**
+ * UniProt ENTRY NAME (mnemonic) grammar — `INT11_HUMAN`, `A0A087WXT8_HUMAN`.
+ *
+ * The underscore is decisive: no UniProt ACCESSION contains one, so this can never misread
+ * `Q5TA45` (or an isoform id such as `P04637-2`) as a name.
+ */
+export const UNIPROT_ENTRY_NAME_PATTERN = /^[A-Z0-9]{1,12}_[A-Z0-9]{1,10}$/;
+
+/** True for a UniProt entry NAME — the identifier form that is NOT an accession. */
+export function isUniprotEntryName(value: unknown): boolean {
+  return typeof value === "string" && UNIPROT_ENTRY_NAME_PATTERN.test(value.trim().toUpperCase());
+}
+
+/**
+ * Cached as a wrapper so a definitive "UniProt has no such entry name" is distinguishable from a
+ * lookup that never happened — LRUCache's value type excludes null.
+ */
+export const uniprotEntryNameCache = new LRUCache<string, { accession: string | null }>({ max: 500 });
+defaultCacheRegistry.registerCache("uniprotEntryNameCache", uniprotEntryNameCache, {
+  ttlDesc: "30d (immutable)",
+});
+
+/**
+ * Converts a UniProt ENTRY NAME to its ACCESSION (`INT11_HUMAN` -> `Q5TA45`).
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Ensembl's GRCh37 archive answers VEP's `swissprot` field with the entry NAME, while the GRCh38
+ * host answers with the accession — verified live for the SAME locus
+ * (`Chr1(GRCh37):g.1256452C>A` -> `swissprot: ["INT11_HUMAN"]`, GRCh38 -> `["Q5TA45.162"]`).
+ * The coordinate pipeline forwards `swissprot[0]` as `uniprotId`, so on GRCh37 every missense
+ * coordinate whose consequence carried that field was refused with
+ * `422 Invalid UniProt accession ID format: "INT11_HUMAN"` — a metadata field killing an otherwise
+ * perfectly resolved variant.
+ *
+ * The query is UniProt's exact `id:` field (the entry name), deliberately NOT a gene lookup: the
+ * GRCh37 annotation predates the gene rename and reports `CPSF3L`, the retired symbol, while the
+ * entry name itself is unambiguous. The returned accession is re-checked against the accession
+ * grammar, so a surprising payload degrades to "no accession" instead of entering the pipeline.
+ *
+ * Never throws for an unusable name (returns null); provider failures throw so the caller decides
+ * whether to degrade or retry, exactly like the other lookups in this module.
+ */
+export async function resolveUniprotEntryNameToAccession(
+  entryName: string,
+  options?: UniprotCacheOptions
+): Promise<string | null> {
+  const key = entryName.trim().toUpperCase();
+  if (!isUniprotEntryName(key)) return null;
+
+  const result = await getCachedOrFetch<{ accession: string | null }>({
+    key: buildUniprotEntryNameKey(key),
+    source: "UniProt Search API (entry name)",
+    l1Cache: options?.l1Cache ?? uniprotEntryNameCache,
+    ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
+    fetcher: async () => {
+      const url =
+        `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(`id:${key}`)}` +
+        `&fields=accession,id&format=json&size=2`;
+      /**
+       * ONE attempt under a short cap, because this lookup is METADATA around an answer that is
+       * already established: a retry envelope here would spend the request's remaining budget (and
+       * the caller's patience) on an optional field. `cappedByCaller` keeps our strict cap from
+       * ejecting UniProt for the sequence/isoform fetches that ARE required for the analysis.
+       */
+      const response = await fetchWithRetry(
+        url,
+        {
+          headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
+          timeout: 4000,
+          cappedByCaller: true,
+          ...(options?.signal ? { signal: options.signal } : {}),
+        },
+        1,
+        0
+      );
+
+      // The provider answered about the REQUEST: this entry name is not one it knows.
+      if (response.status === 400 || response.status === 404) return { accession: null };
+      if (!response.ok) {
+        throw new Error(`UniProt entry-name lookup failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as any;
+      // Match the entry name EXACTLY: `id:` is precise, but a differently-shaped payload must not
+      // let a neighbouring hit's accession be attached to this name.
+      const hit = (data?.results ?? []).find(
+        (entry: any) => String(entry?.uniProtkbId ?? "").toUpperCase() === key
+      );
+      const accession = String(hit?.primaryAccession ?? "").trim().toUpperCase();
+      return { accession: UNIPROT_PATTERN.test(accession) ? accession : null };
+    },
+  });
+
+  return result.accession;
+}
+
+/**
+ * One Ensembl transcript's place in UniProt's isoform model.
+ *
+ * `isoformId` is the id whose residue numbering that transcript's protein follows — the datum
+ * VEP supplies as `uniprot_isoform` on current releases and that the GRCh37 archive omits.
+ */
+export interface UniprotIsoformRef {
+  /** Versionless Ensembl transcript id, e.g. `ENST00000540437`. */
+  transcriptId: string;
+  /** Versionless Ensembl protein id, e.g. `ENSP00000445001`. */
+  proteinId?: string;
+  /** `Q5TA45` (canonical) or an isoform id such as `Q5TA45-5`. */
+  isoformId: string;
+}
+
+/** Reference data UniProt states about an entry that a provider's payload can be missing. */
+export interface UniprotEntryReferenceData {
+  /** HGNC-approved symbol UniProt reports (`INTS11`), when it reports one. */
+  geneSymbol?: string;
+  /** Every symbol UniProt lists for this entry — primary AND synonyms (`INTS11`, `CPSF3L`, …). */
+  geneSymbols: string[];
+  /** Ensembl transcript -> isoform assignment, from the entry's Ensembl cross-references. */
+  isoforms: UniprotIsoformRef[];
+}
+
+export const uniprotEntryReferenceCache = new LRUCache<string, UniprotEntryReferenceData>({ max: 500 });
+defaultCacheRegistry.registerCache("uniprotEntryReferenceCache", uniprotEntryReferenceCache, {
+  ttlDesc: "30d (immutable)",
+});
+
+/** `ENST00000540437.5` -> `ENST00000540437`; empty when the value carries no identifier. */
+function versionlessId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const id = value.trim().split(".")[0]?.trim().toUpperCase();
+  return id || undefined;
+}
+
+/**
+ * UniProt's gene symbols and per-transcript isoform assignment for an accession.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Ensembl's GRCh37 archive answers VEP with an annotation release that predates two fields the
+ * pipeline depends on:
+ *
+ *   - `swissprot` carries the entry NAME (`INT11_HUMAN`) instead of the accession (`Q5TA45.162`);
+ *   - `uniprot_isoform` is absent entirely, and the gene symbol is the RETIRED one (`CPSF3L`).
+ *
+ * Consequences, both measured live on `Chr1(GRCh37):g.1256452C>A`:
+ *   - the accession-format mismatch refused a resolvable coordinate with a 422 (see
+ *     `resolveUniprotEntryNameToAccession`);
+ *   - with the numbering unannotated, the route kept the GRCh37 archive's own canonical transcript
+ *     (`ENST00000540437`, numbered on isoform `Q5TA45-5` → `p.Arg23Leu`) while the analysis models
+ *     canonical `Q5TA45` (position 23 is `S`), so the pipeline refused the variant with a
+ *     wild-type mismatch — or would have modelled the WRONG residue had the letters coincided.
+ *
+ * UniProt states both facts authoritatively, so they are read here rather than guessed:
+ * `genes[].geneName` is the current symbol and `synonyms` name the retired ones; the Ensembl
+ * cross-references carry `isoformId` per transcript.
+ *
+ * Never invents a value: an unknown accession (4xx) yields empty reference data, and a provider
+ * failure throws so the caller can keep the answer and disclose the missing basis.
+ */
+export async function fetchUniprotEntryReferenceData(
+  canonicalAccession: string,
+  options?: UniprotCacheOptions
+): Promise<UniprotEntryReferenceData> {
+  const key = canonicalAccession.trim().toUpperCase();
+  if (!key) return { geneSymbols: [], isoforms: [] };
+
+  return getCachedOrFetch<UniprotEntryReferenceData>({
+    key: buildUniprotEntryReferenceKey(key),
+    source: "UniProt entry (gene symbols, Ensembl isoform xrefs)",
+    l1Cache: options?.l1Cache ?? uniprotEntryReferenceCache,
+    ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
+    /**
+     * A partial or empty payload is not a fact about the protein — the same lesson as the isoform
+     * FASTA endpoint, which answers 200 with a zero-byte body for accessions it cannot serve.
+     */
+    shouldCache: (data) => data.geneSymbols.length > 0 || data.isoforms.length > 0,
+    fetcher: async () => {
+      const response = await fetchWithRetry(
+        `https://rest.uniprot.org/uniprotkb/${encodeURIComponent(key)}.json` +
+          `?fields=xref_ensembl,gene_primary,gene_synonym`,
+        {
+          headers: { Accept: "application/json" },
+          // Advisory enrichment around an answer that is already established: one attempt under our
+          // own cap, so it cannot eject UniProt for the sequence fetches that ARE required.
+          timeout: 8000,
+          cappedByCaller: true,
+          ...(options?.signal ? { signal: options.signal } : {}),
+        },
+        1,
+        0
+      );
+
+      // The provider answered about the REQUEST: UniProt has no entry for this accession.
+      if (response.status === 400 || response.status === 404) {
+        return { geneSymbols: [], isoforms: [] };
+      }
+      if (!response.ok) {
+        throw new Error(`UniProt entry lookup failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as any;
+
+      const genes: any[] = Array.isArray(data?.genes) ? data.genes : [];
+      const primary = typeof genes[0]?.geneName?.value === "string" ? genes[0].geneName.value.trim() : "";
+      const symbols: string[] = [];
+      for (const value of [
+        primary,
+        ...genes.flatMap((gene) => (gene?.synonyms ?? []).map((s: any) => s?.value)),
+      ]) {
+        const symbol = typeof value === "string" ? value.trim().toUpperCase() : "";
+        if (symbol && !symbols.includes(symbol)) symbols.push(symbol);
+      }
+
+      const xrefs: any[] = Array.isArray(data?.uniProtKBCrossReferences)
+        ? data.uniProtKBCrossReferences
+        : [];
+      const isoforms: UniprotIsoformRef[] = [];
+      for (const xref of xrefs) {
+        if (xref?.database !== "Ensembl") continue;
+        const isoformId = typeof xref?.isoformId === "string" ? xref.isoformId.trim().toUpperCase() : "";
+        if (!isoformId) continue;
+        // Only this entry's own isoforms: a neighbouring entry's id must never be attached.
+        if (isoformId !== key && !isoformId.startsWith(`${key}-`)) continue;
+        const transcriptId = versionlessId(xref?.id);
+        if (!transcriptId) continue;
+        const proteinId = versionlessId(
+          (xref?.properties ?? []).find((p: any) => p?.key === "ProteinId")?.value
+        );
+        isoforms.push({ transcriptId, ...(proteinId ? { proteinId } : {}), isoformId });
+      }
+
+      return { ...(primary ? { geneSymbol: primary } : {}), geneSymbols: symbols, isoforms };
+    },
   });
 }
 

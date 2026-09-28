@@ -96,6 +96,79 @@ describe("biophysicalService", () => {
         status: "failed"
       }));
     });
+
+    /**
+     * The canonical pair must travel BESIDE the submitted pair, never instead of it.
+     *
+     * The predictors query Ensembl VEP BY POSITION: a GRCh37 coordinate handed over as GRCh38 is the
+     * wrong-locus hazard, and one handed over as GRCh37 is re-lifted downstream or refused by every
+     * GRCh38-only source. The server verified a canonical locus before annotating, so the client must
+     * forward it — with its build — while still stating exactly what the reader submitted. These two
+     * tests pin both directions: present ⇒ forwarded, absent ⇒ the request body is byte-for-byte what
+     * it was before this field existed.
+     *
+     * `coordinateLift` is deliberately NOT forwarded even when the transcript meta carries it: the
+     * analysis route DERIVES the build decision from the facts (`deriveCoordinateLift`). A record
+     * accepted from a caller is not evidence — anyone could post one claiming a verified lift — so
+     * the client sends facts and lets the server write the interpretation.
+     */
+    it("forwards the verified canonical pair beside the submitted pair, but not the decision record", async () => {
+      /**
+       * The coordinate is a REAL lift: `Chr1(GRCh37):g.1256452C>A` → `Chr1(GRCh38):g.1321072C>A`
+       * (the INTS11/CPSF3L locus), which is what the server can actually emit. The previous fixture
+       * lifted an INDEL (`7-117199644-ATCT-A` → `7-117548628-ATCT-A`), which `liftover.ts` REFUSES —
+       * it lifts single-base substitutions only, because an indel has no single position to lift and
+       * an approximated one would be a different variant. A fixture the server can never produce
+       * certifies the forwarding code against a shape no reader will ever see.
+       */
+      const coordinateLift = {
+        status: "lifted" as const,
+        fromAssembly: "GRCh37" as const,
+        toAssembly: "GRCh38" as const,
+        fromCoordinates: "1-1256452-C-A",
+        toCoordinates: "1-1321072-C-A",
+        reverseVerified: true
+      };
+      const getBiophysicalAnalysis = vi.fn().mockResolvedValue({ analysis: "ok" });
+
+      await fetchBiophysicalAnalysis(
+        {
+          gene: "CFTR",
+          variant: "p.Phe508del",
+          uniprotId: "P13569",
+          assembly: "GRCh37",
+          genomicCoordinates: "1-1256452-C-A",
+          resolvedAssembly: "GRCh38",
+          liftedGenomicCoordinates: "1-1321072-C-A",
+          coordinateLift
+        } as any,
+        { getBiophysicalAnalysis },
+        new AbortController().signal
+      );
+
+      const body = getBiophysicalAnalysis.mock.calls[0][0];
+      // The submitted pair is untouched …
+      expect(body.assembly).toBe("GRCh37");
+      expect(body.genomicCoordinates).toBe("1-1256452-C-A");
+      // … and the canonical pair is stated alongside it, with its own build.
+      expect(body.resolvedAssembly).toBe("GRCh38");
+      expect(body.liftedGenomicCoordinates).toBe("1-1321072-C-A");
+      // … and the caller's own claim about the lift is NOT sent.
+      expect(body.coordinateLift).toBeUndefined();
+    });
+
+    it("forwards nothing extra when the transcript meta carries no build trail", async () => {
+      const getBiophysicalAnalysis = vi.fn().mockResolvedValue({ analysis: "ok" });
+
+      await fetchBiophysicalAnalysis(
+        { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
+        { getBiophysicalAnalysis },
+        new AbortController().signal
+      );
+
+      const body = getBiophysicalAnalysis.mock.calls[0][0];
+      expect(Object.keys(body).sort()).toEqual(["gene", "uniprotId", "variant"]);
+    });
   });
 
   describe("fetchProgressiveLandscape", () => {

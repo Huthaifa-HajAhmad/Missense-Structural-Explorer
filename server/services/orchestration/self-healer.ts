@@ -1,6 +1,6 @@
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
-import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
+import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
 import type { ClinVarData } from "../external-api/clinvar.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { persistVariantAnalysisPayload } from "./payload-assembler.ts";
@@ -127,15 +127,20 @@ export function healCachedAnalysisIfPossible(
   // 6. Predictors healing
   if (status.predictorData === "timeout" || status.predictorData === "error") {
     const predictorCache = db.getExternalCache<any>(
-      // The predictor cache key carries the coordinate dimension now (review H2); the healer
-      // reconstructs it from the same request context the original run used, so a coordinate-
-      // first entry is found only by a request that forwarded the same coordinate. A coordinate
-      // that fails to parse maps to "no coordinate" — the same shape the producer computes.
+      /**
+       * The predictor cache key carries the coordinate dimension (review H2), and the coordinate it
+       * carries is the one the PRODUCER used — which, for a verified lift, is the canonical pair,
+       * not the submitted one. This assembled `{...parsed(submitted), assembly: context.assembly}`
+       * by hand, so a lifted request healed against a key nobody had written: the panel stayed blank
+       * while the cache held the data. Worse, a stale entry under the submitted-pair key (written by
+       * an older client) could heal a canonical-trail payload with GRCh37-tagged predictor data —
+       * the two-build contradiction the whole assembly gate exists to prevent.
+       *
+       * `predictorCoordinateFromContext` is the one place that pairs a coordinate with its build,
+       * so the healer now agrees with the producer by construction rather than by imitation.
+       */
       buildPredictorsKey(context.gene, context.variant, context.uniprotId,
-        (() => {
-          const parsed = context.genomicCoordinates ? parseGenomicCoordinateString(context.genomicCoordinates) : null;
-          return parsed ? { ...parsed, assembly: context.assembly ?? null } : null;
-        })())
+        predictorCoordinateFromContext(context))
     );
     if (predictorCache?.data) {
       payload.predictorData = predictorCache.data;

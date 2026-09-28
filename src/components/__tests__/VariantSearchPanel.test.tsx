@@ -459,9 +459,35 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
         fireEvent.change(variantInput, { target: { value: "chr1:g.25484258G>A" } });
       });
 
-      expect(screen.getByText("Genomic → resolve")).toBeInTheDocument();
+      /**
+       * The build control TAKES the badge's slot when the notation can state a build (both fields do
+       * this), so the verdict chip is not rendered beside it — two `shrink-0` items cannot share a
+       * pinned 20px row. The verdict is still visible: the control's own accessible name says which
+       * family it belongs to, and the gene is still marked derived below.
+       */
+      expect(
+        screen.getByLabelText("Genome build this coordinate is expressed in")
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Genomic → resolve")).not.toBeInTheDocument();
       // The gene is resolved from the coordinate, which is why the asterisk disappeared.
       expect(screen.getByText("Derived")).toBeInTheDocument();
+    });
+
+    it("keeps the verdict badge where no build can be stated", async () => {
+      /**
+       * An indel is a recognised notation (so it keeps its verdict chip) but carries no single
+       * position to annotate, so `withAssemblyAnnotation` returns null and no control is rendered —
+       * the badge is not displaced by a control that could not act.
+       */
+      renderPanel();
+
+      const variantInput = screen.getByPlaceholderText("e.g. p.Gly380Arg");
+      await act(async () => {
+        fireEvent.change(variantInput, { target: { value: "chr1:g.25484258delG" } });
+      });
+
+      expect(screen.getByText("Out of scope")).toBeInTheDocument();
+      expect(screen.queryByLabelText(/^Genome build this/)).not.toBeInTheDocument();
     });
 
     it("warns when a coordinate notation is outside the missense scope", async () => {
@@ -541,7 +567,17 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
         fireEvent.change(genomicInput, { target: { value: "chr1(GRCh37):g.25484258G>A" } });
       });
 
-      expect(screen.getByText("GRCh37 annotated")).toBeInTheDocument();
+      /**
+       * The claim and the control are the same element now: the slot used to print
+       * "GRCh37 annotated", and it holds the build selector — whose value is DERIVED from the
+       * notation, so the assertion is the same one (a stated build is reported) against a control
+       * the reader can also change.
+       */
+      const buildSelect = screen.getByLabelText(
+        "Genome build this coordinate is expressed in"
+      ) as HTMLSelectElement;
+      expect(buildSelect.value).toBe("GRCh37");
+      expect(buildSelect.getAttribute("title")).toContain("in the notation");
       expect(screen.getByText("Derived")).toBeInTheDocument();
     });
   });

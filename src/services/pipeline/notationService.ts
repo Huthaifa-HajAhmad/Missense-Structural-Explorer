@@ -92,9 +92,29 @@ export async function translateVariantNotation(
         numberingBasis: data.numberingBasis,
         numberingUnverifiedReason: data.numberingUnverifiedReason,
         numberingRemap: data.numberingRemap,
-        // Preserved so callers/reports can state which build the coordinate resolved against.
+        // Preserved so callers/reports can state which build the coordinate resolved against — the
+        // build the SUBMITTED coordinate is expressed in (the user's spelling), which is not
+        // necessarily the one that produced the annotation below.
         assembly: data.assembly,
         assemblyNote: data.assemblyNote,
+        // The build the ANNOTATION actually came from. Equals `assembly` unless the submitted
+        // GRCh37 coordinate was lifted onto the canonical build (GRCh38) and the lift was
+        // reverse-verified, in which case reading it — not `assembly` — answers "which reference
+        // release numbered this?".
+        resolvedAssembly: data.resolvedAssembly,
+        // The verified canonical locus (hyphen form), present only when a lift was verified. The
+        // submitted coordinate stays in `genomicCoordinates`; this canonical pair travels BESIDE
+        // it so the predictors are never handed a coordinate paired with the wrong build.
+        liftedGenomicCoordinates: data.liftedGenomicCoordinates ?? null,
+        // The machine-readable build decision: lifted | unavailable | not-needed | not-applicable,
+        // with both builds and the reason when no lift was possible. Carried verbatim rather than
+        // re-derived, because "why is this annotation older?" is only answerable from here.
+        coordinateLift: data.coordinateLift ?? null,
+        // Present when the provider's gene symbol was RETIRED (Ensembl's GRCh37 archive answers
+        // CPSF3L for INTS11) and UniProt lists it as a synonym, so gene is the current symbol.
+        // Carried because a report must be able to state which symbol the provider used, and this
+        // response is the only place that knows the two differ.
+        geneSymbolUpdated: data.geneSymbolUpdated ?? null,
         // The genomic coordinate the protein notation was translated FROM. Carried through so
         // the analysis request can hand it to the predictor, which otherwise re-derives the
         // annotation from protein HGVS — a notation Ensembl rejects for codon-ambiguous

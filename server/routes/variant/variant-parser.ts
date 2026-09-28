@@ -13,7 +13,11 @@ import {
 } from "../../services/external.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { parseVariantCoordinate } from "../../../src/shared/variantCoordinate.ts";
-import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
+import {
+  parseGenomicCoordinateString,
+  deriveCoordinateLift,
+  type CoordinateLiftRecord,
+} from "../../../src/shared/contracts.ts";
 import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
@@ -41,6 +45,26 @@ export const analyzeVariantSchema = z.object({
    * lets the predictor query VEP by position instead.
    */
   genomicCoordinates: z.string().max(64).optional(),
+  /**
+   * The canonical-build locus and build, when the translation step verified a lift. Forwarded
+   * BESIDE the submitted pair, never instead of it: `genomicCoordinates`/`assembly` describe what
+   * the user entered (and what a report cites), while these describe where the annotation came
+   * from. A lifted coordinate is canonical by construction, so consumers prefer it for
+   * coordinate-first queries and skip a redundant second lift.
+   */
+  liftedGenomicCoordinates: z.string().max(64).optional(),
+  resolvedAssembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+  /**
+   * NOTE: there is deliberately NO `coordinateLift` field here.
+   *
+   * The translate route owns the authoritative record (it knows whether a lift was attempted and
+   * how it was verified), but this is a DIFFERENT request, fed by a client. Accepting that object
+   * here would make a disclosure client-assertable — `{status:"lifted", reverseVerified:true}`
+   * would render "Coordinate verified on the GRCh38 / hg38 reference" with nothing behind it. The
+   * route therefore takes only FACTS (the submitted pair and the canonical locus) and derives the
+   * interpretation itself; the canonical pair is bound downstream by the coordinate-first
+   * predictor query.
+   */
   uniprotId: z.string().max(50).optional().default(""),
   acmgWeighting: z.enum(["standard", "conservative", "strict-structural"]).optional(),
   userDirections: z.string().max(1000).optional(),
@@ -159,6 +183,17 @@ export interface ParsedVariantContext {
    * tag it with the declared build.
    */
   genomicCoordinates?: string;
+  /**
+   * The canonical-build locus the annotation came from, and its build — present when the
+   * translation step verified a lift of the caller's coordinate. Consumers must prefer this pair
+   * for coordinate-first queries (see `predictorCoordinateFromContext`): it is already on the build
+   * every coordinate-consuming source is pinned to, so it needs no second lift and cannot disagree
+   * with the annotation that produced the protein substitution.
+   */
+  liftedGenomicCoordinates?: string;
+  resolvedAssembly?: GenomeAssembly;
+  /** How the build was decided, and — when no lift was possible — why. */
+  coordinateLift?: CoordinateLiftRecord;
   residueIndex: string;
   wildType: string;
   mutant: string;
@@ -205,6 +240,9 @@ export async function validateAndParseVariantRequest(
   let acmgWeighting: "standard" | "conservative" | "strict-structural" = "standard";
   let originalNotation: string | undefined;
   let genomicCoordinates: string | undefined;
+  let liftedGenomicCoordinates: string | undefined;
+  let resolvedAssembly: GenomeAssembly | undefined;
+  let coordinateLift: CoordinateLiftRecord | undefined;
 
   // An accession-qualified notation names the protein its residue numbers belong to, so it MUST be
   // resolved (and converted onto canonical numbering) by the translation service — never read by
@@ -260,6 +298,33 @@ export async function validateAndParseVariantRequest(
         genomicCoordinates = trimmedCoord;
       }
     }
+
+    /**
+     * The canonical-build pair, produced by the translation step when it VERIFIED a lift.
+     *
+     * Paired with its build like the submitted pair, and accepted on the same terms: the shape is
+     * checked here, while the truth test is the predictor's own echo/gene/substitution binding. A
+     * coordinate that arrives without its build is dropped rather than assumed canonical — a
+     * GRCh37 position labelled GRCh38 is exactly the wrong-locus hazard this file guards against.
+     */
+    const declaredResolvedAssembly =
+      typeof req.body?.resolvedAssembly === "string" ? req.body.resolvedAssembly : null;
+    if (declaredResolvedAssembly && typeof req.body?.liftedGenomicCoordinates === "string") {
+      const trimmedLifted = req.body.liftedGenomicCoordinates.trim();
+      if (trimmedLifted && parseGenomicCoordinateString(trimmedLifted)) {
+        liftedGenomicCoordinates = trimmedLifted;
+        resolvedAssembly = declaredResolvedAssembly as GenomeAssembly;
+      }
+    }
+    // The build decision itself, DERIVED from the facts above — never taken from the request body
+    // (see the note on the schema). The caller supplies the two coordinates and their builds; the
+    // interpretation is the server's.
+    coordinateLift = deriveCoordinateLift({
+      submittedAssembly: (req.body.assembly ?? "GRCh38") as GenomeAssembly,
+      submittedCoordinates: genomicCoordinates ?? null,
+      resolvedAssembly,
+      liftedGenomicCoordinates,
+    });
 
     if (req.body.userDirections !== undefined) {
       if (typeof req.body.userDirections !== "string") {
@@ -459,6 +524,9 @@ export async function validateAndParseVariantRequest(
     numberingWarning,
     originalNotation,
     ...(genomicCoordinates ? { genomicCoordinates } : {}),
+    ...(liftedGenomicCoordinates ? { liftedGenomicCoordinates } : {}),
+    ...(resolvedAssembly ? { resolvedAssembly } : {}),
+    ...(coordinateLift ? { coordinateLift } : {}),
     userDirections,
     acmgWeighting,
     // The schema defaults this to GRCh38, so it is always a concrete build by here.

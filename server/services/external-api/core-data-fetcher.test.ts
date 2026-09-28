@@ -150,6 +150,67 @@ describe("Core Data Fetcher Service Unit Tests", () => {
     expect(result.serviceStatus.pdbMapping).toBe("ok");
   });
 
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * THE PREDICTOR'S COORDINATE, PAIRED WITH ITS BUILD
+   * ─────────────────────────────────────────────────────────────────────────────
+   * The predictors query Ensembl VEP BY POSITION, so a coordinate sent beside the wrong build is
+   * the wrong-locus hazard `src/shared/assembly.ts` exists to prevent: a GRCh37 position handed to
+   * a GRCh38 index either misses, or — where the reference base coincides — scores a DIFFERENT
+   * locus and returns plausible numbers attributed to this variant.
+   *
+   * Two call sites used to build this pair by hand from the SUBMITTED fields
+   * (`core-data-fetcher.ts` and `analysis-orchestrator.ts`), so a GRCh37 input reached the
+   * predictor tagged GRCh37 and was lifted a second time downstream (or refused outright by every
+   * GRCh38-only source). Both now call `predictorCoordinateFromContext`, and this test pins the
+   * pair the TRANSLATION step verified — a by-hand pairing of `genomicCoordinates` + `assembly`
+   * (the old behaviour, and the obvious "simplification") fails it.
+   */
+  it("queries the predictor with the lift-verified canonical pair, not the submitted GRCh37 pair", async () => {
+    const { fetchPredictorData } = await import("../prediction/index.ts");
+    /**
+     * The real shape the translate route returns for `Chr1(GRCh37):g.1256452C>A`: the submitted
+     * GRCh37 locus beside the verified canonical one (chr1:1,321,072, the INTS11/CPSF3L locus).
+     */
+    const liftedContext: ParsedVariantContext = {
+      ...baseContext,
+      assembly: "GRCh37",
+      genomicCoordinates: "1-1256452-C-A",
+      resolvedAssembly: "GRCh38",
+      liftedGenomicCoordinates: "1-1321072-C-A"
+    };
+
+    await fetchCoreVariantData(liftedContext, 2000);
+
+    expect(vi.mocked(fetchPredictorData)).toHaveBeenCalled();
+    const coordinate = vi.mocked(fetchPredictorData).mock.calls[0][3];
+    // Canonical position, canonical build — the pair, not one field of each.
+    expect(coordinate).toEqual({ chrom: "1", pos: 1321072, ref: "C", alt: "A", assembly: "GRCh38" });
+  });
+
+  it("falls back to the submitted pair when the canonical locus arrives without its build", async () => {
+    /**
+     * A canonical coordinate with NO build is not ours to assume canonical (the same rule
+     * `variant-parser` applies at intake): the pair is dropped and the submitted pair is used, so
+     * the predictor lifts it itself exactly as it did before lift-first existed. Defaulting the
+     * missing build to GRCh38 is `probably` right — which is why the guard, not the default, is
+     * what the safety rests on.
+     */
+    const { fetchPredictorData } = await import("../prediction/index.ts");
+    const unpairedContext: ParsedVariantContext = {
+      ...baseContext,
+      assembly: "GRCh37",
+      genomicCoordinates: "1-1256452-C-A",
+      liftedGenomicCoordinates: "1-1321072-C-A"
+      // resolvedAssembly deliberately absent.
+    };
+
+    await fetchCoreVariantData(unpairedContext, 2000);
+
+    const coordinate = vi.mocked(fetchPredictorData).mock.calls[0][3];
+    expect(coordinate).toEqual({ chrom: "1", pos: 1256452, ref: "C", alt: "A", assembly: "GRCh37" });
+  });
+
   it("does not query gnomAD with a coordinate whose build is unknown", async () => {
     // gnomAD r4 is GRCh38-only and answers by numeric position, so an id from another build whose
     // alleles coincide returns a DIFFERENT locus's frequency. Those frequencies drive

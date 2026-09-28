@@ -16,8 +16,7 @@ import {
 import { healCachedAnalysisIfPossible } from "./self-healer.ts";
 import { fetchCoreVariantData } from "../external-api/core-data-fetcher.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
-import { parseGenomicCoordinateString } from "../../../src/shared/contracts.ts";
-import { CANONICAL_ASSEMBLY } from "../../../src/shared/assembly.ts";
+import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { CONFIG } from "../../config.ts";
 
@@ -245,10 +244,10 @@ async function runStream(
 
   const fastPredictorPromise = (async () => {
     try {
-      const parsedInputCoord = context.genomicCoordinates ? parseGenomicCoordinateString(context.genomicCoordinates) : null;
-      const inputCoordinate = parsedInputCoord
-        ? { ...parsedInputCoord, assembly: context.assembly ?? CANONICAL_ASSEMBLY }
-        : null;
+      // Pairing lives in one shared helper: a coordinate beside the wrong build is the
+      // wrong-locus hazard, and the canonical pair the translation step verified is preferred
+      // (so a GRCh37 input is not lifted a second time here).
+      const inputCoordinate = predictorCoordinateFromContext(context);
       const data = await fetchPredictorData(gene, variant, uniprotId, inputCoordinate);
       return { data, status: (data ? "ok" : "not_found") as ServiceFetchStatus };
     } catch (err: any) {

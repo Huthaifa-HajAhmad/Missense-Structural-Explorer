@@ -16,6 +16,33 @@ describe("OpenAPI & Documentation Routes", () => {
     expect(spec.components.securitySchemes.SessionAuth).toBeDefined();
   });
 
+  /**
+   * The gate used to assert only that PATHS exist, so a field could be added to a schema, promised
+   * in the docs and then removed — or documented on the request while the response quietly carried
+   * it — with nothing failing. The genome-build trail is the case that motivated this: it travels on
+   * the analysis RESULT (which is what a report reads), and an agent reading the spec saw it only as
+   * an input.
+   */
+  it("documents the genome-build trail on the analysis RESPONSE, not only the request", () => {
+    const spec = generateOpenApiSpec() as any;
+    const analyze200 = spec.paths["/analyze-variant"].post.responses["200"].content["application/json"].schema;
+    const props: Record<string, any> = analyze200.properties ?? {};
+
+    for (const field of ["assembly", "resolvedAssembly", "liftedGenomicCoordinates", "coordinateLift"]) {
+      expect(props[field], `${field} must be documented on the analyze-variant 200 schema`).toBeDefined();
+    }
+
+    // The request documents the FACTS it accepts …
+    const analyzeRequest = spec.paths["/analyze-variant"].post.requestBody.content["application/json"].schema;
+    const requestProps: Record<string, any> = analyzeRequest.properties ?? {};
+    expect(requestProps["assembly"]).toBeDefined();
+    expect(requestProps["genomicCoordinates"]).toBeDefined();
+    expect(requestProps["liftedGenomicCoordinates"]).toBeDefined();
+    expect(requestProps["resolvedAssembly"]).toBeDefined();
+    // … and marks the decision record as derived, because the route does not accept it from a caller.
+    expect(requestProps["coordinateLift"]?.readOnly).toBe(true);
+  });
+
   it("should serve OpenAPI JSON and HTML documentation via Express router", async () => {
     const app = express();
     app.use(docsRouter);

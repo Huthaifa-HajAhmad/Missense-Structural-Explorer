@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   translateVariantResponseSchema,
+  coordinateLiftSchema,
+  predictorCoordinateFromContext,
+  parseGenomicCoordinateString,
   nearestResiduesRequestSchema,
   nearestResiduesResponseSchema,
   pocketFinderResponseSchema,
@@ -36,6 +39,94 @@ describe("Shared Zod API Contracts", () => {
       // Missing required fields
     };
     expect(() => translateVariantResponseSchema.parse(invalidPayload)).toThrow();
+  });
+
+  /**
+   * The build trail must survive the wire in both directions: a response carrying it, and the
+   * analysis request echoing it back. Both are optional, so a client that predates lift-first keeps
+   * working unchanged.
+   */
+  it("carries the coordinate-lift trail through the translate contract", () => {
+    const lifted = translateVariantResponseSchema.parse({
+      gene: "INTS11",
+      variant: "p.Arg17Leu",
+      uniprotId: "Q5TA45",
+      assembly: "GRCh37",
+      resolvedAssembly: "GRCh38",
+      genomicCoordinates: "1-1256452-C-A",
+      liftedGenomicCoordinates: "1-1321072-C-A",
+      coordinateLift: {
+        status: "lifted",
+        fromAssembly: "GRCh37",
+        toAssembly: "GRCh38",
+        fromCoordinates: "1-1256452-C-A",
+        toCoordinates: "1-1321072-C-A",
+        reverseVerified: true,
+      },
+    });
+
+    expect(lifted.assembly).toBe("GRCh37");
+    expect(lifted.resolvedAssembly).toBe("GRCh38");
+    expect(lifted.coordinateLift?.status).toBe("lifted");
+    // `reverseVerified` is the field a reader keys on, so it must be expressible.
+    expect(lifted.coordinateLift?.reverseVerified).toBe(true);
+
+    // An un-liftable coordinate states the submitted build on both sides, plus WHY.
+    const unlifted = coordinateLiftSchema.parse({
+      status: "unavailable",
+      fromAssembly: "GRCh37",
+      toAssembly: "GRCh37",
+      reason: "the coordinate could not be verified on the GRCh38 reference",
+    });
+    expect(unlifted.toAssembly).toBe("GRCh37");
+
+    // Unknown statuses are refused rather than rendered as an unexplained blank.
+    expect(() => coordinateLiftSchema.parse({ status: "maybe", fromAssembly: "GRCh37", toAssembly: "GRCh37" })).toThrow();
+  });
+
+  /**
+   * Pairing a coordinate with its build is the whole job of this helper: a GRCh37 position handed
+   * to a GRCh38 index is the wrong-locus hazard. Two server call sites built it by hand and both
+   * read only the submitted pair.
+   */
+  it("prefers the verified canonical coordinate and never pairs a coordinate with a guessed build", () => {
+    // Both pairs present: the verified canonical one wins, with its own build.
+    expect(
+      predictorCoordinateFromContext({
+        genomicCoordinates: "1-1256452-C-A",
+        assembly: "GRCh37",
+        liftedGenomicCoordinates: "1-1321072-C-A",
+        resolvedAssembly: "GRCh38",
+      })
+    ).toEqual({ chrom: "1", pos: 1321072, ref: "C", alt: "A", assembly: "GRCh38" });
+
+    // Only the submitted pair: used as-is, tagged with the build it was declared in.
+    expect(
+      predictorCoordinateFromContext({ genomicCoordinates: "1-1256452-C-A", assembly: "GRCh37" })
+    ).toEqual({ chrom: "1", pos: 1256452, ref: "C", alt: "A", assembly: "GRCh37" });
+
+    /**
+     * A lifted coordinate with NO stated build is DROPPED — the helper falls through to the
+     * submitted pair rather than tagging the canonical locus with an assumed build.
+     *
+     * This used to default to `CANONICAL_ASSEMBLY`, which was probably right but put the safety in a
+     * doc sentence instead of in the helper (the contract says such a coordinate "is dropped, never
+     * assumed canonical"). Falling through is not a loss: the predictor lifts the submitted
+     * coordinate itself, exactly as it did before lift-first existed.
+     */
+    expect(
+      predictorCoordinateFromContext({
+        genomicCoordinates: "1-1256452-C-A",
+        assembly: "GRCh37",
+        liftedGenomicCoordinates: "1-1321072-C-A",
+      })
+    ).toEqual({ chrom: "1", pos: 1256452, ref: "C", alt: "A", assembly: "GRCh37" });
+
+    // Nothing usable: no coordinate at all, rather than a coordinate with an assumed build.
+    expect(predictorCoordinateFromContext({ liftedGenomicCoordinates: "junk", assembly: "GRCh37" })).toBeNull();
+    expect(predictorCoordinateFromContext({})).toBeNull();
+    // Malformed trailing junk is refused upstream too (the parser is strict about 4 components).
+    expect(parseGenomicCoordinateString("1-1256452-C-A-extra")).toBeNull();
   });
 
   it("should validate nearestResiduesRequestSchema with pdbRef or pdbText", () => {

@@ -1,4 +1,5 @@
 import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
+import type { CoordinateLiftRecord } from "../../shared/contracts";
 import { TraceContext } from "./types";
 import { getCachedVariant, setCachedVariant } from "./variantCache";
 
@@ -18,6 +19,17 @@ export interface BiophysicalAnalysisParams {
    * of re-deriving the locus from protein HGVS (unmapping defect F-1).
    */
   genomicCoordinates?: string;
+  /**
+   * Verified canonical-build locus, produced when the submitted GRCh37 coordinate was lifted onto
+   * GRCh38 and reverse-verified. Forwarded BESIDE `genomicCoordinates`/`assembly`, never instead of
+   * them: the predictors query Ensembl VEP by coordinate, so handing them a GRCh37 position means
+   * they lift it a second time (or a GRCh38-only source refuses it), while the verified canonical
+   * pair is already on the build they need and cannot disagree with the annotation that produced the
+   * protein substitution. A coordinate paired with the wrong build is the wrong-locus hazard.
+   */
+  liftedGenomicCoordinates?: string;
+  /** Build the annotation actually came from; the build that belongs with `liftedGenomicCoordinates`. */
+  resolvedAssembly?: "GRCh37" | "GRCh38";
   /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
   numberingBasis?: string;
 }
@@ -30,6 +42,7 @@ export async function fetchBiophysicalAnalysis(
   traceContext?: TraceContext
 ): Promise<any> {
   const { gene, variant, uniprotId, assembly, genomicCoordinates, numberingBasis } = params;
+  const { liftedGenomicCoordinates, resolvedAssembly } = params;
   const bpKey = `biophysical_${gene}_${variant}_${uniprotId}`;
   const bpStart = performance.now();
 
@@ -39,6 +52,21 @@ export async function fetchBiophysicalAnalysis(
     uniprotId,
     ...(assembly ? { assembly } : {}),
     ...(genomicCoordinates && assembly ? { genomicCoordinates } : {}),
+    /**
+     * The canonical pair travels BESIDE the submitted pair, never instead of it: the client states
+     * what the reader submitted AND what the server verified it to be, and each is forwarded with its
+     * own build. The predictors query Ensembl VEP by coordinate — a GRCh37 position handed over as
+     * GRCh38 is the wrong-locus hazard, and one handed over as GRCh37 is re-lifted downstream or
+     * refused by every GRCh38-only source. The verified canonical locus is already on the build they
+     * need and cannot disagree with the annotation that produced the protein substitution.
+     *
+     * `coordinateLift` is deliberately NOT sent: the analysis route derives the build decision from
+     * these facts itself. A disclosure accepted from a caller would be decoration rather than
+     * evidence — anyone could post `{status:"lifted", reverseVerified:true}` and a surface would
+     * print "verified" (see `deriveCoordinateLift`).
+     */
+    ...(liftedGenomicCoordinates ? { liftedGenomicCoordinates } : {}),
+    ...(resolvedAssembly ? { resolvedAssembly } : {}),
     ...(numberingBasis ? { numberingBasis } : {})
   };
 

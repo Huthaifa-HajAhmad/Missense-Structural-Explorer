@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { numberingExtraFromError } from "../workflowOrchestrator";
+import { refusalAttachmentsFromError } from "../workflowOrchestrator";
 import {
   createBiophysicalErrorAnalysisState,
   createTopLevelErrorAnalysisState,
@@ -24,7 +24,7 @@ describe("numbering choices reach the analysis state", () => {
   });
 
   it("carries the labelled choices into the error state's result", () => {
-    const extra = numberingExtraFromError(error, "p.Asp85Phe");
+    const extra = refusalAttachmentsFromError(error, "p.Asp85Phe");
     expect(extra.numberingChoices).toHaveLength(2);
 
     const state: any = createTopLevelErrorAnalysisState("ambiguous", {
@@ -46,7 +46,7 @@ describe("numbering choices reach the analysis state", () => {
     // `fetchBiophysicalAnalysis` rejects and is consumed by a `.catch`, so an enclosing try/catch never
     // sees it. The first version wired the extras only into the top-level factory: the prompt could not
     // render in production while both factories passed their own isolated tests.
-    const extra = numberingExtraFromError(error, "p.Asp85Phe");
+    const extra = refusalAttachmentsFromError(error, "p.Asp85Phe");
 
     const state: any = createBiophysicalErrorAnalysisState(
       "ambiguous",
@@ -66,10 +66,10 @@ describe("numbering choices reach the analysis state", () => {
   });
 
   it("ignores every other error, and a malformed payload", () => {
-    expect(numberingExtraFromError(new Error("boom"), "p.Ala1Val")).toEqual({});
-    expect(numberingExtraFromError({ code: "UNPROCESSABLE_ENTITY" }, "p.Ala1Val")).toEqual({});
+    expect(refusalAttachmentsFromError(new Error("boom"), "p.Ala1Val")).toEqual({});
+    expect(refusalAttachmentsFromError({ code: "UNPROCESSABLE_ENTITY" }, "p.Ala1Val")).toEqual({});
     expect(
-      numberingExtraFromError({ code: "AMBIGUOUS_PROTEIN_NUMBERING", details: { candidates: "nope" } }, "p.Ala1Val")
+      refusalAttachmentsFromError({ code: "AMBIGUOUS_PROTEIN_NUMBERING", details: { candidates: "nope" } }, "p.Ala1Val")
     ).toEqual({});
   });
 });

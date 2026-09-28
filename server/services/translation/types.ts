@@ -91,6 +91,16 @@ export interface ResolvedConsequence {
   start?: number;
   allele_string?: string;
   transcript_consequences: ResolvedTranscriptConsequence[];
+  /**
+   * Set when the provider's gene symbol for the resolved gene was a RETIRED one that UniProt lists
+   * as a synonym, and the payload's symbols were therefore refreshed to the current HGNC symbol.
+   *
+   * Ensembl's GRCh37 archive answers with a pre-rename symbol (`CPSF3L` for `INTS11`), and that
+   * symbol is what every gene-keyed lookup downstream (gnomAD, ClinVar, STRING, literature) would
+   * receive. The rename is recorded rather than silent, and it lives ON THE PAYLOAD because the
+   * payload is what the cache stores — a note held beside it would vanish on a cache hit.
+   */
+  geneSymbolUpdated?: { from: string; to: string };
 }
 
 /** Why a resolution attempt failed, so the route can pick an honest HTTP status. */
@@ -108,7 +118,19 @@ export type ResolutionFailureKind =
    * retrying, whereas a rate limit is a statement about OUR request rate — and the message must not
    * send the reader looking for a provider outage that does not exist.
    */
-  | "rate_limited";
+  | "rate_limited"
+  /**
+   * The provider answered that the submitted REF allele does not match its own reference sequence
+   * at that position.
+   *
+   * This is NOT `invalid_response`: the provider is healthy and its answer is usable — it is the
+   * COORDINATE that disagrees with the reference it was read against. The overwhelmingly common
+   * cause is a build mismatch (an hg19 locus read against GRCh38, or the reverse), which is why the
+   * route can attach the alternative-build spelling as `details.buildHint` and the UI can offer it
+   * as one click. Reporting it as an unusable response told the reader to wait a minute and retry —
+   * advice that could never work, because nothing about the coordinate would change.
+   */
+  | "reference_mismatch";
 
 /** One provider's attempt, retained for diagnostics and response metadata. */
 export interface ProviderAttempt {
@@ -178,6 +200,57 @@ export interface ResolutionProviderOptions {
 }
 
 /**
+ * Refusal texts that mean "your REF allele is not the reference base at that position".
+ *
+ * WHY A TEXT MATCH IS UNAVOIDABLE HERE
+ * -----------------------------------
+ * Neither provider gives this its own status: Ensembl VEP answers a coordinate whose REF disagrees
+ * with its reference with a 4xx carrying the sentence (observed as "Reference allele … does not
+ * match …"), and VariantValidator raises `ReferenceMismatchError` in the same channel as its other
+ * validation refusals. Without reading the body, that refusal is indistinguishable from a provider
+ * returning junk — which is how a build mismatch came to be reported as "providers are degraded,
+ * retry in a minute", advice that can never work.
+ *
+ * Deliberately narrow: every pattern requires the word "reference" AND a mismatch sense in the same
+ * short span, so a generic validation error ("invalid region", "unknown chromosome") is NOT
+ * reclassified as a mismatch.
+ *
+ * THE DOT-BOUNDED SPANS ARE LOAD-BEARING — do not "simplify" them to `[\s\S]{0,N}`. VariantValidator
+ * attaches a warning to perfectly good answers whose text is "The given reference sequence
+ * (NC_012920.1) does not match the DNA type (g)…", and the accession's full stop is the only thing
+ * keeping the first pattern from reading "reference sequence … does not match" across it. Widening the
+ * span reclassifies a resolvable mitochondrial variant as a build mismatch. (Pinned by a test.)
+ */
+const REFERENCE_MISMATCH_PATTERNS: readonly RegExp[] = [
+  // Ensembl VEP, verbatim (HTTP 400): "Reference allele extracted from chrX:23723975-23723975 (A)
+  // does not match reference allele given by HGVS notation chrX:g.23723975C>A (C)".
+  // `do`/`did` travel with `does`: a reworded refusal ("Submitted ref/alt do not match the reference
+  // genome") is the same finding, and missing it returns the reader to the pre-fix advice.
+  /reference\s+(allele|base|sequence)[^.]{0,120}?\b(does|do|did)\s?n[o']?t\b[^.]{0,40}?\b(match|agree|correspond)/i,
+  // VariantValidator, verbatim: "ReferenceMismatchError: NC_000023.11:g.23723975C>A: Variant reference
+  // (C) does not agree with reference sequence (A)" — the substance without the class name, so a
+  // reworded or renamed refusal is still recognised.
+  /\b(does|do|did)\s?n[o']?t\s+(match|agree|correspond)\b[^.]{0,60}?\breference\b/i,
+  /\breference\b[^.]{0,40}?\b(does|do|did)\s?n[o']?t\s+(match|agree|correspond)\b/i,
+  /\b(differs?|differed)\s+from\b[^.]{0,40}?\breference\b/i,
+  /\b(not|is\s?n[o']?t|are\s?n[o']?t)\s+(present|found)\s+in\b[^.]{0,40}?\breference\b/i,
+  /\bwrong\s+(reference|ref)\s+(base|allele)\b/i,
+  /reference[_\s-]*mismatch/i,
+  // `mismatch(es)?`, NOT `mismatches?`: the singular verb form carries no "e", so the latter matched
+  // only "mismatches"/"mismatche" and silently missed "ref allele mismatch against reference".
+  /\bmismatch(es)?\b[^.]{0,40}\breference\b/i,
+  /\breference\b[^.]{0,40}\bmismatch(es)?\b/i,
+  /not\s+the\s+reference\s+(allele|base)/i,
+  /(reference|ref)\s+(allele|base)[^.]{0,40}?\b(incorrect|invalid|wrong)\b/i,
+];
+
+/** True when a provider's refusal text says the submitted allele disagrees with the reference. */
+export function isReferenceMismatchMessage(text: unknown): boolean {
+  if (typeof text !== "string" || text.length === 0) return false;
+  return REFERENCE_MISMATCH_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
  * Error raised when no provider could resolve a coordinate. Carries a machine-readable
  * `kind` so the HTTP layer can return 503 / 404 / 502 honestly instead of a blanket 500.
  */
@@ -202,6 +275,15 @@ export class CoordinateResolutionError extends Error {
  */
 export function resolutionFailureToHttp(kind: ResolutionFailureKind): { status: number; code: string } {
   if (kind === "not_found") return { status: 404, code: "NOT_FOUND" };
+  /**
+   * 422, not 502: the request is well-formed and the providers answered — the coordinate's alleles
+   * cannot be confirmed against the reference sequence it was read on, which is a statement about
+   * the REQUEST. A 502 would invite a retry that cannot succeed and would hide the remedy (state
+   * the other build) behind "the providers are degraded".
+   */
+  if (kind === "reference_mismatch") {
+    return { status: 422, code: "COORDINATE_REFERENCE_MISMATCH" };
+  }
   if (kind === "invalid_response") return { status: 502, code: "TRANSLATION_FAILED" };
   // A rate limit is temporary and the caller should back off, exactly like an outage — 503 with a
   // cooldown, so the client stops retrying the whole ladder.

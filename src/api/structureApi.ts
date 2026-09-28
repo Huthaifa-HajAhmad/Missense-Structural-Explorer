@@ -70,7 +70,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ variant }),
-        // This budget must cover ONE server resolution: the ladder allots 32s across its rungs
+        // This budget must cover ONE server resolution — the lift plus the ladder. The ladder allots 40s
         // (each rung gets a share, and each provider's own attempt timeout is capped by its
         // share), and the budget must exceed that or the client aborts a resolution that is
         // about to succeed via the fallback provider.

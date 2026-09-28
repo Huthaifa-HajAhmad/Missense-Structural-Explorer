@@ -1,6 +1,6 @@
 import React from "react";
 import { PdbHomolog, NearestResidue, DisruptionPredictorResult } from "../../types";
-import type { NumberingRemapRecord, StructureProvenance } from "../../shared/contracts";
+import type { CoordinateLiftRecord, NumberingRemapRecord, StructureProvenance } from "../../shared/contracts";
 import type { FoldxProgress } from "../../shared/foldxPhase";
 
 export interface TraceContext {
@@ -94,6 +94,24 @@ export interface PipelineStateSinks {
   structure: PipelineStructureSink;
 }
 
+/**
+ * Genome-build provenance of the analysed variant, as carried on an analysis result.
+ *
+ * The translate route lifts a submitted GRCh37 coordinate onto the canonical build (GRCh38) with a
+ * reverse-verified lift before annotating, so ONE variant has two build facts and a reader must be
+ * able to tell them apart: `assembly` is the build the SUBMITTED coordinate was expressed in,
+ * `resolvedAssembly` is the build the annotation actually came from, `liftedGenomicCoordinates` is
+ * the verified canonical locus (hyphen form), and `coordinateLift` is the machine-readable decision
+ * that connects them. All optional: a payload that predates the lift policy carries none of them,
+ * and a surface must then render exactly what it rendered before.
+ *
+ * The SHAPE lives in `src/shared/contracts.ts` (it is a subset of `TranscriptMetadata`, which the
+ * response schema and the server payload both use) and is re-exported here so the client pipeline
+ * has one import path for it. Do not re-declare it: a second copy drifts silently, because every
+ * field is optional and a drifted field simply reads as absent.
+ */
+export type { AssemblyProvenance } from "../../shared/contracts";
+
 export interface TranslatedVariantResult {
   gene: string;
   variant: string;
@@ -127,6 +145,20 @@ export interface TranslatedVariantResult {
      * so the predictor can query VEP by coordinate; present only for genomic/cDNA inputs.
      */
     genomicCoordinates?: string | null;
+    /**
+     * The build the returned `variant`/`uniprotId` were ANNOTATED on (equals `assembly` unless a
+     * reverse-verified lift moved the coordinate onto the canonical build first).
+     */
+    resolvedAssembly?: string;
+    /**
+     * Verified canonical locus (hyphen form) the lift produced. Present only alongside a lift, and
+     * forwarded beside — never instead of — the submitted coordinate in `genomicCoordinates`.
+     */
+    liftedGenomicCoordinates?: string | null;
+    /** Lifted | unavailable | not-needed | not-applicable, with both builds and the reason. */
+    coordinateLift?: CoordinateLiftRecord | null;
+    /** Set when the provider's retired gene symbol was refreshed to the current HGNC one. */
+    geneSymbolUpdated?: { from: string; to: string } | null;
   };
   /**
    * Which provider actually answered, and whether the ladder fell back.

@@ -221,9 +221,33 @@ export function buildUniprotIsoformKey(uniprotId: string): string {
   return `uniprot_isoforms_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
+/**
+ * Cache key for a UniProt ENTRY NAME (mnemonic) -> accession lookup.
+ *
+ * Ensembl's GRCh37 archive reports VEP's `swissprot` as an entry name (`INT11_HUMAN`) where the
+ * GRCh38 host reports the accession (`Q5TA45.162`), so the coordinate pipeline has to convert it
+ * before the value can be validated or used to fetch a structure. Keyed by the NAME, not by the
+ * coordinate: one entry name is shared by every transcript and every coordinate of that gene.
+ */
+export function buildUniprotEntryNameKey(entryName: string): string {
+  return `uniprot_entry_name_${entryName.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
 /** Cache key for the MANE-Select cross-reference lookup of an entry. */
 export function buildManeIsoformKey(uniprotId: string): string {
   return `uniprot_mane_isoform_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
+}
+
+/**
+ * Cache key for a UniProt entry's reference data: its gene symbols and the Ensembl
+ * transcript -> isoform assignment.
+ *
+ * Used to repair payloads from Ensembl's GRCh37 archive, whose VEP response predates both
+ * `uniprot_isoform` and the current HGNC symbol (it reports `CPSF3L` for INTS11 and
+ * `INT11_HUMAN` for `Q5TA45`). Immutable reference data keyed by the canonical accession.
+ */
+export function buildUniprotEntryReferenceKey(uniprotId: string): string {
+  return `uniprot_entry_reference_${uniprotId.trim().toUpperCase()}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 /** Cache key for the displayed-isoform lookup of an entry. */

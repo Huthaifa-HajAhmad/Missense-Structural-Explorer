@@ -15,17 +15,24 @@ import {
   GENOMIC_HGVS_PATTERN,
   ACCEPTED_NOTATION_SUMMARY,
   MISSENSE_ONLY_NOTE,
+  assemblyAnnotationsOf,
+  cdnaReferenceProblem,
   classifyNotation,
   detectAssemblyAnnotation,
   normalizeGenomicNotation,
   parseAccessionedProteinNotation,
+  parseGenomicHgvsNotation,
+  type CdnaReferenceProblem,
   type GenomeAssembly,
 } from "../../../src/shared/variantNotation.ts";
+import { withAssemblyAnnotation } from "../../../src/shared/assembly.ts";
+import type { BuildHint } from "../../../src/shared/contracts.ts";
 import {
   resolveCoordinate,
   selectProteinConsequence,
   pickInformativeConsequence,
   DEFAULT_ASSEMBLY,
+  DEFAULT_RESOLUTION_BUDGET_MS,
 } from "../../services/translation/coordinate-resolver.ts";
 import {
   CoordinateResolutionError,
@@ -38,10 +45,26 @@ import {
   buildUnverifiedNumberingWarning,
 } from "../../services/translation/isoform-numbering.ts";
 import {
+  INTAKE_LIFT_BUDGET_MS,
+  TRANSLATE_TOTAL_BUDGET_MS,
+  decideIntakeAssembly,
+  type IntakeAssemblyDecision,
+} from "../../services/translation/intake-assembly.ts";
+import {
   buildProteinNumberingRemapWarning,
   resolveAccessionedProteinNotation,
 } from "../../services/translation/protein-numbering.ts";
+import { fetchAssemblyReferenceBase } from "../../services/translation/liftover.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
+
+/**
+ * How long the route may spend checking the build it is about to OFFER as a retry.
+ *
+ * This runs on a path that has already spent a whole ladder run, and it exists to avoid offering a
+ * coordinate the reader cannot use — so it is worth a round trip, and not worth holding the refusal
+ * open. A check that does not finish in time withholds the offer rather than guessing.
+ */
+const REFERENCE_MISMATCH_CHECK_BUDGET_MS = 4_000;
 
 const translateVariantSchema = z.object({
   variant: z.string().min(1).max(200),
@@ -143,6 +166,191 @@ function maneRefSeqIdOf(value: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * What the route can offer a caller whose coordinate's REF allele matched no reference base, and the
+ * honest sentence to put beside it.
+ *
+ * WHY IT IS NOT A PLAIN BUILDER. An offered retry is a CLAIM — "the same locus is spelled differently
+ * on the other build" — and the first version made that claim without checking anything: it took the
+ * build the annotation had not used and annotated the submitted notation with it. That is wrong in
+ * two ways, both observed:
+ *
+ *  - the position may exist in NEITHER build (`chr1:g.999999999A>G`), where the "other build" spelling
+ *    is a coordinate nobody can resolve, and the confident build advice is simply false;
+ *  - whether the allele is plausible on the other build is checkable, exactly as the lift checks it —
+ *    and it is the difference between a real remedy (a genuine hg19 locus in the GRCh37-only tail of a
+ *    chromosome) and a typo. Verified: `chrX:g.23723975C>A` (hg19 ACOT9) has GRCh38 base `A` and
+ *    GRCh37 base `C`, so that retry works; `chr1:g.999999999A>G` has no base at all.
+ *
+ * KNOWN LIMITS, stated rather than hidden: a matching base is necessary, not sufficient — most
+ * positions have the same base in both builds, so the hint stays a suggestion, and the retry is
+ * verified by the pipeline exactly like a hand-typed annotation.
+ */
+type BuildHintOutcome =
+  | { status: "offered"; hint: BuildHint }
+  | {
+      status: "withheld";
+      reason:
+        /** No build decision to speak from — the refusal predates it. */
+        | "no-decision"
+        /** The submitted build was already verified against the other one; there is no untried build. */
+        | "already-verified"
+        /** The notation cannot carry a build annotation at all (a bare `c.`, a protein notation). */
+        | "not-annotatable"
+        /**
+         * The notation CAN state a build, but carries no genomic position whose reference base could be
+         * checked (cDNA): an alternative spelling could not be verified, so none is offered.
+         */
+        | "no-reference-base-to-check"
+        /** NEITHER build carries the submitted allele at that position. */
+        | "no-build-carries-allele"
+        /** The build already read against DOES carry it, so the build is not what disagrees. */
+        | "submitted-build-carries-allele"
+        /** The other build could not be checked (no parts, or its host did not answer). */
+        | "unverifiable";
+    };
+
+/** The submitted coordinate the refusal is about, ready to annotate for the other build. */
+function submittedLocusOf(decision: IntakeAssemblyDecision): string | null {
+  const { chrom, pos, ref, alt } = parseGenomicHgvsNotation(decision.notation) ?? {};
+  if (!chrom || pos === undefined || !ref || !alt) return null;
+  return `Chr${chrom}(${decision.submittedAssembly}):g.${pos}${ref}>${alt}`;
+}
+
+async function buildHintFor(decision: IntakeAssemblyDecision | undefined): Promise<BuildHintOutcome> {
+  if (!decision) return { status: "withheld", reason: "no-decision" };
+
+  /**
+   * A VERIFIED lift means the submitted build and the canonical build were already compared for this
+   * very position and were found to agree. `decision.notation` is then the LIFTED spelling, which the
+   * caller never submitted — offering it as "the same locus in the other build" would aim the retry at
+   * a different position. There is also no untried build left to offer.
+   */
+  if (decision.coordinateLift.status === "lifted") {
+    return { status: "withheld", reason: "already-verified" };
+  }
+
+  /**
+   * A cDNA notation CAN state its build (on the transcript), but a `c.` position is a place in a
+   * TRANSCRIPT, not in a reference assembly — there is no base here to check against the other build,
+   * so no alternative could be verified. Withheld rather than offered unverified: the earlier version
+   * would have proposed a spelling nothing had checked, and the copy would have claimed the other
+   * build carries the allele. The remedy is still reachable and is stated in words instead (state the
+   * build on the transcript), which the reader can do with the field's own build control.
+   */
+  const locus = submittedLocusOf(decision);
+  if (!locus) {
+    return {
+      status: "withheld",
+      reason: withAssemblyAnnotation(decision.notation, decision.resolveAssembly)
+        ? "no-reference-base-to-check"
+        : "not-annotatable",
+    };
+  }
+
+  const alternative: GenomeAssembly = decision.resolveAssembly === "GRCh38" ? "GRCh37" : "GRCh38";
+  const notation = withAssemblyAnnotation(locus, alternative);
+  if (!notation) return { status: "withheld", reason: "not-annotatable" };
+
+  const parsed = parseGenomicHgvsNotation(locus);
+  if (!parsed) return { status: "withheld", reason: "unverifiable" };
+
+  /**
+   * BOTH builds' reference base at the submitted position, checked against the submitted allele — the
+   * same check the lift performs, and the difference between advice and a guess.
+   *
+   * WHY BOTH. One check answers "would the retry work?"; the pair answers "is the build the explanation
+   * AT ALL?", which is the question the reader actually has:
+   *
+   *  - the other build carries the allele, the submitted one does not → the build is the explanation,
+   *    and the retry is the remedy (verified live: `chrX:g.23723975C>A` is GRCh37 `C` / GRCh38 `A`);
+   *  - NEITHER carries it → the position or the alleles are wrong, and a "try the other build" button
+   *    would be a promise nobody can keep (`chr1:g.999999999A>G`: no base on either — there is no such
+   *    position, and the confident build advice the first version gave was simply false);
+   *  - the SUBMITTED build already carries it → the build is not what disagrees, whatever the provider
+   *    said, so the honest answer is to re-read the position and the alleles.
+   *
+   * The pair also makes a retry LOOP impossible in principle: an offered hint means the offered build
+   * carries the submitted allele, so annotating there cannot reproduce the mismatch at that position —
+   * and the middle case, where both builds carry it and the ping-pong would otherwise be endless, is
+   * withheld rather than offered.
+   *
+   * Bounded so a slow archive cannot hold the refusal open; this runs on a path that has already spent
+   * a whole ladder run, and neither request is worth waiting on to say "I could not check".
+   */
+  const deadlineAt = Date.now() + REFERENCE_MISMATCH_CHECK_BUDGET_MS;
+  const [submittedReference, alternativeReference] = await Promise.all([
+    fetchAssemblyReferenceBase(parsed.chrom, parsed.pos, decision.submittedAssembly, deadlineAt),
+    fetchAssemblyReferenceBase(parsed.chrom, parsed.pos, alternative, deadlineAt),
+  ]);
+
+  if ("failure" in alternativeReference) {
+    return {
+      status: "withheld",
+      reason: alternativeReference.failure === "no-mapping" ? "no-build-carries-allele" : "unverifiable",
+    };
+  }
+  if (alternativeReference.base !== parsed.ref) {
+    return { status: "withheld", reason: "no-build-carries-allele" };
+  }
+  // Only when the submitted build's base was actually READ: a failed check says nothing either way.
+  if (!("failure" in submittedReference) && submittedReference.base === parsed.ref) {
+    return { status: "withheld", reason: "submitted-build-carries-allele" };
+  }
+
+  return {
+    status: "offered",
+    hint: {
+      assembly: alternative,
+      triedAssembly: decision.resolveAssembly,
+      notation,
+      reason:
+        `the reference allele matched no reference base on ${decision.resolveAssembly} at that ` +
+        `position, while ${alternative} carries the submitted allele there`,
+    },
+  };
+}
+
+/**
+ * What to add to a reference-mismatch refusal when no retry could be offered.
+ *
+ * The taxonomy's own message leads with "the usual cause is a genome-build mismatch", which is
+ * unhelpful-to-false for every case below — so each one gets the sentence its evidence supports.
+ */
+function withheldHintAdvice(reason: Extract<BuildHintOutcome, { status: "withheld" }>["reason"]): string {
+  switch (reason) {
+    case "no-build-carries-allele":
+      return (
+        " Both builds were checked: neither carries the submitted allele at that position, so check the " +
+        "position and the REF/ALT alleles."
+      );
+    case "submitted-build-carries-allele":
+      return (
+        " The build this coordinate was read against already carries the submitted allele at that " +
+        "position, so the build is not what disagrees here — check the position and the REF/ALT alleles."
+      );
+    case "no-reference-base-to-check":
+      return (
+        " A cDNA position names a place in a transcript, not in a reference assembly, so no alternative " +
+        "spelling could be verified. If this notation came from another build, state the build on the " +
+        "transcript — for example \"NM_000277.5(GRCh37):c.1222C>A\" — and it will be read against that " +
+        "reference."
+      );
+    case "already-verified":
+      return (
+        " The coordinate was verified against the other build before this annotation ran, so there is " +
+        "no untried build left."
+      );
+    case "not-annotatable":
+      return " This notation carries no genomic locus to state a build on; check the position and the alleles.";
+    case "unverifiable":
+      return " The other build could not be checked right now, so the alleles are worth re-reading.";
+    case "no-decision":
+    default:
+      return "";
+  }
+}
+
 /** Drops undefined entries so an error payload never carries an empty `details` object. */
 function compactDetails(details: Record<string, unknown>): Record<string, unknown> | undefined {
   const compact: Record<string, unknown> = {};
@@ -164,6 +372,36 @@ function isNonMissenseMessage(message: string): boolean {
   );
 }
 
+/**
+ * What is wrong with a cDNA notation's reference sequence, in the reader's terms.
+ *
+ * Each message names the fix rather than the rule: a bare `c.` is missing its transcript, a protein
+ * accession cannot carry `c.` positions, and HGVS writes the type prefix in lower case. All three
+ * would otherwise reach a provider that cannot parse them.
+ */
+function cdnaProblemMessage(problem: CdnaReferenceProblem, variant: string): string {
+  switch (problem) {
+    case "protein-accession":
+      return (
+        `"${variant}" numbers a cDNA position on a PROTEIN accession. A "c." description needs a ` +
+        `nucleotide reference sequence — for example "NM_004333.6:c.1799T>A". Protein accessions ` +
+        `carry protein-level positions instead, like "NP_001032248.1:p.Lys281Asn".`
+      );
+    case "type-prefix-case":
+      return (
+        `"${variant}" must write the HGVS type prefix in lower case: "c.1799T>A", not "C.1799T>A" ` +
+        `(the same rule applies to "g." and "p.").`
+      );
+    case "missing-transcript":
+    default:
+      return (
+        `"${variant}" is a cDNA position without a transcript. A "c." description must name the ` +
+        `reference sequence its positions are numbered on — for example "NM_004333.6:c.1799T>A" — ` +
+        `and a genome build can be stated on it: "NM_004333.6(GRCh37):c.1799T>A".`
+      );
+  }
+}
+
 export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: any): void {
 
   apiRouter.post("/translate-variant", jsonParserRegular, async (req, res) => {
@@ -172,15 +410,41 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
       return;
     }
+    /**
+     * The build decision, declared OUTSIDE the try so the error paths can report it too: a request
+     * whose coordinate was verified on the canonical build and whose providers then failed must say
+     * which build answered (see the catch block). `undefined` until the decision is taken, which is
+     * itself meaningful — the 400s raised before it have no build decision to report.
+     */
+    let decision: IntakeAssemblyDecision | undefined;
     try {
       const { variant } = req.body;
+
+      /**
+       * A notation may state ONE build. Two annotations are a contradiction, and every reading of them
+       * is a choice made on the caller's behalf: the first would decide the host, while the second
+       * survived in the string that was queried and echoed back as `notationNormalized` — so a request
+       * could be sent as GRCh37 while its own text said GRCh38. Refused, not resolved.
+       */
+      const annotations = assemblyAnnotationsOf(variant);
+      if (annotations.length > 1) {
+        sendError(
+          res,
+          400,
+          "BAD_REQUEST",
+          `"${variant}" states more than one genome build (${annotations.join(" and ")}). ` +
+            `State exactly one — for example "Chr1(GRCh37):g.25484258G>A" — so the coordinate is read ` +
+            `against the reference you mean.`
+        );
+        return;
+      }
 
       // Any inline genome-build annotation (e.g. "(GRCh38)", "(hg19)") must be read
       // BEFORE normalization strips it, because it decides which Ensembl host to query.
       const annotationAssembly = detectAssemblyAnnotation(variant);
       const assembly: GenomeAssembly = annotationAssembly ?? DEFAULT_ASSEMBLY;
 
-      // Canonicalize: strip the annotation and normalize `chr` casing.
+      // Canonicalize: strip EVERY annotation and normalize `chr` casing.
       // "Chr1(GRCh38):g.25484258G>A" -> "chr1:g.25484258G>A"
       let trimmed = normalizeGenomicNotation(variant);
 
@@ -201,6 +465,21 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
           "NON_MISSENSE_VARIANT",
           `"${variant}" is not a single-nucleotide substitution. ${MISSENSE_ONLY_NOTE}`
         );
+        return;
+      }
+
+      /**
+       * ── cDNA admission gate ─────────────────────────────────────────────────────
+       *
+       * A `c.` description must hang on a NUCLEOTIDE reference sequence, written with the lower-case
+       * type prefix HGVS defines. When it does not, no provider can answer (Ensembl: "Unable to parse
+       * HGVS notation"; VariantValidator: `VariantSyntaxError`), so without this gate the round trip
+       * ended in "the providers returned unusable responses" plus advice to state a genome build —
+       * advice that cannot help when the missing thing is the transcript.
+       */
+      const cdnaProblem = cdnaReferenceProblem(trimmed);
+      if (cdnaProblem) {
+        sendError(res, 400, "BAD_REQUEST", cdnaProblemMessage(cdnaProblem, variant));
         return;
       }
 
@@ -365,9 +644,63 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         console.log(`[Coord Translator] Resolving coordinate notation (${assembly})...`);
       }
 
+      /**
+       * ── Genome-build intake policy ──────────────────────────────────────────────
+       * "Coordinates are LIFTED to the canonical build when the input build differs, and the lift is
+       * REVERSE-VERIFIED before use" (`src/shared/assembly.ts`). A submitted GRCh37 coordinate is
+       * therefore annotated on GRCh38 — the release that carries MANE Select, `uniprot_isoform` and
+       * current gene symbols — instead of on Ensembl's frozen GRCh37 archive. When no verified lift
+       * exists the coordinate keeps its own build and the decision says why, so a reader can tell
+       * "annotated on the old release" from "annotated on the canonical one".
+       *
+       * Done BEFORE the ladder so the resolution cache key, the ladder's host, every downstream
+       * message and the response all agree on one build; and AFTER the missense/notation gates, so
+       * a coordinate that can never be lifted (indel, cDNA, protein) never pays for an attempt.
+       *
+       * ── ONE allowance for the whole call, split between the lift and the ladder ──
+       * The client gives this route 60s (`src/api/structureApi.ts`) and documents that the ladder's
+       * own 40s budget must fit inside it — Ensembl VEP legitimately needs 20-34s under load. A lift
+       * in front of the ladder therefore cannot be given an unbounded share: the lift is capped
+       * ({@link INTAKE_LIFT_BUDGET_MS}), the ladder is told what remains, and the 52s ceiling keeps
+       * the sum below the client's deadline with margin for transport and serialization. Without
+       * this arithmetic the two budgets would each look reasonable and their SUM would be what
+       * aborts a request that was about to succeed.
+       */
+      const requestDeadlineAt = Date.now() + TRANSLATE_TOTAL_BUDGET_MS;
+
+      decision = await decideIntakeAssembly({
+        notation: trimmed,
+        annotatedAssembly: assembly,
+        annotationPresent: annotationAssembly !== null,
+        // Never past the request deadline: a lift that cannot finish inside the allowance must
+        // degrade to the submitted build, not consume the ladder's time.
+        deadlineAt: Math.min(requestDeadlineAt, Date.now() + INTAKE_LIFT_BUDGET_MS),
+      });
+      // The submitted build (what the caller's notation is expressed in) and the build the
+      // annotation actually ran against. They are the same string unless a lift was verified.
+      const submittedAssembly: GenomeAssembly = decision.submittedAssembly;
+      const resolveAssembly: GenomeAssembly = decision.resolveAssembly;
+      const queryNotation = decision.notation;
+      const coordinateLift = decision.coordinateLift;
+      const liftedCoordinates = decision.liftedCoordinates;
+
+      if (process.env.NODE_ENV !== "production" && resolveAssembly !== submittedAssembly) {
+        console.log(
+          `[Coord Translator] Coordinate verified on ${resolveAssembly} (submitted build ` +
+            `${submittedAssembly}): "${queryNotation}"`
+        );
+      }
+
       await AuditLogger.log("TRANSLATE_VARIANT", {
+        // The SUBMITTED notation, because that is what the caller asked for — and because the audit
+        // anonymizer hashes this field, so hashing the LIFTED spelling gave one request two
+        // pseudonyms across its two rows and broke request↔resolution correlation. The locus
+        // actually queried travels beside it.
         variant: trimmed,
-        assembly
+        assembly: submittedAssembly,
+        queryNotation,
+        resolvedAssembly: resolveAssembly,
+        liftStatus: coordinateLift.status,
       });
 
       // Tier 0 (immutable cache) -> Tier 1 (Ensembl VEP) -> Tier 2 (VariantValidator).
@@ -375,19 +708,45 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       // cache decision depends on the latter (an unverified numbering must stay re-resolvable).
       // Throws CoordinateResolutionError so the catch block below can answer 503/404/502
       // honestly instead of a blanket 500.
-      const resolution = await resolveCoordinate(trimmed, assembly);
+      const resolution = await resolveCoordinate(queryNotation, resolveAssembly, undefined, {
+        // What the lift left of the allowance, never more than the ladder's own budget (so a fast
+        // lift changes nothing) and never less than a floor that lets both rungs answer.
+        budgetMs: Math.max(
+          10_000,
+          Math.min(DEFAULT_RESOLUTION_BUDGET_MS, requestDeadlineAt - Date.now())
+        ),
+      });
       const consequence = resolution.consequence;
 
       const chr = consequence.seq_region_name;
       const startPos = consequence.start;
       const alleleStr = consequence.allele_string;
-      let genomicCoordinates: string | null = null;
-      if (chr && startPos && typeof alleleStr === "string") {
-        const parts = alleleStr.split("/");
-        if (parts.length >= 2) {
-          genomicCoordinates = `${chr}-${startPos}-${parts[0]}-${parts[1]}`;
-        }
-      }
+      const echoedCoordinates =
+        chr && startPos && typeof alleleStr === "string"
+          ? (() => {
+              const parts = alleleStr.split("/");
+              return parts.length >= 2 ? `${chr}-${startPos}-${parts[0]}-${parts[1]}` : null;
+            })()
+          : null;
+      /**
+       * `genomicCoordinates` is one half of a PAIR: `assembly` is the build it belongs to, and the
+       * client forwards both to the predictors. So the locus must be the CALLER's whenever the
+       * notation states one:
+       *
+       *   - a verified lift moved the locus, and the provider echo is the CANONICAL build's
+       *     coordinate — forwarding it under the submitted build's tag is the wrong-locus hazard;
+       *   - no lift, but the notation IS a genomic coordinate: the caller's own locus is
+       *     authoritative for the pair. An honest build-specific provider echoes the same locus
+       *     (Ensembl hosts are per-build; VariantValidator is read from
+       *     `primary_assembly_loci[assembly]`), so this changes nothing today — it removes the need
+       *     to ASSUME it. Found by review: the earlier form of this branch took the echo whenever no
+       *     lift happened, which left the invariant resting on every provider's good behaviour.
+       *
+       * A cDNA notation has no genomic locus of its own, so there the echo is the only source — which
+       * is what the fallback is for.
+       */
+      const genomicCoordinates: string | null =
+        decision.submittedCoordinates ?? echoedCoordinates;
 
       const transcriptConsequences = consequence.transcript_consequences ?? [];
 
@@ -397,18 +756,37 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         // of a bare "not found" that reads like a bug and dead-ends the UI.
         const informativeTc = pickInformativeConsequence(transcriptConsequences);
 
+        /**
+         * The build label must describe the SAME locus the message names.
+         *
+         * `buildNoProteinChangeMessage` prints `"<notation>" resolves on <assembly> to …`, so pairing
+         * the submitted GRCh37 spelling with the resolved (GRCh38) build produced
+         * `"chr1:g.1256452C>A" resolves on GRCh38 to intron_variant…` — a GRCh37 position wearing a
+         * GRCh38 label, in prose, which is the hazard this whole module exists to refuse. When a lift
+         * happened, the message therefore names the QUERY locus and build, and states the submitted
+         * spelling first so the reader still recognises their own input.
+         */
+        const liftPrefix = liftedCoordinates
+          ? `"${trimmed}" was verified on the ${resolveAssembly} reference as ` +
+            `"${queryNotation}". `
+          : "";
+        const messageNotation = liftedCoordinates ? queryNotation : trimmed;
+
         sendError(
           res,
           422,
           "NON_MISSENSE_VARIANT",
-          buildNoProteinChangeMessage(trimmed, assembly, informativeTc),
+          liftPrefix + buildNoProteinChangeMessage(messageNotation, resolveAssembly, informativeTc),
           compactDetails({
             gene: informativeTc?.gene_symbol,
             transcriptId: informativeTc?.transcript_id,
             hgvsc: informativeTc?.hgvsc,
             consequence: informativeTc?.consequence_terms,
             notation: trimmed,
-            assembly,
+            assembly: submittedAssembly,
+            ...(resolveAssembly !== submittedAssembly ? { resolvedAssembly: resolveAssembly } : {}),
+            ...(liftedCoordinates ? { liftedGenomicCoordinates: liftedCoordinates } : {}),
+            coordinateLift,
           })
         );
         return;
@@ -424,6 +802,15 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         const isoformLabel = verdict.numberingIsoform
           ? ` (UniProt isoform ${verdict.numberingIsoform})`
           : "";
+        /**
+         * Names the accession-qualified route as well as the canonical-equivalent notation.
+         *
+         * This refusal is now reachable from a COORDINATE query — the GRCh37 archive omits VEP's
+         * `uniprot_isoform`, so once the isoform is read from UniProt the basis can be known to be
+         * non-canonical while no canonically-numbered sibling reports the substitution. "Enter the
+         * canonical-equivalent substitution" alone is a dead end for someone who already entered a
+         * coordinate; `Q5TA45-5:p.Arg23Leu` is a route that resolves it by sequence anchoring.
+         */
         sendError(
           res,
           422,
@@ -432,7 +819,12 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
             `${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}${isoformLabel}, but that numbering ` +
             `does not match the canonical sequence of ${verdict.canonicalAccession}, and ` +
             `${verdict.reason}. Structural modelling needs the variant numbered on the ` +
-            "canonical sequence — enter the canonical-equivalent protein substitution.",
+            "canonical sequence — enter the canonical-equivalent protein substitution" +
+            (verdict.numberingIsoform
+              ? `, or qualify the notation with the protein it is numbered on ` +
+                `(e.g. ${verdict.numberingIsoform}:${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}), ` +
+                "which this platform maps onto the canonical sequence."
+              : "."),
           compactDetails({
             gene: selectedTc.gene_symbol,
             hgvsp: selectedTc.hgvsp,
@@ -441,7 +833,10 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
             uniprotId: verdict.canonicalAccession,
             reason: verdict.reason,
             notation: trimmed,
-            assembly,
+            assembly: submittedAssembly,
+            ...(resolveAssembly !== submittedAssembly ? { resolvedAssembly: resolveAssembly } : {}),
+            ...(liftedCoordinates ? { liftedGenomicCoordinates: liftedCoordinates } : {}),
+            coordinateLift,
           })
         );
         return;
@@ -495,14 +890,23 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       }
 
       // Recorded AFTER resolution so the audit trail states the numbering basis that was
-      // actually analysed, not only the notation that was requested.
+      // actually analysed, not only the notation that was requested — and which reference release
+      // numbered it, which is a different question once a GRCh37 coordinate is lifted.
       await AuditLogger.log("TRANSLATE_VARIANT_RESOLVED", {
         variant: trimmed,
-        assembly,
+        assembly: submittedAssembly,
+        resolvedAssembly: resolveAssembly,
+        liftStatus: coordinateLift.status,
         numberingBasis: verdict.status,
         provider: resolution.consequence.provider,
         usedFallback: resolution.usedFallback,
         cacheHit: resolution.cacheHit,
+        // Present only when the provider named the gene with a retired symbol that UniProt lists as
+        // a synonym (Ensembl's GRCh37 archive answers `CPSF3L` for `INTS11`). Recorded so a reader
+        // can tell the returned `gene` is a refreshed symbol rather than what was reported.
+        ...(resolution.consequence.geneSymbolUpdated
+          ? { geneSymbolUpdated: resolution.consequence.geneSymbolUpdated }
+          : {}),
       });
 
       const transcriptId: string = selectedTc.transcript_id || "";
@@ -548,11 +952,11 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         transcriptWarning = "Ensembl canonical transcript used (not explicitly tagged MANE Select). Verify isoform against clinical databases.";
       }
 
-      // Surfaced so the client can display which build was actually queried, and warn when
-      // an inline annotation redirected the request to the GRCh37 Ensembl host.
-      const assemblyNote = annotationAssembly
-        ? `Notation annotated "(${annotationAssembly})" — resolved against the ${assembly} reference assembly.`
-        : undefined;
+      // Surfaced so the client can display which build was actually annotated, and say so when the
+      // submitted build differs from it. Written by the intake decision, which is the only place
+      // that knows whether a lift was verified — "resolved against the GRCh37 reference" would be
+      // false for a lifted coordinate, and was true here only while the archive was queried.
+      const assemblyNote = decision.assemblyNote;
 
       res.json({
         gene: geneSymbol,
@@ -564,8 +968,25 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         isCanonical,
         maneRefSeqId,
         genomicCoordinates,
-        assembly,
+        // The build the CALLER's coordinate is expressed in — what a report cites and what the
+        // client must pair with `genomicCoordinates`.
+        assembly: submittedAssembly,
+        // The build the annotation came from. Equal to `assembly` unless a lift was verified.
+        resolvedAssembly: resolveAssembly,
+        // The verified canonical locus, present only when a lift was verified. Forwarding this
+        // lets the predictor query the canonical build directly instead of lifting a second time.
+        ...(liftedCoordinates ? { liftedGenomicCoordinates: liftedCoordinates } : {}),
+        // How the build was decided: submitted vs annotated build, both loci, and — when no lift
+        // was used — why. Machine-readable so a report, a UI or an agent can state the trail.
+        coordinateLift,
         notationNormalized: trimmed,
+        // Present only when the provider named the resolved gene with a RETIRED symbol that UniProt
+        // lists as a synonym, and `gene` above is therefore the current HGNC symbol (Ensembl's
+        // GRCh37 archive answers `CPSF3L` for `INTS11`). Machine-readable so a report can state
+        // which symbol the provider used; every gene-keyed lookup gets the current one.
+        ...(resolution.consequence.geneSymbolUpdated
+          ? { geneSymbolUpdated: resolution.consequence.geneSymbolUpdated }
+          : {}),
         // Which UniProt isoform `variant` is numbered on, and how that basis was established.
         // AlphaFold DB models only canonical sequences, so `canonical`/`remapped` are the only
         // states in which the residue numbers are safe to model; `unverified` is disclosed and
@@ -584,8 +1005,12 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         ...(verdict.status === "remapped" && originalSelection
           ? {
               numberingRemap: {
+                // NOT "MANE Select protein numbering": the basis that needed remapping is whatever
+                // protein the reporting pipeline used — MANE Select on a current release, and the
+                // Ensembl canonical transcript on the GRCh37 archive, which predates MANE. The
+                // actual basis is named machine-readably in `from.isoform`.
                 reason:
-                  "MANE Select protein numbering differs from the canonical UniProt isoform",
+                  "the reported protein's numbering follows a non-canonical UniProt isoform",
                 from: {
                   hgvsp: originalSelection.hgvsp,
                   transcriptId: originalSelection.transcript_id,
@@ -613,7 +1038,17 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         ...(assemblyNote ? { assemblyNote } : {}),
       });
     } catch (err: any) {
-      console.error(`[Coordinate Translator Crash]:`, err);
+      /**
+       * A refused coordinate is not a crash, and logging it as one sends whoever reads the server log
+       * hunting for a stack trace that does not exist — for the most common clinical outcome there is
+       * (a coordinate read against the wrong build). The refusal is logged with its kind, which is the
+       * machine-readable cause; anything else is still a crash.
+       */
+      if (err instanceof CoordinateResolutionError) {
+        console.error(`[Coordinate Translator Refused ${err.kind}]: ${err.message}`);
+      } else {
+        console.error(`[Coordinate Translator Crash]:`, err);
+      }
 
       // Honest status mapping: an upstream outage is NOT an internal server error, and the
       // client needs to be able to tell the difference (retry vs. report a bug).
@@ -638,7 +1073,51 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
           } catch { /* headers already sent */ }
         }
 
-        sendError(res, status, code, err.message, { attempts: err.attempts });
+        /**
+         * The build trail travels with the FAILURE too.
+         *
+         * `decision` exists by the time the ladder runs, so a request whose lift was verified and
+         * whose providers then failed was answering `{attempts}` alone — and the 404 text asks the
+         * reader to "verify … genome build" for a coordinate the server itself had already verified.
+         * Every response, successful or not, states what the build decision was.
+         */
+        const buildTrail = typeof decision !== "undefined"
+          ? {
+              assembly: decision.submittedAssembly,
+              resolvedAssembly: decision.resolveAssembly,
+              ...(decision.liftedCoordinates
+                ? { liftedGenomicCoordinates: decision.liftedCoordinates }
+                : {}),
+              coordinateLift: decision.coordinateLift,
+              ...(decision.assemblyNote ? { assemblyNote: decision.assemblyNote } : {}),
+            }
+          : {};
+
+        /**
+         * The one refusal whose remedy can be a different COORDINATE carries that coordinate, ready
+         * to submit — but only once the alternative has been CHECKED to carry the submitted allele
+         * (see `buildHintFor`). When nothing could be offered, the MESSAGE says what to look at
+         * instead: the taxonomy's sentence leads with "the usual cause is a genome-build mismatch",
+         * which is actively misleading for a coordinate whose build was already stated or whose
+         * position exists in neither build.
+         */
+        if (err.kind !== "reference_mismatch") {
+          sendError(res, status, code, err.message, { attempts: err.attempts, ...buildTrail });
+          return;
+        }
+
+        const hint = await buildHintFor(decision);
+        sendError(
+          res,
+          status,
+          code,
+          hint.status === "offered" ? err.message : `${err.message}${withheldHintAdvice(hint.reason)}`,
+          {
+            attempts: err.attempts,
+            ...buildTrail,
+            ...(hint.status === "offered" ? { buildHint: hint.hint } : {}),
+          }
+        );
         return;
       }
 

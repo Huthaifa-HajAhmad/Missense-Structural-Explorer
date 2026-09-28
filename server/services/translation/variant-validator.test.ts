@@ -1,10 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   extractPayload,
   extractProteinChange,
+  fetchVariantValidatorConsequence,
   isUsablePayload,
   mapVariantValidatorResponse,
 } from "./variant-validator.ts";
+import { CoordinateResolutionError } from "./types.ts";
+import { clearAllCaches } from "../infra/cache.ts";
+import { resetHostStateForTests } from "../infra/http-client.ts";
 
 /** Captured live from VariantValidator for NC_000001.11:g.25484258G>A (MACO1). */
 const MACO1_RESPONSE = {
@@ -58,6 +62,107 @@ const INTERGENIC_RESPONSE = {
 };
 
 describe("VariantValidator response mapping", () => {
+  describe("a reference mismatch, which this provider reports as HTTP 200", () => {
+    beforeEach(async () => {
+      vi.unstubAllGlobals();
+      clearAllCaches(true);
+      resetHostStateForTests();
+    });
+
+    /**
+     * CAPTURED LIVE for `chrX:g.23723975C>A` — an hg19 ACOT9 allele read against GRCh38, where the
+     * reference base at that position is `A`. The shape is the point: `flag: "warning"`, NO `error`
+     * member, no transcript-keyed payload, and the finding only in `validation_warnings`. Mapped as a
+     * plain envelope it became `not_found`, i.e. "verify the chromosome, position, alleles and genome
+     * build" — while the provider had named the mismatching reference exactly.
+     */
+    const REFERENCE_MISMATCH_200 = {
+      flag: "warning",
+      metadata: { variantvalidator_version: "0.0.0-test" },
+      validation_warning_1: {
+        alt_genomic_loci: [],
+        annotations: {},
+        gene_ids: {},
+        gene_symbol: "",
+        hgvs_predicted_protein_consequence: { lrg_slr: "", lrg_tlr: "", slr: "", tlr: "" },
+        primary_assembly_loci: {},
+        selected_assembly: "GRCh38",
+        submitted_variant: "chrX:g.23723975C>A",
+        validation_warnings: [
+          "This is not a valid HGVS variant description, because no reference sequence ID has been provided",
+          "ReferenceMismatchError: NC_000023.11:g.23723975C>A: Variant reference (C) does not agree with reference sequence (A)",
+          "LovdSyntaxcheckInvalid: chrX:g.23723975C>A is not syntactically correct",
+        ],
+      },
+    };
+
+    it("classifies the warning list as a reference mismatch, not as 'nothing found'", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(REFERENCE_MISMATCH_200), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })));
+
+      const error: any = await fetchVariantValidatorConsequence("chrX:g.23723975C>A", "GRCh38").catch((e) => e);
+
+      expect(error).toBeInstanceOf(CoordinateResolutionError);
+      expect(error.kind).toBe("reference_mismatch");
+      // The message carries the provider's own finding, so the trail explains itself.
+      expect(error.message).toContain("ReferenceMismatchError");
+      // …and it is booked against the COORDINATE, so the ladder can prefer it over another rung's miss.
+      expect(error.attempts[0].failureKind).toBe("reference_mismatch");
+    });
+
+    it("still reports an ordinary silent-failure envelope as not found", async () => {
+      // The other direction: a warning list that mentions a reference sequence id but no disagreement
+      // must not be reclassified — otherwise every unresolved coordinate would claim a build problem.
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+        flag: "warning",
+        validation_warning_1: {
+          gene_symbol: "",
+          annotations: {},
+          hgvs_predicted_protein_consequence: {},
+          primary_assembly_loci: {},
+          validation_warnings: [
+            "This is not a valid HGVS variant description, because no reference sequence ID has been provided",
+          ],
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+      const error: any = await fetchVariantValidatorConsequence("chr1:g:100A>G", "GRCh38").catch((e) => e);
+
+      expect(error).toBeInstanceOf(CoordinateResolutionError);
+      expect(error.kind).toBe("not_found");
+    });
+
+    /**
+     * A USABLE PAYLOAD WINS over a warning beside it.
+     *
+     * This provider attaches warnings to ordinary answers (an MT DNA-type note travels with a good
+     * resolution), so the scan must run only when there is no payload to map. The ordering is the
+     * invariant: as long as mapping comes first, the taxonomy cannot discard an answer the provider
+     * actually gave — whatever wording a future warning happens to use.
+     */
+    it("maps a payload even when the same envelope carries a mismatch-shaped warning", async () => {
+      const envelope = {
+        "NM_018202.6:c.1297G>A": {
+          gene_symbol: "MACO1",
+          hgvs_predicted_protein_consequence: { tlr: "NP_060672.2:p.(Glu433Lys)" },
+          annotations: { chromosome: "1", mane_select: true },
+        },
+        validation_warnings: [
+          "Reference allele mismatch reported by an upstream database snapshot: C does not agree with reference sequence A",
+        ],
+      };
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(envelope), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })));
+
+      const resolved = await fetchVariantValidatorConsequence("{NOTATION}", "GRCh38");
+      expect(resolved.consequence.transcript_consequences[0].hgvsp).toBe("p.(Glu433Lys)");
+    });
+  });
+
   describe("extractPayload", () => {
     it("discovers the dynamically-keyed transcript payload", () => {
       const extracted = extractPayload(MACO1_RESPONSE);

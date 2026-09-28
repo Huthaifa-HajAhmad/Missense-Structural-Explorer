@@ -1,5 +1,52 @@
-import type { NumberingChoice, NumberingRemapRecord } from "../../shared/contracts";
+import type { BuildHint, CoordinateLiftRecord, NumberingChoice, NumberingRemapRecord } from "../../shared/contracts";
 import { PDB_SOURCE_ALPHAFOLD } from "../../shared/contracts";
+import type { GenomeAssembly } from "../../shared/variantNotation";
+
+/**
+ * The build decision a refusal was taken under, carried into the error state.
+ *
+ * Without it the UI can only say "read as GRCh38", which presents a DEFAULTED build as an established
+ * one — the doctrine this whole feature exists to honour (`coordinateLift.buildDeclared` is the field
+ * that distinguishes the two). The route already sends the trail with every failure; this is the hop
+ * that was dropping it.
+ */
+export interface RefusalBuildTrail {
+  assembly?: GenomeAssembly;
+  resolvedAssembly?: GenomeAssembly;
+  liftedGenomicCoordinates?: string | null;
+  coordinateLift?: CoordinateLiftRecord | null;
+  assemblyNote?: string;
+}
+
+/**
+ * What a REFUSAL carries forward so the reader can answer it, rather than only read it.
+ *
+ * The members are answers the server composed: readings of an ambiguous notation, the alternative-build
+ * spelling of a coordinate whose alleles matched no reference base, and the build decision itself. They
+ * travel together because every error state that renders one must be able to render the others.
+ */
+export interface RefusalAttachments {
+  numberingChoices?: NumberingChoice[];
+  numberingNotation?: string;
+  /** Alternative-build spelling of a refused coordinate — see `AnalysisResult.buildHint`. */
+  buildHint?: BuildHint;
+  /** The build the refusal was taken under, so the copy never asserts a defaulted build. */
+  buildTrail?: RefusalBuildTrail;
+}
+
+/** Attachments a refusal asked the UI to render, in the shape every analysis result expects. */
+function refusalAttachments(extra?: RefusalAttachments, fallbackVariant = "") {
+  return {
+    ...(extra?.numberingChoices?.length
+      ? {
+          numberingChoices: extra.numberingChoices,
+          numberingNotation: extra.numberingNotation ?? fallbackVariant,
+        }
+      : {}),
+    ...(extra?.buildHint ? { buildHint: extra.buildHint } : {}),
+    ...(extra?.buildTrail ?? {}),
+  };
+}
 
 export interface AnalysisVersionInfo {
   thresholds: string;
@@ -30,21 +77,37 @@ export interface PipelineStateBaseParams {
     numberingUnverifiedReason?: string | null;
     /** Record of a MANE → canonical renumbering, for reports that must state both notations. */
     numberingRemap?: NumberingRemapRecord | null;
+    /**
+     * Genome-build trail from the translation step: the build the SUBMITTED coordinate is in, the
+     * build the annotation came from (they differ exactly when a lift was verified), the verified
+     * canonical locus, and the decision itself. Carried like the numbering fields above, because a
+     * placeholder that omits it makes a surface infer a build while the fine-grained data loads —
+     * and a surface that infers a build is how a panel came to certify GRCh38 beside an HG19 chip.
+     */
+    assembly?: GenomeAssembly;
+    resolvedAssembly?: GenomeAssembly;
+    liftedGenomicCoordinates?: string | null;
+    coordinateLift?: CoordinateLiftRecord | null;
   } | null;
 }
 
 /**
- * Numbering provenance carried into every analysis result.
+ * Numbering AND genome-build provenance, carried into every analysis result.
  *
  * Copied as a group because each factory below previously copied only the pre-existing
  * transcript fields, silently dropping anything the translation added — which is how the
- * structured remap record never reached a report while the code claimed it did.
+ * structured remap record never reached a report while the code claimed it did. The build trail
+ * joined the group for the same reason.
  */
-function numberingProvenance(
+function resultProvenance(
   transcriptMeta: PipelineStateBaseParams["transcriptMeta"],
   resResult?: {
     numberingVerified?: boolean | null;
     numberingUnverifiedReason?: string | null;
+    assembly?: GenomeAssembly | null;
+    resolvedAssembly?: GenomeAssembly | null;
+    liftedGenomicCoordinates?: string | null;
+    coordinateLift?: CoordinateLiftRecord | null;
   }
 ) {
   return {
@@ -58,6 +121,28 @@ function numberingProvenance(
       transcriptMeta?.numberingVerified ?? resResult?.numberingVerified ?? undefined,
     numberingUnverifiedReason:
       transcriptMeta?.numberingUnverifiedReason ?? resResult?.numberingUnverifiedReason ?? undefined,
+    /**
+     * Same two-source rule for the build trail: the translation step knows what the user submitted
+     * and what the lift did; the analysis response echoes it. Absent everywhere stays absent — the
+     * surfaces must render exactly what they rendered before, never a default build.
+     *
+     * Copied as a GROUP from ONE source. Falling back per field could pair `assembly` from the
+     * translation meta with `resolvedAssembly` from the response, or a canonical locus with no
+     * build at all — a trail that never existed, rendered as a verified lift.
+     */
+    ...((transcriptMeta?.assembly ?? transcriptMeta?.resolvedAssembly)
+      ? {
+          assembly: transcriptMeta?.assembly ?? undefined,
+          resolvedAssembly: transcriptMeta?.resolvedAssembly ?? undefined,
+          liftedGenomicCoordinates: transcriptMeta?.liftedGenomicCoordinates ?? undefined,
+          coordinateLift: transcriptMeta?.coordinateLift ?? undefined,
+        }
+      : {
+          assembly: resResult?.assembly ?? undefined,
+          resolvedAssembly: resResult?.resolvedAssembly ?? undefined,
+          liftedGenomicCoordinates: resResult?.liftedGenomicCoordinates ?? undefined,
+          coordinateLift: resResult?.coordinateLift ?? undefined,
+        }),
   };
 }
 
@@ -109,7 +194,7 @@ export function createPlaceholderAnalysisState(params: PipelineStateBaseParams) 
       isCanonical: transcriptMeta?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning,
-      ...numberingProvenance(transcriptMeta),
+      ...resultProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
       esm2: null,
@@ -160,7 +245,7 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       transcriptWarning: transcriptMeta?.transcriptWarning ?? resResult.transcriptWarning,
       // The server's numbering verification travels with the result, so an unverified numbering is
       // disclosed on screen and cited in the export instead of looking like a clean match.
-      ...numberingProvenance(transcriptMeta, resResult),
+      ...resultProvenance(transcriptMeta, resResult),
       gnomadFrequency: resResult.gnomadFrequency || null,
       aouFrequency: resResult.aouFrequency || null,
       esm2: resResult.esm2 || null,
@@ -183,7 +268,7 @@ export function createBiophysicalErrorAnalysisState(
    * catch is where the analysis refusal actually lands (`fetchBiophysicalAnalysis` rejects and is
    * consumed by a `.catch`, never by an enclosing try), so the choice has to be attached HERE.
    */
-  extra?: { numberingChoices?: NumberingChoice[]; numberingNotation?: string }
+  extra?: RefusalAttachments
 ) {
   const { gene, variant, uniprotId, residueIndex, wildType, mutant, transcriptMeta } = params;
 
@@ -195,12 +280,6 @@ export function createBiophysicalErrorAnalysisState(
       insights: null,
       isDemoData: false,
       ruleBasedInsights: null,
-      ...(extra?.numberingChoices?.length
-        ? {
-            numberingChoices: extra.numberingChoices,
-            numberingNotation: extra.numberingNotation ?? variant,
-          }
-        : {}),
       metadata: {
         gene,
         variant,
@@ -223,7 +302,16 @@ export function createBiophysicalErrorAnalysisState(
       isCanonical: transcriptMeta?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning,
-      ...numberingProvenance(transcriptMeta),
+      ...resultProvenance(transcriptMeta),
+      /**
+       * The refusal attachments go LAST, deliberately.
+       *
+       * `resultProvenance` always RETURNS the build-trail keys — with `undefined` values when neither
+       * source has a trail — so spreading these BEFORE it let `undefined` overwrite a trail the refusal
+       * had actually carried. That is exactly what the first version did; a test pins the order, because
+       * the two spreads look interchangeable and are not.
+       */
+      ...refusalAttachments(extra, variant),
       gnomadFrequency: null,
       aouFrequency: null,
       esm2: null,
@@ -246,7 +334,7 @@ export function createTopLevelErrorAnalysisState(
    * the result so the UI can offer a choice: the refusal is a question, and a question with no way to
    * answer it is just a dead end.
    */
-  extra?: { numberingChoices?: NumberingChoice[]; numberingNotation?: string }
+  extra?: RefusalAttachments
 ) {
   const { gene, variant, uniprotId, residueIndex, wildType, mutant } = params;
 
@@ -255,12 +343,7 @@ export function createTopLevelErrorAnalysisState(
     error: `Analysis query error: ${errorMessage || "Unknown error."}`,
     result: {
       isDemoData: false,
-      ...(extra?.numberingChoices?.length
-        ? {
-            numberingChoices: extra.numberingChoices,
-            numberingNotation: extra.numberingNotation ?? variant,
-          }
-        : {}),
+      ...refusalAttachments(extra, variant),
       metadata: {
         gene,
         variant,
@@ -322,7 +405,7 @@ export function createDemoFallbackAnalysisState(
       isCanonical: transcriptMeta?.isCanonical,
       maneRefSeqId: transcriptMeta?.maneRefSeqId,
       transcriptWarning: transcriptMeta?.transcriptWarning,
-      ...numberingProvenance(transcriptMeta),
+      ...resultProvenance(transcriptMeta),
       gnomadFrequency: null,
       aouFrequency: null,
       esm2: null,

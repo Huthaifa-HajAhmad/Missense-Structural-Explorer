@@ -44,12 +44,23 @@ import { LRUCache } from "lru-cache";
 import { fetchWithRetry, isHostAvailable } from "../infra/http-client.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
 import { buildCoordinateTranslationKey } from "../infra/cache-keys.ts";
-import { anySignal } from "../../utils.ts";
+import { anySignal, UNIPROT_PATTERN } from "../../utils.ts";
+import {
+  fetchUniprotEntryReferenceData,
+  isUniprotEntryName,
+  resolveUniprotEntryNameToAccession,
+  type UniprotEntryReferenceData,
+} from "../external-api/uniprot.ts";
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { fetchVariantValidatorConsequence } from "./variant-validator.ts";
-import { reconcileIsoformNumbering, type NumberingVerdict } from "./isoform-numbering.ts";
+import {
+  normalizeIsoformIds,
+  reconcileIsoformNumbering,
+  type NumberingVerdict,
+} from "./isoform-numbering.ts";
 import {
   CoordinateResolutionError,
+  isReferenceMismatchMessage,
   type ProviderAttempt,
   type ProteinAlteringConsequence,
   type ResolutionFailureKind,
@@ -118,6 +129,266 @@ export function canonicalAccessionOf(
 ): string | undefined {
   const accession = consequence.swissprot?.[0]?.split(".")[0]?.trim();
   return accession || undefined;
+}
+
+/** Uppercased, version-stripped form of one VEP `swissprot` value, or "" when unusable. */
+function swissprotToken(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().split(".")[0]?.trim().toUpperCase() ?? "";
+}
+
+/**
+ * Rewrites UniProt ENTRY NAMES in a provider payload's `swissprot` arrays into ACCESSIONS.
+ *
+ * WHY (production regression, `Chr1(GRCh37):g.1256452C>A`)
+ * -------------------------------------------------------
+ * Ensembl's GRCh37 archive reports VEP's `swissprot` field as the entry NAME, not the accession:
+ * verified live, that locus answers `swissprot: ["INT11_HUMAN"]` (gene symbol from the same
+ * retired annotation: `CPSF3L`), while the GRCh38 host answers `["Q5TA45.162"]` for the equivalent
+ * coordinate. `canonicalAccessionOf` forwards `swissprot[0]` verbatim, so the route's
+ * `validateUniProt` rejected an otherwise fully resolved coordinate with
+ * `422 Invalid UniProt accession ID format: "INT11_HUMAN"` — a metadata field dead-ending the
+ * whole analysis.
+ *
+ * WHERE IT MUST RUN
+ * -----------------
+ * Before ANY derivation, because the accession decides the numbering verdict: `uniprot_isoform`
+ * ids are compared against it, so a mnemonic there can only ever fail to match — turning a
+ * canonically-numbered GRCh37 consequence into `unsupported` (a 422 telling the user their
+ * numbering is wrong) instead of `canonical`/`unverified`. The verdict also decides what is
+ * cacheable, so the payload stored in the cache must already carry accessions.
+ *
+ * DEGRADATION IS DELIBERATE
+ * -------------------------
+ * A value that is neither an accession nor a resolvable entry name is DROPPED, never forwarded:
+ * an empty accession is a state the pipeline already handles honestly (the response says
+ * `numberingBasis: "unverified"` and the client resolves gene -> UniProt), whereas a non-accession
+ * is what broke the request. A UniProt outage therefore costs the accession, not the variant.
+ */
+export async function normalizeSwissprotAccessions(
+  consequence: ResolvedConsequence,
+  signal?: AbortSignal
+): Promise<ResolvedConsequence> {
+  const consequences = consequence.transcript_consequences ?? [];
+  if (consequences.length === 0) return consequence;
+
+  /** Distinct entry names, so one name costs one lookup however many transcripts report it. */
+  const namesToResolve = new Set<string>();
+  let needsRewrite = false;
+  for (const tc of consequences) {
+    for (const raw of tc.swissprot ?? []) {
+      const token = swissprotToken(raw);
+      if (token && UNIPROT_PATTERN.test(token)) continue;
+      needsRewrite = true;
+      if (isUniprotEntryName(token)) namesToResolve.add(token);
+    }
+  }
+  if (!needsRewrite) return consequence;
+
+  const resolvedAccessions = new Map<string, string>();
+  await Promise.all(
+    [...namesToResolve].map(async (entryName) => {
+      try {
+        const accession = await resolveUniprotEntryNameToAccession(entryName, { signal });
+        if (accession) {
+          resolvedAccessions.set(entryName, accession);
+        } else {
+          console.warn(
+            `[Coord Translator] Provider reported the UniProt entry name "${entryName}", which ` +
+              "UniProt does not resolve to an accession; continuing without an accession."
+          );
+        }
+      } catch (err: any) {
+        // A lookup failure must never fail the resolution: the coordinate, gene and protein
+        // substitution are already established and are what the analysis is about.
+        console.warn(
+          `[Coord Translator] Could not convert the UniProt entry name "${entryName}" to an ` +
+            `accession (${err?.message ?? err}); continuing without an accession.`
+        );
+      }
+    })
+  );
+
+  return {
+    ...consequence,
+    transcript_consequences: consequences.map((tc) => {
+      if (!tc.swissprot) return tc;
+      const rewritten: string[] = [];
+      for (const raw of tc.swissprot) {
+        const token = swissprotToken(raw);
+        if (!token) continue;
+        const accession = UNIPROT_PATTERN.test(token) ? token : resolvedAccessions.get(token);
+        if (accession && !rewritten.includes(accession)) rewritten.push(accession);
+      }
+      return { ...tc, swissprot: rewritten };
+    }),
+  };
+}
+
+/**
+ * Repairs the metadata an old annotation release omits: per-transcript isoform ids, and the
+ * current gene symbol.
+ *
+ * WHY (production regression, `Chr1(GRCh37):g.1256452C>A`)
+ * -------------------------------------------------------
+ * Ensembl's GRCh37 archive predates VEP's `uniprot_isoform` field and the HGNC rename, so its
+ * payload says `gene_symbol: "CPSF3L"` (now `INTS11`) and nothing about isoforms. Two failures
+ * followed, and the second is the dangerous one:
+ *
+ *   1. the route selected the archive's own canonical transcript `ENST00000540437`, numbered on
+ *      isoform `Q5TA45-5` (`p.Arg23Leu`), and — with no basis to check against — could only report
+ *      `unverified`. The analysis models canonical `Q5TA45`, where position 23 is `S`, so the
+ *      pipeline refused the variant with a wild-type mismatch, and would have modelled the WRONG
+ *      residue silently had the wild-type letters coincided (the hazard `isoform-numbering.ts`
+ *      exists to prevent);
+ *   2. every gene-keyed lookup downstream received the RETIRED symbol `CPSF3L`.
+ *
+ * UniProt states both facts authoritatively (Ensembl cross-references carry `isoformId` per
+ * transcript; `genes[].geneName` is the current symbol and `synonyms` the retired ones), so they are
+ * READ, never inferred from the gene symbol or from a position. Annotating the payload in place is
+ * what makes the EXISTING reconciliation machinery do the right thing: with the basis stated, the
+ * sibling on canonical isoform `Q5TA45-1` becomes a canonically-numbered sibling, and the verdict
+ * is `remapped` → `p.Arg17Leu` — proven, disclosed and cacheable, exactly as on GRCh38.
+ *
+ * SCOPE GATE: runs only for a payload that declares NO isoform metadata anywhere. Where the provider
+ * did supply it (every current Ensembl release, and the GRCh38 host), its own answer is
+ * authoritative and this function is a no-op that costs no network call.
+ *
+ * DEGRADATION: a UniProt failure leaves the payload untouched (today's `unverified` disclosure,
+ * never a fabricated basis), and the response is still returned.
+ */
+export async function enrichFromUniprotReferenceData(
+  consequence: ResolvedConsequence,
+  signal?: AbortSignal
+): Promise<ResolvedConsequence> {
+  const consequences = consequence.transcript_consequences ?? [];
+  if (consequences.length === 0) return consequence;
+  if (consequences.some((tc) => normalizeIsoformIds(tc.uniprot_isoform).length > 0)) {
+    return consequence;
+  }
+
+  const selected = selectProteinConsequence(consequences);
+  const canonicalAccession = selected ? canonicalAccessionOf(selected) : undefined;
+  if (!selected || !canonicalAccession) return consequence;
+
+  let referenceData: UniprotEntryReferenceData;
+  try {
+    referenceData = await fetchUniprotEntryReferenceData(canonicalAccession, { signal });
+  } catch (err: any) {
+    console.warn(
+      `[Coord Translator] Could not read UniProt reference data for ${canonicalAccession} ` +
+        `(${err?.message ?? err}); the numbering basis stays unverified.`
+    );
+    return consequence;
+  }
+
+  const isoformByTranscript = new Map<string, string>();
+  const isoformByProtein = new Map<string, string>();
+  for (const ref of referenceData.isoforms) {
+    isoformByTranscript.set(ref.transcriptId, ref.isoformId);
+    if (ref.proteinId) isoformByProtein.set(ref.proteinId, ref.isoformId);
+  }
+
+  const reportedSymbol = selected.gene_symbol?.trim();
+  const currentSymbol = referenceData.geneSymbol?.trim();
+  /**
+   * Rename only a symbol UniProt LISTS for this entry (as the primary name or a synonym): that is
+   * proof the provider is naming the same gene with a retired/alternate symbol. An unlisted symbol
+   * is left alone — it may not be this entry's gene at all, and rewriting it would attribute the
+   * payload to the wrong gene.
+   */
+  const renameSymbol = Boolean(
+    reportedSymbol &&
+      currentSymbol &&
+      reportedSymbol.toUpperCase() !== currentSymbol.toUpperCase() &&
+      referenceData.geneSymbols.some(
+        (listed) => listed.toUpperCase() === reportedSymbol.toUpperCase()
+      )
+  );
+
+  let annotatedIsoforms = 0;
+  let renamedSymbols = 0;
+  const transcript_consequences = consequences.map((tc) => {
+    let next = tc;
+
+    const isoformId = isoformIdForConsequence(tc, isoformByTranscript, isoformByProtein);
+    if (isoformId) {
+      next = { ...next, uniprot_isoform: [isoformId] };
+      annotatedIsoforms++;
+    }
+
+    if (
+      renameSymbol &&
+      next.gene_symbol &&
+      next.gene_symbol.toUpperCase() === reportedSymbol!.toUpperCase()
+    ) {
+      next = { ...next, gene_symbol: currentSymbol };
+      renamedSymbols++;
+    }
+
+    return next;
+  });
+
+  if (annotatedIsoforms === 0 && renamedSymbols === 0) return consequence;
+
+  if (renamedSymbols > 0) {
+    console.log(
+      `[Coord Translator] Provider reported the retired gene symbol "${reportedSymbol}"; ` +
+        `using UniProt's current symbol "${currentSymbol}" for ${canonicalAccession}.`
+    );
+  }
+
+  return {
+    ...consequence,
+    transcript_consequences,
+    ...(renamedSymbols > 0
+      ? { geneSymbolUpdated: { from: reportedSymbol!, to: currentSymbol! } }
+      : {}),
+  };
+}
+
+/** `ENST00000540437.5` -> `ENST00000540437`. */
+function versionlessIdentifier(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const id = value.trim().split(".")[0]?.trim().toUpperCase();
+  return id || undefined;
+}
+
+/**
+ * UniProt's isoform assignment for one consequence, by transcript id first and protein id second.
+ *
+ * Both are versionless because the provider and UniProt version them independently
+ * (`ENST00000540437.1` in the GRCh37 payload versus `ENST00000540437.5` in UniProt's cross-reference).
+ */
+function isoformIdForConsequence(
+  tc: ResolvedTranscriptConsequence,
+  isoformByTranscript: Map<string, string>,
+  isoformByProtein: Map<string, string>
+): string | undefined {
+  const transcriptId = versionlessIdentifier(tc.transcript_id);
+  if (transcriptId) {
+    const byTranscript = isoformByTranscript.get(transcriptId);
+    if (byTranscript) return byTranscript;
+  }
+
+  const proteinId =
+    versionlessIdentifier(tc.numbering_protein_id) ??
+    versionlessIdentifier(typeof tc.hgvsp === "string" ? tc.hgvsp.split(":")[0] : undefined);
+  return proteinId ? isoformByProtein.get(proteinId) : undefined;
+}
+
+/**
+ * Both repairs a provider payload can need, in the order they must run.
+ *
+ * `swissprot` is converted first because the accession is what identifies the UniProt entry the
+ * isoform and gene-symbol reference data is read from.
+ */
+export async function normalizeProviderConsequence(
+  consequence: ResolvedConsequence,
+  signal?: AbortSignal
+): Promise<ResolvedConsequence> {
+  const withAccessions = await normalizeSwissprotAccessions(consequence, signal);
+  return enrichFromUniprotReferenceData(withAccessions, signal);
 }
 
 /** MANE Select, else Ensembl canonical, else any consequence that reports a protein change. */
@@ -228,13 +499,23 @@ export async function fetchEnsemblVepConsequence(
   }
 
   if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    /**
+     * A refusal that names the reference is about the COORDINATE, not about the provider's health.
+     *
+     * Classified before the status is consulted (except for a rate limit, which is a statement about
+     * our request rate and outranks everything): the status only tells us the request was refused,
+     * while the body says why, and "reference allele does not match" is the build-mismatch signature
+     * this taxonomy previously buried under `invalid_response`.
+     */
     const failureKind: ProviderAttempt["failureKind"] =
       response.status === 429
         ? "rate_limited"
-        : response.status >= 500
-          ? "upstream_unavailable"
-          : "invalid_response";
-    const text = await response.text().catch(() => "");
+        : isReferenceMismatchMessage(text)
+          ? "reference_mismatch"
+          : response.status >= 500
+            ? "upstream_unavailable"
+            : "invalid_response";
     throw new CoordinateResolutionError(
       failureKind,
       `Ensembl VEP API returned status ${response.status}: ${text.slice(0, 300)}`,
@@ -251,6 +532,19 @@ export async function fetchEnsemblVepConsequence(
     throw new CoordinateResolutionError("invalid_response", "Ensembl VEP returned malformed JSON.", [
       attempt(false, "malformed JSON", "invalid_response"),
     ]);
+  }
+
+  /**
+   * A 200 carrying an `error` body is still a refusal, and a reference mismatch in that shape means
+   * the same thing as the 4xx form. Checked before the schema: otherwise the schema reports the
+   * envelope as an unusable payload and the build remedy never reaches the caller.
+   */
+  if (isReferenceMismatchMessage((raw as any)?.error)) {
+    throw new CoordinateResolutionError(
+      "reference_mismatch",
+      `Ensembl VEP refused the coordinate: ${String((raw as any).error).slice(0, 300)}`,
+      [attempt(false, "reference allele mismatch", "reference_mismatch")]
+    );
   }
 
   const parsed = ensemblResponseSchema.safeParse(raw);
@@ -409,18 +703,18 @@ export function computeRungWindowMs(params: {
 /**
  * Collapses per-provider failures into a single machine-readable cause.
  *
- * Order matters. `invalid_response` is checked BEFORE `not_found`: when one provider answers
- * "nothing here" and another returns an unusable payload, "no transcript consequence was found
- * in any provider" is untrue — the honest report is that a provider was unusable, and the client
- * should retry rather than rewrite a coordinate that may be perfectly valid.
+ * Order matters, and the two top ranks are deliberate. A REFERENCE MISMATCH outranks a rate limit:
+ * it is a statement about the REQUEST (the coordinate's alleles are not the reference's), it is what
+ * tells the reader what to change, and every rung would answer the same way once we were allowed to
+ * ask again — so reporting "wait a minute" first costs a round trip to learn a fact we already have.
+ * A rate limit still outranks an outage: it is about OUR request rate, and calling it unreachable
+ * sends the reader hunting for a provider problem while the remedy is to slow down. `invalid_response`
+ * is checked BEFORE `not_found`: when one provider answers "nothing here" and another returns an
+ * unusable payload, "no transcript consequence was found in any provider" is untrue.
  */
 function classifyTotalFailure(attempts: ProviderAttempt[]): ResolutionFailureKind {
   const kinds = attempts.map((a) => a.failureKind).filter(Boolean) as ResolutionFailureKind[];
-  /**
-   * A rate limit outranks the others: it is a statement about OUR request rate, and reporting it as an
-   * outage ("all providers unreachable") sends the reader hunting for a provider problem while the
-   * actual remedy is to slow down and wait.
-   */
+  if (kinds.includes("reference_mismatch")) return "reference_mismatch";
   if (kinds.includes("rate_limited")) return "rate_limited";
   if (kinds.length > 0 && kinds.every((k) => k === "upstream_unavailable")) {
     return "upstream_unavailable";
@@ -453,10 +747,41 @@ export function buildResolutionUnavailableMessage(
       "exists and a missense analysis is not possible."
     );
   }
+  if (kind === "reference_mismatch") {
+    /**
+     * The one failure whose remedy is a DIFFERENT COORDINATE, not another attempt.
+     *
+     * Written to be actionable without the `buildHint` field (an agent reading only the message still
+     * learns what to change), and worded so that both causes are named: the coordinate may be stated
+     * in another build, or its alleles may be mistyped. No provider name appears — which provider
+     * refused is `details.attempts`.
+     */
+    return (
+      "The reference allele does not match the reference sequence at that position on the genome " +
+      "build the coordinate was read against, so no transcript consequence can be derived. The usual " +
+      "cause is a genome-build mismatch: the same locus has a different reference base in GRCh37 and " +
+      "GRCh38, so a coordinate from the other build looks exactly like this. State the build — for " +
+      'example "Chr1(GRCh37):g.1256452C>A" — and it will be verified on the canonical build first, ' +
+      "then annotated on whichever build it could be verified against. Check the REF/ALT alleles and " +
+      "the position too: a mistyped allele reads the same way."
+    );
+  }
   if (kind === "invalid_response") {
+    /**
+     * Names the wrong-build case, because it is the common cause of an unusable answer and the
+     * remedies are opposite: a degraded provider is fixed by retrying, whereas a coordinate whose
+     * alleles do not match the reference sequence is fixed by stating its build. Ensembl answers a
+     * build mismatch with a 4xx "reference allele … does not match", which this taxonomy reports
+     * here — so without this sentence a user who pasted an hg19 coordinate was told to wait a
+     * minute and try again, forever.
+     */
     return (
       "Coordinate translation providers returned unusable responses (they are degraded right now). " +
-      "Retry in a minute, or enter the protein-level substitution directly (for example " +
+      "A coordinate whose alleles do not match the reference sequence for the stated genome build " +
+      "also reads this way: if the coordinate came from another build, annotate it — for example " +
+      '"Chr1(GRCh37):g.1256452C>A" — and it will be verified on the canonical build first, then ' +
+      "annotated on whichever build it could be verified against. " +
+      "Otherwise retry in a minute, or enter the protein-level substitution directly (for example " +
       "p.Glu433Lys) to run the analysis without coordinate translation."
     );
   }
@@ -679,7 +1004,16 @@ export async function resolveCoordinate(
             });
             clearTimeout(windowTimer);
 
-            const target = resolveProteinTarget(consequence.transcript_consequences ?? []);
+            // Provider payloads are normalised before anything is derived from them: the numbering
+            // verdict (and with it the cache decision and the route's accession validation) compares
+            // against `swissprot`/`uniprot_isoform`, and Ensembl's GRCh37 archive reports an entry
+            // NAME there and omits the isoform field entirely. See normalizeProviderConsequence.
+            const normalizedConsequence = await normalizeProviderConsequence(
+              consequence,
+              providerSignal
+            );
+
+            const target = resolveProteinTarget(normalizedConsequence.transcript_consequences ?? []);
             if (!target.proteinChangeFound) {
               // A provider that maps the coordinate only to non-coding consequences has not
               // answered this platform's question. Record the miss, keep the payload for the
@@ -691,7 +1025,7 @@ export async function resolveCoordinate(
                 failureKind: "not_found",
               });
               if (!informative) {
-                informative = consequence;
+                informative = normalizedConsequence;
                 informativeProvider = provider;
               }
               continue;
@@ -701,10 +1035,10 @@ export async function resolveCoordinate(
             // Persist fallback provenance with the payload so a later cache read does
             // not silently upgrade a degraded answer to a first-choice one.
             return {
-              consequence,
+              consequence: normalizedConsequence,
               assembly,
-              resolvedBy: consequence.provider,
-              usedFallback: consequence.provider !== PROVIDER_CHAIN[0].provider,
+              resolvedBy: normalizedConsequence.provider,
+              usedFallback: normalizedConsequence.provider !== PROVIDER_CHAIN[0].provider,
             };
           } catch (err: any) {
             clearTimeout(windowTimer);
@@ -760,7 +1094,22 @@ export async function resolveCoordinate(
       ? [{ provider: cached.resolvedBy, ok: true, durationMs: 0, reason: "cache_hit" }]
       : lastAttempts;
 
-    return buildOutcome(cached.consequence, {
+    /**
+     * Normalize on READ as well as on fetch.
+     *
+     * The repair above runs inside the fetcher, so a cache HIT returned the stored payload verbatim —
+     * and a coordinate translation is cached for ~10 years under a schema version that had not
+     * changed. An entry written before the repair existed (or by another deployment) would therefore
+     * still deliver `swissprot: ["INT11_HUMAN"]`, which the route passes to `validateUniProt` and
+     * 422s a coordinate that resolves. Re-normalizing here is free on a repaired payload: both
+     * normalizers return immediately when there is nothing to rewrite, and the enrichment is skipped
+     * outright when the payload already declares its isoforms.
+     */
+    const served = cacheHit
+      ? await normalizeProviderConsequence(cached.consequence)
+      : cached.consequence;
+
+    return buildOutcome(served, {
       assembly: cached.assembly,
       attempts,
       // Prefer the provenance stored with the payload; fall back to deriving it for

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
 import type { PredictorConcordance } from "./thresholds/concordance";
+import { CANONICAL_ASSEMBLY, statedAssemblyOf, type AssemblyTaggedCoordinate } from "./assembly";
+import type { GenomeAssembly } from "./variantNotation";
 
 /**
  * The FoldX phase vocabulary, as a schema.
@@ -227,10 +229,185 @@ export const numberingRemapSchema = z.object({
 });
 export type NumberingRemapRecord = z.infer<typeof numberingRemapSchema>;
 
+/**
+ * The genome-build decision taken for a coordinate, declared ONCE.
+ *
+ * WHY IT IS ON THE WIRE
+ * ---------------------
+ * A user may enter an hg19/GRCh37 coordinate, and every single-build source in this application is
+ * pinned to GRCh38 (`src/shared/assembly.ts`). The resolution therefore LIFTS the coordinate onto
+ * the canonical build first — reverse-verified — and that decision is evidence a report, a UI and an
+ * agent all have to be able to state: which build was submitted, which build answered, whether the
+ * two are the same variant, and, when no lift was possible, WHY.
+ *
+ * The statuses are deliberately distinct, because they call for different words:
+ *   - `lifted`         — a verified lift exists; `toCoordinates` is the canonical locus used.
+ *   - `unavailable`    — a lift was attempted and could NOT be verified (ambiguous mapping,
+ *                        reference discontinuity, upstream outage). The coordinate is resolved on
+ *                        the build it was submitted in, and its annotation is therefore older.
+ *   - `not-needed`     — the submitted build IS canonical; no lift is involved.
+ *   - `not-applicable` — nothing liftable was submitted (cDNA, indels, protein notation).
+ */
+/**
+ * The two builds this platform speaks, declared once.
+ *
+ * Shared so that every reader of a build — the lift record, a refusal's trail, a hint — validates
+ * against the same enum instead of re-typing it, which is how a reader comes to accept a value no
+ * writer can produce.
+ */
+export const genomeAssemblySchema = z.enum(["GRCh37", "GRCh38"]);
+
+export const coordinateLiftSchema = z.object({
+  status: z.enum(["lifted", "unavailable", "not-needed", "not-applicable"]),
+  /** Build of the coordinate as submitted. */
+  fromAssembly: z.enum(["GRCh37", "GRCh38"]),
+  /** Build the annotation actually ran against. */
+  toAssembly: z.enum(["GRCh37", "GRCh38"]),
+  /** Hyphen form (`chrom-pos-ref-alt`) in `fromAssembly`, when the notation carried one. */
+  fromCoordinates: z.string().optional(),
+  /** Hyphen form in `toAssembly`; present only when `status === "lifted"`. */
+  toCoordinates: z.string().optional(),
+  /** Always true on a recorded lift — a failed round-trip produces no coordinates at all. */
+  reverseVerified: z.boolean().optional(),
+  /**
+   * Whether the SUBMITTED build was actually stated (inline annotation, or a RefSeq accession that
+   * names its own reference sequence) rather than defaulted to GRCh38.
+   *
+   * Present because the record is read as EVIDENCE: without it, a bare `chr1:g.…` reports
+   * `fromAssembly: "GRCh38"` — a build nobody stated, presented as established. Absent on records
+   * the analysis route derives from a caller-supplied pair, where "declared" cannot be known; a
+   * consumer must then treat the build as caller-stated rather than established.
+   */
+  buildDeclared: z.boolean().optional(),
+  /**
+   * WHY no lift was used, as a code a caller can branch on — the prose `reason` beside it is for
+   * human eyes.
+   *
+   * The distinction that matters is retryable versus definitive. `map-unavailable` and
+   * `budget-exceeded` are worth another attempt (the assembly map was not reachable, or our own
+   * deadline stopped it); `no-mapping`, `ambiguous-mapping` and `contig-changed` describe the
+   * coordinate's position in the reference — `ambiguous-mapping` covers every non-unique answer the map
+   * can give (several mappings, a strand flip, a range expansion), so it does NOT mean "mapped more
+   * than once"; `reference-discontinuity` says the two assemblies disagree at that base, which no
+   * number of retries will change; and `no-genomic-locus` / `unsupported-contig` say nothing was
+   * liftable in the first place (`no-genomic-locus` is cDNA or protein notation — in scope for this
+   * platform, and simply carrying no genomic position to lift).
+   */
+  reasonCode: z
+    .enum([
+      "no-mapping",
+      "ambiguous-mapping",
+      "contig-changed",
+      "round-trip-failed",
+      "reference-discontinuity",
+      "map-unavailable",
+      "budget-exceeded",
+      "invalid-coordinate",
+      "no-genomic-locus",
+      "unsupported-contig",
+    ])
+    .optional(),
+  /** Why no lift was used, in one line, when `status` is not `"lifted"`. */
+  reason: z.string().optional(),
+});
+export type CoordinateLiftRecord = z.infer<typeof coordinateLiftSchema>;
+
+/** The lift-failure codes that are worth another attempt, for callers that advise one. */
+export const RETRYABLE_LIFT_REASONS: readonly CoordinateLiftRecord["reasonCode"][] = [
+  "map-unavailable",
+  "budget-exceeded",
+];
+
+/** True when a refused lift may succeed later (an outage or our own deadline, not a reference fact). */
+export function isRetryableLiftRefusal(record: CoordinateLiftRecord | null | undefined): boolean {
+  if (!record || record.status !== "unavailable") return false;
+  return record.reasonCode !== undefined && RETRYABLE_LIFT_REASONS.includes(record.reasonCode);
+}
+
+/**
+ * The build decision as the ANALYSIS route can establish it — derived, never accepted from the
+ * caller.
+ *
+ * WHY IT EXISTS
+ * -------------
+ * The translate route knows things the analysis route cannot: whether a lift was ATTEMPTED, whether
+ * its round-trip passed, and why it failed. So the translate response carries the authoritative
+ * record. The analysis route is a different request, fed by a client, and accepting a
+ * `coordinateLift` object from it would turn a disclosure back into client-assertable decoration —
+ * anyone could post `{status:"lifted", reverseVerified:true}` and a rail would print "verified".
+ *
+ * What the caller CAN supply are facts: the submitted coordinate with its build, and the canonical
+ * locus the translation step handed it. This function writes the interpretation of those facts, and
+ * the pair is bound downstream by the coordinate-first predictor query (contig/position/REF echo,
+ * gene, and substitution — `vep-orchestrator`), so a fabricated canonical locus cannot survive it.
+ * Statuses the analysis route cannot observe are therefore not invented: it reports `lifted` for a
+ * complete pair, `not-needed` for a canonical submitted build, and `unavailable` for a non-canonical
+ * one that arrived without a canonical pair.
+ */
+export function deriveCoordinateLift(params: {
+  submittedAssembly?: GenomeAssembly | null;
+  submittedCoordinates?: string | null;
+  resolvedAssembly?: GenomeAssembly | null;
+  liftedGenomicCoordinates?: string | null;
+}): CoordinateLiftRecord | undefined {
+  const submitted = params.submittedAssembly ?? null;
+  if (!submitted) return undefined;
+
+  const parsedLifted = params.liftedGenomicCoordinates
+    ? parseGenomicCoordinateString(params.liftedGenomicCoordinates)
+    : null;
+  const toCoordinates = parsedLifted
+    ? `${parsedLifted.chrom}-${parsedLifted.pos}-${parsedLifted.ref}-${parsedLifted.alt}`
+    : undefined;
+  const fromCoordinates = params.submittedCoordinates ?? undefined;
+
+  if (parsedLifted && params.resolvedAssembly) {
+    return {
+      status: "lifted",
+      fromAssembly: submitted,
+      toAssembly: params.resolvedAssembly,
+      ...(fromCoordinates ? { fromCoordinates } : {}),
+      toCoordinates,
+      reverseVerified: true,
+    };
+  }
+
+  if (submitted !== CANONICAL_ASSEMBLY) {
+    return {
+      status: "unavailable",
+      fromAssembly: submitted,
+      toAssembly: submitted,
+      ...(fromCoordinates ? { fromCoordinates } : {}),
+      /**
+       * NO `reasonCode`, deliberately. This route never attempted a lift, so it cannot know whether
+       * one would have been refused for a retryable reason or for a fact about the reference — and a
+       * code invented here would be the one field a caller branches on. Absent reads as "not
+       * established", which is true and is the conservative answer for `isRetryableLiftRefusal`.
+       */
+      reason:
+        `the coordinate was not verified on the ${CANONICAL_ASSEMBLY} reference, so it was ` +
+        `annotated on the ${submitted} reference, whose annotation release predates MANE Select`,
+    };
+  }
+
+  return {
+    status: "not-needed",
+    fromAssembly: submitted,
+    toAssembly: submitted,
+    ...(fromCoordinates ? { fromCoordinates } : {}),
+  };
+}
+
 export const translateVariantResponseSchema = z.object({
   gene: z.string(),
   variant: z.string(),
   uniprotId: z.string(),
+  /**
+   * Present when the provider named the resolved gene with a RETIRED symbol that UniProt lists as a
+   * synonym of this entry, so `gene` is the current HGNC symbol instead (Ensembl's GRCh37 archive
+   * answers `CPSF3L` for `INTS11`). Records the swap rather than hiding it.
+   */
+  geneSymbolUpdated: z.object({ from: z.string(), to: z.string() }).optional(),
   transcriptId: z.string().optional(),
   isManeSelect: z.boolean().optional(),
   isManePlusClinical: z.boolean().optional(),
@@ -267,11 +444,41 @@ export const translateVariantResponseSchema = z.object({
    */
   numberingRemap: numberingRemapSchema.optional(),
   genomicCoordinates: z.string().nullable().optional(),
-  /** Genome build the notation was resolved against, from an inline "(GRCh38)" annotation. */
-  assembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+  /**
+   * Genome build the SUBMITTED coordinate is expressed in — the caller's own spelling, from an
+   * inline `(GRCh38)`/`(hg19)` annotation or a RefSeq chromosome accession.
+   *
+   * NOT the build the annotation ran against: that is `resolvedAssembly`. The two differ exactly
+   * when a GRCh37 coordinate was verified onto the canonical build first.
+   *
+   * Nullable to match `TranscriptMetadata` and the analysis-result schema: the three layers must
+   * permit the same shapes, or a `null` one layer allows is a hard client parse failure in another.
+   */
+  assembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  /**
+   * Build the returned `variant`/`uniprotId` were ANNOTATED on. Equals `assembly` unless the
+   * submitted coordinate was verified onto the canonical build first (see `coordinateLift`), in
+   * which case it is `"GRCh38"` while `assembly` still states what the user typed.
+   *
+   * Read this — not `assembly` — when asking "which reference release numbered this?".
+   */
+  resolvedAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  /**
+   * Canonical-build locus (`chrom-pos-ref-alt`) when a lift was verified. Present only alongside
+   * `coordinateLift.status === "lifted"`, and equal in locus to `genomicCoordinates` after the
+   * lift — `genomicCoordinates` stays the coordinate the CALLER submitted, with its build.
+   */
+  liftedGenomicCoordinates: z.string().nullable().optional(),
+  /** How the build was decided for this coordinate. Absent for protein-only notation. */
+  coordinateLift: coordinateLiftSchema.nullable().optional(),
   /** Canonical form of the submitted notation after normalization (annotation stripped). */
   notationNormalized: z.string().optional(),
-  /** Present when an inline assembly annotation redirected the query (e.g. to GRCh37). */
+  /**
+   * Prose explanation of the build decision: an inline annotation was honoured (or overridden by a
+   * RefSeq accession that states a different build), or the coordinate was verified onto the
+   * canonical reference, or it could not be and was annotated on the older archive. API prose for
+   * reports and clients; the machine-readable twin is `coordinateLift`.
+   */
   assemblyNote: z.string().optional(),
   /**
    * Which resolution provider answered, whether a fallback was used, and what else was
@@ -412,6 +619,24 @@ export const biophysicalAnalysisRequestSchema = z.object({
    */
   genomicCoordinates: z.string().max(64).optional(),
   assembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+  /**
+   * The CANONICAL-build locus and build, when the translation step verified them.
+   *
+   * Forwarded alongside the submitted pair, never instead of it: `genomicCoordinates`/`assembly`
+   * describe what the user entered (and are what a report cites), while these describe the locus
+   * the annotation actually came from. Consumers must prefer these for coordinate-first queries —
+   * they are already on the build every coordinate-consuming source is pinned to, so no second lift
+   * is needed and the annotation basis provably equals the locus being scored.
+   */
+  liftedGenomicCoordinates: z.string().max(64).optional(),
+  resolvedAssembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+  /**
+   * The build decision the translation step took (verified lift, or why none was possible).
+   * Carried through to the payload so a result and a report can state the trail — and, when a
+   * coordinate could not be verified on the canonical build, name the reason instead of leaving a
+   * reader to guess why the annotation came from an older release.
+   */
+  coordinateLift: coordinateLiftSchema.optional(),
   /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
   numberingBasis: z.enum(["canonical"]).optional(),
   options: z.any().optional()
@@ -421,6 +646,17 @@ export const biophysicalAnalysisResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
   biochemicalShift: z.string().optional(),
   structuralImpact: z.string().optional(),
+  /**
+   * The genome-build trail, declared here because THIS is the schema the client actually parses
+   * (`biophysicsApi.getBiophysicalAnalysis` / `streamBiophysicalAnalysis`). The same four fields
+   * were declared on `analyzeVariantResponseSchema`, which nothing parses at runtime, so they
+   * survived this parse only through `passthrough()` — typed `unknown`, which is how a field that
+   * travels with every payload ends up unreachable from the API's own declared return type.
+   */
+  assembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  resolvedAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  liftedGenomicCoordinates: z.string().nullable().optional(),
+  coordinateLift: coordinateLiftSchema.nullable().optional(),
   insights: z.object({
     biochemicalShift: z.string().optional(),
     structuralImpact: z.string().optional(),
@@ -694,6 +930,51 @@ export function parseGenomicCoordinateString(rawId?: string | null): { chrom: st
     }
   }
   return null;
+}
+
+/**
+ * The coordinate a coordinate-first predictor query should use, paired with its build.
+ *
+ * WHY IT LIVES IN SHARED
+ * ----------------------
+ * Two server call sites built this by hand, and both read only the SUBMITTED pair — so a GRCh37
+ * input reached the predictor tagged GRCh37 and was lifted a second time downstream (or refused by
+ * every GRCh38-only source). The whole job here is PAIRING, and a coordinate paired with the wrong
+ * build is the wrong-locus hazard `src/shared/assembly.ts` exists to prevent: a GRCh37 position
+ * handed to a GRCh38 index either misses or, when the reference base coincides, scores a different
+ * locus and returns plausible numbers attributed to this variant.
+ *
+ * The lifted pair wins when present because it is the one the translation step VERIFIED, and a
+ * lifted coordinate is canonical by construction. Anything unparseable is ignored — never coerced.
+ */
+export function predictorCoordinateFromContext(context: {
+  genomicCoordinates?: string | null;
+  assembly?: GenomeAssembly | null;
+  liftedGenomicCoordinates?: string | null;
+  resolvedAssembly?: GenomeAssembly | null;
+}): AssemblyTaggedCoordinate | null {
+  /**
+   * The lifted pair is used only when BOTH halves are present.
+   *
+   * This is the same rule the analysis intake applies (`variant-parser` drops an unpaired canonical
+   * coordinate) and the one `doc/API.md` states — "a canonical coordinate sent without its build is
+   * dropped, never assumed canonical". An earlier version defaulted the missing build to
+   * `CANONICAL_ASSEMBLY`, which was *probably* right but put the safety in a doc sentence rather
+   * than in the helper: a coordinate's build is never ours to infer. Falling through to the
+   * submitted pair is not a loss — the predictor lifts that coordinate itself, exactly as it did
+   * before lift-first existed.
+   */
+  const lifted = context.liftedGenomicCoordinates
+    ? parseGenomicCoordinateString(context.liftedGenomicCoordinates)
+    : null;
+  if (lifted && context.resolvedAssembly) {
+    return { ...lifted, assembly: context.resolvedAssembly };
+  }
+
+  const submitted = context.genomicCoordinates
+    ? parseGenomicCoordinateString(context.genomicCoordinates)
+    : null;
+  return submitted ? { ...submitted, assembly: context.assembly ?? CANONICAL_ASSEMBLY } : null;
 }
 
 /**
@@ -1019,6 +1300,17 @@ export const analyzeVariantResponseSchema = z.object({
   numberingVerified: z.boolean().nullable().optional(),
   numberingUnverifiedReason: z.string().nullable().optional(),
   numberingRemap: numberingRemapSchema.nullable().optional(),
+  /**
+   * Genome-build trail for the analysed variant, carried into the result so no surface has to
+   * guess or hardcode a build: `assembly` is what the caller's coordinate was expressed in,
+   * `resolvedAssembly` is the build the annotation came from, and `coordinateLift` states whether
+   * the two are the same variant (verified lift) or why no lift was possible.
+   */
+  assembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  resolvedAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  /** Hyphen form of the locus in `resolvedAssembly`, when a lift was verified. */
+  liftedGenomicCoordinates: z.string().nullable().optional(),
+  coordinateLift: coordinateLiftSchema.nullable().optional(),
   gnomadFrequency: z.object({
     maxAF: z.number().nullable(),
     groupMaxAF: z.number().nullable().optional(),
@@ -1176,6 +1468,60 @@ export const numberingChoiceSchema = z.object({
 });
 export type NumberingChoice = z.infer<typeof numberingChoiceSchema>;
 
+/**
+ * The alternative-build spelling offered when a provider reports a reference-allele mismatch
+ * (`COORDINATE_REFERENCE_MISMATCH`).
+ *
+ * WHY IT IS A NOTATION, NOT JUST A BUILD. `notation` is the SAME coordinate written with an explicit
+ * `(GRCh37)`/`(GRCh38)` annotation — the server composes it, so the client never splices a build into
+ * a coordinate grammar of its own. Submitting it is therefore a complete request that states its
+ * build, which is the whole point: the refusal's usual cause is a coordinate read against the wrong
+ * reference, and the remedy is to state the right one rather than to assume it.
+ *
+ * `assembly` is carried beside it so a caller can label the choice without parsing the notation.
+ *
+ * VALIDATED, NOT TRUSTED. The notation must actually STATE `assembly` — otherwise the button would
+ * promise "this states the build" over a string that states nothing (or, worse, states the other
+ * build), and clicking it would re-send a request the server has already refused. The length is capped
+ * for the same reason every other server-supplied string is: a body is not allowed to make the UI
+ * render an unbounded label.
+ */
+export const buildHintSchema = z
+  .object({
+    assembly: z.enum(["GRCh37", "GRCh38"]),
+    /** The submitted coordinate, annotated with `assembly`, ready to submit. */
+    notation: z.string().min(1).max(200),
+    /**
+     * The build the coordinate was actually READ against when the alleles failed to match.
+     *
+     * Carried so the refusal can say what happened ("no reference base matched on GRCh38") rather than
+     * only what to try — the two halves are what make the prompt a statement instead of a guess.
+     */
+    triedAssembly: z.enum(["GRCh37", "GRCh38"]).optional(),
+    /** Why this alternative is offered, in one line. */
+    reason: z.string().optional(),
+  })
+  .refine((hint) => statedAssemblyOf(hint.notation)?.build === hint.assembly, {
+    message: "buildHint.notation must state the build it offers",
+    path: ["notation"],
+  });
+export type BuildHint = z.infer<typeof buildHintSchema>;
+
+/**
+ * Refusal codes that cross the client/server boundary, written ONCE.
+ *
+ * A code is a string on both sides of an HTTP response, and the client branches on it to decide
+ * whether a refusal becomes a question the reader can answer. A typo on either side does not fail to
+ * compile — it silently disables the prompt, and the reader is left with a message and nothing to
+ * click. Both ends import these.
+ */
+export const REFUSAL_CODES = {
+  /** The notation's residue numbers are equally consistent with two numberings. */
+  ambiguousProteinNumbering: "AMBIGUOUS_PROTEIN_NUMBERING",
+  /** The coordinate's REF allele matches no reference base on the build it was read against. */
+  coordinateReferenceMismatch: "COORDINATE_REFERENCE_MISMATCH",
+} as const;
+
 export interface TranscriptMetadata {
   transcriptId?: string | null;
   isManeSelect?: boolean;
@@ -1203,7 +1549,45 @@ export interface TranscriptMetadata {
    */
   numberingDisambiguated?: boolean | null;
   numberingRemap?: NumberingRemapRecord | null;
+  /**
+   * Genome-build trail of the analysed variant.
+   *
+   * Declared on the INTERFACE for the same reason as the numbering fields above: the payload
+   * carries them (both builders spread them) and a type that does not name them forces every
+   * consumer to widen with a cast — which is how a field that "travels with every payload" ends up
+   * reaching nobody. `assembly` is the build the caller's coordinate was expressed in,
+   * `resolvedAssembly` is the build the annotation came from (they differ exactly when a lift was
+   * verified), and `coordinateLift` states the decision plus, when no lift was possible, why.
+   */
+  assembly?: GenomeAssembly | null;
+  resolvedAssembly?: GenomeAssembly | null;
+  /** Hyphen form of the verified canonical locus, present only when a lift was verified. */
+  liftedGenomicCoordinates?: string | null;
+  coordinateLift?: CoordinateLiftRecord | null;
+  /**
+   * Set when the provider named the resolved gene with a RETIRED symbol that UniProt lists as a
+   * synonym of this entry, so `gene` is the current HGNC symbol instead.
+   *
+   * Declared here, beside the build trail, because it is the same kind of provenance: the substance
+   * (`gene`) is already correct, but a report that must state WHICH symbol the provider used would
+   * otherwise have to re-derive it — and the translate response is the only place that knows.
+   */
+  geneSymbolUpdated?: { from: string; to: string } | null;
 }
+
+/**
+ * The genome-build trail as a nameable unit — ONE definition for the server payload, the client
+ * pipeline and every surface that renders it.
+ *
+ * Extracted rather than re-declared per layer: a second interface with the same shape ("client
+ * provenance") drifts the moment a field is added, and the drift is silent because every field is
+ * optional — a surface then renders the build it was written against instead of the one the payload
+ * states, which is exactly the hardcoded-`GRCh38` defect this trail exists to remove.
+ */
+export type AssemblyProvenance = Pick<
+  TranscriptMetadata,
+  "assembly" | "resolvedAssembly" | "liftedGenomicCoordinates" | "coordinateLift"
+>;
 
 export type AcmgVerdict = "Pathogenic" | "Likely Pathogenic" | "VUS" | "Likely Benign" | "Benign";
 
@@ -1443,6 +1827,15 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   numberingChoices?: NumberingChoice[] | null;
   /** The ambiguous notation as written, echoed so the prompt can quote it. */
   numberingNotation?: string | null;
+  /**
+   * Present when the run was REFUSED because the coordinate's REF allele matches no reference base
+   * on the build it was read against (`COORDINATE_REFERENCE_MISMATCH`).
+   *
+   * Carries the same coordinate annotated with the OTHER build, ready to submit, so the refusal is a
+   * one-click next step instead of a dead end — the usual cause is a genome-build mismatch, and the
+   * remedy is to state the build rather than to retype the coordinate.
+   */
+  buildHint?: BuildHint | null;
   analysis?: string | null;
   isFallback?: boolean;
   /** Stable degradation code — see src/shared/narrativeFallback.ts. */

@@ -196,6 +196,59 @@ describe("analysis path — protein notation handling", () => {
     expect(malformed.context?.genomicCoordinates).toBeUndefined();
   });
 
+  /**
+   * The canonical pair the translation step verified travels BESIDE the submitted pair.
+   *
+   * The predictor queries VEP by coordinate, so a GRCh37 pair would be lifted a second time there
+   * (or refused by every GRCh38-only source). Both pairs stay intact: the submitted one is what a
+   * report cites, the canonical one is where the annotation came from — and pairing either with the
+   * wrong build is the wrong-locus hazard this route exists to refuse.
+   */
+  it("accepts the verified canonical pair alongside the submitted pair, and drops an unpaired one", async () => {
+    fetchSpy = installFetch();
+
+    const both = await parse({
+      gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      liftedGenomicCoordinates: "X-23705858-C-A", resolvedAssembly: "GRCh38",
+      coordinateLift: {
+        status: "lifted",
+        fromAssembly: "GRCh37",
+        toAssembly: "GRCh38",
+        fromCoordinates: "X-23723975-C-A",
+        toCoordinates: "X-23705858-C-A",
+        reverseVerified: true,
+      },
+    });
+
+    expect(both.statusCode).toBe(200);
+    // Submitted pair unchanged — this is what the caller entered.
+    expect(both.context?.genomicCoordinates).toBe("X-23723975-C-A");
+    expect(both.context?.assembly).toBe("GRCh37");
+    // Verified canonical pair, carried for the predictor.
+    expect(both.context?.liftedGenomicCoordinates).toBe("X-23705858-C-A");
+    expect(both.context?.resolvedAssembly).toBe("GRCh38");
+    expect(both.context?.coordinateLift?.status).toBe("lifted");
+
+    // A canonical coordinate with NO stated build is dropped rather than assumed canonical: the
+    // pairing is the point, and a coordinate's build is never ours to assume.
+    const unpaired = await parse({
+      gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+      genomicCoordinates: "X-23723975-C-A", assembly: "GRCh37",
+      liftedGenomicCoordinates: "X-23705858-C-A",
+    });
+    expect(unpaired.statusCode).toBe(200);
+    expect(unpaired.context?.liftedGenomicCoordinates).toBeUndefined();
+    expect(unpaired.context?.resolvedAssembly).toBeUndefined();
+
+    // Malformed canonical coordinate: refused even with a build beside it.
+    const malformedLift = await parse({
+      gene: "ACOT9", variant: "p.Arg55Ala", uniprotId: "Q9Y305",
+      liftedGenomicCoordinates: "X-23705858-C-A-junk", resolvedAssembly: "GRCh38",
+    });
+    expect(malformedLift.context?.liftedGenomicCoordinates).toBeUndefined();
+  });
+
   it("discloses an unverifiable numbering instead of silently trusting canonical", async () => {
     // Sequence fetch succeeds, isoform model fails: the analysis proceeds (an outage must not break
     // a valid query) but it is labelled unverified rather than presented as a clean canonical match.

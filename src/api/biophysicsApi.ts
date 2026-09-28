@@ -15,6 +15,17 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         wtPdb?: string;
         assembly?: string;
         genomicCoordinates?: string;
+        /**
+         * Verified canonical-build locus and the build the annotation came from, forwarded beside
+         * the submitted pair. The server's predictors query VEP by coordinate, so a coordinate
+         * paired with the wrong build is the wrong-locus hazard — the canonical pair is already on
+         * the build they need and cannot disagree with the annotation that produced the substitution.
+         *
+         * There is deliberately no coordinateLift here: the route derives the decision from these
+         * facts, so a caller cannot assert a "verified" lift the server never performed.
+         */
+        liftedGenomicCoordinates?: string;
+        resolvedAssembly?: string;
         numberingBasis?: string;
         options?: any;
       },
@@ -45,6 +56,9 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         acmgWeighting?: string;
         assembly?: string;
         genomicCoordinates?: string;
+        /** Same canonical-pair provenance as `getBiophysicalAnalysis` — see the note there. */
+        liftedGenomicCoordinates?: string;
+        resolvedAssembly?: string;
         numberingBasis?: string;
         options?: any;
       },

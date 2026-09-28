@@ -68,7 +68,7 @@ export function generateOpenApiSpec() {
                   "variant": {
                     "type": "string",
                     "example": "NP_001032248.1:p.Lys281Asn",
-                    "description": "Genomic HGVS, dashed coordinates, transcript cDNA, or a protein substitution qualified by the protein its numbering belongs to (`NP_…`, `<UniProt accession>[-isoform]`). An accession-qualified notation is mapped onto CANONICAL UniProt numbering; an unverifiable basis is refused rather than assumed."
+                    "description": "Genomic HGVS, dashed coordinates, transcript cDNA, or a protein substitution qualified by the protein its numbering belongs to (`NP_…`, `<UniProt accession>[-isoform]`). An accession-qualified notation is mapped onto CANONICAL UniProt numbering; an unverifiable basis is refused rather than assumed. A build may be stated inline — `Chr1(GRCh37):g.…` for a coordinate, `NM_004333.6(GRCh37):c.…` for cDNA, where it qualifies the transcript's own reference sequence — and it then decides which Ensembl host answers; without one the coordinate is read as GRCh38, and EXACTLY ONE may be stated (two annotations are refused as a contradiction). A `c.` description must name a nucleotide reference sequence with the lower-case HGVS prefix: a bare `c.…`, a protein accession, or `C.…` is refused with the fix in the message, because no provider can parse any of them. A GRCh37 genomic coordinate is lifted onto GRCh38 first (reverse-verified) and the response reports both builds."
                   }
                 }
               }
@@ -91,6 +91,14 @@ export function generateOpenApiSpec() {
                     "gene": {
                       "type": "string",
                       "example": "BRAF"
+                    },
+                    "geneSymbolUpdated": {
+                      "type": "object",
+                      "description": "Present when the provider named the resolved gene with a RETIRED symbol that UniProt lists as a synonym of this entry, so `gene` is the current HGNC symbol instead (Ensembl's GRCh37 archive answers `CPSF3L` for `INTS11`).",
+                      "properties": {
+                        "from": { "type": "string", "example": "CPSF3L" },
+                        "to": { "type": "string", "example": "INTS11" }
+                      }
                     },
                     "variant": {
                       "type": "string",
@@ -163,7 +171,37 @@ export function generateOpenApiSpec() {
                     },
                     "genomicCoordinates": {
                       "type": "string",
-                      "nullable": true
+                      "nullable": true,
+                      "description": "The locus the SUBMITTED coordinate denotes, hyphen form, in the build named by `assembly` — what a report cites, and the coordinate that must be paired with `assembly` downstream."
+                    },
+                    "resolvedAssembly": {
+                      "type": "string",
+                      "enum": [
+                        "GRCh37",
+                        "GRCh38"
+                      ],
+                      "description": "Build the returned `variant`/`uniprotId` were ANNOTATED on. Equals `assembly` unless the submitted coordinate was verified onto the canonical build first (see `coordinateLift`), in which case it is `GRCh38` while `assembly` still states what the caller typed. Read THIS — not `assembly` — when asking which reference release numbered the protein."
+                    },
+                    "liftedGenomicCoordinates": {
+                      "type": "string",
+                      "description": "The verified canonical-build locus (hyphen form), present only when a lift was verified. Forward it to the analysis routes together with `resolvedAssembly`, so the predictor does not lift the submitted coordinate a second time."
+                    },
+                    "coordinateLift": {
+                      "type": "object",
+                      "description": "How the genome build was decided for this coordinate, and — when no lift was used — why. Policy: coordinates are lifted to the canonical build when the input build differs, and the lift is reverse-verified (forward map, exact reverse round-trip, reference-base check) before use. A lift that fails any check is refused, never coerced; the coordinate is then annotated on its own build, whose annotations come from Ensembl's GRCh37 archive and predate MANE Select.",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["lifted", "unavailable", "not-needed", "not-applicable"],
+                          "description": "`lifted` = verified onto the canonical build; `unavailable` = a lift was attempted and could not be verified (annotated on the submitted build); `not-needed` = the submitted build is already canonical; `not-applicable` = nothing liftable was submitted (cDNA, indel, protein notation)."
+                        },
+                        "fromAssembly": { "type": "string", "enum": ["GRCh37", "GRCh38"] },
+                        "toAssembly": { "type": "string", "enum": ["GRCh37", "GRCh38"] },
+                        "fromCoordinates": { "type": "string", "example": "1-1256452-C-A" },
+                        "toCoordinates": { "type": "string", "example": "1-1321072-C-A" },
+                        "reverseVerified": { "type": "boolean" },
+                        "reason": { "type": "string" }
+                      }
                     }
                   }
                 }
@@ -177,7 +215,7 @@ export function generateOpenApiSpec() {
             "$ref": "#/components/responses/UnauthorizedError"
           },
           "422": {
-            "description": "The notation is out of missense scope (`NON_MISSENSE_VARIANT`), its numbering cannot be mapped (`ISOFORM_NUMBERING_MISMATCH`), it is equally consistent with two numberings (`AMBIGUOUS_PROTEIN_NUMBERING`), or its numbering basis could not be established (`UNPROCESSABLE_ENTITY`)."
+            "description": "The notation is out of missense scope (`NON_MISSENSE_VARIANT`), its numbering cannot be mapped (`ISOFORM_NUMBERING_MISMATCH`), it is equally consistent with two numberings (`AMBIGUOUS_PROTEIN_NUMBERING`), its numbering basis could not be established (`UNPROCESSABLE_ENTITY`), or its REF allele matches no reference base on the build it was read against (`COORDINATE_REFERENCE_MISMATCH`). The last one carries `details.buildHint` — the same coordinate annotated with the OTHER build, ready to submit — but only when that build was CHECKED to carry the submitted allele; the usual cause is a genome-build mismatch and the remedy is to state the build, while a position neither build carries needs the alleles re-read instead, which the message says. It is deliberately NOT sent with `Retry-After`: re-running the same coordinate is refused identically."
           },
           "503": {
             "description": "Every reference provider was unreachable or did not answer in time (`TRANSLATION_UNAVAILABLE`), sent with `Retry-After: 60`. The message tells the clinician to enter the protein-level substitution, which skips translation entirely."
@@ -245,7 +283,35 @@ export function generateOpenApiSpec() {
                     "type": "string",
                     "maxLength": 64,
                     "example": "X-23723975-C-A",
-                    "description": "The genomic coordinate the protein notation was TRANSLATED FROM (hyphen form: chrom-pos-ref-alt), sent TOGETHER WITH `assembly`. The translate route returns it; forwarding it lets the predictor query Ensembl VEP by position instead of re-deriving the locus from protein HGVS — a notation VEP rejects for codon-ambiguous substitutions (e.g. Lys→Asn) and for genes whose MANE isoform is not the canonical one this platform models. Ignored unless `assembly` was explicitly stated in the same request (a defaulted build beside a GRCh37 position is the wrong-locus hazard the assembly gate exists to refuse), and only honoured by the predictor when the annotation proves it belongs to the requested gene AND states the requested substitution at the requested position; otherwise the request falls through to the protein-HGVS path. Coordinates are lifted to GRCh38 with a forward map, an exact reverse round-trip and a reference-base check."
+                    "description": "The genomic coordinate the protein notation was TRANSLATED FROM (hyphen form: chrom-pos-ref-alt), sent TOGETHER WITH `assembly`. The translate route returns it; forwarding it lets the predictor query Ensembl VEP by position instead of re-deriving the locus from protein HGVS — a notation VEP rejects for codon-ambiguous substitutions (e.g. Lys→Asn) and for genes whose MANE isoform is not the canonical one this platform models. Ignored unless `assembly` was explicitly stated in the same request (a defaulted build beside a GRCh37 position is the wrong-locus hazard the assembly gate exists to refuse), and only honoured by the predictor when the annotation proves it belongs to the requested gene AND states the requested substitution at the requested position; otherwise the request falls through to the protein-HGVS path."
+                  },
+                  "liftedGenomicCoordinates": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "example": "X-23705858-C-A",
+                    "description": "The VERIFIED canonical-build (GRCh38) locus of the same variant, sent together with `resolvedAssembly` when the translate route lifted the caller's coordinate. Forwarded BESIDE `genomicCoordinates`, never instead of it: the submitted pair is what a report cites, this pair is where the annotation came from. The predictor prefers this one — it is already on the build every coordinate-consuming source is pinned to, so it needs no second lift and cannot disagree with the annotation that produced the protein substitution."
+                  },
+                  "resolvedAssembly": {
+                    "type": "string",
+                    "enum": [
+                      "GRCh37",
+                      "GRCh38"
+                    ],
+                    "description": "Build the annotation came from; equals `assembly` unless a lift was verified. Required to make `liftedGenomicCoordinates` usable (an unpaired coordinate is dropped, never assumed canonical)."
+                  },
+                  "coordinateLift": {
+                    "type": "object",
+                    "readOnly": true,
+                    "description": "NOT a request field: the route DERIVES the build decision from `assembly`, `genomicCoordinates`, `resolvedAssembly` and `liftedGenomicCoordinates` (`deriveCoordinateLift`), and returns it on the result. A disclosure a caller could assert would be decoration rather than evidence — nothing would stand behind `{status:\"lifted\", reverseVerified:true}`. It is listed here only to document the shape the RESPONSE carries.",
+                    "properties": {
+                      "status": { "type": "string", "enum": ["lifted", "unavailable", "not-needed", "not-applicable"] },
+                      "fromAssembly": { "type": "string", "enum": ["GRCh37", "GRCh38"] },
+                      "toAssembly": { "type": "string", "enum": ["GRCh37", "GRCh38"] },
+                      "fromCoordinates": { "type": "string" },
+                      "toCoordinates": { "type": "string" },
+                      "reverseVerified": { "type": "boolean" },
+                      "reason": { "type": "string" }
+                    }
                   }
                 }
               }
@@ -274,6 +340,28 @@ export function generateOpenApiSpec() {
                     "numberingDisambiguated": {
                       "type": "boolean",
                       "description": "True when the caller answered an ambiguity refusal with `numberingBasis: \"canonical\"`, so the numbering was CHOSEN rather than derived. A report should state which."
+                    },
+                    "assembly": {
+                      "type": "string",
+                      "nullable": true,
+                      "enum": ["GRCh37", "GRCh38", null],
+                      "description": "Genome build the CALLER's coordinate is expressed in — what the submitted `genomicCoordinates` (forwarded to the predictor) belongs to."
+                    },
+                    "resolvedAssembly": {
+                      "type": "string",
+                      "nullable": true,
+                      "enum": ["GRCh37", "GRCh38", null],
+                      "description": "Build the annotation came from. Differs from `assembly` exactly when the canonical pair was sent and used, i.e. when the translate route verified a lift."
+                    },
+                    "liftedGenomicCoordinates": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Hyphen form of the verified canonical locus, present only when the caller supplied the canonical pair."
+                    },
+                    "coordinateLift": {
+                      "type": "object",
+                      "nullable": true,
+                      "description": "The DERIVED build decision (`deriveCoordinateLift`), so a result, a rail and a report can state the trail without inferring it. Never echoed from the request: see the request-side note."
                     },
                     "clinvar": {
                       "type": "object",
@@ -382,6 +470,20 @@ export function generateOpenApiSpec() {
                     "maxLength": 64,
                     "example": "X-23723975-C-A",
                     "description": "The coordinate the protein notation was translated from, sent together with `assembly` — see POST /analyze-variant. The streaming route forwards it to the same predictor path, so the first chunk carries coordinate-derived evidence (AlphaMissense, CADD, transcript selection) whenever the coordinate proves the locus."
+                  },
+                  "liftedGenomicCoordinates": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "example": "X-23705858-C-A",
+                    "description": "Verified canonical-build locus, sent with `resolvedAssembly` — see POST /analyze-variant."
+                  },
+                  "resolvedAssembly": {
+                    "type": "string",
+                    "enum": [
+                      "GRCh37",
+                      "GRCh38"
+                    ],
+                    "description": "Build the annotation came from — see POST /analyze-variant."
                   }
                 }
               }
@@ -390,7 +492,7 @@ export function generateOpenApiSpec() {
         },
         "responses": {
           "200": {
-            "description": "Chunked NDJSON progressive streaming stream",
+            "description": "Chunked NDJSON progressive streaming stream. Each chunk's `data` object carries the same genome-build trail as `POST /analyze-variant` (`assembly`, `resolvedAssembly`, `liftedGenomicCoordinates`, `coordinateLift`) — the streaming route assembles its payload with the same builder, and the pipeline prefers it, so leaving the trail undocumented here meant the endpoint the client actually uses could not be discovered from the spec.",
             "content": {
               "application/x-ndjson": {
                 "schema": {

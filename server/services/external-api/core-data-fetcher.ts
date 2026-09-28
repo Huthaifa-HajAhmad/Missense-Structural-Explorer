@@ -22,11 +22,16 @@ import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
 import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
 import {
   parseGenomicCoordinateString,
+  predictorCoordinateFromContext,
   PDB_SOURCE_ALPHAFOLD,
   PDB_SOURCE_RCSB,
   type PdbSource
 } from "../../../src/shared/contracts.ts";
-import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, type AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
+import {
+  CANONICAL_ASSEMBLY,
+  sourceSupportsAssembly,
+  type AssemblyTaggedCoordinate,
+} from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
 import { queryGenosWebservice } from "./genos_web.ts";
 import { predictStructuralDisruption, runEsm2Eval, type DisruptionPrediction } from "../stability/biophysics.ts";
@@ -123,6 +128,8 @@ export async function fetchCoreVariantData(
     // genes, and every such rejection used to land the variant on the GRCh37 fallback path
     // (unmapping defect F-1).
     genomicCoordinates,
+    liftedGenomicCoordinates,
+    resolvedAssembly,
     sequence,
     pos,
     wt1Letter,
@@ -134,10 +141,15 @@ export async function fetchCoreVariantData(
     alphagenomeApiUrl
   } = context;
 
-  const parsedInputCoord = genomicCoordinates ? parseGenomicCoordinateString(genomicCoordinates) : null;
-  const inputCoordinate: AssemblyTaggedCoordinate | null = parsedInputCoord
-    ? { ...parsedInputCoord, assembly }
-    : null;
+  /**
+   * The coordinate the predictor may query by, PAIRED with its build.
+   *
+   * The pairing is the whole job — a coordinate beside the wrong build is the wrong-locus hazard —
+   * so it lives in one shared helper instead of being rebuilt here and in the analysis
+   * orchestrator. It prefers the canonical pair the translation step verified, which is why a
+   * GRCh37 input no longer reaches the predictor tagged GRCh37 (and is no longer lifted twice).
+   */
+  const inputCoordinate: AssemblyTaggedCoordinate | null = predictorCoordinateFromContext(context);
 
   const overallStart = performance.now();
   const serviceTimings: Record<string, number> = {};

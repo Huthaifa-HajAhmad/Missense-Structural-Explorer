@@ -31,6 +31,7 @@ import { fetchWithRetry } from "../infra/http-client.ts";
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import {
   CoordinateResolutionError,
+  isReferenceMismatchMessage,
   type ProviderAttempt,
   type ResolutionProviderOptions,
   type ResolvedConsequence,
@@ -229,11 +230,39 @@ const VARIANT_VALIDATOR_ATTEMPTS = 2;
 const VARIANT_VALIDATOR_RETRY_DELAY_MS = 800;
 
 /**
- * Queries VariantValidator for a coordinate notation.
+ * The prose a VariantValidator envelope carries about the REQUEST, wherever it is nested.
  *
- * Throws {@link CoordinateResolutionError} on transport failure or unusable payload so the
- * caller can distinguish "provider unreachable" from "provider had nothing".
+ * WHY A WALK. The provider's refusals are not top-level members: a validation finding arrives inside a
+ * dynamically-keyed envelope (`validation_warning_1`, alongside the `validation_warning_N` family)
+ * whose contents differ by finding type. Reading only `body.error` therefore missed the one refusal
+ * this module most needs to see — verified live, where an hg19 coordinate read as GRCh38 came back
+ * HTTP 200 with the mismatch named only in a nested `validation_warnings` entry.
+ *
+ * WHAT IT DELIBERATELY DOES NOT READ: sequence and HGVS fields. Prose is taken from `error`/`message`
+ * members and from the warning/error arrays, so a payload cannot be reclassified by an incidental
+ * substring in a genomic context sequence. Bounded in depth, because the envelope nesting is shallow
+ * and a hostile body must not be able to make this walk expensive.
  */
+function collectRefusalText(body: unknown, depth = 0): string[] {
+  if (!body || typeof body !== "object" || depth > 3) return [];
+
+  const texts: string[] = [];
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      if (key === "error" || key === "message") texts.push(value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (key === "validation_warnings" || key === "errors" || key === "messages") {
+        for (const entry of value) if (typeof entry === "string") texts.push(entry);
+      }
+      continue;
+    }
+    if (value && typeof value === "object") texts.push(...collectRefusalText(value, depth + 1));
+  }
+  return texts;
+}
+
 export async function fetchVariantValidatorConsequence(
   notation: string,
   assembly: GenomeAssembly,
@@ -287,13 +316,20 @@ export async function fetchVariantValidatorConsequence(
   }
 
   if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    /**
+     * VariantValidator raises `ReferenceMismatchError` for a REF that disagrees with its reference
+     * sequence, beside its other validation refusals — so the body, not the status, is what tells
+     * a build mismatch apart from a degraded provider. (A 429 outranks it: that is about our rate.)
+     */
     const failureKind: ProviderAttempt["failureKind"] =
       response.status === 429
         ? "rate_limited"
-        : response.status >= 500
-          ? "upstream_unavailable"
-          : "invalid_response";
-    const text = await response.text().catch(() => "");
+        : isReferenceMismatchMessage(text)
+          ? "reference_mismatch"
+          : response.status >= 500
+            ? "upstream_unavailable"
+            : "invalid_response";
     throw new CoordinateResolutionError(
       failureKind,
       `VariantValidator returned status ${response.status}: ${text.slice(0, 200)}`,
@@ -312,18 +348,48 @@ export async function fetchVariantValidatorConsequence(
     ]);
   }
 
+  /**
+   * A usable payload FIRST, the refusal warnings SECOND — the ordering is the invariant.
+   *
+   * This provider carries warnings on ordinary answers too (an MT DNA-type note travels with a
+   * perfectly good resolution), so a warning list is not a refusal while a transcript-keyed payload is
+   * present. Mapping first makes it structurally impossible for the taxonomy to discard an answer the
+   * provider actually gave.
+   */
   const consequence = mapVariantValidatorResponse(body, assembly);
-  if (!consequence) {
-    // Includes the silent "intergenic" failure mode: reported as not_found, never as a
-    // legitimate empty consequence.
+  if (consequence) return { consequence, attempt: attempt(true) };
+
+  /**
+   * No payload, so the envelope is a refusal — and this provider's reference mismatch arrives exactly
+   * that way, verified live on an hg19 coordinate read as GRCh38:
+   *
+   *   {"flag":"warning", …, "validation_warning_1":{"validation_warnings":[
+   *      "This is not a valid HGVS variant description, because no reference sequence ID has been provided",
+   *      "ReferenceMismatchError: NC_000023.11:g.23723975C>A: Variant reference (C) does not agree with
+   *       reference sequence (A)", …]}}
+   *
+   * HTTP 200 with `error` absent, so before this it fell through to `not_found`: the coordinate was
+   * reported as "verify the chromosome, position, alleles and genome build" while the provider had
+   * said, in as many words, that the build was the problem. The warnings are scanned rather than the
+   * `flag` checked, because `flag` alone cannot say WHY.
+   */
+  const mismatchWarning = collectRefusalText(body).find((entry) => isReferenceMismatchMessage(entry));
+
+  if (mismatchWarning) {
     throw new CoordinateResolutionError(
-      "not_found",
-      "VariantValidator did not resolve this coordinate to a coding transcript consequence.",
-      [attempt(false, "no usable payload", "not_found")]
+      "reference_mismatch",
+      `VariantValidator refused the coordinate: ${mismatchWarning.slice(0, 200)}`,
+      [attempt(false, "reference allele mismatch", "reference_mismatch")]
     );
   }
 
-  return { consequence, attempt: attempt(true) };
+  // Includes the silent "intergenic" failure mode: reported as not_found, never as a
+  // legitimate empty consequence.
+  throw new CoordinateResolutionError(
+    "not_found",
+    "VariantValidator did not resolve this coordinate to a coding transcript consequence.",
+    [attempt(false, "no usable payload", "not_found")]
+  );
 }
 
 /**

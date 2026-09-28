@@ -24,6 +24,7 @@
  *  genomic-bare     g.25484258G>A | 1:25484258
  *  genomic-dashed   20-23365054-G-A | chr20-23365054-G-A
  *  cdna             NM_004333.6:c.1799T>A | c.1799T>A
+ *                   NM_004333.6(GRCh37):c.1799T>A   <- build annotation on the transcript's sequence
  *
  * ASSEMBLY SEMANTICS (easy to get wrong — keep it here and only here)
  * ------------------------------------------------------------------
@@ -67,17 +68,55 @@ export const MUTATION_FOLDX_PATTERN = /^[ARNDCQEGHILKMFPSTWYV][A-Z]\d+[ARNDCQEGH
 // ============================================================================
 
 /**
- * Genome-build annotation suffix sets.
- * NOTE: hg19 == GRCh37 and hg38 == GRCh38, so the allowed suffixes differ
- * between the `GRCh` and `hg` prefixes. Patch releases (`GRCh38.p14`) are accepted.
+ * The one place the genome-build token is written.
+ *
+ * `ASSEMBLY_TOKEN` is the token itself, `ASSEMBLY_ANNOTATION` a complete parenthesised annotation, and
+ * every pattern and helper below derives from them. They used to be hand-written twice — a CAPTURING
+ * form for reading and a non-capturing copy for embedding — which is a drift class rather than a
+ * convenience: the reading form and the embedding form must agree on what an annotation IS, or a
+ * notation can be read as annotated by one and not by the other.
+ *
+ * NOTE: hg19 == GRCh37 and hg38 == GRCh38, so the allowed suffixes differ between the `GRCh` and `hg`
+ * prefixes. Patch releases (`GRCh38.p14`) are accepted.
  */
-const ASSEMBLY_INNER = /\(\s*(GRCh(?:37|38)(?:\.p\d+)?|hg(?:19|38))\s*\)/i;
+const ASSEMBLY_TOKEN = String.raw`GRCh(?:37|38)(?:\.p\d+)?|hg(?:19|38)`;
+const ASSEMBLY_ANNOTATION = String.raw`\(\s*(?:${ASSEMBLY_TOKEN})\s*\)`;
 
-/** Optional, non-capturing form of {@link ASSEMBLY_INNER} for embedding in larger patterns. */
-const ASSEMBLY_GROUP = String.raw`(?:\(\s*(?:GRCh(?:37|38)(?:\.p\d+)?|hg(?:19|38))\s*\))?`;
+/** Optional, non-capturing form of {@link ASSEMBLY_ANNOTATION} for embedding in larger patterns. */
+const ASSEMBLY_GROUP = `(?:${ASSEMBLY_ANNOTATION})?`;
 
-/** Plain chromosome token: 1..99, X, Y, M, MT, with an optional `chr` prefix. */
-const CHROM_GROUP = String.raw`(?:chr)?(?:\d{1,2}|X|Y|MT|M)`;
+/**
+ * A fresh pattern per call, deliberately: a module-level `/g/` regex carries `lastIndex` between
+ * `.test()`/`.exec()` calls, and a pattern shared across a read path and a write path is exactly where
+ * that statefulness produces an intermittent, unreproducible miss.
+ */
+const assemblyAnnotationPattern = (flags: string) => new RegExp(ASSEMBLY_ANNOTATION, flags);
+
+/** The build an annotation token names, or `null` when it names none we honour. */
+function buildFromAssemblyToken(token: string): GenomeAssembly | null {
+  const normalized = token.toLowerCase();
+  if (normalized.includes("grch37") || normalized.includes("hg19")) return "GRCh37";
+  if (normalized.includes("grch38") || normalized.includes("hg38")) return "GRCh38";
+  return null;
+}
+
+/** The token text of a parenthesised annotation, without its brackets or padding. */
+function tokenText(annotation: string): string {
+  return annotation.replace(/^\s*\(\s*|\s*\)\s*$/g, "");
+}
+
+/**
+ * Plain chromosome token: 1..22, X, Y, M, MT, with an optional `chr` prefix.
+ *
+ * The numeric range is EXACT, matching the dashed parser below and
+ * `parseGenomicCoordinateString`. A bare `\d{1,2}` accepted `chr23:g.…`, which no reference carries:
+ * it passed this gate, could not be lifted (`isCanonicalContig` refuses it) and could not be
+ * annotated on either Ensembl host, so the request ended in a provider-failure message whose advice
+ * ("annotate the build and it will be verified on GRCh38") could never help. Rejecting it here
+ * answers with the accepted-notation summary instead, which is the honest answer: that chromosome
+ * does not exist in either build.
+ */
+const CHROM_GROUP = String.raw`(?:chr)?(?:[1-9]|1[0-9]|2[0-2]|X|Y|MT|M)`;
 
 /** NCBI RefSeq / RefSeqGene chromosome accession (e.g. NC_000001.11). */
 const ACCESSION_GROUP = String.raw`NC_\d{6}\.\d+`;
@@ -104,11 +143,42 @@ export const GENOMIC_HGVS_PREFIX_PATTERN = new RegExp(
 /** Dashed genomic coordinates. Groups: 1=chrom, 2=pos, 3=ref, 4=alt. */
 export const DASHED_GENOMIC_PATTERN = /^(?:chr)?([0-9XYMT]+)-(\d+)-([ACGTN]+)-([ACGTN]+)$/i;
 
-/** cDNA HGVS, anchored. */
-export const CDNA_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+[A-Z]>[A-Z]$/i;
+/**
+ * cDNA HGVS, anchored. Groups: 1 = reference allele, 2 = alternate allele.
+ *
+ * The optional build annotation sits between the transcript accession and the colon —
+ * `NM_004333.6(GRCh37):c.1799T>A` — because it qualifies the REFERENCE SEQUENCE the transcript
+ * belongs to, exactly as it does in `Chr1(GRCh37):g.…`. The server already honoured that spelling
+ * (it strips and reads the annotation before this gate), but the grammar did not, so the CLIENT
+ * classified it as `unknown`: the field stopped being routed as a coordinate, the gene became
+ * required, and the one notation family whose build is easiest to get wrong was the one where the
+ * build could not be stated.
+ */
+export const CDNA_PATTERN = new RegExp(
+  `^(?:[A-Z0-9_.]+${ASSEMBLY_GROUP}:)?c\\.\\d+([A-Z])>([A-Z])$`,
+  "i"
+);
 
 /** cDNA HGVS, prefix only. */
-export const CDNA_PREFIX_PATTERN = /^(?:[A-Z0-9_.]+:)?c\.\d+/i;
+export const CDNA_PREFIX_PATTERN = new RegExp(`^(?:[A-Z0-9_.]+${ASSEMBLY_GROUP}:)?c\\.\\d+`, "i");
+
+/**
+ * A cDNA notation split into the reference sequence it hangs on and its `c.` body.
+ * Groups: 1 = reference-sequence token, 2 = body (`c.1799T>A`), both without any build annotation.
+ *
+ * A BARE `c.123A>G` deliberately does not match: it names no reference sequence, so there is nothing
+ * for a build annotation to attach to — and a build stated against an unnamed sequence would be a
+ * claim about a reference nobody identified.
+ *
+ * The token class is deliberately WIDE (`NM_`, `XM_`, `ENST…`, `LRG_…t1`, and any INSDC accession a
+ * provider may know): narrowing it would refuse cDNA notations that can genuinely be resolved, and the
+ * build claim — which is what must be right — is decided by
+ * {@link referenceSequenceOf} + the accession tables, not by this pattern.
+ */
+export const ACCESSIONED_CDNA_PATTERN = new RegExp(
+  `^([A-Z0-9_.]+)${ASSEMBLY_GROUP}:(c\\.\\d+[A-Z]>[A-Z])$`,
+  "i"
+);
 
 /**
  * Protein accession a substitution's residue numbers belong to: a RefSeq protein
@@ -194,22 +264,48 @@ export interface NotationDescriptor {
   /** Assembly inferred from an inline annotation such as `(GRCh38)`. `null` when absent. */
   assembly: GenomeAssembly | null;
   /**
-   * Canonical, VEP-ready form of the notation (inline assembly annotation stripped and
-   * `chr` casing normalized), or `null` when the kind is `"unknown"` / `"protein-*"`.
+   * Canonical form of the notation, or `null` when the kind is `"unknown"` / `"protein-*"`.
+   *
+   * For `g.` / `c.` families this is the VEP-ready spelling: EVERY inline assembly annotation
+   * stripped and `chr` casing normalized. Every one, not just the first — a notation that somehow
+   * carried two (`(GRCh37)(GRCh38)`) would otherwise keep one of them, and the string the server then
+   * queries would state a build nobody chose while `assembly` reported the other. Such input is
+   * refused as `"unknown"` (see `classifyNotation`), so no consumer ever sees a `canonical` that still
+   * contains an annotation.
+   *
+   * `genomic-dashed` is the exception: it keeps the submitted spelling, because the server's intake
+   * converts it to HGVS itself and nothing downstream has ever consumed this field for that family.
    */
   canonical: string | null;
 }
 
 /**
- * Normalizes `chr` casing and strips any inline assembly annotation.
+ * Normalizes `chr` casing and strips EVERY inline assembly annotation.
  * `"Chr1(GRCh38):g.25484258G>A"` -> `"chr1:g.25484258G>A"`
  */
 export function normalizeGenomicNotation(input: string): string {
   return input
     .trim()
-    .replace(ASSEMBLY_INNER, "")
+    .replace(assemblyAnnotationPattern("gi"), "")
     .replace(/^chr/i, "chr")
     .trim();
+}
+
+/**
+ * Every genome build the notation states inline, in the order written.
+ *
+ * A LIST rather than one value because "how many" is itself an answer: `NM_004333.6(GRCh37)(GRCh38):c.…`
+ * states two builds, and reading only the first — while the other survived into the canonical string —
+ * is how a request came to be sent under one build while its own text said the other.
+ */
+export function assemblyAnnotationsOf(input: string): GenomeAssembly[] {
+  if (!input || typeof input !== "string") return [];
+  const builds: GenomeAssembly[] = [];
+  for (const match of input.matchAll(assemblyAnnotationPattern("gi"))) {
+    const build = buildFromAssemblyToken(tokenText(match[0]));
+    if (build) builds.push(build);
+  }
+  return builds;
 }
 
 /**
@@ -220,11 +316,93 @@ export function normalizeGenomicNotation(input: string): string {
  * This is the ONLY place the hg19<->GRCh37 and hg38<->GRCh38 mapping lives.
  */
 export function detectAssemblyAnnotation(input: string): GenomeAssembly | null {
+  return assemblyAnnotationsOf(input)[0] ?? null;
+}
+
+/**
+ * The release token a rewrite should write for `build`: the build itself, or a patch release the
+ * notation already pinned for that same major release (`GRCh38.p14`).
+ *
+ * WHY IT MATTERS: `GRCh38` and `GRCh38.p14` are different reference releases. A control whose whole
+ * purpose is to let the reader STATE a build must not silently loosen a reference they pinned — that
+ * would be the same class of quiet substitution this module exists to prevent, one release level down.
+ * A patch for the OTHER major is never carried across (`GRCh38.p14` → `GRCh37`), because it does not
+ * name that release.
+ */
+export function releaseTokenFor(input: string, build: GenomeAssembly): string {
+  if (!input || typeof input !== "string") return build;
+  for (const match of input.matchAll(assemblyAnnotationPattern("gi"))) {
+    const token = tokenText(match[0]);
+    if (buildFromAssemblyToken(token) === build && /\.p\d+$/i.test(token)) return token;
+  }
+  return build;
+}
+
+/**
+ * The reference sequence a coordinate notation hangs on, as written: a contig (`1`, `X`) or a RefSeq
+ * chromosome accession (`NC_000001.10`) for a `g.` description, or the accession before a `c.` body
+ * (`NM_004333.6`). `null` for anything else — including a BARE `c.123A>G`, which names no sequence.
+ *
+ * ONE accessor for both families, because the build policy asks the same question of both: an
+ * accession that names the reference sequence states the build, whether it prefixes `g.` or `c.`
+ * (`src/shared/assembly.ts`). Reading the build only for `g.` meant `NC_000001.10:c.…` — a GRCh37
+ * sequence by definition — was reported as the GRCh38 default and queried on the GRCh38 host.
+ */
+export function referenceSequenceOf(notation: string): string | null {
+  if (!notation || typeof notation !== "string") return null;
+  const genomic = parseGenomicHgvsNotation(notation);
+  if (genomic) return genomic.chrom;
+  const cdna = normalizeGenomicNotation(notation).match(ACCESSIONED_CDNA_PATTERN);
+  return cdna ? cdna[1].toUpperCase() : null;
+}
+
+/**
+ * What a `c.` description gets WRONG about its reference sequence, or `null` when nothing is.
+ *
+ * WHY IT IS NOT PART OF THE PATTERNS. `CDNA_PATTERN` answers "is this the cDNA family?" — and a bare
+ * `c.123A>G` IS a `c.` fragment, which is a pinned contract with tests on both sides of the boundary.
+ * This answers a different question: "can a provider resolve it at all?". Both problems below are
+ * unanswerable everywhere (Ensembl answers `Unable to parse HGVS notation`; VariantValidator raises
+ * `VariantSyntaxError`), so the ladder could only report "the providers returned unusable responses"
+ * with build advice that cannot help — when what is missing is the transcript, or the prefix's case.
+ */
+export type CdnaReferenceProblem = 
+  /** No reference sequence at all (`c.1799T>A`): nothing identifies the transcript. */
+  | "missing-transcript"
+  /** A PROTEIN accession before a `c.` body (`NP_…:c.…`): proteins carry `p.` positions, not `c.`. */
+  | "protein-accession"
+  /** The HGVS type prefix is not lower-case (`C.1799T>A`) — `c.` is part of the notation's grammar. */
+  | "type-prefix-case";
+
+/** True for the cDNA family, case-insensitively, annotation or not. Shared by the checks below. */
+function isCdnaNotation(canonical: string): boolean {
+  return CDNA_PREFIX_PATTERN.test(canonical);
+}
+
+/** The body after the last `:` — the `c.…` part a reader recognises as the coordinate itself. */
+function cdnaBodyOf(canonical: string): string {
+  const colon = canonical.lastIndexOf(":");
+  return colon === -1 ? canonical : canonical.slice(colon + 1);
+}
+
+export function cdnaReferenceProblem(input: string): CdnaReferenceProblem | null {
   if (!input || typeof input !== "string") return null;
-  const match = input.match(ASSEMBLY_INNER);
-  if (!match) return null;
-  const token = match[1].toLowerCase();
-  return token.startsWith("hg19") || token.startsWith("grch37") ? "GRCh37" : "GRCh38";
+  const canonical = normalizeGenomicNotation(input);
+  // Only a `c.` description can have a cDNA reference problem; anything else is somebody else's
+  // question, and this must never reclassify a `g.` or `p.` notation.
+  if (!isCdnaNotation(canonical)) return null;
+
+  // The type prefix is lower-case in HGVS. Checked on the body rather than with `/c\./` anywhere in
+  // the string: an accession or a stray `c.` elsewhere must not stand in for the real prefix.
+  if (!cdnaBodyOf(canonical).startsWith("c.")) return "type-prefix-case";
+
+  const reference = referenceSequenceOf(canonical);
+  if (!reference) return "missing-transcript";
+  // `NP_`/`XP_`/`YP_` are proteins. `NG_`/`NC_` are nucleotide sequences but not transcripts; they are
+  // left to the providers rather than refused here, because an accession we do not recognise may still
+  // be resolvable and refusing it would break input that works.
+  if (/^(?:NP|XP|YP)_/i.test(reference)) return "protein-accession";
+  return null;
 }
 
 /**
@@ -242,7 +420,16 @@ export function classifyNotation(input: string): NotationDescriptor {
   const trimmed = input.trim();
   if (!trimmed) return unknown;
 
-  const assembly = detectAssemblyAnnotation(trimmed);
+  /**
+   * A notation that states TWO builds is not a notation: the reader has contradicted themselves, and
+   * any reading of it is a choice on their behalf. `canonical` would then carry an annotation nobody
+   * chose while `assembly` reported the other — the exact drift this descriptor exists to prevent.
+   * Refused here (and by the server's gate) rather than silently resolved to the first annotation.
+   */
+  const annotations = assemblyAnnotationsOf(trimmed);
+  if (annotations.length > 1) return unknown;
+
+  const assembly = annotations[0] ?? null;
   const canonical = normalizeGenomicNotation(trimmed);
 
   // Missense-scope check first: `c.1799del` and `chr1:g.25484258delG` otherwise look like
@@ -257,8 +444,21 @@ export function classifyNotation(input: string): NotationDescriptor {
   if (GENOMIC_HGVS_PREFIX_PATTERN.test(trimmed)) {
     return { kind: "genomic-hgvs", assembly, canonical };
   }
-  if (CDNA_PREFIX_PATTERN.test(trimmed)) {
-    return { kind: "cdna", assembly, canonical };
+  if (isCdnaNotation(canonical)) {
+    /**
+     * The two cDNA reference problems are treated DIFFERENTLY, on purpose.
+     *
+     * A case-wrong prefix (`C.1799T>A`) is not a cDNA description at all, so this reports `unknown` —
+     * the client must not advertise a family the notation is not written in.
+     *
+     * A missing transcript (`c.1799T>A`) IS a `c.` fragment, and a pinned contract on both sides says
+     * so; it is routed to the resolver, which answers with the precise reason. Reporting `unknown`
+     * here would instead strand the reader on a client-side "No match" with no explanation of what is
+     * missing.
+     */
+    return cdnaReferenceProblem(trimmed) === "type-prefix-case"
+      ? unknown
+      : { kind: "cdna", assembly, canonical };
   }
   if (BARE_GENOMIC_PATTERN.test(trimmed) || CHROM_POS_PATTERN.test(trimmed)) {
     return { kind: "genomic-bare", assembly, canonical };
@@ -333,6 +533,64 @@ export function parseAccessionedProteinNotation(
   };
 }
 
+/** The parts of a genomic HGVS substitution, as written. */
+export interface ParsedGenomicHgvs {
+  /**
+   * Contig as written, `chr`-prefix stripped: `1`, `X`, `MT`, or a RefSeq accession
+   * (`NC_000001.10`). NOT resolved to a canonical Ensembl contig — that is a genome-build
+   * question and belongs to `assembly.ts` (`canonicalContigOf`), so this parser
+   * stays free of build policy.
+   */
+  chrom: string;
+  /** 1-based genomic position. */
+  pos: number;
+  ref: string;
+  alt: string;
+  /** Build stated inline (`(GRCh37)` / `(hg19)`), or `null` when the notation carries none. */
+  assembly: GenomeAssembly | null;
+}
+
+/**
+ * Parses a genomic HGVS substitution into contig / position / alleles.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The build policy is "coordinates are lifted to the canonical build when the input build
+ * differs" (`src/shared/assembly.ts`), and a lift needs the PARTS of the coordinate — which
+ * nothing could extract: `GENOMIC_HGVS_PATTERN` captures only the two alleles, because its job is
+ * to ACCEPT a notation. Every place that needed the parts grew its own ad-hoc slicing, and the one
+ * place that mattered (lifting a GRCh37 coordinate before annotating it) had no way to ask.
+ *
+ * Accepts every genomic spelling the server gate accepts — `chr1:g.…`, `1:g.…`,
+ * `Chr1(GRCh37):g.…`, `NC_000001.10:g.…` — and returns `null` for everything else (indels, cDNA,
+ * protein notations), so a caller can never lift something that is not a single substitution.
+ */
+export function parseGenomicHgvsNotation(input: string): ParsedGenomicHgvs | null {
+  if (!input || typeof input !== "string") return null;
+  const trimmed = input.trim();
+
+  // The strict pattern is the gate: it is anchored to a single `[A-Z]>[A-Z]` substitution, which
+  // is exactly the family a lift can carry (the liftover refuses indels by contract).
+  if (!GENOMIC_HGVS_PATTERN.test(trimmed)) return null;
+
+  // Contig and position are read from the CANONICAL form, because the strict pattern's capture
+  // groups are the alleles only. `normalizeGenomicNotation` strips the inline annotation and
+  // normalizes `chr` casing, so this one regex covers every accepted spelling.
+  const body = normalizeGenomicNotation(trimmed).match(/^([^:]+):g\.(\d+)([A-Z])>([A-Z])$/i);
+  if (!body) return null;
+
+  const pos = Number.parseInt(body[2], 10);
+  if (!Number.isFinite(pos) || pos < 1) return null;
+
+  return {
+    chrom: body[1].replace(/^chr/i, "").toUpperCase(),
+    pos,
+    ref: body[3].toUpperCase(),
+    alt: body[4].toUpperCase(),
+    assembly: detectAssemblyAnnotation(trimmed),
+  };
+}
+
 /**
  * Human-facing catalogue of accepted notation families, shared by the server's 400
  * response and the client's input hints so the two can never disagree.
@@ -343,6 +601,7 @@ export const ACCEPTED_NOTATION_EXAMPLES = {
   genomicAccession: "NC_000001.11:g.25484258G>A",
   genomicDashed: "20-23365054-G-A",
   cdna: "NM_004333.6:c.1799T>A",
+  cdnaAssemblyAnnotated: "NM_004333.6(GRCh37):c.1799T>A",
   protein: "p.Arg408Trp",
   proteinAccessioned: "NP_001032248.1:p.Lys281Asn",
 } as const;

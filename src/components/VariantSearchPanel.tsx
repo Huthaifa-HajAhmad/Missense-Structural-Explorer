@@ -23,10 +23,18 @@ import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus } from "../shared/workflowStatus";
-import { needsNotationResolution, classifyNotation, ACCEPTED_NOTATION_EXAMPLES, type NotationKind } from "../shared/variantNotation.ts";
+import {
+  needsNotationResolution,
+  classifyNotation,
+  ACCEPTED_NOTATION_EXAMPLES,
+  type GenomeAssembly,
+  type NotationKind,
+} from "../shared/variantNotation.ts";
+import { ASSEMBLY_LABELS, statedAssemblyOf, withAssemblyAnnotation } from "../shared/assembly";
 import { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../shared/benchmarkPresets";
 import NumberingChoicePrompt from "./NumberingChoicePrompt";
-import type { NumberingChoice } from "../shared/contracts";
+import BuildMismatchPrompt from "./BuildMismatchPrompt";
+import type { BuildHint, NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
 /* ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -249,11 +257,17 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
   {
     target: "variant",
     label: "Variant notation",
-    hint: "Protein-level substitutions, accession-qualified protein notations and transcript cDNA go in the Variant Notation field.",
+    hint:
+      "Protein-level substitutions, accession-qualified protein notations and transcript cDNA go in the " +
+      "Variant Notation field. cDNA can STATE its genome build — NM_004333.6(GRCh37):c.1799T>A — so an " +
+      "hg19 notation is read against hg19 rather than assumed to be GRCh38.",
     values: [
       ACCEPTED_NOTATION_EXAMPLES.protein,
       ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned,
       ACCEPTED_NOTATION_EXAMPLES.cdna,
+      // The build-annotated form is a chip of its own: the field can STATE which reference the
+      // transcript is read against, and a reader who has hg19 cDNA has no other way to find that out.
+      ACCEPTED_NOTATION_EXAMPLES.cdnaAssemblyAnnotated,
     ],
   },
   {
@@ -331,14 +345,26 @@ async function pasteFromClipboard(setter: (val: string) => void) {
   }
 }
 
-/** Field label row: label on the left, state badge on the right, fixed height. */
-const FieldLabel: React.FC<{ htmlFor: string; required?: boolean; children: React.ReactNode; badge?: React.ReactNode }> = ({
-  htmlFor,
-  required,
-  children,
-  badge,
-}) => (
-  <label htmlFor={htmlFor} className="h-5 flex items-center justify-between gap-2 text-[12px] font-medium text-cs-text-secondary">
+/**
+ * Field label row: label on the left, and on the right EITHER a state badge OR a control.
+ *
+ * The row is `h-5` and its right-hand slot is pinned, so a badge appearing on a keystroke never
+ * nudges the input beneath it — which is why the build control (`action`) is badge-metric rather than
+ * the app's `cs-seg-control`, whose own primitive plus its settings size variant are both taller than
+ * this row.
+ *
+ * `action` is rendered as a SIBLING of the `<label>`, not inside it: interactive content nested in a
+ * label activates the labelled control, so a `<select>` in there would focus the notation input on
+ * every click.
+ */
+const FieldLabel: React.FC<{
+  htmlFor: string;
+  required?: boolean;
+  children: React.ReactNode;
+  badge?: React.ReactNode;
+  action?: React.ReactNode;
+}> = ({ htmlFor, required, children, badge, action }) => {
+  const text = (
     <span>
       {children}
       {required && (
@@ -347,8 +373,81 @@ const FieldLabel: React.FC<{ htmlFor: string; required?: boolean; children: Reac
         </span>
       )}
     </span>
-    {badge}
-  </label>
+  );
+  const rowClass = "h-5 flex items-center justify-between gap-2 text-[12px] font-medium text-cs-text-secondary";
+
+  if (action) {
+    return (
+      <div className={rowClass}>
+        <label htmlFor={htmlFor}>{text}</label>
+        {/* BOTH, when both are given — but the callers suppress their badge while a control takes this
+            slot, because two `shrink-0` items cannot fit the pinned 20px row: only the label can give,
+            and it then wraps into the input below. */}
+        <span className="flex items-center gap-1.5 shrink-0">
+          {badge}
+          {action}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <label htmlFor={htmlFor} className={rowClass}>
+      {text}
+      {badge}
+    </label>
+  );
+};
+
+/**
+ * The genome build of a coordinate notation, as a control.
+ *
+ * WHY A `<select>` AND NOT A TOGGLE
+ * ---------------------------------
+ * A build is a property of the COORDINATE, not of the session: the submitted string is what the
+ * server reads, and it refuses to trust a forwarded coordinate whose build was not stated (a
+ * defaulted label over another build's position is the wrong-locus hazard). So this control carries
+ * no state of its own — its value is DERIVED from the notation, and choosing a build REWRITES the
+ * notation to state it. There is then nothing that can disagree with the text: no sticky toggle, no
+ * conflict banner, and the reader sees exactly what will be sent.
+ *
+ * Metrics match the badge it replaces (`h-5`, 11px, `--cs-radius-badge`), because the slot it lives
+ * in is pinned at 20px; the closed state is what is seen, and the option text carries the full labels
+ * from `ASSEMBLY_LABELS` so there is one spelling of every build name.
+ */
+const BuildSelect: React.FC<{
+  value: GenomeAssembly;
+  /** How the value was established, so the control can say whether it was STATED or assumed. */
+  source: "annotation" | "accession" | "default";
+  /**
+   * Which field's notation this control rewrites, for the accessible name.
+   *
+   * Both notation fields can show one, and the accessible name is the only thing a screen-reader user
+   * has to tell them apart — two identically named selects in one form is a coin flip.
+   */
+  subject: "coordinate" | "cDNA";
+  onChange: (build: GenomeAssembly) => void;
+}> = ({ value, source, subject, onChange }) => (
+  <select
+    aria-label={`Genome build this ${subject} is expressed in`}
+    title={
+      source === "default"
+        ? `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`
+        : `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${
+            source === "accession" ? "by the RefSeq accession" : "in the notation"
+          })`
+    }
+    value={value}
+    onChange={(event) => onChange(event.target.value as GenomeAssembly)}
+    className={`h-5 shrink-0 cursor-pointer appearance-none rounded-[var(--cs-radius-badge)] bg-transparent pr-3 text-[11px] font-medium leading-5 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-1 ${
+      source === "default" ? "text-cs-text-muted hover:text-cs-text-secondary" : "text-cs-text-accent"
+    }`}
+    // A caret drawn in the text flow: the native arrow is hidden by `appearance-none`, and an inline
+    // glyph keeps the control's metrics identical to the badge it replaced.
+    style={{ backgroundImage: "none" }}
+  >
+    <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
+    <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
+  </select>
 );
 
 /** Example chips shown beneath a notation field. */
@@ -532,25 +631,86 @@ function VariantSearchPanel({
     onFormSubmit({ preventDefault() {} } as React.FormEvent);
   };
 
+  /**
+   * Which field's notation the build-mismatch refusal is about — `null` when the fields no longer hold
+   * it, so the prompt is never answered on the reader's behalf.
+   *
+   * It has to be the ORIGINATING field: a refusal can come from a coordinate (the Genomic field) or
+   * from transcript cDNA (the Variant field), and writing the retry into the other one would move the
+   * notation between the two alternatives this form keeps separate — changing which field the pipeline
+   * reads, and leaving the field it was moved to carrying a notation its own badge calls invalid.
+   *
+   * A NON-EMPTY SIBLING means the question is stale: the reader has abandoned this coordinate and
+   * started another query. Without that half of the guard, clicking the retry silently erased what they
+   * had since typed — the notation they were working on, replaced by one they had moved on from.
+   */
+  const refusedNotation = (result?.metadata?.variant ?? "").trim();
+  const buildHintTarget: "genomic" | "variant" | null =
+    !result?.buildHint || !refusedNotation
+      ? null
+      : customGenomic.trim() === refusedNotation
+        ? customVariant.trim() === ""
+          ? "genomic"
+          : null
+        : customGenomic.trim() === "" && customVariant.trim() === refusedNotation
+          ? "variant"
+          : null;
+  /**
+   * A retry cannot loop: the server offers the other build only after checking that IT carries the
+   * submitted allele — so annotating there cannot reproduce the same mismatch at that position — and it
+   * withholds the offer when neither build carries the allele. That is also why there is no client-side
+   * "already tried that build" guard here: withholding on a STATED build would remove the one-click
+   * remedy from the case where the annotation itself is the mistake (an hg19 coordinate labelled
+   * GRCh38), which the evidence — the allele matching the other build — actually points at.
+   */
+
+  /**
+   * Answers the build-mismatch prompt: put the server's annotated spelling in the field it came from
+   * and run.
+   *
+   * The hint's notation already STATES its build (`Chr1(GRCh37):g.…`, `NM_004333.6(GRCh37):c.…`), so
+   * this is a complete request and not a re-labelling: the server verifies the locus on that build
+   * before annotating, exactly as it does for a hand-typed annotation. The sibling notation field is
+   * cleared because the two are alternatives, not additive inputs. The gene field is left alone — the
+   * notation resolves its own gene.
+   */
+  const retryAsHintedBuild = (hint: BuildHint) => {
+    if (buildHintTarget === "variant") {
+      actions.setCustomVariant(hint.notation);
+      actions.setCustomGenomic("");
+    } else {
+      actions.setCustomGenomic(hint.notation);
+      actions.setCustomVariant("");
+    }
+    onFormSubmit({ preventDefault() {} } as React.FormEvent);
+  };
+
   // Parsed verdicts, shown so the routing the form already performs is visible rather than
   // implied. Routing itself goes through `needsNotationResolution`, so the badge can describe the
   // parser but can never disagree with it.
   const variantNotation = customVariant.trim() ? classifyNotation(customVariant) : null;
   const genomicNotation = customGenomic.trim() ? classifyNotation(customGenomic) : null;
   /**
-   * Only a genuine coordinate notation gets an assembly claim.
+   * Only a notation the SERVER will resolve from this field gets an assembly claim.
    *
    * This previously asserted "GRCh38 default" for ANY non-empty content — including
    * `p.Gly380Arg` or `asdf` — while simultaneously marking the Gene field "Derived", so the
    * panel claimed a resolution that would never happen, in the one place it exists to be
    * trusted. The kind is the same value that drives routing, so the badge cannot disagree
    * with what the pipeline will actually do.
+   *
+   * cDNA is included because the translate route accepts it from EITHER notation field (people paste
+   * a transcript notation here, and history items land here). Leaving it out marked the Variant field
+   * "required" and said this field "only accepts genomic coordinates" for a notation the server had
+   * just accepted — and after a build-mismatch retry, that empty sibling field's `required` attribute
+   * then blocked the next submit through native validation, with nothing on screen to explain why.
    */
   const genomicIsCoordinate = Boolean(
     genomicNotation &&
       (genomicNotation.kind === "genomic-hgvs" ||
         genomicNotation.kind === "genomic-dashed" ||
         genomicNotation.kind === "genomic-bare" ||
+        genomicNotation.kind === "cdna" ||
         // A recognised coordinate that is out of missense scope still routes to the resolver,
         // which explains the scope rather than pretending it is a protein substitution.
         genomicNotation.kind === "non-substitution")
@@ -574,6 +734,53 @@ function VariantSearchPanel({
       ? `${genomicNotation.assembly} annotated`
       : "GRCh38 default"
     : null;
+  /**
+   * The build control's derived state for the coordinate field.
+   *
+   * `statedAssemblyOf` reports what the NOTATION says (an inline annotation, or a RefSeq accession),
+   * and `"default"` when it says nothing — so the control can distinguish a build the caller stated
+   * from the GRCh38 the server falls back to. Choosing a build rewrites the notation, which is why
+   * there is no separate value to keep in sync: the text IS the state.
+   *
+   * Gated on annotatability so the control never appears where it could not act (an indel, or a
+   * protein notation typed into the coordinate field).
+   */
+  const genomicStated = customGenomic.trim() ? statedAssemblyOf(customGenomic) : null;
+  const genomicBuild: GenomeAssembly = genomicStated?.build ?? "GRCh38";
+  const genomicBuildSource = genomicStated?.source ?? "default";
+  const genomicBuildControllable =
+    Boolean(customGenomic.trim()) && withAssemblyAnnotation(customGenomic, "GRCh38") !== null;
+  const applyGenomicBuild = useCallback(
+    (build: GenomeAssembly) => {
+      const rewritten = withAssemblyAnnotation(customGenomic, build);
+      // Null means the notation carries no build to state — the control is not rendered then, so
+      // this is a guard rather than a path.
+      if (rewritten) actions.setCustomGenomic(rewritten);
+    },
+    [customGenomic, actions]
+  );
+  /**
+   * The same control for the VARIANT field, where the build-bearing families are genomic HGVS (people
+   * paste coordinates here) and transcript cDNA — `NM_004333.6(GRCh37):c.1799T>A`.
+   *
+   * A cDNA notation needs it as much as a genomic one: the transcript is read against a reference, so
+   * an hg19 transcript sequence against GRCh38 is the same wrong-reference hazard, and until the
+   * grammar accepted the annotated form there was no way to state it in this field at all.
+   * `withAssemblyAnnotation` returning null is the gate — it is null for protein notations and for a
+   * BARE `c.1799T>A` (which names no transcript, so no reference sequence to qualify).
+   */
+  const variantStated = customVariant.trim() ? statedAssemblyOf(customVariant) : null;
+  const variantBuild: GenomeAssembly = variantStated?.build ?? "GRCh38";
+  const variantBuildSource = variantStated?.source ?? "default";
+  const variantBuildControllable =
+    Boolean(customVariant.trim()) && withAssemblyAnnotation(customVariant, "GRCh38") !== null;
+  const applyVariantBuild = useCallback(
+    (build: GenomeAssembly) => {
+      const rewritten = withAssemblyAnnotation(customVariant, build);
+      if (rewritten) actions.setCustomVariant(rewritten);
+    },
+    [customVariant, actions]
+  );
   const uniprotLooksValid = !customUniprot.trim() || UNIPROT_ACCESSION_PATTERN.test(customUniprot.trim());
   const hasDirections = userDirections.trim().length > 0;
 
@@ -714,6 +921,15 @@ function VariantSearchPanel({
                 />
               ) : null}
 
+              {result?.buildHint && buildHintTarget && !isPipelineActive ? (
+                <BuildMismatchPrompt
+                  notation={refusedNotation}
+                  hint={result.buildHint}
+                  buildDeclared={result.coordinateLift?.buildDeclared}
+                  onRetry={retryAsHintedBuild}
+                />
+              ) : null}
+
               {/* Protein identity */}
               <fieldset className="flex flex-col gap-3">
                 <legend className="text-[13px] font-semibold text-cs-text-primary mb-3">Protein</legend>
@@ -795,8 +1011,35 @@ function VariantSearchPanel({
                     <FieldLabel
                       htmlFor="input-variant-notation"
                       required={isVariantRequired}
+                      /**
+                       * This field now states a build too, for the two families that carry one:
+                       * genomic HGVS pasted here, and transcript cDNA. It takes the same slot and
+                       * metrics as the coordinate field's control, so the two fields read alike.
+                       */
+                      action={
+                        variantBuildControllable ? (
+                          <BuildSelect
+                            value={variantBuild}
+                            source={variantBuildSource}
+                            /**
+                             * Derived, not hardcoded: an accessioned GENOMIC coordinate lands in this
+                             * field too (history items, a paste), and a select that announced "this
+                             * cDNA" beside a "Genomic → resolve" badge would be describing a notation
+                             * the reader is not looking at.
+                             */
+                            subject={variantNotation?.kind === "cdna" ? "cDNA" : "coordinate"}
+                            onChange={applyVariantBuild}
+                          />
+                        ) : undefined
+                      }
                       badge={
-                        variantNotation ? (
+                        /**
+                         * ONE thing in this slot, exactly as the coordinate field does it: when the
+                         * control is shown it already names the family and the build, so the verdict
+                         * badge beside it would be two `shrink-0` items in a pinned 20px row — where
+                         * only the label can give, and it wraps into the input below.
+                         */
+                        variantBuildControllable ? null : variantNotation ? (
                           <FieldBadge tone={NOTATION_BADGES[variantNotation.kind].tone} title={NOTATION_BADGES[variantNotation.kind].title}>
                             {NOTATION_BADGES[variantNotation.kind].label}
                           </FieldBadge>
@@ -833,8 +1076,33 @@ function VariantSearchPanel({
                   <div className="flex flex-col gap-1.5 min-w-0">
                     <FieldLabel
                       htmlFor="input-genomic-coords"
+                      /**
+                       * The right-hand slot states, and SETS, the build.
+                       *
+                       * It used to hold a passive badge ("GRCh38 default" / "GRCh37 annotated") in
+                       * exactly this position; the control takes that slot's metrics and tones, so
+                       * the claim a reader already looked for here is now the thing they can change
+                       * — no new row, no layout shift.
+                       */
+                      action={
+                        genomicBuildControllable ? (
+                          <BuildSelect
+                            value={genomicBuild}
+                            source={genomicBuildSource}
+                            subject="coordinate"
+                            onChange={applyGenomicBuild}
+                          />
+                        ) : undefined
+                      }
                       badge={
-                        genomicNotation && !genomicIsCoordinate ? (
+                        /**
+                         * ONE thing in this slot, as measured: when the control is shown it already
+                         * states the build (and says whether it was stated or assumed), so the
+                         * assembly-label badge beside it would be the same fact twice in a 20px row.
+                         * The verdict badge has no such twin — it says the notation is not a
+                         * coordinate at all, which is exactly when no control is shown.
+                         */
+                        genomicBuildControllable ? null : genomicNotation && !genomicIsCoordinate ? (
                           <FieldBadge
                             tone={NOTATION_BADGES[genomicNotation.kind].tone}
                             title={`${NOTATION_BADGES[genomicNotation.kind].title} This field only accepts genomic coordinates.`}

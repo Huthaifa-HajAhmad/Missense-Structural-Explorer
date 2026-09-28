@@ -357,8 +357,13 @@ export function buildIsoformRemapWarning(
   const toLabel = `${toHgvsp}${toIsoform ? ` (isoform ${toIsoform})` : ""}`;
   return (
     `Protein numbering remapped for structural analysis: ${fromLabel} → ${toLabel}. ` +
-    "The MANE Select protein is not the UniProt canonical sequence, and only the canonical " +
-    "sequence has a structure to model against — the analysis below uses the canonical numbering."
+    // NOT "the MANE Select protein": the numbering basis that needed remapping is the protein the
+    // reporting pipeline used — MANE Select on a current release, and the Ensembl canonical
+    // transcript on Ensembl's GRCh37 archive, which predates MANE. Naming MANE here would be wrong
+    // for the GRCh37 case, which is exactly when this note matters most.
+    "The protein these numbers were reported on is not the UniProt canonical sequence, and only " +
+    "the canonical sequence has a structure to model against — the analysis below uses the " +
+    "canonical numbering."
   );
 }
 
