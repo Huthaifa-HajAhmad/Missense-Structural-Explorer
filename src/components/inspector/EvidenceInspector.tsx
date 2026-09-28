@@ -14,8 +14,6 @@ import { AnalysisResult, EnergeticsData } from "../../types";
 import {
   THRESHOLDS,
   STRING_CONFIDENCE_BANDS,
-  buildGuidelinesRows,
-  summarizeGuidelinesRows
 } from "../../shared/thresholds";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
@@ -23,6 +21,7 @@ import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 import { PopulationRail } from "./PopulationRail";
 import { PredictorsRail } from "./PredictorsRail";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
+import { GuidelinesRail } from "./GuidelinesRail";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -53,27 +52,6 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const conservationData = analysisResult.conservationData;
   const multimerData = analysisResult.multimerData;
   const subunitComment = multimerData?.subunitComment || analysisResult.uniprotFeatures?.subunitComment;
-
-  // Compute dynamic concordance state for threshold view
-  const revel = conservationData?.revel ?? null;
-  const ddG = foldingDdG;
-  let statusBadgeStyle = "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
-  let statusText = "Concordance Uncertain";
-  let statusDesc = "The scores and stability changes fall into intermediate ranges or present conflicting evidence, requiring further functional validation.";
-  
-  if (revel !== null && revel >= 0.75 && ddG !== null && ddG > 1.5) {
-    statusText = "Destabilization + Conservation Concordant (High Risk)";
-    statusBadgeStyle = "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
-    statusDesc = "Both sequence conservation (REVEL >= 0.75) and structural energetics (FoldX ddG > 1.5 kcal/mol) suggest severe risk of misfolding loss-of-function.";
-  } else if ((revel !== null && revel >= 0.5) || (ddG !== null && ddG >= 0.5)) {
-    statusText = "Moderate-Risk Concordance (Pathogenic Support)";
-    statusBadgeStyle = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
-    statusDesc = "At least one biophysical indicator (REVEL >= 0.5 or FoldX ddG > 0.5 kcal/mol) shows significant aberration, supporting potential functional disruption.";
-  } else if (revel !== null && revel < 0.15 && ddG !== null && ddG < 0.5 && ddG > -0.5) {
-    statusText = "Low-Risk Concordance (Likely Benign)";
-    statusBadgeStyle = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
-    statusDesc = "Consensus indicators fall within benign boundaries. The variant is structurally neutral and evolutionary conservation shows no strict constraint.";
-  }
 
   // Active subtab category normalization
   const tab = activeEvidenceTab?.toLowerCase() || "clinical";
@@ -244,190 +222,14 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "predictors" && <PredictorsRail analysisResult={analysisResult} />}
 
-      {(tab === "thresholds" || tab === "guidelines") && (() => {
-        // Same builder the Threshold Guide table renders from — the inspector
-        // roll-up can never drift from the table's verdicts.
-        const rows = buildGuidelinesRows({ result: analysisResult, foldingDdG, foldingEnergetics });
-        const summary = summarizeGuidelinesRows(rows);
-        const groupCount = (g: "path" | "benign" | "vus" | "info" | "nodata") =>
-          g === "path" ? summary.pathSupporting.length
-          : g === "benign" ? summary.benignSupporting.length
-          : g === "vus" ? summary.vus.length
-          : g === "info" ? summary.informational.length
-          : summary.noData.length;
-        const groupTint: Record<string, { bg: string; fg: string; border: string }> = {
-          path: { bg: "var(--cs-bg-danger)", fg: "var(--cs-text-danger-on-soft)", border: "color-mix(in srgb, var(--cs-text-danger) 25%, transparent)" },
-          benign: { bg: "var(--cs-bg-success)", fg: "var(--cs-text-success)", border: "color-mix(in srgb, var(--cs-text-success) 25%, transparent)" },
-          vus: { bg: "var(--cs-bg-warning)", fg: "var(--cs-text-warning)", border: "color-mix(in srgb, var(--cs-text-warning) 30%, transparent)" },
-          info: { bg: "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)", fg: "var(--cs-accent-clay)", border: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)" },
-          nodata: { bg: "var(--cs-surface)", fg: "var(--cs-text-muted)", border: "var(--cs-border)" }
-        };
-        const matchedLists: { key: "path" | "benign" | "info"; label: string }[] = [
-          { key: "path", label: "Pathogenic-supporting" },
-          { key: "benign", label: "Benign / neutral" },
-          { key: "info", label: "Informational-only" }
-        ];
-
-        return (
-        <div className="flex flex-col gap-3">
-          <span className="eyebrow">
-            <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Concordance &amp; Calibration Guide
-          </span>
-
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-            <div className="flex items-center justify-between gap-1">
-              <span className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${statusBadgeStyle}`}>
-                {statusText}
-              </span>
-            </div>
-            <p className="text-[11px] text-cs-text-secondary leading-snug font-sans">
-              {statusDesc}
-            </p>
-            <div className="pt-2 border-t border-cs-border-subtle flex flex-col gap-1 text-[10px] font-mono text-cs-text-muted">
-              <div className="flex justify-between">
-                <span>REVEL Conservation:</span>
-                <span className="font-semibold text-cs-text-primary">{revel !== null ? revel.toFixed(3) : "N/A"}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>FoldX ΔΔG Stability:</span>
-                <span className="font-semibold text-cs-text-primary">{ddG !== null ? `${ddG.toFixed(2)} kcal/mol` : "N/A"}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Live roll-up over all 20 guide metrics, driven by the same row
-              builder as the main-column table. */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted flex items-center gap-1.5">
-              <Gauge className="w-3 h-3 text-cs-accent-clay" />
-              Live Threshold Matches
-            </span>
-            <div className="flex flex-wrap gap-1">
-              {(["path", "benign", "vus", "info", "nodata"] as const).map(g => {
-                const tint = groupTint[g];
-                const count = groupCount(g);
-                if (count === 0) return null;
-                return (
-                  <span
-                    key={g}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-sans"
-                    style={{ background: tint.bg, color: tint.fg, borderColor: tint.border }}
-                    title={g === "nodata" ? "Metrics with no score for this variant" : undefined}
-                  >
-                    <span className="font-mono font-bold tabular-nums">{count}</span>
-                    <span>{g === "path" ? "path." : g === "benign" ? "benign" : g === "vus" ? "VUS" : g === "info" ? "info" : "no data"}</span>
-                  </span>
-                );
-              })}
-            </div>
-            <div className="pt-1 space-y-1.5">
-              {matchedLists.map(({ key, label }) => {
-                const items = summary[key === "path" ? "pathSupporting" : key === "benign" ? "benignSupporting" : "informational"];
-                if (items.length === 0) return null;
-                return (
-                  <div key={key} className="space-y-0.5">
-                    <span className="eyebrow block">
-                      {label} · {items.length}
-                    </span>
-                    {items.map(row => {
-                      const tint = groupTint[key];
-                      return (
-                        <div key={row.key} className="flex justify-between items-center gap-2 text-[10px]">
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: tint.fg }} />
-                            <span className="text-cs-text-secondary truncate">{row.name}</span>
-                          </span>
-                          <span className="font-mono font-semibold text-cs-text-primary tabular-nums shrink-0">{row.display}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-              {summary.pathSupporting.length === 0 && summary.benignSupporting.length === 0 && summary.informational.length === 0 && (
-                <p className="text-[10px] text-cs-text-muted italic m-0">
-                  No metric reaches a calibrated cut-point yet — scores populate as pipeline stages complete.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Relocated from the main column: the verbose evidence-code
-              definitions, now the inspector's reference card. */}
-          <div
-            id={INSPECTOR_SECTIONS.thresholdKey}
-            tabIndex={-1}
-            className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/40"
-          >
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
-              ACMG/AMP Evidence Codes Key
-            </span>
-            <div className="space-y-1.5 text-[11px]">
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-cs-accent-clay shrink-0">PP3 / BP4</span>
-                <span className="text-cs-text-secondary text-right">Computational algorithms predict a deleterious (PP3) / neutral (BP4) effect on the protein.</span>
-              </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-cs-accent-clay shrink-0">PM1</span>
-                <span className="text-cs-text-secondary text-right">Mutational hot-spot or critical functional domain (e.g. binding pocket interface) without benign variation.</span>
-              </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-cs-accent-clay shrink-0">BP3</span>
-                <span className="text-cs-text-secondary text-right">In-frame deletion/insertion in a repetitive region, or structurally neutral substitution.</span>
-              </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-cs-accent-clay shrink-0">PP2 / BP1</span>
-                <span className="text-cs-text-secondary text-right">Missense-predominant constraint (PP2) / gene where mostly truncating variants cause disease (BP1).</span>
-              </div>
-              <div className="flex justify-between items-start gap-2">
-                <span className="font-mono font-bold text-cs-accent-clay shrink-0">Info</span>
-                <span className="text-cs-text-secondary text-right">Model-native scale with no published cut-point — reported, never classified.</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
-              ClinGen Evidence Point Scale
-            </span>
-            <div className="space-y-1 text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-cs-text-secondary">Very Strong (Pathogenic)</span>
-                <span className="font-mono font-bold text-rose-500">8 points</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-cs-text-secondary">Strong (Pathogenic)</span>
-                <span className="font-mono font-bold text-rose-400">4 points</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-cs-text-secondary">Moderate (Pathogenic)</span>
-                <span className="font-mono font-bold text-amber-500">2 points</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-cs-text-secondary">Supporting (Pathogenic)</span>
-                <span className="font-mono font-bold text-amber-400">1 point</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Cross-navigation, same pattern as the Interactions pane's multimer link. */}
-          {onSelectEvidenceTab && (
-            <button
-              type="button"
-              onClick={() => onSelectEvidenceTab("predictors")}
-              className="p-2.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-between text-[11px] font-medium transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-indigo-400" />
-                <span>Open In-Silico Predictors</span>
-              </div>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        );
-      })()}
+      {(tab === "thresholds" || tab === "guidelines") && (
+        <GuidelinesRail
+          analysisResult={analysisResult}
+          foldingDdG={foldingDdG}
+          foldingEnergetics={foldingEnergetics}
+          onSelectEvidenceTab={onSelectEvidenceTab}
+        />
+      )}
 
       {tab === "alphagenome" && <AlphaGenomeRail analysisResult={analysisResult} />}
 

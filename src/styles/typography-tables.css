@@ -118,14 +118,9 @@
   border-radius: var(--cs-radius-badge);
   font-size: var(--cs-font-size-badge);
   font-weight: var(--cs-font-weight-badge);
-  background: #EFF6FF;
-  color: #1E40AF;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-.dark .badge-data-source {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93C5FD;
-  border-color: rgba(59, 130, 246, 0.3);
+  background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
+  color: var(--cs-accent-clay);
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 25%, transparent);
 }
 
 /*
@@ -363,122 +358,4 @@
   font-size: var(--cs-font-size-table-header) !important;
   font-weight: var(--cs-font-weight-table-header) !important;
   color: var(--cs-text-secondary) !important;
-}
-
-/* ============================================================
-   THRESHOLD GUIDE — verdict badges, micro tracks, sticky table
-   ============================================================ */
-
-/* Verdict-tinted match badge. Colour carries the verdict: the previous
-   single blue `.badge-data-source` made "Strong Path." and "Benign"
-   visually identical. */
-.gt-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3.5px;
-  padding: 2.5px 7px;
-  border-radius: var(--cs-radius-badge);
-  font-size: var(--cs-font-size-badge);
-  font-weight: 600;
-  border: 1px solid transparent;
-  white-space: nowrap;
-  font-family: var(--cs-font-sans);
-}
-.gt-badge[data-tone="path"] {
-  color: var(--cs-text-danger-on-soft);
-  background: var(--cs-bg-danger);
-  border-color: color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
-}
-.gt-badge[data-tone="benign"] {
-  color: var(--cs-text-success);
-  background: var(--cs-bg-success);
-  border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent);
-}
-.gt-badge[data-tone="vus"] {
-  color: var(--cs-text-warning);
-  background: var(--cs-bg-warning);
-  border-color: color-mix(in srgb, var(--cs-text-warning) 30%, transparent);
-}
-.gt-badge[data-tone="info"] {
-  background: #EFF6FF;
-  color: #1E40AF;
-  border-color: rgba(59, 130, 246, 0.2);
-}
-.dark .gt-badge[data-tone="info"] {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93C5FD;
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-/* Score value tinted by verdict group. */
-.gt-value {
-  font-family: var(--cs-font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  font-weight: 600;
-}
-.gt-value[data-tone="path"]    { color: var(--cs-text-danger-on-soft); }
-.gt-value[data-tone="benign"]  { color: var(--cs-text-success); }
-.gt-value[data-tone="vus"]     { color: var(--cs-text-warning); }
-.gt-value[data-tone="info"]    { color: var(--cs-text-primary); }
-.gt-value[data-tone="nodata"]  { color: var(--cs-text-muted); font-weight: 400; }
-
-/* Micro threshold track under the score: zones + cut ticks + value marker.
-   Visual language matches the header constraint rail (vh-scale bands). */
-.gt-track {
-  position: relative;
-  display: block;
-  height: 4px;
-  margin-top: 6px;
-  border-radius: var(--cs-radius-pill);
-  background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent);
-}
-.gt-track-seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: var(--cs-radius-pill);
-}
-.gt-track-seg[data-tone="benign"] { background: color-mix(in srgb, var(--cs-text-success) 30%, transparent); }
-.gt-track-seg[data-tone="gray"]   { background: transparent; }
-.gt-track-seg[data-tone="path"]   { background: color-mix(in srgb, var(--cs-text-danger) 30%, transparent); }
-.gt-tick {
-  position: absolute;
-  top: -1.5px;
-  width: 1px;
-  height: 7px;
-  background: color-mix(in srgb, var(--cs-text-secondary) 45%, transparent);
-}
-.gt-marker {
-  position: absolute;
-  top: -2px;
-  width: 2px;
-  height: 8px;
-  border-radius: var(--cs-radius-pill);
-  transform: translateX(-50%);
-  box-shadow: 0 0 0 1.5px var(--cs-surface);
-}
-.gt-marker[data-tone="path"]   { background: var(--cs-text-danger); }
-.gt-marker[data-tone="benign"] { background: var(--cs-text-success); }
-.gt-marker[data-tone="vus"]    { background: var(--cs-text-warning); }
-.gt-marker[data-tone="info"]   { background: var(--cs-accent-clay); }
-
-/* Sticky table chrome: the header and the category bands stay readable while
-   the 20-row body scrolls inside the capped-height scroller. */
-.gt-scroller thead th {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: 38px;
-  background: var(--cs-surface-2);
-  border-bottom: 1px solid var(--cs-border) !important;
-}
-.gt-cat-cell {
-  position: sticky;
-  /* Exactly one header-height below the top, so the bands stack without a
-     content sliver showing through the seam. */
-  top: 38px;
-  z-index: 9;
-  background: var(--cs-surface-2);
-  border-bottom: 1px solid var(--cs-border-subtle);
 }
