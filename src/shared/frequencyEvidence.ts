@@ -126,6 +126,15 @@ export interface FrequencyCriterion {
   usedGroupMax: boolean;
   /** `groupMaxAF` fell back to the global `maxAF` because no population cleared the AN floor. */
   fallback: boolean;
+  /**
+   * The `af` of 0 is gnomAD's recorded ABSENCE (`not_found`), not a measured frequency.
+   *
+   * The engine reads a confirmed absence as the number zero, which is correct for the arithmetic but
+   * wrong as a label: surfaces used to print it as "0 · gnomAD global maximum", naming a maximum the
+   * payload never carried. A surface must word this as "not observed", and must not name a dataset
+   * statistic as its source.
+   */
+  absent: boolean;
   /** The PM2 ceiling applied, when the PM2 branch was reached. */
   pm2Ceiling: number | null;
   /** Inheritance reading that selected the ceiling. */
@@ -198,6 +207,14 @@ export interface FrequencyEvidence {
   hasProviderFault: boolean;
   /** True when a query for this variant had not settled when the payload was built. */
   hasPendingSource: boolean;
+  /**
+   * BS2 — the other population criterion, read from the engine's record rather than re-derived.
+   *
+   * The screen used to show "Homozygotes observed" and say nothing about BS2, so the one criterion
+   * that count feeds was invisible on the population tab. `recorded` is `null` when the payload
+   * carries no engine criteria (unknown, not "no").
+   */
+  homozygoteCriterion: { code: "BS2"; recorded: boolean | null };
 }
 
 export interface FrequencyEvidenceInput {
@@ -312,7 +329,9 @@ export function formatAlleleCounts(observation: Pick<FrequencyObservation, "ac" 
 
 /** Where the rule's frequency came from, named so the number can be traced to a dataset. */
 export function frequencySourceLabel(evidence: FrequencyEvidence): string {
-  const { sourceId, usedGroupMax, fallback } = evidence.criterion;
+  const { sourceId, usedGroupMax, fallback, absent } = evidence.criterion;
+  // A recorded absence has no statistic behind it; naming "the global maximum" invented one.
+  if (sourceId === "gnomad-group" && absent) return "gnomAD — no record (absence read as 0)";
   if (sourceId === "gnomad-group") {
     const base = usedGroupMax ? "gnomAD ancestry-grouped maximum" : "gnomAD global maximum";
     return fallback ? `${base} (fell back to the global maximum)` : base;
@@ -412,6 +431,7 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   const base = {
     usedGroupMax: false,
     fallback: false,
+    absent: false,
     pm2Ceiling: null as number | null,
     inheritance: "unknown" as FrequencyCriterion["inheritance"],
     headline: null as string | null,
@@ -470,6 +490,7 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   let sourceId: FrequencyCriterion["sourceId"] = null;
   let usedGroupMax = false;
   let fallback = false;
+  let absent = false;
 
   // 3/4. gnomAD: grouped maximum, then global maximum, then a confirmed absence.
   const groupMaxAF = finite(gnomadFrequency?.groupMaxAF);
@@ -485,6 +506,7 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   } else if (status === "not_found") {
     af = 0;
     sourceId = "gnomad-group";
+    absent = true;
   } else {
     // 5. ClinVar-submitted frequencies. Only a value that parses to a finite number is evidence:
     //    the wire type is `{ source: string; value: any }` (`external-api/clinvar.ts:18`), so a
@@ -521,7 +543,7 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
       ? "unknown"
       : "dominant";
 
-  const shared = { ...base, af, sourceId, usedGroupMax, fallback };
+  const shared = { ...base, af, sourceId, usedGroupMax, fallback, absent };
 
   /**
    * Each branch states its clause ONCE, and the full sentence is composed from it. The headline and
@@ -905,6 +927,12 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     gnomadHomozygotes: finite(gnomadFrequency?.nHomozygous),
     hasProviderFault: runStates.includes("upstream-error"),
     hasPendingSource: runStates.includes("pending"),
+    homozygoteCriterion: {
+      code: "BS2",
+      recorded: input.engineCriteria
+        ? input.engineCriteria.some(c => typeof c?.code === "string" && c.code.toUpperCase() === "BS2")
+        : null,
+    },
   };
 }
 
