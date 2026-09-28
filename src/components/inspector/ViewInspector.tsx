@@ -109,7 +109,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
 const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
   clinical: "Population Data & Clinical DBs",
   predictors: "In-Silico Ensemble Calibration",
-  alphagenome: "AlphaGenome Atlas Tracks",
+  alphagenome: "AlphaGenome variant impact (AVI)",
   splicing: "RNA Splicing Calibration",
   structure: "Residue Shifts & Pocket Provenance",
   perturbation: "Structural Perturbation Models",

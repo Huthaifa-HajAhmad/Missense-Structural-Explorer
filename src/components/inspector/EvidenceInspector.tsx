@@ -22,6 +22,7 @@ import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 import { PopulationRail } from "./PopulationRail";
 import { PredictorsRail } from "./PredictorsRail";
+import { AlphaGenomeRail } from "./AlphaGenomeRail";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -428,97 +429,10 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
         );
       })()}
 
-      {/*
-        ── ALPHAGENOME PROVENANCE ──
-        * Where the AlphaGenome panel's verbose material went. Two multi-line methodology notes used
-        * to sit as paragraphs inside the data column — the ClinGen SVI isolation mandate, between two
-        * numbers, and a five-line assay-architecture disclaimer above a table — plus a transport
-        * sentence in the hero. None of it is a finding about the variant, which is what the main
-        * column is for; all of it is what a reader wants when they ask how a number was obtained.
-        *
-        * Semantic list rather than prose blocks: a definition list is scannable, and the paragraphs
-        * it replaces were neither scannable nor short.
-        */}
-      {tab === "alphagenome" && (
-        <div className="flex flex-col gap-3">
-          <h3 className="text-[10px] font-mono uppercase tracking-wider text-cs-text-muted">
-            Provenance &amp; method
-          </h3>
-          <dl className="space-y-2.5 text-[11px] leading-relaxed">
-            <div>
-              <dt className="text-cs-text-muted">Source</dt>
-              <dd className="text-cs-text-secondary">
-                AlphaGenome Atlas (Google DeepMind), queried over TLS by a native gRPC client at{" "}
-                <code className="font-mono">gdmscience.googleapis.com:443</code>. The Atlas links on
-                the panel are deep links into the authenticated Atlas for this locus, not a public
-                search.
-              </dd>
-            </div>
-            <div>
-              <dt className="text-cs-text-muted">Scalar reported</dt>
-              <dd className="text-cs-text-secondary">
-                {/*
-                  * This said "−10·log₁₀ P(benign)", which is not the quantity computed. `cdfToPhred`
-                  * is `tail = 1 − cdfQuantile; phred = −10·log10(tail)`, and the cdf is cumulative
-                  * against ALL genome-wide SNVs — so the tail is the fraction of variants scoring at
-                  * least as high, i.e. the genome-wide rank the adjacent card already prints as
-                  * "Top 0.537%". Read literally the old gloss turned Phred 22.7 into "P(benign) =
-                  0.54%, ~99.5% pathogenic", contradicting the PP3-Supporting / 2.08:1 verdict two
-                  * hundred pixels away.
-                  */}
-                AVI — the calibrated variant impact score, shown as Phred
-                (−10·log₁₀ <em>tail</em>, where the tail is the fraction of genome-wide SNVs scoring
-                at least this high; Phred 20 ≈ top 1%). Five bands, not four: ≤ 5 BP4-moderate,
-                ≤ 8 BP4-supporting, ≥ 15 PP3-supporting, ≥ 25 PP3-moderate, ≥ 35 PP3-strong.
-              </dd>
-            </div>
-            <div>
-              <dt className="text-cs-text-muted">Attribution</dt>
-              <dd className="text-cs-text-secondary">
-                {/*
-                  * Two corrections. The method is SHAP by expected-gradients approximation (the
-                  * Atlas's own description), not TreeExplainer — a name this panel had also asserted
-                  * in its education drawer, now fixed there too. And "biological layers" oversells the
-                  * vector: it carries non-layer indicators (protein termination, start/stop lost,
-                  * insertion, deletion), so these are 18 features.
-                  */}
-                SHAP (expected-gradients approximation) over the model&apos;s 9,440 tracks, reduced to
-                18 features which sum to the raw AVI score. Coding, splicing and regulatory features
-                name a mechanism; the conservation features (Cactus 241-way, PhastCons 470-way)
-                report constraint and are never elected into the mechanism slot.
-              </dd>
-            </div>
-            <div>
-              <dt className="text-cs-text-muted">How it is counted</dt>
-              <dd className="text-cs-text-secondary">
-                {/*
-                  * AlphaGenome used to be a full voting member of the PP3/BP4 concordance, and the
-                  * engine raised PP3 to Moderate/Strong from the AVI alone. The AVI is a rank (tail-
-                  * quantile Phred) with no ClinGen calibration, and AlphaMissense is one of its own
-                  * features, so it re-counted a tool that already votes. It is now informational
-                  * (`concordance.ts`), and this row says so.
-                  */}
-                Listed on the Predictors tab as informational: it does not vote toward PP3/BP4 and
-                does not set their strength, because the AVI is a rank rather than a calibrated
-                probability and already contains AlphaMissense. It is absent from the ΔΔG stability
-                consensus because it is not a ΔΔG engine.
-              </dd>
-            </div>
-            <div>
-              <dt className="text-cs-text-muted">Track reference schema</dt>
-              <dd className="text-cs-text-secondary">
-                The ten example rows on the panel illustrate AlphaGenome&apos;s output shape across
-                four assay categories; those magnitudes are examples, not measurements of this
-                variant. This variant&apos;s continuous tracks are read in the Atlas, linked at the
-                foot of the panel.
-              </dd>
-            </div>
-          </dl>
-        </div>
-      )}
+      {tab === "alphagenome" && <AlphaGenomeRail analysisResult={analysisResult} />}
 
       {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "thresholds" && tab !== "guidelines" && (
+      {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "thresholds" && tab !== "guidelines" && (
         <div className="flex flex-col gap-3">
           <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />

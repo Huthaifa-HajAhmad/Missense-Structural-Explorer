@@ -1,25 +1,20 @@
 // @vitest-environment jsdom
 /**
- * AlphaGenomeTab.test.tsx — what the AlphaGenome panel is allowed to say when it has no score.
+ * AlphaGenomeTab.test.tsx — what the AlphaGenome panel is allowed to say.
  *
- * This panel had no render test at all, which is why a three-day-old upstream change could break its
- * only user-visible contract silently: it kept asserting "Awaiting API key for exact rank" while the
- * key was configured and verified, because a GRCh38-only build gate had refused the GRCh37
- * coordinate (see doc/ALPHAGENOME_STANDBY_RCA_AND_UI_AUDIT.md §1).
- *
- * Every assertion below is a claim adversarial review proved the panel could get wrong. They are
- * written against the rendered DOM, not against the resolver — the resolver has its own suite, and
- * what these pin is that the *panel* consumes it rather than re-deriving a cause.
+ * Two families of claim are pinned here, both written against the rendered DOM:
+ *   1. absence — a missing score is explained by the shared resolver, never re-derived here (the
+ *      "Awaiting API key" defect, doc/ALPHAGENOME_STANDBY_RCA_AND_UI_AUDIT.md §1);
+ *   2. integrity — the AVI is shown as a rank with its composition, never as an ACMG strength, a
+ *      probability, or next to invented reference magnitudes (doc/ALPHAGENOME_TAB_REVIEW.md).
  */
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const REFUSAL =
   "alphagenome covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored.";
 
-// Paths resolve from THIS file (`src/components/evidence/__tests__/`), which is one level deeper
-// than the component's own `../../` — hence three `../`.
 vi.mock("../../../context/SettingsContext", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../context/SettingsContext")>();
   return {
@@ -38,13 +33,16 @@ vi.mock("../../../apiClient", () => ({
 
 import { AlphaGenomeTab } from "../AlphaGenomeTab";
 
+const GZF1_ATLAS = "https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=chr20:23369727:C%3ET";
+
 function renderTab(options: {
   alphagenome?: Record<string, unknown> | null;
   refusals?: Array<{ source: string; reason: string }> | null;
+  predictorData?: Record<string, unknown>;
 }) {
   const result = {
     metadata: { gene: "ACOT9", variant: "p.Lys272Asn", uniprotId: "Q9Y305" },
-    predictorData: { gnomadVariantId: "X-23723975-C-A", gnomadVariantAssembly: "GRCh37" },
+    predictorData: options.predictorData ?? { gnomadVariantId: "X-23723975-C-A", gnomadVariantAssembly: "GRCh37" },
     conservationData: {
       alphagenome: options.alphagenome ?? null,
       assemblyRefusals: options.refusals ?? null,
@@ -53,22 +51,39 @@ function renderTab(options: {
   return render(<AlphaGenomeTab {...({ analysisState: { result } } as any)} />);
 }
 
+/** The GZF1 p.Arg591Trp payload from the review screenshots. */
+const GZF1 = {
+  status: "live",
+  aviPhred: 26.4,
+  aviRaw: 1.21,
+  aviQuantile: 0.99771,
+  topPercentile: 0.229,
+  acmgStrength: "PP3_Moderate",
+  atlasUrl: GZF1_ATLAS,
+  featureAttributions: {
+    Splicing: 0.083,
+    AlphaMissense: 0.686,
+    "RNA-seq": 0.002,
+    "ATAC-seq": 0.002,
+    "DNASE-seq": 0.005,
+    "ChIP-TF": 0,
+  },
+};
+
 describe("a build refusal is stated as a coverage decision, never as a credential problem", () => {
   it("renders the canonical label and the server's own reason", () => {
     renderTab({ refusals: [{ source: "alphagenome", reason: REFUSAL }] });
-    // The canonical label intentionally appears in two places — the status badge and the ClinGen SVI
-    // card — so this asserts presence, not uniqueness.
-    expect(screen.getAllByText("Not covered").length).toBeGreaterThan(0);
-    // The reason is humanised, so the internal source key does not reach clinical prose.
-    expect(screen.getByText(/AlphaGenome Atlas covers GRCh38 \/ hg38/)).toBeInTheDocument();
+    expect(screen.getByTestId("avi-status")).toHaveTextContent("Not covered");
+    expect(screen.getAllByText(/AlphaGenome Atlas covers GRCh38 \/ hg38/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/^alphagenome covers/)).not.toBeInTheDocument();
   });
 
-  it("never blames the API key — the defect this panel was diagnosed with", () => {
+  it("never blames the API key", () => {
     renderTab({ refusals: [{ source: "alphagenome", reason: REFUSAL }] });
     expect(screen.queryByText(/Awaiting API key/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Add or check the AlphaGenome credential/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Standby/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /connection settings/i })).not.toBeInTheDocument();
   });
 
   it("says plainly that no setting changes a coverage decision", () => {
@@ -78,166 +93,139 @@ describe("a build refusal is stated as a coverage decision, never as a credentia
 });
 
 describe("an actionable absence offers the remedy that can actually fix it", () => {
-  it("sends a rejected credential to Settings, not to a retry loop", () => {
-    renderTab({
-      alphagenome: {
-        status: "unavailable",
-        aviPhred: null,
-        message: "AlphaGenome API Key is invalid or expired.",
-      },
-    });
-    expect(screen.getAllByText("Not available here").length).toBeGreaterThan(0);
+  it("sends a rejected credential to Settings", () => {
+    renderTab({ alphagenome: { status: "unavailable", aviPhred: null, message: "AlphaGenome API Key is invalid or expired." } });
+    expect(screen.getByTestId("avi-status")).toHaveTextContent("Not available here");
     expect(screen.getByText(/Add or check the AlphaGenome credential in Settings/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open connection settings/ })).toBeInTheDocument();
     expect(screen.queryByText(/Re-evaluate the variant to ask the Atlas again/)).not.toBeInTheDocument();
   });
 
   it("offers a retry for a provider fault, and not a credential action", () => {
-    renderTab({
-      alphagenome: { status: "unavailable", aviPhred: null, message: "AlphaGenome Atlas query timed out." },
-    });
-    expect(screen.getAllByText("Provider error").length).toBeGreaterThan(0);
+    renderTab({ alphagenome: { status: "unavailable", aviPhred: null, message: "AlphaGenome Atlas query timed out." } });
+    expect(screen.getByTestId("avi-status")).toHaveTextContent("Provider error");
     expect(screen.getByText(/Re-evaluate the variant to ask the Atlas again/)).toBeInTheDocument();
-    expect(screen.queryByText(/Add or check the AlphaGenome credential/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Re-evaluate/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /connection settings/i })).not.toBeInTheDocument();
   });
 
   it("does not assert a third-party fault from a bare status with no message", () => {
-    // `status` defaults to "unavailable" in the wire schema, so an absent field must not be reported
-    // as "Provider error" on no evidence.
     renderTab({ alphagenome: { status: "unavailable", aviPhred: null } });
     expect(screen.queryByText("Provider error")).not.toBeInTheDocument();
-    expect(screen.getAllByText("No result").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("avi-status")).toHaveTextContent("No result");
+  });
+
+  it("shows no score sections when there is no score", () => {
+    renderTab({ alphagenome: { status: "unavailable", aviPhred: null } });
+    expect(screen.queryByTestId("avi-rank-ruler")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("avi-contributions")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("avi-facts")).not.toBeInTheDocument();
   });
 });
 
-describe("a live score and its attribution are separate axes", () => {
-  it("reports the canonical positive state, not an invented word", () => {
-    renderTab({
-      alphagenome: { status: "live", aviPhred: 22.5, aviQuantile: 0.5, featureAttributions: { Splicing: 0.1 } },
-    });
-    expect(screen.getByText("Computed")).toBeInTheDocument();
-    expect(screen.queryByText(/AVI assessed/)).not.toBeInTheDocument();
+describe("the score is a rank, never an ACMG strength", () => {
+  it("does not render the payload's app-defined PP3/BP4 banding, or odds, or a ClinGen claim", () => {
+    renderTab({ alphagenome: GZF1, predictorData: { gnomadVariantId: "20-23369727-C-T", gnomadVariantAssembly: "GRCh38" } });
+    // The caveat may SAY "not counted toward PP3/BP4"; no strength may be assigned.
+    expect(screen.queryByText(/PP3_|BP4_|PP3 \(|Moderate Pathogenic|PP3-(supporting|moderate|strong)/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/4\.33|Odds of Pathogenicity/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ClinGen SVI/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Calibrated AVI/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/P_benign|\/ 50\.0/)).not.toBeInTheDocument();
   });
 
-  it("explains a live score that arrived without attributions, instead of showing 18 bare dashes", () => {
-    // `alphagenome-client.ts` emits `featureAttributions: null` on live results whenever the
-    // feature-importance scorer returns nothing; the panel used to claim a completed decomposition.
-    renderTab({ alphagenome: { status: "live", aviPhred: 22.5, featureAttributions: null } });
-    expect(screen.getByText(/returned without modality attributions/)).toBeInTheDocument();
-    expect(screen.queryByText(/Decomposition of 9,440 functional tracks/)).not.toBeInTheDocument();
+  it("states the rank against all possible SNVs, with the canonical positive state", () => {
+    renderTab({ alphagenome: GZF1 });
+    expect(screen.getByTestId("avi-status")).toHaveTextContent("Computed");
+    expect(screen.getByTestId("avi-headline")).toHaveTextContent("Top 0.23%");
+    expect(screen.getByText(/of all ~9 billion possible hg38 SNVs/)).toBeInTheDocument();
+    expect(screen.getByText(/about 1 in 437/)).toBeInTheDocument();
+    expect(screen.getByTestId("avi-caveat")).toHaveTextContent(/not a probability of pathogenicity/);
   });
 
   it("treats a measured quantile of 0 as a value, not as missing", () => {
     renderTab({ alphagenome: { status: "live", aviPhred: 22.5, aviQuantile: 0, featureAttributions: { Splicing: 0 } } });
     expect(screen.getByText("0.00000")).toBeInTheDocument();
   });
+
+  it("carries no invented reference magnitudes", () => {
+    renderTab({ alphagenome: GZF1 });
+    expect(screen.queryByText(/illustrative/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/HepG2|ChIP Peak Disruption/)).not.toBeInTheDocument();
+  });
+});
+
+describe("what the score is made of", () => {
+  it("reports shares of the summed |contribution|, not SHAP × 100", () => {
+    renderTab({ alphagenome: GZF1 });
+    const am = screen.getByTestId("avi-feature-ALPHAMISSENSE");
+    expect(within(am).getByText("+0.686")).toBeInTheDocument();
+    // 0.686 / 0.778 = 88%
+    expect(within(am).getByText("88%")).toBeInTheDocument();
+    expect(screen.queryByText(/Rel$/)).not.toBeInTheDocument();
+  });
+
+  it("names AlphaMissense as a separate predictor, not as protein structure", () => {
+    renderTab({ alphagenome: GZF1 });
+    expect(screen.queryByText(/steric|hydrophobic packing|AlphaFold Structural/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/AlphaMissense \(\+0\.686\), which the Predictors tab already counts/);
+  });
+
+  it("says a conservation-dominated score names no molecular route", () => {
+    renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { AlphaMissense: 0.076, Splicing: 0.008, Cactus: 0.531 } } });
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Most of the score \(86%\) comes from conservation/);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/does not name a molecular route/);
+  });
+
+  it("folds contributions under 2% behind a row that says how many it holds", () => {
+    renderTab({ alphagenome: GZF1 });
+    expect(screen.getByTestId("avi-feature-MERGED_SPLICING")).toBeInTheDocument();
+    expect(screen.queryByTestId("avi-feature-MAX_ABS_CHIP_TF")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /9 more — each under 2% of the total, 5 not attributed/ })).toBeInTheDocument();
+  });
+
+  it("keeps absent and zero apart: an unattributed feature is a dash, a measured 0 is 0", () => {
+    renderTab({ alphagenome: GZF1 });
+    for (const b of screen.getAllByRole("button", { name: /more — each under/ })) fireEvent.click(b);
+    expect(within(screen.getByTestId("avi-feature-MAX_ABS_CHIP_TF")).getByText("+0.000")).toBeInTheDocument();
+    expect(within(screen.getByTestId("avi-feature-CACTUS_241_WAY")).getByText("Not attributed")).toBeInTheDocument();
+  });
+
+  it("does not elect a feature from an all-zero vector", () => {
+    renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Splicing: 0, AlphaMissense: 0 } } });
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/every attribution is zero/);
+  });
+
+  it("explains a live score that arrived without attributions", () => {
+    renderTab({ alphagenome: { status: "live", aviPhred: 22.5, featureAttributions: null } });
+    expect(screen.getByTestId("avi-no-attribution")).toBeInTheDocument();
+    expect(screen.queryByTestId("avi-contributions")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("avi-composition")).not.toBeInTheDocument();
+  });
+});
+
+describe("Atlas links point at the locus that was scored", () => {
+  it("uses the coordinate the Atlas was actually queried with", () => {
+    renderTab({ alphagenome: GZF1 });
+    const atlas = screen.getByTestId("avi-atlas");
+    expect(within(atlas).getByText("chr20:23369727 C>T")).toBeInTheDocument();
+    expect(within(atlas).getByRole("link", { name: /Variant page/ })).toHaveAttribute(
+      "href",
+      "https://deepmind.google.com/science/alphagenome/atlas/variant/chr20:23369727:C%3ET",
+    );
+  });
+
+  it("never deep-links a GRCh37 position into the GRCh38 Atlas", () => {
+    renderTab({ refusals: [{ source: "alphagenome", reason: REFUSAL }] });
+    const atlas = screen.getByTestId("avi-atlas");
+    expect(within(atlas).queryByText(/23723975/)).not.toBeInTheDocument();
+    expect(within(atlas).getByRole("link", { name: /Search the Atlas for ACOT9/ })).toBeInTheDocument();
+  });
 });
 
 describe("the wrapper's guard", () => {
   it("renders nothing without a result, and without tripping the hooks order", () => {
-    // The guard used to sit above ten hooks inside the body; it now lives in a hook-free wrapper, so
-    // mounting with no result must be a clean no-op rather than a render-phase violation.
     const { container } = render(<AlphaGenomeTab {...({ analysisState: { result: null } } as any)} />);
     expect(container).toBeEmptyDOMElement();
-  });
-});
-
-/**
- * The "Leading Driver: Cactus" defect.
- *
- * The payload's `topModality` is an `argmax |SHAP|` across all eighteen layers including the two
- * conservation tracks, so for ACOT9 p.Ser489Cys it elected Cactus (the 241-way placental-mammal
- * alignment) at +0.531 — seven times the coding signal — and the panel labelled it "Primary
- * biological regulatory disruption". Conservation is not a mechanism, and presenting it as the driver
- * made the hero quietly contradict the coding/splicing panel directly below it.
- *
- * These pin the split: mechanisms and constraint are ranked separately, and a conservation track can
- * never occupy the mechanism slot.
- */
-describe("mechanism and constraint are ranked separately", () => {
-  it("does not promote a sub-floor mechanism: the real ACOT9 vector reports unresolved", () => {
-    // The exact payload that produced the original defect: Cactus +0.531 against AlphaMissense
-    // +0.076. AlphaMissense is the largest *mechanism* attribution, but 0.076 is far below the
-    // floor and Cactus carries 86% of the attributed score, so the honest headline is that the
-    // mechanism is unresolved — not "AlphaMissense is the driver".
-    renderTab({
-      alphagenome: {
-        status: "live",
-        aviPhred: 22.7,
-        featureAttributions: { AlphaMissense: 0.076, Splicing: 0.008, Cactus: 0.531 },
-      },
-    });
-    expect(screen.getByText(/mechanism not resolved/)).toBeInTheDocument();
-    expect(screen.getByText(/Constraint dominates/)).toBeInTheDocument();
-    expect(screen.getByText(/evolutionary constraint, not a mechanism/)).toBeInTheDocument();
-    // The sub-floor mechanism must not be printed as though it led.
-    expect(screen.queryByText(/\+0\.076 signed SHAP/)).not.toBeInTheDocument();
-  });
-
-  it("names a mechanism that clears the floor, and reports no constraint", () => {
-    renderTab({
-      alphagenome: {
-        status: "live",
-        aviPhred: 22.7,
-        featureAttributions: { AlphaMissense: 0.4, Splicing: 0.05, Cactus: 0.1 },
-      },
-    });
-    expect(screen.getByText(/\+0\.400 signed SHAP/)).toBeInTheDocument();
-    expect(screen.getByText(/Coding, splicing and regulatory features only\./)).toBeInTheDocument();
-    expect(screen.queryByText(/Constraint dominates/)).not.toBeInTheDocument();
-  });
-
-  it("leaves the mechanism slot empty when ONLY conservation was attributed", () => {
-    // The load-bearing case: a conservation-only vector must not be able to claim a mechanism.
-    // Nothing was measured in a mechanism tier, so the sub-line describes what the slot measures
-    // rather than claiming a resolution, and the footer states the unresolved verdict.
-    renderTab({
-      alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Cactus: 0.531 } },
-    });
-    expect(screen.getByText(/Largest attribution across coding, splicing and regulatory features/))
-      .toBeInTheDocument();
-    expect(screen.getByText(/Constraint dominates/)).toBeInTheDocument();
-    expect(screen.getByText(/not resolved by this score/)).toBeInTheDocument();
-  });
-
-  it("breaks an exact |SHAP| tie toward the first declared mechanism", () => {
-    // Catches a `>` → `>=` mutation in `pickTopModality`, which every other case in this file
-    // survives. With strict `>` the incumbent — Splicing, declared first — keeps the slot; with
-    // `>=` the later AlphaMissense replaces it. Splicing is negative here, so the *sign* of the
-    // printed value distinguishes the two implementations.
-    renderTab({
-      alphagenome: {
-        status: "live",
-        aviPhred: 22.7,
-        featureAttributions: { Splicing: -0.5, AlphaMissense: 0.5 },
-      },
-    });
-    expect(screen.getByText(/-0\.500 signed SHAP/)).toBeInTheDocument();
-    expect(screen.queryByText(/\+0\.500 signed SHAP/)).not.toBeInTheDocument();
-  });
-
-  it("never describes a structural-variant feature as conservation evidence", () => {
-    // `"Structural Variant"` used to sit in CONSTRAINT_TIERS, which rendered a leading indel as
-    // "Constraint corroboration: Deletion +0.440 — conservation evidence, not a mechanism".
-    // Insertions and deletions are not conservation, so they are in neither slot now.
-    renderTab({
-      alphagenome: {
-        status: "live",
-        aviPhred: 22.7,
-        featureAttributions: { Splicing: 0.1, Deletion: 0.44, Insertion: 0.42 },
-      },
-    });
-    // The assertion keys on the FOOTER's phrasing: the Cactus modality card legitimately carries
-    // "Cross-species evolutionary constraint…" as its static description, so the bare phrase is not
-    // discriminating — ", not a mechanism" and "Constraint dominates" are footer-only.
-    expect(screen.queryByText(/conservation evidence/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/evolutionary constraint, not a mechanism/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Constraint dominates/)).not.toBeInTheDocument();
-    // Splicing 0.10 was attributed, so this must not claim nothing was measured.
-    expect(screen.getByText(/no mechanism resolved\./)).toBeInTheDocument();
-  });
-
-  it("distinguishes an empty vector from a merely sub-floor one", () => {
-    renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: {} } });
-    expect(screen.getByText(/No attribution reached this variant\./)).toBeInTheDocument();
   });
 });
