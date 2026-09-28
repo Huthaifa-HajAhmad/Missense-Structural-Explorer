@@ -133,7 +133,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   ];
 
   return (
-    <div className="flex flex-col gap-5" data-testid="population-rail">
+    <div className="pop-rail" data-testid="population-rail">
       {/* ── 1. How the verdict was reached ── */}
       <section className="rail-section" aria-labelledby="rail-trace-title">
         <h3 className="eyebrow" id="rail-trace-title">
@@ -216,8 +216,10 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               <li key={cp.code} className="rail-cut" data-active={active || undefined}>
                 <span className="ev-tier chip-code" data-tone={active ? cp.tone : "muted"}>{cp.code}</span>
                 <span className="rail-cut__rule pop-mono">{cp.rule}</span>
-                <span className="rail-cut__meaning">{cp.meaning}</span>
-                {active && <span className="rail-cut__here">this variant</span>}
+                <span className="rail-cut__meaning">
+                  {cp.meaning}
+                  {active && <span className="rail-cut__here"> · this variant</span>}
+                </span>
               </li>
             );
           })}
@@ -268,8 +270,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           )}
           <Row label="ACMG rules">
             <span>
-              <span className="pop-mono" style={{ color: "var(--cs-text-danger-on-soft)" }}>{pathCount}</span> pathogenic ·{" "}
-              <span className="pop-mono" style={{ color: "var(--cs-text-good-on-soft)" }}>{benCount}</span> benign
+              <span className="pop-mono">{pathCount}</span> pathogenic · <span className="pop-mono">{benCount}</span> benign
             </span>
           </Row>
         </dl>

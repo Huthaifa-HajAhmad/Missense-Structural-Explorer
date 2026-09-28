@@ -149,7 +149,7 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     // The row subject and its two figures: the counts (the screen's answer) and the frequency it
     // divides into (the rule's input, one rank down). Figures carry no visible field labels — the
     // words live in title/sr-only — so the assertion is on the subject and the values.
-    expect(screen.getByText("Exomes")).toBeTruthy();
+    expect(screen.getByText("gnomAD exomes")).toBeTruthy();
     /*
      * The figure is asserted AS the figure, not as a string that appears somewhere: a headline that
      * stopped rolling the busiest cohort up — or started showing the grouped maximum's frequency
@@ -160,10 +160,11 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     expect(screen.getByText(/Exomes · most copies in any one cohort/)).toBeTruthy();
     // The rule's own input, labelled as its own line inside the same card.
     const headlineCard = screen.getByTestId("population-finding");
-    const facts = headlineCard.querySelector(".pop-facts") as HTMLElement;
-    expect(within(facts).getByText("AF the rule read")).toBeTruthy();
-    expect(within(facts).getByText("5.50e-6")).toBeTruthy();
-    expect(screen.getByText(/gnomAD ancestry-grouped maximum/)).toBeTruthy();
+    // Stated once, in the scale's legend, beside the words saying what it is.
+    const legend = within(headlineCard).getByTestId("frequency-scale").querySelector("figcaption") as HTMLElement;
+    expect(within(legend).getByText("AF the rule read")).toBeTruthy();
+    expect(within(legend).getByText("5.50e-6")).toBeTruthy();
+    expect(within(legend).getByText(/gnomAD ancestry-grouped maximum/)).toBeTruthy();
     // Unconfirmed criterion: the chip shows the code behind a dashed border, not a "PM2?" plus a
     // paragraph explaining the "?".
     const chip = screen.getByTestId("verdict-chip");
@@ -189,7 +190,7 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
         },
       }),
     );
-    expect(screen.getByText("Used for classification")).toBeTruthy();
+    expect(within(screen.getByTestId("reading-gnomad-group")).getByLabelText("Used for classification")).toBeTruthy();
     // Scoped to the row itself: the same value is also the finding and both dataset readings.
     const row = screen.getByTestId("reading-gnomad-group");
     expect(row).toBeTruthy();
@@ -227,9 +228,8 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     // Scoped to the All of Us card: a page-wide query would pass on the headline alone, which is the
     // exact weakness the previous revision of this assertion had.
     const aouCard = screen.getByTestId("reading-all-of-us");
-    const [acCell, anCell] = Array.from(aouCard.querySelectorAll("td.pop-num"));
-    expect(acCell.textContent).toBe("12");
-    expect(anCell.textContent).toBe("—");
+    // Count and number share one cell, and a missing denominator is a dash, never a zero.
+    expect(within(aouCard).getByText("12 / —")).toBeTruthy();
     expect(within(aouCard).getByText(/no usable allele number/)).toBeTruthy();
     // The chip must not contradict the figure beneath it: "No result" above "AC 12" said the source
     // returned nothing when it returned a count and no denominator.
@@ -253,16 +253,17 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     );
     // Scoped: asserting the strings exist would pass even if the row still rendered inside the
     // gnomAD card, which is the defect being pinned. The row must be INSIDE the ClinVar card.
-    const clinvarGroup = screen.getByTestId("population-readings")
-      .querySelector('tbody[data-source="clinvar-submissions"]') as HTMLElement;
-    expect(within(clinvarGroup).getByText("ExAC")).toBeTruthy();
-    expect(within(clinvarGroup).getByText("0.030%")).toBeTruthy();
+    const readings = screen.getByTestId("population-readings");
+    const clinvarRow = readings.querySelector('[data-source="clinvar-submissions"]') as HTMLElement;
+    expect(within(clinvarRow).getByText("ExAC")).toBeTruthy();
+    expect(within(clinvarRow).getByText("via ClinVar")).toBeTruthy();
+    expect(within(clinvarRow).getByText("0.030%")).toBeTruthy();
     // gnomAD's recorded absence outranks a submission, so the submission is NOT the rule input.
-    expect(within(clinvarGroup).queryByText("Rule input")).toBeNull();
+    expect(within(clinvarRow).queryByLabelText("Used for classification")).toBeNull();
 
-    const gnomadGroup = screen.getByTestId("population-readings")
-      .querySelector('tbody[data-source="gnomad"]') as HTMLElement;
-    expect(within(gnomadGroup).queryByText("ExAC")).toBeNull();
+    for (const row of Array.from(readings.querySelectorAll('[data-source="gnomad"]'))) {
+      expect(row.textContent ?? "").not.toMatch(/ExAC/);
+    }
   });
 
   it("keeps one row per ClinVar submitter instead of collapsing them", () => {
@@ -287,13 +288,13 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
   it("names the gnomAD release the way gnomAD does, and asserts no minor", () => {
     renderTab(gzf1Result());
     // "v4" — the release name, not the `gnomad_r4` API alias, and never a patch the code cannot read.
-    expect(screen.getByText("v4")).toBeTruthy();
+    expect(screen.getByText("gnomAD v4")).toBeTruthy();
     expect(screen.queryByText(/v4\.0\.0|v4\.1\.0|gnomad_r4/)).toBeNull();
 
     renderTab(
       gzf1Result({ gnomadFrequency: { ...gzf1Result().gnomadFrequency, dataset: "gnomad_r3" } }),
     );
-    expect(screen.getAllByText("v3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("gnomAD v3").length).toBeGreaterThan(0);
   });
 });
 
@@ -430,5 +431,40 @@ describe("ClinicalTab — redesign regressions", () => {
     );
     expect(screen.getByText("12 Mar 2024")).toBeTruthy();
     expect(screen.getByLabelText("3 of 4 review stars")).toBeTruthy();
+  });
+});
+
+describe("ClinicalTab — one voice", () => {
+  it("puts no status chip on a clean measurement, and no prose in a number column", () => {
+    renderTab(gzf1Result());
+    const exomes = screen.getByTestId("reading-gnomad-exomes");
+    expect(within(exomes).queryByText("Measured")).toBeNull();
+    for (const cell of Array.from(screen.getByTestId("population-readings").querySelectorAll("td.pop-num"))) {
+      expect(cell.textContent ?? "").not.toMatch(/[a-z]{3,}/i);
+    }
+  });
+
+  it("states the frequency the rule read once, not in a second fact strip", () => {
+    const { container } = renderTab(gzf1Result());
+    expect(container.querySelector(".pop-facts")).toBeNull();
+    expect(screen.getAllByText("AF the rule read").length).toBe(1);
+  });
+});
+
+describe("ClinicalTab — source readings split into observed and no reading", () => {
+  it("lists a source with no figure under 'No reading', not as a row of dashes", () => {
+    renderTab(gzf1Result());
+    const genomes = screen.getByTestId("reading-gnomad-genomes");
+    expect(genomes.tagName).toBe("LI");
+    expect(genomes.closest("table")).toBeNull();
+    // A plain recorded absence carries no chip; the reason is the line.
+    expect(within(genomes).queryByText("No result")).toBeNull();
+    expect(within(screen.getByTestId("reading-gnomad-exomes")).getByText("8 / 1,459,156")).toBeTruthy();
+  });
+
+  it("says so in one line when no source reported the allele", () => {
+    renderTab(gzf1Result({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "not_found", clinvar: "ok" } }));
+    expect(screen.getByText("No source reported this allele.")).toBeTruthy();
+    expect(screen.getByTestId("population-readings").querySelector("table")).toBeNull();
   });
 });
