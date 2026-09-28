@@ -114,84 +114,77 @@ function VerdictChip({ criterion, applied }: { criterion: FrequencyCriterion; ap
   );
 }
 
-/** One label · value fact in the finding's fact strip. */
-function Fact({ label, children, title }: { label: string; children: React.ReactNode; title?: string }) {
-  return (
-    <div className="pop-fact">
-      <dt className="pop-fact__label">{label}</dt>
-      <dd className="pop-fact__value" title={title}>{children}</dd>
-    </div>
-  );
-}
-
-/** Numeric cell: mono, tabular, right-aligned. A missing value is an em dash, never a zero. */
-function Num({ value, title }: { value: string | null; title?: string }) {
-  return (
-    <td className="pop-num" title={title}>
-      {value ?? <span className="pop-dim">—</span>}
-    </td>
-  );
-}
 
 /**
- * One source reading as a table row.
+ * SOURCE READINGS — two parts, because they answer two different questions.
  *
- * A source with neither counts nor a frequency spans its reason across the three numeric columns: a
- * row of three dashes says less than the one sentence explaining why there is nothing.
+ *   OBSERVED   "who saw it, how often" — one row per source that reported a figure, three columns:
+ *              Source · AC / AN · AF. The allele count and number share one cell ("8 / 1,459,156"),
+ *              which is how the pair is read and how gnomAD itself prints it; two half-empty columns
+ *              of dashes were most of the old table's ink.
+ *   NO READING "who didn't, and why" — a quiet list, one line per source: its name and the recorded
+ *              reason. A chip appears only when the reason is a fault or a coverage gap, so a plain
+ *              "no record" (the usual rare-disease answer) carries no chrome at all.
+ *
+ * No group-header rows: the source name carries its database ("gnomAD exomes", "ExAC via ClinVar").
+ * The value the ACMG rule used is marked with the same clay dot as the scale's marker.
  */
-function ReadingRow({
-  observation,
-  subject,
-  ruleInput = false,
-  note,
-}: {
+interface SourceLine {
   observation: FrequencyObservation;
-  subject?: string;
-  ruleInput?: boolean;
+  name: string;
+  qualifier?: string;
+  source: "gnomad" | "all-of-us" | "clinvar-submissions";
   note?: React.ReactNode;
-}) {
-  const hasCounts = observation.ac !== null || observation.an !== null;
-  const hasAf = observation.af !== null;
-  const empty = !hasCounts && !hasAf;
-  const reason = empty
-    ? observationAbsence(observation)
-    : !hasAf && observation.availability.reason
-      ? observationAbsence(observation)
-      : null;
+  ruleInput?: boolean;
+}
 
+function hasFigure(o: FrequencyObservation) {
+  return o.ac !== null || o.an !== null || o.af !== null;
+}
+
+function RuleDot() {
+  return <span className="pop-rule-dot" role="img" aria-label="Used for classification" title="The value the ACMG frequency rule used" />;
+}
+
+function SourceRow({ line }: { line: SourceLine }) {
+  const { observation: o, name, qualifier, note, ruleInput = false } = line;
+  const measured = o.availability.state === "available" && o.af !== null;
+  const reason = o.af === null ? observationAbsence(o) : null;
+  const counts = o.ac !== null || o.an !== null ? `${formatCount(o.ac)} / ${formatCount(o.an)}` : null;
   return (
-    <tr data-rule-input={ruleInput || undefined} data-testid={`reading-${observation.key}`}>
+    <tr data-testid={`reading-${o.key}`} data-source={line.source} data-rule-input={ruleInput || undefined}>
       <th scope="row" className="pop-subject">
-        <span className="pop-subject__name">{subject ?? observation.label}</span>
-        {ruleInput && <span className="ev-tier" data-tone="accent">Rule input</span>}
-        {!empty && reason && <span className="pop-subject__note">{reason}</span>}
+        <span className="pop-subject__line">
+          <span className="pop-subject__name">{name}</span>
+          {qualifier && <span className="pop-dim">{qualifier}</span>}
+          {!measured && <StateChip observation={o} />}
+        </span>
+        {reason && <span className="pop-subject__note">{reason}</span>}
         {note && <span className="pop-subject__note">{note}</span>}
       </th>
-      {empty ? (
-        <td colSpan={3} className="pop-reason">{reason}</td>
-      ) : (
-        <>
-          <Num value={observation.ac !== null ? formatCount(observation.ac) : null} title="Allele count" />
-          <Num value={observation.an !== null ? formatCount(observation.an) : null} title="Allele number" />
-          <Num value={hasAf ? formatAlleleFrequency(observation.af) : null} title="Allele frequency" />
-        </>
-      )}
-      <td className="pop-status">
-        <StateChip observation={observation} />
+      <td className="pop-num" title="Allele count / allele number">
+        {counts ?? <span className="pop-dim">—</span>}
+      </td>
+      <td className="pop-num pop-num--af" data-rule-input={ruleInput || undefined} title="Allele frequency">
+        {ruleInput && <RuleDot />}
+        {o.af !== null ? formatAlleleFrequency(o.af) : <span className="pop-dim">—</span>}
       </td>
     </tr>
   );
 }
 
-/** A group header inside the readings table: the source, and the release when the payload names one. */
-function GroupRow({ title, meta }: { title: string; meta?: string | null }) {
+function NoReadingItem({ line }: { line: SourceLine }) {
+  const { observation: o, name, qualifier } = line;
+  const quiet = o.availability.state === "no-result";
   return (
-    <tr className="pop-group">
-      <th colSpan={5} scope="rowgroup">
-        <span className="pop-group__title">{title}</span>
-        {meta && <span className="pop-group__meta">{meta}</span>}
-      </th>
-    </tr>
+    <li className="pop-noread__item" data-testid={`reading-${o.key}`} data-source={line.source}>
+      <span className="pop-noread__name">
+        {name}
+        {qualifier && <span className="pop-dim"> {qualifier}</span>}
+      </span>
+      {!quiet && <StateChip observation={o} />}
+      <span className="pop-noread__reason">{observationAbsence(o)}</span>
+    </li>
   );
 }
 
@@ -249,10 +242,6 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
     : reading.ruleAf !== null ? reading.ruleSource
     : null;
 
-  const inheritanceText =
-    criterion.inheritance === "recessive" ? `recessive · pLI < ${FREQ.recessivePlI}`
-    : criterion.inheritance === "dominant" ? `dominant · pLI ≥ ${FREQ.recessivePlI}`
-    : "dominant/unknown · no pLI";
 
   const scaleReadings: ScaleReading[] = evidence.observations
     .filter(o => o.af !== null && o.af > 0 && o.availability.state === "available")
@@ -271,6 +260,52 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
   const clinvarUid = cv?.uid != null ? String(cv.uid) : null;
   const clinvarVcv = clinvarUid ? (clinvarUid.startsWith("VCV") ? clinvarUid : `VCV${clinvarUid.padStart(9, "0")}`) : null;
   const bs2 = evidence.homozygoteCriterion.recorded;
+
+  // Every source as one display line, in reading order: gnomAD, All of Us, ClinVar submissions.
+  const gnomadLines: SourceLine[] = gnomadRows.map(o => ({
+    observation: o,
+    name: o.id === "gnomad-local" ? o.label : `gnomAD ${o.label.toLowerCase()}`,
+    source: "gnomad",
+  }));
+  const groupedLine: SourceLine | null = groupedMaxAf !== null
+    ? {
+        observation: {
+          key: "gnomad-group", id: "gnomad-exomes", label: "Ancestry-grouped maximum", dataset: gnomadRelease ?? "",
+          af: groupedMaxAf, ac: null, an: null, homozygotes: null, heterozygotes: null,
+          availability: { ...(gnomadRows[0]?.availability ?? {}), state: "available", label: null, reason: null, hasValue: true } as FrequencyObservation["availability"],
+        },
+        name: "gnomAD grouped maximum",
+        source: "gnomad",
+        ruleInput: true,
+        note: <>Frequency only, across ancestry groups of ≥ {formatCount(FREQ.groupMinAn)} alleles</>,
+      }
+    : null;
+  const aouLine: SourceLine | null = aouRow
+    ? {
+        observation: aouRow,
+        name: "All of Us",
+        source: "all-of-us",
+        note: aouRow.heterozygotes !== null || aouRow.homozygotes !== null
+          ? <span className="pop-mono">{formatCount(aouRow.heterozygotes)} het · {formatCount(aouRow.homozygotes)} hom</span>
+          : undefined,
+      }
+    : null;
+  const clinvarLines: SourceLine[] = clinvarFrequencyRows.map(o => ({
+    observation: o,
+    name: o.label,
+    qualifier: "via ClinVar",
+    source: "clinvar-submissions",
+    ruleInput: ruleClinvarAf !== null && o.af === ruleClinvarAf,
+  }));
+  const allLines = [
+    ...gnomadLines,
+    ...(groupedLine ? [groupedLine] : []),
+    ...(aouLine ? [aouLine] : []),
+    ...clinvarLines,
+  ];
+  const observedLines = allLines.filter(l => hasFigure(l.observation));
+  const noReadingLines = allLines.filter(l => !hasFigure(l.observation));
+  const readingsHaveRuleDot = observedLines.some(l => l.ruleInput);
 
   return (
     <div className="pop-screen @container">
@@ -295,7 +330,7 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
 
           <div className="pop-hero__figure">
             <span
-              className="figure-headline"
+              className="figure-headline pop-figure"
               data-absent={criterion.absent && !reading.mostCopies ? true : undefined}
               title={reading.mostCopies ? "Allele count · allele number" : "The frequency the ACMG rule read"}
             >
@@ -333,34 +368,14 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
 
         {criterion.af !== null && (
           <div className="pop-hero__scale">
-            <FrequencyScale criterion={criterion} readings={scaleReadings} />
+            <FrequencyScale
+              criterion={criterion}
+              readings={scaleReadings}
+              ruleSource={`${reading.ruleSource}${gnomadRelease && reading.ruleSource.startsWith("gnomAD") ? ` · ${gnomadRelease}` : ""}`}
+            />
           </div>
         )}
 
-        <dl className="pop-facts">
-          {/* An absence is already the headline and the "Read from" line; a third "0" adds nothing. */}
-          {reading.ruleAf !== null && !criterion.absent && (
-            <Fact label="AF the rule read" title={reading.ruleSource}>
-              <span className="pop-mono">{formatAlleleFrequency(reading.ruleAf)}</span>
-            </Fact>
-          )}
-          <Fact label="Read from">
-            {reading.ruleSource}
-            {gnomadRelease && reading.ruleSource.startsWith("gnomAD") ? ` · ${gnomadRelease}` : ""}
-          </Fact>
-          {criterion.pm2Ceiling !== null && (
-            <Fact label="PM2 ceiling">
-              <span className="pop-mono">≤ {formatAlleleFrequency(criterion.pm2Ceiling)}</span>
-              <span className="pop-fact__sub">{inheritanceText}</span>
-            </Fact>
-          )}
-          <Fact label="Engine record">
-            {applied.known
-              ? applied.code ?? "No frequency criterion"
-              : "Not in payload"}
-            {applied.weighting && <span className="pop-fact__sub">{applied.weighting} weighting</span>}
-          </Fact>
-        </dl>
 
         {criterion.fallback && (
           <p className="pop-hero__footnote">
@@ -388,91 +403,65 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
           <h2 className="eyebrow" id="pop-readings-title">
             <Database className="w-3.5 h-3.5" />
             Source readings
+            {gnomadRelease && <span className="pop-eyebrow-meta">gnomAD {gnomadRelease}</span>}
           </h2>
-          <div className="pop-card pop-table-wrap">
-            <table className="pop-table" data-testid="population-readings">
-              <thead>
-                <tr>
-                  <th scope="col">Source</th>
-                  <th scope="col" className="pop-num" title="Allele count — copies of the alternate allele">AC</th>
-                  <th scope="col" className="pop-num" title="Allele number — alleles genotyped at this site">AN</th>
-                  <th scope="col" className="pop-num" title="Allele frequency (AC ÷ AN)">AF</th>
-                  <th scope="col" className="pop-status">Status</th>
-                </tr>
-              </thead>
+          <div className="pop-card pop-card--split pop-readings" data-testid="population-readings">
+            {observedLines.length > 0 ? (
+              <div className="pop-table-wrap">
+                <table className="pop-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Source</th>
+                      <th scope="col" className="pop-num" title="Allele count / allele number — copies of the allele, out of alleles genotyped">AC / AN</th>
+                      <th scope="col" className="pop-num" title="Allele frequency (AC ÷ AN)">AF</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {observedLines.map(line => <SourceRow key={line.observation.key} line={line} />)}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <>
+                <div className="pop-card__head">
+                  <span className="pop-card__head-label">Source</span>
+                </div>
+                <p className="pop-readings__empty">No source reported this allele.</p>
+              </>
+            )}
 
-              <tbody data-source="gnomad">
-                <GroupRow title="gnomAD" meta={gnomadRelease} />
-                {gnomadRows.map(row => (
-                  <ReadingRow key={row.key} observation={row} />
-                ))}
-                {groupedMaxAf !== null && (
-                  <tr data-rule-input data-testid="reading-gnomad-group">
-                    <th scope="row" className="pop-subject">
-                      <span className="pop-subject__name">Ancestry-grouped maximum</span>
-                      <span className="ev-tier" data-tone="accent">Used for classification</span>
-                      <span className="pop-subject__note">
-                        Frequency only — gnomAD reports no counts for it; ancestry groups of ≥{" "}
-                        {formatCount(FREQ.groupMinAn)} alleles.
-                      </span>
-                    </th>
-                    <Num value={null} title="Not reported for the grouped maximum" />
-                    <Num value={null} title="Not reported for the grouped maximum" />
-                    <Num value={formatAlleleFrequency(groupedMaxAf)} title="Highest allele frequency across gnomAD ancestry groups" />
-                    <td className="pop-status"><span className="ev-tier" data-tone="good">Measured</span></td>
-                  </tr>
-                )}
-              </tbody>
-
-              {aouRow && (
-                <tbody data-source="all-of-us">
-                  <GroupRow title="All of Us" meta="local frequency table" />
-                  <ReadingRow
-                    observation={aouRow}
-                    subject="All ancestries"
-                    note={
-                      aouRow.heterozygotes !== null || aouRow.homozygotes !== null
-                        ? <span className="pop-mono">{formatCount(aouRow.heterozygotes)} het · {formatCount(aouRow.homozygotes)} hom</span>
-                        : undefined
-                    }
-                  />
-                </tbody>
-              )}
-
-              {clinvarFrequencyRows.length > 0 && (
-                <tbody data-source="clinvar-submissions">
-                  <GroupRow title="ClinVar-submitted frequencies" />
-                  {clinvarFrequencyRows.map(row => (
-                    <ReadingRow
-                      key={row.key}
-                      observation={row}
-                      ruleInput={ruleClinvarAf !== null && row.af === ruleClinvarAf}
-                    />
-                  ))}
-                </tbody>
-              )}
-            </table>
-
-            {/* BS2 is the other population criterion; the homozygote count is its input. */}
-            {evidence.gnomadHomozygotes !== null && (
-              <div className="pop-table-foot">
-                <span>
-                  gnomAD homozygotes <span className="pop-dim">(exomes + genomes)</span>
-                </span>
-                <span className="pop-table-foot__value">
-                  <span className="pop-mono">{formatCount(evidence.gnomadHomozygotes)}</span>
-                  {bs2 !== null && (
-                    <span
-                      className="ev-tier chip-code"
-                      data-tone={bs2 ? "good" : "muted"}
-                      title={bs2 ? "The engine recorded BS2 for this run" : "The engine did not record BS2 for this run"}
-                    >
-                      {bs2 ? "BS2" : "No BS2"}
-                    </span>
-                  )}
-                </span>
+            {noReadingLines.length > 0 && (
+              <div className="pop-noread">
+                <h3 className="pop-noread__title">No reading</h3>
+                <ul className="pop-noread__list">
+                  {noReadingLines.map(line => <NoReadingItem key={line.observation.key} line={line} />)}
+                </ul>
               </div>
             )}
+
+            {/* Always present, so its bottom edge matches the ClinVar card's foot beside it. */}
+            <div className="pop-card__foot">
+              {readingsHaveRuleDot ? (
+                <span className="pop-readings__key"><RuleDot /> Value the ACMG rule used</span>
+              ) : (
+                <span>gnomAD{gnomadRelease ? ` ${gnomadRelease}` : ""} · All of Us · ClinVar submissions</span>
+              )}
+                {/* BS2 is the other population criterion; the homozygote count is its input. */}
+                {evidence.gnomadHomozygotes !== null && (
+                  <span className="pop-readings__hom">
+                    gnomAD homozygotes <span className="pop-mono pop-strong">{formatCount(evidence.gnomadHomozygotes)}</span>
+                    {bs2 !== null && (
+                      <span
+                        className="ev-tier chip-code"
+                        data-tone={bs2 ? "good" : "muted"}
+                        title={bs2 ? "The engine recorded BS2 for this run" : "The engine did not record BS2 for this run"}
+                      >
+                        {bs2 ? "BS2" : "No BS2"}
+                      </span>
+                    )}
+                  </span>
+                )}
+            </div>
           </div>
         </section>
 
@@ -482,9 +471,9 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
             <Scale className="w-3.5 h-3.5" />
             Clinical assertion
           </h2>
-          <div className="pop-card pop-clinvar" data-testid="clinvar-panel">
-            <div className="pop-clinvar__head">
-              <span className="card-title text-cs-text-secondary">ClinVar</span>
+          <div className="pop-card pop-card--split pop-clinvar" data-testid="clinvar-panel">
+            <div className="pop-card__head">
+              <span className="pop-card__head-label">ClinVar</span>
               {clinvarVcv && (
                 <a
                   className="pop-link"
@@ -500,33 +489,41 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
             </div>
 
             {!clinvar.availability.hasValue ? (
-              <p className="detail-prose pop-clinvar__empty">
+              <p className="pop-clinvar__empty">
                 {clinvar.availability.reason ?? "No classification in ClinVar is available for this variant."}
               </p>
             ) : (
-              <div className="pop-clinvar__body">
-                <span className="ev-tier ev-tier--lg self-start" data-tone={classificationTone(clinvar.classification ?? "")}>
-                  {clinvar.classification}
-                </span>
-                <dl className="pop-kv">
-                  <div>
-                    <dt>Review status</dt>
-                    <dd>
-                      {stars !== null && <Stars count={stars} />}
-                      <span>{cv?.reviewStatus || "Not reported"}</span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Condition</dt>
-                    <dd title={cv?.trait ?? undefined}>{cv?.trait || "Not reported"}</dd>
-                  </div>
-                  <div>
-                    <dt>Last evaluated</dt>
-                    <dd className="pop-mono">{lastEvaluated ?? "Not reported"}</dd>
-                  </div>
-                </dl>
-              </div>
+              <dl className="pop-clinvar__rows">
+                <div>
+                  <dt>Classification</dt>
+                  <dd>
+                    <span className="ev-tier ev-tier--lg" data-tone={classificationTone(clinvar.classification ?? "")}>
+                      {clinvar.classification}
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Review</dt>
+                  <dd>
+                    {stars !== null && <Stars count={stars} />}
+                    <span>{cv?.reviewStatus || "Not reported"}</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Condition</dt>
+                  <dd title={cv?.trait ?? undefined}>{cv?.trait || "Not reported"}</dd>
+                </div>
+              </dl>
             )}
+
+            <div className="pop-card__foot">
+              <span>NCBI ClinVar</span>
+              {clinvar.availability.hasValue && (
+                <span>
+                  Last evaluated <span className="pop-mono pop-strong">{lastEvaluated ?? "not reported"}</span>
+                </span>
+              )}
+            </div>
           </div>
         </section>
       </div>

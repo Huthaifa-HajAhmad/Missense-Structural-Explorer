@@ -10,16 +10,17 @@ import { formatAlleleFrequency, type FrequencyCriterion } from "../../../shared/
  * `THRESHOLDS.populationFrequency` — the constant the engine branches on — so the picture cannot show
  * a boundary the rule does not use.
  *
- * Encodings:
- *   • zone fill — which criterion that band supports; the band the reading falls in is emphasised
- *     and every zone carries its code as text, so identity is never colour alone;
- *   • filled marker + pill — the frequency the rule read;
- *   • hollow dots — each source's own reading, for tracing the rule input back to a dataset;
- *   • dashed tick — the PM2 ceiling for the OTHER inheritance reading, so a reader can see how much
- *     the pLI-based inheritance guess moved the boundary.
+ * QUIET BY DESIGN. The first revision drew the zones as tall saturated blocks with a red outline and
+ * printed the value in a pill over the marker, which collided with the zone label and made the PM2
+ * band the loudest object on the screen. Now:
+ *   • the track is thin and every zone is a low-chroma wash; only the zone the reading falls in is
+ *     at full strength, and its code label is the only one set in ink;
+ *   • zone codes sit ABOVE the track, the axis BELOW it, and the marker is the only mark crossing
+ *     the track — nothing can overlap it;
+ *   • the value is stated once, in the legend, next to the words that say what it is.
  *
- * A recorded absence has no position on a log axis. It is drawn as an open marker pinned to the left
- * edge with a leftward arrow ("below detection"), never as a dot at some invented tiny frequency.
+ * A recorded absence has no position on a log axis. It is drawn as an open ring pinned to the left
+ * edge ("below detection"), never as a dot at some invented tiny frequency.
  */
 
 const MIN_EXP = -7; // 1e-7 — below the reciprocal of gnomAD v4's largest allele number (~1.6M)
@@ -52,11 +53,13 @@ interface FrequencyScaleProps {
   criterion: FrequencyCriterion;
   /** Per-source readings with a positive frequency. */
   readings: ReadonlyArray<ScaleReading>;
+  /** Where the rule's frequency came from, for the legend. */
+  ruleSource: string;
 }
 
 type ZoneId = "PM2" | "none" | "BS1" | "BA1";
 
-export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
+export function FrequencyScale({ criterion, readings, ruleSource }: FrequencyScaleProps) {
   const FREQ = THRESHOLDS.populationFrequency;
   const ceiling = criterion.pm2Ceiling ?? FREQ.extremelyRare;
   const otherCeiling = ceiling === FREQ.extremelyRare ? FREQ.extremelyRareRecessive : FREQ.extremelyRare;
@@ -66,7 +69,7 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
     { id: "PM2", from: 0, to: position(ceiling), label: "PM2", tone: "danger" },
     { id: "none", from: position(ceiling), to: position(FREQ.tooCommonForDisorder), label: "No criterion", tone: "neutral" },
     { id: "BS1", from: position(FREQ.tooCommonForDisorder), to: position(FREQ.standAloneBenign), label: "BS1", tone: "good" },
-    { id: "BA1", from: position(FREQ.standAloneBenign), to: 100, label: "BA1", tone: "good-strong" },
+    { id: "BA1", from: position(FREQ.standAloneBenign), to: 100, label: "BA1", tone: "good" },
   ];
 
   const af = criterion.af;
@@ -79,8 +82,6 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
     : null;
 
   const markerAt = af === null ? null : position(af);
-  const markerText = af === null ? null : criterion.absent ? "Not observed" : formatAlleleFrequency(af);
-  const align = markerAt === null ? "center" : markerAt < 12 ? "start" : markerAt > 88 ? "end" : "center";
 
   const ariaLabel =
     af === null
@@ -91,19 +92,18 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
 
   return (
     <figure className="pop-scale" role="img" aria-label={ariaLabel} data-testid="frequency-scale">
-      {/* Marker lane: the pill naming the value the rule read. */}
-      <div className="pop-scale__lane pop-scale__lane--marker" aria-hidden="true">
-        {markerAt !== null && (
+      <div className="pop-scale__labels" aria-hidden="true">
+        {zones.map(zone => (
           <span
-            className="pop-scale__pill"
-            data-align={align}
-            data-absent={criterion.absent || undefined}
-            style={{ left: `${markerAt}%` }}
+            key={zone.id}
+            className="pop-scale__zone-label"
+            data-active={activeZone === zone.id || undefined}
+            data-tone={zone.tone}
+            style={{ left: `${zone.from}%`, width: `${zone.to - zone.from}%` }}
           >
-            {criterion.absent && <span className="pop-scale__arrow">←</span>}
-            {markerText}
+            {zone.label}
           </span>
-        )}
+        ))}
       </div>
 
       <div className="pop-scale__track" aria-hidden="true">
@@ -114,15 +114,21 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
             data-tone={zone.tone}
             data-active={activeZone === zone.id || undefined}
             style={{ left: `${zone.from}%`, width: `${zone.to - zone.from}%` }}
-          >
-            <span className="pop-scale__zone-label">{zone.label}</span>
-          </span>
+          />
         ))}
         <span
           className="pop-scale__alt-ceiling"
           style={{ left: `${position(otherCeiling)}%` }}
           title={`PM2 ceiling if the gene read as ${otherReading}: ${formatAlleleFrequency(otherCeiling)}`}
         />
+        {readings.map(r => (
+          <span
+            key={r.key}
+            className="pop-scale__dot"
+            style={{ left: `${position(r.af)}%` }}
+            title={`${r.label} · ${formatAlleleFrequency(r.af)}`}
+          />
+        ))}
         {markerAt !== null && (
           <span
             className="pop-scale__marker"
@@ -131,23 +137,6 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
           />
         )}
       </div>
-
-      {/* Source lane: each dataset's own reading, focusable so the value is reachable by keyboard. */}
-      {readings.length > 0 && (
-        <div className="pop-scale__lane pop-scale__lane--sources">
-          {readings.map(r => (
-            <span
-              key={r.key}
-              className="pop-scale__dot"
-              style={{ left: `${position(r.af)}%` }}
-              tabIndex={0}
-              role="note"
-              aria-label={`${r.label}: ${formatAlleleFrequency(r.af)}`}
-              title={`${r.label} · ${formatAlleleFrequency(r.af)}`}
-            />
-          ))}
-        </div>
-      )}
 
       <div className="pop-scale__axis" aria-hidden="true">
         {TICKS.map(t => (
@@ -164,11 +153,33 @@ export function FrequencyScale({ criterion, readings }: FrequencyScaleProps) {
       </div>
 
       <figcaption className="pop-scale__legend">
-        <span><i className="pop-key pop-key--marker" /> Rule input</span>
-        {readings.length > 0 && <span><i className="pop-key pop-key--dot" /> Source reading</span>}
+        {af !== null && (
+          <span className="pop-scale__legend-lead">
+            <i className="pop-key pop-key--marker" data-absent={criterion.absent || undefined} />
+            {criterion.absent ? (
+              <>Not observed in gnomAD <span className="pop-dim">— read as 0</span></>
+            ) : (
+              <>
+                AF the rule read <span className="pop-mono pop-strong">{formatAlleleFrequency(af)}</span>
+                <span className="pop-dim">· {ruleSource}</span>
+              </>
+            )}
+          </span>
+        )}
+        {readings.length > 0 && (
+          <span><i className="pop-key pop-key--dot" /> Source readings</span>
+        )}
         <span><i className="pop-key pop-key--alt" /> PM2 ceiling if {otherReading}</span>
-        <span className="pop-scale__legend-note">Log scale · allele frequency</span>
       </figcaption>
+
+      {/* The per-source values the dots stand for, for keyboard and screen-reader users. */}
+      {readings.length > 0 && (
+        <ul className="sr-only">
+          {readings.map(r => (
+            <li key={r.key}>{r.label}: {formatAlleleFrequency(r.af)}</li>
+          ))}
+        </ul>
+      )}
     </figure>
   );
 }
