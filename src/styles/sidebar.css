@@ -253,13 +253,19 @@
   to { opacity: 1; }
 }
 
-/* Rows with a description are two lines: the icon, stage marker and count ride on the label's
-   20px line instead of floating between the two. */
+/* Rows with a description are two lines: the icon rides on the label's 20px line, locked to the
+   title it belongs to. The trailing markers used to ride there too — and on a two-line row a
+   6px dot at the label line floats ~9px above the row's middle, which read as off centre. A
+   trailing status belongs to the ROW, so it centres on the full block instead (single-line rows
+   were already centred; this changes nothing for them). */
 .ms-nav-btn > .ms-nav-icon { margin-top: 2px; }
-.ms-nav-btn > .ms-step { margin-top: 6px; }
-.ms-nav-btn > .ms-step[data-status="complete"] { margin-top: 7px; }
-.ms-nav-btn > .ms-step[data-status="progress"] { margin-top: 5px; }
-.ms-nav-btn > .ms-count-badge { margin-top: 1px; }
+/* [data-status] out-specifies the per-state rules below, so the complete state's 1px margin
+   shorthand can never re-nudge the dot off centre. */
+.ms-nav-btn > .ms-step[data-status],
+.ms-nav-btn > .ms-count-badge {
+  margin-top: 0;
+  align-self: center;
+}
 
 /* Active rail — 3px, inset from the row's rounded corners. */
 .ms-active-rail {
