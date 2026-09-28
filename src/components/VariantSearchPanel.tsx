@@ -269,6 +269,10 @@ export function formatVariantForDisplay(variant: string): string {
  * One segment of the rail switcher. Both segments are rendered from this so the two states can
  * never drift apart in padding, radius or motion. Segments split the track equally, so the
  * control never overflows the rail at the narrowest two-column width.
+ *
+ * The active surface is NOT painted here: a shared thumb behind both segments carries it and
+ * glides between them (see the tablist), so a switch is one motion. A segment only owns its
+ * text colour and its focus ring.
  */
 const RailTab: React.FC<{
   id: RailTabId;
@@ -288,9 +292,9 @@ const RailTab: React.FC<{
     aria-controls={active ? `panel-${id}` : undefined}
     tabIndex={tabIndex}
     onClick={onSelect}
-    className={`flex-1 min-w-0 h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
+    className={`relative flex-1 min-w-0 h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
       active
-        ? "bg-cs-surface text-cs-text-primary shadow-[0_0_0_1px_var(--cs-border)]"
+        ? "text-cs-text-primary"
         : "text-cs-text-secondary hover:text-cs-text-primary"
     }`}
   >
@@ -578,6 +582,22 @@ function VariantSearchPanel({
     setActiveRightTab("pipeline");
     handleSearchSubmit(e);
   };
+
+  /**
+   * A recents chip is a RUN, not a form fill: the wired handler executes the analysis straight
+   * through the store (handleSelectHistoryItem → executeAnalysis), never crossing the form
+   * submit that switches the rail — so the run used to start while the reader was left looking
+   * at Services. The switch happens here instead, and clears a pinned tab choice first: the
+   * `isPipelineActive` backstop can miss this path twice over — background work can hold the
+   * flag already true so the effect never re-fires, and a cache-hit run can flip the loading
+   * flags within one batch so they never observably turn true. A run starting is itself the
+   * reader's intent; no earlier tab choice should outvote it.
+   */
+  const runFromHistory = useCallback((item: SearchHistoryItem) => {
+    userChoseTabRef.current = false;
+    setActiveRightTab("pipeline");
+    handleSelectHistoryItem(item);
+  }, [handleSelectHistoryItem]);
 
   /**
    * Answers the numbering prompt: record the decision, put the chosen notation in the Variant field
@@ -1238,7 +1258,7 @@ function VariantSearchPanel({
                     <button
                       key={`${item.gene}_${item.variant}_${idx}`}
                       type="button"
-                      onClick={() => handleSelectHistoryItem(item)}
+                      onClick={() => runFromHistory(item)}
                       aria-pressed={isActive}
                       className={`inline-flex items-center gap-2 h-8 px-3 rounded-[var(--cs-radius-input)] border text-[12px] cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
                         isActive
@@ -1315,8 +1335,21 @@ function VariantSearchPanel({
               role="tablist"
               aria-label="Analysis sidebar view switcher"
               onKeyDown={handleRailKeyDown}
-              className="flex items-center gap-1 p-1 rounded-[var(--cs-radius-input)] bg-cs-surface-2 shrink-0"
+              className="relative flex items-center gap-1 p-1 rounded-[var(--cs-radius-input)] bg-cs-surface-2 shrink-0"
             >
+              {/* Sliding active thumb — the one surface that says which segment is selected, so a
+                  switch (click, arrow key, or the auto-switch when a run starts) reads as a glide
+                  instead of one background vanishing and another appearing. Geometry of exactly
+                  two equal segments: half the track minus the gap share is one slot; sliding by
+                  its own width plus the 4px gap lands on the other. Transform is the only
+                  animated property, and reduced motion freezes it in place (the position itself
+                  remains the static cue). */}
+              <span
+                aria-hidden="true"
+                className={`absolute top-1 bottom-1 left-1 w-[calc(50%-6px)] rounded-md bg-cs-surface shadow-[0_0_0_1px_var(--cs-border)] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)] ${
+                  activeRightTab === "telemetry" ? "translate-x-0" : "translate-x-[calc(100%+4px)]"
+                }`}
+              />
               <RailTab
                 id="telemetry"
                 active={activeRightTab === "telemetry"}
