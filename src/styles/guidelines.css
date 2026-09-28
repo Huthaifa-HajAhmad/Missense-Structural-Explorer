@@ -1,0 +1,261 @@
+/* ============================================================
+   THRESHOLD GUIDE & GUIDELINES TAB (gt-*)
+   ============================================================
+   Strict token-safe styling for the multi-metric threshold guide,
+   calibration micro-tracks, and live match inspector rail.
+   Adheres to the design-system mandate: zero raw hexes/Tailwind palettes.
+   ============================================================ */
+
+.gt-screen {
+  gap: 20px;
+}
+
+/* ── Live match summary chips ─────────────────────────────────────────────── */
+
+.gt-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--cs-radius-pill);
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-family: var(--cs-font-sans);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.gt-summary-chip[data-tone="path"] {
+  background: var(--cs-bg-danger);
+  color: var(--cs-text-danger-on-soft);
+  border-color: color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
+}
+
+.gt-summary-chip[data-tone="benign"] {
+  background: var(--cs-bg-success);
+  color: var(--cs-text-good-on-soft);
+  border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent);
+}
+
+.gt-summary-chip[data-tone="vus"] {
+  background: var(--cs-bg-warning);
+  color: var(--cs-text-warning-on-soft);
+  border-color: color-mix(in srgb, var(--cs-text-warning) 30%, transparent);
+}
+
+.gt-summary-chip[data-tone="info"] {
+  background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
+  color: var(--cs-accent-clay);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 25%, transparent);
+}
+
+.gt-summary-chip[data-tone="nodata"] {
+  background: var(--cs-surface-2);
+  color: var(--cs-text-muted);
+  border-color: var(--cs-border);
+}
+
+/* ── Match badges in table ────────────────────────────────────────────────── */
+
+.gt-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  padding: 2.5px 7px;
+  border-radius: var(--cs-radius-badge);
+  font-size: var(--cs-font-size-badge);
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  font-family: var(--cs-font-sans);
+}
+
+.gt-badge[data-tone="path"] {
+  color: var(--cs-text-danger-on-soft);
+  background: var(--cs-bg-danger);
+  border-color: color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
+}
+
+.gt-badge[data-tone="benign"] {
+  color: var(--cs-text-good-on-soft);
+  background: var(--cs-bg-success);
+  border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent);
+}
+
+.gt-badge[data-tone="vus"] {
+  color: var(--cs-text-warning-on-soft);
+  background: var(--cs-bg-warning);
+  border-color: color-mix(in srgb, var(--cs-text-warning) 30%, transparent);
+}
+
+.gt-badge[data-tone="info"] {
+  background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
+  color: var(--cs-accent-clay);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 25%, transparent);
+}
+
+.gt-badge[data-tone="nodata"] {
+  background: var(--cs-surface-2);
+  color: var(--cs-text-muted);
+  border-color: var(--cs-border);
+}
+
+/* ── Score values tinted by verdict group ─────────────────────────────────── */
+
+.gt-value {
+  font-family: var(--cs-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gt-value[data-tone="path"]    { color: var(--cs-text-danger-on-soft); }
+.gt-value[data-tone="benign"]  { color: var(--cs-text-good-on-soft); }
+.gt-value[data-tone="vus"]     { color: var(--cs-text-warning-on-soft); }
+.gt-value[data-tone="info"]    { color: var(--cs-text-primary); }
+.gt-value[data-tone="nodata"]  { color: var(--cs-text-muted); font-weight: 400; }
+
+/* ── Micro threshold tracks ───────────────────────────────────────────────── */
+
+.gt-track {
+  position: relative;
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: var(--cs-radius-pill);
+  background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent);
+}
+
+.gt-track-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--cs-radius-pill);
+}
+
+.gt-track-seg[data-tone="benign"] {
+  background: color-mix(in srgb, var(--cs-text-success) 35%, transparent);
+}
+
+.gt-track-seg[data-tone="gray"] {
+  background: transparent;
+}
+
+.gt-track-seg[data-tone="path"] {
+  background: color-mix(in srgb, var(--cs-text-danger) 35%, transparent);
+}
+
+.gt-tick {
+  position: absolute;
+  top: -1.5px;
+  width: 1px;
+  height: 7px;
+  background: color-mix(in srgb, var(--cs-text-secondary) 45%, transparent);
+}
+
+.gt-marker {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 8px;
+  border-radius: var(--cs-radius-pill);
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 1.5px var(--cs-surface);
+}
+
+.gt-marker[data-tone="path"]   { background: var(--cs-text-danger); }
+.gt-marker[data-tone="benign"] { background: var(--cs-text-success); }
+.gt-marker[data-tone="vus"]    { background: var(--cs-text-warning); }
+.gt-marker[data-tone="info"]   { background: var(--cs-accent-clay); }
+.gt-marker[data-tone="nodata"] { background: var(--cs-text-muted); }
+
+/* ── Sticky table chrome & category rows ──────────────────────────────────── */
+
+.gt-scroller thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 38px;
+  background: var(--cs-surface-2);
+  border-bottom: 1px solid var(--cs-border) !important;
+}
+
+.gt-cat-cell {
+  position: sticky;
+  top: 38px;
+  z-index: 9;
+  background: var(--cs-surface-2);
+  border-bottom: 1px solid var(--cs-border-subtle);
+  color: var(--cs-accent-clay);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Legend footer & action button ────────────────────────────────────────── */
+
+.gt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--cs-surface-2);
+  border-top: 1px solid var(--cs-border);
+}
+
+.gt-key-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--cs-radius-input, 6px);
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 30%, transparent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
+  color: var(--cs-accent-clay);
+  font-size: 11px;
+  font-family: var(--cs-font-mono);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.gt-key-btn:hover {
+  background: color-mix(in srgb, var(--cs-accent-clay) 20%, transparent);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, transparent);
+}
+
+.gt-key-btn:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+}
+
+/* ── Cross-navigation button in inspector rail ───────────────────────────── */
+
+.gt-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--cs-radius-card, 8px);
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 30%, transparent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 8%, transparent);
+  color: var(--cs-accent-clay);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.gt-rail-btn:hover {
+  background: color-mix(in srgb, var(--cs-accent-clay) 15%, transparent);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, transparent);
+}
+
+.gt-rail-btn:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 2px;
+}

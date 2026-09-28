@@ -82,4 +82,29 @@ describe("GuidelinesTab", () => {
     // The relocation pointer is present and names the inspector.
     expect(screen.getByRole("button", { name: /ACMG\/AMP code key/i })).toBeTruthy();
   });
+
+  it("renders the three-tier hero card with finding prose, verdict chip, and 4-cell fact strip", () => {
+    render(<GuidelinesTab {...baseProps} />);
+    const finding = screen.getByTestId("threshold-finding");
+    expect(finding).toBeTruthy();
+
+    // Verdict chip
+    const verdict = screen.getByTestId("guidelines-verdict");
+    expect(verdict.textContent).toBe("Pathogenic Concordance");
+    expect(verdict.getAttribute("data-tone")).toBe("danger");
+
+    // Headline figure (7–1)
+    expect(within(finding).getByText("7–1")).toBeTruthy();
+
+    // Declarative finding prose
+    expect(within(finding).getByText(/Pathogenic concordance across computational and biophysical metrics/i)).toBeTruthy();
+
+    // 4-cell fact strip
+    const facts = finding.querySelectorAll(".pop-fact");
+    expect(facts).toHaveLength(4);
+    expect(within(finding).getByText("In-Silico & ML")).toBeTruthy();
+    expect(within(finding).getByText("Biophysical ΔΔG")).toBeTruthy();
+    expect(within(finding).getByText("Conservation & Z")).toBeTruthy();
+    expect(within(finding).getByText("Monitored Total")).toBeTruthy();
+  });
 });

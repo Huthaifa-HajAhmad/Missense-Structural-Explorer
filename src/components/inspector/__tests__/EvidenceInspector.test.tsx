@@ -61,7 +61,8 @@ describe("EvidenceInspector — thresholds pane", () => {
 
   it("keeps the concordance status and the ClinGen point scale", () => {
     renderPane();
-    expect(screen.getByText("Moderate-Risk Concordance (Pathogenic Support)")).toBeTruthy();
+    // The rail derives concordance directly from the 20-metric shared model (7 pathogenic vs 1 benign)
+    expect(screen.getByText("Pathogenic Concordance")).toBeTruthy();
     expect(screen.getByText("ClinGen Evidence Point Scale")).toBeTruthy();
     expect(screen.getByText("8 points")).toBeTruthy();
   });

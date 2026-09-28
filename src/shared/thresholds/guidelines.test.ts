@@ -12,6 +12,7 @@ import {
   summarizeGuidelinesRows,
   guidelinesGroup,
   guidelinesBandPct,
+  guidelinesFinding,
   type GuidelinesRow
 } from "./guidelines.ts";
 
@@ -93,10 +94,34 @@ describe("buildGuidelinesRows", () => {
 
   it("marks missing scores as no-data rather than benign", () => {
     const emptyResult: any = {};
-    const byKey = rowMap(buildGuidelinesRows({ result: emptyResult, foldingDdG: null }));
+    const rows = buildGuidelinesRows({ result: emptyResult, foldingDdG: null });
+    const byKey = rowMap(rows);
     expect(byKey.revel.value).toBeNull();
     expect(guidelinesGroup(byKey.revel)).toBe("nodata");
     expect(byKey.loeuf.value).toBeNull();
+
+    // Invariant: Missing ≠ 0 ≠ benign. Every uncomputed row must explicitly report "No data"
+    for (const r of rows) {
+      expect(r.matchLabel).toBe("No data");
+      expect(r.status).toBe("none");
+    }
+  });
+
+  it("reads constraint metrics from canonical result.gnomadConstraint when present", () => {
+    const canonicalResult: any = {
+      gnomadConstraint: {
+        missense_z: 2.85,
+        loeuf: 0.28
+      }
+    };
+    const byKey = rowMap(buildGuidelinesRows({ result: canonicalResult, foldingDdG: null }));
+    expect(byKey.misZ.value).toBe(2.85);
+    expect(byKey.misZ.status).toBe("path"); // 2.85 >= 2.0
+    expect(byKey.misZ.matchLabel).toBe("Constrained");
+
+    expect(byKey.loeuf.value).toBe(0.28);
+    expect(byKey.loeuf.status).toBe("path_strong"); // 0.28 < 0.35
+    expect(byKey.loeuf.matchLabel).toBe("Severe Intolerant");
   });
 });
 
@@ -130,5 +155,52 @@ describe("guidelinesBandPct", () => {
   });
   it("degenerates safely on a zero-span window", () => {
     expect(guidelinesBandPct(5, { ...band, min: 3, max: 3 })).toBe(0);
+  });
+});
+
+describe("guidelinesFinding", () => {
+  it("generates a pathogenic concordance headline when pathogenic counts exceed benign", () => {
+    const rows = buildGuidelinesRows({ result: MACO1_RESULT, foldingDdG: -0.97 });
+    const s = summarizeGuidelinesRows(rows);
+    const finding = guidelinesFinding(s);
+    expect(finding.headline).toMatch(/Pathogenic concordance/i);
+    expect(finding.predicate).toContain("7 of 15 scored metrics reach pathogenic");
+    expect(finding.predicate).toContain("1 is benign/neutral");
+  });
+
+  it("handles zero scored metrics cleanly with an awaiting data message", () => {
+    const emptyRows = buildGuidelinesRows({ result: {} as any, foldingDdG: null });
+    const s = summarizeGuidelinesRows(emptyRows);
+    const finding = guidelinesFinding(s);
+    expect(finding.headline).toBe("Awaiting data across all 20 monitored assays");
+    expect(finding.predicate).toContain("Scores populate as computational prediction");
+  });
+
+  it("handles non-decisive intermediate runs with no path or benign calls", () => {
+    const s = {
+      total: 20,
+      pathSupporting: [],
+      benignSupporting: [],
+      vus: [{ key: "revel" } as any],
+      informational: [{ key: "eigen" } as any],
+      noData: Array(18).fill({} as any)
+    };
+    const finding = guidelinesFinding(s);
+    expect(finding.headline).toBe("No evaluated metric reaches a decisive clinical cut-point");
+    expect(finding.predicate).toContain("All 2 available scores currently fall in indeterminate");
+  });
+
+  it("handles conflicting tie runs", () => {
+    const s = {
+      total: 20,
+      pathSupporting: [{ key: "cadd" } as any],
+      benignSupporting: [{ key: "foldx" } as any],
+      vus: [],
+      informational: [],
+      noData: Array(18).fill({} as any)
+    };
+    const finding = guidelinesFinding(s);
+    expect(finding.headline).toBe("Conflicting evidence between computational and structural metrics");
+    expect(finding.predicate).toContain("1 pathogenic and 1 benign signals create conflicting evidence");
   });
 });

@@ -187,8 +187,8 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
 
   const gerpVal = result.conservationData?.gerp ?? null;
   const phylopVal = result.conservationData?.phylop ?? null;
-  const misZVal = (result as any)?.misZ ?? (result as any)?.gnomadMisZ ?? null;
-  const loeufVal = (result as any)?.loeuf ?? (result as any)?.gnomadLoeuf ?? null;
+  const misZVal = result.gnomadConstraint?.missense_z ?? (result as any)?.misZ ?? (result as any)?.gnomadMisZ ?? null;
+  const loeufVal = result.gnomadConstraint?.loeuf ?? (result as any)?.loeuf ?? (result as any)?.gnomadLoeuf ?? null;
 
   const kcal = (v: number | null) => (v !== null && v !== undefined ? `${v.toFixed(2)} kcal/mol` : "—");
 
@@ -206,7 +206,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: metarnnVal, display: metarnnVal?.toFixed(3) ?? "—",
     benignText: "< 0.50", pathText: ">= 0.50", acmgCode: "PP3 / BP4",
     status: metarnnStatus,
-    matchLabel: metarnnStatus === "path" ? "Deleterious" : "Tolerated",
+    matchLabel: metarnnVal === null ? "No data" : metarnnStatus === "path" ? "Deleterious" : "Tolerated",
     band: { min: 0, max: 1, segments: [
       { from: 0, to: 0.5, tone: "benign" }, { from: 0.5, to: 1, tone: "path" }
     ], ticks: [0.5] }
@@ -218,7 +218,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: clinpredVal, display: clinpredVal?.toFixed(3) ?? "—",
     benignText: "< 0.50", pathText: ">= 0.50", acmgCode: "PP3 / BP4",
     status: clinpredStatus,
-    matchLabel: clinpredStatus === "path" ? "Deleterious" : "Tolerated",
+    matchLabel: clinpredVal === null ? "No data" : clinpredStatus === "path" ? "Deleterious" : "Tolerated",
     band: { min: 0, max: 1, segments: [
       { from: 0, to: 0.5, tone: "benign" }, { from: 0.5, to: 1, tone: "path" }
     ], ticks: [0.5] }
@@ -268,7 +268,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: foldxVal, display: kcal(foldxVal),
     benignText: "-0.5 to +0.5", pathText: "> 0.50 (severe > 1.50)", acmgCode: "PM1 / BP3",
     status: foldxStatus,
-    matchLabel: foldxStatus === "path_strong" ? "Severe Destab." : foldxStatus === "path" ? "Destab." : foldxStatus === "benign" ? "Neutral" : "Stabilizing",
+    matchLabel: foldxVal === null ? "No data" : foldxStatus === "path_strong" ? "Severe Destab." : foldxStatus === "path" ? "Destab." : foldxStatus === "benign" ? "Neutral" : "Stabilizing",
     band: { min: -3, max: 3, segments: [
       { from: -3, to: 0.5, tone: "benign" }, { from: 0.5, to: 3, tone: "path" }
     ], ticks: [-0.5, 0.5, 1.5] }
@@ -280,7 +280,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: dynamut2Val, display: kcal(dynamut2Val),
     benignText: "> -1.0", pathText: "<= -1.0 kcal/mol", acmgCode: "PM1 / BP3",
     status: dynamut2Status,
-    matchLabel: dynamut2Status === "path" ? "Destabilizing" : "Neutral",
+    matchLabel: dynamut2Val === null ? "No data" : dynamut2Status === "path" ? "Destabilizing" : "Neutral",
     band: { min: -3, max: 1, segments: [
       { from: -3, to: -1, tone: "path" }, { from: -1, to: 1, tone: "benign" }
     ], ticks: [-1] }
@@ -292,7 +292,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: ddmutVal, display: kcal(ddmutVal),
     benignText: "> -1.0", pathText: "<= -1.0 kcal/mol", acmgCode: "PM1 / BP3",
     status: ddmutStatus,
-    matchLabel: ddmutStatus === "path" ? "Destabilizing" : "Neutral",
+    matchLabel: ddmutVal === null ? "No data" : ddmutStatus === "path" ? "Destabilizing" : "Neutral",
     band: { min: -3, max: 1, segments: [
       { from: -3, to: -1, tone: "path" }, { from: -1, to: 1, tone: "benign" }
     ], ticks: [-1] }
@@ -304,7 +304,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: raspVal, display: kcal(raspVal),
     benignText: "-0.5 to +0.5", pathText: "> 0.50 kcal/mol", acmgCode: "PM1 / BP3",
     status: raspStatus,
-    matchLabel: raspStatus === "path" ? "Destabilizing" : "Neutral",
+    matchLabel: raspVal === null ? "No data" : raspStatus === "path" ? "Destabilizing" : "Neutral",
     band: { min: -3, max: 3, segments: [
       { from: -3, to: 0.5, tone: "benign" }, { from: 0.5, to: 3, tone: "path" }
     ], ticks: [0.5] }
@@ -316,7 +316,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: thermompnnVal, display: kcal(thermompnnVal),
     benignText: "< 1.00", pathText: ">= +1.00 kcal/mol", acmgCode: "PM1 / BP3",
     status: thermompnnStatus,
-    matchLabel: thermompnnStatus === "path" ? "Destabilizing" : "Neutral",
+    matchLabel: thermompnnVal === null ? "No data" : thermompnnStatus === "path" ? "Destabilizing" : "Neutral",
     band: { min: -2, max: 3, segments: [
       { from: -2, to: 1, tone: "benign" }, { from: 1, to: 3, tone: "path" }
     ], ticks: [1] }
@@ -332,7 +332,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: misZVal, display: misZVal?.toFixed(2) ?? "—",
     benignText: "< 2.00", pathText: ">= 2.00 (strong >= 3.09)", acmgCode: "PP2 / BP1",
     status: misZStatus,
-    matchLabel: misZStatus === "path_strong" ? "Depleted (Strong)" : misZStatus === "path" ? "Constrained" : "Unconstrained",
+    matchLabel: misZVal === null ? "No data" : misZStatus === "path_strong" ? "Depleted (Strong)" : misZStatus === "path" ? "Constrained" : "Unconstrained",
     band: { min: -2, max: 6, segments: [
       { from: -2, to: 2, tone: "benign" }, { from: 2, to: 6, tone: "path" }
     ], ticks: [2, 3.09] }
@@ -344,7 +344,7 @@ export function buildGuidelinesRows({ result, foldingDdG, foldingEnergetics }: G
     value: loeufVal, display: loeufVal?.toFixed(2) ?? "—",
     benignText: ">= 0.60", pathText: "< 0.35 (mod < 0.60)", acmgCode: "PP2 / BP1",
     status: loeufStatus,
-    matchLabel: loeufStatus === "path_strong" ? "Severe Intolerant" : loeufStatus === "path" ? "Mod. Intolerant" : "Tolerated",
+    matchLabel: loeufVal === null ? "No data" : loeufStatus === "path_strong" ? "Severe Intolerant" : loeufStatus === "path" ? "Mod. Intolerant" : "Tolerated",
     band: { min: 0, max: 2, segments: [
       { from: 0, to: 0.35, tone: "path" }, { from: 0.35, to: 0.6, tone: "gray" }, { from: 0.6, to: 2, tone: "benign" }
     ], ticks: [0.35, 0.6] }
@@ -358,4 +358,49 @@ export function guidelinesBandPct(value: number, band: GuidelinesBand): number {
   const span = band.max - band.min;
   if (span <= 0) return 0;
   return Math.max(0, Math.min(100, ((value - band.min) / span) * 100));
+}
+
+export interface GuidelinesFinding {
+  headline: string;
+  predicate: string;
+}
+
+/**
+ * Formulate a single declarative finding summary from the evaluated threshold rows.
+ */
+export function guidelinesFinding(summary: GuidelinesSummary): GuidelinesFinding {
+  const { pathSupporting, benignSupporting, vus, informational, noData, total } = summary;
+  const nPath = pathSupporting.length;
+  const nBenign = benignSupporting.length;
+  const nVus = vus.length;
+  const nScored = total - noData.length;
+
+  if (nScored === 0) {
+    return {
+      headline: "Awaiting data across all 20 monitored assays",
+      predicate: "Scores populate as computational prediction and biophysical pipeline stages complete",
+    };
+  }
+  if (nPath > nBenign) {
+    return {
+      headline: "Pathogenic concordance across computational and biophysical metrics",
+      predicate: `${nPath} of ${nScored} scored metrics reach pathogenic supporting or strong thresholds, while ${nBenign} ${nBenign === 1 ? "is" : "are"} benign/neutral${nVus > 0 ? ` and ${nVus} ${nVus === 1 ? "is" : "are"} intermediate` : ""}`,
+    };
+  }
+  if (nBenign > nPath) {
+    return {
+      headline: "Benign concordance across evaluated metrics",
+      predicate: `${nBenign} of ${nScored} scored metrics indicate benign or neutral effect, while ${nPath} ${nPath === 1 ? "reaches" : "reach"} a pathogenic cut-point${nVus > 0 ? ` and ${nVus} ${nVus === 1 ? "is" : "are"} intermediate` : ""}`,
+    };
+  }
+  if (nPath === 0 && nBenign === 0) {
+    return {
+      headline: "No evaluated metric reaches a decisive clinical cut-point",
+      predicate: `All ${nScored} available scores currently fall in indeterminate, neutral, or uncalibrated informational ranges`,
+    };
+  }
+  return {
+    headline: "Conflicting evidence between computational and structural metrics",
+    predicate: `${nPath} pathogenic and ${nBenign} benign signals create conflicting evidence across the ${nScored} evaluated metrics`,
+  };
 }
