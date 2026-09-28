@@ -64,12 +64,18 @@ describe("EvidenceInspector — clinical pane", () => {
 
     // BS1 is the one that was wrong: the card said 0.1%, the engine tests 1%.
     expect(freq.tooCommonForDisorder).toBe(0.01);
-    expect(screen.getByText(/Frequency greater than expected for the disorder \(MAF > 1\.0%\)/)).toBeTruthy();
-    expect(screen.queryByText(/MAF > 0\.1%/)).toBeNull();
+    const cuts = screen.getByTestId("cut-points");
+    expect(within(cuts).getByText("> 1.0%")).toBeTruthy();
+    expect(within(cuts).queryByText("> 0.1%")).toBeNull();
 
-    // PM2 documents both ceilings, including the recessive branch the card omitted entirely.
-    expect(screen.getByText(/MAF ≤ 0\.01%, or ≤ 0\.1% when pLI < 0\.9/)).toBeTruthy();
-    expect(screen.getByText(/Stand-alone benign \(MAF > 5% in population cohorts\)/)).toBeTruthy();
+    // PM2 documents both ceilings, including the recessive branch.
+    expect(within(cuts).getByText("≤ 0.01%")).toBeTruthy();
+    expect(within(cuts).getByText(/≤ 0\.1% when pLI < 0\.9 reads as recessive/)).toBeTruthy();
+    expect(within(cuts).getByText("> 5%")).toBeTruthy();
+    // The cut-point this variant's frequency supports is the one marked.
+    const active = cuts.querySelectorAll("[data-active]");
+    expect(active.length).toBe(1);
+    expect(active[0].textContent).toMatch(/^PM2/);
   });
 
   it("does not assert a gnomAD patch release the code never reads", () => {
@@ -87,14 +93,14 @@ describe("EvidenceInspector — clinical pane", () => {
 
   it("states where this run's reading came from", () => {
     renderRail({ ruleBasedInsights: { acmgCriteria: [{ code: "PM2", reason: "rare" }] } });
-    const card = screen.getByText("This run's reading").closest("div")!;
+    const card = screen.getByTestId("rule-trace");
     /*
      * The counts carry their cohort. An unattributed `AC 8 · AN 1,459,156` sitting above
      * "From: gnomAD ancestry-grouped maximum" reads as though the grouped maximum produced them, and
      * nothing in the payload reports counts for that group — so the cohort name is part of the claim,
      * not decoration.
      */
-    expect(within(card).getByText(/AC 8 · AN 1,459,156 · Exomes/)).toBeTruthy();
+    expect(card.textContent).toMatch(/Alleles observed: AC 8 · AN 1,459,156 · Exomes/);
     expect(within(card).getByText("AF the rule read")).toBeTruthy();
     expect(within(card).getByText("5.50e-6")).toBeTruthy();
     expect(within(card).getByText(/gnomAD ancestry-grouped maximum · v4/)).toBeTruthy();
@@ -108,9 +114,8 @@ describe("EvidenceInspector — clinical pane", () => {
       metadata: { variant: "p.Arg591Trp", uniprotId: "Q9H116", acmgWeighting: "strict-structural" },
       ruleBasedInsights: { acmgCriteria: [{ code: "PP3", reason: "computational" }] },
     });
-    const card = screen.getByText("This run's reading").closest("div")!;
-    // Exact: the suppression note below carries the same words inside a sentence.
-    expect(within(card).getByText("strict-structural", { exact: true })).toBeTruthy();
+    const card = screen.getByTestId("rule-trace");
+    expect(within(card).getByTestId("acmg-weighting").textContent).toBe("strict-structural");
   });
 
   it("marks the criterion unconfirmed when the payload carries no engine criteria", () => {
@@ -142,7 +147,28 @@ describe("EvidenceInspector — clinical pane", () => {
       clinvar: { classification: null },
       serviceStatus: { gnomadFrequency: "ok", clinvar: "timeout" },
     });
-    expect(container.textContent).not.toMatch(/Unindexed in ClinVar/);
-    expect(screen.getByText(/No ClinVar record read/)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/Unindexed in ClinVar|Not in ClinVar/);
+    expect(screen.getByText("Query failed — not read")).toBeTruthy();
+  });
+
+  it("words a confirmed ClinVar absence as an absence, not as a failed read", () => {
+    renderRail({
+      clinvar: { classification: "Not found in ClinVar" },
+      serviceStatus: { gnomadFrequency: "ok", clinvar: "ok" },
+    });
+    expect(screen.getByText("Not in ClinVar")).toBeTruthy();
+    expect(screen.queryByText(/not read|No ClinVar record read/)).toBeNull();
+  });
+
+  it("traces a recorded gnomAD absence as 'no record', not as a global maximum", () => {
+    const { container } = renderRail({
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "not_found", clinvar: "ok" },
+      gnomadConstraint: { pli: 1 },
+    });
+    const card = screen.getByTestId("rule-trace");
+    expect(card.textContent).toMatch(/gnomAD — no record/);
+    expect(card.textContent).toMatch(/pLI 1\.00 → dominant/);
+    expect(container.textContent).not.toMatch(/global maximum/);
   });
 });
