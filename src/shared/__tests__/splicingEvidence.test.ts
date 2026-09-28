@@ -1,518 +1,246 @@
 import { describe, it, expect } from "vitest";
-import { deriveSplicingEvidence } from "../splicingEvidence.ts";
+import { buildSplicingEvidence, groupSpliceReadings, splicingFinding } from "../splicingEvidence.ts";
 import { THRESHOLDS } from "../thresholds/constants.ts";
 import { evaluateSplicePredictor } from "../thresholds/evaluators.ts";
-import type { AnalysisResult } from "../contracts.ts";
+import { nae1Reference } from "./fixtures/splicingReference.ts";
 
 /**
- * Regression suite for the shared splicing derivation.
+ * Contract of the splicing model the RNA Splicing tab and its rail both render.
  *
- * This module is the single source of display labels, severity bands and ACMG rule
- * outcomes for BOTH the RNA Splicing tab and its inspector sidebar. The bugs these
- * tests pin were all real:
- *
- *   - a KPI/prose label reading "Preserved" for a position no predictor scored
- *   - a panel chip that was green no matter how disruptive the variant was
- *   - "all four channels below threshold" asserted from four null channels
- *   - the tab and the sidebar disagreeing because they passed different inputs
- *
- * A table-driven test here is cheap; every one of those defects was a labelling bug
- * that a single assertion would have caught.
+ * The defects these pin were all on screen (doc/SPLICING_TAB_REVIEW.md): a splicing "PP3"/"BP4"
+ * the engine never recorded; proximity and dbscSNV deciding PP3; BP4 only at ≤ 0.02 and > 12 bp; a
+ * symmetric ±12 bp dbscSNV window; a signed SHAP printed as a percentage; "no SpliceAI score exists"
+ * for an exonic SNV SpliceAI would have scored.
  */
 
-/** Minimal AnalysisResult carrying only the conservation evidence under test. */
-function makeResult(conservation: Record<string, any>): AnalysisResult {
-  return { conservationData: conservation } as unknown as AnalysisResult;
-}
+const sai = (max_ds: number | null, extra: Record<string, any> = {}) => ({
+  ds_ag: 0, ds_al: max_ds, ds_dg: 0, ds_dl: 0, max_ds, ...extra,
+});
+const build = (overrides: Record<string, any> = {}, opts: { isLoading?: boolean } = {}) =>
+  buildSplicingEvidence({ result: nae1Reference(overrides), ...opts });
 
-const MODERATE = THRESHOLDS.spliceai.pathogenicModerate; // 0.20
-const CRITICAL_BP = THRESHOLDS.spliceai.proximityCriticalBp; // 5
-const CONSENSUS_BP = THRESHOLDS.spliceai.consensusFlankDistance; // 12
+describe("reference variant — NAE1 p.Asp116Gly", () => {
+  const ev = build();
 
-describe("deriveSplicingEvidence — coverage absence vs. measured result", () => {
-  it("returns null only when there is no result", () => {
-    expect(deriveSplicingEvidence(null)).toBeNull();
-    expect(deriveSplicingEvidence(undefined)).toBeNull();
+  it("has no SpliceAI score, so the splicing rule cannot be applied", () => {
+    expect(ev.rule.state).toBe("no-score");
+    expect(ev.rule.code).toBeNull();
+    expect(splicingFinding(ev).headline).toBe("No SpliceAI score reached this variant");
   });
 
-  it("flags coverage absence when neither predictor scored the position", () => {
-    // The MACO1 p.Glu433Lys shape: 16 bp out, no SpliceAI, no dbscSNV.
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false, junctionType: "donor", regionType: "exonic" },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
-
-    expect(m.isPredictorCoverageAbsent).toBe(true);
-    expect(m.isSplicingDisrupted).toBe(false);
-    // The evaluator must agree that this is indeterminate, not benign.
-    expect(m.verdict).toBe("unavailable");
-    expect(m.verdictLabel).toBe("Unavailable / Unmapped");
+  it("says a missing score for an exonic SNV is a failed request, not 'no score exists'", () => {
+    expect(ev.spliceai.availability.state).toBe("no-result");
+    expect(ev.spliceai.availability.reason).toMatch(/scores every single-nucleotide change/);
+    expect(ev.spliceai.availability.reason).not.toMatch(/exist/);
   });
 
-  it("does NOT report coverage absence when SpliceAI returned a score", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 },
-        dbscsnv: null
-      })
-    )!;
-
-    expect(m.isPredictorCoverageAbsent).toBe(false);
-    expect(m.dsSeverity).toBe("low");
+  it("places the variant as the 26th base of exon 6 from its acceptor", () => {
+    const g = ev.geometry;
+    expect(g.junction).toBe("acceptor");
+    expect(g.position).toBe(26);
+    expect(g.positionPhrase).toBe("the 26th base of exon 6 from its acceptor boundary");
+    expect(g.isCanonicalDinucleotide).toBe(false);
+    expect(g.transcriptId).toBe("NM_003905.4");
   });
 
-  it("treats an all-null channel object as no measurement, not as a benign call", () => {
-    // dbNSFP often yields the SpliceAI object with every channel null.
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: { ds_ag: null, ds_al: null, ds_dg: null, ds_dl: null, max_ds: null },
-        dbscsnv: null
-      })
-    )!;
+  it("states that dbscSNV does not cover +26 — its acceptor window ends at +2", () => {
+    expect(ev.geometry.inDbscsnvWindow).toBe(false);
+    const ada = ev.readings.find(r => r.key === "dbscsnv-ada")!;
+    expect(ada.availability.state).toBe("not-covered");
+    expect(ada.availability.reason).toContain("−12 to +2 at an acceptor");
+    expect(ada.availability.reason).toContain("+26");
+  });
 
-    expect(m.isPredictorCoverageAbsent).toBe(true);
-    expect(m.dsSeverity).toBe("unannotated");
-    expect(m.verdict).toBe("unavailable");
+  it("surfaces AlphaGenome's reference-base mismatch as a coordinate problem", () => {
+    expect(ev.referenceMismatch).toMatch(/reference base does not match/);
+    const ag = ev.readings.find(r => r.key === "alphagenome-splicing")!;
+    expect(ag.score).toBeNull();
+    expect(ag.availability.state).toBe("upstream-error");
+  });
+
+  it("reads the missense vote as the engine's in-silico code, and flags BP4 as splicing-unchecked", () => {
+    // No criteria list in this payload: the engine record is unknown, the vote supports BP4 (REVEL 0.231).
+    expect(ev.engine.known).toBe(false);
+    expect(ev.engine.voteCode).toBe("BP4");
+    expect(ev.relation).toBe("bp4-unchecked");
   });
 });
 
-describe("deriveSplicingEvidence — isSplicingDisrupted (the green-chip regression)", () => {
-  it("is true for a high SpliceAI delta, however far from the junction", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 40, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0.95, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.95 },
-        dbscsnv: null
-      })
-    )!;
-
-    expect(m.isSplicingDisrupted).toBe(true);
-    expect(m.dsSeverity).toBe("high");
-    expect(m.verdict).toBe("pathogenic");
-  });
-
-  it("is true at exactly the moderate threshold, and false just below it", () => {
-    const at = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 40, isNearSpliceSite: false },
-        spliceai: { ds_ag: MODERATE, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: MODERATE },
-        dbscsnv: null
-      })
-    )!;
-    expect(at.isSplicingDisrupted).toBe(true);
-
-    const below = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 40, isNearSpliceSite: false },
-        spliceai: { ds_ag: MODERATE - 0.01, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: MODERATE - 0.01 },
-        dbscsnv: null
-      })
-    )!;
-    expect(below.isSplicingDisrupted).toBe(false);
-  });
-
-  it("is true for an altering dbscSNV ensemble even with a low SpliceAI delta", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 30, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0.01, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.01 },
-        dbscsnv: { ada_score: 0.9, rf_score: 0.2 }
-      })
-    )!;
-
-    expect(m.isDbscAltering).toBe(true);
-    expect(m.isSplicingDisrupted).toBe(true);
-  });
-
-  it("is true on junction proximity, and false well outside it", () => {
-    const near = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 2, isNearSpliceSite: true },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
-    expect(near.isSplicingDisrupted).toBe(true);
-    expect(near.proximitySeverity).toBe("critical");
-
-    const far = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: CONSENSUS_BP + 1, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0 },
-        dbscsnv: null
-      })
-    )!;
-    expect(far.isSplicingDisrupted).toBe(false);
-    expect(far.proximitySeverity).toBe("outside");
-  });
-
-  it("NEVER reports disruption without a positive signal (guards the green chip)", () => {
-    // Whatever combination of absent data is fed in, the predicate must stay false so
-    // the UI can never paint a red KPI beside a green "no disruption" chip.
-    const cases = [
-      { spliceProximity: null, spliceai: null, dbscsnv: null },
-      { spliceProximity: { distance: 300, isNearSpliceSite: false }, spliceai: null, dbscsnv: null },
-      { spliceProximity: { distance: 16, isNearSpliceSite: false }, spliceai: null, dbscsnv: null }
-    ];
-
-    for (const conservation of cases) {
-      const m = deriveSplicingEvidence(makeResult(conservation))!;
-      expect(m.isSplicingDisrupted).toBe(false);
-      expect(m.dsSeverity === "high" || m.dsSeverity === "moderate").toBe(false);
+describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
+  it("agrees with evaluateSplicePredictor on every edge", () => {
+    for (const v of [0, 0.004, 0.05, 0.099, 0.1, 0.15, 0.199, 0.2, 0.5, 0.99]) {
+      const ev = build({ conservationData: { spliceai: sai(v) } });
+      const signal = evaluateSplicePredictor(null, { max_ds: v });
+      const expected = signal === "pathogenic" ? "pp3" : signal === "benign" ? "bp4" : "between";
+      expect(ev.rule.state, `max Δ ${v}`).toBe(expected);
     }
   });
-});
 
-describe("deriveSplicingEvidence — labels agree with the evaluator", () => {
-  it("verdictLabel always tracks evaluateSplicePredictor on the same inputs", () => {
-    const scenarios: Array<Record<string, any>> = [
-      { spliceProximity: null, spliceai: null, dbscsnv: null },
-      {
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0.95, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.95 },
-        dbscsnv: null
+  it("puts 0.10 between the bands and 0.20 in PP3", () => {
+    expect(build({ conservationData: { spliceai: sai(THRESHOLDS.spliceai.splicingBp4Below) } }).rule.state).toBe("between");
+    expect(build({ conservationData: { spliceai: sai(THRESHOLDS.spliceai.splicingPp3) } }).rule.state).toBe("pp3");
+  });
+
+  it("does not let junction proximity or dbscSNV make a call", () => {
+    const ev = build({
+      conservationData: {
+        spliceProximity: { distance: 1, isNearSpliceSite: true, junctionType: "donor", regionType: "intronic" },
+        dbscsnv: { ada_score: 0.99, rf_score: 0.95 },
+        spliceai: null,
       },
-      {
-        spliceProximity: { distance: 2, isNearSpliceSite: true },
-        spliceai: { ds_ag: 0.01, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.01 },
-        dbscsnv: null
+    });
+    expect(ev.rule.state).toBe("no-score");
+    expect(ev.geometry.isCanonicalDinucleotide).toBe(true);
+    const ada = ev.readings.find(r => r.key === "dbscsnv-ada")!;
+    expect(ada.call?.label).toBe("Altering (authors)");
+    expect(ada.call?.isCode).toBe(false);
+  });
+
+  it("names the channel and shift the maximum came from", () => {
+    const ev = build({ conservationData: { spliceai: { ds_ag: 0.01, ds_al: 0.34, ds_dg: 0, ds_dl: 0.02, max_ds: 0.34, dp: { ds_ag: 3, ds_al: -12, ds_dg: 0, ds_dl: 40 } } } });
+    expect(ev.rule.maxChannel).toBe("ds_al");
+    expect(ev.rule.maxShift).toBe(-12);
+    expect(splicingFinding(ev).headline).toBe("SpliceAI predicts a splicing change (acceptor loss at −12 bp)");
+    const rows = groupSpliceReadings(ev.readings);
+    expect(rows.map(g => g.group)).toEqual(["rule", "channels", "context"]);
+    expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.call?.label).toBe("Maximum");
+  });
+
+  it("marks the band the score sits in on the ruler", () => {
+    const ev = build({ conservationData: { spliceai: sai(0.03) } });
+    const r = ev.readings.find(x => x.key === "spliceai")!;
+    expect(r.scale!.bands.find(b => b.active)!.side).toBe("benign");
+    expect(r.call).toEqual({ label: "BP4 (splicing)", tone: "good", isCode: true });
+  });
+
+  it("is pending, not absent, while SpliceAI is in flight", () => {
+    const ev = build({}, { isLoading: true });
+    expect(ev.rule.state).toBe("pending");
+    expect(ev.pending).toBe(true);
+  });
+
+  it("names what served the score", () => {
+    const live = build({ conservationData: { spliceai: sai(0.02, { provenance: { source: "broad-lookup", distanceBp: 500, masked: 1, computedLive: true } }) } });
+    expect(live.spliceai.sourceText).toBe("Broad SpliceAI Lookup (model run for this request)");
+    expect(live.spliceai.windowText).toBe("±500 bp");
+    expect(live.spliceai.maskText).toBe("Masked");
+    const frozen = build({ conservationData: { spliceai: sai(0.02, { provenance: { source: "precomputed-dbnsfp" } }) } });
+    expect(frozen.spliceai.sourceText).toContain("GENCODE v24");
+    expect(frozen.spliceai.windowText).toBe("Not stated");
+    expect(build({ conservationData: { spliceai: sai(0.02) } }).spliceai.sourceText).toBe("Source not stated in the payload");
+  });
+});
+
+describe("the engine record is read, never inferred from splicing", () => {
+  const withEngine = (code: string | null, spliceScore: number | null) =>
+    build({
+      conservationData: { spliceai: spliceScore === null ? null : sai(spliceScore) },
+      ruleBasedInsights: { acmgCriteria: code ? [{ code, reason: "vote" }] : [] },
+    });
+
+  it("reports a conflict when splicing supports PP3 and the engine recorded BP4", () => {
+    const ev = withEngine("BP4", 0.45);
+    expect(ev.engine).toMatchObject({ known: true, code: "BP4" });
+    expect(ev.relation).toBe("conflict");
+  });
+
+  it("notes PP3 is counted once when both point that way", () => {
+    expect(withEngine("PP3", 0.45).relation).toBe("same-pp3");
+  });
+
+  it("says nothing extra when splicing agrees with a BP4", () => {
+    expect(withEngine("BP4", 0.02).relation).toBe("none");
+  });
+
+  it("never turns a splicing reading into an engine code", () => {
+    const ev = withEngine(null, 0.9);
+    expect(ev.engine.code).toBeNull();
+    expect(ev.rule.code).toBe("PP3");
+  });
+});
+
+describe("geometry — positions in splice-site convention, dbscSNV's asymmetric windows", () => {
+  const at = (junctionType: string, regionType: string, distance: number) =>
+    build({ conservationData: { spliceProximity: { distance, junctionType, regionType, isNearSpliceSite: false } } }).geometry;
+
+  it("numbers donor exonic bases negative and intronic positive", () => {
+    expect(at("donor", "exonic", 0).position).toBe(-1);
+    expect(at("donor", "exonic", 2).position).toBe(-3);
+    expect(at("donor", "intronic", 1).position).toBe(1);
+  });
+
+  it("numbers acceptor intronic bases negative and exonic positive", () => {
+    expect(at("acceptor", "intronic", 12).position).toBe(-12);
+    expect(at("acceptor", "exonic", 0).position).toBe(1);
+  });
+
+  it("uses dbscSNV's real windows: −3..+8 donor, −12..+2 acceptor", () => {
+    expect(at("donor", "exonic", 2).inDbscsnvWindow).toBe(true); // −3
+    expect(at("donor", "exonic", 3).inDbscsnvWindow).toBe(false); // −4
+    expect(at("donor", "intronic", 8).inDbscsnvWindow).toBe(true);
+    expect(at("donor", "intronic", 9).inDbscsnvWindow).toBe(false);
+    expect(at("acceptor", "intronic", 12).inDbscsnvWindow).toBe(true);
+    expect(at("acceptor", "intronic", 13).inDbscsnvWindow).toBe(false);
+    expect(at("acceptor", "exonic", 1).inDbscsnvWindow).toBe(true); // +2
+    // The old symmetric ±12 flank called this "inside": an exonic base 5 from the acceptor.
+    expect(at("acceptor", "exonic", 4).inDbscsnvWindow).toBe(false); // +5
+  });
+
+  it("flags only intronic ±1/±2 as the canonical dinucleotide", () => {
+    expect(at("donor", "intronic", 2).isCanonicalDinucleotide).toBe(true);
+    expect(at("donor", "intronic", 3).isCanonicalDinucleotide).toBe(false);
+    expect(at("acceptor", "exonic", 0).isCanonicalDinucleotide).toBe(false);
+  });
+
+  it("claims no position or window at a transcript terminus (F-15)", () => {
+    const g = at("terminal", "exonic", 2);
+    expect(g.junction).toBe("terminal");
+    expect(g.position).toBeNull();
+    expect(g.inDbscsnvWindow).toBeNull();
+    expect(g.junctionLabel).toContain("terminus");
+  });
+
+  it("keeps the legacy donor inference only for payloads without junctionType, and claims no position", () => {
+    const legacy = build({ conservationData: { spliceProximity: { distance: 2, isNearSpliceSite: false, junctionType: undefined, regionType: undefined } } }).geometry;
+    expect(legacy.junction).toBe("donor");
+    expect(legacy.position).toBeNull();
+    const explicitNull = build({ conservationData: { spliceProximity: { distance: 2, isNearSpliceSite: false, junctionType: null } } }).geometry;
+    expect(explicitNull.junction).toBe("unresolved");
+  });
+
+  it("carries a build-gate refusal verbatim (F-13), and no reason when none was recorded", () => {
+    const ev = build({
+      conservationData: {
+        spliceProximity: null,
+        assemblyRefusals: [{ source: "splice-proximity", reason: "splice-proximity covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored." }],
       },
-      {
-        spliceProximity: { distance: 20, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 },
-        dbscsnv: null
-      },
-      {
-        spliceProximity: { distance: 20, isNearSpliceSite: false },
-        spliceai: null,
-        dbscsnv: { ada_score: 0.9, rf_score: 0.9 }
-      }
-    ];
-
-    for (const c of scenarios) {
-      const m = deriveSplicingEvidence(makeResult(c))!;
-      const expected = evaluateSplicePredictor(c.spliceProximity, c.spliceai, c.dbscsnv);
-      expect(m.verdict).toBe(expected);
-
-      const expectedLabel =
-        expected === "pathogenic"
-          ? "Pathogenic Supporting (PP3)"
-          : expected === "benign"
-          ? "Benign Supporting (BP4)"
-          : expected === "unavailable"
-          ? "Unavailable / Unmapped"
-          : "VUS / Indeterminate";
-      expect(m.verdictLabel).toBe(expectedLabel);
-    }
-  });
-
-  it("coverage absence is exactly the evaluator's 'unavailable' verdict", () => {
-    const cases: Array<Record<string, any>> = [
-      { spliceProximity: { distance: 16, isNearSpliceSite: false }, spliceai: null, dbscsnv: null },
-      { spliceProximity: null, spliceai: null, dbscsnv: null },
-      {
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: { ds_ag: null, ds_al: null, ds_dg: null, ds_dl: null, max_ds: null },
-        dbscsnv: null
-      }
-    ];
-
-    for (const c of cases) {
-      const m = deriveSplicingEvidence(makeResult(c))!;
-      expect(m.isPredictorCoverageAbsent).toBe(m.verdict === "unavailable");
-    }
+    });
+    expect(ev.geometry.refusal).toMatch(/^Splice-junction geometry covers/);
+    expect(build().geometry.refusal).toBeNull();
   });
 });
 
-describe("deriveSplicingEvidence — ACMG rule outcomes", () => {
-  it("marks rules N/A (null) rather than 'not met' when a predictor has no score", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
+describe("AlphaGenome splicing attribution is the AlphaGenome tab's reading", () => {
+  const live = (featureAttributions: Record<string, number> | null) =>
+    build({ conservationData: { alphagenome: { status: "live", aviPhred: 18, message: null, featureAttributions } } });
 
-    // No score => not applicable, which is clinically different from "not met".
-    const spliceAiRow = m.pathogenicRules.find(r => r.label.startsWith("SpliceAI"))!;
-    expect(spliceAiRow.met).toBeNull();
-
-    const distanceRow = m.pathogenicRules.find(r => r.label.startsWith("Proximity"))!;
-    expect(distanceRow.met).toBe(false);
-
-    for (const r of m.benignRules) {
-      expect(r.met).toBeNull();
-    }
+  it("reports the splicing feature's share of |SHAP|, not the signed SHAP ×100", () => {
+    const ev = live({ Splicing: -0.3, AlphaMissense: 0.6, Cactus: 0.1 });
+    expect(ev.alphagenome.share).toBeCloseTo(0.3, 5);
+    expect(ev.alphagenome.shap).toBeCloseTo(-0.3, 5);
+    const row = ev.readings.find(r => r.key === "alphagenome-splicing")!;
+    expect(row.scoreText).toBe("30%");
+    expect(row.sub).toBe("SHAP −0.300");
+    expect(row.call?.label).toBe("Informational");
   });
 
-  it("reports the proximity rule as met inside the critical band", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: CRITICAL_BP, isNearSpliceSite: true },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
-
-    const distanceRow = m.pathogenicRules.find(r => r.label.startsWith("Proximity"))!;
-    expect(distanceRow.met).toBe(true);
+  it("reads the raw REST key too", () => {
+    expect(live({ fi_MERGED_SPLICING: 0.5, AlphaMissense: 0.5 }).alphagenome.share).toBeCloseTo(0.5, 5);
   });
 
-  it("exposes no rulesMet bookkeeping (dead surface removed)", () => {
-    const m = deriveSplicingEvidence(makeResult({}))!;
-    expect((m as any).rulesMet).toBeUndefined();
-  });
-});
-
-describe("deriveSplicingEvidence — AlphaGenome attribution keying", () => {
-  it("reads the REST-bridge raw key", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        alphagenome: { featureAttributions: { fi_MERGED_SPLICING: 0.42 }, topModality: "DNase" }
-      })
-    )!;
-    expect(m.splicingAttribution).toBeCloseTo(0.42, 5);
-  });
-
-  it("reads the gRPC display name ('Splicing'), not just the raw key", () => {
-    // AVI_FEATURE_DISPLAY_MAP maps MERGED_SPLICING -> "Splicing"; reading only the
-    // raw key discarded a real attribution and rendered a false "N/A".
-    const m = deriveSplicingEvidence(
-      makeResult({
-        alphagenome: { featureAttributions: { Splicing: 0.31 }, topModality: "DNase" }
-      })
-    )!;
-    expect(m.splicingAttribution).toBeCloseTo(0.31, 5);
-    expect(m.isSplicingDominant).toBe(true);
-  });
-
-  it("does not misattribute a non-splicing modality as a splicing score", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        alphagenome: {
-          status: "live",
-          featureAttributions: { DNase: 0.9 },
-          topModality: "DNase",
-          topFeatureImportance: 0.9
-        }
-      })
-    )!;
-    expect(m.splicingAttribution).toBeNull();
-    expect(m.isSplicingDominant).toBe(false);
-    expect(m.hasAlphaGenome).toBe(true);
-  });
-
-  it("reports hasAlphaGenome=false when the provider returned a standby/error object", () => {
-    // The bridge returns a FULL object with status "unavailable" for key-required
-    // standby and for provider errors. Keying off object presence made the
-    // "Standby / Unconfigured" UI branch unreachable and let the card assert the
-    // model had looked and found nothing.
-    for (const message of ["AlphaGenome Atlas: Key Required / Standby", "AlphaGenome endpoint not configured"]) {
-      const m = deriveSplicingEvidence(
-        makeResult({
-          alphagenome: { status: "unavailable", message, featureAttributions: null, topModality: null }
-        })
-      )!;
-      expect(m.hasAlphaGenome).toBe(false);
-      expect(m.alphagenomeStatus).toBe("unavailable");
-      expect(m.splicingAttribution).toBeNull();
-    }
-  });
-
-  it("does not call splicing the primary driver on a near-zero attribution", () => {
-    // gRPC picks topModality by max |value| with MERGED_SPLICING at index 0, so an
-    // all-near-zero vector yields topModality "Splicing" at 0.0%.
-    const m = deriveSplicingEvidence(
-      makeResult({
-        alphagenome: { status: "live", featureAttributions: { Splicing: 0 }, topModality: "Splicing" }
-      })
-    )!;
-    expect(m.splicingAttribution).toBe(0);
-    expect(m.isSplicingDominant).toBe(false);
-  });
-
-  it("treats a negative attribution of sufficient magnitude as dominant", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        alphagenome: { status: "live", featureAttributions: { Splicing: -0.31 }, topModality: "DNase" }
-      })
-    )!;
-    expect(m.splicingAttribution).toBeCloseTo(-0.31, 5);
-    expect(m.isSplicingDominant).toBe(true);
-  });
-});
-
-/**
- * Pass-through tests for the SpliceAI provenance and delta positions.
- *
- * Both were produced by the client and typed in `contracts.ts` but discarded here, so neither
- * pane could render them: the panels instead hardcoded a tool version and a reporting window
- * ("±10,000 bp flanking") that are wrong for the frozen precomputed source, and could not say
- * WHERE a shift lands — which is the whole reason `dp` exists. Discord here is what let the
- * hardcoded claims go unchallenged.
- */
-describe("deriveSplicingEvidence — SpliceAI provenance and delta positions", () => {
-  it("carries dp through so a reader can see where the shift lands", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: {
-          ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004, max_ds: 0.004,
-          dp: { ds_ag: -142, ds_al: -172, ds_dg: 19, ds_dl: 123 }
-        },
-        dbscsnv: null
-      })
-    )!;
-
-    // A large |dp| with a small delta is the signature of a variant far from any junction —
-    // the delta score alone cannot convey that.
-    expect(m.spliceai?.dp?.ds_dl).toBe(123);
-    expect(m.spliceai?.dp?.ds_ag).toBe(-142);
-  });
-
-  it("carries provenance through, including the reporting window the score was made under", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: {
-          ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004, max_ds: 0.004,
-          provenance: {
-            source: "broad-lookup",
-            distanceBp: 500,
-            masked: 1,
-            computedLive: true,
-            annotationSet: "MANE Select"
-          }
-        },
-        dbscsnv: null
-      })
-    )!;
-
-    expect(m.spliceaiProvenance?.source).toBe("broad-lookup");
-    // 500, not 10,000: the panel previously displayed the model's INPUT context as though it
-    // were the window the number was produced under.
-    expect(m.spliceaiProvenance?.distanceBp).toBe(500);
-    expect(m.spliceaiProvenance?.masked).toBe(1);
-  });
-
-  it("reports provenance as absent when the source did not state one", () => {
-    // The precomputed dbNSFP / Genos paths stamp no provenance, so absence is a real state.
-    // A renderer must say "not stated" rather than assume a live model run.
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 16, isNearSpliceSite: false },
-        spliceai: { ds_ag: 0.9, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.9 },
-        dbscsnv: null
-      })
-    )!;
-
-    // The derivation hoists max_ds out of the channel object onto the model.
-    expect(m.maxDs).toBeCloseTo(0.9, 5);
-    expect(m.spliceaiProvenance).toBeNull();
-  });
-});
-
-/**
- * Honesty regressions from the unmapping-defect audit (doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md):
- * the panel must never state a measurement it refused to take, and never invent a cause for
- * a blank it cannot see.
- */
-describe("deriveSplicingEvidence — unmapping-defect honesty (F-9 / F-13 / F-15)", () => {
-  it("labels missing dbscSNV as 'no data', not as a location claim (F-9)", () => {
-    // The old default asserted "Outside Consensus Zone" with no score at all — and for the
-    // ACOT9 case it was provably false: SpliceAI placed the variant at 0 bp of the acceptor.
-    const m = deriveSplicingEvidence(
-      makeResult({ spliceProximity: null, spliceai: null, dbscsnv: null })
-    )!;
-    expect(m.dbscSeverity).toBe("unmapped");
-    expect(m.dbscLabel).toBe("No dbscSNV Data");
-  });
-
-  it("keeps the measured labels when a score exists", () => {
-    const tolerated = deriveSplicingEvidence(
-      makeResult({ dbscsnv: { ada_score: 0.001, rf_score: 0.002 } })
-    )!;
-    expect(tolerated.dbscLabel).toBe("Tolerated / Unaltered");
-  });
-
-  it("surfaces build-gate refusals so the panes can explain their own blanks (F-13)", () => {
-    const m = deriveSplicingEvidence(
-      makeResult({
-        assemblyRefusals: [
-          { source: "splice-proximity", reason: "splice-proximity covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored." },
-          { source: "alphagenome", reason: "alphagenome covers GRCh38 / hg38; this coordinate is GRCh37 / hg19 and was not scored." }
-        ]
-      })
-    )!;
-    expect(m.proximityRefusal).toContain("GRCh37");
-    expect(m.alphagenomeRefusal).toContain("GRCh38");
-  });
-
-  it("reports refusals as null when none were recorded — absence is not a reason", () => {
-    const m = deriveSplicingEvidence(makeResult({}))!;
-    expect(m.proximityRefusal).toBeNull();
-    expect(m.alphagenomeRefusal).toBeNull();
-  });
-
-  it("does NOT fabricate a donor orientation at a transcript terminus (F-15)", () => {
-    // The resolver excluded the terminus from junction claims (isNearSpliceSite false) —
-    // the orientation used to re-claim it as a GT donor whenever a distance existed.
-    const m = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 2, isNearSpliceSite: false, junctionType: "terminal", regionType: "exonic" },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
-    expect(m.isDonor).toBe(false);
-    expect(m.isAcceptor).toBe(false);
-    expect(m.junctionType).toContain("Terminus");
-    expect(m.isCriticalJunctionProximity).toBe(false);
-  });
-
-  it("keeps the legacy donor inference ONLY for payloads that predate junctionType (F-15)", () => {
-    const legacy = deriveSplicingEvidence(
-      makeResult({
-        // No junctionType key at all: a payload from before the resolver named boundaries.
-        spliceProximity: { distance: 2, isNearSpliceSite: false },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
-    expect(legacy.isDonor).toBe(true);
-
-    // An EXPLICIT null (resolver identified no boundary) is a known answer, not a legacy gap.
-    const explicitNull = deriveSplicingEvidence(
-      makeResult({
-        spliceProximity: { distance: 2, isNearSpliceSite: false, junctionType: null },
-        spliceai: null,
-        dbscsnv: null
-      })
-    )!;
-    expect(explicitNull.isDonor).toBe(false);
-    expect(explicitNull.junctionType).toContain("not resolved");
-  });
-
-  it("only calls a dbscSNV absence 'outside the flank' when a measured distance proves it (M-7)", () => {
-    // 3 bp from a TERMINAL boundary: the flank claim used to fire on any non-null distance and
-    // printed "outside the canonical flank … 3 bp away" — self-contradictory.
-    const nearTerminal = deriveSplicingEvidence(
-      makeResult({ spliceProximity: { distance: 3, isNearSpliceSite: false, junctionType: "terminal" } })
-    )!;
-    expect(nearTerminal.dbscFlankMeasurable).toBe(false);
-
-    const farFromJunction = deriveSplicingEvidence(
-      makeResult({ spliceProximity: { distance: CONSENSUS_BP + 5, isNearSpliceSite: false, junctionType: "donor" } })
-    )!;
-    expect(farFromJunction.dbscFlankMeasurable).toBe(true);
-
-    const noDistance = deriveSplicingEvidence(makeResult({ spliceProximity: null }))!;
-    expect(noDistance.dbscFlankMeasurable).toBe(false);
+  it("says why when AlphaGenome answered without attributions", () => {
+    const ev = live(null);
+    expect(ev.alphagenome.share).toBeNull();
+    expect(ev.alphagenome.availability.reason).toMatch(/no feature attributions/);
   });
 });

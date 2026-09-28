@@ -9,43 +9,66 @@ export const THRESHOLDS_METADATA = {
     cadd: "Rentzsch et al. Nucleic Acids Res (2019); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
     foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005)",
     popEVE: "Orenbuch et al. Nat Genet (2025)",
-    dbscsnv: "Jian et al. Hum Mutat (2014)",
-    spliceai: "Jaganathan et al. Cell (2019) & ClinGen SVI Recommendation",
+    dbscsnv: "Jian et al. Nucleic Acids Res (2014) — authors' cut-point 0.6, not ClinGen-calibrated",
+    spliceai: "Jaganathan et al. Cell (2019); splicing PP3/BP4 bands: Walker et al. Am J Hum Genet (2023), ClinGen SVI Splicing Subgroup",
     alphagenome: "Avsec et al., AlphaGenome (Google DeepMind, 2025). AVI bands are app-defined, not ClinGen-calibrated"
   }
 };
 
 export const THRESHOLDS = {
   spliceai: {
-    /** SpliceAI ΔScore ≥ 0.50: high risk of splice alteration */
-    pathogenicHigh: 0.50,
-    /** SpliceAI ΔScore ≥ 0.20: moderate risk (PP3 supporting per ClinGen SVI) */
-    pathogenicModerate: 0.20,
-    pathogenicSupporting: 0.20,
-    /** SpliceAI ΔScore ≤ 0.02: minimal / negligible splice alteration risk (BP4) */
-    benign: 0.02,
     /**
-     * Perijunctional consensus region: ±12 bp (donor -3..+8, acceptor -12..+2).
+     * ClinGen SVI Splicing Subgroup (Walker et al. 2023, doi:10.1016/j.ajhg.2023.06.002): SpliceAI
+     * max delta score ≥ 0.2 supports PP3 for predicted splicing impact; a score below 0.1 supports
+     * BP4 (and BP7). Verified 2026-09 against the ClinGen Criteria Specification Registry text that
+     * cites Walker 2023 ("a score equal to or >0.2" / "based on a score <0.1"); the paper's own
+     * full text could not be fetched in that review. Between the two, neither criterion.
      *
-     * This describes the region dbscSNV is TRAINED over — it is NOT SpliceAI's
-     * window. SpliceAI reads ~10,000 bp of flanking context but, per its `-D`
-     * parameter, reports delta scores only within 50 bp (default) of a gained or
-     * lost splice site. The two must not be presented as one window: doing so
-     * implies a coverage limit that does not exist, since 50 bp reporting covers
-     * anything inside this ±12 bp region.
+     * These replaced `pathogenicSupporting: 0.20` / `benign: 0.02`. The 0.02 was cited to a "ClinGen
+     * SVI Recommendation (2019)" that does not exist; it made BP4 five times harder to reach than
+     * the published rule and called 0.02–0.1 "low disruption risk" instead of a BP4 reading.
      */
-    consensusFlankDistance: 12,
+    splicingPp3: 0.2,
+    /** BP4 needs a score strictly BELOW this (Walker 2023, as quoted by the ClinGen registry: "<0.1"). */
+    splicingBp4Below: 0.1,
     /**
-     * Proximity at which a variant is treated as sitting on the invariant splice
-     * junction itself, qualifying for PP3/PVS1-style proximity evidence.
-     * Single source of truth for BOTH the backend resolver
-     * (isNearSpliceSite) and the Splicing tab UI — these drifted apart before.
+     * The authors' characterised operating points (Jaganathan 2019; Illumina SpliceAI README: "0.2
+     * (high recall), 0.5 (recommended), and 0.8 (high precision)"). Drawn as the authors' ticks —
+     * they are not ACMG strengths and nothing tests a criterion against them.
+     */
+    authorsHighRecall: 0.2,
+    authorsRecommended: 0.5,
+    authorsHighPrecision: 0.8,
+    /**
+     * Distance from an exon/intron boundary (resolver units: 0 = the boundary exonic base, 1 = the
+     * first intronic base) at or below which the resolver sets `isNearSpliceSite`.
+     *
+     * APP-DEFINED. It is a proximity flag for the resolver and the Insights banner, not evidence:
+     * no ACMG/ClinGen rule applies PP3 for distance alone. It previously made the splicing
+     * "verdict" pathogenic on its own and was drawn as a red "critical junction zone".
      */
     proximityCriticalBp: 5,
   },
   dbscsnv: {
-    /** dbscSNV ADA/RF score ≥ 0.60 → high probability of altering splicing */
+    /**
+     * dbscSNV ADA/RF: the authors' cut-point (Jian et al., Nucleic Acids Res 2014;42:13534,
+     * doi:10.1093/nar/gku1206 — "a cutoff value of 0.6"). Not ClinGen-calibrated; displayed as the
+     * authors' reading, never as PP3.
+     */
     spliceAltering: 0.6,
+    /**
+     * The consensus regions dbscSNV is defined over (Jian 2014): −3 to +8 at the 5′ (donor) splice
+     * site and −12 to +2 at the 3′ (acceptor) splice site, in HGVS splice-site positions (exonic
+     * bases negative at the donor and positive at the acceptor; no position 0).
+     *
+     * This replaced a symmetric "±12 bp consensus flank", which called an exonic variant 5 bp from
+     * an acceptor "inside the consensus flank" when dbscSNV's acceptor window reaches only 2 exonic
+     * bases.
+     */
+    window: {
+      donor: { exonic: 3, intronic: 8 },
+      acceptor: { exonic: 2, intronic: 12 },
+    },
   },
   /**
    * REVEL, CADD and AlphaMissense display bands for the residue landscape heatmaps ONLY.
@@ -409,10 +432,12 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   loeuf:
     "gnomAD LOEUF (observed/expected loss-of-function ratio; severe intolerance < 0.35, moderate < 0.60).",
   spliceai:
-    "SpliceAI (Jaganathan 2019). ΔScore ≥ 0.50 high disruption risk, ≥ 0.20 moderate (PP3 supporting); " +
-    "≤ 0.02 benign (BP4). Consensus splice region flank: ±12 bp. Source: ClinGen SVI Recommendation (2019).",
+    "SpliceAI (Jaganathan 2019). Splicing PP3 at max ΔScore ≥ 0.20, BP4 below 0.10 (ClinGen SVI Splicing " +
+    "Subgroup, Walker 2023). The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision); " +
+    "those are operating points, not ACMG strengths. A delta score is not a probability.",
   dbscsnv:
-    "dbscSNV (Jian 2014). ADA/RF ensemble probability ≥ 0.60 indicates splice altering candidate.",
+    "dbscSNV (Jian 2014). ADA/RF score ≥ 0.6 is the authors' splice-altering cut-point, defined only within " +
+    "−3 to +8 of a donor and −12 to +2 of an acceptor. Not ClinGen-calibrated.",
   alphagenome:
     "AlphaGenome variant impact (Google DeepMind 2025). The AVI Phred is −10·log10 of the variant's tail quantile — a rank, " +
     "not a calibrated probability. Its features include AlphaMissense and conservation. No ClinGen calibration exists; informational only.",

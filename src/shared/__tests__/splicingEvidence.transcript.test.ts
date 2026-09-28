@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { deriveSplicingEvidence } from "../splicingEvidence.ts";
+import { buildSplicingEvidence } from "../splicingEvidence.ts";
 
-describe("deriveSplicingEvidence — RefSeq transcript preference", () => {
+const deriveSplicingEvidence = (result: any) => buildSplicingEvidence({ result }).geometry;
+
+describe("buildSplicingEvidence — RefSeq transcript preference", () => {
   it("prefers maneRefSeqId over Ensembl transcriptId when present", () => {
     const result: any = {
       transcriptId: "ENST00000369878.9",

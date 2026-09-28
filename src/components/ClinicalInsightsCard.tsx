@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { getResidueContext, getCalibration } from "../shared/uncertainty";
 import { generateProvenanceManifest } from "../shared/provenance";
-import { computeCalibratedConsensus } from "../shared/thresholds";
+import { computeCalibratedConsensus, THRESHOLDS } from "../shared/thresholds";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
 import { formatAlleleFrequency } from "../shared/frequencyEvidence";
@@ -802,37 +802,52 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               const spliceProximity = analysisState.result.conservationData?.spliceProximity;
               const isSpliceLoading = !spliceai && isBiophysicalLoading;
               const isNearJunction = spliceProximity?.isNearSpliceSite;
-              const hasSpliceDisruption = spliceai && spliceai.max_ds !== null && spliceai.max_ds >= 0.10;
+              /**
+               * The splicing rule's PP3 band (Walker 2023), from the shared constant. This read a
+               * hand-written `>= 0.10` — half the published cut — and called it "high probability of
+               * splicing disruption", then claimed the engine's PP3 vote "includes this splice
+               * disruption signal". The engine has never read splicing; the RNA splicing tab says so.
+               */
+              const hasSpliceDisruption = spliceai && spliceai.max_ds !== null && spliceai.max_ds >= THRESHOLDS.spliceai.splicingPp3;
 
               if (isSpliceLoading && isNearJunction) {
                 return (
-                  <div className="rounded-xl border p-4 flex flex-col gap-2 animate-pulse" style={{ borderColor: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)", background: "color-mix(in srgb, var(--cs-accent-clay) 6%, transparent)" }}>
-                    <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>
-                      <span className="w-2 h-2 rounded-full border border-t-transparent animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }} />
-                      <span>Splice Junction Proximity Assessment</span>
+                  <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)", background: "color-mix(in srgb, var(--cs-accent-clay) 6%, transparent)" }}>
+                    <div className="flex items-center gap-2 font-semibold text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>
+                      <span>Splice junction proximity</span>
                     </div>
-                    <p className="text-[12px] leading-relaxed pl-5 font-sans" style={{ color: "var(--cs-text-secondary)" }}>
-                      Variant is located <strong>{spliceProximity.distance} bp</strong> from a splice junction. Evaluating 32-layer SpliceAI deep learning models for cryptic donor/acceptor activation...
+                    <p className="text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-secondary)" }}>
+                      Variant is <strong>{spliceProximity.distance} bp</strong> from a splice junction. SpliceAI is still running.
                     </p>
                   </div>
                 );
               }
 
-              if (isNearJunction || hasSpliceDisruption) {
+              if (hasSpliceDisruption) {
                 return (
                   <div className="rounded-xl border p-4 flex flex-col gap-2 animate-fade-in" style={{ borderColor: "color-mix(in srgb, var(--cs-danger) 25%, transparent)", background: "var(--cs-danger-soft)" }}>
-                    <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-text-danger-on-soft)" }}>
+                    <div className="flex items-center gap-2 font-semibold text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-danger-on-soft)" }}>
                       <ShieldAlert className="w-3.5 h-3.5" />
-                      <span>Splicing Disruption Warning</span>
+                      <span>Predicted splicing change</span>
                     </div>
-                    <p className="text-[12px] leading-relaxed pl-5 font-sans" style={{ color: "var(--cs-text-danger-on-soft)" }}>
-                      {isNearJunction && (
-                        <>Variant is located <strong>{spliceProximity.distance} bp</strong> from a splice junction. </>
-                      )}
-                      {hasSpliceDisruption && spliceai?.max_ds !== null && spliceai?.max_ds !== undefined && (
-                        <>SpliceAI predicts high probability of splicing disruption (Max Delta Score: <strong>{spliceai.max_ds.toFixed(2)}</strong>). </>
-                      )}
-                      ACMG PP3 in-silico predictor concordance voting includes this splice disruption signal.
+                    <p className="text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-danger-on-soft)" }}>
+                      SpliceAI max Δ <strong>{spliceai!.max_ds!.toFixed(2)}</strong> is at or above {THRESHOLDS.spliceai.splicingPp3.toFixed(1)},
+                      which the ClinGen splicing rule reads as support for PP3. The engine&apos;s PP3/BP4 comes from the
+                      missense vote and does not include it — see the RNA splicing tab.
+                    </p>
+                  </div>
+                );
+              }
+
+              if (isNearJunction && !spliceai) {
+                return (
+                  <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", background: "var(--cs-warn-soft)" }}>
+                    <div className="flex items-center gap-2 font-semibold text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-warning-on-soft)" }}>
+                      <span>Near a splice junction, no SpliceAI score</span>
+                    </div>
+                    <p className="text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-warning-on-soft)" }}>
+                      Variant is <strong>{spliceProximity.distance} bp</strong> from a splice junction and no SpliceAI score reached
+                      it. Distance is not evidence either way; check the splicing prediction directly.
                     </p>
                   </div>
                 );

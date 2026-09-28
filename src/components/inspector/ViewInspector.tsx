@@ -23,7 +23,7 @@ import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
 import PerturbationInspector from "./PerturbationInspector";
 import ResidueShiftInspector from "./ResidueShiftInspector";
-import SplicingInspector from "./SplicingInspector";
+import SplicingRail from "./SplicingRail";
 import EnergeticsInspector from "./EnergeticsInspector";
 import LandscapeInspector from "./LandscapeInspector";
 import InsightsInspector from "./InsightsInspector";
@@ -110,7 +110,7 @@ const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
   clinical: "Population Data & Clinical DBs",
   predictors: "In-Silico Ensemble Calibration",
   alphagenome: "AlphaGenome variant impact (AVI)",
-  splicing: "RNA Splicing Calibration",
+  splicing: "Splice rule & junction geometry",
   structure: "Residue Shifts & Pocket Provenance",
   perturbation: "Structural Perturbation Models",
   multimers: "Multimer Assembly Quality",
@@ -454,10 +454,12 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         )}
 
         {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "splicing" && (
-          <SplicingInspector
-            analysisResult={analysisResult}
-            isBiophysicalLoading={isBiophysicalLoading}
-          />
+          analysisResult ? (
+            <SplicingRail
+              analysisResult={analysisResult}
+              isBiophysicalLoading={isBiophysicalLoading}
+            />
+          ) : null
         )}
 
         {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "structure" && (
