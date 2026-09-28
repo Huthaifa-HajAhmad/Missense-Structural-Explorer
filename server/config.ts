@@ -64,10 +64,10 @@ export const CONFIG = {
     foldxSec: parseInt(process.env.FOLDX_TIMEOUT_S || "900", 10),
     /** Wait for a concurrency slot before FoldX starts (counts against the job cap). */
     foldxSemaphoreWaitMs: parseInt(process.env.FOLDX_SEMAPHORE_WAIT_MS || "120000", 10),
-    /** FoldX RepairPDB subprocess cap. */
-    foldxRepairMs: parseInt(process.env.FOLDX_REPAIR_TIMEOUT_MS || "300000", 10),
-    /** FoldX BuildModel subprocess cap (the 5-run ensemble). */
-    foldxBuildModelMs: parseInt(process.env.FOLDX_BUILDMODEL_TIMEOUT_MS || "300000", 10),
+    /** FoldX RepairPDB subprocess cap (up to ~400 residues rotamer repacking with missing sidechain completion). */
+    foldxRepairMs: parseInt(process.env.FOLDX_REPAIR_TIMEOUT_MS || "420000", 10),
+    /** FoldX BuildModel subprocess cap (the 5-run ensemble; 1.3s on repaired structure, max 130s un-repaired). */
+    foldxBuildModelMs: parseInt(process.env.FOLDX_BUILDMODEL_TIMEOUT_MS || "180000", 10),
     /** Second BuildModel attempt, made only after a RepairPDB failure. */
     foldxBuildModelRetryMs: parseInt(process.env.FOLDX_BUILDMODEL_RETRY_MS || "120000", 10),
     /** Reaper lease for a job a crash left in `running`. Must exceed the job cap. */

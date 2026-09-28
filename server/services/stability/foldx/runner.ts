@@ -386,7 +386,7 @@ export async function generateMutantPdbInternal(
           if (fs.existsSync(repairedPdbPath)) {
             console.log(`[Biophysical Modeling] Successfully repaired PDB. Overwriting wt.pdb with repaired coordinates.`);
             const repairedPdbText = await fs.promises.readFile(repairedPdbPath, "utf8");
-            void writeRepairedStructureToCache(repairCacheKey, repairedPdbText);
+            await writeRepairedStructureToCache(repairCacheKey, repairedPdbText);
             await fs.promises.writeFile(fullWtPath, repairedPdbText, "utf8");
             /**
              * The repaired file is REMOVED, exactly as the previous `rename` removed it.
@@ -402,10 +402,21 @@ export async function generateMutantPdbInternal(
             foldxRepairFailed = true;
           }
         } catch (repairErr: any) {
-          console.warn(`[Biophysical Modeling] RepairPDB warning (failed):`, repairErr.message);
-          if (repairErr.stdout) console.log(`[RepairPDB STDOUT]:`, repairErr.stdout.slice(0, 500));
-          if (repairErr.stderr) console.error(`[RepairPDB STDERR]:`, repairErr.stderr.slice(0, 500));
-          if (repairErr.code) console.error(`[RepairPDB Exit Code]:`, repairErr.code);
+          const isTimeout = Boolean(
+            repairErr?.code === "ETIMEDOUT" ||
+            (!signal?.aborted && (repairErr?.killed || repairErr?.signal === "SIGTERM"))
+          );
+          const isMaxBuffer = repairErr?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+          if (isTimeout) {
+            console.warn(`[Biophysical Modeling] RepairPDB timed out after ${(CONFIG.timeouts.foldxRepairMs / 1000).toFixed(0)}s (exceeded repair budget). Continuing with un-repaired structure.`);
+          } else if (isMaxBuffer) {
+            console.warn(`[Biophysical Modeling] RepairPDB output exceeded maximum buffer limit. Continuing with un-repaired structure.`);
+          } else {
+            console.warn(`[Biophysical Modeling] RepairPDB warning (failed):`, repairErr.message);
+            if (repairErr.stdout) console.log(`[RepairPDB STDOUT]:`, repairErr.stdout.slice(0, 500));
+            if (repairErr.stderr) console.error(`[RepairPDB STDERR]:`, repairErr.stderr.slice(0, 500));
+            if (repairErr.code) console.error(`[RepairPDB Exit Code]:`, repairErr.code);
+          }
           foldxRepairFailed = true;
         }
       }
@@ -597,7 +608,7 @@ export async function generateMutantPdbInternal(
       };
     } else {
       if (foldxRepairFailed) {
-        throw new Error("FoldX RepairPDB failed (PDB repair unsuccessful). BuildModel was not attempted.");
+        throw new Error("FoldX BuildModel was attempted after RepairPDB failure, but did not produce expected output coordinates (wt_1_0.pdb / wt_1.pdb).");
       }
       throw new Error("Biophysical modeling engine unavailable (FoldX is not installed or failed to execute in this environment).");
     }

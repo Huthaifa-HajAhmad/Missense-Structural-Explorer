@@ -102,7 +102,7 @@ function initBiophysicalJobQueue(): void {
             error: err.message,
             energetics: {
               foldxMean: null,
-              foldxRepairFailed: !isBinaryMissing && !isPdbResidueMissing,
+              foldxRepairFailed: !isBinaryMissing && !isPdbResidueMissing && /repair/i.test(err.message),
               foldxBinaryMissing: isBinaryMissing,
               foldxError: err.message
             }

@@ -204,9 +204,8 @@ export async function getRepairedStructureFromCache(cacheKey: string): Promise<{
 /**
  * Persists repaired coordinates, returning when the atomic write has settled.
  *
- * The promise is returned so a caller CAN await it (tests do, rather than sleeping and hoping), while
- * the FoldX runner deliberately does not: a cache write must never delay or fail the job whose
- * result it is trying to memoise.
+ * The promise is returned so callers (both the FoldX runner and tests) can await disk settlement
+ * before proceeding. Internal error handling ensures a disk write error never fails or rejects the calling job.
  */
 export function writeRepairedStructureToCache(cacheKey: string, pdb: string): Promise<void> {
   if (!pdb || pdb.length === 0) return Promise.resolve();
