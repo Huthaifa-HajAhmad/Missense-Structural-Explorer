@@ -275,7 +275,10 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(bs2?.reason).toContain("Observed in homozygous state in 4 individuals");
   });
 
-  it("should assign BP1 for missense variants in LOF-intolerant genes lacking missense constraint", () => {
+  it("never applies BP1 from gene constraint alone: pLI is not a curated truncating-variant mechanism", () => {
+    // BP1 needs it established that truncating variants cause this gene's disease (Richards 2015).
+    // The engine used to infer that from pLI ≥ 0.9 plus weak missense constraint; it no longer does
+    // (owner decision, doc/THRESHOLDS_TAB_REVIEW.md).
     const res = computeRuleBasedACMG({
       gene: "SHANK3",
       variant: "p.Ala120Val",
@@ -292,10 +295,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
       acmgWeighting: "standard"
     });
 
-    const bp1 = res.acmgCriteria.find(c => c.code === "BP1");
-    expect(bp1).toBeDefined();
-    expect(bp1?.reason).toContain("high loss-of-function intolerance (pLI: 0.99)");
-    expect(bp1?.reason).toContain("lacking significant missense constraint");
+    expect(res.acmgCriteria.some(c => c.code === "BP1")).toBe(false);
   });
 
   it("should NOT assign BS2 when homozygote count is less than 2 or null", () => {

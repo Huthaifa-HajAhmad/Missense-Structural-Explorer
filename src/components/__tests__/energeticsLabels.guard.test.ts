@@ -56,6 +56,11 @@ const GUARDED_SURFACES = [
   "src/components/evidence/MultimersTab.tsx",
   "src/components/inspector/MultimerRail.tsx",
   "src/shared/multimerEvidence.ts",
+  // The Score thresholds redesign: the old rail printed "N/A" for a missing REVEL / FoldX value and
+  // the old table "awaiting data" beside absences with known reasons.
+  "src/components/evidence/GuidelinesTab.tsx",
+  "src/components/inspector/GuidelinesRail.tsx",
+  "src/shared/thresholdEvidence.ts",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

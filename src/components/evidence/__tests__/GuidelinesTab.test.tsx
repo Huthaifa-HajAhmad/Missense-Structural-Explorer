@@ -1,110 +1,92 @@
 // @vitest-environment jsdom
 /**
- * GuidelinesTab.test.tsx — Threshold Guide tab rendering contract.
+ * GuidelinesTab.test.tsx — the Score thresholds tab on NAE1 p.Asp116Gly.
  *
- * Pins the UI/UX audit invariants at the DOM level: the verdict roll-up chips,
- * verdict-tinted match badges, calibration micro-tracks, the sticky scroller
- * chrome, and the relocation of the verbose ACMG key out of the main column.
+ * Pins what the screen may claim: the engine's own code in the head bar, one finding line, the
+ * strength ladder, the calibrated reference's disagreement, a fact strip that renders as four cells,
+ * and a table in which no ΔΔG or constraint row wears an ACMG code the engine did not apply.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+vi.mock("../../../context/SettingsContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../context/SettingsContext")>();
+  return { ...actual, useSettings: () => ({ settings: { alphagenomeApiKey: "" }, openSettingsTab: vi.fn() }) };
+});
+
 import { render, screen, within } from "@testing-library/react";
 import { GuidelinesTab } from "../GuidelinesTab";
 import type { TabComponentProps } from "../types";
+import { NAE1_RESULT } from "../../../shared/__tests__/fixtures/nae1Thresholds";
 
-/** The MACO1 p.Glu433Lys payload, matching the values visible in the guide. */
-const MACO1_RESULT: any = {
-  predictorData: { caddPhred: 32.0, amPathogenicity: 0.933, amClass: "pathogenic" },
-  conservationData: {
-    revel: 0.527, bayesdel: 0.125, metarnn: 0.836, clinpred: 0.923,
-    eigenPhred: 11.7, dann: 0.999, popeve: -4.235, esm1b: -13.54,
-    gerp: 6.03, phylop: 9.57
-  },
-  esmcEval: { llr: -8.43 },
-  dynamut2: null, ddmut: null, rasp: null, thermompnn: null,
-  misZ: 3.13, loeuf: null
-};
+const props = (result: any = NAE1_RESULT) =>
+  ({
+    isDark: false,
+    classCard: "", classCardHeader: "", classCardTitle: "",
+    classBorderSec: "", classTextBody: "", classTextMute: "",
+    analysisState: { result, isLoading: false },
+    foldingDdG: 2.62,
+    foldingEnergetics: { thermompnn: -0.36 },
+    foldingStatus: "success" as const,
+    energyUnit: "kcal/mol" as const,
+    formatDdGValue: (v: number | null) => (v === null ? "—" : v.toFixed(2)),
+    setSelectedMetric: () => {},
+    onTabChange: () => {},
+  }) as unknown as TabComponentProps;
 
-const baseProps = {
-  isDark: false,
-  classCard: "", classCardHeader: "", classCardTitle: "",
-  classBorderSec: "", classTextBody: "", classTextMute: "",
-  analysisState: { result: MACO1_RESULT, isLoading: false },
-  foldingDdG: -0.97,
-  foldingStatus: "success" as const,
-  energyUnit: "kcal/mol" as const,
-  formatDdGValue: (v: number | null) => (v === null ? "N/A" : v.toFixed(2)),
-  setSelectedMetric: () => {}
-} as unknown as TabComponentProps;
-
-describe("GuidelinesTab", () => {
-  it("renders a live verdict roll-up that sums to the full metric count", () => {
-    render(<GuidelinesTab {...baseProps} />);
-    const strip = screen.getByRole("status", { name: /live threshold match summary/i });
-    // Against the ClinGen bands: 7 pathogenic-supporting (AM, CADD, MetaRNN, ClinPred, ESM1b,
-    // phyloP, Missense Z), 1 benign/neutral (FoldX), 4 indeterminate (REVEL, BayesDel, popEVE,
-    // GERP++), 3 informational (Eigen, DANN, ESMC-6B), 5 awaiting data.
-    expect(within(strip).getByText("7")).toBeTruthy();
-    expect(within(strip).getByText("1")).toBeTruthy();
-    expect(within(strip).getByText("4")).toBeTruthy();
-    expect(within(strip).getByText("3")).toBeTruthy();
-    expect(within(strip).getByText("5")).toBeTruthy();
-    expect(within(strip).getByText(/20 metrics/)).toBeTruthy();
+describe("GuidelinesTab — Score thresholds", () => {
+  it("heads the finding with the engine's recorded code and one summary line", () => {
+    render(<GuidelinesTab {...props()} />);
+    expect(within(screen.getByTestId("threshold-engine")).getByText("PP3")).toBeTruthy();
+    expect(screen.getByTestId("threshold-summary").textContent).toContain(
+      "The engine applied PP3 at Supporting strength from the in-silico vote, and no other computational criterion.",
+    );
+    expect(document.body.textContent).not.toMatch(/concordance/i);
   });
 
-  it("tints the match badge by verdict, not one blue for everything", () => {
-    render(<GuidelinesTab {...baseProps} />);
-    expect(screen.getAllByText("PP3 Moderate")[0].closest(".gt-badge")?.getAttribute("data-tone")).toBe("path");
-    expect(screen.getByText("Stabilizing").closest(".gt-badge")?.getAttribute("data-tone")).toBe("benign");
-    expect(screen.getAllByText("Indeterminate", { selector: ".gt-badge" })[0].getAttribute("data-tone")).toBe("vus");
-    expect(screen.getAllByText("Informational")[0].closest(".gt-badge")?.getAttribute("data-tone")).toBe("info");
+  it("draws the strength ladder with each calibrated tool in its band", () => {
+    render(<GuidelinesTab {...props()} />);
+    expect(screen.getByTestId("ladder-revel").getAttribute("data-at")).toBe("BP4:Supporting");
+    expect(screen.getByTestId("ladder-cadd").getAttribute("data-at")).toBe("PP3:Supporting");
+    expect(screen.getByTestId("ladder-gerp").getAttribute("data-at")).toBe("none");
+    expect(screen.getByTestId("ladder-esm").textContent).toMatch(/No result/);
   });
 
-  it("draws a calibration micro-track under scored metrics and none without a scale", () => {
-    const { container } = render(<GuidelinesTab {...baseProps} />);
-    // 12 rows carry both a score and a band here: ESMC-6B, Eigen and DANN have
-    // no published cut-point, and the unset ΔΔG engines plus LOEUF have no score.
-    expect(container.querySelectorAll(".gt-marker")).toHaveLength(12);
-    expect(container.querySelectorAll(".gt-track")).toHaveLength(12);
+  it("says where REVEL disagrees with the vote and links to the Predictors tab", () => {
+    render(<GuidelinesTab {...props()} />);
+    const line = screen.getByTestId("threshold-disagreement");
+    expect(line.textContent).toMatch(/REVEL, the calibrated reference, reads BP4/);
+    expect(within(line).getByRole("button", { name: /Open in-silico predictors/i })).toBeTruthy();
   });
 
-  it("keeps the table body in a capped scroller with sticky header and category bands", () => {
-    const { container } = render(<GuidelinesTab {...baseProps} />);
-    expect(container.querySelector(".gt-scroller")).toBeTruthy();
-    expect(container.querySelector("thead th")).toBeTruthy();
-    expect(container.querySelectorAll(".gt-cat-cell")).toHaveLength(3);
+  it("renders the fact strip as four labelled cells", () => {
+    render(<GuidelinesTab {...props()} />);
+    const facts = screen.getByTestId("threshold-facts");
+    expect(facts.querySelectorAll(".gt-fact").length).toBe(4);
+    expect(within(facts).getByText("PP2 not met")).toBeTruthy();
+    expect(within(facts).getByText("Not an ACMG input")).toBeTruthy();
   });
 
-  it("no longer carries the verbose ACMG key; it links to the inspector instead", () => {
-    render(<GuidelinesTab {...baseProps} />);
-    // The old verbose legend was a list of definitions in the main column.
-    expect(screen.queryByText(/Pathogenic Supporting.*Computational algorithms predict/i)).toBeNull();
-    expect(screen.queryByText(/ACMG\/AMP Evidence Codes Key:/i)).toBeNull();
-    // The relocation pointer is present and names the inspector.
-    expect(screen.getByRole("button", { name: /ACMG\/AMP code key/i })).toBeTruthy();
+  it("gives no ΔΔG or gene-constraint row an ACMG code", () => {
+    render(<GuidelinesTab {...props()} />);
+    for (const key of ["foldx", "thermompnn", "dynamut2", "ddmut", "rasp", "misZ", "loeuf"]) {
+      const row = screen.getByTestId(`threshold-${key}`);
+      expect(row.querySelector(".chip-code")).toBeNull();
+      expect(row.textContent).not.toMatch(/PM1|BP3|BP1/);
+    }
+    expect(screen.getByTestId("threshold-foldx").textContent).toMatch(/Destabilising/);
+    expect(screen.getByTestId("threshold-foldx").textContent).toMatch(/Local mark/);
   });
 
-  it("renders the three-tier hero card with finding prose, verdict chip, and 4-cell fact strip", () => {
-    render(<GuidelinesTab {...baseProps} />);
-    const finding = screen.getByTestId("threshold-finding");
-    expect(finding).toBeTruthy();
+  it("keeps the caveats on the tools that use allele frequency", () => {
+    render(<GuidelinesTab {...props()} />);
+    expect(within(screen.getByTestId("threshold-metarnn")).getByText("Uses gnomAD AF")).toBeTruthy();
+    expect(within(screen.getByTestId("threshold-clinpred")).getByText("ClinVar-trained")).toBeTruthy();
+  });
 
-    // Verdict chip
-    const verdict = screen.getByTestId("guidelines-verdict");
-    expect(verdict.textContent).toBe("Pathogenic Concordance");
-    expect(verdict.getAttribute("data-tone")).toBe("danger");
-
-    // Headline figure (7–1)
-    expect(within(finding).getByText("7–1")).toBeTruthy();
-
-    // Declarative finding prose
-    expect(within(finding).getByText(/Pathogenic concordance across computational and biophysical metrics/i)).toBeTruthy();
-
-    // 4-cell fact strip
-    const facts = finding.querySelectorAll(".pop-fact");
-    expect(facts).toHaveLength(4);
-    expect(within(finding).getByText("In-Silico & ML")).toBeTruthy();
-    expect(within(finding).getByText("Biophysical ΔΔG")).toBeTruthy();
-    expect(within(finding).getByText("Conservation & Z")).toBeTruthy();
-    expect(within(finding).getByText("Monitored Total")).toBeTruthy();
+  it("shows the vote's code dashed when the payload carries no engine record", () => {
+    const { ruleBasedInsights, ...noRecord } = NAE1_RESULT;
+    render(<GuidelinesTab {...props(noRecord)} />);
+    const chip = within(screen.getByTestId("threshold-finding")).getByTestId("threshold-engine");
+    expect(chip.textContent).toBe("PP3");
+    expect(chip.getAttribute("data-tone")).toBe("accent");
   });
 });

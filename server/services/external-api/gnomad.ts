@@ -4,7 +4,7 @@ import { gnomadFreqCache, gnomadConstraintCache, getCachedOrFetch } from "../inf
 import { buildGnomadFreqKey, buildGnomadConstraintKey } from "../infra/cache-keys.ts";
 // The ancestry-group AN floor is shared with the surface that DESCRIBES it (the Population
 // Frequencies tab's grouped-maximum row), so the filter and the copy cannot drift apart.
-import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
+import { THRESHOLDS, isPp2Constrained } from "../../../src/shared/thresholds.ts";
 
 export interface FetchGnomadFrequencyOptions {
   l1Cache?: LRUCache<string, any>;
@@ -291,9 +291,8 @@ export async function fetchGnomadGeneConstraint(
             const pli = constraint.pLI != null ? parseFloat(constraint.pLI.toFixed(2)) : null;
             const loeuf = constraint.oe_lof_upper != null ? parseFloat(constraint.oe_lof_upper.toFixed(2)) : null;
 
-            const isPP2Constrained =
-              missense_z !== null && missense_z >= 3.09 &&
-              oe_mis !== null && oe_mis < 0.6;
+            // One rule for the engine and the Threshold Guide that describes it.
+            const isPP2Constrained = isPp2Constrained(missense_z, oe_mis) === true;
 
             return {
               missense_z,

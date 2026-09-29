@@ -7,7 +7,7 @@ export const THRESHOLDS_METADATA = {
     revel: "Ioannidis et al. Am J Hum Genet (2016); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
     alphaMissense: "Cheng et al. Science (2023); PP3/BP4 bands: Bergquist et al. Genet Med (2025)",
     cadd: "Rentzsch et al. Nucleic Acids Res (2019); PP3/BP4 bands: Pejaver et al. Am J Hum Genet (2022)",
-    foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005)",
+    foldxDdG: "Schymkowitz et al. Nucleic Acids Res (2005) — force field only; the 0.5 / 1.5 kcal/mol marks are local (FoldX publishes no threshold)",
     popEVE: "Orenbuch et al. Nat Genet (2025)",
     dbscsnv: "Jian et al. Nucleic Acids Res (2014) — authors' cut-point 0.6, not ClinGen-calibrated",
     spliceai: "Jaganathan et al. Cell (2019); splicing PP3/BP4 bands: Walker et al. Am J Hum Genet (2023), ClinGen SVI Splicing Subgroup",
@@ -241,6 +241,17 @@ export const THRESHOLDS = {
     pathogenicStrong: 3.09,
     pathogenicSupporting: 2.0,
   },
+  /**
+   * The engine's PP2 rule (`gnomad.ts` → `criteria.ts` §3): a gene is read as missense-constrained
+   * when gnomAD's missense Z ≥ 3.09 AND observed/expected missense < 0.6. APP-DEFINED proxy for
+   * ACMG's "low rate of benign missense variation" — ClinGen publishes no genome-wide cut. The
+   * Threshold Guide used to show PP2 at Z ≥ 2.0 with a "strong ≥ 3.09" tier (PP2 has no Strong
+   * strength) and BP1 for anything below 2.0: neither was the rule the engine ran.
+   */
+  pp2Constraint: {
+    missenseZ: 3.09,
+    oeMisBelow: 0.6,
+  },
   loeuf: {
     pathogenicStrong: 0.35,
     pathogenicSupporting: 0.60,
@@ -428,7 +439,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   ddmut:
     "DDMut (BioSig 2022). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
   thermompnn:
-    "ThermoMPNN (Pei 2024 / Tamarind Bio). Destabilizing ΔΔG ≥ +1.0 kcal/mol (ΔΔG = mutant - WT).",
+    "ThermoMPNN (Dieckhaus et al. PNAS 2024). Local mark: ΔΔG ≥ +1.0 kcal/mol read as destabilising (canonical sign, positive = destabilising). No published clinical cut-point.",
   bayesdel:
     "BayesDel without allele frequency (Feng 2017). ClinGen PP3/BP4 bands (Pejaver 2022): PP3 supporting ≥ 0.13, moderate ≥ 0.27, strong ≥ 0.50; " +
     "BP4 supporting ≤ −0.18, moderate ≤ −0.36.",
@@ -454,9 +465,9 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "popEVE (Orenbuch 2025, Nat Genet). EVE + ESM-1v, placed on one proteome-wide scale with human population data. " +
     "Authors' cut-points: ≤ −5.056 highly deleterious, ≤ −4.617 moderately deleterious. No benign cut-point is published.",
   misZ:
-    "gnomAD Missense Z-score (positive = depletion of missense variants; strong constraint ≥ 3.09, supporting ≥ 2.0).",
+    "gnomAD missense Z (positive = fewer missense variants than expected). The engine reads a gene as missense-constrained for PP2 at Z ≥ 3.09 with o/e < 0.6 — a local proxy, not a ClinGen cut-point. Gene-level: the same for every variant in the gene.",
   loeuf:
-    "gnomAD LOEUF (observed/expected loss-of-function ratio; severe intolerance < 0.35, moderate < 0.60).",
+    "gnomAD LOEUF (upper bound of observed/expected loss-of-function). gnomAD suggests < 0.6 as constrained. Loss-of-function constraint, not missense evidence; no ACMG criterion in this engine reads it.",
   spliceai:
     "SpliceAI (Jaganathan 2019). Splicing PP3 at max ΔScore ≥ 0.20, BP4 below 0.10 (ClinGen SVI Splicing " +
     "Subgroup, Walker 2023). The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision); " +
