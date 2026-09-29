@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { parseAtomsFromPdb } from "../pdb-parser.ts";
-import { PACKING_NEIGHBOUR_BANDS, classifyPackingDensity } from "../../../../src/shared/burialEvidence.ts";
+import { PACKING_NEIGHBOUR_BANDS } from "../../../../src/shared/burialEvidence.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,13 +16,15 @@ export interface DisruptionPrediction {
   neighborCount?: number;
   sasa?: number;
   rsa?: number;
+  /** Why accessibility was not measured. The step used to fail silently to "no value". */
+  sasaUnavailableReason?: string;
 }
 
 export async function runSasaEval(
   wtPdbText: string,
   chain: string,
   position: number
-): Promise<{ sasa: number; rsa: number; burialStatus: "core" | "surface" | "boundary" } | null> {
+): Promise<{ sasa: number; rsa: number; burialStatus: "core" | "surface" | "boundary" } | { error: string }> {
   const tempDir = path.join(process.cwd(), "temp_jobs", `sasa_${crypto.randomUUID()}`);
   await fs.promises.mkdir(tempDir, { recursive: true });
   const pdbPath = path.join(tempDir, "protein.pdb");
@@ -41,14 +43,21 @@ export async function runSasaEval(
         burialStatus: result.burialStatus
       };
     }
+    return { error: typeof result.message === "string" ? result.message : "The accessibility script returned no value." };
   } catch (err) {
     console.warn("[SASA-Eval] Subprocess failure:", err);
+    const code = (err as { code?: string })?.code;
+    return {
+      error:
+        code === "ENOENT"
+          ? "The accessibility script could not start: Python was not found."
+          : "The accessibility script failed to run (Python with uv and Biopython is required)."
+    };
   } finally {
     try {
       await fs.promises.rm(tempDir, { recursive: true, force: true });
     } catch {}
   }
-  return null;
 }
 
 export async function predictStructuralDisruption(
@@ -99,7 +108,8 @@ export async function predictStructuralDisruption(
 
   const targetAtoms = atoms.filter(a => a.resSeq === position && (resolvedChain === undefined || a.chain === resolvedChain));
   if (targetAtoms.length === 0) {
-    return { level: "unknown", reason: "Target residue not found in structure.", plddt: null, burialStatus: "boundary", neighborCount: 0 };
+    // No burial word and no count: the residue was never located, so nothing was measured.
+    return { level: "unknown", reason: "Target residue not found in structure.", plddt: null };
   }
 
   let plddt: number | null = null;
@@ -152,15 +162,16 @@ export async function predictStructuralDisruption(
     }
   }
   // 3. Compute true SASA and RSA using the sidecar script
-  const sasaResult = await runSasaEval(wtPdbText, resolvedChain || "A", position);
+  const sasaRun = await runSasaEval(wtPdbText, resolvedChain || "A", position);
+  const sasaResult = "error" in sasaRun ? null : sasaRun;
+  const sasaUnavailableReason = "error" in sasaRun ? sasaRun.error : undefined;
 
   /*
-   * The packing fallback reads the same band table the client renders, so the word
-   * and the numbers printed beside it cannot be banded differently.
+   * Burial is reported only from a measured accessible surface. The packing fallback banded a
+   * Cα count against unsourced cut-points (≥ 15 core, ≤ 7 surface) that called most exposed
+   * residues "boundary"; the count is still returned as a reading, never as a word.
    */
-  const burialStatus = sasaResult
-    ? sasaResult.burialStatus
-    : (classifyPackingDensity(neighborCount) ?? "boundary");
+  const burialStatus = sasaResult ? sasaResult.burialStatus : undefined;
   const rsa = sasaResult ? sasaResult.rsa : undefined;
   const sasa = sasaResult ? sasaResult.sasa : undefined;
   const isBuried = burialStatus === "core";
@@ -173,7 +184,8 @@ export async function predictStructuralDisruption(
       burialStatus,
       neighborCount,
       sasa,
-      rsa
+      rsa,
+      ...(sasaUnavailableReason ? { sasaUnavailableReason } : {})
     };
   };
 

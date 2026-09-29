@@ -83,7 +83,7 @@ export const CAVEAT_TEXT: Record<Caveat, { label: string; detail: string }> = {
   },
   "rank-not-probability": {
     label: "Rank, not probability",
-    detail: "The AVI Phred is −10·log10 of the variant's tail quantile among scored variants — a rank. No ClinGen calibration of it exists.",
+    detail: "The AVI Phred is −10·log10 of the variant's tail quantile among all possible hg38 SNVs — a rank. No ClinGen calibration of it exists.",
   },
   "no-benign-cut": {
     label: "No benign cut-point",
@@ -590,7 +590,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       note:
         avi !== null
           ? [
-              pct !== null ? `Top ${pct < 0.1 ? pct.toFixed(3) : pct.toFixed(2)}% of scored variants` : null,
+              pct !== null ? `Top ${pct < 0.1 ? pct.toFixed(3) : pct.toFixed(2)}% of all possible SNVs` : null,
               alphagenome?.topModality ? `largest feature: ${alphagenome.topModality}` : null,
             ].filter(Boolean).join(" · ") || null
           : null,

@@ -21,7 +21,12 @@
  * Pure functions and plain data only: no React, no fetching, no client imports.
  */
 
-/** Relative solvent accessibility cutoffs, as fractions of the Gly-X-Gly maximum. */
+/**
+ * Relative solvent accessibility cut-points, as fractions of the Tien et al. 2013 maximum.
+ *
+ * App-defined, not a published classification: common schemes use a single 20–25% split
+ * (Tien 2013, Levy 2010) or other three-state bounds. Every surface draws them as local marks.
+ */
 export const BURIAL_RSA_BANDS = {
   /** At or below this, the residue is buried in the hydrophobic core. */
   coreMax: 0.15,
@@ -29,12 +34,18 @@ export const BURIAL_RSA_BANDS = {
   surfaceMin: 0.35,
 } as const;
 
-/** Cα packing cutoffs, used when no solvent-accessibility measurement is available. */
+/**
+ * Cα packing: the shell radius the server counts neighbours within.
+ *
+ * There are deliberately no packing cut-points. The count used to decide the burial word whenever
+ * accessibility was not measured, with core at ≥ 15 and surface at ≤ 7 Cα neighbours — values with
+ * no source. Chain neighbours alone contribute about six, so "surface" was almost unreachable: on a
+ * reference structure (p53 DBD, 2OCJ chain A) 34 of 48 residues with ≥ 35% relative accessibility
+ * banded as boundary, and packing agreed with measured accessibility for only 60% of residues. The
+ * owner decided (2026-09-29) that burial is reported only from a measured accessibility; the count
+ * is shown beside it as a reading.
+ */
 export const PACKING_NEIGHBOUR_BANDS = {
-  /** At or above this many Cα neighbours, the position is core. */
-  coreMin: 15,
-  /** At or below this many, the position is surface. Between the two is boundary. */
-  surfaceMax: 7,
   /** The neighbour shell radius, in Ångströms. */
   radiusAngstrom: 10,
 } as const;
@@ -60,13 +71,13 @@ export function isUnmeasuredEnvironment(value: string): boolean {
 
 export type BurialWord = "core" | "boundary" | "surface";
 
-/** How the reported word was decided. These are different measurements. */
-export type BurialBasis = "solvent-accessibility" | "residue-packing" | "none";
+/** How the reported word was decided. Only a measured accessible surface decides it now. */
+export type BurialBasis = "solvent-accessibility" | "none";
 
 export interface BurialIndicator {
   key: "rsa" | "packing";
   label: string;
-  /** Banded word for this indicator alone, or null when it cannot be banded. */
+  /** Banded word for this indicator alone, or null when it cannot (or must not) be banded. */
   band: BurialWord | null;
   /** The measured value, formatted for display, or null when not reported. */
   valueLabel: string | null;
@@ -82,7 +93,7 @@ export interface BurialIndicator {
 }
 
 export interface BurialEvidence {
-  /** The word to display, or `undetermined` when nothing was reported. */
+  /** The word to display, or `undetermined` when accessibility was not measured. */
   status: BurialWord | "undetermined";
   label: string;
   /** One sentence a non-structural reader can act on. */
@@ -92,12 +103,16 @@ export interface BurialEvidence {
   basisDetail: string;
   indicators: { rsa: BurialIndicator; packing: BurialIndicator };
   /**
-   * Non-null when the two indicators imply different words. The reported word still
-   * wins — it came from the measurement the engine actually used — but a reader
-   * comparing the two numbers deserves to know they disagree.
+   * Non-null when the reported word does not match the accessibility it ships beside. The word
+   * still wins — it came from the engine — but the reader is told.
    */
   disagreement: string | null;
-  /** What the word does not license. Null when there is nothing to warn about. */
+  /**
+   * Non-null when the payload carries a burial word but no accessibility: an earlier engine
+   * estimated it from packing. The word is not shown as a finding.
+   */
+  staleWord: string | null;
+  /** What the reading does not license. Null when there is nothing to warn about. */
   caveat: string | null;
 }
 
@@ -118,23 +133,15 @@ export function classifyBurialRsa(rsa: number | null | undefined): BurialWord | 
   return "boundary";
 }
 
-/** Band a Cα neighbour count, or null when it was not measured. */
-export function classifyPackingDensity(count: number | null | undefined): BurialWord | null {
-  if (count === null || count === undefined || !Number.isFinite(count)) return null;
-  if (count >= PACKING_NEIGHBOUR_BANDS.coreMin) return "core";
-  if (count <= PACKING_NEIGHBOUR_BANDS.surfaceMax) return "surface";
-  return "boundary";
-}
-
 const BURIAL_LABELS: Record<BurialWord | "undetermined", string> = {
   core: "Core",
   boundary: "Boundary",
   surface: "Surface",
-  undetermined: "Undetermined",
+  undetermined: "Not measured",
 };
 
 /**
- * What each word means when a *measured* accessible surface decided it.
+ * What each word means when a measured accessible surface decided it.
  *
  * "It sits in a pocket" used to be in the boundary sentence. An RSA band does not establish a
  * pocket — that is the pocket predictor's measurement, reported elsewhere on the same tab — so
@@ -144,40 +151,19 @@ const BURIAL_DETAILS: Record<BurialWord | "undetermined", string> = {
   core: "The side chain is buried, with little or no solvent contact, so a polar or charged substitution here has to pay a desolvation cost.",
   boundary: "The side chain is partly buried: it sits at the boundary between the core and the surface rather than fully inside the core or fully exposed.",
   surface: "The side chain is solvent-exposed, where substitutions mostly change the surface a partner or ligand sees rather than the fold.",
-  undetermined: "No burial measurement was reported for this position, so no statement about exposure can be made.",
-};
-
-/**
- * The same words when the word is an *estimate from Cα packing density*.
- *
- * The measured sentences above assert solvent contact, which packing density does not
- * establish. Appending "(Estimated from packing density.)" to one of them left the panel
- * making the stronger claim and qualifying it in the same breath — beside a caveat saying
- * packing is a proxy for burial rather than a measurement of it.
- *
- * Keyed by `BurialWord`, not by the status union: a packing basis requires the reported word
- * to equal the packing band, so "undetermined" cannot reach this map. Typing it that way stops
- * a sentence from being written for a state that cannot occur.
- */
-const BURIAL_DETAILS_FROM_PACKING: Record<BurialWord, string> = {
-  core: "The side chain sits in a densely packed region — many Cα neighbours — which is where a polar or charged substitution is most likely to cost folding stability.",
-  boundary: "The side chain sits in a region of intermediate packing, between the densely packed core and the sparsely packed surface.",
-  surface: "The side chain sits in a sparsely packed region, with few Cα neighbours — consistent with a position that contacts solvent rather than the fold interior.",
+  undetermined: "Solvent accessibility was not measured for this position, so no statement about burial is made.",
 };
 
 const BASIS_LABELS: Record<BurialBasis, string> = {
   "solvent-accessibility": "Measured accessibility",
-  "residue-packing": "Estimated from packing",
   none: "Not measured",
 };
 
 /**
  * Build the burial/exposure reading.
  *
- * The reported `burialStatus` is preferred over anything derived here: it comes from the
- * engine that saw the coordinates, and re-deriving it in the UI is how the badge and the
- * prose drifted apart in the first place. The indicators are shown beside it so the
- * reader can see which measurement it rests on.
+ * The reported `burialStatus` is shown only when a measured accessibility travels with it: that is
+ * the only measurement the engine now derives a word from. The packing count is a reading beside it.
  */
 export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence {
   const rsa = typeof input.rsa === "number" && Number.isFinite(input.rsa) ? input.rsa : null;
@@ -187,34 +173,24 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
       : null;
 
   const rsaBand = classifyBurialRsa(rsa);
-  const packingBand = classifyPackingDensity(neighbourCount);
-
   const reported = typeof input.burialStatus === "string" ? input.burialStatus.trim().toLowerCase() : "";
   const hasReported = BURIAL_WORDS.has(reported);
-  const status: BurialWord | "undetermined" = hasReported ? (reported as BurialWord) : "undetermined";
 
   /*
-   * Which indicator the word rests on. The engine measures solvent accessibility when the
-   * SASA sidecar runs and falls back to Cα packing when it does not, so an RSA value being
-   * present is the signal that the word is the measured one.
-   *
-   * Only claimed when the indicator actually *agrees* with the word it is supposed to have
-   * decided. Otherwise the panel asserted a basis that its own card contradicted — the
-   * engine's "residue not found in the structure" path returns `boundary` with a neighbour
-   * count of 0, which bands as surface, and the panel printed "Decided by C̲α packing density"
-   * beside a packing card reading SURFACE for a word reading Boundary.
+   * A word with no accessibility beside it can only have come from the retired packing fallback
+   * (or the engine's "residue not found" placeholder, which returned "boundary" with a count of 0).
+   * Neither is a measurement, so the status is "not measured" and the word is named as stale.
    */
-  const measuredBasis: BurialBasis =
-    rsaBand !== null ? "solvent-accessibility" : packingBand !== null ? "residue-packing" : "none";
-  const basisIsReproduced =
-    status !== "undetermined" &&
-    ((measuredBasis === "solvent-accessibility" && rsaBand === status) ||
-      (measuredBasis === "residue-packing" && packingBand === status));
-  const basis: BurialBasis = basisIsReproduced ? measuredBasis : "none";
-  const hasAnyMeasurement = rsaBand !== null || packingBand !== null;
+  const status: BurialWord | "undetermined" = rsaBand !== null ? (hasReported ? (reported as BurialWord) : rsaBand) : "undetermined";
+  // The accessibility is the basis only when it reproduces the word shown beside it.
+  const basis: BurialBasis =
+    rsaBand !== null && (!hasReported || reported === rsaBand) ? "solvent-accessibility" : "none";
+  const staleWord =
+    rsaBand === null && hasReported
+      ? `The stored result says \u201c${reported}\u201d, which an earlier engine estimated from packing density. It is not shown as a finding.`
+      : null;
 
   const rsaPercent = rsa === null ? null : rsa * 100;
-  const packingMarker = neighbourCount;
 
   const indicators: BurialEvidence["indicators"] = {
     rsa: {
@@ -225,118 +201,72 @@ export function deriveBurialEvidence(input: BurialEvidenceInput): BurialEvidence
       isBasis: basis === "solvent-accessibility",
       detail:
         rsaBand === null
-          ? "The SASA measurement did not run for this variant, so no accessibility value was reported."
-          : `Shrake–Rupley SASA against the Gly-X-Gly maximum. Core is at or below ${(BURIAL_RSA_BANDS.coreMax * 100).toFixed(0)}%, surface at or above ${(BURIAL_RSA_BANDS.surfaceMin * 100).toFixed(0)}%.`,
+          ? "The accessibility step did not run for this variant, so no value was reported."
+          : `Shrake\u2013Rupley SASA against the Tien et al. 2013 theoretical maximum. Core is at or below ${(BURIAL_RSA_BANDS.coreMax * 100).toFixed(0)}%, surface at or above ${(BURIAL_RSA_BANDS.surfaceMin * 100).toFixed(0)}%.`,
       ticks: [
         { value: BURIAL_RSA_BANDS.coreMax * 100, label: `${(BURIAL_RSA_BANDS.coreMax * 100).toFixed(0)}%` },
         { value: BURIAL_RSA_BANDS.surfaceMin * 100, label: `${(BURIAL_RSA_BANDS.surfaceMin * 100).toFixed(0)}%` },
       ],
       /*
        * A drawing domain, not a maximum: RSA can exceed 100% (a side chain more exposed than
-       * the Gly-X-Gly reference), and a bar that saturates at the edge beside a value that
-       * says 140.0% is a picture contradicting its own label. The domain stretches to contain
-       * the marker, and the ticks stay where the classifier's thresholds are.
+       * the reference tripeptide), and a bar that saturates at the edge beside a value that says
+       * 140.0% is a picture contradicting its own label.
        */
       domainMax: rsaPercent === null ? 100 : Math.max(100, Math.ceil(rsaPercent / 10) * 10),
       marker: rsaPercent,
     },
     packing: {
       key: "packing",
-      label: `Cα neighbours within ${PACKING_NEIGHBOUR_BANDS.radiusAngstrom} Å`,
-      band: packingBand,
-      valueLabel: packingMarker === null ? null : `${packingMarker}`,
-      isBasis: basis === "residue-packing",
-      detail: `Core is at or above ${PACKING_NEIGHBOUR_BANDS.coreMin} neighbours, surface at or below ${PACKING_NEIGHBOUR_BANDS.surfaceMax}.`,
-      ticks: [
-        { value: PACKING_NEIGHBOUR_BANDS.surfaceMax, label: `${PACKING_NEIGHBOUR_BANDS.surfaceMax}` },
-        { value: PACKING_NEIGHBOUR_BANDS.coreMin, label: `${PACKING_NEIGHBOUR_BANDS.coreMin}` },
-      ],
-      // Same reasoning: real structures reach 41 Cα neighbours, so 24 is a drawing domain and
-      // it stretches rather than saturating.
+      label: `C\u03b1 neighbours within ${PACKING_NEIGHBOUR_BANDS.radiusAngstrom} \u00c5`,
+      band: null,
+      valueLabel: neighbourCount === null ? null : `${neighbourCount}`,
+      isBasis: false,
+      detail: "A reading only. The count loosely tracks burial and does not decide the burial word.",
+      ticks: [],
+      // Real structures reach ~40 Cα neighbours, so 24 is a drawing domain and it stretches.
       domainMax:
-        packingMarker === null
+        neighbourCount === null
           ? PACKING_METER_BASE_DOMAIN
-          : Math.max(PACKING_METER_BASE_DOMAIN, Math.ceil(packingMarker / 8) * 8),
-      marker: packingMarker,
+          : Math.max(PACKING_METER_BASE_DOMAIN, Math.ceil(neighbourCount / 8) * 8),
+      marker: neighbourCount,
     },
   };
 
   /*
-   * A disagreement is informative, never an error to resolve: the two quantities are
-   * different measurements (accessible surface vs. Cα shell occupancy), and a position
-   * can genuinely be tightly packed yet solvent-reachable. The word shown is still the one
-   * the engine reported.
-   *
-   * The reported-word-vs-accessibility check comes FIRST. A payload written before the
-   * shared band existed (a client bundle or a persisted record from the 5%/25% engine) can
-   * carry a word that no longer matches the RSA it ships beside — and because the accessible
-   * surface is the measurement the word is supposed to come from, that is the contradiction
-   * worth naming. Checking the two indicators first would have described it as a
-   * packing-vs-accessibility difference and asserted, wrongly, that the badge follows the
-   * accessibility measurement.
+   * The reported word is checked against the accessibility it ships beside. A payload written
+   * before the shared band existed (the 5%/25% engine) can carry a word that no longer matches.
    */
   let disagreement: string | null = null;
-  if (rsaBand !== null && status !== "undetermined" && rsaBand !== status) {
+  if (rsaBand !== null && hasReported && rsaBand !== reported) {
     disagreement =
-      `The reported classification (${BURIAL_LABELS[status].toLowerCase()}) does not match the accessibility ` +
+      `The reported classification (${reported}) does not match the accessibility ` +
       `measurement beside it: ${rsaPercent?.toFixed(1)}% relative accessibility reads as ` +
-      `${BURIAL_LABELS[rsaBand].toLowerCase()} under the current cutoffs. A word that disagrees with the value it ` +
-      `is derived from is usually a stale result — treat this position's burial status as unreliable.`;
-  } else if (rsaBand !== null && packingBand !== null && rsaBand !== packingBand) {
-    disagreement =
-      `The two indicators point different ways: ${rsaPercent?.toFixed(1)}% relative accessibility reads as ` +
-      `${BURIAL_LABELS[rsaBand].toLowerCase()}, while ${neighbourCount} Cα neighbours read as ` +
-      `${BURIAL_LABELS[packingBand].toLowerCase()}. The badge follows the accessibility measurement, because ` +
-      `that is the one taken from the solvent-accessible surface.`;
-  } else if (packingBand !== null && rsaBand === null && status !== "undetermined" && packingBand !== status) {
-    /*
-     * No accessibility measurement, so the word should be the packing band — and it is not.
-     * The engine has exactly one such case: when the variant residue is missing from the
-     * modelled structure it returns `boundary` with a neighbour count of 0 ("Target residue
-     * not found in structure"). Rendering that as a confident "boundary, 0 neighbours" pair
-     * hid both the placeholder and the contradiction.
-     */
-    disagreement =
-      `The reported classification (${BURIAL_LABELS[status].toLowerCase()}) does not match its own packing ` +
-      `measurement: ${neighbourCount} Cα neighbours reads as ${BURIAL_LABELS[packingBand].toLowerCase()}. ` +
-      `A classification that contradicts the only measurement behind it is usually a placeholder — treat ` +
-      `this position's burial status as unreliable.`;
+      `${BURIAL_LABELS[rsaBand].toLowerCase()} under the current cut-points. A word that disagrees with the value it ` +
+      `is derived from is usually a stale result, so treat this position's burial as unreliable.`;
   }
 
-  const caveat =
-    basis === "residue-packing"
-      ? `The classification rests on Cα packing density, not on a measured accessible surface: the SASA step did not run for this variant, and packing density is a proxy for burial rather than a measurement of it.`
-      : basis === "none"
-        ? hasAnyMeasurement
-          ? "The measurements reported for this position do not reproduce the classification beside them, so this panel cannot say which of them decided it."
-          : "Absence of a burial result is missing evidence, not evidence that the position is exposed."
-        : null;
+  let caveat: string | null = null;
+  if (rsaBand === null) {
+    caveat = "Absence of an accessibility measurement is missing evidence, not evidence that the position is buried or exposed.";
+  } else if (basis === "none") {
+    caveat = "The accessibility reported for this position does not reproduce the classification beside it.";
+  }
 
   return {
     status,
     label: BURIAL_LABELS[status],
-    /*
-     * When the word is a packing estimate, the sentence that defines it has to be a sentence
-     * about packing — not the accessibility sentence with a parenthetical bolted on. The
-     * `status` check restates the invariant the basis computation already enforces (a packing
-     * basis needs the packing band to equal the word) so the compiler can see it.
-     */
-    detail:
-      basis === "residue-packing" && status !== "undetermined"
-        ? BURIAL_DETAILS_FROM_PACKING[status]
-        : BURIAL_DETAILS[status],
+    detail: BURIAL_DETAILS[status],
     basis,
     basisLabel: BASIS_LABELS[basis],
     basisDetail:
       basis === "solvent-accessibility"
         ? "Decided by the measured relative solvent accessibility."
-        : basis === "residue-packing"
-          ? "Decided by Cα packing density, because no accessibility measurement was available."
-          : hasAnyMeasurement
-            ? "Not reproducible from the measurements reported for this position."
-            : "No burial or packing measurement was reported for this position.",
+        : rsaBand !== null
+          ? "Not reproducible from the accessibility reported beside it."
+          : "Solvent accessibility was not measured, so no burial word is given.",
     indicators,
     disagreement,
+    staleWord,
     caveat,
   };
 }

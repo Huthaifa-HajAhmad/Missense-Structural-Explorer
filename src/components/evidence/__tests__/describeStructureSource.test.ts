@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeStructureSource } from "../ResidueEnvironmentPanel";
+import { describeStructureSource } from "../../../shared/residueContextEvidence";
 import { PDB_SOURCE_ALPHAFOLD, PDB_SOURCE_RCSB } from "../../../shared/contracts";
 
 /**

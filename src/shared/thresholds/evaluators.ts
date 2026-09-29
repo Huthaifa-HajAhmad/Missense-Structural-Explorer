@@ -37,7 +37,7 @@ function signalFromCall(call: CalibratedCall | null): PredictorSignal {
 
 /**
  * AlphaGenome's AVI "Phred" is −10·log10(1 − q), where q is the CDF quantile AlphaGenome reports
- * for the variant (`alphagenome-client.ts`, `cdfToPhred`). It is a RANK among scored variants, not
+ * for the variant (`alphagenome-client.ts`, `cdfToPhred`). It is a RANK among all possible hg38 SNVs, not
  * a likelihood of pathogenicity, and no ClinGen calibration of it exists. Its feature vector also
  * contains AlphaMissense and two conservation tracks, so reading it as a separate pathogenic vote
  * counted AlphaMissense twice.

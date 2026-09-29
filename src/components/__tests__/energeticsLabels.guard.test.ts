@@ -75,6 +75,14 @@ const GUARDED_SURFACES = [
    */
   "src/components/evidence/PerturbationTab.tsx",
   "src/shared/perturbationEvidence.ts",
+  /**
+   * Residue Shifts & Pockets printed "Standby", "Model Offline", "ML Model Offline / Standby" and
+   * "N/A". Its tab, rail and both models now take state words from engineStatus.
+   */
+  "src/components/evidence/StructureTab.tsx",
+  "src/components/inspector/ResidueShiftInspector.tsx",
+  "src/shared/residueShiftEvidence.ts",
+  "src/shared/residueContextEvidence.ts",
 ] as const;
 
 /**

@@ -76,17 +76,18 @@ describe("resolveResidueShiftModel", () => {
     const model = resolveResidueShiftModel({ wildType: "Glu", mutant: "Lys" });
     const subjects = model.contrast!.rows.map(row => getPropertyScaleDefinition(row.key).shortLabel);
 
-    expect(subjects).toEqual(["Hydrophobicity", "Size", "Polarity", "Charge"]);
+    expect(subjects).toEqual(["Hydropathy", "Volume", "Polarity", "Charge"]);
   });
 });
 
 describe("property scale definitions", () => {
   it("keeps one canonical long label and one compact label per axis", () => {
     // The Insights radar previously invented "Molecular Size" and "Charge" while
-    // the scales used "Residue Volume / Size" and "Isoelectric Charge Index".
-    expect(getPropertyScaleDefinition("size").label).toBe("Residue Volume / Size");
-    expect(getPropertyScaleDefinition("size").shortLabel).toBe("Size");
-    expect(getPropertyScaleDefinition("charge").label).toBe("Isoelectric Charge Index");
+    // the scales used "Residue Volume / Size" and "Isoelectric Charge Index". The labels
+    // now name the published scales (Grantham 1974 volume, formal charge at pH 7.4).
+    expect(getPropertyScaleDefinition("size").label).toBe("Side-chain volume");
+    expect(getPropertyScaleDefinition("size").shortLabel).toBe("Volume");
+    expect(getPropertyScaleDefinition("charge").label).toBe("Net charge");
     expect(getPropertyScaleDefinition("charge").shortLabel).toBe("Charge");
   });
 

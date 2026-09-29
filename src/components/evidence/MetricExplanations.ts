@@ -194,10 +194,10 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
   contact_density: {
     name: "Cα Contact Density",
     category: "Local Structural Density",
-    description: "Contact density counts the number of Cα atoms within a 10Å radius of the mutation site. This quantifies whether the residue is located in a densely packed core or a flexible surface loop.",
-    interpretation: "Core residues have ≥ 15 neighbors, surface residues have ≤ 7, and boundary residues fall between the two. The same bands decide the burial status shown beside this metric.",
-    paperTitle: "Pejaver et al. Nat Methods (2020)",
-    paperUrl: "https://doi.org/10.1038/s41592-020-0962-8"
+    description: "Contact density counts the number of Cα atoms within a 10Å radius of the mutation site, a coordination number that loosely tracks how buried the residue is.",
+    interpretation: "A reading only: it does not decide the burial word, which comes from measured solvent accessibility. The app used to band it (≥ 15 core, ≤ 7 surface) with no published source, and those bands called most exposed residues boundary. Chain neighbours alone contribute about six, and buried residues typically have well over fifteen.",
+    paperTitle: "Hamelryck. Proteins (2005): half-sphere exposure and coordination number",
+    paperUrl: "https://doi.org/10.1002/prot.20379"
   },
   thermompnn: {
     name: "ThermoMPNN",
@@ -310,7 +310,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     architecture: "DNA sequence model predicting thousands of functional-genomics tracks from up to 1 Mb of sequence",
     modality: "DNA sequence → RNA-seq, CAGE, PRO-cap, DNase, ATAC, ChIP, splicing, contact maps",
     description: "AlphaGenome predicts functional-genomics tracks from sequence. The AVI score this app shows is a composite of 18 variant features — including AlphaMissense and two conservation tracks — returned by the AlphaGenome service.",
-    interpretation: "The AVI Phred is −10·log10(1 − q), where q is the variant's quantile among scored variants: 20 means the top 1%, 30 the top 0.1%. It is a rank, not a calibrated probability of pathogenicity, and no ClinGen calibration exists. Because AlphaMissense is one of its features, it is informational here and not counted toward PP3/BP4.",
+    interpretation: "The AVI Phred is −10·log10(1 − q), where q is the variant's quantile among all ~9 billion possible hg38 SNVs: 20 means the top 1%, 30 the top 0.1%. It is a rank, not a calibrated probability of pathogenicity, and no ClinGen calibration exists. Because AlphaMissense is one of its features, it is informational here and not counted toward PP3/BP4.",
     strengths: [
       "Reaches regulatory and splicing effects that protein-level models cannot see.",
       "Feature attributions show which modality drives the score."
@@ -331,7 +331,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     architecture: "Shrake-Rupley / Lee-Richards Rolling Sphere SASA Algorithm",
     modality: "3D Macromolecular Coordinates",
     description: "Calculates the Relative Solvent Accessibility (RSA) of the wild-type residue in the 3D model relative to an extended Gly-X-Gly tripeptide reference conformation using a 1.4Å water probe sphere.",
-    interpretation: "Core residues have RSA ≤ 15% (deeply buried within the hydrophobic core, where polar substitutions disrupt thermodynamic stability). Surface residues have RSA ≥ 35% (accessible to solvent and ligand interactions). Boundary residues fall between those cutoffs. These are the same cutoffs the SASA engine applies, so a residue between the two is reported as boundary rather than as core or surface.",
+    interpretation: "Core residues have RSA ≤ 15% (buried, where a polar or charged substitution pays a desolvation cost). Surface residues have RSA ≥ 35% (solvent-exposed). Boundary residues fall between those cutoffs. The cut-points are this app's own, not a published classification, and they are the ones the SASA engine applies. When accessibility is not measured, no burial word is given.",
     strengths: [
       "Gold standard biophysical descriptor for identifying hydrophobic core integrity.",
       "Directly correlates with evolutionary conservation and tolerance to charge alterations."
@@ -355,7 +355,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
      * that documented only ACTIVE_SITE_PROXIMATE / DISTAL_SURFACE and called the
      * ranking index a "ligand-binding affinity probability".
      */
-    interpretation: "Distance is measured from the variant residue to the centroid of the pocket's own residues — not to the cavity's geometric centre — so it grows with pocket size. Spatial classification: ACTIVE_SITE_LINING when the residue is one of P2Rank's returned pocket residues; ACTIVE_SITE_PROXIMATE within 8 Å; POCKET_PERIPHERAL within 12 Å; otherwise DISTAL_SURFACE. The 0–100 ranking index is P2Rank's calibrated probability that the cavity is a true binding site, per model profile: it is not an affinity, and values from different profiles are not comparable. Cavity volume is shown only when the engine reported a measured volume; a surface-point count is never presented as a volume.",
+    interpretation: "Distance is measured from the variant residue to P2Rank's cavity centre, or to the centroid of the pocket's residues when no centre was reported (that quantity grows with pocket size, and the label says which). The app's own bands: lining when the residue is one of P2Rank's pocket residues, within 8 Å, rim within 12 Å, otherwise distal. The probability, from 0 to 1, is P2Rank's estimate that the cavity is a ligand-binding site, calibrated per model profile: it is not an affinity, and values from different profiles are not comparable. Cavity volume is shown only when the engine reported a measured volume; a surface-point count is never presented as a volume.",
     strengths: [
       "Fast, template-free ligand pocket detection directly from coordinate files.",
       "Predicts specific pocket lining residues and distances to cavity centroids."

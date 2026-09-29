@@ -152,19 +152,12 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                   <span className="font-mono font-bold text-xs text-cs-text-primary">
                     chr{selectedGenomicVariant.chrom}:{selectedGenomicVariant.pos} {selectedGenomicVariant.ref}&gt;{selectedGenomicVariant.alt}
                   </span>
-                  <span className={`font-mono text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                    selectedGenomicVariant.acmgStrength === "PP3_Strong"
-                      ? "bg-rose-700 text-white"
-                      : selectedGenomicVariant.acmgStrength === "PP3_Moderate"
-                        ? "bg-rose-500 text-white"
-                        : selectedGenomicVariant.acmgStrength === "PP3_Supporting"
-                          ? "bg-amber-500 text-white"
-                          : selectedGenomicVariant.acmgStrength?.startsWith("BP4")
-                            ? "bg-emerald-600 text-white"
-                            : "bg-cs-surface border border-cs-border text-cs-text-muted"
-                  }`}>
-                    {selectedGenomicVariant.acmgStrength}
-                  </span>
+                  {/* The genome-wide rank decade, not an ACMG band: the AVI has no ClinGen calibration. */}
+                  {selectedGenomicVariant.rankBand && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-cs-text-secondary">
+                      {selectedGenomicVariant.rankBand}
+                    </span>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-[10.5px] font-mono pt-1">

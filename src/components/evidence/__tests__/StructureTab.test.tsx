@@ -1,41 +1,15 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { StructureTab } from "../StructureTab";
-import { INSPECTOR_FOCUS_EVENT, INSPECTOR_SECTIONS } from "../../../lib/inspectorFocus";
-
-/** The MACO1 p.Glu433Lys result behind the Residue Shifts tab. */
-const RESULT = {
-  metadata: {
-    gene: "MACO1",
-    variant: "p.Glu433Lys",
-    wildType: "Glu",
-    mutant: "Lys",
-    residueIndex: 433
-  },
-  insights: {
-    biochemicalShift: "Charge swap: Negative (Glu) to Positive (Lys). Size increase."
-  },
-  disruptionPredictor: { level: "low", reason: "Default", plddt: 92, burialStatus: "boundary", neighborCount: 12 }
-} as any;
-
-const DISTAL_POCKET = {
-  status: "success",
-  pocketDistance: 28.14,
-  pocketScore: 2,
-  pocketVolume: 370,
-  likelyCofactor: "None recorded in curated annotations",
-  sasPoints: 37,
-  surfaceAtoms: 20,
-  pocketResidues: [{ name: "HIS", index: 292, distance: 29.9 }]
-} as any;
+import { NAE1_POCKET, NAE1_RESULT } from "../../../shared/__tests__/fixtures/nae1ResidueShifts";
 
 function renderTab(overrides: Record<string, unknown> = {}) {
   const props = {
-    analysisState: { result: RESULT, isLoading: false },
+    analysisState: { result: NAE1_RESULT, isLoading: false },
     setSelectedMetric: vi.fn(),
-    computedPocket: null,
+    computedPocket: NAE1_POCKET,
     isPocketLoading: false,
     pocketError: null,
     active3dModelTab: "alphafold2" as const,
@@ -44,286 +18,153 @@ function renderTab(overrides: Record<string, unknown> = {}) {
     onNavigateToView: vi.fn(),
     ...overrides
   } as any;
-
-  return render(<StructureTab {...props} />);
+  return { props, ...render(<StructureTab {...props} />) };
 }
 
+/**
+ * What the Residue Shifts tab may claim, pinned on NAE1 p.Asp116Gly (the owner's screenshots).
+ */
 describe("StructureTab", () => {
   it("renders nothing until an analysis result exists", () => {
     const { container } = renderTab({ analysisState: { result: null, isLoading: false } });
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("keeps the quantitative property scales in the main column", () => {
+  it("states one finding and says no ACMG criterion reads this tab", () => {
     renderTab();
-    expect(screen.getByText("Hydrophobicity")).toBeInTheDocument();
-    expect(screen.getByText("Isoelectric Charge Index")).toBeInTheDocument();
-    expect(screen.getByText(/3 of 4 axes move|2 of 4 axes move/)).toBeInTheDocument();
+    expect(screen.getByTestId("residue-pair")).toHaveTextContent("Asp→Gly");
+    expect(screen.getByText(/Grantham distance/)).toHaveTextContent("94, moderately conservative");
+    expect(screen.getByTestId("residue-finding-text")).toHaveTextContent(
+      "The side chain loses its negative charge and becomes less polar, 23.1 Å from the nearest predicted pocket."
+    );
+    expect(screen.getByText("Engine record")).toBeInTheDocument();
+    expect(screen.getByText("No ACMG criterion reads this tab")).toBeInTheDocument();
   });
 
-  it("no longer renders the biochemical shift narrative, which moved to the inspector", () => {
+  it("draws each property on its published scale, in native units, largest shift first", () => {
     renderTab();
-    expect(screen.queryByText(/Charge swap: Negative \(Glu\) to Positive \(Lys\)/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Biochemical Shift Narrative/i)).not.toBeInTheDocument();
+    const rows = within(screen.getByTestId("residue-properties")).getAllByRole("row").slice(1);
+    expect(rows.map(r => r.getAttribute("data-testid"))).toEqual([
+      "property-row-charge",
+      "property-row-polarity",
+      "property-row-hydrophobicity",
+      "property-row-size"
+    ]);
+    const charge = screen.getByTestId("property-row-charge");
+    expect(charge).toHaveTextContent("Net charge");
+    expect(charge).toHaveTextContent("−1");
+    expect(charge).toHaveTextContent("loses its negative charge");
+    expect(screen.getByTestId("property-row-polarity")).toHaveTextContent("Grantham 1974");
+    expect(screen.getByTestId("property-row-polarity")).toHaveTextContent("13.0");
+    expect(screen.getByTestId("property-row-hydrophobicity")).toHaveTextContent("Kyte and Doolittle 1982");
+    expect(screen.getByTestId("property-row-size")).toHaveTextContent("54");
+    // The old headline came from the hand table ("polarity −85").
+    expect(screen.queryByText(/−85/)).not.toBeInTheDocument();
   });
 
-  it("gives the reader a working route to the relocated interpretation", () => {
-    const seen: string[] = [];
-    const handler = (event: Event) => seen.push((event as CustomEvent<{ sectionId: string }>).detail.sectionId);
-    window.addEventListener(INSPECTOR_FOCUS_EVENT, handler);
-    try {
-      renderTab();
-      fireEvent.click(screen.getByRole("button", { name: /Open the worked interpretation/i }));
-    } finally {
-      window.removeEventListener(INSPECTOR_FOCUS_EVENT, handler);
+  it("says what the scales cannot see for a glycine substitution", () => {
+    renderTab();
+    expect(screen.getByTestId("backbone-caveat")).toHaveTextContent("glycine frees the backbone");
+  });
+
+  it("reports burial as not measured and does not show the stored packing word as a finding", () => {
+    renderTab();
+    const rsa = screen.getByTestId("burial-rsa-row");
+    expect(rsa).toHaveTextContent("Not measured");
+    expect(rsa).toHaveTextContent("No result");
+    const packing = screen.getByTestId("burial-packing-row");
+    expect(packing).toHaveTextContent("a reading only");
+    expect(packing).toHaveTextContent("9");
+    expect(screen.getByText(/earlier engine estimated from packing density/)).toBeInTheDocument();
+    expect(screen.queryByText("Boundary")).not.toBeInTheDocument();
+  });
+
+  it("prints one pocket distance, a probability on 0–1, and no invented volume", () => {
+    renderTab();
+    const distance = screen.getByTestId("pocket-distance-row");
+    expect(distance).toHaveTextContent("23.1 Å");
+    expect(distance).toHaveTextContent("the cavity centre");
+    expect(distance).toHaveTextContent("Distal");
+    expect(screen.queryByText(/22\.97/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("pocket-score-row")).toHaveTextContent("0.23");
+    expect(screen.queryByText(/23 \/ 100|23%/)).not.toBeInTheDocument();
+    // Å³ belongs to the side-chain volume scale; the pocket reports surface points, not a volume.
+    expect(screen.getByTestId("residue-environment")).not.toHaveTextContent("Å³");
+  });
+
+  it("drops the constant co-factor row and raw engine codes", () => {
+    renderTab();
+    expect(screen.queryByText(/co-factor|cofactor/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/DISTAL_SURFACE|ACTIVE_SITE/)).not.toBeInTheDocument();
+  });
+
+  it("lists pocket residues nearest first and selects one on click", () => {
+    const { props } = renderTab();
+    const items = within(screen.getByTestId("pocket-residues")).getAllByRole("button");
+    expect(items.map(b => b.textContent)).toEqual([
+      "Leu131 A17.8 Å",
+      "Ile152 A20.0 Å",
+      "Glu133 A21.7 Å",
+      "Tyr402 A24.3 Å",
+      "Arg154 A24.9 Å",
+      "Tyr161 A25.8 Å",
+      "Asp433 A25.9 Å",
+      "Arg430 A27.9 Å"
+    ]);
+    fireEvent.click(items[0]);
+    expect(props.onSelectResidue).toHaveBeenCalledWith(131);
+  });
+
+  it("opens the 3D view at the nearest pocket residue", () => {
+    const { props } = renderTab();
+    fireEvent.click(screen.getByRole("button", { name: /View in 3D/ }));
+    expect(props.onSelectResidue).toHaveBeenCalledWith(131);
+    expect(props.onNavigateToView).toHaveBeenCalledWith("structure_alphafold");
+  });
+
+  it("opens the explanation for each reading", () => {
+    const { props } = renderTab();
+    fireEvent.click(screen.getByRole("button", { name: /Explain solvent accessibility/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Explain Cα neighbours/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Explain P2Rank/ }));
+    expect(props.setSelectedMetric.mock.calls.map((c: unknown[]) => c[0])).toEqual(["burial_status", "contact_density", "p2rank"]);
+  });
+
+  it("states a failed pocket scan as a sentence and offers a retry", () => {
+    const { props } = renderTab({ computedPocket: null, pocketError: "Java not found" });
+    const row = screen.getByTestId("pocket-state-row");
+    expect(row).toHaveTextContent("Cavity scan failed");
+    fireEvent.click(within(row).getByRole("button", { name: /Retry pocket detection/ }));
+    expect(props.onRetryPocket).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the scan is running while it runs", () => {
+    renderTab({ computedPocket: null, isPocketLoading: true });
+    expect(screen.getByTestId("pocket-state-row")).toHaveTextContent("Running");
+  });
+
+  it("uses the shared state vocabulary, never the legacy words", () => {
+    for (const overrides of [{ computedPocket: null }, { computedPocket: { status: "unavailable" } }, {}]) {
+      const { unmount } = renderTab(overrides);
+      expect(screen.queryByText(/Standby|Model Offline|Model offline|N\/A/)).not.toBeInTheDocument();
+      unmount();
     }
-    expect(seen).toEqual([INSPECTOR_SECTIONS.residueShiftNarrative]);
   });
 
-  it("routes the reader to the cavity interpretation from the classification badge", () => {
-    const seen: string[] = [];
-    const handler = (event: Event) => seen.push((event as CustomEvent<{ sectionId: string }>).detail.sectionId);
-    window.addEventListener(INSPECTOR_FOCUS_EVENT, handler);
-    try {
-      renderTab({ computedPocket: DISTAL_POCKET });
-      fireEvent.click(screen.getByRole("button", { name: /Open the cavity interpretation in the inspector/i }));
-    } finally {
-      window.removeEventListener(INSPECTOR_FOCUS_EVENT, handler);
-    }
-    expect(seen).toEqual([INSPECTOR_SECTIONS.residueShiftPocket]);
-  });
-
-  it("classifies a distal pocket with the shared derivation, not a local ternary", () => {
-    renderTab({ computedPocket: DISTAL_POCKET });
-    expect(screen.getByText("DISTAL_SURFACE")).toBeInTheDocument();
-  });
-
-  it("promotes a residue that lines the cavity, matching the inspector", () => {
-    renderTab({ computedPocket: { ...DISTAL_POCKET, pocketResidues: [{ name: "GLU", index: 433, distance: 3.4 }] } });
-    expect(screen.getByText("ACTIVE_SITE_LINING")).toBeInTheDocument();
-  });
-
-  it("bands the KPI cards so the numbers are self-explaining", () => {
-    renderTab({ computedPocket: DISTAL_POCKET });
-    expect(screen.getByText(/Weak .* P2Rank ranking index/)).toBeInTheDocument();
-    expect(screen.getByText(/Distal to cavity .* distance to pocket centroid/)).toBeInTheDocument();
-  });
-
-  it("does not label the ranking index as a binding probability and does not print a fabricated volume", () => {
-    // The runner writes a rescaled raw score into this field whenever P2Rank's
-    // probability rounds to zero, so "%"/"Binding Probability" overclaim; and the
-    // payload's volume is sas_points × 10, so Å³ must not be printed for it.
-    renderTab({ computedPocket: DISTAL_POCKET });
-
-    expect(screen.getByText("Cavity Ranking Index")).toBeInTheDocument();
-    expect(screen.queryByText("Binding Probability")).not.toBeInTheDocument();
-    expect(screen.queryByText(/370/)).not.toBeInTheDocument();
-    expect(screen.getByText("37 pts")).toBeInTheDocument();
-    expect(screen.getByText(/no volume reported/)).toBeInTheDocument();
-    // Volume band words are asserted in the shared-module suite; asserting them
-    // here would collide with the size axis's own "Small" anchor.
-  });
-
-  it("prints Å³ only when the payload declares a measured volume", () => {
-    renderTab({
-      computedPocket: { ...DISTAL_POCKET, provenance: { engine: "p2rank", volumeSource: "measured" } }
-    });
-    expect(screen.getByText("Pocket Volume")).toBeInTheDocument();
-    expect(screen.getByText("370 Å³")).toBeInTheDocument();
-  });
-
-  it("does not present the placeholder cofactor annotation as a ligand", () => {
-    renderTab({ computedPocket: DISTAL_POCKET });
-    expect(screen.getByText("None recorded")).toBeInTheDocument();
-    expect(screen.queryByText("None recorded in curated annotations")).not.toBeInTheDocument();
-  });
-
-  it("keeps the standby empty state when no cavity scan has run", () => {
-    renderTab();
-    expect(screen.getByText(/No active pocket computations found/)).toBeInTheDocument();
-  });
-
-  it("names the pocket data source for every pipeline state", () => {
-    const { unmount } = renderTab({ computedPocket: DISTAL_POCKET });
-    expect(screen.getByText("P2Rank ML")).toBeInTheDocument();
-    unmount();
-
-    const { unmount: unmountNone } = renderTab({ computedPocket: { status: "none_detected" } });
-    expect(screen.getByText("No Pocket Detected")).toBeInTheDocument();
-    unmountNone();
-
-    const { unmount: unmountOffline } = renderTab({ computedPocket: { status: "unavailable" } });
-    expect(screen.getByText("Model Offline")).toBeInTheDocument();
-    unmountOffline();
-
-    renderTab();
-    expect(screen.getByText("Standby")).toBeInTheDocument();
-  });
-});
-
-describe("StructureTab residue environment panel", () => {
-  it("states the burial word once, with both indicators and their bands", () => {
-    renderTab();
-
-    expect(screen.getByText("Residue Environment")).toBeInTheDocument();
-    expect(screen.getByText("Boundary")).toBeInTheDocument();
-    expect(screen.getByText("Solvent Exposure")).toBeInTheDocument();
-    expect(screen.getByText("Packing Density")).toBeInTheDocument();
-    // The count is shown with its own band word, so the reader does not have to apply
-    // the "8-14" legend themselves.
-    expect(screen.getByText("12")).toBeInTheDocument();
-    expect(screen.getByText("BOUNDARY")).toBeInTheDocument();
-    // No accessibility measurement was reported, and the panel says so rather than
-    // printing a zero.
-    expect(screen.getByText("\u2014")).toBeInTheDocument();
-    expect(screen.getByText("NOT MEASURED")).toBeInTheDocument();
-  });
-
-  it("says the word is a packing estimate when accessibility was not measured", () => {
-    // The old panel presented the packing fallback with the authority of a measured
-    // accessible surface, and defined it with cutoffs the engine had not used.
-    renderTab();
-
-    expect(screen.getByText("Estimated from packing")).toBeInTheDocument();
-    expect(screen.getByText(/proxy for burial rather than a measurement/i)).toBeInTheDocument();
-  });
-
-  it("describes a packing-derived word in packing terms on screen, not accessibility terms", () => {
-    // Packing density does not measure solvent contact. The panel used to print the
-    // accessibility sentence and add "(Estimated from packing density.)" — asserting the
-    // stronger claim and qualifying it in the same breath.
+  it("gives a measured burial word when accessibility was measured", () => {
     renderTab({
       analysisState: {
-        result: {
-          ...RESULT,
-          disruptionPredictor: { ...RESULT.disruptionPredictor, burialStatus: "core", neighborCount: 20 }
-        },
+        result: { ...NAE1_RESULT, disruptionPredictor: { level: "low", reason: "", plddt: null, burialStatus: "surface", rsa: 0.42, neighborCount: 9 } },
         isLoading: false
       }
     });
-
-    expect(screen.getByText(/densely packed region/i)).toBeInTheDocument();
-    expect(screen.queryByText(/little or no solvent contact/i)).not.toBeInTheDocument();
+    const rsa = screen.getByTestId("burial-rsa-row");
+    expect(rsa).toHaveTextContent("42.0%");
+    expect(rsa).toHaveTextContent("Surface");
   });
 
-  it("names the structure the burial word came from, and its provenance", () => {
-    // "the modelled structure" was printed whatever the source was — including an RCSB entry,
-    // which is experimental — and the entry was never named.
-    renderTab({
-      analysisState: {
-        result: {
-          ...RESULT,
-          metadata: { ...RESULT.metadata, pdbId: "1ABC", pdbSource: "RCSB PDB" }
-        },
-        isLoading: false
-      }
-    });
-
-    expect(screen.getByText(/experimental structure 1ABC \(RCSB PDB\)/)).toBeInTheDocument();
-    expect(screen.queryByText(/modelled structure/)).not.toBeInTheDocument();
-  });
-
-  it("names a predicted model, which is what the payload carries when no PDB entry resolved", () => {
-    // The production AlphaFold state: `resolvedPdbSource` is "AlphaFold" and `resolvedPdbId` is
-    // null, so a helper keyed off the id alone loses the provenance for every predicted
-    // structure — the half of the cases the old "modelled structure" wording did get right.
-    renderTab({
-      analysisState: {
-        result: {
-          ...RESULT,
-          metadata: { ...RESULT.metadata, pdbId: null, pdbSource: "AlphaFold" }
-        },
-        isLoading: false
-      }
-    });
-
-    expect(screen.getByText(/an AlphaFold model of this protein/)).toBeInTheDocument();
-    expect(screen.queryByText(/the structure used for this analysis/)).not.toBeInTheDocument();
-  });
-
-  it("does not call an unnamed structure a modelled one", () => {
-    renderTab();
-
-    expect(screen.getByText(/the structure used for this analysis/)).toBeInTheDocument();
-    expect(screen.queryByText(/modelled structure/)).not.toBeInTheDocument();
-  });
-
-  it("credits the accessibility measurement when there is one, and bands it on the shared cutoffs", () => {
-    // 12% RSA is core under the app's single definition (core at or below 15%). The
-    // SASA sidecar used 5% here, so the badge said "boundary" while the panel's own
-    // prose called the same residue deeply buried.
-    renderTab({
-      analysisState: {
-        result: {
-          ...RESULT,
-          disruptionPredictor: { ...RESULT.disruptionPredictor, burialStatus: "core", rsa: 0.12 }
-        },
-        isLoading: false
-      }
-    });
-
-    expect(screen.getByText("Core")).toBeInTheDocument();
-    expect(screen.getByText("12.0%")).toBeInTheDocument();
-    expect(screen.getByText("Measured accessibility")).toBeInTheDocument();
-    expect(screen.getByText("decides status")).toBeInTheDocument();
-    expect(screen.getByText("15% / 35%")).toBeInTheDocument();
-  });
-
-  it("reports a disagreement between accessibility and packing instead of picking silently", () => {
-    renderTab({
-      analysisState: {
-        result: {
-          ...RESULT,
-          disruptionPredictor: { ...RESULT.disruptionPredictor, burialStatus: "surface", rsa: 0.6, neighborCount: 20 }
-        },
-        isLoading: false
-      }
-    });
-
-    expect(screen.getByText("Reported classification and measurements disagree")).toBeInTheDocument();
-    expect(screen.getByText(/point different ways/i)).toBeInTheDocument();
-  });
-
-  it("flags a word that disagrees with the accessibility value beside it, and names no basis", () => {
-    // A payload written before the shared bands existed: 0.30 reads as boundary under the
-    // current cutoffs while the badge says surface. Both indicators agree with each other, so
-    // only a word-vs-measurement check can see it.
-    renderTab({
-      analysisState: {
-        result: {
-          ...RESULT,
-          disruptionPredictor: { ...RESULT.disruptionPredictor, burialStatus: "surface", rsa: 0.3, neighborCount: 10 }
-        },
-        isLoading: false
-      }
-    });
-
-    expect(screen.getByText("Reported classification and measurements disagree")).toBeInTheDocument();
-    expect(screen.getByText(/does not match the accessibility measurement/i)).toBeInTheDocument();
-    // Nothing can be named as the basis, so no card claims to have decided the word.
-    expect(screen.queryByText("decides status")).not.toBeInTheDocument();
-  });
-
-  it("opens the explanation for whichever indicator the reader clicked", () => {
-    const setSelectedMetric = vi.fn();
-    renderTab({ setSelectedMetric });
-
-    fireEvent.click(screen.getByRole("button", { name: /Solvent Exposure/i }));
-    expect(setSelectedMetric).toHaveBeenLastCalledWith("burial_status");
-
-    fireEvent.click(screen.getByRole("button", { name: /Packing Density/i }));
-    expect(setSelectedMetric).toHaveBeenLastCalledWith("contact_density");
-  });
-
-  it("keeps the empty state when no packing metrics were computed at all", () => {
-    renderTab({
-      analysisState: {
-        result: { ...RESULT, disruptionPredictor: undefined },
-        isLoading: false
-      }
-    });
-
-    expect(screen.queryByText("Residue Environment")).not.toBeInTheDocument();
-    expect(screen.getByText(/No 3D structural packing or burial metrics available/)).toBeInTheDocument();
+  it("uses no red or green: this tab makes no pathogenic or benign call", () => {
+    const { container } = renderTab();
+    expect(container.innerHTML).not.toMatch(/emerald|rose-|text-red|text-green|data-tone="danger"|data-tone="good"/);
   });
 });

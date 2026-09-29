@@ -28,15 +28,11 @@ describe("metric explanations agree with the shared burial bands", () => {
     expect(interpretation).not.toMatch(/surface[^.]*?<\s*35%/i);
   });
 
-  it("states the same packing cutoffs, in the same direction, as the classifier", () => {
+  it("does not give the Cα count cut-points of its own", () => {
+    // The count is a reading only; the registry must not re-introduce the retired bands.
     const interpretation = METRIC_EXPLANATIONS.contact_density.interpretation;
-
-    expect(interpretation).toMatch(
-      new RegExp(`core[^.]*?\\u2265\\s*${PACKING_NEIGHBOUR_BANDS.coreMin}\\b`, "i")
-    );
-    expect(interpretation).toMatch(
-      new RegExp(`surface[^.]*?\\u2264\\s*${PACKING_NEIGHBOUR_BANDS.surfaceMax}\\b`, "i")
-    );
+    expect(interpretation).toMatch(/reading only/i);
+    expect(interpretation).not.toMatch(/core residues have/i);
   });
 
   it("names the residue-packing radius the server counts within", () => {
