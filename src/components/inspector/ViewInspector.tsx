@@ -90,7 +90,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   structure: { title: "Structure Inspector", subtitle: "Models, Homologs & Probes", Icon: Layers },
   structure_alphafold: { title: "AlphaFold Inspector", subtitle: "Full-Length 3D Model", Icon: Layers },
   structure_esmfold: { title: "ESMFold-2 Inspector", subtitle: "Transformer De Novo 3D Model", Icon: Layers },
-  energetics: { title: "Stability Telemetry", subtitle: "Engines & Thermodynamic Baseline", Icon: Activity },
+  energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached", Icon: Activity },
   landscape: { title: "Landscape Controls", subtitle: "Intolerance & Domain Minimap", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
   report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },

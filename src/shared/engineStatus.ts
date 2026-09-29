@@ -100,6 +100,15 @@ export interface EngineDescriptor {
  * where the science supports it.
  */
 const SUPPORTING_CUT = 0.5;
+
+/**
+ * Distinct UniProt accessions in `df_rasp_gnomad_clinvar.csv` (Zenodo 10.5281/zenodo.6835877), counted
+ * from the file. That file is RaSP's experimental-structure set (Blaabjerg 2023); the authors'
+ * proteome-wide AlphaFold predictions (23,391 proteins) are a separate download this app does not
+ * bundle. Stated in the reason because "not covered" otherwise reads as a rare event, when for most
+ * proteins it is the expected answer.
+ */
+export const RASP_BUNDLED_PROTEINS = 1345;
 const STABILIZING_CUT = -0.5;
 
 const magnitude = (v: number) => Math.abs(v);
@@ -151,7 +160,7 @@ export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
     supportingCut: SUPPORTING_CUT,
     stabilizingCut: STABILIZING_CUT,
     absenceClass: "coverage",
-    summary: "Precomputed Rosetta/ESM-IF1 stability profile, available for a curated protein set.",
+    summary: "Precomputed ΔΔG from a 3D convolutional network trained to reproduce Rosetta; bundled for 1,345 proteins with experimental structures.",
   },
   {
     id: "thermompnn",
@@ -478,7 +487,7 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
       // a protein outside the covered set AND for a position within a covered protein, and the
       // precise sentence travels in `detail`.
       return engine.id === "rasp"
-        ? `No precomputed ${engine.name} score is available for this variant.`
+        ? `No precomputed ${engine.name} score is available for this variant. The bundled RaSP set covers ${RASP_BUNDLED_PROTEINS.toLocaleString("en-GB")} human proteins with experimental structures, not the whole proteome.`
         : "No precomputed data for this variant.";
     case "upstream-busy":
       return `${engine.name}'s provider did not answer in time. This can be retried later.`;
@@ -539,7 +548,10 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
     state = "no-result";
   } else if (obs.runActive) {
     state = "running";
-  } else if (engine.absenceClass === "coverage") {
+  } else if (engine.absenceClass === "coverage" && detail) {
+    // "Not covered" is a statement about the dataset, so it needs the lookup's own answer. With no
+    // detail nothing was looked up: the FoldX cache-hit route served RaSP as null without ever
+    // querying the index, and this branch turned that silence into "Not covered" on every revisit.
     state = "not-covered";
   } else {
     state = "no-result";

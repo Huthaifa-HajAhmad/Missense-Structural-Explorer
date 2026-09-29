@@ -281,7 +281,7 @@ describe("engineStatus — resolution honesty rules", () => {
             : state === "not-installed"
               ? { id: "thermompnn", value: null, status: "unavailable" }
               : state === "not-covered"
-                ? { id: "rasp", value: null }
+                ? { id: "rasp", value: null, detail: "Residue position is not present in the pre-computed database" }
                 : state === "upstream-busy"
                   ? { id: "ddmut", value: null, status: "unavailable" }
                   : state === "upstream-error"
@@ -356,12 +356,35 @@ describe("engineStatus — coverage must be visible and honest", () => {
 
   it("counts engines that are unavailable by design", () => {
     const summary = summarizeCoverage([
-      resolveEngineOutcome({ id: "rasp", value: null }), // coverage-limited dataset
+      // A dataset miss the lookup actually reported (a bare null no longer implies one — see below).
+      resolveEngineOutcome({ id: "rasp", value: null, detail: "Residue position is not present in the pre-computed database" }),
       resolveEngineOutcome({ id: "thermompnn", value: null, status: "unavailable" }), // not installed
       resolveEngineOutcome({ id: "foldx", value: 1.0 }),
     ]);
     expect(summary.notAvailableInDeployment).toBe(2);
     expect(summary.computed).toBe(1);
+  });
+});
+
+describe("engineStatus — RaSP 'Not covered' needs a lookup that said so", () => {
+  /**
+   * The FoldX cache-hit route served RaSP as null with no `raspReason` because it never queried the
+   * index, and a bare null used to resolve to "Not covered" — a statement about the dataset that
+   * nothing had checked, on every revisit. A null with no reason is now "No result".
+   */
+  it("reports a bare null as no-result, not not-covered", () => {
+    expect(resolveEngineOutcome({ id: "rasp", value: null }).state).toBe("no-result");
+    const built = buildEngineOutcomes({ rasp: null, raspReason: null }).find(o => o.id === "rasp")!;
+    expect(built.state).toBe("no-result");
+  });
+
+  it("still reports a lookup's own miss as not-covered, and says how small the bundled set is", () => {
+    const built = buildEngineOutcomes({
+      rasp: null,
+      raspReason: "Residue position is not present in the pre-computed database",
+    }).find(o => o.id === "rasp")!;
+    expect(built.state).toBe("not-covered");
+    expect(built.reason).toContain("1,345 human proteins with experimental structures");
   });
 });
 

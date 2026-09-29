@@ -29,6 +29,9 @@ const REPO_ROOT = process.cwd();
 const GUARDED_SURFACES = [
   "src/components/EnergeticsView.tsx",
   "src/components/inspector/EnergeticsInspector.tsx",
+  // The Energetics evidence model and its ruler, which every Energetics surface now renders from.
+  "src/shared/energeticsEvidence.ts",
+  "src/components/energetics/DdgRuler.tsx",
   // A surface this change modified that renders engine status: it still carried the literal
   // "Standby / Unconfigured", which is in LEGACY_ENGINE_LABELS, and it sat outside the guard
   // precisely because it had never been added here.

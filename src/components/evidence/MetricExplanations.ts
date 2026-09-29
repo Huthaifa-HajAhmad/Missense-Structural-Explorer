@@ -127,7 +127,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "FoldX ddG",
     category: "Force-Field Biophysics",
     description: "FoldX uses an empirical atomic force field to estimate the change in free energy (ΔΔG) upon mutation. It performs local sidechain repacking on a rigid backbone approximation of the protein structure.",
-    interpretation: "ΔΔG > 1.5 kcal/mol indicates strong structural destabilization (high risk of misfolding/degradation). Note that gain-of-function variants may not be destabilizing.",
+    interpretation: "Positive ΔΔG means destabilizing. FoldX publishes no clinical threshold: this app marks ≥ +1.5 kcal/mol as destabilizing and ≥ +0.5 as moderately destabilizing (local marks). The authors recommend RepairPDB before BuildModel. Destabilization is not pathogenicity: gain-of-function variants may be stable.",
     paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
     paperUrl: "https://doi.org/10.1093/nar/gki387"
   },
@@ -135,7 +135,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "DynaMut2",
     category: "Normal Mode Analysis / Machine Learning",
     description: "DynaMut2 predicts stability changes (ΔΔG) by combining normal mode analysis (NMA) metrics of protein flexibility and dynamics (using ENM models) with machine learning models trained on experimental stability data.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
+    interpretation: "DynaMut2 reports negative ΔΔG for destabilizing mutations; this app negates it so positive means destabilizing everywhere. The ±1.0 kcal/mol mark is local, not published by the authors.",
     paperTitle: "Rodrigues et al. Protein Science (2021)",
     paperUrl: "https://doi.org/10.1002/pro.3942"
   },
@@ -143,19 +143,19 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "DDMut (Deep Learning)",
     category: "Graph Deep Learning / Transformers",
     description: "DDMut uses a Siamese neural network combining graph-based structural representations, convolutional layers, and Transformer encoders to predict free energy changes (ΔΔG) for single and multiple point mutations.",
-    interpretation: "ΔΔG ≤ -1.0 kcal/mol indicates structural destabilization; positive scores represent stabilizing variants.",
-    paperTitle: "Zhou et al. Nucleic Acids Res (2022)",
-    paperUrl: "https://doi.org/10.1093/nar/gkac394"
+    interpretation: "DDMut reports negative ΔΔG for destabilizing mutations; this app negates it so positive means destabilizing. The ±1.0 kcal/mol mark is local. The authors report Pearson r 0.70 and RMSE 1.84 kcal/mol on their SM420 blind test.",
+    paperTitle: "Zhou et al. Nucleic Acids Res (2023)",
+    paperUrl: "https://doi.org/10.1093/nar/gkad472"
   },
   rasp: {
     name: "RaSP (Rapid Stability Prediction)",
-    category: "Structural Embeddings / MLP Stability Head",
-    description: "RaSP predicts thermodynamic stability changes (ΔΔG) using ESM-IF1 structural embeddings combined with a pre-trained multi-layer perceptron head trained on ~350k experimental stability datapoints. It operates directly on 3D structure.",
+    category: "3D Convolutional Network / Rosetta Surrogate",
+    description: "RaSP learns a representation of each residue's 3D environment with a self-supervised convolutional network, then a small supervised network predicts Rosetta cartesian_ddg values from it. It reproduces Rosetta at a fraction of the cost, and inherits Rosetta's errors. This app reads precomputed values from the authors' experimental-structure table (1,345 human proteins); it does not run RaSP.",
     // RaSP is a positive-native engine: a LARGER score means destabilization (see
     // `shared/engineStatus.ts`, whose per-engine cut is +1.0). This rule was previously written
     // with the opposite sign, so this explanation contradicted both the app's own maths and the
     // Energetics tab's copy for the same method.
-    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; lower/negative scores represent neutral or stabilizing variants. Pearson r ≈ 0.57 on held-out S461 benchmark.",
+    interpretation: "Positive ΔΔG means destabilizing. The +1.0 kcal/mol mark is local, not published by the authors. A missing value usually means the protein is outside the bundled table, not that the variant is neutral.",
     paperTitle: "Blaabjerg et al. eLife (2023)",
     paperUrl: "https://doi.org/10.7554/eLife.82593"
   },
@@ -202,18 +202,18 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
   thermompnn: {
     name: "ThermoMPNN",
     category: "Neural Backbone Stability (ProteinMPNN)",
-    description: "ThermoMPNN predicts thermodynamic stability changes (ΔΔG° = mutant - wildtype) using ProteinMPNN structural embeddings trained on >770,000 experimental measurements.",
-    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; negative scores represent predicted stabilizing variants.",
-    paperTitle: "Pei et al. bioRxiv / Tamarind Bio (2024)",
-    paperUrl: "https://docs.tamarind.bio/tools/thermompnn"
+    description: "ThermoMPNN adds a stability head to ProteinMPNN's structure embeddings and is trained on the mega-scale cDNA-display stability dataset (Tsuboyama et al. 2023).",
+    interpretation: "Negative ΔΔG means stabilizing (the authors call ΔΔG < −0.5 kcal/mol stabilizing), so positive means destabilizing. The +1.0 kcal/mol destabilizing mark is local.",
+    paperTitle: "Dieckhaus et al. PNAS (2024)",
+    paperUrl: "https://doi.org/10.1073/pnas.2314853121"
   },
   stabilityoracle: {
     name: "StabilityOracle",
     category: "Graph-Transformer / Structure-Aware ML",
-    description: "StabilityOracle evaluates stability changes (ΔΔG) by combining geometric graph-transformer representations of 3D protein coordinate structures with multi-task thermodynamic training.",
-    interpretation: "ΔΔG ≥ +1.0 kcal/mol indicates structural destabilization; scores < +0.5 kcal/mol indicate neutral or stabilizing variants.",
-    paperTitle: "StabilityOracle Consortium (2024)",
-    paperUrl: "https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer"
+    description: "Stability Oracle is a structure-based graph-transformer that scores a substitution from a single wild-type structure, trained with 'thermodynamic permutation' augmentation. It was built to find stabilizing mutations.",
+    interpretation: "Negative ΔΔG means stabilizing (the authors use ΔΔG < −0.5 kcal/mol), so positive means destabilizing. The +1.0 kcal/mol destabilizing mark is local.",
+    paperTitle: "Diaz et al. Nat Commun (2024)",
+    paperUrl: "https://doi.org/10.1038/s41467-024-49780-2"
   },
   metarnn: {
     name: "MetaRNN",

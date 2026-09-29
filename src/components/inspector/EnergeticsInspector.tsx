@@ -1,17 +1,35 @@
 import React, { useMemo } from "react";
-import { Activity, Cpu, Gauge, ShieldAlert, Info, AlertTriangle, AlertCircle } from "lucide-react";
+import { BookOpen, Database, GitBranch, Ruler, SlidersHorizontal } from "lucide-react";
 import { AnalysisResult, EnergeticsData } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
+import { ENGINE_STATE_LABELS, type EnergyUnit } from "../../shared/engineStatus";
 import {
-  buildEngineOutcomes,
-  describeProvenance,
-  formatDdg,
-  summarizeCoverage,
-  type EngineTone,
-  type ProvenanceSource,
-  type RemoteStatus,
-} from "../../shared/engineStatus";
+  AGREEMENT_CHIP,
+  RASP_BUNDLED_PROTEINS,
+  absenceText,
+  buildEnergeticsEvidence,
+  listNames,
+  signedDdg,
+} from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+
+/**
+ * EnergeticsInspector — the Evidence Lineage rail for the Energetics view.
+ *
+ * The column states WHAT each engine said; the rail states HOW the reading was reached: a trace
+ * (structure → engines → marks → summary → engine record), each engine's local mark beside this
+ * variant's value, the engines with no value and why, the method caveats, and the sources the
+ * payload actually carries.
+ *
+ * It replaced a "Stability Telemetry" rail that repeated the column's six rows a second time, and a
+ * "Physical reference & baseline" block that printed 298.15 K, pH 7.0 and "±1.20 kcal/mol
+ * (ProTherm)" for every run — constants, not this run's conditions, and an uncertainty with no
+ * source. Its provenance block printed "RaSP snapshot" and "Embedding model: VESM_150M_v1" whether or
+ * not any engine had used them (the server stamps both on every run).
+ *
+ * Built from the same `buildEnergeticsEvidence` object as the column, so the two panes cannot report
+ * different counts or states.
+ */
 
 interface EnergeticsInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -22,46 +40,35 @@ interface EnergeticsInspectorProps {
   ddmutStatus?: "pending" | "unavailable" | "done" | null;
   thermompnnStatus?: "pending" | "unavailable" | "done" | "error" | null;
   thermompnnError?: string | null;
-  disruptionPredictor?: { plddt?: number } | null;
+  disruptionPredictor?: { plddt?: number | null } | null;
   isFolding?: boolean;
-  /**
-   * Single-value FoldX fallback, the same one the main column uses.
-   *
-   * Without it the two surfaces were not fed the same facts, which falsified the contract's whole
-   * premise: on a bundle where `foldingDdG` is set but `energetics.foldx`/`foldxMean` is absent, the
-   * table rendered its computed state with a value while telemetry rendered "No result" — for one
-   * run.
-   */
+  /** Single-value FoldX fallback, the same one the main column uses. */
   foldingDdG?: number | null;
 }
 
-/**
- * Severity → dot colour. The state's *text* always accompanies the dot, so a row is never
- * colour-only: previously an 8px dot was the sole signal, and under `reduce-motion` the
- * pending/unavailable pair collapsed to near-identical amber.
- */
-const TONE_DOT: Record<EngineTone, string> = {
-  good: "var(--cs-text-success)",
-  warn: "var(--cs-text-warning)",
-  danger: "var(--cs-text-danger)",
-  neutral: "var(--cs-text-muted)",
-  muted: "var(--cs-border)",
-};
+type StepState = "done" | "warn" | "idle";
 
-/** States that warrant an entry in the diagnostics list. */
-const NEEDS_ATTENTION = new Set([
-  "failed",
-  "not-installed",
-  "not-covered",
-  "upstream-busy",
-  "upstream-error",
-  "no-result",
-]);
+function Step({ n, label, state = "done", children }: { n: number; label: string; state?: StepState; children: React.ReactNode }) {
+  return (
+    <li className="nrg-step" data-state={state}>
+      <span className="nrg-step__n" aria-hidden="true">{n}</span>
+      <div className="nrg-step__body">
+        <span className="nrg-step__label">{label}</span>
+        <div className="nrg-step__value">{children}</div>
+      </div>
+    </li>
+  );
+}
 
-type EnergeticsExtras = EnergeticsData & {
-  raspReason?: string;
-  foldxBinaryMissing?: boolean;
-};
+/** Method papers, verified against the journals (see doc/ENERGETICS_TAB_REVIEW.md). */
+const REFERENCES: Array<{ citation: string; doi: string }> = [
+  { citation: "Schymkowitz et al. The FoldX web server. Nucleic Acids Res 2005 (FoldX)", doi: "10.1093/nar/gki387" },
+  { citation: "Rodrigues et al. DynaMut2. Protein Sci 2021", doi: "10.1002/pro.3942" },
+  { citation: "Zhou et al. DDMut. Nucleic Acids Res 2023", doi: "10.1093/nar/gkad472" },
+  { citation: "Dieckhaus et al. ThermoMPNN. PNAS 2024", doi: "10.1073/pnas.2314853121" },
+  { citation: "Diaz et al. Stability Oracle. Nat Commun 2024", doi: "10.1038/s41467-024-49780-2" },
+  { citation: "Blaabjerg et al. RaSP. eLife 2023", doi: "10.7554/eLife.82593" },
+];
 
 export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   analysisResult,
@@ -74,335 +81,240 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   thermompnnError,
   disruptionPredictor,
   isFolding = false,
-  foldingDdG = null
+  foldingDdG = null,
 }) => {
   const { settings, updateSetting } = useSettings();
-  const energyUnit = settings.energyUnit || "kcal/mol";
+  const unit: EnergyUnit = settings.energyUnit === "kJ/mol" ? "kJ/mol" : "kcal/mol";
 
-  const plddt = disruptionPredictor?.plddt ?? analysisResult?.disruptionPredictor?.plddt ?? null;
-  const isLowConfidence = plddt !== null && plddt < 70;
-  const energetics = foldingEnergetics as EnergeticsExtras | null | undefined;
-
-  /**
-   * The same canonical outcomes the main column renders.
-   *
-   * Both surfaces call one builder, so the inspector cannot claim an engine is offline while the
-   * table beside it shows a value. The previous flag was `dynamut2Status === "unavailable" ||
-   * ddmutStatus === "unavailable"`, so one engine's failure produced a false statement about the
-   * other, and the card named both.
-   */
-  const outcomes = useMemo(
+  const evidence = useMemo(
     () =>
-      buildEngineOutcomes({
-        foldxMean: energetics?.foldxMean ?? foldingDdG,
-        foldxDdg: energetics?.foldx ?? foldingDdG,
-        foldxSd: energetics?.foldxSd,
-        dynamut2: energetics?.dynamut2,
-        ddmut: energetics?.ddmut,
-        rasp: energetics?.rasp,
-        thermompnn: energetics?.thermompnn,
-        stabilityoracle: energetics?.stabilityoracle,
-        // No casts needed: these prop unions are already subsets of `RemoteStatus`. The three
-        // `as RemoteStatus` casts that used to sit here implied the props were looser than they are,
-        // and hid that `upstream-error` is simply not expressible for DynaMut2/DDMut.
+      buildEnergeticsEvidence({
+        foldingDdG,
+        foldingStatus,
+        foldingEnergetics: foldingEnergetics as Record<string, any> | null | undefined,
         dynamut2Status,
         ddmutStatus,
         thermompnnStatus,
-        raspReason: energetics?.raspReason ?? null,
         thermompnnError,
         foldingError,
-        foldingStatus,
-        foldxRepairFailed: energetics?.foldxRepairFailed,
-        foldxBinaryMissing: energetics?.foldxBinaryMissing,
         isFolding,
-        structureProvenance: energetics?.structureProvenance ?? null,
+        plddt: disruptionPredictor?.plddt ?? analysisResult?.disruptionPredictor?.plddt ?? null,
       }),
     [
-      // `foldingDdG` MUST be here. Without it the memo never recomputes when only the FoldX
-      // fallback changes — which is precisely the bundle shape the prop was added to repair, so the
-      // fix was inert and the two surfaces could still disagree on the exact run it targeted.
-      energetics, foldingDdG, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError,
-      foldingError, foldingStatus, isFolding,
+      foldingDdG, foldingStatus, foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus,
+      thermompnnError, foldingError, isFolding, disruptionPredictor?.plddt, analysisResult?.disruptionPredictor?.plddt,
     ]
   );
 
-  /**
-   * Rows that need a reason rendered: the ones with something missing, PLUS the ones whose value is
-   * deliberately not counted.
-   *
-   * The second group was absent, so an excluded FoldX value — shown with a value, a green dot and
-   * the label "Computed" — never had its exclusion reason rendered anywhere on this panel, while the
-   * main column said "Not counted". The two surfaces contradicted each other about whether the same
-   * number counted.
-   */
-  const diagnostics = useMemo(
-    () => outcomes.filter(o => NEEDS_ATTENTION.has(o.state) || o.excluded),
-    [outcomes]
-  );
-
-  const coverage = useMemo(() => summarizeCoverage(outcomes), [outcomes]);
-
-  const provenanceRows = useMemo(() => {
-    const prov = energetics?.structureProvenance;
-    if (!prov) return [] as Array<{ label: string; value: string }>;
-    const rows: Array<{ label: string; value: string }> = [];
-    if (prov.source) {
-      const provView = describeProvenance(prov.source as ProvenanceSource, {
-        pdbId: prov.pdbId,
-        resolution: prov.resolution,
-        identity: prov.identity,
-      });
-      rows.push({
-        label: "Source",
-        value: provView.label,
-      });
-    }
-    if (prov.pdbId) rows.push({ label: "Template", value: `${prov.pdbId.toUpperCase()}${prov.chainId ? `:${prov.chainId}` : ""}` });
-    if (prov.resolution != null) rows.push({ label: "Resolution", value: `${prov.resolution.toFixed(1)} Å` });
-    if (prov.identity != null) rows.push({ label: "Sequence identity", value: `${prov.identity.toFixed(0)}%` });
-    if (prov.foldxVersion) rows.push({ label: "FoldX version", value: prov.foldxVersion });
-    if (prov.foldxRuns != null) rows.push({ label: "Ensemble runs", value: String(prov.foldxRuns) });
-    if (prov.seed != null) rows.push({ label: "Random seed", value: String(prov.seed) });
-    if (prov.raspDatasetSnapshot) rows.push({ label: "RaSP snapshot", value: prov.raspDatasetSnapshot });
-    if (prov.vesmModel) rows.push({ label: "Embedding model", value: prov.vesmModel });
-    if (prov.afdbVersion) rows.push({ label: "AlphaFold DB", value: prov.afdbVersion });
-    if (prov.modelSha) rows.push({ label: "Model digest", value: prov.modelSha.slice(0, 12) });
-    return rows;
-  }, [energetics]);
+  const { agreement, coverage, structure } = evidence;
+  const withValue = evidence.readings.filter(r => r.ddg !== null);
+  const structureWarn = structure?.repairState === "unrepaired" || structure?.repairState === "failed" || evidence.lowPlddt !== null;
 
   return (
-    <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Clinical Guidance: Destabilization ≠ Pathogenicity ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Clinical Biophysics Principle
-        </span>
-
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-          <span className="font-bold text-[11px] text-cs-text-primary block">
-            Destabilization ≠ Pathogenicity
-          </span>
-          <p className="text-[10.5px] text-cs-text-secondary leading-relaxed">
-            Thermodynamic destabilization (ΔΔG) measures misfolding risk but does not equal clinical pathogenicity. Gain-of-function (GOF) or neomorphic variants (e.g. <i>FGFR3</i> p.Gly380Arg) can cause severe disease while remaining structurally stable or neutral.
-          </p>
-        </div>
-      </div>
-
-      {/* ── 2. Engine telemetry: one row per engine, from the canonical state ── */}
-      <div 
+    <div className="nrg-rail" data-testid="energetics-rail">
+      {/* ── 1. How the reading was reached ── */}
+      <section
+        className="nrg-rsec"
+        aria-labelledby="nrg-rail-trace"
         id={INSPECTOR_SECTIONS.stabilityTelemetry}
         tabIndex={-1}
-        role="region"
-        aria-label="Stability Engine Telemetry"
-        className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay rounded-lg transition-shadow"
       >
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <Cpu className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Stability Engine Telemetry
-          </span>
-          <span className="text-[9.5px] font-mono text-cs-text-muted">
-            {coverage.computed}/{coverage.intended} active
-          </span>
-        </div>
-
-        <div className="rounded-lg border border-cs-border bg-cs-surface-2 divide-y divide-cs-border-subtle/50 overflow-hidden">
-          {outcomes.map(outcome => {
-            const isComputed = outcome.state === "computed";
-            const isRunning = outcome.state === "running";
-            const isExcluded = outcome.excluded;
-
-            return (
-              <div 
-                key={outcome.id} 
-                className="px-3 py-2 flex items-center justify-between gap-3 text-[11px] hover:bg-cs-surface-3/30 transition-colors"
-              >
-                {/* Left: Engine identifier & live indicator */}
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="relative flex h-2 w-2 shrink-0">
-                    {isRunning && (
-                      <span
-                        aria-hidden="true"
-                        className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                        style={{ background: TONE_DOT[outcome.tone] }}
-                      />
-                    )}
-                    <span
-                      aria-hidden="true"
-                      className="relative inline-flex rounded-full h-2 w-2"
-                      style={{ background: TONE_DOT[isExcluded ? "muted" : outcome.tone] }}
-                    />
-                  </span>
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-semibold text-cs-text-primary text-[11px] truncate">
-                      {outcome.engine.name}
-                    </span>
-                    <span className="text-[9.5px] text-cs-text-muted truncate">
-                      {outcome.engine.taxonomy}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right: Aligned status and ΔΔG readout */}
-                <div className="flex items-center gap-2 shrink-0">
-                  {outcome.canonicalDdg !== null && (
-                    <span className="font-mono text-[11px] font-bold tabular-nums text-cs-text-primary">
-                      {formatDdg(outcome.canonicalDdg, energyUnit)}
-                    </span>
-                  )}
-                  <span
-                    className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded border ${
-                      isExcluded
-                        ? "bg-cs-surface text-cs-text-muted border-cs-border"
-                        : isComputed
-                          ? "bg-cs-bg-subtle text-cs-text-secondary border-cs-border-subtle"
-                          : isRunning
-                            ? "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning)] border-[var(--cs-border)] animate-pulse"
-                            : "bg-cs-surface text-cs-text-muted border-cs-border"
-                    }`}
-                  >
-                    {isExcluded ? "Not counted" : outcome.label}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── 3. Diagnostics: plain language, one entry per engine that needs attention ── */}
-      {/*
-        The low-confidence card is deliberately outside the `diagnostics.length > 0` gate.
-        It used to sit inside it, so on a run where every engine returned a value — the good case —
-        a low-pLDDT template produced an empty diagnostics array and the warning vanished entirely:
-        the more complete the run, the less the panel said about its own reliability.
-      */}
-      {(diagnostics.length > 0 || isLowConfidence) && (
-        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-cs-text-warning" />
-            What Is Missing, And Why
-          </span>
-
-          <div className="space-y-2">
-            {isLowConfidence && (
-              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-primary">
-                  <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                  <span>Low-confidence template (pLDDT {plddt?.toFixed(1)})</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">
-                  The template residue has low confidence (pLDDT &lt; 70). Rigid-backbone force-field
-                  calculations are speculative in disordered loops.
-                </p>
-              </div>
+        <h3 className="eyebrow" id="nrg-rail-trace">
+          <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
+          Rule trace
+        </h3>
+        <ol className="nrg-steps" data-testid="energetics-rule-trace">
+          <Step n={1} label="Template structure" state={!structure ? "idle" : structureWarn ? "warn" : "done"}>
+            <span>
+              {structure
+                ? `${structure.label}${structure.pdbId ? ` · ${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ""}` : ""}${
+                    structure.resolution !== null ? ` · ${structure.resolution.toFixed(1)} Å` : ""
+                  }`
+                : isFolding
+                  ? "Resolving"
+                  : "Not reported"}
+            </span>
+            {structure?.repair && <span className="nrg-step__sub">FoldX template: {structure.repair.toLowerCase()}</span>}
+            {evidence.lowPlddt !== null && (
+              <span className="nrg-step__warn">AlphaFold pLDDT {evidence.lowPlddt.toFixed(1)} at this residue: structure-based estimates are unreliable here.</span>
             )}
+          </Step>
+          <Step n={2} label="Engines returned a value" state={coverage.insufficient ? "warn" : "done"}>
+            <span>{coverage.label}</span>
+            {evidence.running.length > 0 && (
+              <span className="nrg-step__sub">Running: {listNames(evidence.running.map(r => r.name))}</span>
+            )}
+            {evidence.missing.length > 0 && (
+              <span className="nrg-step__sub">No value: {listNames(evidence.missing.map(r => r.name))}</span>
+            )}
+            {withValue.some(r => !r.counted) && (
+              <span className="nrg-step__sub">
+                Shown, not counted: {listNames(withValue.filter(r => !r.counted).map(r => r.name))}
+              </span>
+            )}
+          </Step>
+          <Step n={3} label="Each engine on its own mark" state={agreement.nCounted ? "done" : "idle"}>
+            <span>
+              {agreement.destabilizing.length} destabilizing · {agreement.moderate.length} moderate ·{" "}
+              {agreement.notDestabilizing.length} not destabilizing
+            </span>
+            <span className="nrg-step__sub">Local marks, listed below. No probability is computed.</span>
+          </Step>
+          <Step n={4} label="Summary" state={agreement.direction === "split" ? "warn" : agreement.nCounted ? "done" : "idle"}>
+            <span>
+              {AGREEMENT_CHIP[agreement.direction].label}
+              {agreement.nCounted > 1 ? ` · median ${signedDdg(agreement.median, unit)}` : ""}
+            </span>
+            {agreement.nCounted > 0 && coverage.insufficient && (
+              <span className="nrg-step__warn">Fewer than three engines returned a value; read this as individual estimates, not agreement.</span>
+            )}
+          </Step>
+          <Step n={5} label="Engine record">
+            <span>Not an ACMG input</span>
+            <span className="nrg-step__sub">No criterion in the rule engine reads ΔΔG.</span>
+          </Step>
+        </ol>
+      </section>
 
-            {diagnostics.map(outcome => (
-              <div key={outcome.id} className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-[10.5px]">
-                  {outcome.tone === "danger" ? (
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-danger)" }} />
-                  ) : (
-                    <Info className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-warning)" }} />
-                  )}
-                  <span className="text-cs-text-primary">
-                    {outcome.engine.name} — {outcome.excluded ? "Not counted" : outcome.label}
+      {/* ── 2. Each engine's mark beside this variant ── */}
+      <section className="nrg-rsec" aria-labelledby="nrg-rail-cuts">
+        <h3 className="eyebrow" id="nrg-rail-cuts">
+          <Ruler className="w-3.5 h-3.5" aria-hidden="true" />
+          Destabilizing marks · local
+        </h3>
+        <ul className="nrg-cuts" data-testid="energetics-marks">
+          {evidence.readings.map(r => (
+            <li key={r.key} className="nrg-cut" data-active={r.callTone === "danger" || undefined}>
+              <span className="nrg-cut__name">{r.name}</span>
+              <span className="nrg-cut__rule">≥ +{r.strongMark}</span>
+              <span className="nrg-cut__here">
+                {r.ddg !== null
+                  ? `${signedDdg(r.ddg, unit)}${r.callTone === "danger" ? " · this variant is past it" : ""}${!r.counted ? " · not counted" : ""}`
+                  : r.outcome.state === "running"
+                    ? ENGINE_STATE_LABELS.running
+                    : "no value"}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="nrg-step__sub">
+          FoldX publishes no threshold; +1.5 and +0.5 kcal/mol are this app&apos;s marks. The ±1.0 mark for the learned
+          engines is local too. None is a clinical cut-point.
+        </p>
+      </section>
+
+      {/* ── 3. What is missing, and why ── */}
+      {evidence.missing.length > 0 && (
+        <section className="nrg-rsec" aria-labelledby="nrg-rail-missing">
+          <h3 className="eyebrow" id="nrg-rail-missing">
+            <SlidersHorizontal className="w-3.5 h-3.5" aria-hidden="true" />
+            Engines without a value
+          </h3>
+          <ul className="nrg-missing" data-testid="energetics-missing">
+            {evidence.missing.map(r => (
+              <li key={r.key}>
+                <div className="nrg-missing__head">
+                  <span className="nrg-missing__name">{r.name}</span>
+                  <span
+                    className="ev-tier"
+                    data-tone={r.outcome.tone === "danger" ? "danger" : r.outcome.tone === "warn" ? "warning" : "muted"}
+                  >
+                    {r.outcome.label}
                   </span>
                 </div>
-                <p className="text-[10px] leading-relaxed text-cs-text-secondary">{outcome.reason}</p>
-                {outcome.detail && (
-                  // Technical text stays available for diagnosis but is not shown to a clinical
-                  // reader by default: this panel previously rendered raw provider errors,
-                  // HTTP text and container paths directly.
-                  <details className="text-[9.5px]">
-                    <summary className="cursor-pointer text-cs-text-muted select-none">Technical detail</summary>
-                    <p className="mt-1 font-mono break-words text-cs-text-muted">{outcome.detail}</p>
+                <p className="nrg-missing__reason">{absenceText(r)}</p>
+                {r.outcome.detail && (
+                  <details className="nrg-reason__detail">
+                    <summary>Technical detail</summary>
+                    <p>{r.outcome.detail}</p>
                   </details>
                 )}
-              </div>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </section>
       )}
 
-      {/* ── 4. Run provenance ── */}
-      {provenanceRows.length > 0 && (
-        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Computation Provenance
-          </span>
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
-            {provenanceRows.map(row => (
-              <div key={row.label} className="flex justify-between items-center gap-2">
-                <span className="text-cs-text-secondary">{row.label}:</span>
-                <span className="font-mono font-semibold text-cs-text-primary truncate" title={row.value}>{row.value}</span>
+      {/* ── 4. Method ── */}
+      <section className="nrg-rsec" aria-labelledby="nrg-rail-notes">
+        <h3 className="eyebrow" id="nrg-rail-notes">
+          <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
+          Method
+        </h3>
+        <details className="nrg-notes" open>
+          <summary>How to read these estimates</summary>
+          <ul>
+            <li>
+              Destabilization is not pathogenicity. ΔΔG speaks to misfolding and degradation; gain-of-function,
+              dominant-negative and interface variants can be pathogenic and stable.
+            </li>
+            <li>
+              Signs are normalized so positive means destabilizing. DynaMut2 and DDMut report the opposite sign
+              natively; their values are negated before display.
+            </li>
+            <li>
+              Predictor error is of the order of the marks themselves: DDMut reports RMSE 1.84 kcal/mol on its
+              blind test (Zhou 2023). Differences under about 1 kcal/mol between engines are within noise.
+            </li>
+            <li>
+              No calibrated probability is shown. The app has no ΔΔG-to-probability calibration fitted to data,
+              so it reports how many engines pass their own mark and their median instead.
+            </li>
+            <li>
+              RaSP is a lookup, not a calculation: the bundled table covers {RASP_BUNDLED_PROTEINS.toLocaleString("en-GB")} human
+              proteins with experimental structures, so most variants have no RaSP value by design.
+            </li>
+            <li>
+              The engines share inputs (the same template, and for the learned ones overlapping training data),
+              so agreement between them is not independent confirmation.
+            </li>
+          </ul>
+        </details>
+      </section>
+
+      {/* ── 5. Sources ── */}
+      <section className="nrg-rsec" aria-labelledby="nrg-rail-sources">
+        <h3 className="eyebrow" id="nrg-rail-sources">
+          <Database className="w-3.5 h-3.5" aria-hidden="true" />
+          Sources
+        </h3>
+        {evidence.sources.length > 0 ? (
+          <dl className="nrg-kv">
+            {evidence.sources.map(([label, value]) => (
+              <div key={label} className="nrg-kv__row">
+                <dt>{label}</dt>
+                <dd>{value}</dd>
               </div>
             ))}
-          </div>
-        </div>
-      )}
+          </dl>
+        ) : (
+          <p className="nrg-step__sub">The payload carries no run provenance yet.</p>
+        )}
+        <ul className="nrg-refs">
+          {REFERENCES.map(ref => (
+            <li key={ref.doi}>
+              {ref.citation}{" "}
+              <a href={`https://doi.org/${ref.doi}`} target="_blank" rel="noopener noreferrer">
+                doi:{ref.doi}
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
 
-      {/* ── 5. Thermodynamic Reference Parameters ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Gauge className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Physical Reference & Baseline
-        </span>
-
-        <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5 text-[10.5px]">
-          <div className="flex justify-between items-center">
-            <span className="text-cs-text-secondary">Standard Temperature:</span>
-            <span className="font-mono font-semibold text-cs-text-primary">298.15 K (25.0 °C)</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-cs-text-secondary">Solvent pH Baseline:</span>
-            <span className="font-mono font-semibold text-cs-text-primary">7.0 (Physiological)</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-cs-text-secondary">Experimental Uncertainty:</span>
-            {/* Bound to the display unit: this previously stayed in kcal/mol after the user
-                switched the whole tab to kJ/mol. */}
-            <span className="font-mono font-semibold text-cs-text-primary">± {formatDdg(1.2, energyUnit)} (ProTherm)</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── 6. Unit Configuration ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted">
-          Energy Display Units
-        </span>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => updateSetting("energyUnit", "kcal/mol")}
-            aria-pressed={energyUnit === "kcal/mol"}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-mono font-semibold cursor-pointer transition-all ${
-              energyUnit === "kcal/mol"
-                ? "bg-cs-accent-clay text-white border-cs-accent-clay"
-                : "bg-cs-surface-2 text-cs-text-secondary border-cs-border hover:text-cs-text-primary"
-            }`}
-          >
+      {/* ── 6. Display ── */}
+      <section className="nrg-rsec" aria-labelledby="nrg-rail-units">
+        <h3 className="eyebrow" id="nrg-rail-units">Energy units</h3>
+        <div className="nrg-seg" role="group" aria-labelledby="nrg-rail-units">
+          <button type="button" aria-pressed={unit === "kcal/mol"} onClick={() => updateSetting("energyUnit", "kcal/mol")}>
             kcal/mol
           </button>
-          <button
-            type="button"
-            onClick={() => updateSetting("energyUnit", "kJ/mol")}
-            aria-pressed={energyUnit === "kJ/mol"}
-            className={`py-1.5 px-2 rounded-lg border text-[11px] font-mono font-semibold cursor-pointer transition-all ${
-              energyUnit === "kJ/mol"
-                ? "bg-cs-accent-clay text-white border-cs-accent-clay"
-                : "bg-cs-surface-2 text-cs-text-secondary border-cs-border hover:text-cs-text-primary"
-            }`}
-          >
+          <button type="button" aria-pressed={unit === "kJ/mol"} onClick={() => updateSetting("energyUnit", "kJ/mol")}>
             kJ/mol
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 };
