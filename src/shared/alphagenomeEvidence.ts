@@ -11,8 +11,18 @@
  *   • Reported as a Phred rank against all ~9 billion possible hg38 SNVs: 10 = top 10%, 20 = top 1%.
  *   • Attributed by SHAP (expected-gradients approximation); the 18 contributions sum to the raw
  *     score.
- *   • The authors: a research tool, "not sufficient evidence on their own"; prefer ranking metrics
- *     over hard cut-offs. No ClinGen calibration exists, so nothing here maps it to PP3/BP4.
+ *   • No ClinGen calibration exists, so nothing here maps it to PP3/BP4. (An earlier comment quoted
+ *     the authors as calling the scores "not sufficient evidence on their own"; that sentence could
+ *     not be found in the preprint, so no screen attributes it to them.)
+ *
+ * WHAT A RESEARCHER NEEDS FROM IT
+ *   The rank is against all ~9 billion possible SNVs, most of them non-coding, and two of the inputs
+ *   (AlphaMissense, conservation) are the same evidence the Predictors tab already reads. A missense
+ *   change can therefore rank in the top 1% on evidence this workspace has already shown. So the
+ *   model splits the score by origin — "new from AlphaGenome" (the ten molecular predictions) versus
+ *   "already read elsewhere" — and the finding leads with that split. The previous finding only
+ *   warned about overlap when AlphaMissense was the single largest group, so a conservation-led score
+ *   (NAE1 p.Asp116Gly: 51% conservation, 26% AlphaMissense) never said 77% of it was re-read evidence.
  *
  * INVARIANTS
  *   • Absent is not zero: an unattributed feature is `null`, a measured 0 is 0.
@@ -77,19 +87,40 @@ export const AVI_GROUP_LABEL: Record<AviFeatureGroup, string> = {
   indicator: "Variant-type indicators",
 };
 
+/**
+ * Where each group's evidence already appears in this workspace. The Predictors tab reads phyloP and
+ * GERP, not Cactus 241-way or PhastCons 470-way: the same kind of evidence, not the same scores.
+ */
 export const AVI_GROUP_NOTE: Record<AviFeatureGroup, string> = {
-  molecular: "AlphaGenome's own predictions — largest effect across biosamples",
-  coding: "already counted on the Predictors tab",
-  conservation: "constraint at the position, not a mechanism",
-  indicator: "fixed by the variant type; not predictions",
+  molecular: "largest predicted effect across biosamples",
+  coding: "also a voting tool on the Predictors tab",
+  conservation: "same kind of evidence as phyloP and GERP; constraint, not mechanism",
+  indicator: "fixed by the variant type, not predicted",
 };
 
-/** Short name of a group, for use inside a sentence. */
-const GROUP_PHRASE: Record<AviFeatureGroup, string> = {
-  molecular: "AlphaGenome's predicted molecular effects",
+/** New evidence (AlphaGenome's own predictions) versus evidence this workspace already reads. */
+export type AviOrigin = "new" | "reused";
+export const AVI_ORIGIN: Record<AviFeatureGroup, AviOrigin> = {
+  molecular: "new",
+  coding: "reused",
+  conservation: "reused",
+  indicator: "reused",
+};
+export const AVI_ORIGIN_LABEL: Record<AviOrigin, string> = {
+  new: "New from AlphaGenome",
+  reused: "Already read elsewhere",
+};
+export const AVI_ORIGIN_NOTE: Record<AviOrigin, string> = {
+  new: "its ten predicted molecular effects",
+  reused: "the same evidence as the Predictors tab, not independent of it",
+};
+
+/** Short names for the composition bar and sentence. */
+export const AVI_GROUP_SHORT: Record<AviFeatureGroup, string> = {
+  molecular: "new from AlphaGenome",
   coding: "AlphaMissense",
   conservation: "conservation",
-  indicator: "the variant-type indicators",
+  indicator: "variant type",
 };
 
 // ── Reading ─────────────────────────────────────────────────────────────────────────────────────
@@ -105,6 +136,13 @@ export interface AviGroupReading {
   group: AviFeatureGroup;
   rows: AviFeatureReading[];
   /** Summed |shap| of the group as a fraction of the total, or null when nothing is attributed. */
+  share: number | null;
+}
+
+export interface AviOriginReading {
+  origin: AviOrigin;
+  /** Largest |contribution| first, unattributed last. */
+  rows: AviFeatureReading[];
   share: number | null;
 }
 
@@ -131,6 +169,12 @@ export interface AlphaGenomeEvidence {
   totalAbs: number | null;
   largest: AviFeatureReading | null;
   dominantGroup: AviGroupReading | null;
+  /** The score split by origin, new first; null when no feature vector arrived. */
+  origins: AviOriginReading[] | null;
+  /** Share of the summed |contribution| from AlphaGenome's own predictions. */
+  newShare: number | null;
+  /** The largest non-zero AlphaGenome molecular contribution. */
+  largestMolecular: AviFeatureReading | null;
   splicing: AviFeatureReading | null;
   atlas: AviAtlasTarget | null;
   /** Gene-level Atlas search, when no GRCh38 coordinate is known. */
@@ -223,6 +267,8 @@ export function buildAlphaGenomeEvidence({
   let totalAbs: number | null = null;
   let largest: AviFeatureReading | null = null;
   let dominantGroup: AviGroupReading | null = null;
+  let origins: AviOriginReading[] | null = null;
+  let largestMolecular: AviFeatureReading | null = null;
 
   const rowsAll: AviFeatureReading[] = AVI_FEATURES.map(def => ({ ...def, shap: extractShap(def, attributions), share: null }));
 
@@ -257,6 +303,23 @@ export function buildAlphaGenomeEvidence({
     }
   }
 
+  if (groups) {
+    const byMagnitude = (a: AviFeatureReading, b: AviFeatureReading) => {
+      if (a.shap === null && b.shap === null) return 0;
+      if (a.shap === null) return 1;
+      if (b.shap === null) return -1;
+      return Math.abs(b.shap) - Math.abs(a.shap);
+    };
+    origins = (["new", "reused"] as AviOrigin[]).map(origin => {
+      const members = groups!.filter(g => AVI_ORIGIN[g.group] === origin);
+      const rows = members.flatMap(g => g.rows).sort(byMagnitude);
+      const attributed = members.some(g => g.share !== null);
+      return { origin, rows, share: attributed ? members.reduce((s, g) => s + (g.share ?? 0), 0) : null };
+    });
+    largestMolecular =
+      origins[0].rows.find(r => r.shap !== null && r.shap !== 0) ?? null;
+  }
+
   const splicing = attributions ? rowsAll.find(r => r.id === "MERGED_SPLICING") ?? null : null;
   const gene = result?.metadata?.gene ?? "";
 
@@ -272,6 +335,9 @@ export function buildAlphaGenomeEvidence({
     totalAbs,
     largest,
     dominantGroup,
+    origins,
+    newShare: origins ? origins[0].share : null,
+    largestMolecular,
     splicing,
     atlas: resolveAtlasTarget(result, alphagenome),
     atlasSearchUrl: `https://deepmind.google.com/science/alphagenome/atlas/variant?q=${encodeURIComponent(gene)}`,
@@ -298,27 +364,58 @@ export function fmtShare(s: number): string {
 }
 
 /**
- * The finding's one sentence about composition. Returns null when no feature vector arrived —
- * the tab states that absence on its own line.
+ * The finding: a bold headline saying where the score comes from, and one sentence with the split.
+ * Returns null when no feature vector arrived — the tab states that absence on its own line.
  */
-export function compositionSentence(ev: AlphaGenomeEvidence): string | null {
-  if (!ev.groups) return null;
-  if (!ev.largest || !ev.dominantGroup || ev.dominantGroup.share === null) {
-    return "No feature contributed to the score: every attribution is zero.";
+export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail: string } | null {
+  if (!ev.groups || !ev.origins) return null;
+  if (!ev.largest || ev.totalAbs === null || ev.totalAbs === 0) {
+    return { headline: "No feature contributed to the score.", detail: "Every attribution is zero." };
   }
-  const g = ev.dominantGroup;
-  const lead = g.share! >= 0.5 ? "Most of the score" : "The largest share of the score";
-  const top = g.rows.find(r => r.shap !== null && r.shap !== 0) ?? ev.largest;
-  const named = g.group === "coding" ? "" : ` — led by ${top.name} (${fmtSigned(top.shap as number)})`;
-  const coda =
-    g.group === "conservation"
-      ? ". That says the position is constrained; it does not name a molecular route."
-      : g.group === "coding"
-      ? ` (${fmtSigned(top.shap as number)}), which the Predictors tab already counts — so this is not independent of it.`
-      : g.group === "indicator"
-      ? ". Those are fixed by the variant type, not predictions about this change."
-      : ".";
-  return `${lead} (${fmtShare(g.share!)}) comes from ${GROUP_PHRASE[g.group]}${named}${coda}`;
+  const newShare = ev.newShare ?? 0;
+  const reused = ev.groups
+    .filter(g => AVI_ORIGIN[g.group] === "reused" && g.share !== null && g.share >= 0.005)
+    .sort((a, b) => (b.share as number) - (a.share as number));
+  const reusedShare = 1 - newShare;
+  const reusedList = reused.map(g => `${AVI_GROUP_SHORT[g.group]} (${fmtShare(g.share as number)})`);
+  const joined =
+    reusedList.length <= 1 ? reusedList.join("") : `${reusedList.slice(0, -1).join(", ")} and ${reusedList[reusedList.length - 1]}`;
+  const lm = ev.largestMolecular;
+  // Common nouns read lower-case mid-sentence; assay names (CAGE, RNA-seq, TF binding) keep theirs.
+  const lmName = lm ? (/^(Splicing|Polyadenylation|Histone marks)$/.test(lm.name) ? lm.name.toLowerCase() : lm.name) : "";
+  const led = lm ? `, led by ${lmName} (${fmtSigned(lm.shap as number)})` : "";
+
+  if (newShare >= 0.5) {
+    return {
+      headline: "Mostly AlphaGenome's own predictions.",
+      detail:
+        `${fmtShare(newShare)} of the score comes from AlphaGenome's predicted molecular effects${led}.` +
+        (reused.length ? ` The rest comes from ${joined}, which the Predictors tab already reflects.` : ""),
+    };
+  }
+  return {
+    headline: "Mostly evidence this workspace already reads.",
+    detail:
+      `${fmtShare(reusedShare)} of the score comes from ${joined}, which the Predictors tab already reflects. ` +
+      (newShare === 0 || !lm
+        ? "AlphaGenome's own molecular predictions add nothing to it."
+        : `AlphaGenome's own molecular predictions add ${fmtShare(newShare)}${led}.`),
+  };
+}
+
+/**
+ * The rank decade a Phred falls in, for surfaces that shade many scores at once (the saturation
+ * heatmap, the Landscape inspector). Level 0 = below the top 10%, 4 = top 0.01% or rarer. These are
+ * the decades of the Phred definition itself, not evidence thresholds: they replaced the app-defined
+ * "PP3 Strong ≥ 35 … BP4 Moderate ≤ 5" bands those surfaces drew, which no ClinGen calibration backs.
+ */
+export function aviRankBand(phred: number | null | undefined): { level: 0 | 1 | 2 | 3 | 4; label: string } | null {
+  if (phred === null || phred === undefined || !Number.isFinite(phred) || phred < 0) return null;
+  if (phred >= 40) return { level: 4, label: "top 0.01%" };
+  if (phred >= 30) return { level: 3, label: "top 0.1%" };
+  if (phred >= 20) return { level: 2, label: "top 1%" };
+  if (phred >= 10) return { level: 1, label: "top 10%" };
+  return { level: 0, label: "below the top 10%" };
 }
 
 /** Phred → rank reference rows for the rail. */

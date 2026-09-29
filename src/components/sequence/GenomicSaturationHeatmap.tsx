@@ -6,7 +6,7 @@ import {
   AlphaGenomeSaturationPosition,
   AlphaGenomeSaturationVariant
 } from "../../shared/contracts";
-import { THRESHOLDS } from "../../shared/thresholds";
+import { aviRankBand } from "../../shared/alphagenomeEvidence";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import {
   MAX_SATURATION_REGION_BP,
@@ -17,6 +17,22 @@ import {
   isDensityPoint,
   type DensityGuide
 } from "./DensityTrack";
+
+/** One clay ramp by rank decade (aviRankBand level 0–4). Tokens only; no red/green, no ACMG bands. */
+const RANK_CELL_CLASS: Record<0 | 1 | 2 | 3 | 4, string> = {
+  0: "bg-cs-accent-clay/5 border-cs-border-subtle/40",
+  1: "bg-cs-accent-clay/20 border-cs-accent-clay/20",
+  2: "bg-cs-accent-clay/45 border-cs-accent-clay/40",
+  3: "bg-cs-accent-clay/75 border-cs-accent-clay/70",
+  4: "bg-cs-accent-clay border-cs-accent-clay"
+};
+const RANK_LEGEND: Array<{ level: 0 | 1 | 2 | 3 | 4; label: string }> = [
+  { level: 4, label: "top 0.01%" },
+  { level: 3, label: "top 0.1%" },
+  { level: 2, label: "top 1%" },
+  { level: 1, label: "top 10%" },
+  { level: 0, label: "below" }
+];
 
 export interface GenomicSaturationHeatmapProps {
   chrom?: string | null;
@@ -44,7 +60,6 @@ interface SaturationCellProps {
   base: Base;
   refBase: Base;
   phred: number | null;
-  acmgStrength: string;
   colorClass: string;
   isQueryVariant: boolean;
   isFocusable: boolean;
@@ -66,7 +81,6 @@ const SaturationCell = memo(function SaturationCell({
   base,
   refBase,
   phred,
-  acmgStrength,
   colorClass,
   isQueryVariant,
   isFocusable,
@@ -78,7 +92,9 @@ const SaturationCell = memo(function SaturationCell({
   const isRef = base === refBase;
   const label = isRef
     ? `Reference Base: ${base} at ${chromLabel}:${pos}`
-    : `${chromLabel}:${pos} ${refBase}>${base} | Phred: ${phred !== null ? phred.toFixed(1) : "N/A"} (${acmgStrength})`;
+    : phred !== null
+      ? `${chromLabel}:${pos} ${refBase}>${base} | Phred ${phred.toFixed(1)}, ${aviRankBand(phred)?.label ?? "no rank"} of all possible SNVs`
+      : `${chromLabel}:${pos} ${refBase}>${base} | no score returned`;
 
   return (
     <button
@@ -263,37 +279,18 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     };
   }, [regionParams, reloadKey]);
 
-  // Map ClinGen ACMG strength or continuous Phred to color classes
+  // Shade by rank decade on one clay ramp. The AVI has no ClinGen calibration, so this grid draws
+  // no PP3/BP4 colours: it used to paint Phred ≥ 35 / 25 / 15 as PP3 Strong / Moderate / Supporting
+  // and ≤ 8 / 5 as BP4, while the AlphaGenome tab said the score counts toward no criterion.
   const getCellColor = (phred: number | null | undefined, isRef: boolean): string => {
     if (isRef) {
       return "bg-cs-surface-2 text-cs-text-muted/60 border-cs-border-subtle/40";
     }
-    if (phred === null || phred === undefined || isNaN(phred) || phred < 0) {
+    const band = aviRankBand(phred);
+    if (!band) {
       return "bg-cs-bg-subtle text-cs-text-muted/40 border-cs-border-subtle/30";
     }
-
-    if (phred >= THRESHOLDS.alphagenome.pathogenicStrong) {
-      // PP3_Strong (>= 35 Phred): Deep Crimson
-      return "bg-rose-700 text-white border-rose-800 shadow-xs";
-    }
-    if (phred >= THRESHOLDS.alphagenome.pathogenicModerate) {
-      // PP3_Moderate (>= 25 Phred): Coral / Red
-      return "bg-rose-500 text-white border-rose-600";
-    }
-    if (phred >= THRESHOLDS.alphagenome.pathogenicSupporting) {
-      // PP3_Supporting (>= 15 Phred): Amber / Orange (High contrast dark text on amber)
-      return "bg-amber-500 text-slate-950 font-semibold border-amber-600";
-    }
-    if (phred > THRESHOLDS.alphagenome.benign) {
-      // Indeterminate (8 - 15 Phred): Muted slate
-      return "bg-slate-500/25 text-slate-300 border-slate-500/30";
-    }
-    if (phred > THRESHOLDS.alphagenome.benignModerate) {
-      // BP4_Supporting (5 - 8 Phred): Sage Green
-      return "bg-emerald-600/50 text-emerald-200 border-emerald-600/30";
-    }
-    // BP4_Moderate (<= 5 Phred): Bright Emerald Green
-    return "bg-emerald-500/80 text-white border-emerald-600";
+    return RANK_CELL_CLASS[band.level];
   };
 
   const positions = data?.positions || [];
@@ -346,7 +343,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
         alt: base,
         isRef: base === posData.ref,
         phred: variant?.phred ?? null,
-        acmgStrength: variant?.acmgStrength ?? "indeterminate",
+        rankBand: aviRankBand(variant?.phred)?.label ?? null,
         topModality: variant?.topModality ?? posData.topModality ?? null,
         codonIndex: posData.codonIndex,
         codonPosition: posData.codonPosition,
@@ -442,49 +439,33 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     [orderedPositions, metricMode]
   );
 
+  // Guides at the rank decades — the Phred definition itself (10 = top 10%, 20 = top 1%), not
+  // evidence thresholds.
   const densityGuides: DensityGuide[] = [
-    {
-      value: THRESHOLDS.alphagenome.pathogenicSupporting,
-      color: "var(--cs-warn)",
-      label: `PP3 Supp ${THRESHOLDS.alphagenome.pathogenicSupporting}`
-    },
-    {
-      value: THRESHOLDS.alphagenome.pathogenicModerate,
-      color: "var(--cs-accent-clay)",
-      label: `PP3 Mod ${THRESHOLDS.alphagenome.pathogenicModerate}`
-    },
-    {
-      value: THRESHOLDS.alphagenome.pathogenicStrong,
-      color: "var(--cs-accent-clay)",
-      label: `PP3 Strong ${THRESHOLDS.alphagenome.pathogenicStrong}`
-    }
+    { value: 10, color: "var(--cs-border)", label: "top 10%" },
+    { value: 20, color: "var(--cs-text-muted)", label: "top 1%" },
+    { value: 30, color: "var(--cs-accent-clay)", label: "top 0.1%" }
   ];
 
-  const densitySummary = `AlphaGenome Phred intolerance density across ${orderedPositions.length} genomic positions, ${
+  const densitySummary = `AlphaGenome AVI rank across ${orderedPositions.length} genomic positions, ${
     metricMode === "mean" ? "mean" : "maximum"
-  } per position. Scale 0 to 45 Phred. Reference lines at PP3 supporting ${THRESHOLDS.alphagenome.pathogenicSupporting}, moderate ${THRESHOLDS.alphagenome.pathogenicModerate} and strong ${THRESHOLDS.alphagenome.pathogenicStrong}. Positions with no returned score are left as gaps.`;
+  } Phred per position. Scale 0 to 45 Phred. Reference lines at the top 10%, 1% and 0.1% of all possible SNVs. Positions with no returned score are left as gaps.`;
 
   // Spoken once for the whole grid, so a screen-reader gets the shape of the region without
   // traversing twenty thousand cells.
   const tierSummary = useMemo(() => {
-    let strong = 0;
-    let moderate = 0;
-    let supporting = 0;
-    let benign = 0;
+    const counts = [0, 0, 0, 0, 0];
     let scored = 0;
     for (const position of orderedPositions) {
       for (const base of NUCLEOTIDES) {
         if (base === position.ref) continue;
-        const phred = position.variants[base]?.phred;
-        if (!isDensityPoint(phred)) continue;
+        const band = aviRankBand(position.variants[base]?.phred);
+        if (!band) continue;
         scored += 1;
-        if (phred >= THRESHOLDS.alphagenome.pathogenicStrong) strong += 1;
-        else if (phred >= THRESHOLDS.alphagenome.pathogenicModerate) moderate += 1;
-        else if (phred >= THRESHOLDS.alphagenome.pathogenicSupporting) supporting += 1;
-        else if (phred <= THRESHOLDS.alphagenome.benignModerate) benign += 1;
+        counts[band.level] += 1;
       }
     }
-    return `${scored} substitutions scored: ${strong} PP3 strong, ${moderate} moderate, ${supporting} supporting, ${benign} BP4 benign.`;
+    return `${scored} substitutions scored: ${counts[4] + counts[3]} in the top 0.1% of all possible SNVs, ${counts[2]} more in the top 1%, ${counts[1]} more in the top 10%.`;
   }, [orderedPositions]);
 
   return (
@@ -706,7 +687,6 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                               base={base}
                               refBase={posData.ref}
                               phred={phred}
-                              acmgStrength={variant?.acmgStrength || "indeterminate"}
                               colorClass={getCellColor(phred, isRef)}
                               isQueryVariant={isQueryVariant}
                               isFocusable={Boolean(
@@ -761,7 +741,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                           Phred: {hoveredCell.variant?.phred !== null && hoveredCell.variant?.phred !== undefined ? hoveredCell.variant.phred.toFixed(2) : "N/A"}
                         </span>
                         <span className="px-1.5 py-0.2 rounded bg-cs-surface border border-cs-border text-[9px]">
-                          Tier: {hoveredCell.variant?.acmgStrength || "indeterminate"}
+                          Rank: {aviRankBand(hoveredCell.variant?.phred)?.label ?? "no score"}
                         </span>
                         {hoveredCell.variant?.topModality && (
                           <span className="px-1.5 py-0.2 rounded bg-cs-surface border border-cs-border text-cs-text-secondary text-[9px]">
@@ -779,34 +759,17 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                 </div>
               )}
 
-              {/* ClinGen ACMG Color Legend Bar */}
+              {/* Rank legend: decades of the genome-wide rank, not ACMG bands */}
               <div className="flex items-center justify-between gap-2 pt-2 border-t border-cs-border-subtle/60 text-[9px] font-mono text-cs-text-muted flex-wrap">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <span className="font-bold uppercase tracking-wider text-cs-text-secondary">ClinGen Phred:</span>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded bg-rose-700"></span>
-                    <span>Strong (≥35)</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded bg-rose-500"></span>
-                    <span>Mod (≥25)</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded bg-amber-500"></span>
-                    <span>Supp (≥15)</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded bg-slate-500/25"></span>
-                    <span>Indet (&gt;8–15)</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded bg-emerald-600/50"></span>
-                    <span>BP4 Supp (&gt;5–8)</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded bg-emerald-500/80"></span>
-                    <span>BP4 Mod (≤5)</span>
-                  </div>
+                  <span className="font-bold uppercase tracking-wider text-cs-text-secondary">Genome-wide rank:</span>
+                  {RANK_LEGEND.map(item => (
+                    <div key={item.label} className="flex items-center gap-1">
+                      <span className={`w-2.5 h-2.5 rounded border ${RANK_CELL_CLASS[item.level]}`}></span>
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                  <span>· not an ACMG band</span>
                 </div>
 
                 <span className="text-[8.5px] italic text-cs-text-muted">
