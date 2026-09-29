@@ -19,7 +19,7 @@ import {
   evaluatePopEve,
   insilicoVoteOutcome,
 } from "../thresholds";
-import { buildPredictorEvidence, predictorFinding } from "../predictorEvidence";
+import { buildPredictorEvidence, predictorFinding, predictorSummary } from "../predictorEvidence";
 
 /** The scores on the screenshots the redesign was reviewed against. */
 function gzf1(overrides: Record<string, any> = {}) {
@@ -218,6 +218,108 @@ describe("buildPredictorEvidence — GZF1 p.Arg591Trp", () => {
     expect(loading.pending).toBe(true);
     const done = buildPredictorEvidence({ result: gzf1({ esm2Eval: null, esm2: null }) });
     expect(done.readings.find(r => r.key === "esm2_3b")!.availability.state).toBe("absent");
+  });
+});
+
+describe("predictorSummary — one line for every engine and reference state", () => {
+  const summary = (overrides: Record<string, any>, extra: Record<string, unknown> = {}) =>
+    predictorSummary(buildPredictorEvidence({ result: gzf1(overrides), ...extra }));
+  const record = (...codes: string[]) => ({ ruleBasedInsights: { acmgCriteria: codes.map(code => ({ code, reason: "" })) } });
+  const scores = (patch: Record<string, unknown>) => ({ conservationData: { ...gzf1().conservationData, ...patch } });
+  const ADVICE = "ClinGen advises one pre-specified calibrated tool over a count of correlated ones.";
+
+  it("recorded, reference opposes: says both in the lead and warns", () => {
+    const s = summary(record("PP3"));
+    expect(s).toMatchObject({ state: "recorded", tone: "warning" });
+    expect(s.lead).toBe("The engine recorded PP3 from a 4 to 1 vote, but REVEL, the calibrated reference, reads BP4.");
+    expect(s.rest).toEqual([ADVICE]);
+  });
+
+  it("recorded, reference agrees: no warning, the reference's own strength named", () => {
+    const s = summary({ ...record("PP3"), ...scores({ revel: 0.8 }) });
+    expect(s).toMatchObject({ state: "recorded", tone: "neutral" });
+    expect(s.lead).toBe("The engine recorded PP3 from a 5 to 0 vote, and REVEL, the calibrated reference, agrees (PP3 Moderate).");
+    expect(s.rest).toEqual([]);
+  });
+
+  it("recorded, reference between its bands: says the vote rests on weaker tools, no warning", () => {
+    const s = summary({ ...record("PP3"), ...scores({ revel: 0.5 }) });
+    expect(s.tone).toBe("neutral");
+    expect(s.rest[0]).toMatch(/^REVEL, the calibrated reference, sits between its bands/);
+    expect(s.rest[0]).toMatch(/rests on uncalibrated or weaker tools/);
+  });
+
+  it("falls back to BayesDel when REVEL is absent", () => {
+    const s = summary({ ...record("PP3"), ...scores({ revel: null, bayesdel: -0.4 }) });
+    expect(s.lead).toMatch(/but BayesDel, the calibrated reference, reads BP4 Moderate\.$/);
+  });
+
+  it("no calibrated tool at all: says so, never implies agreement", () => {
+    const s = summary({ ...record("PP3"), ...scores({ revel: null, bayesdel: null }) });
+    expect(s.tone).toBe("neutral");
+    expect(s.rest).toEqual(["Neither REVEL nor BayesDel scored this variant, so there is no calibrated reading to set beside the vote."]);
+  });
+
+  it("calibrated tool still running: says pending, not absent", () => {
+    const s = summary({ ...record("PP3"), ...scores({ revel: null, bayesdel: null }) }, { isLoading: true });
+    expect(s.rest.join(" ")).toMatch(/still being computed/);
+    expect(s.rest.join(" ")).not.toMatch(/Neither REVEL nor BayesDel scored/);
+  });
+
+  it("no engine record: the vote's code is called unconfirmed", () => {
+    const s = summary({});
+    expect(s.state).toBe("unconfirmed");
+    expect(s.lead).toMatch(/^The vote supports PP3, 4 to 1, but REVEL/);
+    expect(s.rest[0]).toBe("This result carries no engine record to confirm it against.");
+  });
+
+  it("withheld by the weighting: named, and warned", () => {
+    const s = summary({ metadata: { acmgWeighting: "strict-structural" }, ...record() });
+    expect(s).toMatchObject({ state: "withheld", tone: "warning" });
+    expect(s.lead).toBe("The vote supports PP3, 4 to 1, but the engine recorded no in-silico criterion.");
+    expect(s.rest[0]).toBe("The strict-structural ACMG weighting withholds it.");
+    expect(s.rest).toContain("REVEL, the calibrated reference, reads BP4, the other way from the vote.");
+  });
+
+  it("an earlier engine's stronger code: says the record is stale", () => {
+    const s = summary(record("PP3_Moderate"));
+    expect(s).toMatchObject({ state: "stale", tone: "warning" });
+    expect(s.lead).toBe("The engine recorded PP3 Moderate where the current rule gives PP3 (4 to 1).");
+    expect(s.rest[0]).toMatch(/earlier engine; re-run the analysis/);
+  });
+
+  it("an earlier engine recorded nothing the current rule would give: stale, not withheld", () => {
+    const s = summary(record());
+    expect(s.state).toBe("stale");
+    expect(s.lead).toBe("The engine recorded no PP3 or BP4 where the current rule gives PP3 (4 to 1).");
+  });
+
+  it("a tie, with the calibrated reference reaching a band: no criterion, and the reference flagged", () => {
+    const s = summary({ predictorData: { caddPhred: 29.5 }, conservationData: { revel: 0.234 }, ...record() });
+    expect(s).toMatchObject({ state: "none", tone: "warning" });
+    expect(s.lead).toBe("No PP3 or BP4: pathogenic and benign calls are tied, 1 each.");
+    expect(s.rest[0]).toBe("REVEL, the calibrated reference, reads BP4 on its own, which the vote does not reflect.");
+  });
+
+  it("every scored voter indeterminate: no criterion", () => {
+    const s = summary({ predictorData: { caddPhred: 24 }, conservationData: { bayesdel: 0.0 }, ...record() });
+    expect(s.lead).toBe("No PP3 or BP4: all 2 scored voting tools sit in their indeterminate range.");
+  });
+
+  it("nothing scored: one sentence, no second word about the missing reference", () => {
+    const s = summary({ predictorData: {}, conservationData: {}, ...record() });
+    expect(s.lead).toBe("No PP3 or BP4: no voting tool scored this variant.");
+    expect(s.rest).toEqual([]);
+    expect(s.tone).toBe("neutral");
+  });
+
+  it("a benign vote the reference agrees with", () => {
+    const s = summary({
+      predictorData: { caddPhred: 10, amPathogenicity: 0.05 },
+      conservationData: { revel: 0.1, bayesdel: -0.4, metarnn: 0.1, clinpred: 0.1 },
+      ...record("BP4"),
+    });
+    expect(s.lead).toBe("The engine recorded BP4 from a 6 to 0 vote, and REVEL, the calibrated reference, agrees (BP4 Moderate).");
   });
 });
 

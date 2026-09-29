@@ -29,6 +29,7 @@ import {
   calibratedCall,
   calibrationBands,
   countPredictorConcordance,
+  formatEvidenceCode,
   insilicoVoteOutcome,
   type CalibratedCall,
   type CalibratedToolKey,
@@ -841,3 +842,140 @@ export function predictorFinding(evidence: PredictorEvidence): { headline: strin
       };
   }
 }
+
+/**
+ * The finding card's one summary line: what the engine recorded, how the vote relates to it, and
+ * what the calibrated reference reads beside it — the three facts a curator needs, said ONCE.
+ *
+ * It replaced a card that stated the count four times (figure, caption, finding sentence, legend)
+ * and REVEL's reading three times (a full-width yellow banner, a meta line, the table), while never
+ * saying in words when the engine record and the current rule disagreed (only the rail did).
+ *
+ * `tone` is "warning" exactly when a curator must reconcile two readings: the calibrated reference
+ * reaches a band the vote does not, the weighting withheld the vote's code, or the payload's record
+ * differs from what the current rule gives.
+ */
+export interface PredictorSummary {
+  tone: "warning" | "neutral";
+  /** The bold sentence, ending in a full stop. */
+  lead: string;
+  /** Plain sentences after it, each ending in a full stop. */
+  rest: string[];
+  /** Which engine situation produced the lead — pinned by tests, used for `data-state`. */
+  state: "recorded" | "unconfirmed" | "withheld" | "stale" | "none";
+}
+
+export function predictorSummary(evidence: PredictorEvidence): PredictorSummary {
+  const { vote, engine, reference } = evidence;
+  const code = (c: string) => formatEvidenceCode(c);
+  const count =
+    vote.direction === "pathogenic" ? `${vote.nPathogenic} to ${vote.nBenign}`
+    : vote.direction === "benign" ? `${vote.nBenign} to ${vote.nPathogenic}`
+    : null;
+
+  // What the calibrated reference reads, relative to the vote. `joinable` is the short clause
+  // that can close the lead; `sentence` is the same fact standing alone.
+  let refClause: { joinable: string | null; sentence: string; disagrees: boolean; advice: string | null } | null = null;
+  if (reference) {
+    const ref = `${reference.name}, the calibrated reference,`;
+    const band = reference.call.direction ? code(reference.call.code) : null;
+    switch (reference.relation) {
+      case "agrees":
+        refClause = { joinable: `, and ${ref} agrees (${band})`, sentence: `${ref} agrees: ${band}.`, disagrees: false, advice: null };
+        break;
+      case "opposes":
+        refClause = {
+          joinable: `, but ${ref} reads ${band}`,
+          sentence: `${ref} reads ${band}, the other way from the vote.`,
+          disagrees: true,
+          advice: "ClinGen advises one pre-specified calibrated tool over a count of correlated ones.",
+        };
+        break;
+      case "indeterminate":
+        refClause = {
+          joinable: null,
+          sentence: `${ref} sits between its bands, so on its own it supports neither PP3 nor BP4; the vote's ${vote.code} rests on uncalibrated or weaker tools.`,
+          disagrees: false,
+          advice: null,
+        };
+        break;
+      case "no-vote":
+        refClause = band
+          ? {
+              joinable: null,
+              sentence: `${ref} reads ${band} on its own, which the vote does not reflect.`,
+              disagrees: true,
+              advice: "ClinGen advises one pre-specified calibrated tool over a count of correlated ones.",
+            }
+          : { joinable: null, sentence: `${ref} also sits between its bands.`, disagrees: false, advice: null };
+        break;
+    }
+  } else if (vote.direction !== "no-votes") {
+    // REVEL and BayesDel both vote, so with no votes at all their absence is already said.
+    const pending = evidence.readings.some(x => (x.key === "revel" || x.key === "bayesdel") && x.availability.state === "pending");
+    refClause = {
+      joinable: null,
+      sentence: pending
+        ? "The calibrated reference (REVEL, else BayesDel) is still being computed."
+        : "Neither REVEL nor BayesDel scored this variant, so there is no calibrated reading to set beside the vote.",
+      disagrees: false,
+      advice: null,
+    };
+  }
+
+  const finish = (state: PredictorSummary["state"], clause: string, extra: string[], forceWarn: boolean, joinRef: boolean): PredictorSummary => {
+    const join = joinRef && refClause?.joinable;
+    const lead = `${clause}${join ? refClause!.joinable : ""}.`;
+    const rest = [...extra, ...(join || !refClause ? [] : [refClause.sentence]), ...(refClause?.advice ? [refClause.advice] : [])];
+    return { tone: forceWarn || refClause?.disagrees ? "warning" : "neutral", lead, rest, state };
+  };
+
+  // 1. No engine record in the payload: the vote's code is shown, and called unconfirmed.
+  if (!engine.known) {
+    if (vote.code) {
+      return finish("unconfirmed", `The vote supports ${vote.code}, ${count}`, ["This result carries no engine record to confirm it against."], false, true);
+    }
+    return finish("none", noCriterion(vote), [], false, false);
+  }
+
+  // 2. The weighting withheld the vote's code.
+  if (engine.withheldByWeighting) {
+    return finish(
+      "withheld",
+      `The vote supports ${vote.code}, ${count}, but the engine recorded no in-silico criterion`,
+      [`The ${engine.weighting} ACMG weighting withholds it.`],
+      true,
+      false,
+    );
+  }
+
+  // 3. The record differs from what the current rule gives: an earlier engine classified it.
+  if ((engine.code ?? null) !== vote.code) {
+    const recorded = engine.code ? `recorded ${code(engine.code)}` : "recorded no PP3 or BP4";
+    const current = vote.code ? `${vote.code}${count ? ` (${count})` : ""}` : "neither PP3 nor BP4";
+    return finish(
+      "stale",
+      `The engine ${recorded} where the current rule gives ${current}`,
+      ["This result was classified by an earlier engine; re-run the analysis to refresh it."],
+      true,
+      false,
+    );
+  }
+
+  // 4. The record matches the vote.
+  if (engine.code) {
+    return finish("recorded", `The engine recorded ${code(engine.code)} from a ${count} vote`, [], false, true);
+  }
+  return finish("none", noCriterion(vote), [], false, false);
+}
+
+/** The lead when the vote supports no criterion: why, in one clause. */
+function noCriterion(vote: InsilicoVoteOutcome): string {
+  if (vote.direction === "no-votes") return "No PP3 or BP4: no voting tool scored this variant";
+  if (vote.nPathogenic === 0) {
+    return `No PP3 or BP4: all ${vote.nVoting} scored voting ${vote.nVoting === 1 ? "tool sits" : "tools sit"} in their indeterminate range`;
+  }
+  const tail = vote.nIndeterminate > 0 ? `, with ${vote.nIndeterminate} indeterminate` : "";
+  return `No PP3 or BP4: pathogenic and benign calls are tied, ${vote.nPathogenic} each${tail}`;
+}
+

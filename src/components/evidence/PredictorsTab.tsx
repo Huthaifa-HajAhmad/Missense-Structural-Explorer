@@ -12,7 +12,7 @@ import {
   PREDICTOR_GROUP_NOTE,
   buildPredictorEvidence,
   groupReadings,
-  predictorFinding,
+  predictorSummary,
   type PredictorEvidence,
   type PredictorReading,
 } from "../../shared/predictorEvidence";
@@ -24,9 +24,11 @@ import { ScoreRuler } from "./predictors/ScoreRuler";
  * ONE QUESTION: what do the computational predictors say about this substitution, and what did the
  * ACMG PP3/BP4 rule make of it? Three tiers, top to bottom — the same shape as Population Data:
  *
- *   1. THE FINDING — the engine's recorded code, the pathogenic–benign count, the finding sentence,
- *      the vote strip (every voting tool, coloured by its call), and the calibrated single-tool
- *      reading ClinGen recommends, stated beside the vote whenever the two disagree.
+ *   1. THE FINDING — a header bar with the engine's recorded code; ONE summary line (engine record,
+ *      vote, calibrated reference, and any disagreement in words); then two rows to compare, the
+ *      vote as a tally bar and the calibrated single tool ClinGen recommends on its own ruler, each
+ *      ending in the code it supports. This replaced a card that stated the count four times,
+ *      REVEL's reading three times (one a full-width yellow banner) and every voter's score twice.
  *   2. READINGS — one table, every tool a row: score, its position on its own axis with its
  *      cut-points drawn by provenance, and its call. Grouped by role: the tools that vote, then the
  *      informational ones. This replaced a 4-tab card grid that showed one family at a time, so the
@@ -37,6 +39,8 @@ import { ScoreRuler } from "./predictors/ScoreRuler";
  *   • The engine's decision is READ from its criteria list; a code the payload does not carry is
  *     drawn dashed and called unconfirmed, never asserted.
  *   • A cut-point is always shown with its provenance — ClinGen, the authors', local, or none.
+ *   • Each fact is stated once on the card: scores live in the table, the count in the tally bar,
+ *     the reference's reading in its row. The summary line says what they mean together.
  */
 
 const CUT_SOURCE_LABEL: Record<PredictorReading["cutpoints"]["kind"], string> = {
@@ -58,7 +62,7 @@ function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
         data-testid="predictor-verdict"
         title={code ? "The in-silico criterion the engine recorded for this run" : "The engine recorded no PP3 or BP4 for this run"}
       >
-        {code ?? "No PP3 / BP4"}
+        {code ? formatEvidenceCode(code) : "No PP3 / BP4"}
       </span>
     );
   }
@@ -83,58 +87,134 @@ function EngineChip({ evidence }: { evidence: PredictorEvidence }) {
   );
 }
 
-/** Every voting tool as one cell, pathogenic → indeterminate → benign → no score. */
-function VoteStrip({ evidence }: { evidence: PredictorEvidence }) {
-  const { voters } = evidence;
-  const ordered: Array<{ r: PredictorReading; call: "path" | "vus" | "benign" | "none" }> = [
-    ...voters.pathogenic.map(r => ({ r, call: "path" as const })),
-    ...voters.indeterminate.map(r => ({ r, call: "vus" as const })),
-    ...voters.benign.map(r => ({ r, call: "benign" as const })),
-    ...voters.missing.map(r => ({ r, call: "none" as const })),
-  ];
-  if (ordered.length === 0) return null;
-  const word = { path: "pathogenic", vus: "indeterminate", benign: "benign", none: "no score" };
+const CALL_WORD = { path: "pathogenic", vus: "indeterminate", benign: "benign", none: "not scored" } as const;
+type VoteCall = keyof typeof CALL_WORD;
+
+/** The chip that closes a finding row: a code in its tone, or a plain word. */
+function RowChip({ code, testId }: { code: string | null; testId: string }) {
+  if (!code) return <span className="ev-tier" data-tone="neutral" data-testid={testId}>Neither</span>;
+  const direction = code.startsWith("PP3") ? "danger" : code.startsWith("BP4") ? "good" : "neutral";
   return (
-    <div className="prd-vote">
-      <ol className="prd-vote__strip" aria-label="Voting tools by call">
-        {ordered.map(({ r, call }) => (
-          <li
-            key={r.key}
-            className="prd-vote__cell"
-            data-call={call}
-            title={`${r.name}: ${r.scoreText} — ${r.callLabel}`}
-          >
-            <span className="prd-vote__name">{r.name}</span>
-            <span className="prd-vote__score">{r.scoreText}</span>
-            <span className="sr-only">, {word[call]}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="prd-vote__legend" aria-hidden="true">
-        <span><i className="prd-key" data-call="path" />Pathogenic {evidence.vote.nPathogenic}</span>
-        <span><i className="prd-key" data-call="vus" />Indeterminate {evidence.vote.nIndeterminate}</span>
-        <span><i className="prd-key" data-call="benign" />Benign {evidence.vote.nBenign}</span>
-        {voters.missing.length > 0 && <span><i className="prd-key" data-call="none" />No score {voters.missing.length}</span>}
+    <span className={`ev-tier${direction !== "neutral" ? " chip-code" : ""}`} data-tone={direction} data-testid={testId}>
+      {formatEvidenceCode(code)}
+    </span>
+  );
+}
+
+/**
+ * The vote as one bar: a segment per voting tool, grouped pathogenic → indeterminate → benign →
+ * no score, the tool's name under its segment, and one key line with each group's count. Scores are NOT
+ * repeated here; they live once, in the readings table. This replaced a strip of tinted boxes that
+ * printed every voter's score a second time.
+ */
+function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
+  const { voters, vote } = evidence;
+  const groups: Array<{ call: VoteCall; rows: PredictorReading[] }> = [
+    { call: "path", rows: voters.pathogenic },
+    { call: "vus", rows: voters.indeterminate },
+    { call: "benign", rows: voters.benign },
+    { call: "none", rows: voters.missing },
+  ];
+  const total = groups.reduce((n, g) => n + g.rows.length, 0);
+  const counted = vote.nVoting;
+  return (
+    <div className="prd-frow" data-testid="predictor-vote-row">
+      <div className="prd-frow__label">
+        <span className="prd-frow__name">Vote</span>
+        <span className="prd-frow__sub">
+          {counted} of {total} voting {total === 1 ? "tool" : "tools"} scored · plurality, uncalibrated
+        </span>
+      </div>
+      <div className="prd-frow__body">
+        {total === 0 ? (
+          <span className="prd-dim">No voting tool is configured for this analysis.</span>
+        ) : (
+          <ol className="prd-tally" aria-label="Voting tools by call">
+            {groups
+              .filter(g => g.rows.length > 0)
+              .map(g => (
+                <li key={g.call} className="prd-tally__group" data-call={g.call} style={{ flexGrow: g.rows.length }}>
+                  <ul className="prd-tally__tools">
+                    {g.rows.map(r => (
+                      <li key={r.key} className="prd-tally__tool" title={`${r.name}: ${r.scoreText} — ${r.callLabel}`}>
+                        <i className="prd-tally__seg" aria-hidden="true" />
+                        <span className="prd-tally__name">{r.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+          </ol>
+        )}
+        {total > 0 && (
+          <p className="prd-tally__key" data-testid="predictor-vote-key">
+            {groups
+              .filter(g => g.rows.length > 0)
+              .map(g => (
+                <span key={g.call}>
+                  <i className="prd-tally__swatch" data-call={g.call} aria-hidden="true" />
+                  {g.rows.length} {CALL_WORD[g.call]}
+                </span>
+              ))}
+          </p>
+        )}
+      </div>
+      <div className="prd-frow__call">
+        {vote.direction === "no-votes" ? (
+          <span className="ev-tier" data-tone="muted" data-testid="predictor-vote-call">No votes</span>
+        ) : (
+          <RowChip code={vote.code} testId="predictor-vote-call" />
+        )}
       </div>
     </div>
   );
 }
 
-function ReferenceCallout({ evidence }: { evidence: PredictorEvidence }) {
+/**
+ * The calibrated single tool ClinGen recommends, on its own ruler with its published bands, beside
+ * the vote so a disagreement is visible without a banner. When neither REVEL nor BayesDel has a
+ * score the row says so, rather than disappearing — absence is a state.
+ */
+function ReferenceRow({ evidence }: { evidence: PredictorEvidence }) {
   const ref = evidence.reference;
-  if (!ref || (ref.relation !== "opposes" && ref.relation !== "indeterminate")) return null;
-  const band = ref.call.direction ? `the ${formatEvidenceCode(ref.call.code)} band` : "its indeterminate range";
+  const reading = ref ? evidence.readings.find(r => r.key === ref.key) : null;
+  const pending =
+    !ref && evidence.readings.some(r => (r.key === "revel" || r.key === "bayesdel") && r.availability.state === "pending");
   return (
-    <p className="prd-callout" data-tone={ref.relation === "opposes" ? "warning" : "neutral"} data-testid="reference-callout">
-      <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-      <span>
-        <strong>{ref.name}</strong>, a calibrated tool ClinGen recommends using on its own, reads{" "}
-        <span className="prd-mono">{ref.score.toFixed(3)}</span> — {band} ({ref.source}).{" "}
-        {ref.relation === "opposes"
-          ? `It points the other way from the vote. ClinGen advises one pre-specified calibrated tool over a count of correlated ones.`
-          : `On its own it would support neither PP3 nor BP4; the vote's ${evidence.vote.code} rests on uncalibrated or weaker tools.`}
-      </span>
-    </p>
+    <div className="prd-frow" data-testid="predictor-reference-row" data-relation={ref?.relation ?? "absent"}>
+      <div className="prd-frow__label">
+        <span className="prd-frow__name">Calibrated reference</span>
+        <span className="prd-frow__sub">{ref ? `${ref.name} · ClinGen, ${ref.source}` : "REVEL, else BayesDel · ClinGen"}</span>
+      </div>
+      <div className="prd-frow__body">
+        {ref && reading ? (
+          <>
+            <ScoreRuler reading={reading} />
+            <span className="prd-frow__note">
+              <span className="prd-mono">{reading.scoreText}</span>{" "}
+              {ref.call.direction ? <>sits in the {formatEvidenceCode(ref.call.code)} band</> : "sits between the PP3 and BP4 bands"}
+            </span>
+          </>
+        ) : (
+          <span className="prd-dim">
+            {pending ? "Still being computed for this variant." : "Neither REVEL nor BayesDel scored this variant."}
+          </span>
+        )}
+      </div>
+      <div className="prd-frow__call">
+        {ref ? (
+          ref.call.direction ? (
+            <RowChip code={ref.call.code} testId="predictor-reference-call" />
+          ) : (
+            <span className="ev-tier" data-tone="neutral" data-testid="predictor-reference-call">Indeterminate</span>
+          )
+        ) : (
+          <span className="ev-tier" data-tone={pending ? "neutral" : "muted"} data-testid="predictor-reference-call">
+            {pending ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -265,8 +345,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
     // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
   });
-  const { vote, engine, reference } = evidence;
-  const finding = predictorFinding(evidence);
+  const summary = predictorSummary(evidence);
   const informational = evidence.readings.filter(r => !r.votes && r.score !== null).length;
 
   const openConnections = () => {
@@ -290,73 +369,40 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="prd-card prd-hero" aria-labelledby="prd-finding-title" data-testid="predictor-finding">
-        <div className="prd-hero__body">
-          <div className="prd-hero__top">
-            <span className="eyebrow" id="prd-finding-title">
-              <Cpu className="w-3.5 h-3.5" />
-              ACMG computational evidence · PP3 / BP4
-            </span>
-            <EngineChip evidence={evidence} />
-          </div>
-
-          <div className="prd-hero__figure">
-            <span className="prd-figure" title="Pathogenic calls – benign calls among the voting tools">
-              {vote.nPathogenic}–{vote.nBenign}
-            </span>
-            <span className="prd-hero__figure-label">
-              pathogenic–benign calls among {vote.nVoting} voting {vote.nVoting === 1 ? "tool" : "tools"}
-              {vote.nIndeterminate > 0 ? ` · ${vote.nIndeterminate} indeterminate` : ""}
-            </span>
-          </div>
-
-          <p className="prd-hero__finding">
-            <strong>{finding.headline}</strong>
-            {" — "}
-            {finding.predicate}.
-          </p>
-
-          <VoteStrip evidence={evidence} />
-          <ReferenceCallout evidence={evidence} />
-
-          {engine.withheldByWeighting && (
-            <p className="prd-callout" data-tone="warning">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                The vote supports {vote.code}, but the engine recorded no in-silico criterion — the{" "}
-                {engine.weighting} weighting withholds it.
-              </span>
-            </p>
-          )}
-
-          <dl className="prd-hero__meta">
-            <div>
-              <dt>Calibrated reference</dt>
-              <dd>
-                {reference ? (
-                  <>
-                    {reference.name} <span className="prd-mono">{reference.score.toFixed(3)}</span>
-                    {" → "}
-                    <span className="prd-mono">{reference.call.direction ? formatEvidenceCode(reference.call.code) : "indeterminate"}</span>
-                    <span className="prd-dim"> · {reference.source}</span>
-                  </>
-                ) : (
-                  "REVEL and BayesDel both absent"
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt>Not counted</dt>
-              <dd>{informational} informational {informational === 1 ? "score" : "scores"}</dd>
-            </div>
-          </dl>
+        <div className="prd-hero__head">
+          <span className="eyebrow" id="prd-finding-title">
+            <Cpu className="w-3.5 h-3.5" />
+            ACMG computational evidence · PP3 / BP4
+          </span>
+          <EngineChip evidence={evidence} />
         </div>
 
-        {evidence.pending && (
-          <div role="status" className="prd-callout prd-callout--banner" data-tone="warning">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-            <span>Some scores are still being computed for this variant; the rows marked below may fill in.</span>
-          </div>
-        )}
+        <p className="prd-summary" data-tone={summary.tone} data-state={summary.state} data-testid="predictor-summary">
+          {summary.tone === "warning" ? (
+            <AlertTriangle className="prd-summary__icon w-3.5 h-3.5" aria-label="Needs reconciling" />
+          ) : (
+            <span className="prd-summary__dot" aria-hidden="true" />
+          )}
+          <span>
+            <strong>{summary.lead}</strong>
+            {summary.rest.map(sentence => ` ${sentence}`).join("")}
+          </span>
+        </p>
+
+        <VoteRow evidence={evidence} />
+        <ReferenceRow evidence={evidence} />
+
+        <div className="prd-hero__foot">
+          <span>
+            <strong>Not counted</strong> {informational} informational {informational === 1 ? "score" : "scores"}, listed below
+          </span>
+          {evidence.pending && (
+            <span role="status" className="prd-hero__pending">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              Some scores are still being computed; the rows marked below may fill in.
+            </span>
+          )}
+        </div>
       </section>
 
       {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
