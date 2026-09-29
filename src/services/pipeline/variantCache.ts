@@ -44,8 +44,16 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * short-circuits the server, so a variant viewed before the change would have replayed the invented
  * classification for up to a day without the fixed prompt ever running. The server-side bump cannot
  * reach here: this is sessionStorage on the client, and `workflowOrchestrator` replays it verbatim.
+ *
+ * v4.1: discards bundles whose embedded analysis result was built against a non-canonical reference.
+ * The key is build-free by design (protein notation), so a coordinate that could not be lifted at the
+ * time kept replaying an older coordinate, an older target build and withheld population evidence —
+ * observed as "PM2 withheld: this coordinate's build is not one gnomAD r4 serves" for a variant that
+ * scores PM2 on a fresh run, reached by clicking the same variant in Recents. `isBuildDegradedResult`
+ * now refuses to SERVE such a bundle (and `hasCompleteAnalysis` refuses to short-circuit on it); this
+ * bump also drops the ones already stored whose build signal is missing or predates the lift record.
  */
-export const CACHE_VERSION = "v4.0";
+export const CACHE_VERSION = "v4.1";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

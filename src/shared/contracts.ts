@@ -325,6 +325,55 @@ export function isRetryableLiftRefusal(record: CoordinateLiftRecord | null | und
 }
 
 /**
+ * True when a stored analysis result was built against a NON-CANONICAL reference and is therefore
+ * worth re-running rather than serving.
+ *
+ * WHY A CACHE GUARD NEEDS THIS. The client bundle cache is keyed on protein notation
+ * (`NAE1_p.asp116gly`), deliberately build-free — the substitution is the same whichever build the
+ * coordinates came from. Its embedded analysis result is NOT build-free, because the server assembles
+ * it from coordinate-consuming sources. So a bundle written when a GRCh37 coordinate could not be
+ * lifted is restored for every later spelling of the variant, showing a coordinate chip, a target
+ * build and a population verdict from the older reference: observed in production as "PM2 withheld —
+ * this coordinate's build is not one gnomAD r4 serves" for a variant that scores PM2 on a fresh run.
+ *
+ * The server already refuses to PERSIST this state (`vep-orchestrator`: `shouldCache` is false when
+ * `gnomadVariantAssembly === "GRCh37"`); this is the matching rule for the client cache, which had
+ * none — the asymmetry was the defect.
+ *
+ * RETRYABLE VERSUS DEFINITIVE, again: a lift refused for a reason another attempt could change (an
+ * unanswered map, our own deadline, or a record written before `reasonCode` existed, where the cause
+ * is unknown) is worth re-attempting. A reference discontinuity is a fact about the coordinate, so
+ * serving its bundle is right and re-running would spend a ladder to hear the same answer.
+ */
+export function isBuildDegradedResult(
+  result:
+    | {
+        coordinateLift?: CoordinateLiftRecord | null;
+        predictorData?: { gnomadVariantAssembly?: GenomeAssembly | null } | null;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!result) return false;
+
+  const lift = result.coordinateLift;
+  if (lift?.status === "unavailable") {
+    return lift.reasonCode === undefined || isRetryableLiftRefusal(lift);
+  }
+  // A lift record of any other status settles the build question: lifted (canonical), not-needed
+  // (already canonical) or not-applicable (cDNA/protein — no genomic build involved).
+  if (lift) return false;
+
+  /**
+   * No trail at all: a payload written before the lift record existed. The only build signal left is
+   * the assembly the frequency source was queried with, and a non-canonical value is exactly the state
+   * the predictor cache itself refuses to persist.
+   */
+  const queriedAssembly = result.predictorData?.gnomadVariantAssembly;
+  return Boolean(queriedAssembly) && queriedAssembly !== CANONICAL_ASSEMBLY;
+}
+
+/**
  * The build decision as the ANALYSIS route can establish it — derived, never accepted from the
  * caller.
  *

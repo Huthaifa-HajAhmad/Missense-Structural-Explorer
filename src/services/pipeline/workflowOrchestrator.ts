@@ -22,6 +22,7 @@ import {
   buildHintSchema,
   coordinateLiftSchema,
   genomeAssemblySchema,
+  isBuildDegradedResult,
   numberingChoiceSchema,
   REFUSAL_CODES,
 } from "../../shared/contracts";
@@ -298,7 +299,13 @@ export async function executeFullAnalysisWorkflow({
     };
 
     if (cached) {
-      if (cached.analysisResult) {
+      /**
+       * The same guard as the pre-flight paint in `useAnalysisPipeline`, for the same reason: a bundle
+       * whose evidence was built against a non-canonical reference must not be shown as the current
+       * verdict. This site paints too (the pre-flight only covers the caller that reads the cache
+       * before starting), so both are checked or the stale state returns through the other door.
+       */
+      if (cached.analysisResult && !isBuildDegradedResult(cached.analysisResult)) {
         analysisSink.setAnalysisState({
           isLoading: false,
           error: null,
@@ -415,6 +422,14 @@ export async function executeFullAnalysisWorkflow({
          * refusal attachments are checked through one predicate so the next one cannot be forgotten.
          */
         !isUnansweredRefusal(cached.analysisResult) &&
+        /**
+         * …and a result whose evidence was built against a NON-CANONICAL reference is not a completed
+         * analysis either. Short-circuiting on one kept the older coordinate, the older target build and
+         * the withheld population criterion on screen indefinitely, because the only thing that would
+         * have improved them — the lift performed at intake — never ran. Re-running is the fix, so the
+         * short-circuit has to decline it.
+         */
+        !isBuildDegradedResult(cached.analysisResult) &&
         (cached.analysisResult.predictorData || cached.analysisResult.insights)
       );
 

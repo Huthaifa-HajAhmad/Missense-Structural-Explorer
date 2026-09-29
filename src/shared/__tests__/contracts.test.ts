@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   translateVariantResponseSchema,
   coordinateLiftSchema,
+  isBuildDegradedResult,
   predictorCoordinateFromContext,
   parseGenomicCoordinateString,
   nearestResiduesRequestSchema,
@@ -82,6 +83,56 @@ describe("Shared Zod API Contracts", () => {
 
     // Unknown statuses are refused rather than rendered as an unexplained blank.
     expect(() => coordinateLiftSchema.parse({ status: "maybe", fromAssembly: "GRCh37", toAssembly: "GRCh37" })).toThrow();
+  });
+
+  /**
+   * The cache guard for a build-degraded verdict.
+   *
+   * Observed in production, from the Recents menu: a bundle written when a GRCh37 coordinate could not
+   * be lifted was replayed for the same protein notation, showing an older coordinate chip, an older
+   * target build and "PM2 withheld — this coordinate's build is not one gnomAD r4 serves" — while a
+   * fresh run of the same variant lifts that coordinate and scores PM2. The key is build-free by
+   * design, so the RESULT has to declare when it is not worth serving.
+   *
+   * The retryable/definitive split matters here too: an unanswered map is worth re-attempting, a
+   * reference discontinuity is a fact, and re-running it would spend a ladder to hear the same answer.
+   */
+  it("identifies a build-degraded result, and leaves every settled one alone", () => {
+    const refusedLift = (reasonCode?: string) => ({
+      status: "unavailable" as const,
+      fromAssembly: "GRCh37" as const,
+      toAssembly: "GRCh37" as const,
+      ...(reasonCode ? { reasonCode: reasonCode as any } : {}),
+    });
+
+    // A refused lift that another attempt could change — or one whose cause predates `reasonCode`.
+    expect(isBuildDegradedResult({ coordinateLift: refusedLift("map-unavailable") })).toBe(true);
+    expect(isBuildDegradedResult({ coordinateLift: refusedLift("budget-exceeded") })).toBe(true);
+    expect(isBuildDegradedResult({ coordinateLift: refusedLift() })).toBe(true);
+    // A reference discontinuity is permanent: serving its bundle is right.
+    expect(isBuildDegradedResult({ coordinateLift: refusedLift("reference-discontinuity") })).toBe(false);
+    expect(isBuildDegradedResult({ coordinateLift: refusedLift("no-mapping") })).toBe(false);
+
+    // A settled build question is never degraded, whatever else the payload says.
+    for (const status of ["lifted", "not-needed", "not-applicable"] as const) {
+      expect(
+        isBuildDegradedResult({
+          coordinateLift: { status, fromAssembly: "GRCh37", toAssembly: "GRCh38" },
+          predictorData: { gnomadVariantAssembly: "GRCh37" },
+        })
+      ).toBe(false);
+    }
+
+    // No trail at all (a payload from before the lift record): the frequency source's build is the
+    // only signal left, and GRCh37 is the state the predictor cache itself refuses to persist.
+    expect(isBuildDegradedResult({ predictorData: { gnomadVariantAssembly: "GRCh37" } })).toBe(true);
+    expect(isBuildDegradedResult({ predictorData: { gnomadVariantAssembly: "GRCh38" } })).toBe(false);
+    // Absent means "not recorded", not "wrong": a build-free variant must still be served.
+    expect(isBuildDegradedResult({ predictorData: { gnomadVariantAssembly: null } })).toBe(false);
+    expect(isBuildDegradedResult({ predictorData: null })).toBe(false);
+    expect(isBuildDegradedResult({})).toBe(false);
+    expect(isBuildDegradedResult(null)).toBe(false);
+    expect(isBuildDegradedResult(undefined)).toBe(false);
   });
 
   /**

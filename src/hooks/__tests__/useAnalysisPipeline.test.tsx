@@ -3,6 +3,7 @@ import React from "react";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useAnalysisPipeline } from "../useAnalysisPipeline";
+import { setCachedVariant } from "../../services/pipeline/variantCache";
 import { DevConsoleProvider } from "../../context/DevConsoleContext";
 
 describe("useAnalysisPipeline Hook Integration", () => {
@@ -253,6 +254,96 @@ describe("useAnalysisPipeline Hook Integration", () => {
     expect(mockApiClient.translateVariant).toHaveBeenCalledWith("c.1222C>T", expect.any(AbortSignal));
     expect(mockOptions.setGene).toHaveBeenCalledWith("PAH");
     expect(mockOptions.setVariant).toHaveBeenCalledWith("p.Arg408Trp");
+  });
+
+  /**
+   * The stale-verdict fix, from the reported Recents behaviour.
+   *
+   * A bundle is keyed on protein notation (build-free) but embeds an analysis result that is not: one
+   * written while a GRCh37 coordinate could not be lifted replayed an older coordinate chip, an older
+   * target build and withheld population evidence ("PM2 withheld — this coordinate's build is not one
+   * gnomAD r4 serves") for a variant that scores PM2 on a fresh run. The first paint is where that
+   * verdict reached the screen, so it is where this is asserted.
+   */
+  const cachedResult = (overrides: Record<string, unknown>) =>
+    ({
+      analysis: "Clinical narrative generated",
+      insights: { biochemicalShift: "A->V", acmgVerdict: "Pathogenic" },
+      ...overrides,
+    }) as any;
+
+  it("refuses to paint a cached verdict that was built against a non-canonical build", async () => {
+    setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
+      analysisResult: cachedResult({
+        // The state the old run left: the lift was refused and gnomAD was asked with GRCh37.
+        coordinateLift: {
+          status: "unavailable",
+          fromAssembly: "GRCh37",
+          toAssembly: "GRCh37",
+          reasonCode: "map-unavailable",
+        },
+        predictorData: { gnomadVariantId: "16-66857184-T-C", gnomadVariantAssembly: "GRCh37" },
+      }),
+    });
+
+    const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
+    await act(async () => {
+      await result.current.executeAnalysis("PAH", "p.Arg408Trp", "P00439", undefined, mockOptions);
+    });
+
+    expect(
+      mockOptions.setAnalysisState.mock.calls[0]?.[0],
+      "a build-degraded verdict must not be painted as the current answer"
+    ).toMatchObject({ isLoading: true, result: null });
+  });
+
+  it("still paints a cached verdict whose build was settled", async () => {
+    // The control: the guard must not disable the cache. A lifted (canonical) bundle still paints.
+    setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
+      analysisResult: cachedResult({
+        coordinateLift: {
+          status: "lifted",
+          fromAssembly: "GRCh37",
+          toAssembly: "GRCh38",
+          reverseVerified: true,
+        },
+        predictorData: { gnomadVariantId: "16-66823281-T-C", gnomadVariantAssembly: "GRCh38" },
+      }),
+    });
+
+    const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
+    await act(async () => {
+      await result.current.executeAnalysis("PAH", "p.Arg408Trp", "P00439", undefined, mockOptions);
+    });
+
+    const firstPaint = mockOptions.setAnalysisState.mock.calls[0]?.[0];
+    expect(firstPaint).toMatchObject({ isLoading: false });
+    expect(firstPaint.result?.analysis).toBe("Clinical narrative generated");
+  });
+
+  /**
+   * …and a permanent refusal is NOT re-run: a reference discontinuity is a fact about the coordinate,
+   * so its bundle may still be served rather than spending a ladder to hear the same answer.
+   */
+  it("still paints a cached verdict whose lift refusal was definitive", async () => {
+    setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
+      analysisResult: cachedResult({
+        coordinateLift: {
+          status: "unavailable",
+          fromAssembly: "GRCh37",
+          toAssembly: "GRCh37",
+          reasonCode: "reference-discontinuity",
+        },
+        predictorData: { gnomadVariantId: "16-66857184-T-C", gnomadVariantAssembly: "GRCh37" },
+      }),
+    });
+
+    const { result } = renderHook(() => useAnalysisPipeline(), { wrapper });
+    await act(async () => {
+      await result.current.executeAnalysis("PAH", "p.Arg408Trp", "P00439", undefined, mockOptions);
+    });
+
+    expect(mockOptions.setAnalysisState.mock.calls[0]?.[0]).toMatchObject({ isLoading: false });
   });
 
   it("aborts pending requests on demand and increments active request ID", () => {

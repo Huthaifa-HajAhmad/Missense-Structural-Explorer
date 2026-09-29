@@ -11,6 +11,7 @@ import {
 } from "../services/pipeline/structureService.ts";
 import { executeFullAnalysisWorkflow } from "../services/pipeline/workflowOrchestrator.ts";
 import { getCachedVariant } from "../services/pipeline/variantCache.ts";
+import { isBuildDegradedResult } from "../shared/contracts.ts";
 import {
   PipelineAnalysisSink,
   PipelineStructureSink,
@@ -307,8 +308,22 @@ export function useAnalysisPipeline() {
     const activeSignal = controller.signal;
 
     const cached = getCachedVariant(targetGeneArg, targetVariantArg);
-    if (cached?.analysisResult) {
-      analysisSink.setAnalysisState({ isLoading: false, error: null, result: cached.analysisResult });
+    /**
+     * A cached bundle whose evidence was built against a non-canonical reference is NOT painted.
+     *
+     * It used to be painted unconditionally, so clicking a recent analysis whose coordinate could not
+     * be lifted at the time restored its verdict verbatim — an older coordinate chip, an older target
+     * build, and population evidence the source had refused ("PM2 withheld: this coordinate's build is
+     * not one gnomAD r4 serves") — even though the current intake lifts that coordinate and scores it.
+     * The bundle is skipped rather than deleted: the run below re-fetches, and the heavy build-free
+     * artefacts (PDB text, energetics) are still restored from it.
+     */
+    const servableCachedResult =
+      cached?.analysisResult && !isBuildDegradedResult(cached.analysisResult)
+        ? cached.analysisResult
+        : null;
+    if (servableCachedResult) {
+      analysisSink.setAnalysisState({ isLoading: false, error: null, result: servableCachedResult });
       analysisSink.setIsBiophysicalLoading(false);
       analysisSink.setIsStructuralLoading(false);
       analysisSink.setIsClinicalLoading(false);
