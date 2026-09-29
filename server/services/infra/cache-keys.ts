@@ -91,7 +91,9 @@ export function buildUniprotFeaturesKey(uniprotId: string): string {
   // `subunit2`: entries written before the SUBUNIT text was read from `texts` carry a null
   // subunitComment for every protein (the Multimer tab called all of them monomers) and no
   // interaction partners. Retire them without bumping every other source's schema.
-  return `uniprot_features_${clean}_subunit2_schema:${CACHE_SCHEMA_VERSION}`;
+  // `fd1`: entries written before evidence tags, secondary structure and UniParc domain matches were
+  // read carry none of them, so the Functional domains tab would call every site "no evidence cited".
+  return `uniprot_features_${clean}_subunit2_fd1_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildUniprotSequenceKey(uniprotId: string): string {

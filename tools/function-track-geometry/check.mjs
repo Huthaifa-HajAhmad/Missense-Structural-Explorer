@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Functional Domains sequence-track geometry check.
+ * Functional domains schematic geometry check.
  *
  * Builds tools/function-track-geometry, renders it in a headless Chromium, reads the
  * assertions the page computed from live SVG geometry (`--dump-dom`), prints them and
@@ -10,8 +10,8 @@
  * Env:    GEOMETRY_BROWSER=/path/to/chrome   override browser discovery
  *         TRACK_SHOT=1                        also write function-track.png next to dist/
  *
- * Why a browser: getBBox(), computed outline styles, :focus-visible, and the filter
- * pills' rendered effect are all live-layout facts. jsdom answers none of them.
+ * Why a browser: getBBox(), computed colours and outline styles, and :focus-visible are all
+ * live-layout facts. jsdom answers none of them.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -23,7 +23,7 @@ const root = path.resolve(here, "../..");
 const distIndex = path.join(here, "dist", "index.html");
 const shot = path.join(here, "function-track.png");
 /** Must match expectedCheckCount() in main.tsx: a shorter report means the run did not complete. */
-const EXPECTED_ASSERTIONS = 246;
+const EXPECTED_ASSERTIONS = 107;
 
 const CANDIDATES = [
   process.env.GEOMETRY_BROWSER,
