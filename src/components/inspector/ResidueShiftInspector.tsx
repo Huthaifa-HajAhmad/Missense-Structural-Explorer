@@ -1,41 +1,15 @@
 import React, { useMemo, useState } from "react";
-import {
-  Activity,
-  AlertTriangle,
-  Box,
-  Check,
-  ChevronDown,
-  Copy,
-  Database,
-  ExternalLink,
-  Info,
-  Ruler,
-  RotateCw,
-  Sparkles
-} from "lucide-react";
+import { AlertTriangle, BookOpen, Check, Copy, Database, GitBranch, MessageSquareText, RotateCw, Ruler } from "lucide-react";
 import type { AnalysisResult, PocketResult } from "../../types";
-import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
-import { useResidueScalesLoading } from "../../lib/residueScalesLoading";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
-import { METRIC_EXPLANATIONS } from "../evidence/MetricExplanations";
-import { SectionLabel } from "./SectionLabel";
+import { useResidueContextEvidence } from "../../lib/useResidueContextEvidence";
 import {
-  PROPERTY_SCALE_DEFINITIONS,
   deriveBiochemicalNarrative,
-  derivePocketNarrative,
   findNarrativeDiscrepancies,
-  rankContrastRowsByMagnitude,
-  type BiochemicalNarrative,
-  type NarrativeState,
-  type PocketNarrative
+  type BiochemicalNarrative
 } from "../../shared/residueShiftEvidence";
-
-/**
- * P2Rank's citation is owned by the metric-explanation registry, which is where
- * every other predictor's paper is declared. Reading it from there keeps the DOI
- * out of this component and means a corrected citation propagates everywhere.
- */
-const P2RANK_EXPLANATION = METRIC_EXPLANATIONS.p2rank;
+import type { ResidueContextEvidence } from "../../shared/residueContextEvidence";
+import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 
 interface ResidueShiftInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -50,89 +24,60 @@ interface ResidueShiftInspectorProps {
 }
 
 /**
- * Companion pane for the "Residue Shifts & Pockets" evidence tab.
+ * ResidueShiftInspector — the Evidence Lineage rail for Residue Shifts & Pockets.
  *
- * Division of labour — the main column owns the decisive quantities (the 0–100
- * property tracks and the P2Rank KPI cards). This pane owns the interpretation
- * that makes those quantities legible to a reader who is not a structural
- * biologist:
+ * The tab states WHAT the readings are; the rail states HOW they were reached: a five-step trace
+ * (pair → scales → burial → pocket → engine record), the app's own cut-points with this variant's
+ * band marked, the model-written narrative (labelled as such and checked against the scales),
+ * method notes and sources.
  *
- *   1. Biochemical shift narrative — the AI prose, relocated here from the main
- *      column so the numbers keep the reading order
- *   2. Derived interpretation      — the deterministic reading of the scales
- *   3. Scale reference             — what each axis and each 0–100 anchor means
- *   4. P2Rank cavity interpretation— plain-language reading of the pocket KPIs
- *   5. Glossary & limitations      — what the numbers do and do not license
- *   6. Provenance
- *
- * Every label, band and sentence comes from src/shared/residueShiftEvidence.ts, the
- * same module the main tab derives its classification from, so the two panes
- * cannot disagree about the same variant.
+ * It replaced a rail with seven boxed sections that repeated the tab's numbers (the "4 of 4 axes"
+ * summary appeared three times), printed the pocket score as "23%" where the tab printed
+ * "23 / 100", showed a constant "curated ligand / cofactor" as a lookup, cited "IUPAC
+ * classification" and a "van der Waals volume table" for a hand-made scale, and had no burial
+ * step at all. Built from the same `useResidueContextEvidence` model as the tab.
  */
-
-const NARRATIVE_BADGE_CLASS: Record<NarrativeState, string> = {
-  ready: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-  loading: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
-  unavailable: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
-  absent: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20"
-};
-
-const TONE_CLASS: Record<PocketNarrative["badgeTone"], string> = {
-  neutral: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
-  accent: "bg-cs-accent-clay/10 text-cs-accent-clay border-cs-accent-clay/25",
-  warn: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-  danger: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
-};
-
-/**
- * Tones for the degradation-reason chip, keyed by the shared vocabulary's own tone words.
- * "neutral" is a setup state (no key configured) and "bad" is a failure (key rejected); only
- * "warn" is transient. Mapping them here rather than hard-coding amber in the markup is what
- * keeps this chip consistent with the report bar's status strip.
- */
-const REASON_TONE_CLASS: Record<"neutral" | "warn" | "bad", string> = {
-  neutral: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
-  warn: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25",
-  bad: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25"
-};
-
-/** Direction glyphs stay textual here: the sidebar is too narrow for marker tracks. */
-function deltaGlyph(delta: number): string {
-  if (delta > 0) return "\u2191";
-  if (delta < 0) return "\u2193";
-  return "=";
-}
 
 function buildCopyText(params: {
   gene?: string | null;
   variant?: string | null;
   narrative: BiochemicalNarrative;
-  summary: string;
-  axisLines: string[];
-  pocket: PocketNarrative;
+  model: ResidueContextEvidence;
 }): string {
-  const { gene, variant, narrative, summary, axisLines, pocket } = params;
+  const { gene, variant, narrative, model } = params;
   const header = [gene, variant].filter(Boolean).join(" ") || "Variant";
-  const lines = [`${header} \u2014 residue shift & cavity interpretation`, ""];
-
-  lines.push("Biochemical shift (AI synthesis):");
+  const lines = [`${header}: residue shifts and pockets`, ""];
+  lines.push(`${model.finding.headline} ${model.finding.detail}`);
+  lines.push("");
+  for (const row of model.properties ?? []) {
+    const unit = row.unit ? ` ${row.unit}` : "";
+    lines.push(
+      `- ${row.label}: ${row.wildTypeNative ?? row.wildTypeValue} → ${row.mutantNative ?? row.mutantValue}${unit} (${Math.round(row.absoluteDelta)}% of the scale; ${row.plainChange})`
+    );
+  }
+  if (model.backbone) lines.push(`- ${model.backbone.title} ${model.backbone.body}`);
+  lines.push("");
+  for (const step of model.trace) lines.push(`${step.label}: ${step.value}${step.sub ? ` (${step.sub})` : ""}`);
+  lines.push("");
   lines.push(
-    narrative.prose ??
-      (narrative.state === "loading"
-        ? "Synthesis in progress \u2014 no narrative yet."
-        : `Not available \u2014 ${narrative.reasonLabel ?? "no AI narrative was returned"}. ` +
-          "The interpretation below is derived from the residue property scales.")
+    `Model narrative: ${
+      narrative.prose ?? (narrative.state === "loading" ? "synthesis in progress." : `not available (${narrative.reasonLabel ?? "no narrative returned"}).`)
+    }`
   );
-  lines.push("");
-  lines.push("Derived from the 0\u2013100 property scales:");
-  lines.push(summary);
-  lines.push(...axisLines);
-  lines.push("");
-  lines.push(`P2Rank cavity: ${pocket.headline}`);
-  if (pocket.plainLanguage) lines.push(pocket.plainLanguage);
-  if (pocket.bottomLine) lines.push(pocket.bottomLine);
-
   return lines.join("\n");
+}
+
+function Step({ n, label, value, sub, state }: { n: number; label: string; value: string; sub: string | null; state: string }) {
+  return (
+    <li className="rsx-step" data-state={state}>
+      <span className="rsx-step__n" aria-hidden="true">{n}</span>
+      <div className="rsx-step__body">
+        <span className="rsx-step__label">{label}</span>
+        <span className="rsx-step__value">{value}</span>
+        {sub && <span className="rsx-step__sub">{sub}</span>}
+      </div>
+    </li>
+  );
 }
 
 export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
@@ -146,42 +91,13 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
   onRetryNarrative
 }) => {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [isScaleReferenceOpen, setIsScaleReferenceOpen] = useState(false);
-
-  /*
-   * Read through the shared hook rather than the raw `isBiophysicalLoading` prop:
-   * the main column passes `analysisState.isLoading`, and using a different flag
-   * here let the two panes describe the same missing datum differently.
-   */
-  const areScalesLoading = useResidueScalesLoading(isBiophysicalLoading);
-
-  /*
-   * One expression for the copy button's tooltip and its accessible name. They
-   * were written out twice, so a change to the failure copy had to be made in two
-   * places or the tooltip and the announced label would diverge.
-   */
-  const copyHint =
-    copyState === "failed"
-      ? "Copy failed — the clipboard is unavailable in this context"
-      : "Copy the full residue-shift interpretation";
-
-  const metadata = analysisResult?.metadata;
-  const variantResidueIndex = metadata?.residueIndex ?? null;
-
-  /**
-   * The same resolver the main tab and the Insights radar call, so all three
-   * surfaces describe one substitution with one set of axis labels.
-   */
-  const model = useMemo(
-    () =>
-      resolveResidueShiftModel({
-        wildType: metadata?.wildType,
-        mutant: metadata?.mutant,
-        variant: metadata?.variant
-      }),
-    [metadata?.wildType, metadata?.mutant, metadata?.variant]
-  );
-  const contrast = model.contrast;
+  const { model, shift } = useResidueContextEvidence({
+    result: analysisResult,
+    computedPocket,
+    isPocketLoading,
+    pocketError,
+    isBiophysicalLoading
+  });
 
   const narrative = useMemo(
     () =>
@@ -190,7 +106,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         fallbackReason: analysisResult?.fallbackReason,
         providerDetail: analysisResult?.providerDetail,
         attemptedModels: analysisResult?.attemptedModels,
-        retryable: analysisResult?.fallbackRetryable,
+        retryable: analysisResult?.fallbackRetryable
       }),
     [
       analysisResult?.insights?.biochemicalShift,
@@ -198,43 +114,23 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
       analysisResult?.providerDetail,
       analysisResult?.attemptedModels,
       analysisResult?.fallbackRetryable,
-      isNarrativeLoading,
+      isNarrativeLoading
     ]
   );
-
-  const discrepancies = useMemo(
-    () => findNarrativeDiscrepancies(narrative.prose, contrast),
-    [narrative.prose, contrast]
-  );
-
-  const pocket = useMemo(
-    () => derivePocketNarrative(computedPocket, { isLoading: isPocketLoading, error: pocketError, variantResidueIndex }),
-    [computedPocket, isPocketLoading, pocketError, variantResidueIndex]
-  );
+  const discrepancies = useMemo(() => findNarrativeDiscrepancies(narrative.prose, shift.contrast), [narrative.prose, shift.contrast]);
 
   if (!analysisResult) {
-    return <div className="text-xs text-cs-text-muted italic p-2">Awaiting variant analysis data...</div>;
+    return <p className="rsx-rail rsx-prose--muted">Waiting for the variant analysis.</p>;
   }
 
-  /**
-   * Clipboard writes reject when the document is not focused or the permission is
-   * denied. The promise used to have no rejection path, which surfaced as an
-   * unhandled rejection and left the button looking like it had succeeded.
-   */
+  const copyHint =
+    copyState === "failed" ? "Copy failed: the clipboard is unavailable here" : copyState === "copied" ? "Copied" : "Copy the interpretation";
+
+  // Clipboard writes reject when the document is unfocused or permission is denied.
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(
-        buildCopyText({
-          gene: metadata?.gene,
-          variant: metadata?.variant,
-          narrative,
-          summary: contrast?.summary ?? "Property scales unavailable for this substitution.",
-          axisLines: (contrast?.rows ?? []).map(
-            row =>
-              `- ${row.label}: ${row.wildTypeValue} \u2192 ${row.mutantValue} (${row.deltaLabel}, ${row.magnitudeLabel} ${row.direction}; ${row.plainChange})`
-          ),
-          pocket
-        })
+        buildCopyText({ gene: analysisResult.metadata?.gene, variant: analysisResult.metadata?.variant, narrative, model })
       );
       setCopyState("copied");
     } catch {
@@ -243,385 +139,162 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
     window.setTimeout(() => setCopyState("idle"), 1800);
   };
 
+  const cutGroups = model.cuts.reduce<Record<string, typeof model.cuts>>((acc, cut) => {
+    (acc[cut.group] ??= []).push(cut);
+    return acc;
+  }, {});
+  const canRetryPocket = (model.pocket.status === "error" || model.pocket.status === "unavailable") && !!onRetryPocket;
+
   return (
-    <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Biochemical shift narrative ── */}
-      {/*
-        Focus target for the main column's "open the interpretation" control.
-        `tabIndex={-1}` makes it focusable without joining the tab order, and the
-        `role`/`aria-label` give the programmatic focus move something to announce
-        — a bare div announces nothing, which is what the focus move was for.
-        The ring matters as much: `outline-none` alone left a keyboard user with a
-        silent scroll and no indicator of where they had landed.
-      */}
-      <div
-        id={INSPECTOR_SECTIONS.residueShiftNarrative}
+    <div className="rsx-rail" data-testid="residue-shift-rail">
+      {/* ── 1. Trace ── */}
+      <section
+        className="rsx-rsec"
+        id={INSPECTOR_SECTIONS.residueShiftPocket}
         tabIndex={-1}
-        role="region"
-        aria-label="Biochemical shift narrative"
-        className="flex flex-col gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+        aria-labelledby="rsx-rail-trace"
       >
-        <div className="flex items-center justify-between gap-2">
-          <SectionLabel Icon={Activity}>Biochemical Shift Narrative</SectionLabel>
+        <h3 className="eyebrow" id="rsx-rail-trace">
+          <span>
+            <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
+            Trace
+          </span>
+          <button type="button" className="rsx-info" onClick={handleCopy} title={copyHint} aria-label={copyHint}>
+            {copyState === "copied" ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
+          </button>
+        </h3>
+        <ol className="rsx-steps" data-testid="residue-trace">
+          {model.trace.map((step, i) => (
+            <Step key={step.label} n={i + 1} {...step} />
+          ))}
+        </ol>
+        {canRetryPocket && (
           <button
             type="button"
-            onClick={handleCopy}
-            className={`p-1 rounded border transition-colors cursor-pointer shrink-0 ${
-              copyState === "failed"
-                ? "border-rose-500/40 text-rose-500"
-                : "border-cs-border text-cs-text-muted hover:text-cs-accent-clay hover:border-cs-accent-clay/40"
-            }`}
-            title={copyHint}
-            aria-label={copyHint}
+            className="rsx-button"
+            disabled={isPocketLoading}
+            onClick={() => {
+              void onRetryPocket!();
+            }}
           >
-            {copyState === "copied" ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+            Retry pocket detection
           </button>
-        </div>
-
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span
-              className={`inline-block text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${
-                NARRATIVE_BADGE_CLASS[narrative.state] ?? NARRATIVE_BADGE_CLASS.absent
-              }`}
-            >
-              {narrative.badge}
-            </span>
-            {/* The *why*, when the server classified it. Without this the reader only
-                learned that synthesis had failed, never whether retrying could help. The tone
-                comes from the shared vocabulary, not from this component. */}
-            {narrative.reasonLabel && (
-              <span
-                className={`inline-block text-[9.5px] font-mono uppercase px-2 py-0.5 rounded border ${
-                  REASON_TONE_CLASS[narrative.reasonTone ?? "warn"]
-                }`}
-              >
-                {narrative.reasonLabel}
-              </span>
-            )}
-          </div>
-
-          {narrative.state === "loading" ? (
-            <div className="space-y-1.5 pt-0.5" role="status" aria-busy="true">
-              <div className="h-2.5 rounded animate-pulse bg-cs-bg-subtle" />
-              <div className="h-2.5 rounded animate-pulse bg-cs-bg-subtle w-5/6" />
-              <div className="h-2.5 rounded animate-pulse bg-cs-bg-subtle w-2/3" />
-            </div>
-          ) : narrative.prose ? (
-            <p className="text-[11.5px] leading-relaxed text-cs-text-primary">{narrative.prose}</p>
-          ) : (
-            <>
-              <p className="text-[10.5px] leading-relaxed text-cs-text-secondary">{narrative.detail}</p>
-              {narrative.diagnostics && (
-                <p className="text-[9.5px] font-mono leading-relaxed text-cs-text-muted break-words">
-                  {narrative.diagnostics}
-                </p>
-              )}
-              {onRetryNarrative && narrative.retryable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    // `void`: the handler is typed `void | Promise<void>` and React
-                    // discards a returned promise, so a rejection would be unhandled.
-                    void onRetryNarrative();
-                  }}
-                  disabled={isNarrativeLoading}
-                  className="mt-0.5 px-2.5 py-1 rounded border border-cs-accent-clay/30 bg-cs-accent-clay/10 text-cs-accent-clay font-mono text-[10px] font-semibold inline-flex items-center gap-1.5 hover:bg-cs-accent-clay/20 transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  <RotateCw className={`w-3 h-3 ${isNarrativeLoading ? "animate-spin" : ""}`} />
-                  Re-synthesize the narrative
-                </button>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* ── Prose/scale reconciliation ── */}
-        {discrepancies.length > 0 && (
-          <div className="p-3 rounded-lg border border-amber-500/25 bg-cs-bg-warning space-y-1.5">
-            <div className="flex items-center gap-1.5 font-bold text-[10.5px] text-cs-text-primary">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span>Prose and scales disagree</span>
-            </div>
-            {discrepancies.map(discrepancy => (
-              <p key={discrepancy.axisKey} className="text-[10.5px] text-cs-text-secondary leading-relaxed">
-                The narrative describes a change in <strong>{discrepancy.axisLabel.toLowerCase()}</strong>, while the scales
-                hold that axis flat ({discrepancy.values}) for this pair. Both are shown so you can weigh them; the scales
-                are fixed descriptors, not ground truth, and the prose is a model summary.
-              </p>
-            ))}
-          </div>
         )}
-      </div>
+      </section>
 
-      {/* ── 2. Derived interpretation ── */}
-      <div className="flex flex-col gap-3">
-        <SectionLabel Icon={Sparkles}>Derived Interpretation</SectionLabel>
-
-        {contrast ? (
-          <>
-            <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2">
-              <p className="text-[11px] leading-relaxed text-cs-text-primary">{contrast.summary}</p>
-            </div>
-
-            <div className="rounded-lg border border-cs-border bg-cs-surface-2 divide-y divide-cs-border-subtle">
-              {/* Same ranking as the main column's tracks, so the two panes the shared module
-                  exists to keep consistent do not list the same four axes in different orders. */}
-              {rankContrastRowsByMagnitude(contrast.rows).map(row => (
-                <div key={row.key} className="p-2.5 space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10.5px] text-cs-text-secondary truncate">{row.label}</span>
-                    <span className="font-mono text-[10.5px] font-semibold text-cs-text-primary shrink-0 tabular-nums">
-                      {row.wildTypeValue} <span className="opacity-50">&rarr;</span> {row.mutantValue}
-                      <span className="ml-1.5 text-cs-accent-clay">
-                        {deltaGlyph(row.delta)} {row.deltaLabel}
-                      </span>
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-cs-text-muted leading-snug">
-                    {row.direction === "unchanged"
-                      ? `Unchanged on this axis \u2014 both residues sit at ${row.wildTypeValue} of 100.`
-                      : `${row.magnitudeLabel} change on this scale: the side chain becomes ${row.plainChange}.`}
-                  </p>
+      {/* ── 2. Cut-points ── */}
+      <section className="rsx-rsec" aria-labelledby="rsx-rail-cuts">
+        <h3 className="eyebrow" id="rsx-rail-cuts">
+          <span>
+            <Ruler className="w-3.5 h-3.5" aria-hidden="true" />
+            Cut-points · this app&apos;s own
+          </span>
+        </h3>
+        <div className="rsx-cuts" data-testid="residue-cuts">
+          {Object.entries(cutGroups).map(([group, cuts]) => (
+            <div className="rsx-cuts__group" key={group}>
+              <span className="rsx-cuts__title">{group}</span>
+              {cuts.map(cut => (
+                <div className="rsx-cut" key={cut.rule} data-active={cut.active || undefined}>
+                  <span className="rsx-cut__rule">{cut.rule}</span>
+                  {cut.here ? <span className="rsx-cut__here">{cut.here}</span> : <span />}
                 </div>
               ))}
             </div>
+          ))}
+          <p className="rsx-cuts__foot">None of these is a published classification; they are drawn dashed on the tab.</p>
+        </div>
+      </section>
+
+      {/* ── 3. Model narrative ── */}
+      <section
+        className="rsx-rsec"
+        id={INSPECTOR_SECTIONS.residueShiftNarrative}
+        tabIndex={-1}
+        aria-labelledby="rsx-rail-narrative"
+      >
+        <h3 className="eyebrow" id="rsx-rail-narrative">
+          <span>
+            <MessageSquareText className="w-3.5 h-3.5" aria-hidden="true" />
+            Model narrative
+          </span>
+        </h3>
+        {narrative.state === "loading" ? (
+          <p className="rsx-prose rsx-prose--muted" role="status">{ENGINE_STATE_LABELS.running}</p>
+        ) : narrative.prose ? (
+          <>
+            <p className="rsx-prose" data-testid="residue-narrative">{narrative.prose}</p>
+            <p className="rsx-prose rsx-prose--muted">
+              Written by a language model.{" "}
+              {discrepancies.length === 0 ? "Checked against the scales: no disagreement." : "Checked against the scales:"}
+            </p>
+            {discrepancies.map(d => (
+              <p key={d.axisKey} className="rsx-disagree">
+                <AlertTriangle className="w-3 h-3 inline-block mr-1" aria-hidden="true" />
+                The narrative describes a change in {d.axisLabel.toLowerCase()}, but the scales hold that axis flat ({d.values}).
+              </p>
+            ))}
           </>
         ) : (
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 flex items-start gap-2">
-            <Info className="w-3.5 h-3.5 text-cs-text-muted shrink-0 mt-0.5" />
-            <p className="text-[10.5px] text-cs-text-muted leading-relaxed">
-              {areScalesLoading
-                ? "Residue property scales are still being assembled for this substitution."
-                : "The wild-type or variant residue could not be resolved to a property scale, so no derived interpretation is available."}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ── 3. Scale reference ── */}
-      <div className="flex flex-col gap-2">
-        {/* A disclosure summary, not a heading: a <button> may only contain phrasing
-            content, so the label is a styled span rather than the shared <h3>. */}
-        <button
-          type="button"
-          onClick={() => setIsScaleReferenceOpen(open => !open)}
-          aria-expanded={isScaleReferenceOpen}
-          className="flex items-center justify-between gap-2 w-full cursor-pointer group"
-        >
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <Ruler className="w-3.5 h-3.5 text-cs-accent-clay" />
-            How To Read These Scales
-          </span>
-          <ChevronDown
-            className={`w-3.5 h-3.5 text-cs-text-muted transition-transform ${isScaleReferenceOpen ? "rotate-180" : ""}`}
-          />
-        </button>
-
-        {isScaleReferenceOpen && (
-          <div className="space-y-2">
-            {PROPERTY_SCALE_DEFINITIONS.map(definition => (
-              <div key={definition.key} className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10.5px] font-semibold text-cs-text-primary">{definition.label}</span>
-                  <span className="font-mono text-[9px] text-cs-text-muted shrink-0">
-                    {definition.lowAnchor} 0 &middot; 100 {definition.highAnchor}
-                  </span>
-                </div>
-                <p className="text-[10px] text-cs-text-secondary leading-relaxed">{definition.rationale}</p>
-                <p className="text-[9.5px] text-cs-text-muted font-mono">{definition.source}</p>
-              </div>
-            ))}
-            <p className="text-[10px] text-cs-text-muted leading-relaxed px-0.5">
-              The scales are fixed descriptors of the residue pair. They are not calibrated to any clinical outcome, so a
-              &ldquo;marked&rdquo; change means a large move on the axis &mdash; not a large effect on the protein.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ── 4. P2Rank cavity interpretation ── */}
-      <div
-        id={INSPECTOR_SECTIONS.residueShiftPocket}
-        tabIndex={-1}
-        role="region"
-        aria-label="P2Rank cavity interpretation"
-        className="flex flex-col gap-3 pt-1 border-t border-cs-border-subtle rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <SectionLabel Icon={Box}>P2Rank Cavity Interpretation</SectionLabel>
-          <span
-            className={`text-[9.5px] font-mono font-bold uppercase px-2 py-0.5 rounded border shrink-0 ${
-              TONE_CLASS[pocket.badgeTone]
-            }`}
-          >
-            {pocket.badge || "Standby"}
-          </span>
-        </div>
-
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          <span className="text-[11px] font-bold text-cs-text-primary block">{pocket.headline}</span>
-
-          {pocket.plainLanguage && (
-            <p className="text-[10.5px] leading-relaxed text-cs-text-secondary">{pocket.plainLanguage}</p>
-          )}
-
-          {pocket.bottomLine && (
-            <p className="text-[10.5px] leading-relaxed text-cs-text-primary pt-1.5 border-t border-cs-border-subtle">
-              {pocket.bottomLine}
-            </p>
-          )}
-
-          {(pocket.status === "error" || pocket.status === "unavailable") && onRetryPocket && (
-            <button
-              type="button"
-              onClick={() => {
-                // `void`: the handler is typed `void | Promise<void>` and React
-                // discards a returned promise, so a rejection would be unhandled.
-                void onRetryPocket();
-              }}
-              disabled={isPocketLoading}
-              className="mt-1 px-2.5 py-1 rounded border border-cs-accent-clay/30 bg-cs-accent-clay/10 text-cs-accent-clay font-mono text-[10px] font-semibold inline-flex items-center gap-1.5 hover:bg-cs-accent-clay/20 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <RotateCw className="w-3 h-3" />
-              Retry pocket detection
-            </button>
-          )}
-        </div>
-
-        {pocket.status === "success" && (
           <>
-            <div className="rounded-lg border border-cs-border bg-cs-surface-2 divide-y divide-cs-border-subtle">
-              <div className="p-2.5 flex items-start justify-between gap-2">
-                <span className="text-[10.5px] text-cs-text-secondary">Proximity</span>
-                <span className="text-right min-w-0">
-                  <span className="block font-mono text-[10.5px] font-semibold text-cs-text-primary">
-                    {pocket.proximity.label}
-                  </span>
-                  <span className="block font-mono text-[9.5px] text-cs-text-muted">
-                    {pocket.proximity.distance !== null ? `${pocket.proximity.distance.toFixed(2)} \u00c5` : "no distance"}
-                  </span>
-                </span>
-              </div>
-              <div className="p-2.5 flex items-start justify-between gap-2">
-                <span className="text-[10.5px] text-cs-text-secondary">Ranking index</span>
-                <span className="text-right min-w-0">
-                  <span className="block font-mono text-[10.5px] font-semibold text-cs-text-primary">
-                    {pocket.ranking.label}
-                  </span>
-                  <span className="block font-mono text-[9.5px] text-cs-text-muted">
-                    {pocket.ranking.score !== null ? `${pocket.ranking.score}%` : "not reported"}
-                  </span>
-                </span>
-              </div>
-              <div className="p-2.5 flex items-start justify-between gap-2">
-                <span className="text-[10.5px] text-cs-text-secondary">Cavity size</span>
-                <span className="text-right min-w-0">
-                  <span className="block font-mono text-[10.5px] font-semibold text-cs-text-primary">
-                    {pocket.volume.isMeasured ? pocket.volume.label : "Volume not reported"}
-                  </span>
-                  <span className="block font-mono text-[9.5px] text-cs-text-muted">
-                    {pocket.volume.isMeasured && pocket.volume.volume !== null
-                      ? `${pocket.volume.volume.toLocaleString()} \u00c5\u00b3`
-                      : pocket.volume.surfacePoints !== null
-                        ? `${pocket.volume.surfacePoints} surface pts`
-                        : "no size reported"}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">Lining residues returned</span>
-                <span className="font-mono font-semibold text-cs-text-primary">{pocket.lining.count}</span>
-              </div>
-              {pocket.lining.nearest && (
-                <div className="flex justify-between items-center">
-                  <span className="text-cs-text-secondary">Nearest lining residue</span>
-                  <span className="font-mono text-cs-text-primary">
-                    {pocket.lining.nearest.name}
-                    {pocket.lining.nearest.index} &middot; {pocket.lining.nearest.distance.toFixed(1)} &Aring;
-                  </span>
-                </div>
-              )}
-              <div className="flex justify-between items-center">
-                <span className="text-cs-text-secondary">Variant residue lines cavity</span>
-                <span className="font-mono text-cs-text-primary">{pocket.lining.includesVariantResidue ? "Yes" : "No"}</span>
-              </div>
-            </div>
-
-            <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-              <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
-                Curated Ligand / Cofactor
-              </span>
-              <p className="text-[10.5px] text-cs-text-primary">
-                {pocket.cofactor.name ?? "None recorded"}
-              </p>
-              <p className="text-[10px] text-cs-text-muted leading-relaxed">{pocket.cofactor.detail}</p>
-            </div>
+            <p className="rsx-prose">
+              <strong className="rsx-step__value">{narrative.reasonLabel ?? ENGINE_STATE_LABELS["no-result"]}</strong>
+            </p>
+            <p className="rsx-prose rsx-prose--muted">{narrative.detail}</p>
+            {narrative.diagnostics && <p className="rsx-prose rsx-prose--muted rsx-mono">{narrative.diagnostics}</p>}
+            {onRetryNarrative && narrative.retryable && (
+              <button
+                type="button"
+                className="rsx-button"
+                disabled={isNarrativeLoading}
+                onClick={() => {
+                  void onRetryNarrative();
+                }}
+              >
+                <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+                Write the narrative again
+              </button>
+            )}
           </>
         )}
-      </div>
+      </section>
 
-      {/* ── 5. Glossary ── */}
-      <div className="flex flex-col gap-2">
-        <SectionLabel Icon={Info}>Reading The Pocket Numbers</SectionLabel>
-        <div className="rounded-lg border border-cs-border bg-cs-surface-2 divide-y divide-cs-border-subtle">
-          {pocket.glossary.map(entry => (
-            <div key={entry.term} className="p-2.5 space-y-0.5">
-              <span className="text-[10.5px] font-semibold text-cs-text-primary block">{entry.term}</span>
-              <p className="text-[10px] text-cs-text-muted leading-relaxed">{entry.meaning}</p>
-            </div>
+      {/* ── 4. Method ── */}
+      <section className="rsx-rsec" aria-labelledby="rsx-rail-method">
+        <h3 className="eyebrow" id="rsx-rail-method">
+          <span>
+            <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
+            Method
+          </span>
+        </h3>
+        <ul className="rsx-notes">
+          {model.notes.map(note => (
+            <li key={note}>{note}</li>
           ))}
-        </div>
-      </div>
+        </ul>
+      </section>
 
-      {/* ── 6. Limitations ── */}
-      {pocket.caveats.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <SectionLabel Icon={AlertTriangle}>Limitations</SectionLabel>
-          <ul className="m-0 pl-4 space-y-1.5 list-disc">
-            {pocket.caveats.map(caveat => (
-              <li key={caveat} className="text-[10px] text-cs-text-secondary leading-relaxed">
-                {caveat}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ── 7. Provenance ── */}
-      <div className="flex flex-col gap-2">
-        <SectionLabel Icon={Database}>Provenance</SectionLabel>
-        <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[10.5px]">
-          <div className="flex justify-between items-center gap-2">
-            <span className="font-semibold text-cs-text-primary">P2Rank</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">Krivak &amp; Hoksza 2018</span>
-          </div>
-          <div className="flex justify-between items-center gap-2">
-            <span className="font-semibold text-cs-text-primary">Hydropathy scale</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">Kyte &amp; Doolittle 1982</span>
-          </div>
-          <div className="flex justify-between items-center gap-2">
-            <span className="font-semibold text-cs-text-primary">Side-chain volume</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">van der Waals volume table</span>
-          </div>
-          <div className="flex justify-between items-center gap-2">
-            <span className="font-semibold text-cs-text-primary">Polarity / charge class</span>
-            <span className="font-mono text-[9.5px] text-cs-text-muted">IUPAC classification</span>
-          </div>
-          <a
-            href={P2RANK_EXPLANATION.paperUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-cs-accent-clay hover:underline pt-1"
-          >
-            <span>{P2RANK_EXPLANATION.paperTitle}</span>
-            <ExternalLink className="w-2.5 h-2.5" />
-          </a>
-        </div>
-      </div>
+      {/* ── 5. Sources ── */}
+      <section className="rsx-rsec" aria-labelledby="rsx-rail-sources">
+        <h3 className="eyebrow" id="rsx-rail-sources">
+          <span>
+            <Database className="w-3.5 h-3.5" aria-hidden="true" />
+            Sources
+          </span>
+        </h3>
+        <ul className="rsx-refs" data-testid="residue-sources">
+          {model.sources.map(src => (
+            <li key={src.doi}>
+              {src.citation}{" "}
+              <a href={`https://doi.org/${src.doi}`} target="_blank" rel="noopener noreferrer">
+                doi:{src.doi}
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 };

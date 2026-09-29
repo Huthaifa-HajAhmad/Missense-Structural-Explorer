@@ -1,0 +1,64 @@
+# Residue Shifts & Pockets: review
+
+Reference variant: NAE1 p.Asp116Gly (burial from 1YOV, pocket on the AlphaFold model).
+Tab: `components/evidence/StructureTab.tsx`. Rail: `components/inspector/ResidueShiftInspector.tsx`.
+Both render one model, `shared/residueContextEvidence.ts`, through `lib/useResidueContextEvidence.ts`.
+
+No ACMG criterion reads this tab, so no classification changes. The burial word does feed the
+Perturbation disruption rules (`server/services/structure/pocket/disruption.ts`, `isBuried`); see
+decision below.
+
+## Findings
+
+| # | Severity | Was | Now |
+|---|---|---|---|
+| 1 | High | The four 0–100 scales were a hand-made table labelled "Kyte & Doolittle", "van der Waals volume" and "IUPAC classification", matching none of them (Trp 65 on hydrophobicity, Asp 45 vs Gly 10 on volume). | `shared/residueScales.ts`: net charge at pH 7.4, Grantham 1974 polarity and volume, Kyte–Doolittle hydropathy, each cited on its row and shown in native units. `AMINO_ACID_PROPERTIES` (Insights radar) is derived from it. |
+| 2 | High | Headline "polarity −85" was an artefact of #1. | Charge 50%, polarity 49%, hydropathy 35%, volume 31% of each scale's range. |
+| 3 | High | Burial word fell back to Cα packing cut-points (≤7 surface, ≥15 core) with no source. On 2OCJ chain A (194 residues, Shrake–Rupley RSA vs Tien 2013 maxima), 34 of 48 exposed residues read as boundary; packing agreed with RSA for 60% of residues. | Packing cut-points retired. The word comes from measured RSA only; the Cα count is shown as a reading. |
+| 4 | Medium | SASA failures were silent. | `sasaUnavailableReason` travels in the payload; the row says accessibility was not measured and why. |
+| 5 | Medium | Tab printed 22.97 Å to the residue centroid, rail 23.14 Å to the cavity centre. | One distance, to the cavity centre when reported, labelled. |
+| 6 | Medium | "Likely co-factor: None recorded" was a constant. | Removed. |
+| 7 | Medium | Pocket residues ranked by a hand-set propensity weight, no chain. | Sorted by distance, chain shown. |
+| 8 | Medium | Pocket structure and P2Rank profile not named. | Profile carried in provenance and named on the pocket group. |
+| 9 | Low | Local bands called 0.23 "moderate"; "23%" in rail vs "23 / 100" in tab. | Probability printed once as 0.23, with no band word. |
+| 10 | Low | Raw codes `DISTAL_SURFACE`, `ACTIVE_SITE_PROXIMATE`. | Words: lines the pocket, within 8 Å, rim, distal. |
+| 11 | Low | Gly/Pro backbone effects invisible. | Caveat line when either residue is Gly or Pro. |
+| 12 | Low | Legacy labels "Standby", "Model Offline", "N/A". | `ENGINE_STATE_LABELS`; four files added to `energeticsLabels.guard.test.ts`. |
+| 13 | Low | `sasa_eval.py` called the Tien 2013 maxima "empirical". | "Theoretical", with DOI. |
+
+UI: one finding card, a properties table and an environment table (burial and pocket groups), flat
+rows, tokens only, no red or green, local cut-points dashed. The rail is a five-step trace (burial
+flagged when not measured), the app's cut-points with this variant's band marked, the model
+narrative labelled as model-written and checked against the scales, method and sources.
+
+## Decision taken
+
+Owner chose **"Show as unmeasured"** (2026-09-29): when accessibility was not measured, burial
+reads "Not measured" rather than a packing estimate. A stored word from an earlier engine is named
+("an earlier engine estimated from packing density") and not shown as a finding. Server side,
+`disruption.ts` no longer invents a word from packing, so `isBuried` is false without RSA and the
+buried-residue disruption rules do not fire on an estimate.
+
+## Effect on NAE1 p.Asp116Gly
+
+- Largest shift: net charge (−1 → 0), not "polarity −85".
+- Burial: not measured (was "boundary" from 9 Cα neighbours).
+- Pocket: 23.1 Å from the cavity centre, distal; probability 0.23 (alphafold profile).
+- Grantham distance 94, moderately conservative (Li, Wu and Luo 1984 classes).
+
+## Follow-ups not done
+
+- Choose the P2Rank profile from the structure source (X-ray vs predicted); today it is always
+  `alphafold`, now at least named.
+- Bump the cached analysis version so stored payloads with a packing-derived word are recomputed;
+  the client handles them meanwhile by naming the stale word.
+- Find why `uv run tools/sasa_eval.py` fails in deployment; the reason is now visible.
+
+## Sources
+
+- Grantham R. 1974. Science 185:862. doi:10.1126/science.185.4154.862
+- Kyte J, Doolittle RF. 1982. J Mol Biol 157:105. doi:10.1016/0022-2836(82)90515-0
+- Li WH, Wu CI, Luo CC. 1984. J Mol Evol 21:58. doi:10.1007/BF02100628
+- Tien MZ et al. 2013. PLoS One 8:e80635. doi:10.1371/journal.pone.0080635
+- Krivák R, Hoksza D. 2018. J Cheminform 10:39. doi:10.1186/s13321-018-0285-8
+- Hamelryck T. 2005. Proteins 59:38. doi:10.1002/prot.20379

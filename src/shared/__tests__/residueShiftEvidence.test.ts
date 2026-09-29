@@ -65,10 +65,9 @@ describe("buildBiochemicalContrast", () => {
 
     expect(byKey.charge.delta).toBe(95);
     expect(byKey.charge.magnitude).toBe("marked");
-    // Describes the index, not the chemistry: the table gives non-neutral values
-    // to residues with no net charge at pH 7.4, so "(more basic)" would be false
-    // for most pairs.
-    expect(byKey.charge.plainChange).toBe("further toward the positive end of this index");
+    // The charge axis is the formal charge at pH 7.4 (residueScales.ts), so for two standard
+    // residues the change is worded as the chemical event: Glu −1 → Lys +1 is a reversal.
+    expect(byKey.charge.plainChange).toBe("reverses charge, negative to positive");
   });
 
   it("does not attribute acid/base character to a small move on the charge index", () => {
@@ -409,7 +408,7 @@ describe("derivePocketNarrative", () => {
   it("treats a present-but-statusless payload as unavailable, not as a scan never requested", () => {
     const narrative = derivePocketNarrative({ pocketDistance: 5, pocketScore: 40, pocketVolume: 500 });
     expect(narrative.status).toBe("unavailable");
-    expect(narrative.headline).toBe("P2Rank unavailable");
+    expect(narrative.headline).toBe("P2Rank did not run");
   });
 
   it("treats a failed scan as missing evidence, not negative evidence", () => {
@@ -430,7 +429,9 @@ describe("derivePocketNarrative", () => {
     expect(narrative.ranking.score).toBe(2);
     expect(narrative.plainLanguage).toContain("28.14");
     expect(narrative.bottomLine).toContain("unlikely to act by reshaping it");
-    expect(narrative.badge).toBe("DISTAL_SURFACE");
+    // Words, not the engine code: "DISTAL_SURFACE" asserted a burial ("surface") a distance cannot.
+    expect(narrative.badge).toBe("Distal");
+    expect(narrative.classification.code).toBe("DISTAL_SURFACE");
   });
 
   it("names the measured reference point instead of calling it the cavity centre", () => {
@@ -506,7 +507,7 @@ describe("derivePocketNarrative", () => {
     // of being a ligand-binding site, per model profile. The earlier copy claimed
     // the opposite ("not a calibrated probability"), which was simply false.
     const narrative = derivePocketNarrative(DISTAL_POCKET, { variantResidueIndex: 433 });
-    const rankingMeaning = narrative.glossary.find(entry => entry.term === "P2Rank ranking index")!.meaning;
+    const rankingMeaning = narrative.glossary.find(entry => entry.term === "Ligand-site probability")!.meaning;
 
     expect(rankingMeaning).toMatch(/calibrated/i);
     expect(rankingMeaning).toMatch(/per model profile/i);
@@ -514,18 +515,11 @@ describe("derivePocketNarrative", () => {
     expect(rankingMeaning).not.toMatch(/not a calibrated probability/i);
   });
 
-  it("does not surface the placeholder cofactor string as a ligand", () => {
-    const narrative = derivePocketNarrative(DISTAL_POCKET, { variantResidueIndex: 433 });
-    expect(narrative.cofactor.name).toBeNull();
-    expect(narrative.cofactor.detail).toContain("No curated ligand");
-  });
-
-  it("keeps a real curated cofactor", () => {
-    const narrative = derivePocketNarrative(
-      { ...DISTAL_POCKET, likelyCofactor: "HEME" },
-      { variantResidueIndex: 433 }
-    );
-    expect(narrative.cofactor.name).toBe("HEME");
+  it("does not carry a cofactor at all: the server's value is a constant, not a lookup", () => {
+    // `determineLikelyCofactor()` always returns "None recorded in curated annotations", so the
+    // "Likely co-factor" row read as a database answer that was never looked up.
+    const narrative = derivePocketNarrative({ ...DISTAL_POCKET, likelyCofactor: "HEME" }, { variantResidueIndex: 433 });
+    expect("cofactor" in narrative).toBe(false);
   });
 
   it("promotes a residue that lines the cavity regardless of centroid distance", () => {
@@ -594,7 +588,7 @@ describe("derivePocketNarrative", () => {
       const narrative = derivePocketNarrative(pocket as PocketNarrativeInput | null);
       expect(narrative.glossary.map(entry => entry.term)).toEqual([
         "Pocket distance",
-        "P2Rank ranking index",
+        "Ligand-site probability",
         "Pocket volume"
       ]);
     }
