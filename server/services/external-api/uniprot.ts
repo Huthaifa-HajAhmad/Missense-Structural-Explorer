@@ -17,6 +17,7 @@ import {
 // back exactly what `validateUniProt` accepts, and a second copy of the pattern here would drift.
 import { UNIPROT_PATTERN } from "../../utils/validation.ts";
 import { parseSubunitAssembly, statesMultimer } from "../../../src/shared/multimerAssembly.ts";
+import type { DomainMatch, SecondaryStructureElement, UniprotFeatureEvidence } from "../../../src/shared/contracts.ts";
 
 export interface UniprotCacheOptions {
   l1Cache?: LRUCache<string, any>;
@@ -674,10 +675,16 @@ export async function fetchUniprotSequence(uniprotId: string, options?: UniprotC
 export interface UniprotFeature {
   type: string;            // e.g. "Active site", "Binding site", "Region", "Domain"
   description: string;
-  /** Residue positions (1-indexed, inclusive) */
+  /**
+   * Residue positions (1-indexed, inclusive). For a `Disulfide bond` these are the two bonded
+   * cysteines, NOT a covered span: read it with `featureCoversResidue` (src/shared/functionalSites.ts),
+   * never with `start <= pos <= end` — that test once gave PM1 to every residue between the cysteines.
+   */
   start: number;
   end: number;
   interproId?: string;
+  evidence?: UniprotFeatureEvidence[];
+  change?: { from: string; to: string[] };
 }
 
 export interface UniprotFeaturesResult {
@@ -690,6 +697,13 @@ export interface UniprotFeaturesResult {
   /** UniProt's curated binary interactions (IntAct), the only source a heteromer partner's accession is
    *  taken from: a gene symbol named in the SUBUNIT sentence is resolved against this list or not at all. */
   interactionPartners?: UniprotInteractionPartner[];
+  reviewed?: boolean;
+  entryVersion?: number | null;
+  lastAnnotationUpdate?: string | null;
+  secondaryStructure?: SecondaryStructureElement[];
+  domainMatches?: DomainMatch[];
+  domainMatchesStatus?: "ok" | "error";
+  uniparcId?: string | null;
 }
 
 export interface UniprotInteractionPartner {
@@ -716,7 +730,86 @@ const RELEVANT_FEATURE_TYPES = new Set([
   "Disulfide bond",
   "Modified residue",
   "Mutagenesis",
+  // Read so the Functional domains tab can say what is annotated rather than silently leave it out:
+  // a glycosylated or cross-linked residue, a signal peptide or a membrane topology were dropped here
+  // while the tab's absence sentence claimed "no PTM contains residue N".
+  "Glycosylation",
+  "Cross-link",
+  "Lipidation",
+  "Signal",
+  "Propeptide",
+  "Transit peptide",
+  "Topological domain",
+  "Intramembrane",
+  // UniProt's curated disease and polymorphism variants at other residues of the same protein: the
+  // most relevant context for hotspot reasoning, and previously discarded.
+  "Natural variant",
 ]);
+
+const SECONDARY_STRUCTURE_KIND: Record<string, SecondaryStructureElement["kind"]> = {
+  "Helix": "helix",
+  "Beta strand": "strand",
+  "Turn": "turn",
+};
+
+function readEvidence(f: any): UniprotFeatureEvidence[] {
+  const out: UniprotFeatureEvidence[] = [];
+  for (const e of Array.isArray(f?.evidences) ? f.evidences : []) {
+    if (typeof e?.evidenceCode !== "string") continue;
+    out.push({
+      code: e.evidenceCode,
+      ...(typeof e.source === "string" ? { source: e.source } : {}),
+      ...(typeof e.id === "string" ? { id: e.id } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * InterPro member-database matches for an accession's canonical sequence, from UniParc.
+ *
+ * WHY UNIPARC: UniProtKB's InterPro cross-references carry entry names but no residue ranges, and the
+ * tab used to attach an InterPro id to a UniProt "Domain" feature by fuzzy name matching (any substring
+ * either way), which could link a domain to a superfamily it merely shares a word with. UniParc's
+ * `sequenceFeatures` are the InterProScan matches themselves — database, signature, InterPro entry and
+ * locations — on the same host as every other UniProt call, so no new provider is involved.
+ */
+export async function fetchUniparcDomainMatches(
+  accession: string,
+  options?: UniprotCacheOptions
+): Promise<{ uniparcId: string | null; matches: DomainMatch[] }> {
+  const resp = await fetchWithRetry(
+    `https://rest.uniprot.org/uniparc/accession/${encodeURIComponent(accession)}?format=json`,
+    {
+      headers: { Accept: "application/json" },
+      timeout: 10000,
+      cappedByCaller: true,
+      ...(options?.signal ? { signal: options.signal } : {}),
+    },
+    1,
+    0
+  );
+  if (!resp.ok) throw new Error(`UniParc lookup failed with status ${resp.status}`);
+  const json = (await resp.json()) as any;
+  const matches: DomainMatch[] = [];
+  for (const sf of Array.isArray(json?.sequenceFeatures) ? json.sequenceFeatures : []) {
+    const database = typeof sf?.database === "string" ? sf.database : null;
+    const acc = typeof sf?.databaseId === "string" ? sf.databaseId : null;
+    if (!database || !acc) continue;
+    const locations = (Array.isArray(sf?.locations) ? sf.locations : [])
+      .map((l: any) => ({ start: Number(l?.start), end: Number(l?.end) }))
+      .filter((l: { start: number; end: number }) => Number.isFinite(l.start) && Number.isFinite(l.end) && l.start > 0 && l.end >= l.start);
+    if (!locations.length) continue;
+    const ipr = sf?.interproGroup;
+    matches.push({
+      database,
+      accession: acc,
+      interpro: typeof ipr?.id === "string" ? { id: ipr.id, name: typeof ipr.name === "string" ? ipr.name : ipr.id } : null,
+      locations,
+    });
+  }
+  return { uniparcId: typeof json?.uniParcId === "string" ? json.uniParcId : null, matches };
+}
 
 export async function fetchUniprotFeatures(
   uniprotId: string,
@@ -731,8 +824,17 @@ export async function fetchUniprotFeatures(
     l1Cache: cache,
     ttlSeconds: 14 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
+    // A UniParc miss is a gap in this run, not a fact about the protein: do not keep it for 14 days.
+    shouldCache: (data) => data !== null && data !== undefined && data.domainMatchesStatus !== "error",
     fetcher: async () => {
       try {
+        const uniparc = fetchUniparcDomainMatches(key, options).then(
+          (value) => ({ ok: true as const, value }),
+          (err) => {
+            console.warn(`[UniParc] Domain matches for ${key} unavailable:`, err?.message ?? err);
+            return { ok: false as const };
+          }
+        );
         const resp = await fetchWithRetry(
           `https://rest.uniprot.org/uniprotkb/${key}.json`,
           {
@@ -815,31 +917,26 @@ export async function fetchUniprotFeatures(
                     break;
                   }
                 }
-                // Pass 2: Normalized prefix / substring match (minimum 4 chars, not generic "domain")
-                if (!interproId && descNorm.length >= 4 && descNorm !== "domain") {
-                  for (const [iprName, id] of interproMap.entries()) {
-                    if (iprName.length >= 4 && iprName !== "domain") {
-                      if (
-                        iprName.startsWith(descNorm) ||
-                        descNorm.startsWith(iprName) ||
-                        iprName.includes(descNorm) ||
-                        descNorm.includes(iprName)
-                      ) {
-                        interproId = id;
-                        break;
-                      }
-                    }
-                  }
-                }
+                // There is deliberately no second, substring pass: "any shared words" linked domains to
+                // superfamilies and families they merely resemble by name. Real ranges now come from
+                // UniParc (`domainMatches`); this exact match only labels the UniProt feature.
               }
             }
+
+            const alt = f.alternativeSequence;
+            const change =
+              typeof alt?.originalSequence === "string" && Array.isArray(alt?.alternativeSequences)
+                ? { from: alt.originalSequence, to: alt.alternativeSequences.filter((x: unknown) => typeof x === "string") }
+                : undefined;
 
             return {
               type:        f.type,
               description: desc,
               start,
               end,
-              interproId
+              interproId,
+              evidence: readEvidence(f),
+              ...(change ? { change } : {}),
             };
           })
           .filter((f) => f.start > 0 && f.end > 0);
@@ -873,7 +970,35 @@ export async function fetchUniprotFeatures(
 
         const sequenceLength = typeof json?.sequence?.length === "number" ? json.sequence.length : undefined;
 
-        const result: UniprotFeaturesResult = { features, geneName, subunitComment, isMultimer, sequenceLength, interactionPartners };
+        const secondaryStructure: SecondaryStructureElement[] = rawFeatures
+          .filter((f: any) => SECONDARY_STRUCTURE_KIND[f?.type])
+          .map((f: any) => {
+            const pdb = readEvidence(f).find((e) => e.source === "PDB")?.id;
+            return {
+              kind: SECONDARY_STRUCTURE_KIND[f.type],
+              start: Number(f.location?.start?.value),
+              end: Number(f.location?.end?.value),
+              ...(pdb ? { pdb } : {}),
+            };
+          })
+          .filter((e: SecondaryStructureElement) => Number.isFinite(e.start) && Number.isFinite(e.end) && e.start > 0);
+
+        const reviewed = typeof json?.entryType === "string" ? /reviewed|swiss-prot/i.test(json.entryType) && !/unreviewed/i.test(json.entryType) : undefined;
+        const entryVersion = Number.isFinite(json?.entryAudit?.entryVersion) ? json.entryAudit.entryVersion : null;
+        const lastAnnotationUpdate = typeof json?.entryAudit?.lastAnnotationUpdateDate === "string" ? json.entryAudit.lastAnnotationUpdateDate : null;
+
+        const uniparcResult = await uniparc;
+
+        const result: UniprotFeaturesResult = {
+          features, geneName, subunitComment, isMultimer, sequenceLength, interactionPartners,
+          ...(reviewed !== undefined ? { reviewed } : {}),
+          entryVersion,
+          lastAnnotationUpdate,
+          secondaryStructure,
+          domainMatches: uniparcResult.ok ? uniparcResult.value.matches : [],
+          domainMatchesStatus: uniparcResult.ok ? "ok" : "error",
+          uniparcId: uniparcResult.ok ? uniparcResult.value.uniparcId : null,
+        };
         return result;
       } catch (err: any) {
         console.error(`[UniProt Features] Error fetching ${key}:`, err.message);

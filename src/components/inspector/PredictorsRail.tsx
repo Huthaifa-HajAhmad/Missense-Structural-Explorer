@@ -187,7 +187,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             </li>
             <li>
               Conservation (phyloP, GERP++, ConSurf) measures constraint, not pathogenicity. ClinGen caps
-              PP3 and PM1 together at Strong, because both draw on conservation.
+              PP3 and PM1 together at Strong, because the two are not independent: a predictor already scores the position a critical site sits in (Pejaver 2022).
             </li>
           </ul>
         </details>

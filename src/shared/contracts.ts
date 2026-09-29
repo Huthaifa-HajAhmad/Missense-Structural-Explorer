@@ -1308,7 +1308,9 @@ export const analyzeVariantResponseSchema = z.object({
       description: z.string(),
       start: z.number(),
       end: z.number(),
-      interproId: z.string().optional()
+      interproId: z.string().optional(),
+      evidence: z.array(z.object({ code: z.string(), source: z.string().optional(), id: z.string().optional() })).optional(),
+      change: z.object({ from: z.string(), to: z.array(z.string()) }).optional()
     })),
     geneName: z.string().optional(),
     subunitComment: z.string().nullable().optional(),
@@ -1318,7 +1320,24 @@ export const analyzeVariantResponseSchema = z.object({
       accession: z.string(),
       gene: z.string().nullable(),
       experiments: z.number().nullable()
-    })).optional()
+    })).optional(),
+    reviewed: z.boolean().optional(),
+    entryVersion: z.number().nullable().optional(),
+    lastAnnotationUpdate: z.string().nullable().optional(),
+    secondaryStructure: z.array(z.object({
+      kind: z.enum(["helix", "strand", "turn"]),
+      start: z.number(),
+      end: z.number(),
+      pdb: z.string().optional()
+    })).optional(),
+    domainMatches: z.array(z.object({
+      database: z.string(),
+      accession: z.string(),
+      interpro: z.object({ id: z.string(), name: z.string() }).nullable(),
+      locations: z.array(z.object({ start: z.number(), end: z.number() }))
+    })).optional(),
+    domainMatchesStatus: z.enum(["ok", "error"]).optional(),
+    uniparcId: z.string().nullable().optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
     missense_z: z.number().nullable(),
@@ -1879,12 +1898,48 @@ export type UniprotFeatureType =
   | "DOMAIN" | "REGION" | "ACTIVE_SITE" | "BINDING" | "MUTAGEN" | "DISULFID" | "METAL" | "SITE" 
   | (string & {});
 
+/**
+ * One evidence tag UniProt attaches to a feature: an ECO code, and where the claim comes from
+ * (`PubMed` + id, `UniProtKB` + the accession it was transferred from, `PDB` + entry…). Kept because
+ * the level of a site's evidence decides whether it may raise PM1: an "active site by similarity" is
+ * a transfer from another protein, not an observation in this one.
+ */
+export interface UniprotFeatureEvidence {
+  code: string;
+  source?: string;
+  id?: string;
+}
+
 export interface UniprotFeatureItem {
   type: UniprotFeatureType;
   description: string;
   start: number;
   end: number;
   interproId?: string;
+  /** UniProt's evidence tags; absent on payloads cached before they were read, empty when none is cited. */
+  evidence?: UniprotFeatureEvidence[];
+  /** Natural variant / mutagenesis residue change (`L` -> `F`). */
+  change?: { from: string; to: string[] };
+}
+
+/** A secondary-structure element UniProt derives from a PDB entry (Helix / Beta strand / Turn). */
+export interface SecondaryStructureElement {
+  kind: "helix" | "strand" | "turn";
+  start: number;
+  end: number;
+  pdb?: string;
+}
+
+/**
+ * A member-database signature match (Pfam, Gene3D, CDD, PANTHER…) on this entry's sequence, with its
+ * InterPro entry when it has one. Read from UniParc's sequence features, which carry real residue
+ * ranges — UniProtKB's own InterPro cross-references carry only names.
+ */
+export interface DomainMatch {
+  database: string;
+  accession: string;
+  interpro: { id: string; name: string } | null;
+  locations: Array<{ start: number; end: number }>;
 }
 
 export interface UniprotFeaturesData {
@@ -1894,6 +1949,15 @@ export interface UniprotFeaturesData {
   isMultimer?: boolean;
   sequenceLength?: number;
   interactionPartners?: Array<{ accession: string; gene: string | null; experiments: number | null }>;
+  /** Swiss-Prot (reviewed) or TrEMBL; absent on payloads cached before it was read. */
+  reviewed?: boolean;
+  entryVersion?: number | null;
+  lastAnnotationUpdate?: string | null;
+  secondaryStructure?: SecondaryStructureElement[];
+  /** InterPro member-database matches from UniParc; `domainMatchesStatus` says whether they were read. */
+  domainMatches?: DomainMatch[];
+  domainMatchesStatus?: "ok" | "error";
+  uniparcId?: string | null;
 }
 
 export interface DisruptionPredictorResult {

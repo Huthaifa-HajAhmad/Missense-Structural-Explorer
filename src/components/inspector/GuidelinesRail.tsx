@@ -238,13 +238,13 @@ export function GuidelinesRail({
           <div className="flex justify-between items-start gap-2">
             <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">PM1</span>
             <span className="text-[var(--cs-text-secondary)] text-right">
-              Mutational hot-spot or critical functional domain (e.g. binding pocket interface) without benign variation.
+              Located in a mutational hot spot or a well-established functional domain without benign variation (Richards 2015). This platform tests the site reading only: an experimentally evidenced active, binding, metal or disulfide site at the residue.
             </span>
           </div>
           <div className="flex justify-between items-start gap-2">
             <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">BP3</span>
             <span className="text-[var(--cs-text-secondary)] text-right">
-              In-frame deletion/insertion in a repetitive region, or structurally neutral substitution.
+              In-frame deletion or insertion in a repetitive region without a known function. It does not apply to missense substitutions.
             </span>
           </div>
           <div className="flex justify-between items-start gap-2">
