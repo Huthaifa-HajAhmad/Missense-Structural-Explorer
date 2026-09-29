@@ -374,22 +374,17 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       expect(errorBody?.error?.code).toBe("BAD_REQUEST");
     });
 
-    it("rejects request if chainA and chainB are identical", async () => {
-      const ppiRoute: any = apiRouter.stack.find(
-        (s: any) => s.route && (s.route.path === "/ppi/binding-affinity" || (Array.isArray(s.route.path) && s.route.path.includes("/ppi/binding-affinity")))
+    it("rejects a binding-shift request with fewer than two chains", async () => {
+      // The binding change is computed on a wild-type complex of the modelled chains; a single chain
+      // has no partner to bind. (Replaces the old chainA/chainB check: this route no longer takes PDBs.)
+      const shiftRoute: any = apiRouter.stack.find(
+        (s: any) => s.route && Array.isArray(s.route.path) && s.route.path.includes("/ppi/binding-shift")
       );
-      const handler = ppiRoute.route.stack[ppiRoute.route.stack.length - 1].handle;
+      const handler = shiftRoute.route.stack[shiftRoute.route.stack.length - 1].handle;
       let statusCode = 0;
       let errorBody: any = null;
       const req: any = {
-        body: {
-          gene: "PAH",
-          variant: "p.Arg408Trp",
-          chainA: "A",
-          chainB: "A",
-          wtPdb: "ATOM...",
-          mutPdb: "ATOM..."
-        }
+        body: { gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", chains: [{ id: "A", accession: "Q13564" }] }
       };
       const res: any = {
         status(code: number) {
@@ -404,7 +399,7 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
 
       await handler(req, res);
       expect(statusCode).toBe(400);
-      expect(errorBody?.error?.message).toContain("chainA and chainB must represent distinct");
+      expect(errorBody?.error?.message).toContain("at least two chains");
     });
   });
 });

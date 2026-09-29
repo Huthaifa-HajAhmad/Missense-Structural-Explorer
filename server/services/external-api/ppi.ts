@@ -1,194 +1,235 @@
 /**
- * server/services/ppi.ts
+ * server/services/external-api/ppi.ts — partners, mapped binding sites and the binding energy change
+ * for one variant (the Protein interactions tab).
  *
- * Protein-Protein Interaction (PPI) & Interface Binding Affinity Service.
- * - Resolves STRING-db functional interaction partners
- * - Maps UniProt curated interface residues
- * - Computes interface binding affinity shifts (ΔΔG_bind) via JapanFold OpenBind-0
+ * Two requests, because they cost very different amounts:
+ *   • `analyzePpiBinding`  — lookups only: STRING's functional network, UniProt's curated partners
+ *     (SUBUNIT, IntAct) and mapped interaction sites, and PDBe-KB interfaces in solved structures.
+ *   • `analyzeBindingShift` — a Boltz-2 model of the WILD-TYPE complex and a DDMut-PPI job on it.
+ *
+ * DEFECTS THIS REPLACED (doc/INTERACTIONS_TAB_REVIEW.md)
+ *   • DDMut-PPI was handed the Multimer tab's complex as its wild type. That complex carries the
+ *     variant on chain A, so the substitution was applied to a residue already substituted.
+ *   • The DDMut-PPI value was classed "Interface disruptive" at ≥ 1.0. DDMut-PPI reports reduced
+ *     affinity as ΔΔG ≤ 0 (Zhou et al., NAR 2024), so a strongly weakening prediction read as
+ *     "Surface neutral". Its authors publish no cut-points; the classes are gone and the sign
+ *     convention travels with the value.
+ *   • An "OpenBind-0 (Tier 1)" path ran only when the client sent a mutant PDB, which it never did.
+ *   • Curated interface residues dropped every `Region` and `Site` feature and then required words
+ *     such as "interface" or "subunit", so "Interaction with UBA3" (NAE1 331–344 and 211) was
+ *     reported as "no residue-level interface annotation". Ranges were reduced to their start and
+ *     the list was capped at five.
  */
-import { fetchStringInteractionsWithStatus, StringInteraction } from "./string.ts";
-import { queryOpenBind, JapanFoldBindingResult } from "./japanfold-client.ts";
-import { fetchUniprotFeatures } from "./uniprot.ts";
+import { fetchStringInteractionsWithStatus, type StringInteraction } from "./string.ts";
+import { fetchUniprotFeatures, fetchUniprotSequence } from "./uniprot.ts";
+import { fetchPdbeInterfaces } from "./pdbe-interfaces.ts";
+import { queryBoltz2Multimer } from "./japanfold-client.ts";
 import { evaluateDdmutPpi } from "../stability/ddmut-ppi.ts";
+import { parseMutationParam } from "../../utils/mutation.ts";
+import type {
+  PpiBindingData,
+  PpiBindingShift,
+  PpiCuratedInteraction,
+  PpiInteractionSite,
+  PpiLookupStatus,
+  PpiObservedInterface,
+} from "../../../src/shared/contracts.ts";
+import { MAX_MODELLED_CHAINS } from "../../../src/shared/multimerAssembly.ts";
 
-/** How one upstream lookup for a PPI section ended. */
-export type PpiLookupStatus = "ok" | "failed" | "skipped";
+export type PpiBindingAffinityResult = PpiBindingData;
+export type { PpiLookupStatus };
 
-export interface PpiBindingAffinityResult {
-  status: "success" | "unavailable" | "failed";
-  gene: string;
-  variant: string;
-  uniprotId?: string;
-  stringPartners: StringInteraction[];
-  bindingShift: {
-    ddgBind: number | null;
-    unit: string;
-    classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" | "UNKNOWN";
-    provenance: string;
-    distanceToInterface?: number | null;
-  } | null;
-  interfaceResidues: Array<{
-    pos: number;
-    description: string;
-    isVariantPosition: boolean;
-  }>;
-  /**
-   * Outcome of each independent lookup, so a consumer can tell an empty answer
-   * from no answer at all.
-   *
-   * Both sections used to return an empty array for every non-answer: the STRING
-   * fetcher caught its own error and returned `[]`, and a UniProt request that
-   * failed returned `null` from inside a `try` that only logged. The PPI tab
-   * rendered those as "no association for this gene" and "no residue-level
-   * interface annotation is recorded" — claims about the protein, made on the
-   * strength of a failed HTTP call. `skipped` is the third case the tab could not
-   * see either: no UniProt id was resolved, so nothing was ever asked.
-   */
-  lookups: {
-    stringPartners: Exclude<PpiLookupStatus, "skipped">;
-    interfaceResidues: PpiLookupStatus;
-  };
-  error?: string;
+/** UniProt feature types that can map a contact with another protein. */
+const SITE_TYPES = new Set(["Region", "Site", "Binding site", "Motif"]);
+
+/**
+ * "Interaction with UBA3", "Interaction with UBA3 and NEDD8", "Necessary for interaction with X",
+ * "Dimer interface". Ligand binding sites ("ATP", "Zn(2+)") name no protein and are not read.
+ */
+const INTERACTION_NOTE = /\binteraction with\b|\b(?:dimer|subunit|oligomer|homodimer|heterodimer) interface\b|\binterface with\b/i;
+
+function partnersNamed(description: string): string[] {
+  const m = /\b(?:interaction|interface) with\s+(.+)$/i.exec(description);
+  if (!m) return [];
+  const out: string[] = [];
+  for (const t of m[1].matchAll(/\b[A-Z][A-Z0-9]{1,9}(?:-[A-Z0-9]{1,4})?\b/g)) {
+    if (!/[A-Z0-9]/.test(t[0].slice(1))) continue;
+    if (!out.includes(t[0])) out.push(t[0]);
+  }
+  return out;
 }
 
-import { parseMutationParam } from "../../utils/mutation.ts";
+export function readInteractionSites(
+  features: Array<{ type: string; description?: string; start: number; end: number }>,
+  position: number | null
+): PpiInteractionSite[] {
+  return features
+    .filter(f => SITE_TYPES.has(f.type) && f.start > 0 && f.end >= f.start && INTERACTION_NOTE.test(f.description ?? ""))
+    .map(f => ({
+      type: f.type,
+      start: f.start,
+      end: f.end,
+      description: f.description ?? f.type,
+      partners: partnersNamed(f.description ?? ""),
+      containsVariant: position !== null && position >= f.start && position <= f.end,
+    }))
+    .sort((a, b) => a.start - b.start);
+}
 
 export async function analyzePpiBinding(
   gene: string,
   variant: string,
   uniprotId?: string,
-  wtPdb?: string | null,
-  mutPdb?: string | null,
-  chainA: string = "A",
-  chainB: string = "B",
   signal?: AbortSignal
 ): Promise<PpiBindingAffinityResult> {
-  // Parse variant position & single-letter mutation code upfront
-  let pos = 0;
-  const parsedMut = parseMutationParam(variant);
-  if (parsedMut && parsedMut.posNum) {
-    pos = parsedMut.posNum;
-  }
+  const parsed = parseMutationParam(variant);
+  const position = parsed?.posNum && parsed.posNum > 0 ? parsed.posNum : null;
 
-  // 1. Concurrent Task: STRING partners lookup
-  const stringTask = (async (): Promise<{ partners: StringInteraction[]; status: Exclude<PpiLookupStatus, "skipped"> }> => {
+  const stringTask = fetchStringInteractionsWithStatus(gene).catch((err: any) => {
+    console.warn(`[PPI Service] STRING lookup threw for ${gene}:`, err?.message);
+    return { partners: [] as StringInteraction[], status: "failed" as const };
+  });
+
+  const uniprotTask = (async () => {
+    if (!uniprotId) return { status: "skipped" as PpiLookupStatus, features: null };
     try {
-      const stringResult = await fetchStringInteractionsWithStatus(gene);
-      return { partners: stringResult.partners, status: stringResult.status };
+      const features = await fetchUniprotFeatures(uniprotId);
+      return { status: (features ? "ok" : "failed") as PpiLookupStatus, features };
     } catch (err: any) {
-      console.warn(`[PPI Service] STRING lookup threw for ${gene}:`, err?.message);
-      return { partners: [], status: "failed" };
+      console.warn(`[PPI Service] UniProt features failed for ${uniprotId}:`, err?.message);
+      return { status: "failed" as PpiLookupStatus, features: null };
     }
   })();
 
-  // 2. Concurrent Task: Curated interface annotations from UniProt
-  const interfaceTask = (async (): Promise<{ residues: Array<{ pos: number; description: string; isVariantPosition: boolean }>; status: PpiLookupStatus }> => {
-    const residues: Array<{ pos: number; description: string; isVariantPosition: boolean }> = [];
-    let status: PpiLookupStatus = "skipped";
-
-    if (uniprotId) {
-      status = "failed";
-      try {
-        const featuresResult = await fetchUniprotFeatures(uniprotId);
-        if (featuresResult) {
-          status = "ok";
-          for (const feat of featuresResult.features ?? []) {
-            const typeLower = (feat.type || "").toLowerCase();
-            const descLower = (feat.description || "").toLowerCase();
-
-            // Exclude catalytic active sites, metal coordination, and generic structural regions
-            const isExcluded =
-              typeLower.includes("active site") ||
-              typeLower.includes("metal binding") ||
-              typeLower === "site" ||
-              typeLower === "region";
-
-            // Strictly match quaternary / PPI subunit interface annotations
-            const isInterface =
-              !isExcluded &&
-              (descLower.includes("interface") ||
-                descLower.includes("subunit") ||
-                descLower.includes("inter-chain") ||
-                descLower.includes("complex interaction") ||
-                (typeLower === "binding site" && (descLower.includes("chain") || descLower.includes("hetero") || descLower.includes("homo"))));
-
-            if (isInterface) {
-              const matchesVariant = pos >= feat.start && pos <= feat.end;
-              if (matchesVariant || residues.length < 5) {
-                residues.push({
-                  pos: feat.start,
-                  description: feat.description || feat.type,
-                  isVariantPosition: matchesVariant
-                });
-              }
-            }
-          }
-        }
-      } catch (err: any) {
-        console.warn(`[PPI Service] Failed to fetch UniProt features for ${uniprotId}:`, err.message);
-      }
+  const pdbeTask = (async (): Promise<{ status: "ok" | "none" | "failed" | "skipped"; partners: PpiObservedInterface[] }> => {
+    if (!uniprotId) return { status: "skipped", partners: [] };
+    try {
+      const lookup = await fetchPdbeInterfaces(uniprotId, signal);
+      if (lookup.status !== "ok") return { status: lookup.status === "none" ? "none" : "failed", partners: [] };
+      const own = uniprotId.toUpperCase().replace(/-\d+$/, "");
+      return {
+        status: "ok",
+        partners: lookup.partners.map(p => ({
+          accession: p.accession,
+          name: p.name,
+          residues: p.residues,
+          pdbEntries: p.pdbEntries.length,
+          homomeric: p.accession.toUpperCase().replace(/-\d+$/, "") === own,
+          variantAtInterface: position !== null && p.residues.includes(position),
+        })),
+      };
+    } catch (err: any) {
+      if (err?.name === "AbortError") throw err;
+      return { status: "failed", partners: [] };
     }
-
-    return { residues, status };
   })();
 
-  // 3. Concurrent Task: Interface Binding Affinity Shift (ΔΔG_bind)
-  const bindingShiftTask = (async (): Promise<PpiBindingAffinityResult["bindingShift"]> => {
-    if (wtPdb && mutPdb && chainA.toUpperCase() !== chainB.toUpperCase()) {
-      // Tier 1: Query OpenBind-0 when both WT and genuinely modeled mutant complex coordinates exist
-      try {
-        const openBindResult = await queryOpenBind(wtPdb, mutPdb, chainA, chainB, signal);
-        if (openBindResult && openBindResult.status === "success") {
-          return {
-            ddgBind: openBindResult.ddgBind,
-            unit: openBindResult.unit,
-            classification: openBindResult.classification,
-            provenance: openBindResult.provenance
-          };
-        }
-      } catch (err: any) {
-        console.warn(`[PPI Service] OpenBind-0 evaluation error: ${err.message}`);
-      }
-    } else if (wtPdb && !mutPdb) {
-      // Tier 2: Query DDMut-PPI when wild-type complex PDB is available without a modeled mutant structure
-      try {
-        const mutationCode = parsedMut?.wtLetter && parsedMut?.mutLetter && parsedMut?.posNum
-          ? `${parsedMut.wtLetter}${parsedMut.posNum}${parsedMut.mutLetter}`
-          : variant.replace(/^p\./, "");
-        const ddmutPpiResult = await evaluateDdmutPpi(wtPdb, chainA, mutationCode, 20000, signal);
-        if (ddmutPpiResult) {
-          return {
-            ddgBind: ddmutPpiResult.ddgBind,
-            unit: "kcal/mol",
-            classification: ddmutPpiResult.classification,
-            provenance: ddmutPpiResult.provenance,
-            distanceToInterface: ddmutPpiResult.distanceToInterface
-          };
-        }
-      } catch (err: any) {
-        console.warn(`[PPI Service] DDMut-PPI evaluation error: ${err.message}`);
-      }
-    }
-    return null;
-  })();
-
-  const [stringRes, interfaceRes, bindingShift] = await Promise.all([
-    stringTask,
-    interfaceTask,
-    bindingShiftTask
-  ]);
+  const [stringRes, uniprotRes, pdbeRes] = await Promise.all([stringTask, uniprotTask, pdbeTask]);
+  const f = uniprotRes.features;
+  const curated: PpiCuratedInteraction[] = (f?.interactionPartners ?? []).map(p => ({
+    accession: p.accession,
+    gene: p.gene,
+    experiments: p.experiments,
+  }));
 
   return {
     status: "success",
     gene,
     variant,
     uniprotId,
+    position,
     stringPartners: stringRes.partners,
-    bindingShift,
-    interfaceResidues: interfaceRes.residues,
+    subunitComment: f?.subunitComment ?? null,
+    curatedInteractions: curated,
+    interactionSites: f ? readInteractionSites(f.features ?? [], position) : [],
+    observedInterfaces: pdbeRes.partners,
+    sequenceLength: f?.sequenceLength ?? null,
     lookups: {
       stringPartners: stringRes.status,
-      interfaceResidues: interfaceRes.status
-    }
+      uniprot: uniprotRes.status,
+      pdbe: pdbeRes.status,
+    },
   };
+}
+
+export interface BindingShiftChain {
+  id: string;
+  accession: string;
+  gene?: string | null;
+}
+
+const DDMUT_PPI = "DDMut-PPI";
+
+/**
+ * ΔΔG_bind for the substitution on chain A of a WILD-TYPE model of `chains` (the chains the Multimer
+ * tab modelled). Chain A must be the analysed protein.
+ */
+export async function analyzeBindingShift(
+  gene: string,
+  variant: string,
+  uniprotId: string,
+  chains: BindingShiftChain[],
+  signal?: AbortSignal
+): Promise<PpiBindingShift> {
+  const base: PpiBindingShift = {
+    status: "not-applicable",
+    gene,
+    variant,
+    ddgBind: null,
+    unit: "kcal/mol",
+    signConvention: "negative-weakens",
+    predictor: DDMUT_PPI,
+    wildType: null,
+    mutation: null,
+  };
+  const parsed = parseMutationParam(variant);
+  if (!parsed?.posNum || !parsed.wtLetter || !parsed.mutLetter) {
+    return { ...base, reason: "The variant could not be read as a single amino-acid substitution." };
+  }
+  if (chains.length < 2) {
+    return { ...base, reason: "A binding change needs a complex of at least two chains." };
+  }
+  if (chains.length > MAX_MODELLED_CHAINS) {
+    return { ...base, reason: `This app models at most ${MAX_MODELLED_CHAINS} chains.` };
+  }
+  const own = uniprotId.toUpperCase().replace(/-\d+$/, "");
+  if (chains[0].id !== "A" || chains[0].accession.toUpperCase().replace(/-\d+$/, "") !== own) {
+    return { ...base, reason: "Chain A of the complex is not the analysed protein." };
+  }
+
+  const mutation = `${parsed.wtLetter.toUpperCase()}${parsed.posNum}${parsed.mutLetter.toUpperCase()}`;
+  let sequences: string[];
+  try {
+    sequences = await Promise.all(chains.map(c => fetchUniprotSequence(c.accession)));
+  } catch {
+    return { ...base, status: "failed", mutation, reason: "A chain's UniProt sequence could not be read." };
+  }
+  if (sequences.some(s => !s)) {
+    return { ...base, status: "failed", mutation, reason: "A chain's UniProt sequence could not be read." };
+  }
+  const ref = sequences[0][parsed.posNum - 1];
+  if (!ref || ref.toUpperCase() !== parsed.wtLetter.toUpperCase()) {
+    return { ...base, mutation, reason: "The variant's reference residue does not match the UniProt sequence at that position." };
+  }
+
+  // Every chain wild type: this is the structure DDMut-PPI mutates.
+  const model = await queryBoltz2Multimer(chains.map((c, i) => ({ chainId: c.id, sequence: sequences[i] })), signal);
+  if (!model || model.status !== "success" || !model.complexPdb) {
+    return { ...base, status: "failed", mutation, reason: "The wild-type complex could not be modelled (Boltz-2 did not return a model)." };
+  }
+  const wildType: PpiBindingShift["wildType"] = {
+    source: "boltz-2-model",
+    provenance: model.provenance,
+    ipTm: model.ipTm,
+    chains: chains.map(c => ({ id: c.id, accession: c.accession, gene: c.gene ?? null })),
+  };
+
+  const outcome = await evaluateDdmutPpi(model.complexPdb, "A", mutation, 20000, signal);
+  if (outcome.status === "done") {
+    return { ...base, status: "ok", ddgBind: outcome.result.ddgBind, wildType, mutation, predictor: outcome.result.provenance };
+  }
+  if (outcome.status === "running") {
+    return { ...base, status: "running", wildType, mutation, reason: "DDMut-PPI is still computing. Ask again shortly; the job is kept." };
+  }
+  return { ...base, status: "failed", wildType, mutation, reason: outcome.reason };
 }

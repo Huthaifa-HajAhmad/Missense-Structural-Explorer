@@ -14,13 +14,24 @@ import { LRUCache } from "lru-cache";
 import { fetchWithRetry, withHostLock } from "../infra/http-client.ts";
 import { httpGetWithBody } from "./dynamut.ts";
 
+/**
+ * One DDMut-PPI prediction. `ddgBind` is in DDMut-PPI's own sign convention: ΔΔG ≤ 0 is REDUCED
+ * binding affinity (Zhou et al., Nucleic Acids Res 2024;52:W207, doi:10.1093/nar/gkae412). No class is
+ * attached: the authors publish no cut-points, and the 1.0 / 0.5 classes this module used to assign
+ * were read with the opposite sign.
+ */
 export interface DdmutPpiResult {
   ddgBind: number;
   distanceToInterface: number | null;
-  classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" | "UNKNOWN";
   provenance: string;
   resultsPage?: string;
 }
+
+/** How one evaluation ended: a value, a job still running upstream (kept for the next call), or a failure. */
+export type DdmutPpiOutcome =
+  | { status: "done"; result: DdmutPpiResult }
+  | { status: "running" }
+  | { status: "failed"; reason: string };
 
 const BIOSIG_PPI_HEADERS: Record<string, string> = {
   "User-Agent": "MissenseStructuralExplorer/1.0 (Bioinformatics Research; +https://github.com)",
@@ -40,7 +51,7 @@ const pendingPpiJobs = new LRUCache<string, { jobId: string; submittedAt: number
 });
 
 // In-flight deduplication to avoid double-submitting the same complex mutation
-const inFlightPpiRequests = new Map<string, Promise<DdmutPpiResult | null>>();
+const inFlightPpiRequests = new Map<string, Promise<DdmutPpiOutcome>>();
 
 /**
  * Resets all in-memory caches and in-flight tracking (useful for test isolation).
@@ -66,22 +77,6 @@ export function getUniqueChainsFromPdb(pdbText: string): string[] {
     }
   }
   return Array.from(chains);
-}
-
-/**
- * Classifies ΔΔG_bind into clinical/structural disruption categories.
- * Standard biophysical cutoffs:
- * - ΔΔG_bind >= 1.0 kcal/mol: Severely destabilizes the complex interface.
- * - 0.5 <= ΔΔG_bind < 1.0 kcal/mol: Moderate/allosteric perturbation of binding.
- * - ΔΔG_bind < 0.5 kcal/mol: Surface neutral or stabilizing.
- */
-export function classifyDdgBind(
-  ddgBind: number
-): "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" | "UNKNOWN" {
-  if (!Number.isFinite(ddgBind)) return "UNKNOWN";
-  if (ddgBind >= 1.0) return "INTERFACE_DISRUPTIVE";
-  if (ddgBind >= 0.5) return "ALLOSTERIC_PERTURBATION";
-  return "SURFACE_NEUTRAL";
 }
 
 /**
@@ -222,6 +217,8 @@ export async function pollDdmutPpiJob(
 
 /**
  * Full end-to-end evaluation with caching and polling loop.
+ *
+ * `pdbText` must be the WILD-TYPE complex: DDMut-PPI applies `mutationCode` to it.
  */
 export async function evaluateDdmutPpi(
   pdbText: string,
@@ -230,15 +227,12 @@ export async function evaluateDdmutPpi(
   maxWaitMs = 25000,
   signal?: AbortSignal,
   pollIntervalMs = 4000
-): Promise<DdmutPpiResult | null> {
+): Promise<DdmutPpiOutcome> {
   const hash = crypto.createHash("sha256").update(pdbText).digest("hex").slice(0, 16);
   const cacheKey = `ddmut_ppi:${hash}:${chain}:${mutationCode}`;
 
   const cached = ppiResultCache.get(cacheKey);
-  if (cached) {
-    console.log(`[DDMut-PPI Cache] Hit for ${cacheKey}: ${cached.ddgBind} kcal/mol`);
-    return cached;
-  }
+  if (cached) return { status: "done", result: cached };
 
   // Deduplicate in-flight requests
   const existingPromise = inFlightPpiRequests.get(cacheKey);
@@ -246,28 +240,26 @@ export async function evaluateDdmutPpi(
     return existingPromise;
   }
 
-  const evalPromise = (async () => {
+  const evalPromise = (async (): Promise<DdmutPpiOutcome> => {
     try {
       let jobId = pendingPpiJobs.get(cacheKey)?.jobId;
       if (!jobId) {
         const submittedJobId = await submitDdmutPpiJob(pdbText, chain, mutationCode, signal);
-        if (!submittedJobId) return null;
+        if (!submittedJobId) return { status: "failed", reason: "DDMut-PPI did not accept the job." };
         jobId = submittedJobId;
         pendingPpiJobs.set(cacheKey, { jobId, submittedAt: Date.now() });
-      } else {
-        console.log(`[DDMut-PPI API] Resuming polling for in-progress job ${jobId} (${cacheKey})`);
       }
 
       const startTime = Date.now();
 
       while (Date.now() - startTime < maxWaitMs) {
-        if (signal?.aborted) return null;
+        if (signal?.aborted) return { status: "running" };
 
         await new Promise((r) => setTimeout(r, pollIntervalMs));
-        if (signal?.aborted) return null;
+        if (signal?.aborted) return { status: "running" };
 
         const pollResult = await pollDdmutPpiJob(jobId);
-        if (!pollResult) return null;
+        if (!pollResult) return { status: "failed", reason: "DDMut-PPI did not answer." };
 
         if (pollResult.status === "DONE") {
           pendingPpiJobs.delete(cacheKey);
@@ -275,28 +267,26 @@ export async function evaluateDdmutPpi(
             const result: DdmutPpiResult = {
               ddgBind: pollResult.ddgBind,
               distanceToInterface: pollResult.distanceToInterface,
-              classification: classifyDdgBind(pollResult.ddgBind),
-              provenance: "DDMut-PPI (Graph Neural Network)",
+              provenance: "DDMut-PPI",
               resultsPage: pollResult.resultsPage
             };
             ppiResultCache.set(cacheKey, result);
-            return result;
+            return { status: "done", result };
           }
-          // Completed without numeric prediction
-          return null;
+          return { status: "failed", reason: "DDMut-PPI finished without a prediction." };
         }
 
         if (pollResult.status === "ERROR") {
           pendingPpiJobs.delete(cacheKey);
-          return null;
+          return { status: "failed", reason: "DDMut-PPI reported an error for this job." };
         }
       }
 
       console.log(`[DDMut-PPI API] Job ${jobId} still running after ${maxWaitMs}ms budget. Retaining job ID to resume on subsequent call.`);
-      return null;
+      return { status: "running" };
     } catch (err: any) {
       console.warn(`[DDMut-PPI API] Evaluation failed for ${mutationCode}:`, err.message);
-      return null;
+      return { status: "failed", reason: "DDMut-PPI could not be reached." };
     } finally {
       inFlightPpiRequests.delete(cacheKey);
     }

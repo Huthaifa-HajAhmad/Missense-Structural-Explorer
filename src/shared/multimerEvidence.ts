@@ -131,7 +131,7 @@ export interface MultimerEvidence {
   canRequestModel: boolean;
 }
 
-function residueLabel(variant: string | undefined, position: number | null): string {
+export function residueLabel(variant: string | undefined, position: number | null): string {
   const m = variant ? HGVS_PATTERN.exec(variant.replace(/^.*\((p\.[^)]+)\).*$/, "$1").trim()) : null;
   if (m) {
     const wt = m[1].length === 1 ? AMINO_ACID_1_TO_3_TITLE[m[1].toUpperCase()] ?? m[1] : m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();

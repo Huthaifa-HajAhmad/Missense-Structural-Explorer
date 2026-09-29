@@ -3,7 +3,6 @@ import https from "node:https";
 import { EventEmitter } from "node:events";
 import {
   getUniqueChainsFromPdb,
-  classifyDdgBind,
   submitDdmutPpiJob,
   pollDdmutPpiJob,
   evaluateDdmutPpi,
@@ -48,30 +47,6 @@ describe("DDMut-PPI Service Unit Tests", () => {
     it("returns empty array for empty or header-only PDB", () => {
       const chains = getUniqueChainsFromPdb("REMARK 220\nTITLE TEST PDB");
       expect(chains).toEqual([]);
-    });
-  });
-
-  describe("Binding Affinity Classification", () => {
-    it("classifies >= 1.0 kcal/mol as INTERFACE_DISRUPTIVE", () => {
-      expect(classifyDdgBind(1.0)).toBe("INTERFACE_DISRUPTIVE");
-      expect(classifyDdgBind(2.45)).toBe("INTERFACE_DISRUPTIVE");
-    });
-
-    it("classifies 0.5 <= ddg < 1.0 kcal/mol as ALLOSTERIC_PERTURBATION", () => {
-      expect(classifyDdgBind(0.5)).toBe("ALLOSTERIC_PERTURBATION");
-      expect(classifyDdgBind(0.99)).toBe("ALLOSTERIC_PERTURBATION");
-    });
-
-    it("classifies < 0.5 kcal/mol as SURFACE_NEUTRAL", () => {
-      expect(classifyDdgBind(0.49)).toBe("SURFACE_NEUTRAL");
-      expect(classifyDdgBind(0.0)).toBe("SURFACE_NEUTRAL");
-      expect(classifyDdgBind(-1.2)).toBe("SURFACE_NEUTRAL");
-    });
-
-    it("classifies non-finite numbers as UNKNOWN", () => {
-      expect(classifyDdgBind(NaN)).toBe("UNKNOWN");
-      expect(classifyDdgBind(Infinity)).toBe("UNKNOWN");
-      expect(classifyDdgBind(-Infinity)).toBe("UNKNOWN");
     });
   });
 
@@ -248,10 +223,13 @@ describe("DDMut-PPI Service Unit Tests", () => {
       });
 
       const result = await evaluateDdmutPpi(SAMPLE_MULTI_CHAIN_PDB, "A", "A1V", 5000, undefined, 50);
-      expect(result).not.toBeNull();
-      expect(result?.ddgBind).toBe(1.45);
-      expect(result?.distanceToInterface).toBe(2.10);
-      expect(result?.classification).toBe("INTERFACE_DISRUPTIVE");
+      // The value is passed through in DDMut-PPI's own sign convention (ΔΔG ≤ 0 is weaker binding,
+      // Zhou et al. NAR 2024) with no class attached: the authors publish no cut-points.
+      expect(result.status).toBe("done");
+      if (result.status !== "done") throw new Error("expected a value");
+      expect(result.result.ddgBind).toBe(1.45);
+      expect(result.result.distanceToInterface).toBe(2.10);
+      expect(result.result).not.toHaveProperty("classification");
 
       // Verify second call is served from cache without submitting or polling
       fetchSpy.mockClear();
@@ -298,7 +276,7 @@ describe("DDMut-PPI Service Unit Tests", () => {
 
       // Run with short maxWaitMs (120ms with 50ms interval => polls twice then times out)
       const firstRun = await evaluateDdmutPpi(SAMPLE_MULTI_CHAIN_PDB, "A", "A1V", 120, undefined, 50);
-      expect(firstRun).toBeNull();
+      expect(firstRun).toEqual({ status: "running" });
       expect(submitCallCount).toBe(1);
 
       // Second run: should NOT submit again; should resume polling the existing job
@@ -326,9 +304,8 @@ describe("DDMut-PPI Service Unit Tests", () => {
       });
 
       const secondRun = await evaluateDdmutPpi(SAMPLE_MULTI_CHAIN_PDB, "A", "A1V", 5000, undefined, 50);
-      expect(secondRun).not.toBeNull();
-      expect(secondRun?.ddgBind).toBe(0.72);
-      expect(secondRun?.classification).toBe("ALLOSTERIC_PERTURBATION");
+      expect(secondRun.status).toBe("done");
+      expect(secondRun.status === "done" && secondRun.result.ddgBind).toBe(0.72);
       // Key assertion: submitDdmutPpiJob was NOT called a second time!
       expect(submitCallCount).toBe(1);
     });
