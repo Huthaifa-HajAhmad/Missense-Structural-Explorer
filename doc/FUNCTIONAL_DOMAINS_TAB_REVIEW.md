@@ -28,7 +28,7 @@ InterPro via UniParc (UPI000006EBDC): Pfam PF00899 ThiF fold 13–530 (IPR000594
 | 9 | Medium | Disease variants were filtered out; mutagenesis shown as grey "other" pins. | Natural variants kept (disease ones drawn above the backbone, polymorphisms listed only); mutagenesis has its own group. |
 | 10 | Medium | "Flanking proximity vectors" were sequence distances. | A "From N" column, labelled as sequence distance. A 3D neighbourhood is left for a later phase. |
 | 11 | Medium | Numbering basis ignored. | Rule-trace step 1 states it; an unverified basis is a caveat. |
-| 12 | Low | Guidelines rail described PM1 as "e.g. binding pocket interface" and BP3 as "structurally neutral substitution"; Predictors rail gave the PP3 + PM1 cap reason as "both draw on conservation". | Wording corrected in both rails. **Not changed:** the Threshold Guide still labels the ΔΔG rows `acmgCode: "PM1 / BP3"` (`src/shared/thresholds/guidelines.ts`). Stability is neither; the fix changes how that tab splits codes, so it belongs with the Guidelines tab. |
+| 12 | Low | Guidelines rail described PM1 as "e.g. binding pocket interface" and BP3 as "structurally neutral substitution"; Predictors rail gave the PP3 + PM1 cap reason as "both draw on conservation". | Wording corrected in both rails. **Not changed here, resolved by the Score thresholds rebuild:** the Threshold Guide labelled the ΔΔG rows `acmgCode: "PM1 / BP3"` (`src/shared/thresholds/guidelines.ts`). That file is gone, the tab now builds its rows in `src/shared/thresholdEvidence.ts`, and no stability row carries an ACMG code (pinned by `thresholdEvidence.test.ts`). |
 
 ## Design
 
