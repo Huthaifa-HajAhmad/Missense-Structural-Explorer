@@ -80,6 +80,17 @@ graphify-out/
 # Local secrets
 .sidecar_secret
 
+# Deployment runbook, kept local. It documents the OCI host, the deployment topology, and the shape
+# of the production secrets. Every credential in it is a placeholder (<YOUR_CLOUDFLARE_TUNNEL_TOKEN>,
+# <32_byte_hex_token>), but the host is real -- it appears as OCI_SSH_HOST's example, 92.5.173.166 --
+# so it does not belong in a repository that is public.
+#
+# UNTRACKING THIS DOES NOT HIDE IT. As of 2026-09-29 the file is still present in history on main and
+# on all four claude/* branches, so publishing the repo would still expose the host. Removing it for
+# real needs git-filter-repo, and on this repository that means a rewrite plus a fresh repository,
+# because GitHub's refs/pull/* are read-only and keep pointing at the old commits.
+doc/DEPLOYMENT_OCI.md
+
 # Local editor and workspace caches
 .commandcode/
 .freebuff/

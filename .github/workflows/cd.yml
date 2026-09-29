@@ -87,20 +87,21 @@ jobs:
 
             git fetch --all --prune
 
-            # UNTRACKED-ASSET PRESERVE. FoldX (licensed) and the model weights are deliberately
-            # untracked as of 2026-09-29, so that nothing licensed or third-party is redistributed
-            # if this repo is ever made public. That creates a deploy hazard which was verified on a
-            # throwaway repo, not assumed: checking out a revision that does not track a path that
-            # the CURRENT revision does track DELETES it. Simulated `A (tracks the binary) ->
-            # git checkout --force B (does not)` and the file was gone; when the whole directory
-            # stops being tracked, the directory itself is removed, so the compose bind mount at
-            # ../tools/foldx_linux would have pointed at nothing and FoldX would have vanished from
-            # the running app on the first deploy after the untracking commit.
+            # UNTRACKED-ASSET PRESERVE. FoldX (licensed), the model weights, and the deployment
+            # runbook are deliberately untracked as of 2026-09-29, so that nothing licensed,
+            # third-party, or infrastructure-revealing is redistributed if this repo is ever made
+            # public. That creates a deploy hazard which was verified on a throwaway repo, not
+            # assumed: checking out a revision that does not track a path that the CURRENT revision
+            # does track DELETES it. Simulated `A (tracks the binary) -> git checkout --force B (does
+            # not)` and the file was gone; when the whole directory stops being tracked, the
+            # directory itself is removed, so the compose bind mount at ../tools/foldx_linux would
+            # have pointed at nothing and FoldX would have vanished from the running app on the
+            # first deploy after the untracking commit.
             #
             # This survives because a filesystem copy is taken before the switch and put back after
             # it. It is unconditional and idempotent: on a revision where these paths are still
             # tracked the copy is simply restored over itself.
-            ASSET_PATHS="tools/foldx tools/foldx_linux tools/thermompnn/models tools/thermompnn/vanilla_model_weights tools/model_server_app/checkpoints"
+            ASSET_PATHS="tools/foldx tools/foldx_linux tools/thermompnn/models tools/thermompnn/vanilla_model_weights tools/model_server_app/checkpoints doc/DEPLOYMENT_OCI.md"
             ASSET_SAFE="$HOME/.mse-untracked-assets"
             rm -rf "$ASSET_SAFE"
             mkdir -p "$ASSET_SAFE"
