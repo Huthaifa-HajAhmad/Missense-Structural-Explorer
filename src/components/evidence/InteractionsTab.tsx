@@ -1,719 +1,451 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { variantContacts } from "../../shared/multimerAssembly";
-import {
-  ShieldCheck,
-  AlertTriangle,
-  RefreshCw,
-  Zap,
-  MapPin,
-  Network,
-  ExternalLink,
-  HelpCircle,
-  ArrowRight,
-  type LucideIcon
-} from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, ArrowRight, ExternalLink, Handshake, ListChecks, MapPin, RefreshCw, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
-import { PpiBindingData } from "../../types";
+import type { PpiBindingData, PpiBindingShift } from "../../shared/contracts";
 import { useApiClient, extractErrorMessage } from "../../apiClient";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { STRING_CONFIDENCE_CUTS } from "../../shared/thresholds";
+import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import {
-  STRING_CONFIDENCE_CUTS,
-  THRESHOLDS,
-  stringConfidenceLabel,
-  stringConfidenceTier
-} from "../../shared/thresholds";
+  DDMUT_PPI_PERFORMANCE,
+  buildInteractionsEvidence,
+  stringNetworkUrl,
+  type InteractionsEvidence,
+  type PartnerRow,
+} from "../../shared/interactionsEvidence";
+import { SiteTrack } from "./interactions/SiteTrack";
+import { BindingRuler } from "./interactions/BindingRuler";
 
 /**
- * Copy for the OpenBind-0 interface classification. The enum is a machine value;
- * "INTERFACE_DISRUPTIVE" is not what a reader wants to be shown.
- */
-const CLASSIFICATION_COPY: Record<string, { label: string; tone: string }> = {
-  INTERFACE_DISRUPTIVE: { label: "Interface disruptive", tone: "danger" },
-  ALLOSTERIC_PERTURBATION: { label: "Allosteric perturbation", tone: "warning" },
-  SURFACE_NEUTRAL: { label: "Surface neutral", tone: "good" },
-  UNKNOWN: { label: "Unclassified", tone: "neutral" }
-};
-
-/**
- * The one shape a section uses when it has no table or list to show — in flight,
- * failed, or settled and genuinely empty. "We have not looked yet" and "we looked
- * and there is nothing" are different claims about the protein, so they get
- * different words rather than sharing one empty state.
+ * InteractionsTab — Protein interactions: who the protein binds or works with, whether the variant
+ * residue falls in a mapped binding site, and the predicted binding energy change.
  *
- * The spinner carries no `motion-reduce:animate-none`: `primitives.css` exempts
- * `.animate-spin` from its global reduced-motion kill switch on purpose, to keep
- * feedback for in-flight work. The title text is the static cue.
+ * Renders `buildInteractionsEvidence` and computes nothing itself. Three tiers: the finding (site
+ * verdict, fact strip ending in the engine record), where the sites are (one track row per partner),
+ * the partners (one grid row per partner, a column per source), then the binding change.
+ *
+ * REPLACED (doc/INTERACTIONS_TAB_REVIEW.md): "Monomer · Intramolecular · ΔΔG N/A" for a heterodimer;
+ * a ΔΔG coloured by OpenBind cut-points and classed by DDMut-PPI ones, with the sign read backwards;
+ * "JapanFold OpenBind-0 (Tier 1)" named for a model that never ran; "Swiss-Prot records no interface"
+ * when UniProt maps two UBA3 contacts; green "Highest" chips and bars on functional association.
  */
-function PanelState({
-  icon: Icon,
-  title,
-  note,
-  spinning = false
-}: {
-  icon: LucideIcon;
-  title: string;
-  note: React.ReactNode;
-  spinning?: boolean;
-}) {
+
+/**
+ * One request, tagged with the `(gene, variant)` pair it was issued for. A response may only write
+ * state for the key it was issued for, and render reads state only for the key on screen: an aborted
+ * request's late answer, the first painted frame, and an in-session cache swap each used to paint the
+ * previous variant's partners, or settled-absence copy for a query still in flight.
+ */
+type Keyed<T> = { key: string; status: "loading" | "ready" | "error"; data: T | null; message?: string };
+
+function updateResult(patch: Record<string, unknown>) {
+  useVariantAnalysisStore.getState().setAnalysisState((prev: any) =>
+    prev?.result ? { ...prev, result: { ...prev.result, ...patch } } : prev
+  );
+}
+
+function Dot({ on, label }: { on: boolean; label: string }) {
   return (
-    <div className="ev-empty">
-      <Icon className={`w-4 h-4 ${spinning ? "animate-spin" : ""}`} aria-hidden="true" />
-      <div className="min-w-0">
-        <span className="ev-empty-title">{title}</span>
-        <p className="ev-empty-note">{note}</p>
-      </div>
+    <>
+      <span className="itx-dot" data-on={on || undefined} aria-hidden="true" />
+      <span className="sr-only">{on ? label : `Not in ${label}`}</span>
+    </>
+  );
+}
+
+function siteCell(p: PartnerRow, ev: InteractionsEvidence) {
+  const ranges = p.sites.map(s => (s.start === s.end ? `${s.start}` : `${s.start}–${s.end}`));
+  if (!ranges.length && !p.observed) {
+    return <td className="itx-site"><span className="itx-site__note">None mapped</span></td>;
+  }
+  const hit = p.variantInSite || p.variantAtObservedInterface;
+  const where = p.variantInSite ? "in a mapped site" : p.variantAtObservedInterface ? "at the solved interface" : "outside";
+  return (
+    <td className="itx-site" data-hit={hit || undefined}>
+      <span className="itx-site__range">{ranges.length ? ranges.join(", ") : `${p.observed!.residues.length} residues`}</span>
+      <span className="itx-site__note">{ev.residueLabel} {where}</span>
+    </td>
+  );
+}
+
+function PartnerRowView({ p, ev }: { p: PartnerRow; ev: InteractionsEvidence }) {
+  return (
+    <tr data-hit={p.variantInSite || p.variantAtObservedInterface || undefined}>
+      <th scope="row" className="itx-subject">
+        <span className="itx-subject__name">
+          <a
+            className="itx-partner-link"
+            href={stringNetworkUrl(ev.gene, p.gene)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Open ${ev.gene} and ${p.gene} on STRING (new tab)`}
+          >
+            {p.gene}
+          </a>
+          <ExternalLink className="w-3 h-3" aria-hidden="true" />
+        </span>
+        <span className="itx-subject__note">{p.evidence}{p.accession ? ` · ${p.accession}` : ""}</span>
+      </th>
+      <td className="itx-src"><Dot on={Boolean(p.subunitSentence)} label="SUBUNIT" /></td>
+      <td className="itx-src">
+        <Dot on={p.intactExperiments !== null} label="IntAct" />
+        {p.intactExperiments !== null && <span className="itx-count" title="IntAct experiments">{p.intactExperiments}</span>}
+      </td>
+      <td className="itx-src">
+        <Dot on={Boolean(p.observed)} label="solved structures" />
+        {p.observed && <span className="itx-count" title="PDB entries">{p.observed.pdbEntries}</span>}
+      </td>
+      <td className="itx-assoc">
+        {p.string ? (
+          <>
+            <span className="itx-assoc__row">
+              <span className="itx-bar" aria-hidden="true">
+                <span className="itx-bar__fill" style={{ width: `${Math.max(0, Math.min(1, p.string.score)) * 100}%` }} />
+                {STRING_CONFIDENCE_CUTS.map(c => (
+                  <span key={c.id} className="itx-bar__tick" style={{ left: `${c.min * 100}%` }} />
+                ))}
+              </span>
+              <span className="itx-num">{p.string.score.toFixed(3)}</span>
+            </span>
+            <span className="itx-assoc__band">{p.string.band ? `${p.string.band} confidence` : "Below STRING's lowest band"}</span>
+          </>
+        ) : (
+          <span className="itx-reason">{ev.sections.string.state === "ok" ? "Not in STRING's top five" : "Not read"}</span>
+        )}
+      </td>
+      {siteCell(p, ev)}
+    </tr>
+  );
+}
+
+function Statement({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="itx-statement">
+      <p className="itx-statement__title">{title}</p>
+      <p>{children}</p>
+      {action}
     </div>
   );
 }
 
-/**
- * One PPI request, tagged with the `(gene, variant)` pair it was issued for.
- *
- * The tab used to track this with a bare `isLoading` boolean and an unkeyed
- * payload, which made "we have not asked yet" indistinguishable from "we asked
- * and there is nothing" in three reachable ways:
- *
- *  - An ABORTED request's `finally` cleared the flag its successor had just set.
- *    React runs an effect's cleanup and its replacement in one synchronous pass,
- *    and the aborted fetch's rejection microtask drains afterwards — so while the
- *    new request was still in flight both `pending` and `unavailable` were false
- *    and the tab printed settled-absence copy for a query it had not finished.
- *  - `isLoading` starts `false`, and passive effects run after paint, so the
- *    first painted frame of every variant asserted absence.
- *  - The payload was not keyed to the variant, so a result swap that does not
- *    pass through `result === null` (the in-session cache hit) painted the
- *    previous variant's partners and interface chip under the new header.
- *
- * Keying the request fixes all three by construction: a response may only write
- * state for the key it was issued for, and render reads state only for the key
- * it is currently showing.
- */
-type PpiRequest = {
-  key: string;
-  status: "loading" | "ready" | "error";
-  data: PpiBindingData | null;
-  message?: string;
-};
-
-export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onTabChange }: TabComponentProps) {
+export function InteractionsTab({ analysisState, onTabChange }: TabComponentProps) {
   const result = analysisState.result;
   const gene = result?.metadata?.gene;
   const variant = result?.metadata?.variant;
   const uniprotId = result?.metadata?.uniprotId;
-  const complexPdb = result?.multimerData?.complexPdb;
-  const chainIds = result?.multimerData?.chainIds;
-  const chainA = (chainIds && chainIds.length > 0 && chainIds[0]) ? chainIds[0] : "A";
-  const chainB = (chainIds && chainIds.length > 1 && chainIds[1]) ? chainIds[1] : "B";
-
-  const ppiKey = gene && variant ? `${gene}|${variant}` : null;
-
+  const key = gene && variant ? `${gene}|${variant}` : null;
   const { fetchWithAuth } = useApiClient();
-  const [ppi, setPpi] = useState<PpiRequest | null>(null);
 
-  /**
-   * A stored payload counts as this variant's only if it says it is: the payload
-   * carries its own `gene`/`variant`, and the tab used to ignore them.
-   */
-  const storedPpi = result?.ppiBindingData ?? null;
+  // ── Partners and sites (lookups; run on open) ─────────────────────────────
+  const [ppi, setPpi] = useState<Keyed<PpiBindingData> | null>(null);
+  const stored = (result?.ppiBindingData ?? null) as PpiBindingData | null;
+  // A stored payload counts only if it names this variant and was written by the current service.
   const storedForVariant =
-    storedPpi && gene && variant && storedPpi.gene === gene && storedPpi.variant === variant
-      ? storedPpi
-      : null;
+    stored && stored.gene === gene && stored.variant === variant && stored.lookups && "uniprot" in stored.lookups ? stored : null;
 
-  const fetchPpiData = useCallback(async (signal?: AbortSignal) => {
-    if (!gene || !variant || !ppiKey) return;
-    const key = ppiKey;
-    // Keep the previous payload for the SAME key: uniprotId and complexPdb land
-    // progressively during an analysis and re-issue this query, and blanking the
-    // table on each one made the reader lose rows they could still use.
-    setPpi(prev => ({ key, status: "loading", data: prev?.key === key ? prev.data : null }));
-    try {
-      const response = await fetchWithAuth("/api/v1/ppi/binding-affinity", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          gene,
-          variant,
-          uniprotId,
-          wtPdb: complexPdb || null,
-          // Zero synthetic fallbacks protocol: never pass identical WT coordinates as mutant.
-          // Live interface energy calculation requires a genuinely modeled mutant multimer complex.
-          mutPdb: null,
-          chainA,
-          chainB
-        }),
-        signal
-      });
-      // A superseded request writes nothing at all. This is the guard the old
-      // `finally { setIsLoading(false) }` did not have.
-      if (signal?.aborted) return;
-      if (response.ok) {
-        const data = await response.json();
+  const fetchPpi = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!gene || !variant || !key) return;
+      setPpi(prev => ({ key, status: "loading", data: prev?.key === key ? prev.data : null }));
+      try {
+        const response = await fetchWithAuth("/api/v1/ppi/binding-affinity", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ gene, variant, uniprotId }),
+          signal,
+        });
+        if (signal?.aborted) return;
+        if (!response.ok) {
+          setPpi({ key, status: "error", data: null, message: await extractErrorMessage(response, "The interaction lookups did not answer.") });
+          return;
+        }
+        const data = (await response.json()) as PpiBindingData;
         if (signal?.aborted) return;
         setPpi({ key, status: "ready", data });
-        useVariantAnalysisStore.getState().setAnalysisState((prev: any) => {
-          if (!prev?.result) return prev;
-          return {
-            ...prev,
-            result: {
-              ...prev.result,
-              ppiBindingData: data
-            }
-          };
-        });
-      } else {
-        const message = await extractErrorMessage(response, "Failed to fetch PPI binding data");
-        setPpi({ key, status: "error", data: null, message });
+        updateResult({ ppiBindingData: data });
+      } catch (err: any) {
+        if (err?.name === "AbortError" || signal?.aborted) return;
+        setPpi({ key, status: "error", data: null, message: err?.message || "The interaction lookups did not answer." });
       }
-    } catch (err: any) {
-      if (err?.name === "AbortError" || signal?.aborted) return;
-      setPpi({
-        key,
-        status: "error",
-        data: null,
-        message: err?.message || "Network error loading PPI data"
-      });
-    }
-  }, [gene, variant, ppiKey, uniprotId, complexPdb, chainA, chainB, fetchWithAuth]);
+    },
+    [gene, variant, key, uniprotId, fetchWithAuth]
+  );
 
-  // Synchronize on variant change and abort in-flight queries
   useEffect(() => {
-    if (!gene || !variant || !ppiKey) return;
+    if (!key) return;
     if (storedForVariant) {
-      setPpi({ key: ppiKey, status: "ready", data: storedForVariant });
+      setPpi({ key, status: "ready", data: storedForVariant });
       return;
     }
     const controller = new AbortController();
-    fetchPpiData(controller.signal);
+    fetchPpi(controller.signal);
+    return () => controller.abort();
+  }, [key, storedForVariant, fetchPpi]);
 
-    return () => {
-      controller.abort();
-    };
-  }, [gene, variant, ppiKey, storedForVariant, fetchPpiData]);
+  // ── Binding change (a wild-type model and a DDMut-PPI job; run on request) ──────
+  const [shift, setShift] = useState<Keyed<PpiBindingShift> | null>(null);
+  const storedShift = (result?.ppiBindingShift ?? null) as PpiBindingShift | null;
+  const storedShiftForVariant = storedShift && storedShift.gene === gene && storedShift.variant === variant ? storedShift : null;
 
   if (!result) return null;
 
-  // ── Request state, read only for the variant on screen ─────────────────────
-  const active = ppi && ppi.key === ppiKey ? ppi : null;
-  const ppiData = active?.data ?? storedForVariant ?? null;
+  const active = ppi && ppi.key === key ? ppi : null;
+  const ppiData = active?.data ?? storedForVariant ?? (stored && stored.gene === gene && stored.variant === variant ? stored : null);
+  const activeShift = shift && shift.key === key ? shift : null;
+
+  const ev = buildInteractionsEvidence({
+    result,
+    ppi: ppiData,
+    ppiStatus: active?.status ?? (storedForVariant ? "ready" : "loading"),
+    ppiError: active?.status === "error" ? active.message ?? null : null,
+    shift: activeShift?.data ?? storedShiftForVariant,
+    shiftLoading: activeShift?.status === "loading",
+    shiftError: activeShift?.status === "error" ? activeShift.message ?? null : null,
+  });
+  const b = ev.binding;
   const requestInFlight = active?.status === "loading";
-  /**
-   * Both false only when a settled answer exists for THIS key. Note the initial
-   * render satisfies `ppiPending` even before the effect runs, which is the point:
-   * `active` is null, not "we have an empty answer".
-   */
-  const ppiPending = !ppiData && active?.status !== "error";
-  const ppiUnavailable = !ppiData && active?.status === "error";
-  const ppiErrorMessage = active?.status === "error" ? active.message ?? null : null;
 
-  /**
-   * The endpoint reports an EMPTY ARRAY for every non-answer, so an empty list is
-   * not on its own evidence of absence: `lookups` records whether the lookup
-   * actually ran. Absent `lookups` means the payload predates the field, which is
-   * UNKNOWN — not an empty answer, because the old API could not have expressed
-   * the difference.
-   */
-  const stringLookup = ppiData?.lookups?.stringPartners ?? null;
-  const interfaceLookup = ppiData?.lookups?.interfaceResidues ?? null;
-
-  /** Curated SUBUNIT annotation, quoted back under whichever note precedes it. */
-  const withSubunitQuote = (lead: React.ReactNode) => (
-    <>
-      {lead}
-      {subunitComment && (
-        <span className="ev-quote">
-          <span className="ev-quote-label">Curated SUBUNIT annotation</span>
-          {subunitComment}
-        </span>
-      )}
-    </>
-  );
-
-  // `ppiData` decides the partner list, not array truthiness: an empty array from
-  // a settled response is a real answer and must not fall back to the pipeline's.
-  const stringPartners = ppiData ? ppiData.stringPartners : result.stringInteractions ?? [];
-  const bindingShift = ppiData?.bindingShift;
-  const interfaceResidues = ppiData?.interfaceResidues ?? [];
-
-  // Multimer & Quaternary Assembly context
-  const multimerData = result?.multimerData;
-  const multimerContacts = multimerData?.interfaceContacts || [];
-  const oligomericState = multimerData?.oligomericState;
-  const subunitComment = multimerData?.subunitComment || result?.uniprotFeatures?.subunitComment;
-  const variantPos = result?.metadata?.residueIndex || 0;
-
-  const isExplicitMonomer = multimerData?.status === "monomeric" ||
-    (oligomericState ? oligomericState.toLowerCase().trim() === "monomer" : false);
-  const isExplicitMultimer = multimerData?.status === "success" || (multimerData?.chainCount ?? 0) > 1;
-
-  const isMonomeric = isExplicitMonomer || (
-    !isExplicitMultimer &&
-    Boolean(subunitComment && /^monomer(\.|\b)/i.test(subunitComment.trim()))
-  );
-
-  // The variant residue ITSELF in a modelled contact — the one rule the Multimer tab uses too. This was
-  // "any contact within ±4 residues in sequence", which a sequence neighbour satisfies without the
-  // variant touching the partner; `resB` is only the variant's numbering when the chains are identical.
-  const hasDirectComplexContact = variantContacts(
-    multimerContacts,
-    variantPos,
-    multimerData?.assembly ? multimerData.assembly.kind === "homomer" : (multimerData?.chainCount ?? 0) <= 2
-  ).length > 0;
-  const hasCuratedInterface = interfaceResidues.some(r => r.isVariantPosition);
-  const hasCuratedInterfaceAny = interfaceResidues.length > 0;
-
-  const ddgBind = bindingShift?.ddgBind;
-  const hasDdgBind = Number.isFinite(ddgBind);
-
-  // ── ΔΔG_bind: value, tone and the note that says why it is absent ──────────
-  const ddgValue = hasDdgBind
-    ? formatDdGValue(ddgBind!, energyUnit)
-    : isMonomeric
-      ? "N/A"
-      : "Pending";
-  // Cut-points come from THRESHOLDS.openBind, which the server's fallback
-  // classification reads too: as two hand-written copies, the value's colour and
-  // the chip's word could disagree about the same number.
-  const ddgTone = hasDdgBind
-    ? ddgBind! >= THRESHOLDS.openBind.disruptive
-      ? "danger"
-      : ddgBind! >= THRESHOLDS.openBind.allosteric
-        ? "warning"
-        : "good"
-    : "muted";
-  const ddgNote = hasDdgBind
-    ? bindingShift?.distanceToInterface != null
-      ? `Interface distance: ${bindingShift.distanceToInterface.toFixed(1)} Å`
-      : "Binding free energy shift across the interface"
-    : isMonomeric
-      ? "Monomer: no inter-chain interface to score"
-      : requestInFlight
-        ? "Evaluating interface binding shift..."
-        : "No multimer complex available yet";
-
-  // ── Quaternary assembly ───────────────────────────────────────────────────
-  const classificationCopy = bindingShift?.classification
-    ? CLASSIFICATION_COPY[bindingShift.classification] ?? CLASSIFICATION_COPY.UNKNOWN
-    : null;
-  const assemblyLabel = classificationCopy
-    ? classificationCopy.label
-    : isMonomeric
-      ? "Monomer"
-      : oligomericState || "Uncharacterized";
-  const assemblyTone = classificationCopy
-    ? classificationCopy.tone
-    : "neutral";
-  const assemblyNote = classificationCopy
-    ? "Predicted impact on complex stability"
-    : isMonomeric
-      ? "Curated physiological single-chain state"
-      : oligomericState
-        ? "Reported oligomeric assembly"
-        : "Assembly state not reported";
-
-  // ── Residue interface proximity ───────────────────────────────────────────
-  // One colour carries one meaning here: danger only where the variant actually
-  // sits at an interface. Everything else is neutral ink, so the eye is drawn to
-  // the single case that matters instead of to four equally coloured chips.
-  const proximity = isMonomeric
-    ? { label: "Intramolecular", tone: "neutral", Icon: ShieldCheck, note: "Residue is internal to the single-chain structure" }
-    : (hasDirectComplexContact || (bindingShift?.distanceToInterface != null && bindingShift.distanceToInterface <= 5.0))
-      ? {
-          label: bindingShift?.distanceToInterface != null
-            ? `Direct contact (${bindingShift.distanceToInterface.toFixed(1)} Å)`
-            : "Direct contact < 5 Å",
-          tone: "danger",
-          Icon: AlertTriangle,
-          note: "Residue sits in a modelled quaternary contact"
-        }
-      : hasCuratedInterface
-        ? { label: "Interface residue", tone: "danger", Icon: AlertTriangle, note: "Residue is a curated subunit interface site" }
-        : hasCuratedInterfaceAny
-          ? { label: "Distal to site", tone: "neutral", Icon: ShieldCheck, note: "Outside the curated interface residues" }
-          : multimerContacts.length > 0
-            ? { label: "Distal residue", tone: "neutral", Icon: ShieldCheck, note: "Beyond 5 Å of every modelled contact" }
-            : { label: "Uncharacterized", tone: "neutral", Icon: HelpCircle, note: "No interface coordinates available" };
-
-  /**
-   * The sentence that says what the three metrics above it add up to. Rendered
-   * for every state: the "N/A (Monomer)" case previously carried no explanation
-   * at this level, so the reader had to infer why ΔΔG_bind could not be scored.
-   */
-  const predictorName = bindingShift?.provenance || "OpenBind-0";
-  const distanceSuffix = bindingShift?.distanceToInterface != null
-    ? ` (distance to interface: ${bindingShift.distanceToInterface.toFixed(1)} Å)`
-    : "";
-  const bindingFootnote = hasDdgBind
-    ? `${predictorName} predicts an interface binding shift of ${formatDdGValue(ddgBind!, energyUnit)}${distanceSuffix}. A positive ΔΔG means the substitution weakens complex affinity; a negative value means it tightens it.`
-    : isMonomeric
-      ? `${gene} is curated as a single-chain monomer, so there is no inter-chain interface to score and ΔΔG_bind is not applicable to this variant.`
-      : requestInFlight
-        ? `Computing interface binding shift for ${gene}...`
-        : `No modelled mutant complex or multimer coordinates are available for ${gene}, so the interface shift cannot be computed.`;
-
-  const showMultimerCta = !hasDdgBind && !isMonomeric && Boolean(onTabChange);
-
-  // The lowest band STRING publishes, read rather than typed, so the sentence and
-  // the classifier cannot disagree.
-  const lowestBand = THRESHOLDS.stringDb.low.toFixed(3);
-
-  /**
-   * What each section shows in place of a table or list. Every branch below
-   * distinguishes a real empty answer from a lookup that never happened — the
-   * distinction the endpoint could not previously express, and which the section
-   * used to paper over by asserting absence either way.
-   */
-  const interfacePlaceholder: React.ComponentProps<typeof PanelState> = (() => {
-    if (ppiPending) {
-      return {
-        icon: RefreshCw,
-        spinning: true,
-        title: "Checking curated interface annotations…",
-        note: <>Querying UniProt for subunit interface features on <strong>{gene}</strong>.</>
-      };
+  const requestShift = async () => {
+    if (!key || !gene || !variant || !uniprotId || !b.canRequest || activeShift?.status === "loading") return;
+    setShift({ key, status: "loading", data: null });
+    try {
+      const response = await fetchWithAuth("/api/v1/ppi/binding-shift", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gene, variant, uniprotId, chains: b.chains }),
+      });
+      if (!response.ok) {
+        setShift({ key, status: "error", data: null, message: await extractErrorMessage(response, "The binding change could not be estimated.") });
+        return;
+      }
+      const data = (await response.json()) as PpiBindingShift;
+      setShift({ key, status: "ready", data });
+      const meta = useVariantAnalysisStore.getState().analysisState?.result?.metadata;
+      if (meta?.gene === gene && meta?.variant === variant) updateResult({ ppiBindingShift: data });
+    } catch (err: any) {
+      setShift({ key, status: "error", data: null, message: err?.message || "The binding change could not be estimated." });
     }
-    if (ppiUnavailable) {
-      return {
-        icon: AlertTriangle,
-        title: "Curated sites not retrieved",
-        note: <>The query failed, so no interface annotation could be checked for <strong>{gene}</strong>. This is not evidence that none exists.</>
-      };
-    }
-    if (interfaceLookup === "failed") {
-      return {
-        icon: AlertTriangle,
-        title: "Curated sites not retrieved",
-        note: <>The UniProt lookup failed, so no interface annotation could be checked for <strong>{gene}</strong>. This is not evidence that none exists.</>
-      };
-    }
-    if (interfaceLookup === "skipped") {
-      return {
-        icon: HelpCircle,
-        title: "Interface annotations not checked",
-        note: <>No UniProt accession was resolved for <strong>{gene}</strong>, so no interface annotation was requested. This is not evidence that none exists.</>
-      };
-    }
-    if (interfaceLookup === "ok") {
-      return {
-        icon: ShieldCheck,
-        title: "No curated interface residues",
-        note: withSubunitQuote(
-          <>
-            Swiss-Prot records no residue-level subunit interface annotation for{" "}
-            <strong>{gene}</strong>, so no interface position can be reported for this variant.
-          </>
-        )
-      };
-    }
-    return {
-      icon: HelpCircle,
-      title: "Interface annotations not reported",
-      note: withSubunitQuote(
-        <>
-          This response does not say whether the interface lookup ran, so no absence can be
-          claimed for <strong>{gene}</strong>.
-        </>
-      )
-    };
-  })();
+  };
 
-  const partnersPlaceholder: React.ComponentProps<typeof PanelState> = (() => {
-    if (ppiPending) {
-      return {
-        icon: RefreshCw,
-        spinning: true,
-        title: "Querying STRING-db…",
-        note: <>Fetching the strongest functional interaction partners for <strong>{gene}</strong>.</>
-      };
-    }
-    if (ppiUnavailable) {
-      return {
-        icon: AlertTriangle,
-        title: "Partners not retrieved",
-        note: <>The STRING-db query failed, so no partner list is available. This is not evidence that <strong>{gene}</strong> has none.</>
-      };
-    }
-    if (stringLookup === "failed") {
-      return {
-        icon: AlertTriangle,
-        title: "Partners not retrieved",
-        note: <>The STRING-db lookup failed, so no partner list is available for <strong>{gene}</strong>. This is not evidence that it has none.</>
-      };
-    }
-    if (stringLookup === "ok") {
-      return {
-        icon: Network,
-        title: "No interaction partners",
-        note: <>STRING-db returns no association for <strong>{gene || "this gene"}</strong> at or above its lowest confidence band ({lowestBand}).</>
-      };
-    }
-    return {
-      icon: HelpCircle,
-      title: "Partners not reported",
-      note: <>This response does not say whether the STRING-db lookup ran, so no absence can be claimed for <strong>{gene}</strong>.</>
-    };
-  })();
+  const physical = ev.partners.filter(p => p.group === "physical");
+  const functional = ev.partners.filter(p => p.group === "functional");
+  const anyHit = ev.partners.some(p => p.variantInSite || p.variantAtObservedInterface);
+  const lookupFault = [ev.sections.uniprot, ev.sections.pdbe, ev.sections.string].filter(s => s.state === "failed");
 
   return (
-    <div className="space-y-4">
-      {/*
-        Live regions, mounted for the whole life of the tab. A `role="alert"` node
-        that is inserted already populated is not reliably announced — live regions
-        report CHANGES to a region that already existed — so the error is injected
-        into a container that is always in the DOM and only its styling is toggled.
-      */}
-      <div
-        role="alert"
-        aria-live="assertive"
-        aria-atomic="true"
-        className={ppiErrorMessage ? "ev-alert" : "sr-only"}
-      >
-        {ppiErrorMessage && (
-          <>
-            <AlertTriangle className="w-4 h-4" aria-hidden="true" />
-            <span>{ppiErrorMessage}</span>
-          </>
-        )}
-      </div>
-
-      {/* Settled outcomes only, so the region does not narrate every keystroke of
-          the request lifecycle. Satisfies 4.1.3 for the results region, which had
-          no live region at all. */}
+    <div className="itx-screen @container">
+      {/* Live region mounted for the tab's whole life: a region inserted already populated is not announced. */}
       <div role="status" aria-live="polite" className="sr-only">
-        {ppiPending
-          ? ""
-          : ppiUnavailable
-            ? "Interaction data could not be retrieved."
-            : `${stringPartners.length} interaction partners and ${interfaceResidues.length} curated interface residues loaded for ${gene}.`}
+        {ev.status === "loading" ? "" : `${ev.finding.headline} ${ev.partners.length} partners listed.`}
       </div>
 
-      {/* Tab Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="screen-title">PPI Networks &amp; Interface Binding Affinity</h1>
+      <header className="itx-header">
+        <div>
+          <h1 className="screen-title">Protein interactions</h1>
           <p className="screen-tab-description">
-            Functional protein–protein interaction network (STRING-db) and the structural interface
-            binding-affinity shift (ΔΔG_bind, JapanFold OpenBind-0).
+            Which proteins {ev.gene} binds or works with, whether the variant falls in a mapped binding site, and any predicted change in binding energy.
           </p>
         </div>
-        {/*
-          `aria-disabled`, not `disabled`: a disabled control leaves the tab order,
-          so activating Refresh with the keyboard dropped focus to <body> and the
-          next Tab restarted at the top of the document.
-        */}
+        {/* `aria-disabled`, not `disabled`: a disabled control leaves the tab order and drops focus to <body>. */}
         <button
           type="button"
-          onClick={() => {
-            if (!requestInFlight) void fetchPpiData();
-          }}
+          className="itx-button"
+          onClick={() => { if (!requestInFlight) void fetchPpi(); }}
           aria-disabled={requestInFlight}
           aria-busy={requestInFlight}
-          className="cs-btn-ghost ev-refresh shrink-0 self-start"
-          title="Re-query STRING-db and OpenBind-0 for this variant"
+          title="Ask UniProt, PDBe and STRING again for this variant"
         >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${requestInFlight ? "animate-spin" : ""}`}
-            aria-hidden="true"
-          />
-          <span>{requestInFlight ? "Analyzing…" : "Refresh PPI"}</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${requestInFlight ? "animate-spin" : ""}`} aria-hidden="true" />
+          {requestInFlight ? "Reading" : "Read again"}
         </button>
-      </div>
+      </header>
 
-      {/* ── Section 1: interface binding affinity ─────────────────────────── */}
-      <section className="ev-panel">
-        <div className="ev-panel-header">
-          <h2 className="ev-panel-title">
-            <Zap className="w-4 h-4" aria-hidden="true" />
-            Interface Binding Affinity Shift
-          </h2>
-          <span className="badge-data-source">
-            {bindingShift?.provenance || "JapanFold OpenBind-0 (Tier 1)"}
-          </span>
-        </div>
-
-        <div className="ev-panel-body">
-          <div className="ev-metric-rail">
-            <div className="ev-metric">
-              <span className="ev-metric-label">ΔΔG_bind</span>
-              <span className="ev-metric-value" data-tone={ddgTone}>{ddgValue}</span>
-              <span className="ev-metric-note">{ddgNote}</span>
-            </div>
-
-            <div className="ev-metric">
-              <span className="ev-metric-label">Quaternary Assembly</span>
-              <span className="ev-metric-value">
-                <span className="ev-tier" data-tone={assemblyTone}>{assemblyLabel}</span>
-              </span>
-              <span className="ev-metric-note">{assemblyNote}</span>
-            </div>
-
-            <div className="ev-metric">
-              <span className="ev-metric-label">Residue Interface Proximity</span>
-              <span className="ev-metric-value">
-                <span className="ev-tier" data-tone={proximity.tone}>
-                  <proximity.Icon className="w-3.5 h-3.5" aria-hidden="true" />
-                  {proximity.label}
-                </span>
-              </span>
-              <span className="ev-metric-note">{proximity.note}</span>
-            </div>
+      {/* ── 1. The finding ─────────────────────────────────────────────────── */}
+      <section className="itx-card" aria-labelledby="itx-finding-title" data-testid="interactions-finding">
+        <div className="itx-hero__body">
+          <div className="itx-hero__top">
+            <span className="eyebrow" id="itx-finding-title">
+              <Handshake className="w-3.5 h-3.5" />
+              Interaction context · not an ACMG input
+            </span>
+            <span className="ev-tier itx-chip" data-tone="muted">Informational</span>
           </div>
-
-          <p className="ev-panel-footnote">
-            {bindingFootnote}
-            {showMultimerCta && (
-              <>
-                {" "}
-                <button
-                  type="button"
-                  onClick={() => onTabChange!("multimers")}
-                  className="ev-inline-cta"
-                >
-                  Open Quaternary Assembly
-                  <ArrowRight className="w-3 h-3" aria-hidden="true" />
-                </button>
-              </>
+          <div className="itx-hero__figure">
+            <span className="itx-figure" data-empty={ev.status === "loading" || ev.finding.figure === "Not checked" || undefined}>{ev.finding.figure}</span>
+            {ev.sites.length > 0 && (
+              <span className="itx-hero__figure-label">
+                {ev.residueLabel} against {ev.sites.length} mapped {ev.sites.length === 1 ? "site" : "sites"} · UniProt
+              </span>
             )}
+          </div>
+          <p className="itx-hero__finding" data-testid="interactions-finding-sentence">
+            <strong>{ev.finding.headline}</strong> {ev.finding.predicate}.
           </p>
         </div>
-      </section>
 
-      {/* ── Section 2: UniProt curated interface sites ────────────────────── */}
-      <section className="ev-panel" aria-busy={requestInFlight}>
-        <div className="ev-panel-header">
-          <h2 className="ev-panel-title">
-            <MapPin className="w-4 h-4" aria-hidden="true" />
-            Curated Interface &amp; Subunit Binding Sites
-          </h2>
-          <span className="badge-data-source">UniProtKB</span>
-        </div>
-
-        {interfaceResidues.length > 0 ? (
-          <ul className="ev-residue-list">
-            {interfaceResidues.map((item, idx) => (
-              <li key={idx} className={`ev-residue${item.isVariantPosition ? " is-variant" : ""}`}>
-                <div className="min-w-0">
-                  <span className="ev-residue-pos">Residue {item.pos}</span>
-                  <span className="ev-residue-desc">{item.description}</span>
-                </div>
-                {item.isVariantPosition && (
-                  <span className="ev-tier" data-tone="danger">Mutation site</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <PanelState {...interfacePlaceholder} />
+        {(lookupFault.length > 0 || ev.status === "error") && (
+          <div role="status" className="itx-callout" data-tone="warning">
+            <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{ev.status === "error" ? ev.errorText ?? "The interaction lookups did not answer." : lookupFault.map(s => s.reason).join(" ")}</span>
+          </div>
         )}
+
+        <dl className="itx-facts">
+          {ev.facts.map(f => (
+            <div key={f.label} className="itx-fact">
+              <dt>{f.label}</dt>
+              <dd className={/\d/.test(f.value) ? "itx-mono" : undefined}>{f.value}</dd>
+              <span className="itx-fact__sub">{f.sub}</span>
+            </div>
+          ))}
+        </dl>
       </section>
 
-      {/* ── Section 3: STRING-db functional partner network ───────────────── */}
-      <section className="ev-panel" aria-busy={requestInFlight}>
-        <div className="ev-panel-header">
-          <h2 className="ev-panel-title">
-            <Network className="w-4 h-4" aria-hidden="true" />
-            Functional Interaction Partners
-          </h2>
-          <span className="badge-data-source">STRING-db</span>
+      {/* ── 2. Where the sites are ─────────────────────────────────────────── */}
+      <section className="itx-section" aria-labelledby="itx-track-title">
+        <h2 className="eyebrow" id="itx-track-title">
+          <MapPin className="w-3.5 h-3.5" />
+          Where partners bind
+        </h2>
+        <div className="itx-card">
+          <SiteTrack ev={ev} />
+          <div className="itx-foot" aria-label="Legend">
+            <span className="itx-legend__item"><i className="itx-key" data-kind="site" />Mapped site, UniProt</span>
+            <span className="itx-legend__item"><i className="itx-key" data-kind="solved" />Interface in a solved structure</span>
+            <span className="itx-legend__item"><i className="itx-key" data-kind="variant" />{ev.residueLabel}</span>
+            {onTabChange && (
+              <button type="button" className="itx-link" onClick={() => onTabChange("multimers")}>
+                Multimer assembly
+                <ArrowRight className="w-3 h-3" aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
+      </section>
 
-        {stringPartners.length > 0 ? (
-          <div
-            className="ev-table-scroller overflow-x-auto"
-            role="region"
-            aria-label={`STRING-db interaction partners for ${gene}`}
-            tabIndex={0}
-          >
-            <table className="ev-table">
-              <caption className="ev-table-caption">
-                {stringPartners.length} strongest partners by combined association score (0–1),
-                ranked descending · Homo sapiens (TaxID 9606)
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Partner</th>
-                  <th scope="col" style={{ width: "40%" }}>Association Strength</th>
-                  <th scope="col" style={{ width: "112px" }}>Confidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stringPartners.map((partner, pIdx) => {
-                  const isScoreFinite = Number.isFinite(partner.score);
-                  const tier = stringConfidenceTier(partner.score);
-                  // A score below STRING's lowest band is "Unclassified", which is
-                  // NOT the Low band: the classifier declines to name it, so the
-                  // rail must not paint it with the Low tone.
-                  const chipTone = tier ?? "neutral";
-                  const fillTone = tier ?? "none";
-                  const stringUrl = `https://string-db.org/network/9606.${encodeURIComponent(partner.partner || "")}`;
-
-                  return (
-                    <tr
-                      key={partner.partner || pIdx}
-                      onClick={(event) => {
-                        // The anchor is the accessible target and keeps its own
-                        // focus ring, target and rel. The row handler is a pointer
-                        // convenience on top of it, which is why it bails out when
-                        // the click landed on the link — otherwise the anchor would
-                        // navigate and this would open a second tab.
-                        if ((event.target as HTMLElement).closest("a")) return;
-                        window.open(stringUrl, "_blank", "noopener,noreferrer");
-                      }}
-                    >
-                      {/* A row header, not a data cell: this is the key the other
-                          two cells describe, and it is what a screen reader
-                          announces alongside them. The rank is hidden so the
-                          header's name is the gene and not "1 PTP4A1". */}
-                      <th scope="row">
-                        <span className="inline-flex items-center gap-2 min-w-0">
-                          <span className="ev-rank" aria-hidden="true">{pIdx + 1}</span>
-                          <a
-                            href={stringUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ev-partner"
-                            title={`Open the ${partner.partner} interaction network on STRING-db (new tab)`}
-                          >
-                            {partner.partner}
-                            <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                          </a>
+      {/* ── 3. Partners ────────────────────────────────────────────────────── */}
+      <section className="itx-section" aria-labelledby="itx-partners-title" aria-busy={ev.status === "loading"}>
+        <h2 className="eyebrow" id="itx-partners-title">
+          <ListChecks className="w-3.5 h-3.5" />
+          Partners
+        </h2>
+        <div className="itx-card">
+          {ev.partners.length ? (
+            <div className="itx-table-wrap" role="region" aria-label={`Interaction partners of ${ev.gene}`} tabIndex={0}>
+              <table className="itx-table" data-testid="partner-grid">
+                <thead>
+                  <tr>
+                    <th scope="col">Partner</th>
+                    <th scope="col" className="itx-src">SUBUNIT</th>
+                    <th scope="col" className="itx-src">IntAct</th>
+                    <th scope="col" className="itx-src">Solved</th>
+                    <th scope="col">STRING association</th>
+                    <th scope="col" className="itx-site">Mapped site</th>
+                  </tr>
+                </thead>
+                {physical.length > 0 && (
+                  <tbody data-group="physical">
+                    <tr className="itx-group">
+                      <th colSpan={6} scope="rowgroup">
+                        <span className="itx-group__inner">
+                          <span className="itx-group__title">Curated physical interaction</span>
+                          <span className="itx-group__meta">UniProtKB{ev.uniprotId ? ` ${ev.uniprotId}` : ""} SUBUNIT and IntAct, PDBe-KB</span>
                         </span>
                       </th>
-                      <td>
-                        <span className="ev-conf">
-                          <span className="ev-conf-track" aria-hidden="true">
-                            <span
-                              className="ev-conf-fill"
-                              data-tone={fillTone}
-                              style={{ width: `${isScoreFinite ? Math.max(0, Math.min(1, partner.score)) * 100 : 0}%` }}
-                            />
-                            {STRING_CONFIDENCE_CUTS.map((band) => (
-                              <span
-                                key={band.id}
-                                className="ev-conf-tick"
-                                style={{ left: `${band.min * 100}%` }}
-                              />
-                            ))}
-                          </span>
-                          <span className="ev-conf-value">
-                            {isScoreFinite ? partner.score.toFixed(3) : "—"}
-                          </span>
-                        </span>
-                      </td>
-                      <td>
-                        <span className="ev-tier" data-tone={chipTone}>
-                          {stringConfidenceLabel(partner.score) ?? "Unclassified"}
-                        </span>
-                      </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    {physical.map(p => <PartnerRowView key={p.key} p={p} ev={ev} />)}
+                  </tbody>
+                )}
+                {functional.length > 0 && (
+                  <tbody data-group="functional">
+                    <tr className="itx-group">
+                      <th colSpan={6} scope="rowgroup">
+                        <span className="itx-group__inner">
+                          <span className="itx-group__title">Functional association only</span>
+                          <span className="itx-group__meta">STRING, no curated binding</span>
+                        </span>
+                      </th>
+                    </tr>
+                    {functional.map(p => <PartnerRowView key={p.key} p={p} ev={ev} />)}
+                  </tbody>
+                )}
+              </table>
+            </div>
+          ) : (
+            <Statement title={ev.status === "loading" ? "Reading partners" : ev.sections.uniprot.state === "failed" && ev.sections.string.state === "failed" ? "Partners not retrieved" : "No partners listed"}>
+              {ev.status === "loading"
+                ? `Asking UniProt, PDBe and STRING about ${ev.gene}.`
+                : [ev.sections.uniprot.reason, ev.sections.string.reason].filter(Boolean).join(" ")}
+            </Statement>
+          )}
+          <div className="itx-foot">
+            <span>
+              STRING scores functional association (co-expression, text mining, pathways), not binding. Ticks at{" "}
+              {STRING_CONFIDENCE_CUTS.map(c => c.min.toFixed(1)).reverse().join(", ")} are STRING's bands.
+              {anyHit ? " Shaded rows hold the variant." : ""}
+            </span>
+            {ev.stringUrl && (
+              <a className="itx-link" href={ev.stringUrl} target="_blank" rel="noopener noreferrer">
+                Open in STRING
+                <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              </a>
+            )}
           </div>
-        ) : (
-          <PanelState {...partnersPlaceholder} />
-        )}
+        </div>
+      </section>
+
+      {/* ── 4. Binding energy change ───────────────────────────────────────── */}
+      <section className="itx-section" aria-labelledby="itx-bind-title">
+        <h2 className="eyebrow" id="itx-bind-title">
+          <Zap className="w-3.5 h-3.5" />
+          Binding energy change
+        </h2>
+        <div className="itx-card" data-testid="binding-card">
+          <div className="itx-bind__head">
+            <span className="itx-hero__figure-label">ΔΔG_bind{b.partnerText ? ` ${b.partnerText}` : ""} · DDMut-PPI on a wild-type complex</span>
+            {b.stateLabel && (
+              <span className="ev-tier" data-tone={b.state === "failed" ? "warning" : b.state === "pending" || b.state === "running" ? "neutral" : "muted"}>{b.stateLabel}</span>
+            )}
+          </div>
+          {b.state === "ok" && b.value !== null ? (
+            <div className="itx-bind__body">
+              <div className="itx-bind__figure">
+                <span className="itx-bind__value">{b.valueText}</span>
+                <span className="itx-hero__figure-label">{b.directionText} {b.partnerText}</span>
+              </div>
+              <BindingRuler value={b.value} />
+              <p className="itx-bind__caption">
+                Wild-type complex modelled by {b.wildType?.provenance ?? "Boltz-2"}
+                {b.wildType?.ipTm != null ? ` (ipTM ${b.wildType.ipTm.toFixed(2)})` : ""}; {ev.residueLabel} substituted on chain A. Negative means weaker binding, in DDMut-PPI's convention. {DDMUT_PPI_PERFORMANCE}
+              </p>
+            </div>
+          ) : (
+            <Statement
+              title={b.state === "pending" || b.state === "running" ? ENGINE_STATE_LABELS.running : b.state === "failed" ? "No value returned" : b.state === "ready" ? "Not measured yet" : "Not measured"}
+              action={
+                b.canRequest ? (
+                  <button
+                    type="button"
+                    className="itx-button"
+                    onClick={() => void requestShift()}
+                    aria-disabled={b.state === "pending"}
+                    aria-busy={b.state === "pending"}
+                  >
+                    <Zap className="w-3.5 h-3.5" aria-hidden="true" />
+                    {b.state === "running" ? "Check again" : b.state === "failed" ? "Try again" : "Estimate binding change"}
+                  </button>
+                ) : b.state === "needs-model" && onTabChange ? (
+                  <button type="button" className="itx-link itx-link--start" onClick={() => onTabChange("multimers")}>
+                    Open Multimer assembly
+                    <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                  </button>
+                ) : undefined
+              }
+            >
+              {b.reason}
+            </Statement>
+          )}
+        </div>
       </section>
     </div>
   );

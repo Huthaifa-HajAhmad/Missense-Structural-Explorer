@@ -176,6 +176,27 @@ export function statesMultimer(assembly: SubunitAssembly): boolean {
   return assembly.kind === "homomer" || assembly.kind === "heteromer" || assembly.kind === "complex";
 }
 
+/**
+ * Every gene-like token the SUBUNIT text names, each with the sentence that names it. The Protein
+ * interactions tab lists these as "named in SUBUNIT"; `parseSubunitAssembly` reads only the sentence
+ * that decides the assembly, so "The complex binds NEDD8 and UBE2M. Binds APP" would be lost there.
+ * Candidates only: a token is a symbol in the text, not a resolved accession.
+ */
+export function subunitPartnerMentions(
+  text: string | null | undefined,
+  ownGene?: string | null
+): Array<{ gene: string; sentence: string }> {
+  const clean = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const out: Array<{ gene: string; sentence: string }> = [];
+  for (const sentence of splitSentences(clean)) {
+    for (const gene of partnerTokens(sentence, ownGene)) {
+      if (!out.some(m => m.gene === gene)) out.push({ gene, sentence });
+    }
+  }
+  return out;
+}
+
 /** The most chains this app submits for one complex prediction. */
 export const MAX_MODELLED_CHAINS = 4;
 
