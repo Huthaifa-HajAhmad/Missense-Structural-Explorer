@@ -73,6 +73,10 @@
   background: var(--cs-surface-2);
   border-bottom: 1px solid var(--cs-border-subtle);
 }
+/* Column heads over the no-reading list: the same tracks as its rows (name · chip · reason). */
+.pop-card__head--cols { display: grid; grid-template-columns: 160px 0 minmax(0, 1fr); column-gap: 12px; }
+.pop-card__head--cols > :last-child { grid-column: 3; }
+@container (max-width: 560px) { .pop-card__head--cols { padding: 0 12px; } }
 .pop-card__head-label {
   font-size: var(--cs-font-size-badge);
   font-weight: var(--cs-font-weight-semibold);
@@ -268,10 +272,10 @@
     linear-gradient(to left, color-mix(in srgb, var(--cs-text-primary) 12%, transparent), transparent) right / 10px 100% no-repeat scroll,
     var(--cs-surface);
 }
-/* Rows are cards on a white table: `separate` + vertical spacing gives every
-   <tr> a gap, and the negative margin cancels the outer gap `border-spacing`
-   would otherwise add above the header and below the last row. */
-.pop-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin: -8px 0; }
+/* Flat rows on the white card: hairline dividers only. Beige is reserved for the head and foot
+   bars, so the card reads as one surface instead of pills stacked on tints (the first revision's
+   dashed, tinted row cards read as placeholders). */
+.pop-table { width: 100%; border-collapse: collapse; }
 @container (max-width: 560px) {
   .pop-table td, .pop-table tbody th, .pop-table thead th { padding-left: 12px; padding-right: 12px; }
   .pop-num--af { padding-left: 12px !important; }
@@ -292,28 +296,10 @@
   text-align: left;
   font-weight: inherit;
 }
-/* Each body row is its own tinted card: matching background and a top/bottom
-   border on every cell in the row, closed off and rounded only at its ends. */
-.pop-table tbody td,
-.pop-table tbody th[scope="row"] {
-  background: var(--cs-surface-2);
-  border-top: 1px solid var(--cs-border-subtle);
-  border-bottom: 1px solid var(--cs-border-subtle);
-}
-.pop-table tbody th[scope="row"] {
-  border-left: 1px solid var(--cs-border-subtle);
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
-}
-.pop-table tbody td:last-child {
-  border-right: 1px solid var(--cs-border-subtle);
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
-}
-/* The row whose value the ACMG rule read: the same card, a clay-tinted seam. */
-.pop-table tbody tr[data-rule-input] td,
-.pop-table tbody tr[data-rule-input] th[scope="row"] {
-  border-color: color-mix(in srgb, var(--cs-accent-clay) 35%, var(--cs-border-subtle));
+.pop-table tbody tr + tr > * { border-top: 1px solid var(--cs-border-subtle); }
+/* The row whose value the ACMG rule read: a faint clay wash, the scale marker's colour. */
+.pop-table tbody tr[data-rule-input] > * {
+  background: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface));
 }
 
 .pop-subject__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
@@ -345,42 +331,50 @@
   background: var(--cs-accent-clay);
 }
 
+/* Nothing observed: one summary line on the rows' 16px edge, then the per-source reasons. */
 .pop-readings__empty {
-  margin: 0 12px;
-  padding: 10px 14px;
-  color: var(--cs-text-primary);
-  background: var(--cs-surface-2);
-  border: 1px dashed var(--cs-border);
-  border-radius: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--cs-text-secondary);
+  border-bottom: 1px solid var(--cs-border-subtle);
+}
+.pop-readings__empty strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.pop-readings__empty-mark {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cs-text-muted);
+  transform: translateY(-1px);
 }
 
-.pop-noread { padding: 12px 16px 14px; border-top: 1px solid var(--cs-border-subtle); }
-.pop-table-wrap + .pop-noread { border-top-color: var(--cs-border); }
-.pop-readings__empty + .pop-noread { border-top: 1px solid var(--cs-border-subtle); }
+.pop-noread { border-top: 1px solid var(--cs-border); }
+.pop-readings__empty + .pop-noread { border-top: 0; }
 .pop-noread__title {
-  margin: 0 0 6px;
+  margin: 0;
+  padding: 12px 16px 4px;
   font-size: var(--cs-font-size-caption);
   font-weight: var(--cs-font-weight-semibold);
   color: var(--cs-text-muted);
 }
-.pop-noread__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pop-noread__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .pop-noread__item {
   display: grid;
-  grid-template-columns: 140px auto minmax(0, 1fr);
+  grid-template-columns: 160px auto minmax(0, 1fr);
   align-items: baseline;
-  column-gap: 10px;
-  padding: 8px 10px;
-  background: var(--cs-surface-2);
-  border: 1px dashed var(--cs-border);
-  border-radius: 8px;
-  font-size: var(--cs-font-size-caption);
+  column-gap: 12px;
+  padding: 10px 16px;
   line-height: 1.45;
 }
+.pop-noread__item + .pop-noread__item { border-top: 1px solid var(--cs-border-subtle); }
 .pop-noread__item > .ev-tier { grid-column: 2; }
-.pop-noread__name { grid-column: 1; color: var(--cs-text-secondary); }
-.pop-noread__reason { grid-column: 3; color: var(--cs-text-muted); }
+.pop-noread__name { grid-column: 1; color: var(--cs-text-primary); }
+.pop-noread__reason { grid-column: 3; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 @container (max-width: 560px) {
-  .pop-noread__item { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; }
+  .pop-noread__item { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; padding-left: 12px; padding-right: 12px; }
   .pop-noread__reason { grid-column: 1 / -1; }
 }
 
@@ -388,31 +382,25 @@
 .pop-readings__hom { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* ── ClinVar ────────────────────────────────────────────────── */
-.pop-clinvar__empty {
-  margin: 12px;
-  padding: 10px 14px;
-  color: var(--cs-text-secondary);
-  background: var(--cs-surface-2);
-  border: 1px dashed var(--cs-border);
-  border-radius: 8px;
-}
-.pop-clinvar__rows { margin: 0; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+/* No record: a titled statement on the card itself, not a dashed box floating in it. */
+.pop-clinvar__empty { margin: 0; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.pop-clinvar__empty-title { margin: 0; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.pop-clinvar__empty-body { margin: 0; max-width: 60ch; color: var(--cs-text-secondary); line-height: 1.55; }
+.pop-clinvar__rows { margin: 0; padding: 0; display: flex; flex-direction: column; }
 .pop-clinvar__rows > div {
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
   gap: 12px;
   align-items: baseline;
-  padding: 10px 14px;
-  background: var(--cs-surface-2);
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: 8px;
+  padding: 11px 16px;
 }
+.pop-clinvar__rows > div + div { border-top: 1px solid var(--cs-border-subtle); }
 .pop-clinvar__rows dt { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .pop-clinvar__rows dd { margin: 0; color: var(--cs-text-primary); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; overflow-wrap: anywhere; }
 .pop-clinvar__rows .ev-tier--lg { font-size: var(--cs-font-size-caption); }
 
 .pop-stars { display: inline-flex; gap: 1px; color: var(--cs-border); }
-.pop-stars svg[data-filled] { color: #C9962B; fill: currentColor; }
+.pop-stars svg[data-filled] { color: var(--cs-text-secondary); fill: currentColor; }
 .pop-stars svg:not([data-filled]) { fill: none; }
 
 .pop-link {
