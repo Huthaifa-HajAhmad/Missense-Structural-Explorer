@@ -7,7 +7,6 @@ import {
   ALPHAGENOME_SOURCES,
   PHRED_RANK_ROWS,
   buildAlphaGenomeEvidence,
-  fmtPercent,
 } from "../../shared/alphagenomeEvidence";
 
 /**
@@ -16,6 +15,11 @@ import {
  * The column states WHAT the score is; the rail states HOW it was obtained: the four-step trace from
  * the queried coordinate to the Phred (with the arithmetic shown), a Phred-to-rank reference with this
  * variant's row marked, the method caveats, the connection check, and the sources.
+ *
+ * The rank itself (top x%, 1 in N) is stated once, in the column; the rail shows only how it was
+ * derived. The Method note names the conservation scores: the Predictors tab reads phyloP and GERP,
+ * not the AVI's Cactus and PhastCons inputs, so "already read there" was true of the evidence and
+ * false of the scores.
  *
  * It replaced a rail that listed five PP3/BP4 bands for the AVI, described a ten-row table of invented
  * magnitudes, and — because the fallback branch in EvidenceInspector did not exclude this tab — also
@@ -108,11 +112,6 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
                     ? `−10 · log10(1 − ${ev.quantile.toFixed(5)}) = ${(ev.phred as number).toFixed(1)}`
                     : `Phred ${(ev.phred as number).toFixed(1)}`}
                 </p>
-                {ev.topPercent !== null && (
-                  <span className="rail-step__sub">
-                    Top {fmtPercent(ev.topPercent)}{ev.oneIn !== null ? ` · about 1 in ${ev.oneIn.toLocaleString("en-GB")}` : ""}
-                  </span>
-                )}
               </>
             ) : (
               <span className="ag-dim">—</span>
@@ -140,8 +139,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
           })}
         </ul>
         <p className="rail-step__sub">
-          A rank, not a cut-off: the Atlas authors advise ranking over hard thresholds, and none of these rows is an
-          evidence threshold.
+          A rank, not a cut-off: none of these rows is an evidence threshold.
         </p>
       </section>
 
@@ -159,8 +157,8 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
               under selection, not disease — so it overlaps with the population evidence (PM2/BS1).
             </li>
             <li>
-              It contains AlphaMissense and two conservation scores, both already read on the Predictors tab. It is not
-              independent of them.
+              It contains AlphaMissense, which votes on the Predictors tab, and two conservation scores (Cactus 241-way,
+              PhastCons 470-way) that measure the same thing as phyloP and GERP there. It is not independent of them.
             </li>
             <li>
               Each AlphaGenome feature is the largest predicted effect across all biosamples, so a feature can be driven
@@ -175,8 +173,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
               carries the splice-specific evidence.
             </li>
             <li>
-              The authors describe the Atlas as a research tool, not sufficient on its own for a clinical call. No
-              ClinGen calibration exists, so this app counts the AVI toward no ACMG criterion.
+              No ClinGen calibration of the AVI exists, so this app counts it toward no ACMG criterion.
             </li>
           </ul>
         </details>

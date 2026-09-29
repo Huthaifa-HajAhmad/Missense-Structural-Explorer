@@ -47,6 +47,13 @@ describe("AlphaGenomeRail", () => {
     expect(screen.queryByText(/PP3-moderate|BP4-supporting|PP3_/i)).not.toBeInTheDocument();
   });
 
+  it("names the conservation scores it shares with Predictors as the same kind, not the same scores", () => {
+    render(<AlphaGenomeRail analysisResult={result} />);
+    // Predictors reads phyloP and GERP; the AVI's inputs are Cactus 241-way and PhastCons 470-way.
+    expect(screen.queryByText(/both already read on the Predictors tab/)).not.toBeInTheDocument();
+    expect(screen.getByText(/measure the same thing as phyloP and GERP/)).toBeInTheDocument();
+  });
+
   it("replaces the placeholder telemetry box on the AlphaGenome tab", () => {
     render(<EvidenceInspector analysisResult={result} activeEvidenceTab="alphagenome" />);
     expect(screen.getByTestId("alphagenome-rail")).toBeInTheDocument();

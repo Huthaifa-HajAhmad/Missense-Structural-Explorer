@@ -67,3 +67,34 @@ doi:10.64898/2026.09.16.26363192.
 - `ConnectionsSection.tsx` still advertises "18-modality SHAP attributions, and Atlas track predictions".
 - `MetricExplanations.ts` says "quantile among scored variants"; the preprint's reference set is all
   possible hg38 SNVs.
+
+## Second pass — 29 September 2026 (NAE1 p.Asp116Gly, 16-66823281-T-C)
+
+The owner asked for a clear message for a researcher reading a new score, and for the blank space
+and inconsistencies to go. Checked against the preprint again (SHAP values "sum to the raw AVI score
+(i.e., before PHRED scaling)"; Phred from the rank over all SNVs).
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| B1 | High | The sequence view's saturation heatmap still coloured AVI Phred as "ClinGen" PP3 Strong/Moderate/Supporting and BP4 (legend "ClinGen Phred", tier counts, hover "Tier: PP3_Moderate"), and the Landscape inspector showed the payload's `acmgStrength` in a red/amber/green chip — contradicting this tab. Follow-up A-list item left open. | Both now read `aviRankBand` (rank decades: top 10% / 1% / 0.1% / 0.01%) on one clay ramp, with "not an ACMG band" in the legend; density guides at Phred 10/20/30. `acmgStrength` is no longer read anywhere on screen. |
+| B2 | High (message) | "Top 0.35%" is a rank among ~9 billion possible SNVs, most non-coding, and much of it comes from inputs the Predictors tab already shows. NAE1: conservation 51% + AlphaMissense 26% = 77%; AlphaGenome's own predictions 23%. The finding only warned about overlap when AlphaMissense was the largest group, so this score never said it. | The model splits the score by origin (`origins`, `newShare`, `largestMolecular`); the finding leads with it ("Mostly evidence this workspace already reads. 77% … AlphaGenome's own molecular predictions add 23%, led by splicing (+0.176)"), a 100% bar shows it, and the table is banded "New from AlphaGenome" / "Already read elsewhere". The foot says missense changes tend to rank high genome-wide, partly because AlphaMissense is an input (inferred: the preprint reports no per-consequence distribution). |
+| B3 | Medium | Rail: "two conservation scores, both already read on the Predictors tab". Predictors reads phyloP and GERP, not Cactus 241-way or PhastCons 470-way. | "…two conservation scores (Cactus 241-way, PhastCons 470-way) that measure the same thing as phyloP and GERP there." Same wording in the table's conservation rows. |
+| B4 | Medium | "Top x% of scored variants" (Predictors row and knowledge text), "quantile among scored variants" (MetricExplanations, evaluator comment, Predictors rail). The reference set is all possible hg38 SNVs. | Corrected in each copy. Settings no longer says "18-modality" (10 modalities among 18 features). |
+| B5 | Low | A green `good`-tone "Computed" chip (green = benign in this app) on a screen that makes no call. | Removed; the headline shows a score was computed. Absence keeps its state chip. |
+| B6 | Low | The model and rail attributed to the authors "not sufficient evidence on their own" and "advise ranking over hard thresholds"; neither sentence could be found in the preprint text. | Removed; the rail states the app's own position (no ClinGen calibration, counted toward nothing). |
+
+**UI.** Description no longer capped at 72ch (it wrapped at a third of the column). Every card has
+the approved head/foot bars; the finding's caveat is its foot, not a tinted box. "Not counted for
+ACMG" said once (head chip) plus the "Engine record" fact; Phred and quantile said once in the column.
+The ruler spans the column with no progress-bar fill, and its last label reads "top 0.001%". The
+table has fixed columns (feature 320px, bar, value, share); the zero line sits where the data puts
+it, so positive-only bars use the full width. Atlas card carries the coordinate and Copy in its head.
+
+**Verification.** `npm run lint` clean; vitest 2,585 passed, 5 skipped; rendered light, dark, 820px and the
+no-score state with the NAE1 payload.
+
+**Still open.** `alphagenome-client.ts` still emits `acmgStrength` and `THRESHOLDS.alphagenome` still
+holds the app-defined bands (now read by no screen). The Predictors row still shows the payload's
+`topModality`, which can differ from this tab's largest contribution; left for after PR #2 lands.
+A per-exon comparator (this change's rank among all SNVs in its exon, from the saturation route) was
+proposed as an on-request button and not built.

@@ -310,7 +310,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     architecture: "DNA sequence model predicting thousands of functional-genomics tracks from up to 1 Mb of sequence",
     modality: "DNA sequence → RNA-seq, CAGE, PRO-cap, DNase, ATAC, ChIP, splicing, contact maps",
     description: "AlphaGenome predicts functional-genomics tracks from sequence. The AVI score this app shows is a composite of 18 variant features — including AlphaMissense and two conservation tracks — returned by the AlphaGenome service.",
-    interpretation: "The AVI Phred is −10·log10(1 − q), where q is the variant's quantile among scored variants: 20 means the top 1%, 30 the top 0.1%. It is a rank, not a calibrated probability of pathogenicity, and no ClinGen calibration exists. Because AlphaMissense is one of its features, it is informational here and not counted toward PP3/BP4.",
+    interpretation: "The AVI Phred is −10·log10(1 − q), where q is the variant's quantile among all ~9 billion possible hg38 SNVs: 20 means the top 1%, 30 the top 0.1%. It is a rank, not a calibrated probability of pathogenicity, and no ClinGen calibration exists. Because AlphaMissense is one of its features, it is informational here and not counted toward PP3/BP4.",
     strengths: [
       "Reaches regulatory and splicing effects that protein-level models cannot see.",
       "Feature attributions show which modality drives the score."
