@@ -20,6 +20,7 @@ import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 import { PopulationRail } from "./PopulationRail";
 import { MultimerRail } from "./MultimerRail";
+import { InteractionsRail } from "./InteractionsRail";
 import { PredictorsRail } from "./PredictorsRail";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
 import { GuidelinesRail } from "./GuidelinesRail";
@@ -58,81 +59,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
       {/* ── 1. Dynamic Tab-Aware Contextual Intelligence ── */}
-      {tab === "interactions" && (
-        <div className="flex flex-col gap-3">
-          <span className="eyebrow">
-            <Zap className="w-3.5 h-3.5 text-cs-accent-clay" />
-            PPI &amp; Interface Methodology
-          </span>
-
-          {/* Functional vs Physical Networks */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <div className="flex items-center gap-1.5 font-bold text-cs-text-primary text-[11px]">
-              <Info className="w-3.5 h-3.5 text-cs-accent-clay shrink-0" />
-              <span>Functional vs. Physical Networks</span>
-            </div>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              <strong>STRING-db</strong> quantifies proteome-wide functional associations inferred from co-expression, shared pathways, and literature citations.
-            </p>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              In contrast, <strong>OpenBind-0</strong> directly calculates atomistic steric clashes, electrostatic shifts, and binding free energy changes (&Delta;&Delta;G_bind) across the physical 3D subunit interface.
-            </p>
-          </div>
-
-          {/* Confidence Score Thresholds */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-            <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
-              STRING Score Confidence Tiers
-            </span>
-            {/* Rendered from the shared band table rather than re-written here: this
-                card and the PPI table's row badges describe the same classifier, and
-                as a hand-written copy this legend listed three bands while the table
-                could report a fourth. */}
-            <div className="space-y-1 text-[11px] font-mono">
-              {STRING_CONFIDENCE_BANDS.map((band, idx) => {
-                const upper = idx === 0 ? null : STRING_CONFIDENCE_BANDS[idx - 1].min;
-                return (
-                  <div key={band.id} className="flex justify-between items-center">
-                    <span className="text-cs-text-secondary">
-                      {upper === null
-                        ? `≥ ${band.min.toFixed(3)}`
-                        : `${band.min.toFixed(3)} – ${(upper - 0.001).toFixed(3)}`}
-                    </span>
-                    <span className="ev-tier" data-tone={band.id}>{band.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quaternary Complex Quick Link */}
-          {onSelectEvidenceTab && (
-            <button
-              type="button"
-              onClick={() => onSelectEvidenceTab("multimers")}
-              className="p-2.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-between text-[11px] font-medium transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Box className="w-4 h-4 text-indigo-400" />
-                <span>Open Quaternary Assembly (Multimers)</span>
-              </div>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
-
-          {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">STRING-db</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">v12.0 · Homo sapiens (9606)</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">OpenBind-0</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">Tier 1 · JapanFold</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {tab === "interactions" && <InteractionsRail analysisResult={analysisResult} />}
 
       {tab === "multimers" && <MultimerRail analysisResult={analysisResult} />}
 

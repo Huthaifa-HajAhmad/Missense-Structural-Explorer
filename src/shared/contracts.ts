@@ -1748,43 +1748,106 @@ export interface LanguageModelEvaluations {
   esm2?: Esm2ScoreData | null;
 }
 
+/** A UniProt feature that maps a contact with another protein ("Interaction with UBA3"). */
+export interface PpiInteractionSite {
+  /** UniProt feature type: "Region", "Site", "Binding site" or "Motif". */
+  type: string;
+  start: number;
+  end: number;
+  /** The feature note, verbatim. */
+  description: string;
+  /** Gene-like tokens after "Interaction with", when the note names any. */
+  partners: string[];
+  containsVariant: boolean;
+}
+
+/** A binary interaction UniProt curates from IntAct. */
+export interface PpiCuratedInteraction {
+  accession: string;
+  gene: string | null;
+  experiments: number | null;
+}
+
+/** Interface residues seen in solved structures, per partner (PDBe-KB). */
+export interface PpiObservedInterface {
+  accession: string;
+  name: string;
+  residues: number[];
+  pdbEntries: number;
+  homomeric: boolean;
+  variantAtInterface: boolean;
+}
+
+export type PpiLookupStatus = "ok" | "failed" | "skipped";
+
+/**
+ * Partners and mapped sites for one variant (`POST /api/v1/ppi/binding-affinity`).
+ *
+ * Every section carries its own lookup outcome: an empty list is an answer only when its lookup is
+ * "ok". The binding energy change is NOT here: it needs a wild-type complex and is requested on its
+ * own (`PpiBindingShift`).
+ */
 export interface PpiBindingData {
   status: "success" | "unavailable" | "failed";
   gene: string;
   variant: string;
   uniprotId?: string;
+  /** Variant residue number, UniProt numbering; null when the variant could not be parsed. */
+  position?: number | null;
+  /** STRING's functional network: the query's strongest partners by combined score. */
   stringPartners: Array<{ partner: string; score: number }>;
-  bindingShift: {
-    ddgBind: number | null;
-    unit: string;
-    classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" | "UNKNOWN";
-    provenance: string;
-    distanceToInterface?: number | null;
-  } | null;
-  interfaceResidues: Array<{
-    pos: number;
-    description: string;
-    isVariantPosition: boolean;
-  }>;
+  /** STRING release that answered, when STRING reported one. */
+  stringVersion?: string | null;
+  /** UniProt SUBUNIT text, verbatim. */
+  subunitComment?: string | null;
+  curatedInteractions?: PpiCuratedInteraction[];
+  interactionSites?: PpiInteractionSite[];
+  observedInterfaces?: PpiObservedInterface[];
+  sequenceLength?: number | null;
   /**
-   * Outcome of each independent upstream lookup for this payload, so a consumer
-   * can tell an empty answer from no answer at all.
-   *
-   * Both sections report an empty array for every non-answer: the STRING fetcher
-   * swallows its own error, and a failed UniProt request returns null from inside
-   * a `try` that only logs. Without this, a PPI outage renders as "this protein
-   * has no interaction partners" and "no interface residue is annotated here" —
-   * assertions about the protein made from a failed HTTP call. `skipped` is the
-   * third case that was equally invisible: no UniProt id was resolved, so nothing
-   * was ever asked. Optional so a payload cached before this field existed still
-   * type-checks; absent means "unknown", which consumers must treat as not-an-
-   * empty-answer.
+   * Outcome of each independent upstream lookup, so a consumer can tell an empty answer from no
+   * answer at all. Absent (a payload cached before the field existed) means unknown.
    */
   lookups?: {
     stringPartners?: "ok" | "failed";
-    interfaceResidues?: "ok" | "failed" | "skipped";
+    uniprot?: PpiLookupStatus;
+    pdbe?: "ok" | "none" | "failed" | "skipped";
+    /** Payloads written before the UniProt sites rewrite. */
+    interfaceResidues?: PpiLookupStatus;
   };
+  /** Written by the earlier service, which read no Region/Site features: never rendered as an answer. */
+  interfaceResidues?: Array<{ pos: number; description: string; isVariantPosition: boolean }>;
+  /** Written by the earlier service, which scored the variant model as the wild type: never rendered. */
+  bindingShift?: unknown;
   error?: string;
+}
+
+/**
+ * Predicted change in binding energy (`POST /api/v1/ppi/binding-shift`).
+ *
+ * DDMut-PPI scores a substitution against a WILD-TYPE complex. The complex the Multimer tab models
+ * carries the variant, so it cannot serve; this request models the same chains again, all wild type,
+ * and scores the substitution on chain A.
+ *
+ * Sign: DDMut-PPI's own convention (Zhou et al., NAR 2024): ΔΔG ≤ 0 is reduced binding affinity.
+ */
+export interface PpiBindingShift {
+  status: "ok" | "running" | "failed" | "not-applicable";
+  gene: string;
+  variant: string;
+  ddgBind: number | null;
+  unit: "kcal/mol";
+  signConvention: "negative-weakens";
+  predictor: string;
+  /** The wild-type complex the value was computed on. */
+  wildType: {
+    source: "boltz-2-model";
+    provenance: string;
+    ipTm: number | null;
+    chains: Array<{ id: string; accession: string; gene: string | null }>;
+  } | null;
+  mutation: string | null;
+  reason?: string;
 }
 
 /**
@@ -1983,6 +2046,7 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   stringInteractions?: StringInteractionItem[] | null;
   multimerData?: MultimerData | null;
   ppiBindingData?: PpiBindingData | null;
+  ppiBindingShift?: PpiBindingShift | null;
   isDemoData?: boolean;
   metadata?: VariantMetadata;
   disruptionPredictor?: DisruptionPredictorResult;

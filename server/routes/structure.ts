@@ -29,7 +29,7 @@ import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
 import { applyMutation } from "../utils/mutation.ts";
 import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure } from "../services/multimer.ts";
-import { analyzePpiBinding } from "../services/ppi.ts";
+import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -532,17 +532,23 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     uniprotId: z.string().trim().min(3, "uniprotId is required").max(20)
   });
 
+  // Lookups only. The old body also took `wtPdb`/`mutPdb`/`chainA`/`chainB`; zod strips them now, so an
+  // older client still gets partners and sites, and no binding value is computed from its PDB.
   const ppiBindingRequestSchema = z.object({
     gene: z.string().trim().min(1, "gene is required").max(30),
     variant: z.string().trim().min(3, "variant is required").max(50),
-    uniprotId: z.string().trim().min(3).max(20).optional().nullable(),
-    wtPdb: z.string().max(10 * 1024 * 1024).refine(s => s.includes("ATOM") || s.includes("HETATM"), "Must contain valid PDB coordinate records").optional().nullable(),
-    mutPdb: z.string().max(10 * 1024 * 1024).refine(s => s.includes("ATOM") || s.includes("HETATM"), "Must contain valid PDB coordinate records").optional().nullable(),
-    chainA: z.string().trim().regex(/^[A-Za-z0-9]{1,4}$/, "Chain A must be 1-4 alphanumeric characters").default("A"),
-    chainB: z.string().trim().regex(/^[A-Za-z0-9]{1,4}$/, "Chain B must be 1-4 alphanumeric characters").default("B")
-  }).refine(data => !data.wtPdb || !data.mutPdb || data.chainA.toUpperCase() !== data.chainB.toUpperCase(), {
-    message: "chainA and chainB must represent distinct interaction partners",
-    path: ["chainB"]
+    uniprotId: z.string().trim().min(3).max(20).optional().nullable()
+  });
+
+  const ppiShiftRequestSchema = z.object({
+    gene: z.string().trim().min(1, "gene is required").max(30),
+    variant: z.string().trim().min(3, "variant is required").max(50),
+    uniprotId: z.string().trim().min(3, "uniprotId is required").max(20),
+    chains: z.array(z.object({
+      id: z.string().trim().regex(/^[A-Z]$/, "Chain ids are single capital letters"),
+      accession: z.string().trim().min(6).max(15),
+      gene: z.string().trim().max(30).optional().nullable()
+    })).min(2, "A complex needs at least two chains").max(4, "At most four chains are modelled")
   });
 
   apiRouter.post("/structure/multimer", jsonParserRegular, async (req, res) => {
@@ -580,19 +586,30 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       const validVariant = validateVariant(parseResult.data.variant);
       const validUniprot = parseResult.data.uniprotId ? validateUniProt(parseResult.data.uniprotId) : undefined;
 
-      const result = await analyzePpiBinding(
-        validGene,
-        validVariant,
-        validUniprot,
-        parseResult.data.wtPdb || null,
-        parseResult.data.mutPdb || null,
-        parseResult.data.chainA,
-        parseResult.data.chainB,
-        clientAbortController.signal
-      );
+      const result = await analyzePpiBinding(validGene, validVariant, validUniprot, clientAbortController.signal);
       res.json(result);
     } catch (err: any) {
       sendError(res, 400, "BAD_REQUEST", err.message || "Failed to analyze PPI binding affinity.");
+    }
+  });
+
+  apiRouter.post(["/ppi/binding-shift", "/ppi/binding-shift/"], jsonParserRegular, async (req, res) => {
+    const parseResult = ppiShiftRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      sendError(res, 400, "BAD_REQUEST", formatZodError(parseResult.error));
+      return;
+    }
+    const clientAbortController = new AbortController();
+    onClientDisconnect(res, () => clientAbortController.abort());
+    try {
+      const validGene = validateGene(parseResult.data.gene);
+      const validVariant = validateVariant(parseResult.data.variant);
+      const validUniprot = validateUniProt(parseResult.data.uniprotId);
+      const chains = parseResult.data.chains.map(c => ({ id: c.id, accession: validateUniProt(c.accession), gene: c.gene ?? null }));
+      const result = await analyzeBindingShift(validGene, validVariant, validUniprot, chains, clientAbortController.signal);
+      res.json(result);
+    } catch (err: any) {
+      sendError(res, 400, "BAD_REQUEST", err.message || "Failed to estimate the binding change.");
     }
   });
 }
