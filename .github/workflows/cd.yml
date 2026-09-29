@@ -33,6 +33,12 @@ jobs:
       # The revision CI just validated. Deploying exactly this commit is what makes the gate mean
       # something: a push that lands while CI is still running is not deployed by this run.
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # How long the runner waits for the VM to report a verdict before it stops watching.
+      # Measured 2026-09-29: a deploy against a warm Docker layer cache finishes in ~110s, so the
+      # common case still completes INSIDE this window and is verified end to end. Only the cold
+      # builds — observed at 13 and 21 minutes — run past it, and those are exactly the runs the
+      # runner must not be billed for. Tune here, not in the step.
+      DEPLOY_CONFIRM_SECONDS: "180"
     steps:
       - name: Require deploy credentials
         # A skipped deploy is indistinguishable from a successful one in the runs list, which is
@@ -48,37 +54,148 @@ jobs:
         with:
           ref: ${{ env.DEPLOY_SHA }}
 
+      # THE RUNNER NO LONGER WATCHES THE BUILD.
+      #
+      # This step used to hold the runner for the entire `docker compose up -d --build`, which runs
+      # on the OCI VM. Run 36035616379 held it for 13m04s of a 13m17s job; the runner was idle for
+      # all of it, and the account was billed for it. Across 202 CD runs in the Sep 2026 cycle that
+      # was the single largest avoidable line in a 1,800-minute month.
+      #
+      # The build is now dispatched detached (`setsid nohup`) and the step returns as soon as the VM
+      # has a verdict OR the confirmation window lapses — whichever comes first. The gate is kept
+      # rather than dropped: the detached script writes a terminal marker, and this step exits
+      # non-zero on `DEPLOY_FAILED`, so a fast failure still fails the run.
+      #
+      # What is deliberately NOT claimed: when the window lapses, this run no longer asserts that
+      # the deploy succeeded. Production safety does not depend on the runner asserting it.
+      # `depends_on: condition: service_healthy` in deploy/docker-compose.oci.yml gates caddy and
+      # the tunnel on `GET /api/v1/health`, and Docker builds before it replaces, so a failed build
+      # leaves the previously running revision serving. The VM keeps the full log either way.
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.OCI_SSH_HOST }}
           username: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
           key: ${{ secrets.OCI_SSH_KEY }}
-          command_timeout: 30m
-          envs: DEPLOY_SHA
+          # No longer a deploy timeout — only has to outlast the confirmation window plus dispatch.
+          command_timeout: 10m
+          envs: DEPLOY_SHA,DEPLOY_CONFIRM_SECONDS
           script: |
-            set -e
+            set -eu
             cd Missense-Structural-Explorer || exit 1
             echo "[CD] Deploying the CI-validated commit $DEPLOY_SHA"
-            export DOCKER_BUILDKIT=1
-            export COMPOSE_DOCKER_CLI_BUILD=1
-            # Deploy EXACTLY the validated revision rather than "whatever main is now", so a newer
-            # unvalidated push cannot ride in behind the gate. The VM therefore ends on a detached
-            # HEAD by design; every run fetches and checks out its own revision.
+
             git fetch --all --prune
+
+            # UNTRACKED-ASSET PRESERVE. FoldX (licensed) and the model weights are deliberately
+            # untracked as of 2026-09-29, so that nothing licensed or third-party is redistributed
+            # if this repo is ever made public. That creates a deploy hazard which was verified on a
+            # throwaway repo, not assumed: checking out a revision that does not track a path that
+            # the CURRENT revision does track DELETES it. Simulated `A (tracks the binary) ->
+            # git checkout --force B (does not)` and the file was gone; when the whole directory
+            # stops being tracked, the directory itself is removed, so the compose bind mount at
+            # ../tools/foldx_linux would have pointed at nothing and FoldX would have vanished from
+            # the running app on the first deploy after the untracking commit.
+            #
+            # This survives because a filesystem copy is taken before the switch and put back after
+            # it. It is unconditional and idempotent: on a revision where these paths are still
+            # tracked the copy is simply restored over itself.
+            ASSET_PATHS="tools/foldx tools/foldx_linux tools/thermompnn/models tools/thermompnn/vanilla_model_weights tools/model_server_app/checkpoints"
+            ASSET_SAFE="$HOME/.mse-untracked-assets"
+            rm -rf "$ASSET_SAFE"
+            mkdir -p "$ASSET_SAFE"
+            for p in $ASSET_PATHS; do
+              if [ -e "$p" ]; then
+                mkdir -p "$ASSET_SAFE/$(dirname "$p")"
+                cp -a "$p" "$ASSET_SAFE/$p"
+                echo "[CD] preserved $p"
+              fi
+            done
+
             git checkout --force "$DEPLOY_SHA"
+
+            for p in $ASSET_PATHS; do
+              if [ -e "$ASSET_SAFE/$p" ]; then
+                mkdir -p "$(dirname "$p")"
+                cp -a "$ASSET_SAFE/$p" "$p"
+                echo "[CD] restored $p"
+              fi
+            done
+            # The binary is 82.7 MB of the ~644 MB these paths total, so confirm it landed rather
+            # than trusting the copy: a missing FoldX is a silent biophysical-model failure.
+            # A warning, not an error: the app degrades to "FoldX unavailable" rather than failing
+            # to serve (see doc/ENERGETICS_AUDIT_AND_PLAN.md), and a missing licensed binary must
+            # not take the site down for an unrelated reason.
+            if [ -x tools/foldx_linux/foldx_20261231 ]; then
+              echo "[CD] FoldX binary present and executable"
+            else
+              echo "::warning::tools/foldx_linux/foldx_20261231 is missing or not executable on the VM; FoldX-backed features will degrade to unavailable"
+            fi
+
             # COMMIT ORDERING: CI runs can finish out of order, so an older commit's successful run
             # could otherwise overwrite a newer deployment. Deploy only while this revision is still
-            # the tip of main; a newer commit's own run deploys it.
+            # the tip of main; a newer commit's own run deploys it. This check stays here, after the
+            # fetch, because it is the authoritative one — the API-side equivalent was measured on
+            # 2026-09-29 and dropped: the short CD runs are warm-cache deploys that really do ship
+            # (`docker compose up -d --build` is in their logs), not superseded no-ops, so a
+            # pre-flight would have saved nothing.
             TIP="$(git rev-parse origin/main)"
             if [ "$TIP" != "$DEPLOY_SHA" ]; then
               echo "[CD] $DEPLOY_SHA is superseded by $TIP; skipping — the newer revision deploys itself."
               exit 0
             fi
+
+            export DOCKER_BUILDKIT=1
+            export COMPOSE_DOCKER_CLI_BUILD=1
             # Recorded in the image so GET /api/v1/version reports what is actually running.
             export BUILD_COMMIT="$DEPLOY_SHA"
             export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "[CD] Rebuilding and launching Docker containers..."
+            LOG="$HOME/mse-deploy-$(echo "$DEPLOY_SHA" | cut -c1-12).log"
+            : > "$LOG"
+
+            # Quoted heredoc: nothing below is interpolated by this shell, so `$?` and friends
+            # belong to the detached script rather than being expanded here.
+            cat > "$HOME/mse-deploy-run.sh" <<'MSE_DEPLOY_EOF'
+            set -e
+            on_fail() { rc=$?; echo "[CD] DEPLOY_FAILED rc=$rc"; exit "$rc"; }
+            trap on_fail ERR
+            echo "[CD] build started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             docker compose -f deploy/docker-compose.oci.yml up -d --build
-            echo "[CD] Verifying container health..."
+            echo "[CD] containers up; compose gates caddy/tunnel on /api/v1/health"
             docker compose -f deploy/docker-compose.oci.yml ps
+            # The env var is part of the service config, so a revision change recreates the
+            # container; reading it back is what makes this a version check and not just an exit code.
+            RUNNING="$(docker inspect missense-resolve-app \
+              --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BUILD_COMMIT=//p')"
+            if [ "$RUNNING" != "$BUILD_COMMIT" ]; then
+              echo "[CD] version mismatch: container reports '$RUNNING', expected '$BUILD_COMMIT'"
+              echo "[CD] DEPLOY_FAILED"
+              exit 1
+            fi
+            echo "[CD] DEPLOY_OK $BUILD_COMMIT"
+            MSE_DEPLOY_EOF
+
+            setsid nohup bash "$HOME/mse-deploy-run.sh" >> "$LOG" 2>&1 < /dev/null &
+            echo "[CD] dispatched detached; log on the VM: $LOG"
+
+            WAIT="${DEPLOY_CONFIRM_SECONDS:-180}"
+            deadline=$(( $(date +%s) + WAIT ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              if grep -q 'DEPLOY_OK' "$LOG" 2>/dev/null; then
+                echo "[CD] deploy completed and verified within the ${WAIT}s window."
+                exit 0
+              fi
+              if grep -q 'DEPLOY_FAILED' "$LOG" 2>/dev/null; then
+                echo "::error::deploy failed on the VM"
+                echo "[CD] --- tail of $LOG ---"
+                tail -n 40 "$LOG"
+                exit 1
+              fi
+              sleep 5
+            done
+
+            echo "[CD] Still building after ${WAIT}s. The build continues on the VM and is NOT cancelled."
+            echo "[CD] Production is protected by Docker's build-before-replace and by the compose"
+            echo "[CD] health gate, so the previously running revision keeps serving if it fails."
+            echo "[CD] Full log: $LOG"
+            exit 0
