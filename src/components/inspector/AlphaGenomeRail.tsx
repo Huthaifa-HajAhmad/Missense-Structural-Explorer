@@ -1,8 +1,7 @@
-import React, { useCallback, useState } from "react";
-import { Activity, BookOpen, Database, GitBranch, PlugZap, Ruler } from "lucide-react";
+import React from "react";
+import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
-import { useApiClient } from "../../apiClient";
 import {
   ALPHAGENOME_SOURCES,
   PHRED_RANK_ROWS,
@@ -14,7 +13,8 @@ import {
  *
  * The column states WHAT the score is; the rail states HOW it was obtained: the four-step trace from
  * the queried coordinate to the Phred (with the arithmetic shown), a Phred-to-rank reference with this
- * variant's row marked, the method caveats, the connection check, and the sources.
+ * variant's row marked, the method caveats, and the sources. The connection test was removed at the
+ * owner's request: it checked the channel, not this variant, and Settings owns connections.
  *
  * The rank itself (top x%, 1 in N) is stated once, in the column; the rail shows only how it was
  * derived. The Method note names the conservation scores: the Predictors tab reads phyloP and GERP,
@@ -44,34 +44,8 @@ function Step({ n, label, state = "done", children }: { n: number; label: string
 
 export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const { settings } = useSettings();
-  const { fetchWithAuth } = useApiClient();
   const hasKey = Boolean(settings.alphagenomeApiKey?.trim());
   const ev = buildAlphaGenomeEvidence({ result: analysisResult, configured: hasKey ? true : undefined });
-
-  const [testing, setTesting] = useState(false);
-  const [test, setTest] = useState<{ ok: boolean; latencyMs: number; scorersCount?: number; error?: string } | null>(null);
-
-  const runTest = useCallback(async () => {
-    setTesting(true);
-    setTest(null);
-    try {
-      const res = await fetchWithAuth("/api/v1/alphagenome/verify-connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json();
-      const raw = data?.error;
-      const error =
-        typeof raw === "object" && raw ? raw.message || JSON.stringify(raw)
-        : typeof raw === "string" ? raw
-        : !res.ok ? `HTTP ${res.status}` : undefined;
-      setTest({ ok: Boolean(data?.ok), latencyMs: data?.latencyMs ?? 0, scorersCount: data?.scorersCount, error });
-    } catch (err: any) {
-      setTest({ ok: false, latencyMs: 0, error: err?.message || "The connection test could not reach the server." });
-    } finally {
-      setTesting(false);
-    }
-  }, [fetchWithAuth]);
 
   const scored = ev.assessed && ev.phred !== null;
   // The reference row this variant sits in: the highest row at or below its Phred.
@@ -179,38 +153,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
         </details>
       </section>
 
-      {/* ── 4. Connection ── */}
-      <section className="rail-section" aria-labelledby="ag-rail-conn">
-        <h3 className="eyebrow" id="ag-rail-conn">
-          <PlugZap className="w-3.5 h-3.5" aria-hidden="true" />
-          Connection
-        </h3>
-        <dl className="rail-kv">
-          <div className="rail-kv__row">
-            <dt>Key in this browser</dt>
-            <dd>{hasKey ? "Set" : "None — the server may hold one"}</dd>
-          </div>
-          <div className="rail-kv__row">
-            <dt>This variant</dt>
-            <dd>{ev.assessed ? "Scored" : ev.availability.label}</dd>
-          </div>
-        </dl>
-        <div>
-          <button type="button" className="ag-btn" onClick={runTest} disabled={testing}>
-            <Activity className={`w-3.5 h-3.5 ${testing ? "animate-spin" : ""}`} aria-hidden="true" />
-            {testing ? "Testing…" : "Test connection"}
-          </button>
-        </div>
-        {test && (
-          <p className="ag-rail__status" data-ok={String(test.ok)} role="status">
-            {test.ok
-              ? `Reached the Atlas in ${test.latencyMs} ms (${test.scorersCount ?? 0} scorers). This checks the channel only — not whether this variant was scored.`
-              : `Connection failed: ${test.error ?? "no reason given"}.`}
-          </p>
-        )}
-      </section>
-
-      {/* ── 5. Sources ── */}
+      {/* ── 4. Sources ── */}
       <section className="rail-section" aria-labelledby="ag-rail-sources">
         <h3 className="eyebrow" id="ag-rail-sources">
           <Database className="w-3.5 h-3.5" aria-hidden="true" />

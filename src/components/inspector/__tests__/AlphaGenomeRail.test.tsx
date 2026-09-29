@@ -54,6 +54,12 @@ describe("AlphaGenomeRail", () => {
     expect(screen.getByText(/measure the same thing as phyloP and GERP/)).toBeInTheDocument();
   });
 
+  it("has no connection test: Settings owns connections, and it checked the channel, not this variant", () => {
+    render(<AlphaGenomeRail analysisResult={result} />);
+    expect(screen.queryByRole("button", { name: /Test connection/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Key in this browser/)).not.toBeInTheDocument();
+  });
+
   it("replaces the placeholder telemetry box on the AlphaGenome tab", () => {
     render(<EvidenceInspector analysisResult={result} activeEvidenceTab="alphagenome" />);
     expect(screen.getByTestId("alphagenome-rail")).toBeInTheDocument();

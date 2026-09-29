@@ -89,6 +89,8 @@ ACMG" said once (head chip) plus the "Engine record" fact; Phred and quantile sa
 The ruler spans the column with no progress-bar fill, and its last label reads "top 0.001%". The
 table has fixed columns (feature 320px, bar, value, share); the zero line sits where the data puts
 it, so positive-only bars use the full width. Atlas card carries the coordinate and Copy in its head.
+The rail's Connection section (browser key state and "Test connection") is removed at the owner's
+request: it tested the channel, not this variant, and connections belong in Settings.
 
 **Verification.** `npm run lint` clean; vitest 2,585 passed, 5 skipped; rendered light, dark, 820px and the
 no-score state with the NAE1 payload.

@@ -399,9 +399,6 @@ p.ag-card__foot > span { display: inline; }
   color: var(--cs-text-primary);
   overflow-wrap: anywhere;
 }
-.ag-rail__status { font-size: var(--cs-font-size-caption); line-height: 1.45; }
-.ag-rail__status[data-ok="true"] { color: var(--cs-text-secondary); }
-.ag-rail__status[data-ok="false"] { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); padding: 6px 8px; border-radius: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   .ag-btn, .ag-atlas__item, .ag-fold__icon { transition: none; }
