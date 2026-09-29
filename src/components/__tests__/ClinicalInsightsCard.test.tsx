@@ -245,12 +245,12 @@ describe("ClinicalInsightsCard export handlers", () => {
     }
   });
 
-  it("does not export an interval that contradicts its own probability", async () => {
+  it("exports the derived agreement and one sign convention, never the stored probability", async () => {
     /**
-     * F10-1 from the fourth review panel. The JSON export derived its probability but read the interval
-     * bounds from the STORED snapshot, so a report could carry a point estimate OUTSIDE its own interval
-     * — measured as 80.6% with 68.1-89.1 on screen against 80.6% with 2.1-11.3 exported. The stored
-     * snapshot below deliberately disagrees with what the engines derive, which is how that arose.
+     * F10-1 from the fourth review panel was an export whose probability and interval disagreed, because
+     * one was derived and the other read from the stored snapshot. The probability itself came from
+     * hand-typed curves and is retired (`thresholds/consensus.ts`); the invariant that survives is that
+     * the export DERIVES from the engines and never forwards the stale snapshot below.
      */
     const blobs: Blob[] = [];
     const originalCreate = (URL as any).createObjectURL;
@@ -268,7 +268,7 @@ describe("ClinicalInsightsCard export handlers", () => {
           rasp: 1.5,
           thermompnn: 1.1,
           stabilityoracle: 1.3,
-          // A stale snapshot from an earlier, two-engine commit.
+          // A stale snapshot from before the probability was retired.
           consensusProbability: 0.11,
           consensusConfMin: 0.021,
           consensusConfMax: 0.113,
@@ -281,22 +281,16 @@ describe("ClinicalInsightsCard export handlers", () => {
       const json = JSON.parse(await blobs[0].text());
       const consensus = json.biophysicalEnergetics;
 
-      expect(typeof consensus.consensusProbability).toBe("number");
-      expect(consensus.consensusProbability, "the stored probability was exported").not.toBeCloseTo(
-        0.11,
-        5
-      );
-
-      // Assert the TYPES before the ordering: `null <= 0.8` coerces to true, so the bounds checks below
-      // would pass vacuously against a null interval.
-      expect(typeof consensus.consensusConfMin).toBe("number");
-      expect(typeof consensus.consensusConfMax).toBe("number");
-      expect(consensus.consensusConfMin).toBeLessThanOrEqual(consensus.consensusProbability);
-      expect(consensus.consensusConfMax).toBeGreaterThanOrEqual(consensus.consensusProbability);
-      expect(consensus.consensusConfMin, "the bounds stayed at the stored snapshot").not.toBeCloseTo(
-        0.021,
-        5
-      );
+      expect(consensus).not.toHaveProperty("consensusProbability");
+      expect(consensus).not.toHaveProperty("consensusConfMin");
+      expect(consensus.consensusStabilityVerdict).toBe("Destabilizing (Engines Agree)");
+      expect(consensus.consensusEnginesCounted).toBe(6);
+      expect(consensus.consensusEnginesDestabilizing).toBe(6);
+      expect(consensus.consensusMedianDdg).toBeCloseTo(1.4, 5);
+      // Raw provider values are kept for existing readers; the canonical block is what compares.
+      expect(consensus.dynamut2).toBe(-1.5);
+      expect(consensus.canonicalDdg.dynamut2).toBe(1.5);
+      expect(consensus.canonicalDdg.ddmut).toBe(1.2);
     } finally {
       (URL as any).createObjectURL = originalCreate;
     }

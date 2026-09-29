@@ -42,7 +42,12 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "fs";
 import path from "path";
 import readline from "readline";
-import { RASP_INDEX_SCHEMA_VERSION, verifyRaspIndex } from "../../../src/shared/raspIndex.ts";
+import {
+  RASP_INDEX_SCHEMA_VERSION,
+  verifyRaspIndex,
+  type RaspSource,
+  type RaspSourceCounts,
+} from "../../../src/shared/raspIndex.ts";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DEFAULT_CSV_PATH = path.join(DATA_DIR, "df_rasp_gnomad_clinvar.csv");
@@ -66,14 +71,119 @@ export interface RaspBuildResult {
   sizeBytes: number;
   dbPath: string;
   seconds: number;
+  /** Proteins per source in the built index. */
+  sources: RaspSourceCounts;
+  /** Proteome files not ingested, by reason (AlphaFold fragments beyond F1, no accession, …). */
+  proteomeSkips?: Record<string, number>;
+}
+
+export interface RaspBuildOptions {
+  /**
+   * Directory of the authors' proteome-wide PRISM files (`rasp_preds_alphafold_UP000005640_9606_HUMAN_v2`
+   * or its `_prism_dir` tree, unzipped). Walked recursively. Download from
+   * https://sid.erda.dk/sharelink/fFPJWflLeE (see the RaSP repository README).
+   */
+  proteomeDir?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// PRISM files (proteome-wide predictions)
+// ---------------------------------------------------------------------------
+
+/** UniProt accession, per UniProt's published pattern. */
+const UNIPROT_ACCESSION = /\b([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0-9]{2}[0-9]){1,2})\b/;
+
+export interface ParsedPrismFile {
+  uniprotId: string | null;
+  /** AlphaFold fragment number from an `AF-<acc>-F<n>` name; 1 when the file is not fragmented. */
+  fragment: number;
+  rows: Array<{ wt: string; pos: number; mut: string; score: number }>;
+  /** Rows dropped: synonymous/non-substitution variants, unparseable scores, sequence mismatches. */
+  skipped: number;
+}
+
+/**
+ * Parses one RaSP PRISM file, the format the authors' `rasp_to_prism` writes (PrismData.PrismParser):
+ * `# `-prefixed metadata lines (`#     uniprot: …`, `#     sequence: …`), then a whitespace-separated
+ * table whose header names `variant` and `score_ml` (the ΔΔG in kcal/mol; `score_ml_fermi` is the
+ * [0, 1] transform and is not used).
+ *
+ * Numbering: these predictions were made on full-length AlphaFold models, so positions are UniProt
+ * positions — EXCEPT in fragment files (`AF-<acc>-F2…`) of proteins longer than 2,700 residues, whose
+ * numbering is local to the fragment. The caller skips those rather than guessing an offset. Every row
+ * is checked against the file's own `sequence:` when present, so a numbering slip cannot enter the
+ * index as a plausible-looking wrong answer.
+ */
+export function parsePrismRaspFile(text: string, fileName: string): ParsedPrismFile {
+  const lines = text.split(/\r?\n/);
+  let metaUniprot: string | null = null;
+  let sequence: string | null = null;
+  let header: string[] | null = null;
+  const rows: ParsedPrismFile["rows"] = [];
+  let skipped = 0;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) {
+      const m = line.match(/^#\s*(uniprot|sequence)\s*:\s*(\S+)/i);
+      if (m && m[1].toLowerCase() === "uniprot") metaUniprot = m[2];
+      if (m && m[1].toLowerCase() === "sequence") sequence = m[2].toUpperCase();
+      continue;
+    }
+    const cells = line.split(/\s+/);
+    if (!header) {
+      header = cells;
+      continue;
+    }
+    const vIdx = header.indexOf("variant");
+    const sIdx = header.indexOf("score_ml");
+    if (vIdx < 0 || sIdx < 0) break; // not a RaSP PRISM table
+    const parsed = parseVariant(cells[vIdx] ?? "");
+    const score = Number(cells[sIdx]);
+    if (!parsed || !Number.isFinite(score)) {
+      skipped++;
+      continue;
+    }
+    if (sequence && sequence[parsed.pos - 1] !== parsed.wt) {
+      skipped++;
+      continue;
+    }
+    rows.push({ ...parsed, score });
+  }
+
+  const base = path.basename(fileName);
+  const af = base.match(/AF-([A-Z0-9]+)-F(\d+)/i);
+  const fromName = af?.[1] ?? base.match(UNIPROT_ACCESSION)?.[1] ?? null;
+  const fromMeta = metaUniprot && UNIPROT_ACCESSION.test(metaUniprot) ? metaUniprot : null;
+  return {
+    uniprotId: fromName ?? fromMeta,
+    fragment: af ? parseInt(af[2], 10) : 1,
+    rows,
+    skipped,
+  };
+}
+
+function* walkFiles(dir: string): Generator<string> {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) yield* walkFiles(full);
+    else if (entry.isFile()) yield full;
+  }
 }
 
 export async function buildRaspSqliteDatabase(
   csvPath: string = DEFAULT_CSV_PATH,
-  dbPath: string = DEFAULT_DB_PATH
+  dbPath: string = DEFAULT_DB_PATH,
+  options: RaspBuildOptions = {}
 ): Promise<RaspBuildResult> {
-  if (!fs.existsSync(csvPath)) {
+  const proteomeDir = options.proteomeDir ?? null;
+  const haveCsv = fs.existsSync(csvPath);
+  if (!haveCsv && !proteomeDir) {
     throw new Error(`[RaSP SQLite] CSV not found: ${csvPath}`);
+  }
+  if (proteomeDir && !fs.existsSync(proteomeDir)) {
+    throw new Error(`[RaSP SQLite] Proteome directory not found: ${proteomeDir}`);
   }
 
   const targetDir = path.dirname(dbPath);
@@ -88,7 +198,7 @@ export async function buildRaspSqliteDatabase(
   }
 
   const startedAt = Date.now();
-  const csvStat = fs.statSync(csvPath);
+  const csvStat = haveCsv ? fs.statSync(csvPath) : null;
 
   /**
    * Tracked outside the `try` so the `finally` can close it while `db` keeps its strong type inside.
@@ -114,7 +224,9 @@ export async function buildRaspSqliteDatabase(
         chain_id             TEXT,
         rasp_score           REAL,
         clinvar_significance TEXT,
-        gnomad_af            REAL
+        gnomad_af            REAL,
+        -- 'experimental' (the Zenodo CSV) or 'alphafold' (the proteome PRISM files). Schema v3.
+        source               TEXT    NOT NULL DEFAULT 'experimental'
       ) STRICT;
 
       -- Exact-variant lookup (primary path)
@@ -126,8 +238,8 @@ export async function buildRaspSqliteDatabase(
     const insert = db.prepare(`
       INSERT INTO rasp_variants
         (uniprot_id, pos, wt, mut, pdb, pdb_chain, chain_id,
-         rasp_score, clinvar_significance, gnomad_af)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         rasp_score, clinvar_significance, gnomad_af, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const BATCH = 5000;
@@ -143,39 +255,65 @@ export async function buildRaspSqliteDatabase(
       pending = [];
     };
 
-    const stream = fs.createReadStream(csvPath);
-    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    if (haveCsv) {
+      const stream = fs.createReadStream(csvPath);
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
 
-    for await (const line of rl) {
-      if (!headerSkipped) { headerSkipped = true; continue; }
+      for await (const line of rl) {
+        if (!headerSkipped) { headerSkipped = true; continue; }
 
-      const parts = line.split(",");
-      if (parts.length < 6) { skipCount++; continue; }
+        const parts = line.split(",");
+        if (parts.length < 6) { skipCount++; continue; }
 
-      const [uniprotId, pdbChain, pdb, chainId, variant] = parts;
-      const parsed = parseVariant(variant?.trim() ?? "");
-      if (!parsed) { skipCount++; continue; }
+        const [uniprotId, pdbChain, pdb, chainId, variant] = parts;
+        const parsed = parseVariant(variant?.trim() ?? "");
+        if (!parsed) { skipCount++; continue; }
 
-      const { wt, pos, mut } = parsed;
-      const raspScore  = parts[5] ? parseFloat(parts[5]) : null;
-      const clinvarSig = parts[6]?.trim() || null;
-      const gnomadAf   = parts[7] ? parseFloat(parts[7]) : null;
+        const { wt, pos, mut } = parsed;
+        const raspScore  = parts[5] ? parseFloat(parts[5]) : null;
+        const clinvarSig = parts[6]?.trim() || null;
+        const gnomadAf   = parts[7] ? parseFloat(parts[7]) : null;
 
-      pending.push(() => {
-        (insert.run as any)(
-          uniprotId.trim(), pos, wt, mut,
-          pdb?.trim() || null, pdbChain?.trim() || null, chainId?.trim() || null,
-          raspScore !== null && !isNaN(raspScore) ? raspScore : null,
-          clinvarSig,
-          gnomadAf !== null && !isNaN(gnomadAf) ? gnomadAf : null
-        );
-      });
+        pending.push(() => {
+          (insert.run as any)(
+            uniprotId.trim(), pos, wt, mut,
+            pdb?.trim() || null, pdbChain?.trim() || null, chainId?.trim() || null,
+            raspScore !== null && !isNaN(raspScore) ? raspScore : null,
+            clinvarSig,
+            gnomadAf !== null && !isNaN(gnomadAf) ? gnomadAf : null,
+            "experimental"
+          );
+        });
 
-      rowCount++;
-      if (pending.length >= BATCH) {
-        flush();
-        if (rowCount % 500000 === 0) {
-          process.stdout.write(`\r[RaSP SQLite] Imported ${rowCount.toLocaleString()} rows...`);
+        rowCount++;
+        if (pending.length >= BATCH) {
+          flush();
+          if (rowCount % 500000 === 0) {
+            process.stdout.write(`\r[RaSP SQLite] Imported ${rowCount.toLocaleString()} rows...`);
+          }
+        }
+      }
+    }
+
+    // ── Proteome-wide PRISM files (optional) ──
+    const proteomeSkips: Record<string, number> = {};
+    const skipFile = (why: string) => { proteomeSkips[why] = (proteomeSkips[why] ?? 0) + 1; };
+    if (proteomeDir) {
+      for (const file of walkFiles(proteomeDir)) {
+        const text = fs.readFileSync(file, "utf-8");
+        if (!text.startsWith("#")) { skipFile("not a PRISM file"); continue; }
+        const parsed = parsePrismRaspFile(text, file);
+        if (!parsed.uniprotId) { skipFile("no UniProt accession"); continue; }
+        // Fragment numbering is local to the fragment; an offset would be a guess.
+        if (parsed.fragment > 1) { skipFile("AlphaFold fragment beyond F1"); continue; }
+        skipCount += parsed.skipped;
+        const acc = parsed.uniprotId;
+        for (const r of parsed.rows) {
+          pending.push(() => {
+            (insert.run as any)(acc, r.pos, r.wt, r.mut, null, null, null, r.score, null, null, "alphafold");
+          });
+          rowCount++;
+          if (pending.length >= BATCH) flush();
         }
       }
     }
@@ -203,20 +341,29 @@ export async function buildRaspSqliteDatabase(
         proteins       INTEGER NOT NULL,
         source_file    TEXT,
         source_bytes   INTEGER,
-        built_at       TEXT    NOT NULL
+        built_at       TEXT    NOT NULL,
+        -- JSON {"experimental": n, "alphafold": m}: proteins per source. Schema v3.
+        sources        TEXT
       ) STRICT;
     `);
+    const sourceCounts: RaspSourceCounts = {};
+    for (const row of db.prepare(
+      "SELECT source, COUNT(DISTINCT uniprot_id) AS c FROM rasp_variants GROUP BY source"
+    ).all() as Array<{ source: RaspSource; c: number }>) {
+      sourceCounts[row.source] = Number(row.c);
+    }
     db.prepare(`
       INSERT INTO rasp_index_meta
-        (schema_version, rows, proteins, source_file, source_bytes, built_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+        (schema_version, rows, proteins, source_file, source_bytes, built_at, sources)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       RASP_INDEX_SCHEMA_VERSION,
       actualRows,
       actualProteins,
-      path.basename(csvPath),
-      csvStat.size,
-      new Date().toISOString()
+      [haveCsv ? path.basename(csvPath) : null, proteomeDir ? path.basename(proteomeDir) : null].filter(Boolean).join(" + "),
+      csvStat?.size ?? null,
+      new Date().toISOString(),
+      JSON.stringify(sourceCounts)
     );
 
     // Read the record back and check it with the SAME rule the loader applies. A same-process
@@ -259,7 +406,19 @@ export async function buildRaspSqliteDatabase(
     console.log(`\n[RaSP SQLite] Done. ${actualRows.toLocaleString()} rows across ${actualProteins.toLocaleString()} proteins, ${skipCount.toLocaleString()} skipped.`);
     console.log(`[RaSP SQLite] ${(builtStat.size / 1024 / 1024).toFixed(1)} MB in ${seconds.toFixed(1)}s -> ${dbPath}`);
 
-    return { rows: actualRows, proteins: actualProteins, skipped: skipCount, sizeBytes: builtStat.size, dbPath, seconds };
+    if (Object.keys(proteomeSkips).length) {
+      console.log(`[RaSP SQLite] Proteome files not ingested: ${JSON.stringify(proteomeSkips)}`);
+    }
+    return {
+      rows: actualRows,
+      proteins: actualProteins,
+      skipped: skipCount,
+      sizeBytes: builtStat.size,
+      dbPath,
+      seconds,
+      sources: sourceCounts,
+      ...(proteomeDir ? { proteomeSkips } : {}),
+    };
   } catch (err) {
     // Never leave a half-built file lying around where a later run (or a human) might trust it.
     try {

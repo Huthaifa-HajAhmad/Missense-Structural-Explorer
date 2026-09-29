@@ -32,6 +32,7 @@
 
 import { THRESHOLDS } from "./thresholds/constants.ts";
 import type { StructureProvenance } from "./contracts.ts";
+import type { RaspCoverage } from "./raspIndex.ts";
 
 // ---------------------------------------------------------------------------
 // Engines
@@ -160,7 +161,7 @@ export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
     supportingCut: SUPPORTING_CUT,
     stabilizingCut: STABILIZING_CUT,
     absenceClass: "coverage",
-    summary: "Precomputed ΔΔG from a 3D convolutional network trained to reproduce Rosetta; bundled for 1,345 proteins with experimental structures.",
+    summary: "Precomputed ΔΔG from a 3D convolutional network trained to reproduce Rosetta, read from the installed RaSP table.",
   },
   {
     id: "thermompnn",
@@ -417,10 +418,12 @@ export interface EngineObservation {
   /**
    * True when the value is shown for reference but must NOT be counted in the consensus —
    * e.g. FoldX after a failed RepairPDB, where the number is retained for transparency but the
-   * calibrated consensus already excludes it. Modelling this explicitly removes a latent
+   * stability consensus already excludes it. Modelling this explicitly removes a latent
    * inconsistency where the table implied an engine contributed while the maths ignored it.
    */
   excludeFromConsensus?: boolean;
+  /** What the installed RaSP index covers (RaSP only), for the "not covered" copy. */
+  coverage?: RaspCoverage | null;
   /** Template provenance context when known (source, PDB ID, resolution) for contextual diagnostics */
   templateProvenance?: { source?: ProvenanceSource | null; pdbId?: string; resolution?: number | null } | null;
 }
@@ -472,7 +475,22 @@ const PROBLEM_TO_STATE: Record<EngineProblem, EngineState> = {
  * naming the provider's infrastructure (the previous copy leaked "Zenodo", "BioSig",
  * "rotabase.txt" and container paths to clinical users).
  */
-function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string | null): string {
+/**
+ * How much the installed RaSP table covers, in words. Read from the index's own record when the server
+ * sends it (`energetics.raspCoverage`); otherwise the default bundle, the experimental-structure CSV.
+ */
+export function raspCoverageSentence(coverage?: RaspCoverage | null): string {
+  if (!coverage) {
+    return `The bundled RaSP set covers ${RASP_BUNDLED_PROTEINS.toLocaleString("en-GB")} human proteins with experimental structures, not the whole proteome.`;
+  }
+  const n = coverage.proteins.toLocaleString("en-GB");
+  if (coverage.sources.alphafold) {
+    return `The installed RaSP tables cover ${n} human proteins, including the AlphaFold proteome predictions.`;
+  }
+  return `The installed RaSP table covers ${n} human proteins with experimental structures, not the whole proteome.`;
+}
+
+function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string | null, coverage?: RaspCoverage | null): string {
   switch (state) {
     case "computed":
       return "";
@@ -487,7 +505,7 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
       // a protein outside the covered set AND for a position within a covered protein, and the
       // precise sentence travels in `detail`.
       return engine.id === "rasp"
-        ? `No precomputed ${engine.name} score is available for this variant. The bundled RaSP set covers ${RASP_BUNDLED_PROTEINS.toLocaleString("en-GB")} human proteins with experimental structures, not the whole proteome.`
+        ? `No precomputed ${engine.name} score is available for this variant. ${raspCoverageSentence(coverage)}`
         : "No precomputed data for this variant.";
     case "upstream-busy":
       return `${engine.name}'s provider did not answer in time. This can be retried later.`;
@@ -611,7 +629,7 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
           : null;
 
   const exclusionNote = "Shown for reference only — excluded from the consensus.";
-  const baseReason = foldxCause ?? reasonFor(state, engine, detail);
+  const baseReason = foldxCause ?? reasonFor(state, engine, detail, obs.coverage);
 
   return {
     id: obs.id,
@@ -670,6 +688,8 @@ export interface EngineFacts {
   ddmutStatus?: RemoteStatus;
   thermompnnStatus?: RemoteStatus;
   raspReason?: string | null;
+  /** From `energetics.raspCoverage`; absent on older payloads. */
+  raspCoverage?: RaspCoverage | null;
   thermompnnError?: string | null;
   foldingError?: string | null;
   foldingStatus?: "success" | "failed" | "unavailable" | null;
@@ -813,6 +833,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
         ? classifyRaspMissReason(raspReason)
         : null,
       detail: raspReason,
+      coverage: facts.raspCoverage ?? null,
       runActive: isFolding && noValue(facts.rasp),
     },
     {

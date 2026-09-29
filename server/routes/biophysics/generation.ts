@@ -23,6 +23,7 @@ import {
   writeMutantToCache,
   parseResiduesFromPdbMaybeAsync,
   runRaspLocal,
+  getRaspCoverage,
   submitThermoMpnnJob,
   getFoldxCacheKey,
   cleanPdbForFoldX,
@@ -482,8 +483,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   resolution: resolvedStructure?.provenance.resolution ?? null,
                   method: resolvedStructure?.provenance.method ?? null,
                   identity: resolvedStructure?.provenance.identity ?? null,
-                  raspDatasetSnapshot: "2023-Zenodo-6835877",
-                  vesmModel: "VESM_150M_v1",
                   timestamp: new Date().toISOString()
                 },
                 remoteJobs: {
@@ -774,6 +773,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               if (raspRes) {
                 cachedFoldx.energetics.rasp = raspRes.score;
                 cachedFoldx.energetics.raspReason = raspRes.reason;
+                cachedFoldx.energetics.raspSource = raspRes.source;
+                cachedFoldx.energetics.raspCoverage = getRaspCoverage() ?? undefined;
                 // Persist only a real score: a miss may be a store fault that a rebuild will fix.
                 if (typeof raspRes.score === "number") writeMutantToCache(foldxCacheKey, cachedFoldx);
               }
@@ -804,8 +805,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             resolution: resolvedStructure?.provenance.resolution ?? null,
             method: resolvedStructure?.provenance.method ?? null,
             identity: resolvedStructure?.provenance.identity ?? null,
-            raspDatasetSnapshot: "2023-Zenodo-6835877",
-            vesmModel: "VESM_150M_v1",
             timestamp: new Date().toISOString()
           }, posNum);
 

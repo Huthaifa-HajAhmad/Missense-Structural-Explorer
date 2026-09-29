@@ -519,13 +519,13 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "RaSP — Rapid Stability Prediction",
     provider: "Lindorff-Larsen laboratory, University of Copenhagen",
     kind: "model",
-    role: "ΔΔG from a self-supervised 3D convolutional network with a supervised head trained to reproduce Rosetta cartesian_ddg, looked up from the authors' experimental-structure table (1,345 human proteins) ingested into SQLite. Most proteins are not in the table. Positive-native: a larger value means destabilization.",
+    role: "ΔΔG from a self-supervised 3D convolutional network with a supervised head trained to reproduce Rosetta cartesian_ddg, looked up from the authors' published predictions ingested into SQLite: their experimental-structure table (1,345 proteins) by default, plus their AlphaFold human-proteome predictions (23,391 proteins) when a deployment ingests them (`npm run migrate:rasp -- --proteome <dir>`). Positive-native: a larger value means destabilization.",
     url: "https://doi.org/10.7554/eLife.82593",
     release: "Precomputed lookup table built from the authors' published dataset",
     citation:
       "Blaabjerg, L. M., et al. (2023). Rapid protein stability prediction using deep learning representations. eLife 12, e82593. https://doi.org/10.7554/eLife.82593",
     licence:
-      "The lookup table is built from the authors' published Zenodo dataset (see scripts/build-rasp-sqlite.ts). Cite the dataset as well as the paper when redistributing the table itself.",
+      "The lookup table is built from the authors' published datasets — Zenodo 10.5281/zenodo.6835877 and, optionally, the proteome predictions at sid.erda.dk/sharelink/fFPJWflLeE (see scripts/build-rasp-sqlite.ts). Cite the dataset as well as the paper when redistributing the table itself.",
     usedBy: ["scripts/build-rasp-sqlite.ts", "server/services/stability/energy-models.ts"]
   },
   {

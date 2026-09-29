@@ -159,3 +159,35 @@ describe("energeticsEvidence — edge cases", () => {
     expect(ev.running.length).toBeGreaterThan(0);
   });
 });
+
+describe("energeticsEvidence — RaSP coverage and source come from the installed index", () => {
+  it("states the index's own coverage when the server sends it", () => {
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: {
+        rasp: null,
+        raspReason: "Residue position is not present in the pre-computed database",
+        raspCoverage: { proteins: 23391, sources: { experimental: 1345, alphafold: 23391 } },
+      },
+    });
+    const rasp = ev.readings.find(r => r.key === "rasp")!;
+    expect(rasp.outcome.state).toBe("not-covered");
+    expect(rasp.outcome.reason).toContain("cover 23,391 human proteins, including the AlphaFold proteome predictions");
+  });
+
+  it("falls back to the default experimental-set statement on older payloads", () => {
+    const ev = buildEnergeticsEvidence({
+      foldingEnergetics: { rasp: null, raspReason: "Residue position is not present in the pre-computed database" },
+    });
+    expect(ev.readings.find(r => r.key === "rasp")!.outcome.reason).toContain("1,345 human proteins with experimental structures");
+  });
+
+  it("names the table that served a value, and only then", () => {
+    const af = buildEnergeticsEvidence({ foldingEnergetics: { rasp: 1.2, raspSource: "alphafold" } });
+    expect(af.readings.find(r => r.key === "rasp")!.note).toBe("From the AlphaFold proteome (UP000005640 v2) table.");
+    expect(af.sources).toContainEqual(["RaSP table", "AlphaFold proteome (UP000005640 v2)"]);
+    const exp = buildEnergeticsEvidence({ foldingEnergetics: { rasp: 1.2, raspSource: "experimental" } });
+    expect(exp.readings.find(r => r.key === "rasp")!.note).toContain("structure numbering");
+    const legacy = buildEnergeticsEvidence({ foldingEnergetics: { rasp: 1.2 } });
+    expect(legacy.readings.find(r => r.key === "rasp")!.note).toBeNull();
+  });
+});

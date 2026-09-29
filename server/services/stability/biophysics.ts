@@ -10,6 +10,7 @@ export * from "../structure/pocket.ts";
 export * from "../structure/structural-diff.ts";
 
 export const initializeRaspDatabase = energyModels.initializeRaspDatabase;
+export const getRaspCoverage = energyModels.getRaspCoverage;
 
 export let lookupPrecomputedRaspScore = energyModels.lookupPrecomputedRaspScore;
 

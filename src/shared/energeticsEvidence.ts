@@ -49,6 +49,7 @@ import {
   type RemoteStatus,
 } from "./engineStatus.ts";
 import type { StructureProvenance } from "./contracts.ts";
+import { RASP_SOURCE_LABEL, type RaspCoverage, type RaspSource } from "./raspIndex.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,10 +136,38 @@ export interface EnergeticsReading {
   knowledgeKey: EnergyEngineId;
 }
 
-export type AgreementDirection = "destabilizing" | "not-destabilizing" | "split" | "none";
+/**
+ * `moderate`: every counted engine sits between its moderate and destabilizing marks. Without it that
+ * case fell into `split` and read "the engines disagree" for engines that all agree.
+ */
+export type AgreementDirection = "destabilizing" | "moderate" | "not-destabilizing" | "split" | "none";
+
+/**
+ * The stability verdict, as a CLOSED SET. It is what the server stores as
+ * `energetics.consensusVerdict`, what the export and the provenance manifest carry, and what the
+ * tab's chip says in shorter words — one rule, `stabilityVerdict`, produces it for all of them.
+ *
+ * It replaced "High/Moderate/Low Misfolding Risk (…)", which was a threshold on a probability from
+ * hand-typed curves (see the header of this file). Re-exported by `thresholds/consensus.ts` as
+ * `CONSENSUS_VERDICTS`, where the closed-set guard test reads it.
+ */
+export const STABILITY_VERDICTS = {
+  insufficient: "Insufficient Biophysical Data",
+  destabilizing: "Destabilizing (Engines Agree)",
+  moderate: "Moderately Destabilizing (Engines Agree)",
+  notDestabilizing: "No Destabilization Predicted",
+  split: "Engines Disagree",
+  singleDestabilizing: "Destabilizing (Single-Engine Estimate)",
+  singleModerate: "Moderately Destabilizing (Single-Engine Estimate)",
+  singleNotDestabilizing: "No Destabilization (Single-Engine Estimate)",
+} as const;
+
+export type StabilityVerdict = (typeof STABILITY_VERDICTS)[keyof typeof STABILITY_VERDICTS];
 
 export interface EnergeticsAgreement {
   direction: AgreementDirection;
+  /** The closed-set verdict for this agreement (see `STABILITY_VERDICTS`). */
+  verdict: StabilityVerdict;
   /** Engines with a counted value. */
   nCounted: number;
   /** Counted engines at or past their destabilizing mark. */
@@ -265,6 +294,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     ddmutStatus: input.ddmutStatus,
     thermompnnStatus: input.thermompnnStatus,
     raspReason: typeof e?.raspReason === "string" ? e.raspReason : null,
+    raspCoverage: (e?.raspCoverage as RaspCoverage | undefined) ?? null,
     thermompnnError: input.thermompnnError ?? null,
     foldingError: input.foldingError ?? null,
     foldingStatus: input.foldingStatus ?? null,
@@ -305,8 +335,11 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
       if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd)}, not an error bar`);
       if (outcome.excluded) parts.push(outcome.reason);
       note = parts.length ? parts.join("; ") + "." : null;
-    } else if (outcome.id === "rasp" && has && prov?.raspDatasetSnapshot) {
-      note = `From the ${prov.raspDatasetSnapshot} table.`;
+    } else if (outcome.id === "rasp" && has) {
+      const src = e?.raspSource as RaspSource | undefined;
+      note = src
+        ? `From the ${RASP_SOURCE_LABEL[src]} table${src === "experimental" ? "; positions follow the authors' structure numbering" : ""}.`
+        : null;
     }
 
     const risk = outcome.risk;
@@ -347,11 +380,13 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   let direction: AgreementDirection;
   if (counted.length === 0) direction = "none";
   else if (destabilizing.length === counted.length) direction = "destabilizing";
+  else if (moderate.length === counted.length) direction = "moderate";
   else if (destabilizing.length === 0 && moderate.length === 0) direction = "not-destabilizing";
   else direction = "split";
 
   const agreement: EnergeticsAgreement = {
     direction,
+    verdict: stabilityVerdict(direction, counted.length),
     nCounted: counted.length,
     destabilizing,
     moderate,
@@ -395,7 +430,8 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     add("FoldX runs", runs ?? undefined);
     add("Random seed", num(prov?.seed) ?? undefined);
   }
-  if (readings.find(r => r.key === "rasp")?.ddg !== null) add("RaSP table", prov?.raspDatasetSnapshot);
+  const raspSrc = e?.raspSource as RaspSource | undefined;
+  if (readings.find(r => r.key === "rasp")?.ddg !== null && raspSrc) add("RaSP table", RASP_SOURCE_LABEL[raspSrc]);
   add("Model digest", typeof prov?.modelSha === "string" ? prov.modelSha.slice(0, 12) : undefined);
 
   return {
@@ -415,8 +451,27 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
 // Words
 // ---------------------------------------------------------------------------
 
+/** Maps an agreement onto the closed verdict set. A single engine is always named as one. */
+export function stabilityVerdict(direction: AgreementDirection, nCounted: number): StabilityVerdict {
+  const single = nCounted === 1;
+  switch (direction) {
+    case "none":
+      return STABILITY_VERDICTS.insufficient;
+    case "destabilizing":
+      return single ? STABILITY_VERDICTS.singleDestabilizing : STABILITY_VERDICTS.destabilizing;
+    case "moderate":
+      return single ? STABILITY_VERDICTS.singleModerate : STABILITY_VERDICTS.moderate;
+    case "not-destabilizing":
+      return single ? STABILITY_VERDICTS.singleNotDestabilizing : STABILITY_VERDICTS.notDestabilizing;
+    case "split":
+    default:
+      return STABILITY_VERDICTS.split;
+  }
+}
+
 export const AGREEMENT_CHIP: Record<AgreementDirection, { label: string; tone: "danger" | "neutral" | "muted" }> = {
   destabilizing: { label: "Destabilizing", tone: "danger" },
+  moderate: { label: "Moderately destabilizing", tone: "neutral" },
   "not-destabilizing": { label: "No destabilization", tone: "neutral" },
   split: { label: "Engines disagree", tone: "neutral" },
   none: { label: "No ΔΔG", tone: "muted" },
@@ -448,6 +503,11 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
       lead = a.nCounted === 1
         ? `Only ${withValue(a.destabilizing[0])} returned a value, and it is past its destabilizing mark.`
         : `All ${a.nCounted} engines that returned a value predict destabilization.`;
+      break;
+    case "moderate":
+      lead = a.nCounted === 1
+        ? `Only ${withValue(a.moderate[0])} returned a value; it is past its moderate mark but not its destabilizing mark.`
+        : `All ${a.nCounted} engines that returned a value sit between their moderate and destabilizing marks.`;
       break;
     case "not-destabilizing":
       lead = a.nCounted === 1

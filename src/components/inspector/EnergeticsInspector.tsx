@@ -2,10 +2,10 @@ import React, { useMemo } from "react";
 import { BookOpen, Database, GitBranch, Ruler, SlidersHorizontal } from "lucide-react";
 import { AnalysisResult, EnergeticsData } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
-import { ENGINE_STATE_LABELS, type EnergyUnit } from "../../shared/engineStatus";
+import { ENGINE_STATE_LABELS, raspCoverageSentence, type EnergyUnit } from "../../shared/engineStatus";
+import type { RaspCoverage } from "../../shared/raspIndex";
 import {
   AGREEMENT_CHIP,
-  RASP_BUNDLED_PROTEINS,
   absenceText,
   buildEnergeticsEvidence,
   listNames,
@@ -107,6 +107,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   );
 
   const { agreement, coverage, structure } = evidence;
+  const raspCoverage = ((foldingEnergetics as any)?.raspCoverage as RaspCoverage | undefined) ?? null;
   const withValue = evidence.readings.filter(r => r.ddg !== null);
   const structureWarn = structure?.repairState === "unrepaired" || structure?.repairState === "failed" || evidence.lowPlddt !== null;
 
@@ -261,8 +262,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
               so it reports how many engines pass their own mark and their median instead.
             </li>
             <li>
-              RaSP is a lookup, not a calculation: the bundled table covers {RASP_BUNDLED_PROTEINS.toLocaleString("en-GB")} human
-              proteins with experimental structures, so most variants have no RaSP value by design.
+              RaSP is a lookup, not a calculation. {raspCoverageSentence(raspCoverage)} A missing RaSP value
+              usually means the protein is not in the table, not that the variant is neutral.
             </li>
             <li>
               The engines share inputs (the same template, and for the learned ones overlapping training data),

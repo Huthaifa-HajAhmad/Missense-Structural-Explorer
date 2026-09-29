@@ -5,9 +5,7 @@ import {
   evaluateRevel,
   evaluateCadd,
   countPredictorConcordance,
-  normalizeDestabilizationMagnitude,
-  calibrateRawScore,
-  computeCalibratedConsensus
+  computeStabilityConsensus
 } from "./index.ts";
 
 describe("Thresholds Modular Sub-Domain Tests", () => {
@@ -49,28 +47,12 @@ describe("Thresholds Modular Sub-Domain Tests", () => {
   });
 
   describe("consensus.ts", () => {
-    it("normalizes destabilization magnitudes", () => {
-      const fx = normalizeDestabilizationMagnitude("foldx", 2.5);
-      expect(fx.magnitude).toBe(2.5);
-      expect(fx.isDestabilizing).toBe(true);
-
-      const dm = normalizeDestabilizationMagnitude("dynamut2", -1.5);
-      expect(dm.magnitude).toBe(1.5);
-      expect(dm.isDestabilizing).toBe(true);
-    });
-
-    it("calibrates raw scores and calculates consensus", () => {
-      const cal = calibrateRawScore("foldx", 2.0);
-      expect(cal).not.toBeNull();
-      expect(cal?.p).toBeGreaterThan(0);
-
-      const consensus = computeCalibratedConsensus({
-        foldxMean: 2.5,
-        dynamut2: -1.5,
-        rasp: 1.8
-      });
-      expect(consensus.consensusProbability).not.toBeNull();
-      expect(consensus.consensusVerdict).toContain("Misfolding Risk");
+    it("counts engines on their own marks and reports the median", () => {
+      const consensus = computeStabilityConsensus({ foldxMean: 2.5, dynamut2: -1.5, rasp: 1.8 });
+      expect(consensus.consensusVerdict).toBe("Destabilizing (Engines Agree)");
+      expect(consensus.enginesCounted).toBe(3);
+      expect(consensus.enginesDestabilizing).toBe(3);
+      expect(consensus.medianDdg).toBe(1.8);
     });
   });
 });

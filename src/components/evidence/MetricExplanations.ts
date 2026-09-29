@@ -150,7 +150,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
   rasp: {
     name: "RaSP (Rapid Stability Prediction)",
     category: "3D Convolutional Network / Rosetta Surrogate",
-    description: "RaSP learns a representation of each residue's 3D environment with a self-supervised convolutional network, then a small supervised network predicts Rosetta cartesian_ddg values from it. It reproduces Rosetta at a fraction of the cost, and inherits Rosetta's errors. This app reads precomputed values from the authors' experimental-structure table (1,345 human proteins); it does not run RaSP.",
+    description: "RaSP learns a representation of each residue's 3D environment with a self-supervised convolutional network, then a small supervised network predicts Rosetta cartesian_ddg values from it. It reproduces Rosetta at a fraction of the cost, and inherits Rosetta's errors. This app reads the authors' precomputed values; it does not run RaSP. The default install holds their experimental-structure table (1,345 human proteins); a deployment can add their AlphaFold predictions for the whole proteome (23,391 proteins, UniProt-numbered), which are preferred when both hold a variant.",
     // RaSP is a positive-native engine: a LARGER score means destabilization (see
     // `shared/engineStatus.ts`, whose per-engine cut is +1.0). This rule was previously written
     // with the opposite sign, so this explanation contradicted both the app's own maths and the

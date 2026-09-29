@@ -87,14 +87,19 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
     });
 
     it("should validate and compute consensus verdict stability correctly", () => {
-      const highRisk = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2 });
-      expect(highRisk).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+      // The verdict is an agreement count on each engine's own local mark (thresholds/consensus.ts); it
+      // replaced "… Misfolding Risk" thresholds on an uncalibrated probability.
+      const opposed = computeConsensusVerdict({ foldxMean: 2.0, rasp: -1.2 });
+      expect(opposed).toBe("Engines Disagree");
 
       const conflicting = computeConsensusVerdict({ foldxMean: 2.0, rasp: 0.1, ddmut: 0.2 });
-      expect(conflicting).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+      expect(conflicting).toBe("Engines Disagree");
 
-      const neutral = computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2 });
-      expect(neutral).toBe("Low Misfolding Risk (Neutral Stability)");
+      const neutral = computeConsensusVerdict({ foldxMean: 0.4, rasp: 0.2 });
+      expect(neutral).toBe("No Destabilization Predicted");
+
+      // FoldX +0.5 sits ON its local moderate mark, so it is not "neutral" beside RaSP +0.2.
+      expect(computeConsensusVerdict({ foldxMean: 0.5, rasp: 0.2 })).toBe("Engines Disagree");
     });
   });
 

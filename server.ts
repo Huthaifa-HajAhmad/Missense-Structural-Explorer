@@ -13,6 +13,7 @@ import {
   findBindingPocket,
   enrichBiophysicalResult,
   runRaspLocal,
+  getRaspCoverage,
   runStabilityOracleAnalysis
 } from "./server/services/biophysics.ts";
 import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
@@ -138,6 +139,8 @@ function initBiophysicalJobQueue(): void {
               if (!foldxResult.energetics) foldxResult.energetics = {};
               foldxResult.energetics.rasp = raspRes.score;
               foldxResult.energetics.raspReason = raspRes.reason;
+              foldxResult.energetics.raspSource = raspRes.source;
+              foldxResult.energetics.raspCoverage = getRaspCoverage() ?? undefined;
             }
           } catch (raspErr: any) {
             console.warn("[Queue Worker] Independent RaSP evaluation error:", raspErr.message);

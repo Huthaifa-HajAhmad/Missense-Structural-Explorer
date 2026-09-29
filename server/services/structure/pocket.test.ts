@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { discoverJavaHome, _resetJavaHomeCache, checkP2RankCapability, pocketCache, findBindingPocket } from "./pocket.ts";
 
 describe("Pocket Service - Java & Fallback Resilience", () => {
@@ -60,9 +63,18 @@ describe("Pocket Service - Java & Fallback Resilience", () => {
   });
 
   it("should not cache transient unavailable states in pocketCache", async () => {
-    // Calling findBindingPocket with empty text returns unavailable without caching
-    const res = await findBindingPocket("", 1, "C:\\Fake\\JobDir");
-    expect(res.status).toBe("unavailable");
-    expect(pocketCache.size).toBe(0);
+    // Calling findBindingPocket with empty text returns unavailable without caching.
+    //
+    // The job dir is a real temp dir, removed afterwards. It was the literal "C:\\Fake\\JobDir", which on
+    // Linux is an ordinary relative name: the pocket runner wrote `wt.pdb` and `out/` into it, leaving a
+    // stray untracked directory at the repository root after every test run.
+    const jobDir = fs.mkdtempSync(path.join(os.tmpdir(), "pocket-test-"));
+    try {
+      const res = await findBindingPocket("", 1, jobDir);
+      expect(res.status).toBe("unavailable");
+      expect(pocketCache.size).toBe(0);
+    } finally {
+      fs.rmSync(jobDir, { recursive: true, force: true });
+    }
   });
 });
