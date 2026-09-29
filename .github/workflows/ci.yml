@@ -1,5 +1,12 @@
 name: Continuous Integration
 
+# NO `paths-ignore` HERE, deliberately. It reads like free savings: a docs-only push would skip the
+# whole pipeline, deploy included, since a path-filtered commit produces no run for `cd.yml`'s
+# `workflow_run` to hang off. Measured on 2026-09-29 before adding it — of 42 sampled pushes to main,
+# ZERO were docs-only, so it would have saved nothing on this repo's actual push pattern. It is not
+# free in correctness terms either: `deploy/Dockerfile.oci` ends with `COPY README.md ./`, so README
+# content ships inside the image, and a blanket `**.md` ignore would mean an edited README never
+# reaches production. Re-measure before reaching for this again.
 on:
   push:
     branches: [ main, master ]
@@ -12,10 +19,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Three jobs, not one serial chain. Measured profile of the previous shape:
+# TWO jobs, not three. Measured profile of the serial shape:
 #   npm ci 79s -> lint 6s -> tests+coverage 199s -> build 22s  = 371s (6m11s)
-# The build was pure added latency behind the tests, so it now runs alongside them, and so does the
-# measured-layout job: the wall-clock is the slowest job rather than the sum.
+# The split into three was optimised for wall-clock, which is the right objective when minutes are
+# free and the wrong one when they are not: GitHub bills every job separately and rounds each up to
+# the whole minute, so a split job pays its own checkout, its own setup-node and its own `npm ci`.
+# On 2026-09-29 the account was at 90% of its 2,000 included minutes (1,800 used), driven almost
+# entirely by this workflow plus the CD run that each push to main triggers.
+#
+# `build` therefore moves back inside `quality`: measured at 22s, it costs one more step rather than
+# one more job's setup. The PR artifact upload moves with it.
+#
+# `geometry` stays a separate job deliberately. It needs a Chromium toolchain rather than the Node
+# one, and its failure artifact (`if: failure()`) is only meaningful next to its own steps — merging
+# it would make a lint failure attempt an upload for a geometry run that never happened. It is the
+# next candidate if minutes tighten again.
 #
 # RUN THE SAME SCRIPTS LOCALLY. `npm run verify` is this workflow's gate set in one command:
 # lint + test:coverage + verify:geometry + build. The point is not to run the gates twice — it is that
@@ -44,20 +62,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # NO `cache: 'npm'` HERE. `setup-node` cached ~/.npm as a single entry that grew to 644 MB and
+      # blew the 500 MB Actions storage allowance on GitHub Free. Measured on 2026-09-29: the
+      # account's Actions block was 176 MB of STORAGE overage, not a minutes overage — minutes were
+      # 1,930 of 2,000 (215 CI runs = 1,084 min, 203 CD runs = 846 min). `npm ci --prefer-offline`
+      # still reads the npm cache the runner image ships, so dropping this costs less than a fully
+      # cold install would suggest.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: 'npm'
 
-      - name: Cache Vitest results
-        uses: actions/cache@v5
-        with:
-          path: node_modules/.vitest
-          key: ${{ runner.os }}-vitest-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-vitest-
-
+      # The "Cache Vitest results" step that used to sit here is gone, for two measured reasons.
+      # The path was `node_modules/.vitest`, which is not Vitest's cache directory — that is
+      # `node_modules/.vite` (present locally) and Vitest's `cacheDir` defaults to `node_modules/.vite`.
+      # `.vitest` does not exist, which is why the repo has never held a single vitest cache entry;
+      # the step cached nothing. Its key also interpolated `github.sha`, so it could never be hit
+      # exactly and every run would have written a fresh entry had the path existed.
       - name: Install Node dependencies
         # `--prefer-offline` uses the npm cache setup-node restored; `--no-audit`/`--fund` skip work
         # that the explicit audit step already does.
@@ -75,6 +96,20 @@ jobs:
 
       - name: Run tests and collect coverage
         run: npm run test:coverage
+
+      # Was its own job, running in parallel with the tests. Both were already paying for their own
+      # checkout, setup-node and `npm ci`; the build is 22s, so the parallelism bought wall-clock at
+      # the price of a whole second job's billed setup. See the header comment.
+      - name: Run production build verification
+        run: npm run build
+
+      - name: Upload PR build preview artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pr-build-preview
+          path: dist/
+          retention-days: 7
 
       - name: Generate CI Summary Report
         if: always()
@@ -107,11 +142,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # NO `cache: 'npm'` HERE. `setup-node` cached ~/.npm as a single entry that grew to 644 MB and
+      # blew the 500 MB Actions storage allowance on GitHub Free. Measured on 2026-09-29: the
+      # account's Actions block was 176 MB of STORAGE overage, not a minutes overage — minutes were
+      # 1,930 of 2,000 (215 CI runs = 1,084 min, 203 CD runs = 846 min). `npm ci --prefer-offline`
+      # still reads the npm cache the runner image ships, so dropping this costs less than a fully
+      # cold install would suggest.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: 'npm'
 
       - name: Install Node dependencies
         run: npm ci --prefer-offline --no-audit --fund=false
@@ -133,32 +173,4 @@ jobs:
             tools/header-geometry/dist/
             tools/function-track-geometry/dist/
             tools/function-track-geometry/function-track.png
-          retention-days: 7
-
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install Node dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
-
-      - name: Run production build verification
-        run: npm run build
-
-      - name: Upload PR build preview artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v6
-        with:
-          name: pr-build-preview
-          path: dist/
           retention-days: 7
