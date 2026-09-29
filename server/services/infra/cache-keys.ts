@@ -88,7 +88,10 @@ export function buildGnomadConstraintKey(gene: string): string {
 
 export function buildUniprotFeaturesKey(uniprotId: string): string {
   const clean = uniprotId.trim().toUpperCase();
-  return `uniprot_features_${clean}_schema:${CACHE_SCHEMA_VERSION}`;
+  // `subunit2`: entries written before the SUBUNIT text was read from `texts` carry a null
+  // subunitComment for every protein (the Multimer tab called all of them monomers) and no
+  // interaction partners. Retire them without bumping every other source's schema.
+  return `uniprot_features_${clean}_subunit2_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildUniprotSequenceKey(uniprotId: string): string {

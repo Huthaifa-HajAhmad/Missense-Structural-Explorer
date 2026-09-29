@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { variantContacts } from "../../shared/multimerAssembly";
 import {
   ShieldCheck,
   AlertTriangle,
@@ -250,10 +251,14 @@ export function InteractionsTab({ analysisState, formatDdGValue, energyUnit, onT
     Boolean(subunitComment && /^monomer(\.|\b)/i.test(subunitComment.trim()))
   );
 
-  // Multi-tier interface contact determination (guard variantPos > 0 to prevent false-positive contact matches at residue 0)
-  const hasDirectComplexContact = variantPos > 0 && multimerContacts.some(
-    c => Math.abs(c.resA - variantPos) <= 4 || ((multimerData?.chainCount ?? 0) <= 2 && Math.abs(c.resB - variantPos) <= 4)
-  );
+  // The variant residue ITSELF in a modelled contact — the one rule the Multimer tab uses too. This was
+  // "any contact within ±4 residues in sequence", which a sequence neighbour satisfies without the
+  // variant touching the partner; `resB` is only the variant's numbering when the chains are identical.
+  const hasDirectComplexContact = variantContacts(
+    multimerContacts,
+    variantPos,
+    multimerData?.assembly ? multimerData.assembly.kind === "homomer" : (multimerData?.chainCount ?? 0) <= 2
+  ).length > 0;
   const hasCuratedInterface = interfaceResidues.some(r => r.isVariantPosition);
   const hasCuratedInterfaceAny = interfaceResidues.length > 0;
 

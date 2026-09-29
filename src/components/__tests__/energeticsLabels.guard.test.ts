@@ -51,6 +51,11 @@ const GUARDED_SURFACES = [
   // could not reach, and the old tab "Unannotated" / "Unmapped" for absences with known reasons.
   "src/components/inspector/SplicingRail.tsx",
   "src/shared/splicingEvidence.ts",
+  // The multimer redesign: the old tab showed "Complex Modeling Unavailable" in red for a heteromer
+  // it chose not to model, and "Quaternary Assembly Not Evaluated" for a result it had discarded.
+  "src/components/evidence/MultimersTab.tsx",
+  "src/components/inspector/MultimerRail.tsx",
+  "src/shared/multimerEvidence.ts",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

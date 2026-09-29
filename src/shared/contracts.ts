@@ -1317,7 +1317,12 @@ export const analyzeVariantResponseSchema = z.object({
     geneName: z.string().optional(),
     subunitComment: z.string().nullable().optional(),
     isMultimer: z.boolean().optional(),
-    sequenceLength: z.number().optional()
+    sequenceLength: z.number().optional(),
+    interactionPartners: z.array(z.object({
+      accession: z.string(),
+      gene: z.string().nullable(),
+      experiments: z.number().nullable()
+    })).optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
     missense_z: z.number().nullable(),
@@ -1786,21 +1791,92 @@ export interface PpiBindingData {
   error?: string;
 }
 
+/**
+ * Quaternary assembly for one variant (`POST /api/v1/structure/multimer`).
+ *
+ * `status` separates the four answers a curator must not confuse: a model was built ("success"),
+ * the curated record states a monomer ("monomeric"), this app does not model what the record states
+ * ("not-modelled", with `notModelledReason`), and the provider failed ("failed", with `error`).
+ * "No SUBUNIT record" is "not-modelled"/"unstated" — never "monomeric".
+ */
+export type MultimerStatus = "success" | "monomeric" | "not-modelled" | "failed";
+
+export type MultimerNotModelledReason =
+  | "unstated"
+  | "interactions-only"
+  | "complex"
+  | "heteromer-partner"
+  | "heteromer-stoichiometry"
+  | "too-many-chains"
+  | "reference-mismatch"
+  | "no-sequence";
+
+export interface MultimerAssemblyPartner {
+  gene: string;
+  accession: string | null;
+  /** Where the accession came from: UniProt's curated INTERACTION list, or a reviewed human gene search. */
+  resolvedBy: "interaction" | "swissprot" | null;
+}
+
+export interface MultimerAssemblyRecord {
+  kind: "monomer" | "homomer" | "heteromer" | "complex" | "interactions-only" | "unstated";
+  label: string;
+  copies: number | null;
+  homoAssumed: boolean;
+  sentence: string | null;
+  alsoStated: string[];
+  partners: MultimerAssemblyPartner[];
+}
+
+export interface MultimerChain {
+  id: string;
+  accession: string;
+  gene: string | null;
+  length: number;
+  carriesVariant: boolean;
+}
+
+export interface MultimerExperimentalPartner {
+  accession: string;
+  name: string;
+  /** Interface residues on THIS protein, UniProt numbering. */
+  residues: number[];
+  pdbEntries: string[];
+  homomeric: boolean;
+  variantAtInterface: boolean;
+}
+
+export interface MultimerExperimentalInterfaces {
+  status: "ok" | "none" | "error";
+  reason?: string;
+  partners: MultimerExperimentalPartner[];
+}
+
 export interface MultimerData {
-  status: "success" | "monomeric" | "failed";
+  status: MultimerStatus;
   gene: string;
   uniprotId: string;
+  /** Display word for the stated assembly ("Homodimer", "Heterodimer", "Monomer", "Not stated"). */
   oligomericState: string;
+  /** Chains actually submitted to the model (1 when nothing was modelled). */
   chainCount: number;
   chainIds: string[];
   complexPdb: string | null;
   ipTm: number | null;
   pTm: number | null;
+  /** As the provider returned them: `resA` on chain A (the variant's chain), `resB` on a partner. */
   interfaceContacts: Array<{ resA: number; resB: number; distance: number }>;
-  mutationInterfaceDisrupted: boolean;
   provenance: string;
   subunitComment?: string | null;
   error?: string;
+  assembly?: MultimerAssemblyRecord;
+  chains?: MultimerChain[];
+  notModelledReason?: MultimerNotModelledReason;
+  /** The variant's residue number on chain A; null when it could not be parsed. */
+  variantPosition?: number | null;
+  /** True when the variant residue itself makes a contact in the model; null with no model. */
+  variantAtInterface?: boolean | null;
+  experimental?: MultimerExperimentalInterfaces;
 }
 
 export type UniprotFeatureType = 
@@ -1821,6 +1897,7 @@ export interface UniprotFeaturesData {
   subunitComment?: string | null;
   isMultimer?: boolean;
   sequenceLength?: number;
+  interactionPartners?: Array<{ accession: string; gene: string | null; experiments: number | null }>;
 }
 
 export interface DisruptionPredictorResult {

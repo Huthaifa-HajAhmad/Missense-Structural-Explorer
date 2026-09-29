@@ -343,6 +343,24 @@ export const THRESHOLDS = {
     /** ΔΔG ≥ 0.5 — allosteric perturbation of the interface. */
     allosteric: 0.5,
   },
+
+  /**
+   * Complex-prediction interface confidence (ipTM), read on the Multimer assembly tab.
+   *
+   * AUTHORS' GUIDANCE, NOT A CALIBRATION. EMBL-EBI's AlphaFold course ("Confidence scores in
+   * AlphaFold-Multimer"): "Values higher than 0.8 represent confident high-quality predictions",
+   * "values below 0.6 suggest likely a failed prediction", and 0.6–0.8 "are a grey zone where
+   * predictions could be correct or wrong". The tab's model is Boltz-2, which reports ipTM on the
+   * same scale but publishes no cut-points of its own, so the surface labels these as AlphaFold's.
+   * The previous rail printed "ipTM ≥ 0.80 indicates high-confidence" with no source and coloured
+   * every ipTM green, 0.3 included.
+   */
+  complexConfidence: {
+    /** ipTM > 0.8 — confident interface. */
+    iptmConfident: 0.8,
+    /** ipTM < 0.6 — likely a failed prediction. */
+    iptmLow: 0.6,
+  },
 } as const;
 
 export const LOCAL_STRUCTURAL_WINDOW = 5;
