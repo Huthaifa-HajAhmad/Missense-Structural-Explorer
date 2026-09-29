@@ -1,8 +1,10 @@
 import React from "react";
 
 /**
- * Shared 1D density track used by both landscape heatmaps, so the nucleotide and residue
- * panels read as one instrument: same gutter, height, stroke, guide style and gap semantics.
+ * Shared profile track used by both landscape panels, so the nucleotide and residue panels read as
+ * one instrument: same gutter, height, stroke, guide style and gap semantics. It draws a line per
+ * series (a profile of per-position values, not a density) and, separately, point markers for
+ * values of a different kind, e.g. the queried variant's own score over a line of residue means.
  */
 
 export const DENSITY_TRACK_HEIGHT = 64;
@@ -24,6 +26,19 @@ export type DensitySeries = {
 };
 
 export type DensityGuide = {
+  value: number;
+  color: string;
+  label: string;
+};
+
+/**
+ * A single value drawn as a diamond at one column, never joined to a series. Used for the queried
+ * variant's own score: joining it into a line of residue summaries would draw two kinds of number
+ * as one curve.
+ */
+export type DensityMarker = {
+  key: string;
+  index: number;
   value: number;
   color: string;
   label: string;
@@ -90,7 +105,10 @@ export interface DensityTrackProps {
   modeLabel?: string;
   ariaLabel: string;
   emptyNotice?: string;
+  markers?: DensityMarker[];
 }
+
+const TRACK_LABEL = "Profile";
 
 export function DensityTrack({
   series,
@@ -100,21 +118,22 @@ export function DensityTrack({
   unitLabel,
   modeLabel,
   ariaLabel,
-  emptyNotice
+  emptyNotice,
+  markers = []
 }: DensityTrackProps) {
   const count = series[0]?.points.length ?? 0;
   const width = count * columnWidth;
   const height = DENSITY_TRACK_HEIGHT;
 
   const paths = series.map((s) => buildDensitySegments(s.points, columnWidth, domain, height));
-  const hasData = paths.some((d) => d.length > 0);
+  const hasData = paths.some((d) => d.length > 0) || markers.length > 0;
 
   if (!hasData) {
     return (
       <div className="flex items-center pl-2 mb-1" style={{ height: DENSITY_COLLAPSED_HEIGHT }}>
         <div className={`${DENSITY_GUTTER_CLASS} text-[9px]`}>
           <span className="font-semibold uppercase tracking-wider text-cs-text-secondary">
-            1D Density
+            {TRACK_LABEL}
           </span>
         </div>
         <div
@@ -148,13 +167,13 @@ export function DensityTrack({
     <div className="flex items-center pl-2 mb-1">
       <div className={`${DENSITY_GUTTER_CLASS} flex flex-col justify-center`}>
         <span className="text-[9px] font-semibold uppercase tracking-wider text-cs-text-secondary">
-          1D Density
+          {TRACK_LABEL}
         </span>
-        <span className="text-[8px] font-mono normal-case tracking-normal text-cs-text-muted">
+        <span className="text-[9px] font-mono normal-case tracking-normal text-cs-text-muted">
           {unitLabel}
         </span>
         {modeLabel && (
-          <span className="text-[8px] font-mono normal-case tracking-normal text-cs-text-muted">
+          <span className="text-[9px] font-mono normal-case tracking-normal text-cs-text-muted">
             {modeLabel}
           </span>
         )}
@@ -195,6 +214,22 @@ export function DensityTrack({
               />
             ) : null
           )}
+          {markers.map((m) => {
+            const cx = m.index * columnWidth + columnWidth / 2;
+            const cy = densityY(m.value, domain, height);
+            return (
+              <g key={m.key}>
+                <path
+                  d={`M ${cx} ${cy - 4.5} L ${cx + 4.5} ${cy} L ${cx} ${cy + 4.5} L ${cx - 4.5} ${cy} Z`}
+                  fill={m.color}
+                  stroke="var(--cs-surface-2)"
+                  strokeWidth={1.25}
+                >
+                  <title>{m.label}</title>
+                </path>
+              </g>
+            );
+          })}
           {/* ... and their labels above it, with a halo, so no curve can occlude a threshold. */}
           {guides.map(guideLabel)}
         </svg>

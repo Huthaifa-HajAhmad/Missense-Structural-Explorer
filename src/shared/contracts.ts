@@ -1211,6 +1211,43 @@ export const generateMutantResponseSchema = z.object({
 
 export type GenerateMutantResponse = z.infer<typeof generateMutantResponseSchema>;
 
+/**
+ * One residue of the Landscape tab, read on ONE transcript (see
+ * server/services/prediction/landscape-aggregate.ts). Counts are distinct missense SNVs, so never
+ * above 9; `gerp` / `phylop` are means over the codon's distinct nucleotides.
+ */
+export const landscapeResidueSchema = z.object({
+  residx: z.number(),
+  aaref: z.string().nullable().optional(),
+  refMismatch: z.boolean().optional(),
+  revelMean: z.number().nullable().optional(),
+  revelMin: z.number().nullable().optional(),
+  revelMax: z.number().nullable().optional(),
+  revelCount: z.number().optional(),
+  amMean: z.number().nullable().optional(),
+  amMin: z.number().nullable().optional(),
+  amMax: z.number().nullable().optional(),
+  amCount: z.number().optional(),
+  gerp: z.number().nullable(),
+  phylop: z.number().nullable(),
+  nucleotideCount: z.number().optional()
+});
+
+/** Where the landscape rows came from, on which transcript, and what went wrong reading them. */
+export const landscapeMetaSchema = z.object({
+  source: z.enum(["dbnsfp-local", "myvariant", "none"]),
+  sourceVersion: z.string().nullable(),
+  transcript: z.string().nullable(),
+  transcriptBasis: z.enum(["mane", "ensembl-canonical", "sequence-match", "most-covered", "unknown"]),
+  window: z.object({ start: z.number(), end: z.number() }).nullable(),
+  referenceSequence: z.string().nullable(),
+  qualityFlags: z.array(z.string()),
+  cached: z.boolean(),
+  retrievedAt: z.string()
+});
+
+export type LandscapeMeta = z.infer<typeof landscapeMetaSchema>;
+
 export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
   isFallback: z.boolean().optional(),
@@ -1276,21 +1313,8 @@ export const analyzeVariantResponseSchema = z.object({
   }).passthrough(),
   predictorData: predictorDataSchema.nullable().optional(),
   conservationData: conservationDataSchema.nullable().optional(),
-  landscapeData: z.array(z.object({
-    residx: z.number(),
-    revelMean: z.number().nullable().optional(),
-    revelMedian: z.number().nullable().optional(),
-    revelMin: z.number().nullable().optional(),
-    revelMax: z.number().nullable().optional(),
-    revelCount: z.number().optional(),
-    amMean: z.number().nullable().optional(),
-    amMedian: z.number().nullable().optional(),
-    amMin: z.number().nullable().optional(),
-    amMax: z.number().nullable().optional(),
-    amCount: z.number().optional(),
-    gerp: z.number().nullable(),
-    phylop: z.number().nullable()
-  })).nullable().optional(),
+  landscapeData: z.array(landscapeResidueSchema).nullable().optional(),
+  landscapeMeta: landscapeMetaSchema.nullable().optional(),
   stringInteractions: z.array(z.object({
     partner: z.string(),
     score: finiteNumber
@@ -1704,19 +1728,19 @@ export interface RuleBasedInsights {
 
 export interface LandscapeResidueItem {
   residx: number;
+  aaref?: string | null;
+  refMismatch?: boolean;
   revelMean?: number | null;
-  revelMedian?: number | null;
   revelMin?: number | null;
   revelMax?: number | null;
   revelCount?: number;
   amMean?: number | null;
-  amMedian?: number | null;
   amMin?: number | null;
   amMax?: number | null;
   amCount?: number;
   gerp: number | null;
   phylop: number | null;
-  consurf?: number | null;
+  nucleotideCount?: number;
   residue?: string;
 }
 
@@ -2113,6 +2137,7 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   predictorData?: PredictorData | null;
   conservationData?: ConservationData | null;
   landscapeData?: LandscapeResidueItem[] | null;
+  landscapeMeta?: LandscapeMeta | null;
   stringInteractions?: StringInteractionItem[] | null;
   multimerData?: MultimerData | null;
   ppiBindingData?: PpiBindingData | null;

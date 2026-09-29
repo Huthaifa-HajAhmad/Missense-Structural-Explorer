@@ -1,7 +1,19 @@
 import { type Router } from "express";
 import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
-import { fetchLandscapeData } from "../../services/external.ts";
+import { fetchLandscape } from "../../services/external.ts";
+
+const MAX_LANDSCAPE_WINDOW = 121;
+
+/** A caller-named landscape window, or null when absent or malformed (the default then applies). */
+export function parseLandscapeWindow(raw: unknown): { start: number; end: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const start = Number((raw as any).start);
+  const end = Number((raw as any).end);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) return null;
+  if (end - start + 1 > MAX_LANDSCAPE_WINDOW) return null;
+  return { start, end };
+}
 import { validateAndParseVariantRequest } from "./variant-parser.ts";
 import {
   runCoreAnalysis,
@@ -137,11 +149,17 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     });
 
     try {
-      const startPos = pos !== undefined && pos !== null ? Math.max(1, pos - 25) : undefined;
-      const endPos = pos !== undefined && pos !== null ? pos + 25 : undefined;
+      /*
+       * Default window: ±25 residues around the variant. A caller may instead name a window
+       * (`landscapeWindow: { start, end }`, at most MAX_LANDSCAPE_WINDOW residues) so the tab can
+       * load scores where the reader navigates, e.g. a domain far from the variant.
+       */
+      const requested = parseLandscapeWindow((req.body as any)?.landscapeWindow);
+      const startPos = requested ? requested.start : pos !== undefined && pos !== null ? Math.max(1, pos - 25) : undefined;
+      const endPos = requested ? requested.end : pos !== undefined && pos !== null ? pos + 25 : undefined;
 
-      const landscapeData = await fetchLandscapeData(gene, startPos, endPos);
-      res.json({ landscapeData });
+      const { positions, meta } = await fetchLandscape(gene, startPos, endPos);
+      res.json({ landscapeData: positions, landscapeMeta: meta });
     } catch (error: any) {
       console.error("Landscape endpoint failure:", error);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching landscape data.");

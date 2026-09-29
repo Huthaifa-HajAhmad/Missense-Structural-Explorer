@@ -181,7 +181,8 @@ export function fetchProgressiveLandscape(
           ...prev,
           result: {
             ...prev.result,
-            landscapeData: landscapeRes.landscapeData
+            landscapeData: landscapeRes.landscapeData,
+            landscapeMeta: landscapeRes.landscapeMeta ?? null
           }
         };
       });
@@ -190,7 +191,8 @@ export function fetchProgressiveLandscape(
         setCachedVariant(params.gene, params.variant, params.uniprotId, {
           analysisResult: {
             ...cached.analysisResult,
-            landscapeData: landscapeRes.landscapeData
+            landscapeData: landscapeRes.landscapeData,
+            landscapeMeta: landscapeRes.landscapeMeta ?? null
           }
         });
       }

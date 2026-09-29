@@ -538,12 +538,15 @@ export function AppViews({
             >
               <SequenceVisualizer
                 uniprotId={uniprotId}
+                gene={gene}
                 variant={variant}
                 residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
                 hoveredResidueIndex={hoveredResidueIndex}
                 predictorData={analysisState.result?.predictorData}
                 conservationData={analysisState.result?.conservationData}
                 landscapeData={analysisState.result?.landscapeData}
+                landscapeMeta={analysisState.result?.landscapeMeta}
+                uniprotFeatures={analysisState.result?.uniprotFeatures?.features}
                 metricMode={metricMode}
                 windowSize={windowSize}
                 onResidueClick={handleResidueClickMemo}

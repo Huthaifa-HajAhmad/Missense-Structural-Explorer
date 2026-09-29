@@ -1,176 +1,224 @@
-import React, { useState, useMemo, useCallback, memo } from "react";
-import { Dna } from "lucide-react";
+import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
+import { Dna, AlertTriangle, Crosshair } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
-import { parseGenomicCoordinateString } from "../shared/contracts";
+import { useApiClient } from "../apiClient";
+import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
+import { landscapeFinding, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
+import { AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
+import { SequenceRowGrid } from "./sequence/SequenceRowGrid";
+import { LandscapeLegend } from "./sequence/LandscapeLegend";
+import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
+import type { DomainSpan, TargetMutation, VariantScores } from "./sequence/types";
 
 interface SequenceVisualizerProps {
   uniprotId: string;
+  gene?: string | null;
   variant: string;
   residueIndex: number | null;
   hoveredResidueIndex?: number | null;
   onResidueClick?: (index: number) => void;
-  onSelectGenomicVariant?: (variant: any) => void;
-  seqColorScheme?: "chemical" | "hydrophobic" | "minimal";
   predictorData?: any;
   conservationData?: any;
-  landscapeData?: any[] | null;
-  metricMode?: "mean" | "max";
+  landscapeData?: LandscapeResidueItem[] | null;
+  landscapeMeta?: LandscapeMeta | null;
+  uniprotFeatures?: Array<{ type?: string; description?: string; start: number; end: number }> | null;
+  metricMode?: SummaryMode;
   windowSize?: number;
 }
 
-import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
-import { SequenceRowGrid } from "./sequence/SequenceRowGrid";
-import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
-import { HoveredResidueInfo } from "./sequence/types";
+/** Scores are fetched this far either side of the window centre when the reader navigates. */
+const FETCH_HALF_SPAN = 30;
 
+const ACIDIC = new Set(["D", "E"]);
+const BASIC = new Set(["K", "R", "H"]);
+const POLAR = new Set(["S", "T", "N", "Q"]);
+const AROMATIC = new Set(["F", "W", "Y"]);
+const SPECIAL = new Set(["G", "P", "C"]);
+const HYDROPHOBIC = new Set(["A", "V", "L", "I", "M", "F", "W", "C"]);
 
-const SequenceVisualizer = memo(function SequenceVisualizer({ 
-  uniprotId, 
-  variant, 
-  residueIndex, 
-  hoveredResidueIndex: hoveredResidueIndexProp, 
+function finiteOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** p.Arg215Trp / p.R215W → target; anything else falls back to the app-resolved residue. */
+export function parseTargetMutation(variant: string, resolvedResidue: number | null): TargetMutation {
+  const clean = variant.replace(/^p\./i, "");
+  const m3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
+  if (m3) {
+    const wt3 = m3[1].toUpperCase();
+    const mut3 = m3[3].toUpperCase();
+    return {
+      wt: AMINO_ACID_MAP_3_TO_1[wt3] || wt3.charAt(0),
+      pos: parseInt(m3[2], 10),
+      mut: AMINO_ACID_MAP_3_TO_1[mut3] || mut3.charAt(0)
+    };
+  }
+  const m1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
+  if (m1) return { wt: m1[1].toUpperCase(), pos: parseInt(m1[2], 10), mut: m1[3].toUpperCase() };
+  // Genomic/cDNA notation carries no residue token; stripping digits from "20-23369727-C-T" would
+  // give a nonsense position, so use the resolved residue and mark the target unknown (0) otherwise.
+  return { wt: "", pos: resolvedResidue && resolvedResidue > 0 ? resolvedResidue : 0, mut: "" };
+}
+
+/** The residue range a window of `size` centred on `center` covers inside a protein of `length`. */
+export function windowRange(center: number, size: number, length: number): { start: number; end: number } {
+  if (length <= 0) return { start: 1, end: 0 };
+  const half = Math.floor(size / 2);
+  const c = center > 0 ? Math.min(center, length) : Math.ceil(length / 2);
+  let start = Math.max(1, c - half);
+  const end = Math.min(length, start + size - 1);
+  if (end - start + 1 < size) start = Math.max(1, end - size + 1);
+  return { start, end };
+}
+
+const SequenceVisualizer = memo(function SequenceVisualizer({
+  uniprotId,
+  gene,
+  variant,
+  residueIndex,
+  hoveredResidueIndex: hoveredResidueIndexProp,
   onResidueClick,
-  onSelectGenomicVariant,
-  seqColorScheme: seqColorSchemeProp,
   predictorData,
   conservationData,
   landscapeData,
+  landscapeMeta,
+  uniprotFeatures,
   metricMode = "mean",
   windowSize = 31
 }: SequenceVisualizerProps) {
   const { settings } = useSettings();
-  const storeHoveredIndex = useVariantAnalysisStore(s => s.hoveredResidueIndex);
+  const { apiClient } = useApiClient();
+  const storeHoveredIndex = useVariantAnalysisStore((s) => s.hoveredResidueIndex);
   const hoveredResidueIndex = hoveredResidueIndexProp !== undefined ? hoveredResidueIndexProp : storeHoveredIndex;
-  const seqColorScheme = seqColorSchemeProp || settings.seqColorScheme;
+  const seqColorScheme = settings.seqColorScheme;
 
-  const { sequence, isLoading: loading } = useProteinSequence(uniprotId);
-  const [hoveredResidue, setHoveredResidue] = useState<HoveredResidueInfo | null>(null);
+  const { sequence, isLoading: sequenceLoading, error: sequenceError } = useProteinSequence(uniprotId);
+  const mutation = useMemo(() => parseTargetMutation(variant, residueIndex), [variant, residueIndex]);
+  const targetPos = mutation.pos;
+
+  /*
+   * Window centre. It starts on the queried residue and moves only when the reader selects a residue
+   * outside the window (a domain jump, a codon click in the genomic grid), so clicking inside the
+   * window does not scroll the grid under the pointer.
+   */
+  const [center, setCenter] = useState<number>(targetPos);
+  useEffect(() => setCenter(targetPos), [targetPos, variant]);
+  const range = useMemo(() => windowRange(center, windowSize, sequence.length), [center, windowSize, sequence.length]);
+  useEffect(() => {
+    if (residueIndex && residueIndex > 0 && (residueIndex < range.start || residueIndex > range.end)) {
+      setCenter(residueIndex);
+    }
+    // Only a new selection may move the window; a window change must not re-trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [residueIndex]);
+
+  const wildWindow = useMemo(
+    () => (sequence ? sequence.slice(range.start - 1, range.end).split("") : []),
+    [sequence, range.start, range.end]
+  );
+
+  /*
+   * Scores for windows the reader navigates to. The pipeline loads ±25 around the variant; a jump
+   * outside that loads the new window once and merges it.
+   */
+  const extraKey = `${gene ?? ""}|${variant}`;
+  const extraRows = useVariantAnalysisStore((s) => (s.landscapeExtra?.key === extraKey ? s.landscapeExtra.rows : null));
+  const addLandscapeRows = useVariantAnalysisStore((s) => s.addLandscapeRows);
+  const [extraLoading, setExtraLoading] = useState(false);
+  const requested = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    requested.current = new Set();
+  }, [extraKey]);
 
   const landscapeMap = useMemo(() => {
-    const map = new Map<number, any>();
-    if (landscapeData && Array.isArray(landscapeData)) {
-      landscapeData.forEach((item) => {
-        if (item && typeof item.residx === "number") {
-          map.set(item.residx, item);
-        }
-      });
+    const map = new Map<number, LandscapeResidueItem>();
+    for (const item of [...(landscapeData ?? []), ...(extraRows ?? [])]) {
+      if (item && typeof item.residx === "number") map.set(item.residx, item);
     }
     return map;
-  }, [landscapeData]);
+  }, [landscapeData, extraRows]);
 
-  const getResidueBaseColor = (res: string) => {
-    if (seqColorScheme === "minimal") {
-      return "bg-cs-bg-subtle text-cs-text-muted border-cs-border hover:text-cs-text-primary hover:bg-cs-surface hover:border-cs-accent-clay hover:scale-105";
-    }
-
-    if (seqColorScheme === "hydrophobic") {
-      const hydrophobs = ["I", "V", "L", "F", "C", "M", "A", "W"];
-      const isHydro = hydrophobs.includes(res);
-      if (isHydro) {
-        return "bg-cs-good/10 text-cs-good border-cs-good/20 hover:bg-cs-good/20 hover:scale-105";
+  useEffect(() => {
+    if (!gene || !uniprotId || !variant || !landscapeData || wildWindow.length === 0) return;
+    let missing = false;
+    for (let p = range.start; p <= range.end; p++) {
+      if (!landscapeMap.has(p)) {
+        missing = true;
+        break;
       }
     }
+    if (!missing) return;
+    const start = Math.max(1, center - FETCH_HALF_SPAN);
+    const end = Math.min(sequence.length, center + FETCH_HALF_SPAN);
+    const key = `${start}-${end}`;
+    if (requested.current.has(key)) return;
+    requested.current.add(key);
+    const controller = new AbortController();
+    setExtraLoading(true);
+    apiClient
+      .getLandscapeData({ gene, uniprotId, variant, landscapeWindow: { start, end } }, controller.signal)
+      .then((res) => addLandscapeRows(extraKey, res.landscapeData ?? []))
+      .catch((err: any) => {
+        // Forget the request so a later visit (or a re-run after an abort) asks again.
+        requested.current.delete(key);
+        if (err?.name !== "AbortError") console.warn("[Landscape] window fetch failed:", err);
+      })
+      .finally(() => setExtraLoading(false));
+    return () => controller.abort();
+  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, wildWindow.length, apiClient, addLandscapeRows, extraKey]);
 
-    // Default: "chemical" scheme
-    const match = AMINO_ACID_MAP_FULL[res];
-    if (!match) {
-      return "bg-cs-surface-2 text-cs-text-muted border-transparent hover:bg-cs-surface hover:text-cs-text-primary hover:scale-105";
-    }
+  const residueClass = useCallback(
+    (res: string) => {
+      if (seqColorScheme === "minimal") return "hydrophobic";
+      if (seqColorScheme === "hydrophobic") return HYDROPHOBIC.has(res) ? "basic" : "muted";
+      if (ACIDIC.has(res)) return "acidic";
+      if (BASIC.has(res)) return "basic";
+      if (POLAR.has(res)) return "polar";
+      if (AROMATIC.has(res)) return "aromatic";
+      if (SPECIAL.has(res)) return "special";
+      return "hydrophobic";
+    },
+    [seqColorScheme]
+  );
 
-    if (match.property.includes("Acidic")) {
-      return "bg-cs-danger-soft text-cs-danger border-cs-danger/20 hover:bg-cs-danger/25 hover:scale-105";
-    }
-    if (match.property.includes("Basic")) {
-      return "bg-cs-accent-mag-soft text-cs-accent-mag border-cs-accent-mag/20 hover:bg-cs-accent-mag/25 hover:scale-105";
-    }
-    if (match.property.includes("Polar")) {
-      return "bg-cs-accent-clay/10 text-cs-accent-clay border-cs-accent-clay/20 hover:bg-cs-accent-clay/25 hover:scale-105";
-    }
-    if (match.property.includes("Hydrophobic")) {
-      if (match.property.includes("Aromatic")) {
-        return "bg-cs-warn-soft text-cs-warn border-cs-warn/20 hover:bg-cs-warn/25 hover:scale-105";
-      }
-      return "bg-cs-good-soft text-cs-good border-cs-good/20 hover:bg-cs-good/25 hover:scale-105";
-    }
-    if (match.property.includes("Small") || match.property.includes("Rigid")) {
-      return "bg-cs-accent-clay/15 text-cs-accent-clay border-cs-accent-clay/30 hover:bg-cs-accent-clay/25 hover:scale-105";
-    }
-    return "bg-cs-surface-2 text-cs-text-muted border-transparent hover:bg-cs-surface hover:text-cs-text-primary hover:scale-105";
-  };
+  const setHovered = useVariantAnalysisStore((s) => s.setHoveredResidueIndex);
+  const onResidueHover = useCallback((pos: number | null) => setHovered(pos), [setHovered]);
 
+  const variantScores: VariantScores = useMemo(
+    () => ({
+      revel: finiteOrNull(conservationData?.revel),
+      am: finiteOrNull(predictorData?.amPathogenicity),
+      gerp: finiteOrNull(conservationData?.gerp),
+      phylop: finiteOrNull(conservationData?.phylop)
+    }),
+    [conservationData?.revel, conservationData?.gerp, conservationData?.phylop, predictorData?.amPathogenicity]
+  );
 
+  const domains: DomainSpan[] = useMemo(
+    () =>
+      (uniprotFeatures ?? [])
+        .filter((f) => (f.type === "DOMAIN" || f.type === "REGION") && Number.isFinite(f.start) && Number.isFinite(f.end))
+        .map((f) => ({ name: f.description || f.type || "Region", start: f.start, end: f.end })),
+    [uniprotFeatures]
+  );
 
-  // Decode variant (e.g. p.Arg215Trp or p.R215W) to get target components
-  const parseClinicalMutation = () => {
-    const clean = variant.replace(/^p\./i, "");
-    
-    // Check 3-letter naming first (e.g. Arg215Trp)
-    const match3 = clean.match(/^([a-zA-Z]{3})(\d+)([a-zA-Z]{3})$/);
-    if (match3) {
-      const wt3 = match3[1].toUpperCase();
-      const pos = parseInt(match3[2], 10);
-      const mut3 = match3[3].toUpperCase();
-      return {
-        wtCode3: match3[1],
-        mutCode3: match3[3],
-        wt: AMINO_ACID_MAP_3_TO_1[wt3] || wt3.charAt(0),
-        pos,
-        mut: AMINO_ACID_MAP_3_TO_1[mut3] || mut3.charAt(0)
-      };
-    }
-
-    // Check 1-letter naming (e.g. R215W)
-    const match1 = clean.match(/^([a-zA-Z])(\d+)([a-zA-Z])$/);
-    if (match1) {
-      return {
-        wtCode3: null,
-        mutCode3: null,
-        wt: match1[1].toUpperCase(),
-        pos: parseInt(match1[2], 10),
-        mut: match1[3].toUpperCase()
-      };
-    }
-
-    // Fallback: genomic/cDNA notation or free text carries no residue token. Stripping
-    // non-digits from e.g. "20-23369727-C-T" yields a nonsense position (2023369727), so fall
-    // back to the app-resolved residue index and mark the target unknown (pos 0) otherwise.
-    return {
-      wtCode3: null,
-      mutCode3: null,
-      wt: "",
-      pos: residueIndex && residueIndex > 0 ? residueIndex : 0,
-      mut: ""
-    };
-  };
-
-  const mutation = useMemo(() => parseClinicalMutation(), [variant, residueIndex]);
-  const mutationIndex = mutation.pos; // 1-based index of residue
-
-  // If we don't have a loaded sequence, or if mutation position is out of bounds,
-  // we dynamically align using a mock/synthesized region centered perfectly
-  const { wildWindow, relativeStartIndex } = useMemo(() => {
-    if (!sequence) return { wildWindow: [] as string[], relativeStartIndex: 1 };
-
-    const seqLen = sequence.length;
-    const half = Math.floor(windowSize / 2);
-
-    // Unknown target (genomic notation without a resolved residue) centers on the sequence
-    const target = mutationIndex > 0 ? Math.min(mutationIndex, seqLen) : Math.ceil(seqLen / 2);
-    let startIdx = Math.max(0, target - 1 - half);
-    let endIdx = Math.min(seqLen, startIdx + windowSize);
-
-    // Adjust if running near end boundary
-    if (endIdx - startIdx < windowSize) {
-      startIdx = Math.max(0, endIdx - windowSize);
-    }
-
-    return {
-      wildWindow: sequence.slice(startIdx, endIdx).split(""),
-      relativeStartIndex: startIdx + 1
-    };
-  }, [sequence, mutationIndex, windowSize]);
+  const finding = useMemo(
+    () =>
+      landscapeFinding({
+        rows: [...landscapeMap.values()],
+        window: range,
+        target: targetPos > 0 ? mutation : null,
+        variantRevel: variantScores.revel,
+        variantAm: variantScores.am,
+        mode: metricMode,
+        meta: landscapeMeta
+      }),
+    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta]
+  );
 
   const parsedGenomic = useMemo(
     () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
@@ -178,166 +226,124 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   );
 
   const handleSelectGenomicVariant = useCallback((v: any) => {
-    if (onSelectGenomicVariant) {
-      onSelectGenomicVariant(v);
-    }
     useVariantAnalysisStore.getState().setSelectedGenomicVariant(v);
-  }, [onSelectGenomicVariant]);
+  }, []);
 
+  const hasSequence = sequence.length > 0;
   /*
-   * These getters are dependencies of the density-track memo in SequenceRowGrid. As plain
-   * closures they would be new every render and the memo would never hold.
+   * The hook starts idle and only flips to loading inside its effect, so the first frame after a
+   * new accession is neither loading nor loaded. Until a load has been seen, treat that as loading
+   * rather than flashing the failure notice.
    */
-  const getRevelScore = useCallback(
-    (pos: number) => {
-      if (pos === mutationIndex && conservationData?.revel !== undefined && conservationData?.revel !== null) {
-        const parsed = parseFloat(String(conservationData.revel));
-        if (!isNaN(parsed)) return parsed;
-      }
-      const match = landscapeMap.get(pos);
-      if (!match) return null;
-      if (metricMode === "mean") {
-        return match.revelMean !== undefined && match.revelMean !== null ? match.revelMean : null;
-      }
-      return match.revelMax !== undefined && match.revelMax !== null ? match.revelMax : null;
-    },
-    [mutationIndex, conservationData, landscapeMap, metricMode]
-  );
-
-  const getAmScore = useCallback(
-    (pos: number) => {
-      if (pos === mutationIndex && predictorData?.amPathogenicity !== undefined && predictorData?.amPathogenicity !== null) {
-        const parsed = parseFloat(String(predictorData.amPathogenicity));
-        if (!isNaN(parsed)) return parsed;
-      }
-      const match = landscapeMap.get(pos);
-      if (!match) return null;
-      if (metricMode === "mean") {
-        return match.amMean !== undefined && match.amMean !== null ? match.amMean : null;
-      }
-      return match.amMax !== undefined && match.amMax !== null ? match.amMax : null;
-    },
-    [mutationIndex, predictorData, landscapeMap, metricMode]
-  );
-
-  const getGerpScore = useCallback(
-    (pos: number) => {
-      if (pos === mutationIndex && conservationData?.gerp !== undefined && conservationData?.gerp !== null) {
-        const parsed = parseFloat(String(conservationData.gerp));
-        if (!isNaN(parsed)) return parsed;
-      }
-      const match = landscapeMap.get(pos);
-      return match?.gerp !== undefined && match?.gerp !== null ? match.gerp : null;
-    },
-    [mutationIndex, conservationData, landscapeMap]
-  );
-
-  const getPhyloPScore = useCallback(
-    (pos: number) => {
-      if (pos === mutationIndex && conservationData?.phylop !== undefined && conservationData?.phylop !== null) {
-        const parsed = parseFloat(String(conservationData.phylop));
-        if (!isNaN(parsed)) return parsed;
-      }
-      const match = landscapeMap.get(pos);
-      return match?.phylop !== undefined && match?.phylop !== null ? match.phylop : null;
-    },
-    [mutationIndex, conservationData, landscapeMap]
-  );
+  const sawLoad = useRef<string | null>(null);
+  if (sequenceLoading) sawLoad.current = uniprotId;
+  const pendingSequence = sequenceLoading || (!hasSequence && !sequenceError && sawLoad.current !== uniprotId);
+  const awayFromTarget = targetPos > 0 && (targetPos < range.start || targetPos > range.end);
 
   return (
-    <div 
-      id="sequence-alignment-visualizer" 
-      className="flex flex-col gap-5 animate-fade-in text-cs-text-primary w-full p-6"
-    >
-      {/* Visualizer header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-cs-border-subtle transition-colors">
+    <div id="sequence-alignment-visualizer" className="flex flex-col gap-4 animate-fade-in text-cs-text-primary w-full p-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-cs-border-subtle">
         <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 transition">
+          <div className="p-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
             <Dna className="w-4 h-4 text-cs-accent-clay" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider font-mono text-cs-text-primary">
-              REVEL & AlphaMissense Local Pathogenicity Landscape
-            </h3>
+            <h3 className="text-sm font-semibold text-cs-text-primary">Residue landscape</h3>
             <p className="text-xs mt-0.5 text-cs-text-muted">
-              {mutationIndex > 0
-                ? `Visualizing missense constraint and pathogenicity scores across residues surrounding mutation position #${mutationIndex}`
-                : "Visualizing missense constraint and pathogenicity scores across the queried residue window"}
+              {targetPos > 0
+                ? `REVEL, AlphaMissense and conservation per residue around ${mutation.wt}${targetPos}${mutation.mut}`
+                : "REVEL, AlphaMissense and conservation per residue"}
             </p>
           </div>
         </div>
+        {awayFromTarget && (
+          <button
+            type="button"
+            onClick={() => setCenter(targetPos)}
+            className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border border-cs-border bg-cs-surface text-cs-text-primary hover:border-cs-accent-clay cursor-pointer"
+          >
+            <Crosshair className="w-3.5 h-3.5 text-cs-accent-clay" />
+            Back to residue {targetPos}
+          </button>
+        )}
       </div>
 
-      {!sequence ? (
-        <div className="text-center py-12 text-slate-500">
-          <Dna className="w-10 h-10 mx-auto text-indigo-500 stroke-[1.5] mb-2 animate-pulse" />
-          <p className="text-sm font-semibold font-mono uppercase tracking-wider text-indigo-500" style={{ color: "var(--cs-accent-clay)" }}>Pathogenicity Landscape Ready</p>
-          <div className="w-16 h-[1px] bg-slate-800/10 dark:bg-slate-800/60 mx-auto my-3"></div>
-          <p className="text-xs max-w-sm mx-auto mt-1 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-            Select a variant above and press <strong style={{ color: "var(--cs-accent-clay)" }}>Analyze Mutation Effect</strong> to view REVEL, AlphaMissense, GERP++, and PhyloP scores surrounding your mutation of interest.
-          </p>
+      {!uniprotId ? (
+        <div className="text-center py-12 text-cs-text-muted text-sm">
+          Run an analysis to see the residue landscape around the variant.
         </div>
-      ) : loading ? (
-        <div className="h-28 flex flex-col items-center justify-center text-slate-400 text-xs">
-          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-          <span>Aligning protein sequence strings...</span>
+      ) : pendingSequence ? (
+        <div className="h-28 flex flex-col items-center justify-center text-cs-text-muted text-xs gap-2" role="status">
+          <div className="w-5 h-5 border-2 border-cs-accent-clay border-t-transparent rounded-full animate-spin" />
+          <span>Loading the UniProt sequence for {uniprotId}…</span>
+        </div>
+      ) : !hasSequence ? (
+        <div className="p-4 rounded-lg border border-cs-danger/30 bg-cs-danger-soft text-sm text-cs-text-primary flex items-start gap-2" role="alert">
+          <AlertTriangle className="w-4 h-4 text-cs-danger shrink-0 mt-0.5" />
+          <span>
+            The UniProt sequence for {uniprotId} could not be loaded{sequenceError ? ` (${sequenceError})` : ""}, so residues
+            cannot be laid out. Scores are not shown without the sequence they belong to.
+          </span>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          
-          {/* Residue Row Grid & Threshold Legends */}
+          <section className="ls-finding" aria-label="Landscape finding">
+            <div className="ls-finding__head">
+              <span className="font-semibold uppercase tracking-wider text-[10px]">Finding · residues {range.start}–{range.end}</span>
+              <span className="font-mono text-[10px] text-cs-text-muted truncate">{provenanceLine(landscapeMeta)}</span>
+            </div>
+            <div className="ls-finding__body">
+              {!landscapeData ? (
+                <span className="text-cs-text-muted">Loading residue scores…</span>
+              ) : (
+                <>
+                  {finding.variant && <span className="font-semibold">{finding.variant}</span>}
+                  <span>{finding.window}</span>
+                  {finding.cautions.map((c) => (
+                    <span key={c} className="ls-finding__caution flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      {c}
+                    </span>
+                  ))}
+                </>
+              )}
+            </div>
+          </section>
+
           <SequenceRowGrid
             wildWindow={wildWindow}
-            relativeStartIndex={relativeStartIndex}
-            mutationIndex={mutationIndex}
+            relativeStartIndex={range.start}
+            mutation={mutation}
             residueIndex={residueIndex}
             hoveredResidueIndex={hoveredResidueIndex}
-            mutation={mutation}
             landscapeMap={landscapeMap}
             metricMode={metricMode}
-            getResidueBaseColor={getResidueBaseColor}
-            getGerpScore={getGerpScore}
-            getPhyloPScore={getPhyloPScore}
-            getRevelScore={getRevelScore}
-            getAmScore={getAmScore}
+            variantScores={variantScores}
+            domains={domains}
+            residueClass={residueClass}
             onResidueClick={onResidueClick}
-            hoveredResidue={hoveredResidue}
-            setHoveredResidue={setHoveredResidue}
+            onResidueHover={onResidueHover}
+            loadingWindow={!landscapeData || extraLoading}
           />
 
-          {/* Tier 3: AlphaGenome Genomic Saturation Mutagenesis Heatmap & 1D Intolerance Track */}
+          <LandscapeLegend />
+
           <GenomicSaturationHeatmap
             chrom={parsedGenomic?.chrom || conservationData?.spliceProximity?.chrom || null}
             genomicPos={parsedGenomic?.pos || conservationData?.spliceProximity?.genomicPos || null}
             genomicAlt={parsedGenomic?.alt || null}
             spliceProximity={conservationData?.spliceProximity}
-            mutationIndex={mutationIndex}
+            mutationIndex={targetPos}
             residueIndex={residueIndex}
             hoveredResidueIndex={hoveredResidueIndex}
             onResidueClick={onResidueClick}
+            onResidueHover={onResidueHover}
             onSelectGenomicVariant={handleSelectGenomicVariant}
-            metricMode={metricMode}
           />
-
-          {/* Data Provenance & Methodology Notes Footer */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t pt-2.5 border-cs-border-subtle/80 mt-1 px-1">
-            <div className="flex items-center gap-1.5 text-[9.5px] font-sans text-cs-text-muted leading-tight">
-              <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay shrink-0" />
-              <span>
-                Target mutation displays direct variant scores; neighboring residues display aggregate metrics ({metricMode === "mean" ? "Mean Intolerance" : "Peak Intolerance"}).
-              </span>
-            </div>
-            <div className="flex items-center gap-2.5 text-[9px] font-mono text-cs-text-muted">
-              <span>* High GERP++ &amp; PhyloP = High Vulnerability</span>
-              <span>•</span>
-              <span>dbNSFP v4.4a</span>
-            </div>
-          </div>
-
         </div>
       )}
     </div>
   );
-})
+});
 
 export default SequenceVisualizer;

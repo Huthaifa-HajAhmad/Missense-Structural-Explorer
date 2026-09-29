@@ -234,3 +234,50 @@ Values in the finding card below are illustrative, not computed.
 4. **Redesign (§5).** Finding card, whole-protein overview, substitution heatmap, rail
    restructure, linked hover.
 5. **Clean-up (D1, D2, D5–D8, D12, D14)** and the tests in §6.
+
+---
+
+## 8. Resolution (29 September 2026)
+
+Everything in §1 and §2 is fixed on this branch. The §5 redesign is prototyped as a clickable
+mockup, not built into the app yet. What each finding became:
+
+| # | Resolution | Where |
+|---|---|---|
+| S1 | New pure module reads every SNV on **one** transcript (MANE flag → Ensembl canonical flag → agreement with the UniProt sequence → most covered), takes the residue number and REVEL/AM at that transcript's index, counts each genomic SNV once and drops synonymous/stop. The local ingest now stores the MANE/canonical transcript's `aapos` and scores, and never falls back to `pos(1-based)`. A residue reporting > 9 SNVs raises `overcount:<pos>`. | `server/services/prediction/landscape-aggregate.ts`, `landscape.ts`, `dbnsfp_local.ts`, `tools/ingest_dbnsfp.ts` |
+| S2 | REVEL/AM/GERP/phyloP rows hold residue summaries everywhere. The variant's own scores appear as diamonds on the profile (`DensityTrack` `markers`), in the target cell's label, in the finding and in the rail's range strip. | `SequenceRowGrid.tsx`, `DensityTrack.tsx` |
+| S3, S4 | Cells are coloured on the `calibration.ts` bands (seven-step diverging scale, BP4 indigo ↔ PP3 red). The legend is generated from the same table, says the bands are for single variants, and never uses "VUS". Profile guides sit at the PP3 Supporting edges (0.644 / 0.792). | `landscapeEvidence.ts`, `LandscapeLegend.tsx`, `landscape.css` |
+| S5, S6 | The scatter is replaced by `LandscapeAgreementPlot`: calibrated PP3/BP4 edges on both axes, shaded agreement corners, dots coloured both-PP3 / both-BP4 / discordant / other, no diagonal, the variant drawn as a diamond, dots clickable. | `LandscapeAgreementPlot.tsx` |
+| S7 | Conservation has its own ink ramp. Residues are coloured letters on neutral cells, and the target is marked by an outline. Green is gone from the tab. | `landscape.css` |
+| S8 | On − strand genes the grid shows the coding strand: the REF row and the A/C/G/T rows are complemented, the chip says so, and tooltips, the HUD and the rail name both the genomic and the coding change. | `GenomicSaturationHeatmap.tsx`, `landscapeEvidence.ts` |
+| S9 | Retitled "AlphaGenome variant-effect rank". The subtitle defines the Phred as a rank and says AlphaMissense is an input. The track is max rank per position; the mean-of-Phred option is removed. | `GenomicSaturationHeatmap.tsx` |
+| S10 | Labels read "mean / max over the SNV-reachable missense substitutions (≤ 9 per codon)", with *n* shown in every cell label and in the rail. The server comment that claimed max was the default is gone. | `LandscapeInspector.tsx`, `SequenceRowGrid.tsx` |
+| S11 | Conservation is keyed by nucleotide, then averaged over the codon's distinct nucleotides (`nucleotideCount`). | `landscape-aggregate.ts` |
+| S12 | Rows carry `aaref`. A disagreement with the displayed residue sets `refMismatch`, puts a dot on the cell, adds a caution to the finding and a note in the rail. | `landscape-aggregate.ts`, `SequenceRowGrid.tsx` |
+| S13 | The endpoint returns `landscapeMeta` (source, dbNSFP version from myvariant metadata or the local `build_meta`, transcript and basis, window, flags, cached, time). It is shown in the finding header and the rail. The cache key is `schema:v4`. | `analysis.ts`, `contracts.ts`, `biophysicalService.ts` |
+| S14 | The conservation legend labels the breaks as display steps, and the phyloP darkest step starts at the ClinGen PP3 edge (7.367). | `landscapeEvidence.ts` |
+| D1 | Separate loading, failed and not-analysed states, with no flash on the first frame. The dead "Analyze Mutation Effect" text is gone. | `SequenceVisualizer.tsx` |
+| D2 | `getNearestResidues` stub and the neighbour section removed, along with its unused import in `ClinicalInsightsCard` and the test that guarded the stub. | — |
+| D3, D4 | "Window width"; the scatter is titled with the residue range it actually shows. | `LandscapeInspector.tsx` |
+| D5 | The grid window re-centres when a selection falls outside it (domain jump, codon click), fetches that window through `landscapeWindow` (≤ 121 aa), and offers "Back to residue N". Loaded rows live in the store (keyed by gene/variant) so the rail sees them too. | `SequenceVisualizer.tsx`, `analysis.ts`, `searchSlice.ts` |
+| D6, D7 | Residue classes rewritten; the hydrophobic scheme highlights hydrophobics only. Dead props, `wtCode3/mutCode3`, `HoveredResidueInfo` and the unused median fields removed. | — |
+| D8 | Hover goes through the store both ways: residue grid ↔ codon brackets. | `SequenceVisualizer.tsx`, `GenomicSaturationHeatmap.tsx` |
+| D9 | The false "codon-aligned" comment is removed. The panel says its columns are nucleotides and links by hover. True alignment is in the redesign. | — |
+| D10 | `isExonic` falls back to "has a codon index", not `true`. | `alphagenome-bridge.ts` |
+| D11 | Tooltips say "residue", not "window". | `SequenceRowGrid.tsx` |
+| D12 | Raw palette classes replaced by tokens; `py-0.2` fixed; pulse animations removed; text ≥ 9 px outside SVG. | — |
+| D13 | Logging reduced to one line per request; the expired-row sweep runs at most hourly. | `landscape.ts` |
+| D14 | Moved to `local-population.ts`. It reports only the combined AF (as `maxAF`, and as `groupMaxAF` flagged `groupMaxAFIsFallback`) and leaves exome/genome fields null. | `local-population.ts` |
+
+§3 and §6: the tab now has tests (`landscape.test.ts`, `landscapeEvidence.test.ts`,
+`landscapeTab.test.tsx`, route tests for the window parameter). Domains are drawn on the residue
+axis, and the finding card exists.
+
+**Still open:**
+- A whole-protein overview.
+- ClinVar/gnomAD lanes.
+- The residue × substitution heatmap.
+- Canvas rendering of the nucleotide grid.
+- Feeding the finding to Insights and Report.
+
+These make up the §5 redesign. Clickable mockup (illustrative data): https://claude.ai/artifact/Ej3Dv7jYDYY4tRL4hhFAfb

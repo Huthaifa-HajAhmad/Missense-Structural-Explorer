@@ -1,0 +1,115 @@
+/* ==========================================================================
+   Landscape tab — colour carries exactly one meaning per scale.
+
+   • Predictor bands (REVEL, AlphaMissense): diverging, BP4 indigo ← neutral → PP3 red, stepped at
+     the ClinGen calibrated edges (src/shared/thresholds/calibration.ts). Never green.
+   • Conservation (GERP++, phyloP): a single ink ramp. Conserved is darker, never "good" green.
+   • Residue identity: coloured letters on a neutral cell, so a residue never reads as a verdict.
+   • The queried residue: an outline, not a fill.
+   ========================================================================== */
+
+.ls-band[data-band="pp3-strong"]     { background: color-mix(in srgb, var(--cs-danger) 72%, var(--cs-surface)); color: #fff; }
+.ls-band[data-band="pp3-moderate"]   { background: color-mix(in srgb, var(--cs-danger) 44%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ls-band[data-band="pp3-supporting"] { background: color-mix(in srgb, var(--cs-danger) 20%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ls-band[data-band="indeterminate"]  { background: var(--cs-surface); color: var(--cs-text-secondary); }
+.ls-band[data-band="bp4-supporting"] { background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 18%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ls-band[data-band="bp4-moderate"]   { background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 40%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ls-band[data-band="bp4-strong"]     { background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 70%, var(--cs-surface)); color: #fff; }
+.ls-band[data-band="none"]           { background: var(--cs-bg-subtle); color: var(--cs-text-muted); }
+
+.ls-cons[data-level="0"]    { background: var(--cs-surface); color: var(--cs-text-secondary); }
+.ls-cons[data-level="1"]    { background: color-mix(in srgb, var(--cs-text-primary) 10%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ls-cons[data-level="2"]    { background: color-mix(in srgb, var(--cs-text-primary) 24%, var(--cs-surface)); color: var(--cs-text-primary); }
+.ls-cons[data-level="3"]    { background: color-mix(in srgb, var(--cs-text-primary) 46%, var(--cs-surface)); color: var(--cs-surface); }
+.ls-cons[data-level="none"] { background: var(--cs-bg-subtle); color: var(--cs-text-muted); }
+
+/* Residue letters: identity by hue of the letter only. */
+.ls-aa { background: var(--cs-surface); color: var(--cs-text-primary); }
+.ls-aa[data-class="acidic"]      { color: var(--cs-accent-mag); }
+.ls-aa[data-class="basic"]       { color: var(--cs-text-indigo-on-soft); }
+.ls-aa[data-class="polar"]       { color: var(--cs-text-teal-on-soft); }
+.ls-aa[data-class="aromatic"]    { color: var(--cs-warn); }
+.ls-aa[data-class="special"]     { color: var(--cs-accent-clay); }
+.ls-aa[data-class="hydrophobic"] { color: var(--cs-text-primary); }
+.ls-aa[data-class="muted"]       { color: var(--cs-text-muted); }
+
+/* Cells */
+.ls-cell {
+  width: 30px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 4px;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  position: relative;
+}
+.ls-cell--letter { font-size: 12px; font-weight: 700; }
+.ls-cell[data-focus="target"]   { outline: 2px solid var(--cs-accent-clay); outline-offset: -1px; z-index: 2; }
+.ls-cell[data-focus="selected"] { outline: 1.5px solid var(--cs-text-primary); outline-offset: -1px; z-index: 1; }
+.ls-cell[data-focus="hovered"]  { outline: 1px dashed var(--cs-text-muted); outline-offset: -1px; }
+.ls-cell:focus-visible          { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; z-index: 3; }
+.ls-cell[data-mismatch="true"]::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--cs-warn);
+}
+
+.ls-row-label {
+  width: 68px;
+  flex-shrink: 0;
+  padding-right: 8px;
+  text-align: right;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--cs-text-secondary);
+  user-select: none;
+}
+
+.ls-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--cs-border-subtle);
+  flex-shrink: 0;
+}
+
+.ls-domain {
+  height: 10px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cs-accent-clay) 28%, var(--cs-surface));
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 45%, transparent);
+}
+
+.ls-finding {
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card, 10px);
+  background: var(--cs-surface);
+  overflow: hidden;
+}
+.ls-finding__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--cs-surface-2);
+  border-bottom: 1px solid var(--cs-border-subtle);
+  font-size: 11px;
+  color: var(--cs-text-secondary);
+}
+.ls-finding__body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--cs-text-primary); }
+.ls-finding__caution { font-size: 12px; color: var(--cs-text-warning); }

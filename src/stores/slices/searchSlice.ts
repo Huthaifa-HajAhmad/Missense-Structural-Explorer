@@ -12,6 +12,7 @@ import {
   summarizeEvidence,
 } from "../../components/report/reportStatus";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
+import type { LandscapeResidueItem } from "../../shared/contracts";
 
 export interface SearchState {
   gene: string;
@@ -29,6 +30,12 @@ export interface SearchState {
   selectedResidueIndex: number | null;
   hoveredResidueIndex: number | null;
   selectedGenomicVariant: any | null;
+  /**
+   * Landscape rows loaded for windows the reader navigated to (beyond the pipeline's ±25). Keyed
+   * by `gene|variant`, like `proteinSequence` is keyed by accession: consumers compare the key
+   * before use, so rows from a previous query are never read.
+   */
+  landscapeExtra: { key: string; rows: LandscapeResidueItem[] } | null;
   searchVal: string;
   customGene: string;
   customVariant: string;
@@ -56,6 +63,7 @@ export interface SearchActions {
   setSelectedResidueIndex: (index: number | null) => void;
   setHoveredResidueIndex: (index: number | null) => void;
   setSelectedGenomicVariant: (variant: any | null) => void;
+  addLandscapeRows: (key: string, rows: LandscapeResidueItem[]) => void;
   setSearchVal: (val: string) => void;
   setCustomGene: (gene: string) => void;
   setCustomVariant: (variant: string) => void;
@@ -139,6 +147,7 @@ export const createSearchSlice: StateCreator<
   selectedResidueIndex: initialResidueIndex,
   hoveredResidueIndex: null,
   selectedGenomicVariant: null,
+  landscapeExtra: null,
   searchVal: initial.gene && initial.variant ? `${initial.gene} ${initial.variant}` : "",
   customGene: initial.gene,
   customVariant: initial.variant,
@@ -162,6 +171,13 @@ export const createSearchSlice: StateCreator<
   setSelectedResidueIndex: (selectedResidueIndex) => set({ selectedResidueIndex }),
   setHoveredResidueIndex: (hoveredResidueIndex) => set({ hoveredResidueIndex }),
   setSelectedGenomicVariant: (selectedGenomicVariant) => set({ selectedGenomicVariant }),
+  addLandscapeRows: (key, rows) =>
+    set((state: any) => ({
+      landscapeExtra: {
+        key,
+        rows: [...(state.landscapeExtra?.key === key ? state.landscapeExtra.rows : []), ...rows]
+      }
+    })),
   setSearchVal: (searchVal) => set({ searchVal }),
   setCustomGene: (customGene) => set({ customGene, numberingBasis: null }),
   setCustomVariant: (customVariant) => set({ customVariant, numberingBasis: null }),

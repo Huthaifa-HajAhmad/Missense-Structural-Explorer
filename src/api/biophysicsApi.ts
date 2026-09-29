@@ -1,6 +1,8 @@
 import {
   biophysicalAnalysisResponseSchema,
-  BiophysicalAnalysisResponse
+  BiophysicalAnalysisResponse,
+  type LandscapeMeta,
+  type LandscapeResidueItem
 } from "../shared/contracts";
 import { CLIENT_STREAM_IDLE_BUDGET_MS } from "../shared/timeouts";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
@@ -203,10 +205,11 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
       return biophysicalAnalysisResponseSchema.parse(finalPayload);
     },
 
+    /** `landscapeWindow` loads a named residue range instead of the default ±25 around the variant. */
     async getLandscapeData(
-      params: { gene: string; uniprotId: string; variant: string },
+      params: { gene: string; uniprotId: string; variant: string; landscapeWindow?: { start: number; end: number } },
       signal?: AbortSignal
-    ): Promise<{ landscapeData: any[] }> {
+    ): Promise<{ landscapeData: LandscapeResidueItem[]; landscapeMeta?: LandscapeMeta | null }> {
       const res = await fetchWithAuth("/api/v1/analyze-variant/landscape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

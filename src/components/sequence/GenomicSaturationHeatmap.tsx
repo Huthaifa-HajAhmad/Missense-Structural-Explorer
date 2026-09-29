@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
-import { Dna, ExternalLink, ChevronDown, ChevronUp, Sparkles, Activity, Layers, Info } from "lucide-react";
+import { Dna, ExternalLink, ChevronDown, ChevronUp, Sparkles, Activity } from "lucide-react";
 import { useApiClient } from "../../apiClient";
 import {
   AlphaGenomeRegionSaturationResponse,
@@ -7,6 +7,7 @@ import {
   AlphaGenomeSaturationVariant
 } from "../../shared/contracts";
 import { aviRankBand } from "../../shared/alphagenomeEvidence";
+import { complementBase, displayBase } from "../../shared/landscapeEvidence";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import {
   MAX_SATURATION_REGION_BP,
@@ -43,8 +44,9 @@ export interface GenomicSaturationHeatmapProps {
   residueIndex: number | null;
   hoveredResidueIndex?: number | null;
   onResidueClick?: (index: number) => void;
+  /** Shares hover with the residue grid: a codon's cells highlight their residue and back. */
+  onResidueHover?: (index: number | null) => void;
   onSelectGenomicVariant?: (variantInfo: any) => void;
-  metricMode?: "mean" | "max";
 }
 
 const NUCLEOTIDES: Array<"A" | "C" | "G" | "T"> = ["A", "C", "G", "T"];
@@ -57,8 +59,12 @@ type Base = "A" | "C" | "G" | "T";
 
 interface SaturationCellProps {
   pos: number;
+  /** Base as displayed (coding strand on a − strand gene). */
   base: Base;
+  /** Genomic (+ strand) reference and alternate, as the variant is named. */
   refBase: Base;
+  genomicAlt: Base;
+  strandNote: string;
   phred: number | null;
   colorClass: string;
   isQueryVariant: boolean;
@@ -80,6 +86,8 @@ const SaturationCell = memo(function SaturationCell({
   pos,
   base,
   refBase,
+  genomicAlt,
+  strandNote,
   phred,
   colorClass,
   isQueryVariant,
@@ -89,12 +97,12 @@ const SaturationCell = memo(function SaturationCell({
   onCellHover,
   onCellLeave
 }: SaturationCellProps) {
-  const isRef = base === refBase;
+  const isRef = genomicAlt === refBase;
   const label = isRef
-    ? `Reference Base: ${base} at ${chromLabel}:${pos}`
+    ? `Reference ${base} at ${chromLabel}:${pos}${strandNote}`
     : phred !== null
-      ? `${chromLabel}:${pos} ${refBase}>${base} | Phred ${phred.toFixed(1)}, ${aviRankBand(phred)?.label ?? "no rank"} of all possible SNVs`
-      : `${chromLabel}:${pos} ${refBase}>${base} | no score returned`;
+      ? `${chromLabel}:${pos} ${refBase}>${genomicAlt}${strandNote} · AVI Phred ${phred.toFixed(1)}, ${aviRankBand(phred)?.label ?? "no rank"} of all possible SNVs`
+      : `${chromLabel}:${pos} ${refBase}>${genomicAlt}${strandNote} · no score returned`;
 
   return (
     <button
@@ -107,9 +115,9 @@ const SaturationCell = memo(function SaturationCell({
       onMouseLeave={onCellLeave}
       onFocus={() => onCellHover(pos, base)}
       onBlur={onCellLeave}
-      className={`w-[10px] h-6 shrink-0 flex items-center justify-center font-mono text-[8px] border rounded-[2px] transition-all cursor-pointer ${colorClass} ${
+      className={`w-[10px] h-6 shrink-0 flex items-center justify-center font-mono text-[9px] border rounded-[2px] transition-all cursor-pointer ${colorClass} ${
         isQueryVariant
-          ? "ring-2 ring-amber-400 z-10 font-black animate-pulse motion-reduce:animate-none"
+          ? "ring-2 ring-cs-text-primary z-10"
           : isRef
             ? "opacity-50 hover:opacity-100 focus-visible:opacity-100"
             : "hover:scale-115 hover:z-20 hover:ring-1 hover:ring-cs-accent-clay"
@@ -131,6 +139,7 @@ interface RefBaseCellProps {
 
 /** Memoized for the same reason as SaturationCell: 5,000 of these rebuild on every hover. */
 const RefBaseCell = memo(function RefBaseCell({ pos, refBase, isExonic, chromLabel }: RefBaseCellProps) {
+  // `refBase` arrives already on the displayed strand.
   return (
     <div
       className={`w-[10px] h-4 shrink-0 flex items-center justify-center font-mono text-[9px] font-bold ${
@@ -177,7 +186,7 @@ const CodonBracket = memo(function CodonBracket({
       title={`Genomic Pos: ${pos} | Codon: ${codonIndex || "Flank"} Pos: ${codonPosition || "-"}`}
     >
       {isFirstInCodon && codonIndex ? (
-        <span className="text-[7.5px] font-mono font-bold text-cs-text-muted -translate-y-1">
+        <span className="text-[9px] font-mono font-bold text-cs-text-muted -translate-y-1">
           {codonIndex}
         </span>
       ) : null}
@@ -194,8 +203,8 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   residueIndex,
   hoveredResidueIndex,
   onResidueClick,
-  onSelectGenomicVariant,
-  metricMode = "mean"
+  onResidueHover,
+  onSelectGenomicVariant
 }: GenomicSaturationHeatmapProps) {
   const { fetchWithAuth } = useApiClient();
   // The region query is keyed to the genomic interval, not to the fetch closure's identity: token
@@ -296,6 +305,14 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   const positions = data?.positions || [];
   const hasPositions = positions.length > 0;
   const isReverseStrand = regionParams?.strand === "-";
+  const strand = (regionParams?.strand ?? null) as "+" | "-" | null;
+  /*
+   * On a − strand gene the columns run in transcript order AND the bases are complemented, so the
+   * reference row reads as codons (GAT for Asp) and each substitution row is a coding-strand base.
+   * Reversing without complementing, as before, showed the complement of the coding sequence.
+   */
+  const toGenomic = (displayed: Base): Base => (isReverseStrand ? (complementBase(displayed) as Base) : displayed);
+  const strandNote = isReverseStrand ? " (genomic + strand; shown complemented on the − coding strand)" : "";
   // A request is in flight, or this is the frame between an interval resolving and its effect
   // starting. Showing the empty state there would describe an answered query that has not been.
   const pending = loading || (regionParams !== null && data === null && error === null);
@@ -328,9 +345,10 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     return map;
   }, [orderedPositions]);
 
-  const handleCellClick = useCallback((pos: number, base: Base) => {
+  const handleCellClick = useCallback((pos: number, shown: Base) => {
     const posData = positionByPos.get(pos);
     if (!posData) return;
+    const base = toGenomic(shown);
     const variant = base === posData.ref ? null : posData.variants[base] || null;
     if (posData.codonIndex && onResidueClick) {
       onResidueClick(posData.codonIndex);
@@ -347,14 +365,18 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
         topModality: variant?.topModality ?? posData.topModality ?? null,
         codonIndex: posData.codonIndex,
         codonPosition: posData.codonPosition,
-        isExonic: posData.isExonic
+        isExonic: posData.isExonic,
+        strand
       });
     }
+    // toGenomic depends only on the strand, which regionParams carries.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positionByPos, onResidueClick, onSelectGenomicVariant, regionParams]);
 
-  const handleCellHover = useCallback((pos: number, base: Base) => {
+  const handleCellHover = useCallback((pos: number, shown: Base) => {
     const posData = positionByPos.get(pos);
     if (!posData) return;
+    const base = toGenomic(shown);
     setHoveredCell({
       pos,
       ref: posData.ref,
@@ -362,9 +384,14 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
       variant: base === posData.ref ? null : posData.variants[base] || null,
       codonIndex: posData.codonIndex ?? null
     });
-  }, [positionByPos]);
+    onResidueHover?.(posData.codonIndex ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positionByPos, onResidueHover, isReverseStrand]);
 
-  const handleCellLeave = useCallback(() => setHoveredCell(null), []);
+  const handleCellLeave = useCallback(() => {
+    setHoveredCell(null);
+    onResidueHover?.(null);
+  }, [onResidueHover]);
 
   const hoveredCodonIndex = hoveredCell?.codonIndex ?? null;
 
@@ -427,16 +454,12 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     [activeCell, orderedPositions]
   );
 
-  // One point per genomic position. A position whose requested metric is absent stays null:
-  // substituting 0 would plot an invented "unconstrained" measurement, and falling back to the
-  // other metric would draw a curve the mode label does not describe.
+  // One point per genomic position: the highest rank among its three substitutions. A mean of
+  // Phred values is a mean of log-ranks and has no reading, so the track does not offer one. A
+  // position without a score stays a gap; substituting 0 would plot an invented measurement.
   const densityPoints = useMemo(
-    () =>
-      orderedPositions.map((p) => {
-        const val = metricMode === "max" ? p.maxPhred : p.meanPhred;
-        return isDensityPoint(val) ? Math.max(0, val) : null;
-      }),
-    [orderedPositions, metricMode]
+    () => orderedPositions.map((p) => (isDensityPoint(p.maxPhred) ? Math.max(0, p.maxPhred) : null)),
+    [orderedPositions]
   );
 
   // Guides at the rank decades — the Phred definition itself (10 = top 10%, 20 = top 1%), not
@@ -447,9 +470,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     { value: 30, color: "var(--cs-accent-clay)", label: "top 0.1%" }
   ];
 
-  const densitySummary = `AlphaGenome AVI rank across ${orderedPositions.length} genomic positions, ${
-    metricMode === "mean" ? "mean" : "maximum"
-  } Phred per position. Scale 0 to 45 Phred. Reference lines at the top 10%, 1% and 0.1% of all possible SNVs. Positions with no returned score are left as gaps.`;
+  const densitySummary = `AlphaGenome AVI rank across ${orderedPositions.length} genomic positions, highest Phred per position. Scale 0 to 45 Phred. Reference lines at the top 10%, 1% and 0.1% of all possible SNVs. Positions with no returned score are left as gaps.`;
 
   // Spoken once for the whole grid, so a screen-reader gets the shape of the region without
   // traversing twenty thousand cells.
@@ -478,13 +499,21 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h4 className="text-xs font-bold font-mono uppercase tracking-wider text-cs-text-primary">
-                AlphaGenome Saturation Mutagenesis & 1D Intolerance
+              <h4 className="text-xs font-semibold text-cs-text-primary">
+                AlphaGenome variant-effect rank, every SNV in the exon
               </h4>
               {regionParams && (
-                <span className="text-[9.5px] font-mono px-1.5 py-0.2 rounded bg-cs-surface border border-cs-border text-cs-accent-clay">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-cs-accent-clay">
                   chr{regionParams.chrom}:{regionParams.start.toLocaleString()}–{regionParams.end.toLocaleString()}
                   {regionParams.strand ? ` (${regionParams.strand})` : ""}
+                </span>
+              )}
+              {regionParams && (
+                <span
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border-subtle text-cs-text-secondary"
+                  title={isReverseStrand ? "Gene on the − strand: columns run 5′→3′ along the transcript and bases are complemented, so codons read as in the mRNA. Tooltips and the Inspector name the genomic (+ strand) change." : "Bases shown on the + strand, which is the coding strand for this gene."}
+                >
+                  {isReverseStrand ? "coding strand (−), complemented" : "coding strand (+)"}
                 </span>
               )}
               {regionParams?.exonNumber && (
@@ -503,8 +532,11 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-cs-text-muted mt-0.5">
-              High-resolution deep-learning saturation predicting pre-mRNA splicing disruption, chromatin accessibility, and missense constraint
+            <p className="text-[11px] text-cs-text-muted mt-0.5 max-w-3xl">
+              Each cell is one possible SNV, shaded by its genome-wide rank on AlphaGenome's composite AVI score
+              (Phred 10 = top 10%, 20 = top 1%). A rank, not a probability and not an ACMG band; AlphaMissense is one of
+              the AVI's inputs, so this panel is not independent of the AM row above. Columns are nucleotides, not
+              residues: hover a cell to highlight its residue in the grid.
             </p>
           </div>
         </div>
@@ -540,8 +572,8 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
             </div>
           ) : error ? (
             /* Network / Server Error State */
-            <div className="p-4 rounded-lg border border-rose-500/30 bg-rose-500/5 text-center flex flex-col items-center justify-center gap-2">
-              <div className="text-xs font-semibold text-rose-500">
+            <div className="p-4 rounded-lg border border-cs-danger/30 bg-cs-danger-soft text-center flex flex-col items-center justify-center gap-2" role="alert">
+              <div className="text-xs font-semibold text-cs-danger">
                 AlphaGenome Regional Saturation Unavailable
               </div>
               <p className="text-[11px] text-cs-text-muted max-w-md">
@@ -621,7 +653,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                     series={[
                       {
                         key: "phred",
-                        name: `AlphaGenome ${metricMode === "mean" ? "mean" : "max"} Phred`,
+                        name: "AlphaGenome max Phred",
                         color: "var(--cs-accent-clay)",
                         points: densityPoints
                       }
@@ -630,7 +662,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                     columnWidth={COLUMN_WIDTH}
                     domain={PHRED_DOMAIN}
                     unitLabel="Phred 0–45"
-                    modeLabel={metricMode === "mean" ? "MEAN" : "MAX"}
+                    modeLabel="MAX RANK"
                     ariaLabel={densitySummary}
                     emptyNotice="No Phred values were returned for this region"
                   />
@@ -638,7 +670,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
 
                 {/* Triplet Codon Bracket Indicators */}
                 <div className="flex items-center pl-2 h-4 mb-0.5">
-                  <div className="w-[68px] text-[8px] font-mono text-cs-text-muted pr-2 shrink-0 select-none uppercase tracking-wider text-right">
+                  <div className="w-[68px] text-[9px] font-mono text-cs-text-muted pr-2 shrink-0 select-none uppercase tracking-wider text-right">
                     CODON
                   </div>
                   <div className="flex">
@@ -664,7 +696,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                 <div
                   ref={gridRef}
                   role="group"
-                  aria-label={`Saturation grid, ${orderedPositions.length} positions by 4 substituted bases. ${tierSummary} Arrow keys move between substitutions; Enter pins the variant in the inspector.`}
+                  aria-label={`Saturation grid, ${orderedPositions.length} positions by 4 bases on the ${isReverseStrand ? "minus, complemented" : "plus"} strand. ${tierSummary} Arrow keys move between substitutions; Enter pins the variant in the inspector.`}
                   onKeyDown={handleGridKeyDown}
                 >
                   {NUCLEOTIDES.map((base) => (
@@ -674,11 +706,12 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                       </span>
                       <div className="flex">
                         {orderedPositions.map((posData) => {
-                          const isRef = posData.ref === base;
-                          const variant = isRef ? null : posData.variants[base] || null;
+                          const gAlt = toGenomic(base);
+                          const isRef = posData.ref === gAlt;
+                          const variant = isRef ? null : posData.variants[gAlt] || null;
                           const phred = variant?.phred ?? null;
                           const isTargetPos = genomicPos !== null && genomicPos !== undefined && posData.pos === genomicPos;
-                          const isQueryVariant = isTargetPos && Boolean(genomicAlt && base === genomicAlt.toUpperCase());
+                          const isQueryVariant = isTargetPos && Boolean(genomicAlt && gAlt === genomicAlt.toUpperCase());
 
                           return (
                             <SaturationCell
@@ -686,6 +719,8 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                               pos={posData.pos}
                               base={base}
                               refBase={posData.ref}
+                              genomicAlt={gAlt}
+                              strandNote={strandNote}
                               phred={phred}
                               colorClass={getCellColor(phred, isRef)}
                               isQueryVariant={isQueryVariant}
@@ -706,15 +741,15 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
 
                 {/* Reference Genomic Sequence Row */}
                 <div className="flex items-center pl-2 mt-1">
-                  <span className="w-[68px] text-[9px] font-semibold text-cs-good pr-2 shrink-0 select-none uppercase tracking-wider text-right">
-                    REF GENOME
+                  <span className="w-[68px] text-[9px] font-semibold text-cs-text-secondary pr-2 shrink-0 select-none uppercase tracking-wider text-right">
+                    {isReverseStrand ? "REF (−)" : "REF (+)"}
                   </span>
                   <div className="flex" aria-hidden="true">
                     {orderedPositions.map((posData) => (
                       <RefBaseCell
                         key={`ref-${posData.pos}`}
                         pos={posData.pos}
-                        refBase={posData.ref}
+                        refBase={displayBase(posData.ref, strand)}
                         isExonic={Boolean(posData.isExonic)}
                         chromLabel={`chr${regionParams?.chrom}`}
                       />
@@ -730,21 +765,26 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-cs-text-primary">
                       chr{regionParams?.chrom}:{hoveredCell.pos} {hoveredCell.ref}&gt;{hoveredCell.alt}
+                      {isReverseStrand && hoveredCell.ref !== hoveredCell.alt && (
+                        <span className="font-normal text-cs-text-muted">
+                          {" "}(coding {complementBase(hoveredCell.ref)}&gt;{complementBase(hoveredCell.alt)})
+                        </span>
+                      )}
                     </span>
                     {hoveredCell.ref === hoveredCell.alt ? (
-                      <span className="px-1.5 py-0.2 rounded bg-cs-surface-2 border border-cs-border text-cs-text-muted text-[9px]">
+                      <span className="px-1.5 py-0.5 rounded bg-cs-surface-2 border border-cs-border text-cs-text-muted text-[9px]">
                         Reference Nucleotide
                       </span>
                     ) : (
                       <>
-                        <span className="px-1.5 py-0.2 rounded bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20 font-bold">
-                          Phred: {hoveredCell.variant?.phred !== null && hoveredCell.variant?.phred !== undefined ? hoveredCell.variant.phred.toFixed(2) : "N/A"}
+                        <span className="px-1.5 py-0.5 rounded bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20 font-bold">
+                          AVI Phred: {hoveredCell.variant?.phred !== null && hoveredCell.variant?.phred !== undefined ? hoveredCell.variant.phred.toFixed(2) : "N/A"}
                         </span>
-                        <span className="px-1.5 py-0.2 rounded bg-cs-surface border border-cs-border text-[9px]">
+                        <span className="px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-[9px]">
                           Rank: {aviRankBand(hoveredCell.variant?.phred)?.label ?? "no score"}
                         </span>
                         {hoveredCell.variant?.topModality && (
-                          <span className="px-1.5 py-0.2 rounded bg-cs-surface border border-cs-border text-cs-text-secondary text-[9px]">
+                          <span className="px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border text-cs-text-secondary text-[9px]">
                             Modality: {hoveredCell.variant.topModality}
                           </span>
                         )}
@@ -772,7 +812,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                   <span>· not an ACMG band</span>
                 </div>
 
-                <span className="text-[8.5px] italic text-cs-text-muted">
+                <span className="text-[10px] italic text-cs-text-muted">
                   Click any substitution to pin telemetry in the Inspector
                 </span>
               </div>

@@ -93,7 +93,7 @@ describe("CacheRegistry & Dependency Injection Isolation", () => {
     registry.afUrlCache.set("AF1", "URL");
     registry.popEVECache.set("EVE1", { score: 0.8 });
     registry.refseqCache.set("RS1", { id: "NM_001" });
-    registry.landscapeCache.set("LS1", []);
+    registry.landscapeCache.set("LS1", { positions: [], meta: {} as any });
 
     expect(registry.pdbCache.size).toBe(1);
     expect(registry.afUrlCache.size).toBe(1);
