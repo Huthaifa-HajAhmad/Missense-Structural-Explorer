@@ -431,7 +431,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     return {
       key: `match-${b.key}`,
       group: "domains" as const,
-      name: b.interpro?.name ?? b.accession,
+      name: b.name,
       note: `${b.interpro ? `${b.source} ${b.accession} · InterPro ${b.interpro.id}` : STRUCTURAL_DATABASES.includes(b.source) ? "Structural domain, CATH" : `${b.source} ${b.accession}`}${b.segments.length > 1 ? ` · ${b.segments.length} segments` : ""}`,
       type: b.source,
       start: b.segments[0].start,
