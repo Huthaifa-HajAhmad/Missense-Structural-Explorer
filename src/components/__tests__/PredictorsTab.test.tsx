@@ -36,10 +36,12 @@ function renderTab(result: any, extra: Record<string, unknown> = {}) {
 }
 
 describe("PredictorsTab", () => {
-  it("states the count and the rule, and marks an unconfirmed code as unconfirmed", () => {
+  it("states the finding once, and marks an unconfirmed code as unconfirmed", () => {
     renderTab(gzf1());
-    expect(screen.getByText("4–1")).toBeTruthy();
-    expect(screen.getByText("Pathogenic calls outnumber benign")).toBeTruthy();
+    const summary = screen.getByTestId("predictor-summary");
+    expect(summary.querySelector("strong")!.textContent).toBe(
+      "The vote supports PP3, 4 to 1, but REVEL, the calibrated reference, reads BP4.",
+    );
     const chip = screen.getByTestId("predictor-verdict");
     expect(chip.textContent).toBe("PP3");
     expect(chip.getAttribute("aria-label")).toMatch(/unconfirmed/);
@@ -47,15 +49,58 @@ describe("PredictorsTab", () => {
 
   it("shows the engine's recorded code, not the vote's, when the payload has one", () => {
     renderTab(gzf1({ ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "earlier engine" }] } }));
-    expect(screen.getByTestId("predictor-verdict").textContent).toBe("PP3_Moderate");
+    expect(screen.getByTestId("predictor-verdict").textContent).toBe("PP3 Moderate");
   });
 
-  it("says when the calibrated reference points the other way", () => {
+  it("says when the calibrated reference points the other way, in the summary, not a banner", () => {
     renderTab(gzf1());
-    const callout = screen.getByTestId("reference-callout");
-    expect(callout.textContent).toMatch(/REVEL/);
-    expect(callout.textContent).toMatch(/BP4 band/);
-    expect(callout.textContent).toMatch(/other way/);
+    const summary = screen.getByTestId("predictor-summary");
+    expect(summary.getAttribute("data-tone")).toBe("warning");
+    expect(summary.textContent).toMatch(/ClinGen advises one pre-specified calibrated tool/);
+    expect(screen.queryByTestId("reference-callout")).toBeNull();
+    expect(screen.getByTestId("predictor-reference-row").getAttribute("data-relation")).toBe("opposes");
+    expect(screen.getByTestId("predictor-reference-call").textContent).toBe("BP4");
+    expect(screen.getByTestId("predictor-vote-call").textContent).toBe("PP3");
+  });
+
+  it("does not repeat the voters' scores or the count on the finding card", () => {
+    renderTab(gzf1());
+    const card = screen.getByTestId("predictor-finding");
+    // 0.767 is MetaRNN's score: it belongs to the readings table only.
+    expect(card.textContent).not.toMatch(/0\.767/);
+    expect(card.textContent!.match(/4 to 1/g)).toHaveLength(1);
+    const key = screen.getByTestId("predictor-vote-key");
+    expect(key.textContent).toMatch(/4 pathogenic/);
+    expect(key.textContent).toMatch(/1 benign/);
+    const tally = within(screen.getByTestId("predictor-vote-row")).getByRole("list", { name: "Voting tools by call" });
+    expect(tally.querySelectorAll(".prd-tally__tool")).toHaveLength(7);
+  });
+
+  it("keeps a row for the calibrated reference when neither REVEL nor BayesDel scored", () => {
+    renderTab(gzf1({ conservationData: { ...gzf1().conservationData, revel: null, bayesdel: null } }));
+    const row = screen.getByTestId("predictor-reference-row");
+    expect(row.getAttribute("data-relation")).toBe("absent");
+    expect(row.textContent).toMatch(/Neither REVEL nor BayesDel scored this variant/);
+    expect(screen.getByTestId("predictor-reference-call").textContent).toBe("No result");
+  });
+
+  it("warns, without a banner, when the weighting withheld the vote's code", () => {
+    renderTab(gzf1({ metadata: { acmgWeighting: "strict-structural" }, ruleBasedInsights: { acmgCriteria: [] } }));
+    const summary = screen.getByTestId("predictor-summary");
+    expect(summary.getAttribute("data-state")).toBe("withheld");
+    expect(summary.textContent).toMatch(/strict-structural ACMG weighting withholds it/);
+    expect(screen.getByTestId("predictor-verdict").textContent).toBe("No PP3 / BP4");
+  });
+
+  it("says when the payload was classified by an earlier engine", () => {
+    renderTab(gzf1({ ruleBasedInsights: { acmgCriteria: [{ code: "PP3_Moderate", reason: "" }] } }));
+    expect(screen.getByTestId("predictor-summary").textContent).toMatch(/earlier engine/);
+  });
+
+  it("shows No votes, not a code, when nothing scored", () => {
+    renderTab({ metadata: {}, predictorData: {}, conservationData: {}, ruleBasedInsights: { acmgCriteria: [] } });
+    expect(screen.getByTestId("predictor-vote-call").textContent).toBe("No votes");
+    expect(screen.getByTestId("predictor-summary").textContent).toMatch(/^No PP3 or BP4: no voting tool scored this variant\.$/);
   });
 
   it("does not call popEVE −3.93 deleterious", () => {
@@ -87,5 +132,17 @@ describe("PredictorsTab", () => {
     const row = screen.getByTestId("predictor-phylop");
     expect(row.textContent).toMatch(/PP3/);
     expect(row.textContent).toMatch(/not counted/);
+  });
+  it("aligns scores on the decimal point and keeps chips for readings that make a call", () => {
+    renderTab(gzf1());
+    const cadd = screen.getByTestId("predictor-cadd");
+    expect(cadd.querySelector(".prd-dec__int")!.textContent).toBe("29");
+    expect(cadd.querySelector(".prd-dec__frac")!.textContent).toBe(".5");
+    const dann = screen.getByTestId("predictor-dann");
+    expect(dann.querySelector(".prd-status .ev-tier")).toBeNull();
+    expect(dann.textContent).toMatch(/Informational/);
+    // A bare axis carries no "No cut-point" caption; the legend says it once.
+    expect(dann.textContent).not.toMatch(/No cut-point/);
+    expect(screen.getByLabelText("Legend").textContent).toMatch(/No published cut-point/);
   });
 });

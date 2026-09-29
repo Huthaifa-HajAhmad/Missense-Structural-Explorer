@@ -1,5 +1,5 @@
 /* ============================================================
-   PREDICTORS — tab, vote strip, score rulers, inspector rail
+   PREDICTORS — tab, vote tally, score rulers, inspector rail
    ------------------------------------------------------------
    SELF-CONTAINED. The first revision borrowed Population Data's
    `pop-*` / `rail-*` classes; when that tab was polished (fact
@@ -55,75 +55,89 @@
 .prd-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .prd-section > h2.eyebrow { margin: 0; }
 
-/* ── Finding ────────────────────────────────────────────────── */
-.prd-hero__body { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 20px; }
-.prd-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.prd-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
-.prd-figure {
-  font-family: var(--cs-font-sans);
-  font-size: var(--cs-font-size-display);
-  font-weight: var(--cs-font-weight-semibold);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
-  color: var(--cs-text-primary);
+/* ── Finding ────────────────────────────────────────────────
+   The flat card Population Data set: beige only on the header and
+   footer bars, white rows between thin dividers, one bold summary
+   line. No tinted banner — a disagreement is said in the summary,
+   marked by a warning glyph, and shown by the two rows beneath it. */
+.prd-hero { display: flex; flex-direction: column; }
+.prd-hero__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 40px; padding: 6px 16px;
+  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
 }
-.prd-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.prd-hero__finding { margin: 0; max-width: 72ch; color: var(--cs-text-secondary); }
-.prd-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.prd-hero__meta {
-  display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0;
-  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-}
-.prd-hero__meta > div { display: flex; gap: 6px; align-items: baseline; }
-.prd-hero__meta dt { color: var(--cs-text-muted); }
-.prd-hero__meta dd { margin: 0; color: var(--cs-text-primary); }
-
+.prd-hero__head > .eyebrow { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
 .prd-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
-.prd-callout {
-  display: flex; align-items: flex-start; gap: 8px; margin: 0;
-  padding: 9px 12px; border-radius: 8px;
-  font-size: var(--cs-font-size-prose); line-height: 1.5;
+.prd-summary {
+  display: flex; align-items: baseline; gap: 10px; margin: 0;
+  padding: 14px 16px; border-bottom: 1px solid var(--cs-border-subtle);
+  line-height: 1.5; color: var(--cs-text-secondary);
 }
-.prd-callout > svg { flex: none; margin-top: 3px; }
-.prd-callout strong { font-weight: var(--cs-font-weight-semibold); color: inherit; }
-.prd-callout[data-tone="warning"] { background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
-.prd-callout[data-tone="neutral"] { background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); color: var(--cs-text-secondary); }
-.prd-callout--banner { border-radius: 0; padding: 10px 20px; border-top: 1px solid var(--cs-border-subtle); }
+.prd-summary strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.prd-summary__icon { flex: none; align-self: flex-start; margin-top: 3px; color: var(--cs-text-warning); }
+.prd-summary__dot {
+  flex: none; width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid var(--cs-text-muted); transform: translateY(-1px);
+}
 
-/* ── Vote strip ─────────────────────────────────────────────── */
-.prd-vote { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-.prd-vote__strip {
-  list-style: none; margin: 0; padding: 0;
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px;
+/* A finding row: label | visual | the code it supports. */
+.prd-frow {
+  display: grid; grid-template-columns: minmax(150px, 200px) minmax(0, 1fr) auto;
+  align-items: center; gap: 12px 20px;
+  padding: 14px 16px; border-bottom: 1px solid var(--cs-border-subtle);
 }
-.prd-vote__cell {
-  display: flex; flex-direction: column; gap: 1px; min-width: 0;
-  padding: 7px 10px 8px; border-radius: 8px; border: 1px solid transparent;
-}
-.prd-vote__name {
-  font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); line-height: 1.3;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.prd-vote__score { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); font-variant-numeric: tabular-nums; opacity: 0.85; }
-.prd-vote__cell[data-call="path"] { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); border-color: color-mix(in srgb, var(--cs-text-danger) 20%, transparent); }
-.prd-vote__cell[data-call="benign"] { background: var(--cs-bg-success); color: var(--cs-text-good-on-soft); border-color: color-mix(in srgb, var(--cs-text-success) 20%, transparent); }
-.prd-vote__cell[data-call="vus"] { background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); color: var(--cs-text-secondary); border-color: color-mix(in srgb, var(--cs-text-secondary) 16%, transparent); }
-.prd-vote__cell[data-call="none"] { background: transparent; color: var(--cs-text-muted); border: 1px dashed color-mix(in srgb, var(--cs-text-muted) 45%, transparent); }
+.prd-frow__label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.prd-frow__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.prd-frow__sub, .prd-frow__note { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.45; }
+.prd-frow__note { display: block; margin-top: 2px; }
+.prd-frow__body { min-width: 0; }
+.prd-frow__call { justify-self: end; }
 @container (max-width: 640px) {
-  .prd-vote__strip { grid-auto-flow: row; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  .prd-frow { grid-template-columns: minmax(0, 1fr) auto; }
+  .prd-frow__label { grid-column: 1; }
+  .prd-frow__call { grid-column: 2; grid-row: 1; }
+  .prd-frow__body { grid-column: 1 / -1; }
 }
-.prd-vote__legend {
-  display: flex; flex-wrap: wrap; gap: 4px 16px;
+
+/* The vote tally: one segment per voting tool, grouped by call; the group's
+   flex-grow is its size, so every segment is the same width. */
+.prd-tally { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; min-width: 0; }
+.prd-tally__group { flex-basis: 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.prd-tally__tools { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; }
+.prd-tally__tool { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.prd-tally__seg { display: block; width: 100%; height: 10px; border-radius: 2px; }
+.prd-tally__group[data-call="path"] .prd-tally__seg { background: var(--cs-text-danger); opacity: 0.8; }
+.prd-tally__group[data-call="benign"] .prd-tally__seg { background: var(--cs-text-success); opacity: 0.8; }
+.prd-tally__group[data-call="vus"] .prd-tally__seg { background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
+.prd-tally__group[data-call="none"] .prd-tally__seg { border: 1px dashed var(--cs-text-muted); box-sizing: border-box; }
+.prd-tally__name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary);
+}
+/* The key: each group's count once, with its swatch. One line, so a
+   one-tool group never has to fit "1 indeterminate" under one segment. */
+.prd-tally__key {
+  display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-variant-numeric: tabular-nums;
 }
-.prd-vote__legend > span { display: inline-flex; align-items: center; gap: 6px; }
-.prd-key { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 2px; }
-.prd-key[data-call="path"] { background: var(--cs-text-danger); opacity: 0.7; }
-.prd-key[data-call="benign"] { background: var(--cs-text-success); opacity: 0.7; }
-.prd-key[data-call="vus"] { background: color-mix(in srgb, var(--cs-text-secondary) 40%, transparent); }
-.prd-key[data-call="none"] { border: 1px dashed var(--cs-text-muted); }
+.prd-tally__key > span { display: inline-flex; align-items: center; gap: 6px; }
+.prd-tally__swatch { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 2px; }
+.prd-tally__swatch[data-call="path"] { background: var(--cs-text-danger); opacity: 0.8; }
+.prd-tally__swatch[data-call="benign"] { background: var(--cs-text-success); opacity: 0.8; }
+.prd-tally__swatch[data-call="vus"] { background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
+.prd-tally__swatch[data-call="none"] { border: 1px dashed var(--cs-text-muted); box-sizing: border-box; }
+.prd-tally__group[data-call="none"] .prd-tally__name { color: var(--cs-text-muted); }
+
+.prd-hero__foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
+  min-height: 40px; padding: 8px 16px; margin-top: -1px;
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+}
+.prd-hero__foot strong { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-semibold); }
+.prd-hero__pending { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-text-warning-on-soft); }
+.prd-hero__pending > svg { color: var(--cs-text-warning); }
 
 /* ── Readings table ─────────────────────────────────────────── */
 .prd-table-wrap {
@@ -140,7 +154,13 @@
   padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
   background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
 }
-.prd-table thead th:nth-child(3) { width: 34%; }
+/* Fixed widths for the narrow columns; the tool column takes what its 60ch descriptions need and
+   the scale the rest. Left to auto layout, the tool column swallowed ~45% of the row and pushed the
+   score far from its tool name. */
+.prd-table { table-layout: fixed; }
+.prd-col-tool { width: 38%; }
+.prd-col-score { width: 104px; }
+.prd-col-call { width: 150px; }
 .prd-table td,
 .prd-table tbody th {
   padding: 12px 16px; text-align: left; vertical-align: top; font-weight: inherit;
@@ -149,12 +169,16 @@
 .prd-table tbody:last-of-type tr:last-child > * { border-bottom: 0; }
 .prd-table tbody tr:not(.prd-group):hover > * { background: color-mix(in srgb, var(--cs-text-secondary) 4%, transparent); }
 
-/* Group rows: a label band, the note beside it in the field voice. */
+/* Group rows: a beige band like the header, so a group reads as a section break, not as one more
+   white row. The title keeps the label voice at the primary ink; the note stays in the field voice. */
 .prd-group > th {
-  padding: 16px 16px 8px !important;
-  background: transparent;
+  padding: 9px 16px !important;
+  background: var(--cs-surface-2) !important;
+  border-bottom: 1px solid var(--cs-border-subtle);
 }
-.prd-table tbody + tbody .prd-group > th { border-top: 1px solid var(--cs-border); }
+.prd-table tbody + tbody .prd-group > th { border-top: 1px solid var(--cs-border-subtle); }
+.prd-table .prd-group__title { color: var(--cs-text-primary); }
+.prd-table tbody tr.prd-group:hover > * { background: var(--cs-surface-2); }
 .prd-group__inner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
 .prd-group__meta { font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
 
@@ -168,19 +192,28 @@
 .prd-subject__fact { color: var(--cs-text-secondary); }
 
 .prd-num {
-  text-align: right !important; white-space: nowrap;
+  text-align: right !important; white-space: nowrap; line-height: 24px;
   font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
   font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary) !important;
 }
 .prd-table thead th.prd-num { font-family: var(--cs-font-sans); }
 .prd-unit {
-  display: block; margin-top: 2px;
+  display: block; margin-top: -2px; line-height: 1.4;
   font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: 400;
   color: var(--cs-text-muted); letter-spacing: 0.02em;
 }
-.prd-reason { font-size: var(--cs-font-size-caption); line-height: 1.5; }
-.prd-status { text-align: right !important; width: 1%; white-space: nowrap; }
-.prd-call__sub { display: block; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); text-align: right; }
+/* Decimal-point alignment: integers right, fractions left in a fixed 4ch box (".231"). */
+.prd-dec { display: inline-flex; justify-content: flex-end; }
+.prd-dec__frac { display: inline-block; width: 4ch; text-align: left; }
+.prd-table .prd-unit { padding-right: 4ch; }
+
+.prd-reason { font-size: var(--cs-font-size-caption); line-height: 24px; }
+/* Calls left-aligned under a left-aligned head, so chips of different widths share one edge. */
+.prd-status { text-align: left !important; white-space: nowrap; }
+.prd-status > .ev-tier { vertical-align: middle; }
+.prd-table td.prd-status { padding-top: 13px; }
+.prd-call__sub { display: block; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+.prd-call__plain { font-size: var(--cs-font-size-caption); line-height: 22px; color: var(--cs-text-muted); }
 
 .prd-info {
   display: inline-flex; align-items: center; justify-content: center;
@@ -191,7 +224,9 @@
 .prd-info:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
 .prd-caveats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.prd-caveats .ev-tier { cursor: help; }
+/* Caveats stay visible on every row they apply to, but as outlined chips: a filled yellow chip on
+   seven rows read as seven alarms. */
+.prd-caveats .ev-tier { cursor: help; background: transparent; border: 1px solid color-mix(in srgb, var(--cs-text-warning) 45%, transparent); color: var(--cs-text-warning-on-soft); }
 
 .prd-link {
   display: inline-flex; align-items: center; gap: 4px; min-height: 24px; margin-top: 2px; padding: 0;
@@ -203,6 +238,7 @@
 .prd-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 .prd-scale { min-width: 200px; }
+.prd-table td.prd-scale:not(.prd-reason) { padding-top: 14px; }
 .prd-scale__source { display: block; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 .prd-table-foot {
@@ -220,10 +256,14 @@
 .prd-legend__swatch > i:nth-child(3) { opacity: 0.5; }
 .prd-legend__tick { display: inline-block; width: 0; height: 12px; border-left: 2px solid var(--cs-text-danger); }
 .prd-legend__tick[data-local] { border-left: 1.5px dashed var(--cs-text-secondary); }
+.prd-legend__axis { display: inline-block; width: 22px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--cs-text-secondary) 9%, transparent); border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 20%, transparent); }
 .prd-legend__marker { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--cs-text-primary); }
 
 @container (max-width: 760px) {
-  .prd-table { min-width: 560px; }
+  .prd-table { min-width: 600px; }
+  .prd-col-tool { width: 34%; }
+  .prd-col-score { width: 88px; }
+  .prd-col-call { width: 128px; }
   .prd-subject { min-width: 150px; }
   .prd-scale { min-width: 130px; }
   .prd-table td, .prd-table tbody th, .prd-table thead th { padding-left: 12px; padding-right: 12px; }
@@ -330,7 +370,7 @@
 .prd-refs a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 3px; }
 
 @media print {
-  .prd-ruler__band, .prd-vote__cell, .prd-legend__swatch > i { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .prd-ruler__band, .prd-tally__seg, .prd-tally__swatch, .prd-legend__swatch > i { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .prd-info, .prd-link { display: none; }
   .prd-table-wrap { overflow: visible; }
 }

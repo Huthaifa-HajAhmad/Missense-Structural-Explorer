@@ -102,7 +102,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           <Step n={4} label="Engine record" state={engine.withheldByWeighting || (engine.known && (engine.code ?? null) !== vote.code) ? "warn" : "done"}>
             <span className="prd-step__verdict">
               {engine.known ? (
-                engine.code ? <span className="ev-tier chip-code" data-tone={engineTone}>{engine.code}</span> : "No PP3 / BP4 recorded"
+                engine.code ? <span className="ev-tier chip-code" data-tone={engineTone}>{formatEvidenceCode(engine.code)}</span> : "No PP3 / BP4 recorded"
               ) : vote.code ? (
                 <>unconfirmed (supports {vote.code})</>
               ) : (
@@ -117,7 +117,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             )}
             {engine.known && !engine.withheldByWeighting && engine.code && vote.code && engine.code !== vote.code && (
               <span className="prd-step__warn">
-                The payload records {engine.code} where the current rule gives {vote.code} — it was classified by an earlier engine. Re-run the analysis to refresh it.
+                The payload records {formatEvidenceCode(engine.code)} where the current rule gives {vote.code} — it was classified by an earlier engine. Re-run the analysis to refresh it.
               </span>
             )}
           </Step>
@@ -148,11 +148,14 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
                 );
               })}
           </ul>
-          <p className="prd-step__sub">
-            {reference.name} <span className="prd-mono">{reference.score.toFixed(3)}</span> →{" "}
-            {reference.call.direction ? formatEvidenceCode(reference.call.code) : "indeterminate (between the bands)"}.
-            {" "}ClinGen names REVEL, BayesDel, MutPred2 and VEST4 as tools to use on their own.
-          </p>
+          {/* A band marked "this variant" already states the reading; say it in words only when no
+              band is marked, so the rail does not print the tab's reference row a second time. */}
+          {!reference.call.direction && (
+            <p className="prd-step__sub">
+              {reference.name} <span className="prd-mono">{reference.score.toFixed(3)}</span> sits between the
+              bands: indeterminate.
+            </p>
+          )}
         </section>
       )}
 
@@ -166,8 +169,8 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
           <summary>How to read this vote</summary>
           <ul>
             <li>
-              ClinGen (Pejaver 2022) recommends a single calibrated tool chosen in advance, not a count of
-              correlated tools. The vote here is kept at Supporting strength for that reason; the
+              ClinGen (Pejaver 2022) recommends a single calibrated tool chosen in advance (REVEL, BayesDel,
+              MutPred2 or VEST4), not a count of correlated tools. The vote here is kept at Supporting strength for that reason; the
               calibrated reference above is the reading ClinGen would apply.
             </li>
             <li>

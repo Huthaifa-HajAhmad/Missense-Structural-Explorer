@@ -45,8 +45,22 @@ labelled in the rail as classified by an earlier engine.
 ## UI / UX
 
 - One screen shape shared with Population Data: finding card → readings table → rail.
-- Finding: engine chip, pathogenic–benign count as the headline figure, one sentence, a vote strip
-  of every voting tool coloured by call, the calibrated-reference callout, and a four-fact strip.
+- Finding (flat revision, 2026-09-29): beige header bar with the engine chip; ONE bold summary line
+  from `predictorSummary` (engine record, vote, calibrated reference, disagreement in words, a
+  warning glyph when a curator must reconcile two readings); a **Vote** row (tally bar, one segment
+  per voting tool, names under segments, one key line of counts) and a **Calibrated reference** row
+  (REVEL, else BayesDel, on its ClinGen ruler), each ending in the code it supports; beige footer
+  with the not-counted count and any pending notice. This replaced a headline figure, a strip of
+  tinted boxes, a full-width yellow REVEL banner and a meta strip, which together stated the count
+  four times, REVEL's reading three times and every voter's score twice. The summary covers every
+  state, each pinned in `predictorEvidence.test.ts`: recorded (reference agrees / opposes / between
+  bands / absent / pending), no engine record (unconfirmed), withheld by weighting, stale record
+  from an earlier engine (a different strength, or none where the rule gives one), tie or all
+  indeterminate (with the reference reaching a band flagged), and nothing scored.
+- The rail no longer restates the reference reading under its band list when a band is marked
+  "this variant" (it still says so in words when the score sits between bands); ClinGen's four
+  stand-alone tools moved into the Method note. Engine codes print as "PP3 Moderate", not
+  "PP3_Moderate", in the chip, the summary and the rail.
 - Readings: all 18 tools in one table (was 4 sub-tabs, one family visible at a time), grouped by
   role, each with score, a ruler on its own axis with cut-points drawn by provenance (ClinGen bands
   graded by strength; authors' ticks; local marks dashed; none), and its call.
