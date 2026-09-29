@@ -26,6 +26,11 @@ function fmtTick(n: number) {
   return Math.abs(n) >= 10 ? n.toFixed(1) : Number(n.toFixed(3)).toString();
 }
 
+/** Axis ends are round numbers: "50", not "50.0" beside a "0". */
+function fmtAxis(n: number) {
+  return Number.isInteger(n) ? String(n) : fmtTick(n);
+}
+
 export function ScoreRuler({ reading }: { reading: PredictorReading }) {
   const { score, scale, orientation, cutpoints } = reading;
   const { min, max } = scale;
@@ -93,8 +98,8 @@ export function ScoreRuler({ reading }: { reading: PredictorReading }) {
         )}
       </div>
       <div className="prd-ruler__axis" aria-hidden="true">
-        <span>{fmtTick(min)}</span>
-        <span>{fmtTick(max)}</span>
+        <span>{fmtAxis(min)}</span>
+        <span>{fmtAxis(max)}</span>
       </div>
     </div>
   );

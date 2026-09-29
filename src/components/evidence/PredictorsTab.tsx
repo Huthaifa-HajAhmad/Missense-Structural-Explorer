@@ -218,6 +218,22 @@ function ReferenceRow({ evidence }: { evidence: PredictorEvidence }) {
   );
 }
 
+/**
+ * A score split at its decimal point, so a column mixing 0.231, 26.3, -4.00 and 7 lines up on the
+ * point rather than on the last digit (right-aligning alone left the points staggered).
+ */
+function DecimalScore({ text }: { text: string }) {
+  const dot = text.indexOf(".");
+  const int = dot < 0 ? text : text.slice(0, dot);
+  const frac = dot < 0 ? "" : text.slice(dot);
+  return (
+    <span className="prd-dec">
+      <span className="prd-dec__int">{int}</span>
+      <span className="prd-dec__frac">{frac}</span>
+    </span>
+  );
+}
+
 function CaveatChips({ reading }: { reading: PredictorReading }) {
   if (reading.caveats.length === 0) return null;
   return (
@@ -274,7 +290,7 @@ function ReadingRow({
       <td className="prd-num">
         {has ? (
           <>
-            {reading.scoreText}
+            <DecimalScore text={reading.scoreText} />
             {reading.unit && <span className="prd-unit">{reading.unit}</span>}
           </>
         ) : (
@@ -284,10 +300,14 @@ function ReadingRow({
       {has ? (
         <td className="prd-scale">
           <ScoreRuler reading={reading} />
-          <span className="prd-scale__source">
-            {CUT_SOURCE_LABEL[reading.cutpoints.kind]}
-            {reading.cutpoints.source ? ` · ${reading.cutpoints.source}` : ""}
-          </span>
+          {/* A bare axis already shows there is no cut-point (the legend says so once); the
+              caption is kept for every ruler that DRAWS a cut-point, since each carries its source. */}
+          {reading.cutpoints.kind !== "none" && (
+            <span className="prd-scale__source">
+              {CUT_SOURCE_LABEL[reading.cutpoints.kind]}
+              {reading.cutpoints.source ? ` · ${reading.cutpoints.source}` : ""}
+            </span>
+          )}
         </td>
       ) : (
         <td className="prd-reason prd-scale">
@@ -311,7 +331,10 @@ function ReadingRow({
         </td>
       )}
       <td className="prd-status">
-        {has ? (
+        {has && reading.callLabel === "Informational" ? (
+          // Not a call: plain text, so the column's chips are only the readings that make one.
+          <span className="prd-call__plain">Informational</span>
+        ) : has ? (
           <>
             <span
               className={`ev-tier${/^(PP3|BP4)/.test(reading.callLabel) ? " chip-code" : ""}`}
@@ -413,6 +436,12 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
         </h2>
         <div className="prd-card prd-table-wrap">
           <table className="prd-table" data-testid="predictor-readings">
+            <colgroup>
+              <col className="prd-col-tool" />
+              <col className="prd-col-score" />
+              <col className="prd-col-scale" />
+              <col className="prd-col-call" />
+            </colgroup>
             <thead>
               <tr>
                 <th scope="col">Tool</th>
@@ -448,6 +477,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
             <span className="prd-legend__item"><span className="prd-legend__swatch" data-side="benign" aria-hidden="true"><i /><i /><i /></span>BP4 bands</span>
             <span className="prd-legend__item"><i className="prd-legend__tick" />Authors' cut-point</span>
             <span className="prd-legend__item"><i className="prd-legend__tick" data-local />Local mark</span>
+            <span className="prd-legend__item"><i className="prd-legend__axis" />No published cut-point</span>
             <span className="prd-legend__item"><i className="prd-legend__marker" />This variant</span>
           </div>
         </div>

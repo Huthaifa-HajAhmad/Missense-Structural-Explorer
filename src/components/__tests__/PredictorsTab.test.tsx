@@ -133,4 +133,16 @@ describe("PredictorsTab", () => {
     expect(row.textContent).toMatch(/PP3/);
     expect(row.textContent).toMatch(/not counted/);
   });
+  it("aligns scores on the decimal point and keeps chips for readings that make a call", () => {
+    renderTab(gzf1());
+    const cadd = screen.getByTestId("predictor-cadd");
+    expect(cadd.querySelector(".prd-dec__int")!.textContent).toBe("29");
+    expect(cadd.querySelector(".prd-dec__frac")!.textContent).toBe(".5");
+    const dann = screen.getByTestId("predictor-dann");
+    expect(dann.querySelector(".prd-status .ev-tier")).toBeNull();
+    expect(dann.textContent).toMatch(/Informational/);
+    // A bare axis carries no "No cut-point" caption; the legend says it once.
+    expect(dann.textContent).not.toMatch(/No cut-point/);
+    expect(screen.getByLabelText("Legend").textContent).toMatch(/No published cut-point/);
+  });
 });
