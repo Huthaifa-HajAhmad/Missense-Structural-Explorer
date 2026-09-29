@@ -112,14 +112,14 @@ export async function runEsmcAnalysis(
     const data = await sidecarRes.json() as any;
     if (data && data.status === "success" && typeof data.llr === "number") {
       const llr = data.llr;
-      const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : 0.0;
-      const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : 0.0;
-      const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
-      const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
+      const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : undefined;
+      const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : undefined;
+      const mutRank = typeof data.mutRank === "number" ? data.mutRank : undefined;
+      const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : undefined;
       const preferences = Array.isArray(data.preferences) ? data.preferences : [];
 
       // Retrieve real embedding shifts from sidecar response
-      const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : 0.0;
+      const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
       const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
       let localEmbeddingShift = 0.0;
       if (localShiftMap.length > 0) {

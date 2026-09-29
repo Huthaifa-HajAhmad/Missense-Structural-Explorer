@@ -55,6 +55,13 @@ const GUARDED_SURFACES = [
    * panel this guard was written for.
    */
   "src/shared/evidenceAvailability.ts",
+  /**
+   * The Structural perturbation tab said "Protein Language Models in Standby", "<model> Standby" and
+   * printed "N/A" for every absent number. Its states now come from `perturbationEvidence`, which
+   * takes every label from engineStatus; both are listed so neither can drift back.
+   */
+  "src/components/evidence/PerturbationTab.tsx",
+  "src/shared/perturbationEvidence.ts",
 ] as const;
 
 /**

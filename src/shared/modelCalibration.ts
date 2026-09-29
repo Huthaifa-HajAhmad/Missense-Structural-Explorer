@@ -77,8 +77,13 @@ export interface ModelCalibration {
  * quantities that happen to share the label "shift".
  */
 export const EMBEDDING_DIMS = {
-  saprot35m: 768,
-  vesm: 768,
+  /**
+   * Hidden size of `westlake-repl/SaProt_35M_AF2` (config.json: hidden_size 480) and of
+   * VESM_150M, which is built on `facebook/esm2_t30_150M_UR50D` (640). Both were recorded as 768,
+   * a width neither model has; the rail printed it beside the 35M score as if measured.
+   */
+  saprot35m: 480,
+  vesm: 640,
   esm2_650m: 1280,
   saprot650m: 1280,
   esmc6b: 2560
@@ -149,9 +154,10 @@ export const MODEL_CALIBRATIONS: Record<string, ModelCalibration> = {
     cutPointSource: null,
     embeddingDim: EMBEDDING_DIMS.saprot650m,
     note:
-      "Structure-conditioned LLR. SaProt's discriminative power comes from re-ranking " +
-      "substitutions within one Foldseek-tokenised backbone, not from the absolute " +
-      "magnitude of its LLR — which is why its scores sit near zero on this variant.",
+      // The note used to end "which is why its scores sit near zero on this variant" — a sentence
+      // written about one variant and printed beside every other, including one scoring −6.99.
+      "Structure-conditioned LLR: each residue token is paired with its Foldseek 3Di state, so " +
+      "the score reads the substitution in its local structural context. No published cut-point.",
     provenance:
       "Su, J., et al. (2024). SaProt: Protein Language Modeling with Structure-aware Vocabulary. ICLR."
   },
@@ -165,8 +171,8 @@ export const MODEL_CALIBRATIONS: Record<string, ModelCalibration> = {
     cutPointSource: null,
     embeddingDim: EMBEDDING_DIMS.saprot35m,
     note:
-      "Distilled 35M sibling of SaProt 650M, offered for speed rather than accuracy. " +
-      "Same model-native scale, same absence of a cut-point.",
+      "The 35M-parameter SaProt checkpoint (separately trained, not distilled from 650M), offered " +
+      "for speed rather than accuracy. Its LLR is on its own scale and has no cut-point.",
     provenance: "Su, J., et al. (2024). SaProt. ICLR."
   },
 
@@ -239,6 +245,37 @@ export function classifyLlr(
  * the one cross-model statement this module can make without a calibration study. This
  * is the honest replacement for the cross-family LLR mean.
  */
+export type RankBand = "most" | "upper" | "lower" | "least";
+
+/**
+ * App-defined bands over the mutant's within-model rank (1 = most preferred of 20). They are
+ * reading aids, not calibrated cut-points: no study has tied a rank to pathogenicity. They are the
+ * bands the rank sentence below has always used, lifted here so the tab, its rail and that
+ * sentence cannot drift apart.
+ */
+export const RANK_BANDS: ReadonlyArray<{ band: RankBand; from: number; to: number; label: string }> = [
+  { band: "most", from: 1, to: 3, label: "Most preferred" },
+  { band: "upper", from: 4, to: 10, label: "Upper half" },
+  { band: "lower", from: 11, to: 17, label: "Dispreferred" },
+  { band: "least", from: 18, to: 20, label: "Least preferred" }
+];
+
+/** A usable rank (an integer 1–20) or null. The producers used to default a missing rank to 1. */
+export function validRank(mutRank: number | null | undefined): number | null {
+  if (typeof mutRank !== "number" || !Number.isFinite(mutRank)) return null;
+  const r = Math.round(mutRank);
+  return r >= 1 && r <= 20 ? r : null;
+}
+
+export function rankBand(rank: number | null | undefined): RankBand | null {
+  const r = validRank(rank);
+  if (r === null) return null;
+  return RANK_BANDS.find(b => r >= b.from && r <= b.to)!.band;
+}
+
+/** App-defined positional-entropy reading marks, in bits (ceiling log2(20) ≈ 4.32). */
+export const ENTROPY_MARKS = { constrained: 1.0, tolerant: 2.5, ceiling: Math.log2(20) } as const;
+
 export function describeWithinModelRank(
   mutRank: number | null | undefined,
   positionalEntropy?: number | null
@@ -268,22 +305,24 @@ export function describeWithinModelRank(
     return `${n}${suffix}`;
   };
 
-  let standing: string;
-  if (rank <= 3) standing = "among the model's most preferred substitutions at this position";
-  else if (rank <= 10) standing = "in the upper half of the model's preferences at this position";
-  else if (rank <= 17) standing = "dispreferred relative to most of the alternatives";
-  else standing = "among the model's least preferred substitutions at this position";
+  const STANDING: Record<RankBand, string> = {
+    most: "among the model's most preferred substitutions at this position",
+    upper: "in the upper half of the model's preferences at this position",
+    lower: "dispreferred relative to most of the alternatives",
+    least: "among the model's least preferred substitutions at this position"
+  };
+  const standing = STANDING[rankBand(rank)!];
 
   const entropyNote =
     positionalEntropy !== null && positionalEntropy !== undefined && !Number.isNaN(positionalEntropy)
-      ? positionalEntropy >= 2.5
+      ? positionalEntropy >= ENTROPY_MARKS.tolerant
         ? " High positional entropy means this site tolerates substitution broadly, so a low rank here is weaker evidence than the same rank at a rigid site."
-        : positionalEntropy <= 1.0
+        : positionalEntropy <= ENTROPY_MARKS.constrained
           ? " Low positional entropy means this site is strongly constrained, so a low rank here is stronger evidence."
           : ""
       : "";
 
-  return `Ranked ${ordinal(rank)} of 20 by model preference (${20 - rank} of the other 19 canonical substitutions rank above it) — ${standing}.${entropyNote}`;
+  return `Ranked ${ordinal(rank)} of 20 by model preference (${rank - 1} of the other 19 canonical substitutions rank above it) — ${standing}.${entropyNote}`;
 }
 
 /**

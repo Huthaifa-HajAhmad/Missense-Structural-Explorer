@@ -161,14 +161,16 @@ export function countPredictorConcordance(
     },
     {
       key: "esm2_3b",
-      name: "ESM-2 3B",
+      // The key is historical; the model served is ESM-2 650M (esm2_t33_650M_UR50D), never 3B.
+      name: "ESM-2",
       signal: evaluateEsm(extra?.esm2Llr),
       scoreLabel: extra?.esm2Llr !== null && extra?.esm2Llr !== undefined ? `${extra.esm2Llr.toFixed(2)}` : "—",
       isInformationalOnly: true,
     },
     {
       key: "saprot",
-      name: "SaProt 650M",
+      // Unsized: the remote tier falls back 650M → 35M, and the payload's provenance says which ran.
+      name: "SaProt",
       signal: evaluateEsm(extra?.saprotLlr),
       scoreLabel: extra?.saprotLlr !== null && extra?.saprotLlr !== undefined ? `${extra.saprotLlr.toFixed(2)}` : "—",
       isInformationalOnly: true,

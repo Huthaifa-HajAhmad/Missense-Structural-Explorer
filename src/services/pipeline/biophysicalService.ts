@@ -299,8 +299,8 @@ export function fetchProgressiveStructuralAssessments(
 
       // DevConsole diagnostics: inspect each structural model and emit clear diagnostic warnings/errors
       const modelEntries: [string, any][] = [
-        ["SaProt 650M AF2", structRes.saprotEval],
-        ["ESM-2 3B", structRes.esm2Eval],
+        ["SaProt", structRes.saprotEval],
+        ["ESM-2 650M", structRes.esm2Eval],
         ["ESMC-6B / VESM-150M", structRes.esmcEval],
         ["ESM3", structRes.esm3Eval]
       ];

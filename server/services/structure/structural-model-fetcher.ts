@@ -21,7 +21,7 @@ export interface StructuralAnalysisData {
 }
 
 /**
- * Executes deep learning structural models (ESM3, ESMC, ESM-2 3B, SaProt) with timeout racing
+ * Executes deep learning structural models (ESM3, ESMC, ESM-2 650M, SaProt) with timeout racing
  * and single-pass shared PDB text resolution.
  */
 export async function fetchStructuralModelData(
@@ -107,8 +107,8 @@ export async function fetchStructuralModelData(
     sequence,
     hfToken
   ).catch(err => {
-    console.warn("[ESM2 3B Parallel Run Warning] Failed to run ESM-2 3B analysis:", err);
-    return { error: `ESM-2 3B analysis failed: ${err.message}`, status: "error" as const };
+    console.warn("[ESM-2 Parallel Run Warning] Failed to run ESM-2 analysis:", err);
+    return { error: `ESM-2 analysis failed: ${err.message}`, status: "error" as const };
   });
 
   const chosenSaprotModel = context.saprotEngine === "saprot-35m"
@@ -144,8 +144,8 @@ export async function fetchStructuralModelData(
 
   const fastEsm3Promise = Promise.race([esm3EvalPromise, createTimeoutPromise("ESM3")]);
   const fastEsmcPromise = Promise.race([esmcEvalPromise, createTimeoutPromise("VESM-150M")]);
-  const fastEsm2Promise = Promise.race([esm2EvalPromise, createTimeoutPromise("ESM-2 3B")]);
-  const fastSaprotPromise = Promise.race([saprotEvalPromise, createTimeoutPromise("SaProt 650M AF2")]);
+  const fastEsm2Promise = Promise.race([esm2EvalPromise, createTimeoutPromise("ESM-2")]);
+  const fastSaprotPromise = Promise.race([saprotEvalPromise, createTimeoutPromise("SaProt")]);
 
   const [esm3Eval, esmcEval, esm2Eval, saprotEval, pdbMapping] = await Promise.all([
     fastEsm3Promise,

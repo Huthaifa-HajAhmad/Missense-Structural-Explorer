@@ -86,10 +86,10 @@ export async function runEsm2Analysis(
       const data = await sidecarRes.json() as any;
       if (data && data.status === "success" && typeof data.llr === "number") {
         const llr = data.llr;
-        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : 0.0;
-        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : 0.0;
-        const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
-        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
+        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : undefined;
+        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : undefined;
+        const mutRank = typeof data.mutRank === "number" ? data.mutRank : undefined;
+        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : undefined;
         const preferences = Array.isArray(data.preferences) ? data.preferences : [];
         /**
          * Absence is preserved, never coerced to 0 — the serverless filler API exposes no

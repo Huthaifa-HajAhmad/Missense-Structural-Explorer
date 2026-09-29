@@ -12,7 +12,7 @@
  * Everything identity-related now resolves here.
  */
 
-import { resolveModelCalibration, type ModelCalibration } from "./modelCalibration";
+import { MODEL_CALIBRATIONS, resolveModelCalibration, type ModelCalibration } from "./modelCalibration";
 
 export type PerturbationModelId = "saprot" | "esm2" | "esmc";
 
@@ -110,6 +110,58 @@ export function hasAmbiguousProvenance(calibration: ModelCalibration | null | un
   // Ambiguous when the provenance names a different family, or names none at all while
   // still being informative enough to have been expected to.
   return foreignPresent || (!ownPresent && p.trim().length > 0);
+}
+
+/**
+ * Which registry row describes the model that actually produced a card's numbers.
+ *
+ * The calibration row used to be picked from the *settings* engine: with "remote-hf" selected the
+ * SaProt card took the 650M row (1280-dim, 650M note) while the payload said the remote tier had
+ * served SaProt_35M_AF2 — the server falls back 650M → 35M, and to VESM-150M when SaProt fails
+ * entirely. The payload's `provenance` is the record of what ran, so it decides; the settings
+ * engine is only a last resort, and a row chosen that way is flagged `inferred`.
+ */
+export interface ServedModel {
+  registryKey: keyof typeof MODEL_CALIBRATIONS | null;
+  calibration: ModelCalibration | null;
+  /** True when the provenance names a model other than the card's own family (a fallback tier). */
+  fallback: boolean;
+  /** True when no provenance string named a model and the row was taken from settings. */
+  inferred: boolean;
+  engine: "remote" | "local" | "unknown";
+}
+
+export function resolveServedModel(
+  id: PerturbationModelId,
+  provenance?: string | null,
+  saprotEngine?: string | null
+): ServedModel {
+  const p = (provenance ?? "").toLowerCase();
+  const engine: ServedModel["engine"] = /remote|cloud|serverless|japanfold/.test(p)
+    ? "remote"
+    : /local|cpu|sidecar/.test(p)
+      ? "local"
+      : "unknown";
+  let key: ServedModel["registryKey"] = null;
+  if (/vesm/.test(p)) key = "vesm150m";
+  else if (/saprot/.test(p)) key = /35m/.test(p) ? "saprot35m" : /650m/.test(p) ? "saprot650m" : null;
+  else if (/esmc/.test(p)) key = "esmc6b";
+  else if (/esm-?2|esm2/.test(p)) key = /650m/.test(p) ? "esm2_650m" : /t33/.test(p) ? "esm2_650m" : null;
+
+  if (key) {
+    const calibration = MODEL_CALIBRATIONS[key];
+    const ownFamily = id === "saprot" ? "saprot" : id === "esm2" ? "esm2" : "esmc";
+    return { registryKey: key, calibration, fallback: calibration.family !== ownFamily, inferred: false, engine };
+  }
+  // ESM-2 of unstated size, or no provenance at all: fall back to the card's own row, flagged.
+  const calibration = resolveModelCalibration(id, { saprotEngine });
+  return {
+    registryKey: calibration ? (calibration.id as ServedModel["registryKey"]) : null,
+    calibration,
+    fallback: false,
+    inferred: true,
+    engine
+  };
 }
 
 /** Reads the analysis result's per-model evaluations without assuming their shape. */

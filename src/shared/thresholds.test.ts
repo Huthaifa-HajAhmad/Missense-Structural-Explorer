@@ -169,7 +169,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(res.available).toContain("POPEVE");
     });
 
-    it("should include ESM-2 3B and SaProt 650M as informational models when LLR is provided", () => {
+    it("should include ESM-2 and SaProt, unsized, as informational models when LLR is provided", () => {
       const res = countPredictorConcordance(
         null,
         null,
@@ -186,8 +186,9 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
         }
       );
 
-      expect(res.available).toContain("ESM-2 3B");
-      expect(res.available).toContain("SAPROT 650M");
+      // Unsized: ESM-2 is served as 650M (never 3B) and SaProt as 650M or 35M, so neither size is asserted.
+      expect(res.available).toContain("ESM-2");
+      expect(res.available).toContain("SAPROT");
       expect(res.available).toContain("DANN");
       expect(res.available).toContain("CLINPRED");
       expect(res.available).toContain("EIGEN");

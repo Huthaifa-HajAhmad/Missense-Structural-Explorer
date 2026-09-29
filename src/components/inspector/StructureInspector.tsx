@@ -417,7 +417,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({
                   <span>FoldX Local Perturbation</span>
                 </div>
                 <p className="text-[10px] text-cs-text-secondary leading-snug font-sans">
-                  Rigid-backbone local comparison; displacement values are physically interpretable.
+                  Rigid-backbone comparison: FoldX copies the wild-type backbone, so Cα displacement is zero by construction; side-chain repacking is what varies.
                 </p>
               </div>
             )}

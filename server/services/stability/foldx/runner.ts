@@ -556,7 +556,8 @@ export async function generateMutantPdbInternal(
     }
 
     // Calculate local sidechain RMSD (BIO-8)
-    let localSidechainRmsd = 0.0;
+    // Null until measured: a failed RMSD used to reach the tab as a measured 0.00 Å.
+    let localSidechainRmsd: number | null = null;
     try {
       const wtAtoms = parseAtomsFromPdb(wtPdb);
       const mutAtoms = parseAtomsFromPdb(mutantPdbContent);

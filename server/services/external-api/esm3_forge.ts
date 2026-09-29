@@ -1,6 +1,7 @@
 import { LRUCache } from "lru-cache";
 import { AMINO_ACID_1_TO_3, AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { UNMEASURED_BURIAL_ENVIRONMENT, classifyBurialRsa } from "../../../src/shared/burialEvidence.ts";
+import { THRESHOLDS } from "../../../src/shared/thresholds/constants.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
@@ -229,10 +230,13 @@ export async function fetchEsm3StructureEval(
   const maxDriftResidue = perturbationScores.indexOf(maxVal) + 1;
 
   // 1. Predicted Local Structural Change
+  // App-defined bands over an embedding distance — one copy, in src/shared/thresholds, so the tab
+  // can draw the same marks it is classified against.
+  const drift = THRESHOLDS.esm3Drift;
   let structuralChangeLevel: "none" | "minor" | "moderate" | "major" = "minor";
-  if (maxVal < 0.08) structuralChangeLevel = "none";
-  else if (maxVal < 0.22) structuralChangeLevel = "minor";
-  else if (maxVal < 0.38) structuralChangeLevel = "moderate";
+  if (maxVal < drift.none) structuralChangeLevel = "none";
+  else if (maxVal < drift.minor) structuralChangeLevel = "minor";
+  else if (maxVal < drift.moderate) structuralChangeLevel = "moderate";
   else structuralChangeLevel = "major";
 
   // 2. Microenvironment
@@ -286,9 +290,10 @@ export async function fetchEsm3StructureEval(
   if (["S", "T", "Y", "N", "Q", "K", "R", "D", "E"].includes(wt1) && ["A", "V", "L", "I", "F"].includes(mut1)) {
     putativeStructuralChanges.push("Loss of polar sidechain hydrogen-bonding interactions");
   }
-  if (putativeStructuralChanges.length === 0) {
-    putativeStructuralChanges.push("Minor sidechain rotamer realignment without major backbone shift");
-  }
+  // No fallback sentence. "Minor sidechain rotamer realignment without major backbone shift" was
+  // pushed whenever none of the residue-class rules above fired — a structural finding asserted from
+  // the absence of a rule match, and shown on the tab as an ESM3 hypothesis. An empty list is the
+  // honest result when no rule applies.
 
   // 4. Confidence
   let confLevel: "high" | "moderate" | "low" = "high";

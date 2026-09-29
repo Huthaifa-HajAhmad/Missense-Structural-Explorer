@@ -125,10 +125,10 @@ export async function runSaprotAnalysis(
       const data = await sidecarRes.json() as any;
       if (data && data.status === "success" && typeof data.llr === "number") {
         const llr = data.llr;
-        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : 0.0;
-        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : 0.0;
-        const mutRank = typeof data.mutRank === "number" ? data.mutRank : 1;
-        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : 0.0;
+        const wtProb = typeof data.wtProbability === "number" ? data.wtProbability : undefined;
+        const mutProb = typeof data.mutProbability === "number" ? data.mutProbability : undefined;
+        const mutRank = typeof data.mutRank === "number" ? data.mutRank : undefined;
+        const positionalEntropy = typeof data.positionalEntropy === "number" ? data.positionalEntropy : undefined;
         const preferences = Array.isArray(data.preferences) ? data.preferences : [];
         /**
          * Absence is preserved, never coerced to 0. The sidecar reports null when its engine
@@ -140,7 +140,7 @@ export async function runSaprotAnalysis(
         const embeddingShift = typeof data.embeddingShift === "number" ? data.embeddingShift : undefined;
         const localShiftMap: EsmcLocalShift[] = Array.isArray(data.localShiftMap) ? data.localShiftMap : [];
         const klDivergence = typeof data.klDivergence === "number" ? data.klDivergence : null;
-        const conformationState = typeof data.conformationState === "string" ? data.conformationState : "#";
+        const conformationState = typeof data.conformationState === "string" ? data.conformationState : null;
 
         let localEmbeddingShift = 0.0;
         if (localShiftMap.length > 0) {

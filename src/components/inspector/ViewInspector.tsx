@@ -21,7 +21,7 @@ import type { FoldxProgress } from "../../shared/foldxPhase";
 
 import StructureInspector from "./StructureInspector";
 import EvidenceInspector from "./EvidenceInspector";
-import PerturbationInspector from "./PerturbationInspector";
+import PerturbationRail from "./PerturbationRail";
 import ResidueShiftInspector from "./ResidueShiftInspector";
 import SplicingInspector from "./SplicingInspector";
 import EnergeticsInspector from "./EnergeticsInspector";
@@ -112,7 +112,7 @@ const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
   alphagenome: "AlphaGenome variant impact (AVI)",
   splicing: "RNA Splicing Calibration",
   structure: "Residue Shifts & Pocket Provenance",
-  perturbation: "Structural Perturbation Models",
+  perturbation: "Structural perturbation trace",
   multimers: "Multimer Assembly Quality",
   function: "Functional Domains & Features",
   interactions: "PPI Network Provenance",
@@ -474,7 +474,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         )}
 
         {activeView === "evidence" && (activeEvidenceTab || "").toLowerCase() === "perturbation" && (
-          <PerturbationInspector
+          <PerturbationRail
             analysisResult={analysisResult}
             activePerturbationModel={activePerturbationModel}
             saprotEngine={saprotEngine}

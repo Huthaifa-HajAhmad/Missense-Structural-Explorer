@@ -117,8 +117,23 @@ export const THRESHOLDS = {
   },
 
   vdwClash: {
-    /** FoldX VdW energy delta > 2.0 kcal/mol → steric clash */
+    /**
+     * FoldX van der Waals clash-term delta > 2.0 kcal/mol → flagged as a steric clash.
+     * APP-DEFINED reading mark: FoldX publishes no cut-point for this single term, and it is one
+     * component of ΔΔG, not a stability estimate. Surfaces must draw it dashed and call it local.
+     */
     significantClash: 2.0,
+  },
+  esm3Drift: {
+    /**
+     * Bands over the maximum per-residue cosine distance between wild-type and mutant ESM3
+     * sequence embeddings (server/services/external-api/esm3_forge.ts). APP-DEFINED, unsourced:
+     * below `none` → "none", below `minor` → "minor", below `moderate` → "moderate", else "major".
+     * Previously literals in the server, where the tab could not show them.
+     */
+    none: 0.08,
+    minor: 0.22,
+    moderate: 0.38,
   },
   dynamut2: {
     /** Negative value indicates destabilisation: ≤ -1.0 kcal/mol */
