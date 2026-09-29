@@ -61,6 +61,10 @@ const GUARDED_SURFACES = [
   "src/components/evidence/GuidelinesTab.tsx",
   "src/components/inspector/GuidelinesRail.tsx",
   "src/shared/thresholdEvidence.ts",
+  // The interactions redesign: "N/A" and "Pending" stood in for a ΔΔG_bind that was never measured.
+  "src/components/evidence/InteractionsTab.tsx",
+  "src/components/inspector/InteractionsRail.tsx",
+  "src/shared/interactionsEvidence.ts",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

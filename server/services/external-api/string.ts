@@ -61,7 +61,8 @@ export async function fetchStringInteractionsWithStatus(
     shouldCache: (result) =>
       !Array.isArray(result) && result.status === "ok" && result.partners.length > 0,
     fetcher: async () => {
-      const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606`;
+      // `caller_identity` is how STRING asks API clients to identify themselves (string-db.org/help/api).
+      const url = `https://string-db.org/api/json/network?identifiers=${encodeURIComponent(normGene)}&species=9606&caller_identity=missense-structural-explorer`;
 
       try {
         const res = await fetchWithRetry(url, { timeout: 15000 });
@@ -73,7 +74,10 @@ export async function fetchStringInteractionsWithStatus(
             for (const item of data) {
               const nameA = (item.preferredName_A || "").toUpperCase();
               const nameB = (item.preferredName_B || "").toUpperCase();
-              const score = item.score !== undefined ? parseFloat(item.score) : 0.4;
+              // A row without a score is skipped, not given one: this used to default to 0.4, the floor of
+              // STRING's "medium" band, so a missing value was reported as medium-confidence evidence.
+              const score = item.score !== undefined ? parseFloat(item.score) : NaN;
+              if (!Number.isFinite(score)) continue;
 
               if (nameA === targetUpper && nameB !== targetUpper) {
                 partnersMap.set(nameB, Math.max(partnersMap.get(nameB) || 0, score));

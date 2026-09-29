@@ -1,580 +1,254 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InteractionsTab } from "../InteractionsTab";
 
 /**
- * `useApiClient` pulls in the settings and auth providers the tab does not
- * otherwise need; the store is stubbed so the cross-store write can be asserted
- * instead of mutating real client state.
+ * What the Protein interactions screen may claim. `useApiClient` pulls in providers the tab does not
+ * otherwise need; the store is stubbed so its writes can be asserted.
  */
-const { fetchWithAuthMock, setAnalysisStateMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, setAnalysisStateMock, storeState } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
-  setAnalysisStateMock: vi.fn()
+  setAnalysisStateMock: vi.fn(),
+  storeState: { analysisState: null as any },
 }));
 vi.mock("../../../apiClient", () => ({
   useApiClient: () => ({ fetchWithAuth: fetchWithAuthMock }),
-  extractErrorMessage: vi.fn()
+  extractErrorMessage: vi.fn(async () => "Upstream said no."),
 }));
 vi.mock("../../../stores/useVariantAnalysisStore", () => ({
   useVariantAnalysisStore: {
-    getState: () => ({ setAnalysisState: setAnalysisStateMock })
-  }
+    getState: () => ({ setAnalysisState: setAnalysisStateMock, analysisState: storeState.analysisState }),
+  },
 }));
 
 afterEach(() => {
   fetchWithAuthMock.mockReset();
   setAnalysisStateMock.mockReset();
-  vi.unstubAllGlobals();
+  storeState.analysisState = null;
 });
 
-/**
- * A fetch stub that honours the abort signal the way the real one does — a
- * promise that never settles when nothing aborts, and an AbortError when it does.
- * A plain never-resolving promise would silently skip the abort path the
- * regression test below exists to exercise.
- */
+/** A fetch stub that honours abort like the real one: never settles, or rejects with AbortError. */
 function hangingFetch() {
   return vi.fn((_url: string, init?: { signal?: AbortSignal }) =>
     new Promise((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => {
-        reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-      });
+      init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
     })
   );
 }
 
-/**
- * The endpoint reports an empty array for every non-answer, so `lookups` is what
- * separates "STRING/UniProt answered, and the answer was empty" from "the lookup
- * never happened". Fixtures that assert an absence must therefore say `ok`; the
- * tests that vary it are the ones testing the distinction.
- */
-const LOOKUPS_OK = { stringPartners: "ok", interfaceResidues: "ok" } as const;
-
-const PARTNERS = [
-  { partner: "PTP4A1", score: 0.97 }, // highest
-  { partner: "AS3MT", score: 0.818 }, // high
-  { partner: "CBSL", score: 0.5 }, // medium
-  { partner: "NOVEL1", score: 0.2 } // low — the band the old code called "Medium"
-];
-
-/** CNNM2 p.Ser489Cys as the PPI tab sees it: a curated monomer with no interface. */
-const MONOMER_RESULT = {
-  metadata: { gene: "CNNM2", variant: "p.Ser489Cys", residueIndex: 489, uniprotId: "Q9H8M5" },
-  multimerData: { status: "monomeric", chainCount: 1, oligomericState: "Monomer", interfaceContacts: [] },
-  uniprotFeatures: { subunitComment: "Monomer. Interacts with..." },
-  ppiBindingData: {
-    status: "success",
-    gene: "CNNM2",
-    variant: "p.Ser489Cys",
-    bindingShift: null,
-    interfaceResidues: [],
-    lookups: LOOKUPS_OK,
-    stringPartners: PARTNERS
-  }
+/** NAE1 p.Asp116Gly — the reference variant (user's screenshot; UniProtKB Q13564). */
+const PPI = {
+  status: "success",
+  gene: "NAE1",
+  variant: "p.Asp116Gly",
+  uniprotId: "Q13564",
+  position: 116,
+  stringPartners: [
+    { partner: "NEDD8", score: 0.999 },
+    { partner: "UBE2M", score: 0.999 },
+    { partner: "UBA3", score: 0.999 },
+    { partner: "APP", score: 0.998 },
+    { partner: "UBE2F", score: 0.976 },
+  ],
+  subunitComment: "Heterodimer of UBA3 and NAE1. The complex binds NEDD8 and UBE2M. Binds APP and TP53BP2.",
+  curatedInteractions: [
+    { accession: "P05067", gene: "APP", experiments: 3 },
+    { accession: "P07686", gene: "HEXB", experiments: 3 },
+    { accession: "Q8TBC4", gene: "UBA3", experiments: 3 },
+  ],
+  interactionSites: [
+    { type: "Site", start: 211, end: 211, description: "Interaction with UBA3", partners: ["UBA3"], containsVariant: false },
+    { type: "Region", start: 331, end: 344, description: "Interaction with UBA3", partners: ["UBA3"], containsVariant: false },
+  ],
+  observedInterfaces: [],
+  sequenceLength: 534,
+  lookups: { stringPartners: "ok", uniprot: "ok", pdbe: "ok" },
 } as any;
 
-/** Same variant, but nothing has been fetched yet. */
-const UNFETCHED_RESULT = {
-  metadata: { gene: "CNNM2", variant: "p.Ser489Cys", residueIndex: 489 },
-  multimerData: { status: "monomeric", chainCount: 1, oligomericState: "Monomer", interfaceContacts: [] },
-  ppiBindingData: null,
-  stringInteractions: null
-} as any;
-
-/** A multimer whose mutant complex has not been modelled, so ΔΔG_bind cannot be scored. */
-const MULTIMER_RESULT = {
-  metadata: { gene: "CNNM2", variant: "p.Ser489Cys", residueIndex: 489 },
-  multimerData: { status: "success", chainCount: 2, oligomericState: "Homodimer", interfaceContacts: [] },
-  ppiBindingData: {
-    status: "success",
-    gene: "CNNM2",
-    variant: "p.Ser489Cys",
-    bindingShift: null,
-    interfaceResidues: [],
-    lookups: LOOKUPS_OK,
-    stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
-  }
-} as any;
-
-/** A scored interface shift, with the classification the server pairs with it. */
-function scoredResult(ddgBind: number) {
-  return {
-    metadata: { gene: "CNNM2", variant: "p.Ser489Cys", residueIndex: 489 },
-    multimerData: { status: "success", chainCount: 2, oligomericState: "Homodimer", interfaceContacts: [] },
-    ppiBindingData: {
-      status: "success",
-      gene: "CNNM2",
-      variant: "p.Ser489Cys",
-      bindingShift: {
-        ddgBind,
-        unit: "kcal/mol",
-        classification: ddgBind >= 1.5 ? "INTERFACE_DISRUPTIVE" : ddgBind >= 0.5 ? "ALLOSTERIC_PERTURBATION" : "SURFACE_NEUTRAL",
-        provenance: "OpenBind-0 (run 7)"
-      },
-      interfaceResidues: [],
-      lookups: LOOKUPS_OK,
-      stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
-    }
-  } as any;
-}
-
-/** The variant sits inside a modelled quaternary contact. */
-const CONTACT_RESULT = {
-  metadata: { gene: "CNNM2", variant: "p.Ser489Cys", residueIndex: 489 },
+const RESULT = {
+  metadata: { gene: "NAE1", variant: "p.Asp116Gly", residueIndex: 116, uniprotId: "Q13564" },
   multimerData: {
     status: "success",
-    chainCount: 2,
-    oligomericState: "Homodimer",
-    interfaceContacts: [{ resA: 489, resB: 112, distance: 3.4 }]
-  },
-  ppiBindingData: {
-    status: "success",
-    gene: "CNNM2",
-    variant: "p.Ser489Cys",
-    bindingShift: null,
-    interfaceResidues: [],
-    lookups: LOOKUPS_OK,
-    stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
-  }
-} as any;
-
-/** The variant is a curated subunit interface residue. */
-const CURATED_RESULT = {
-  metadata: { gene: "CNNM2", variant: "p.Ser489Cys", residueIndex: 489 },
-  multimerData: { status: "success", chainCount: 2, oligomericState: "Homodimer", interfaceContacts: [] },
-  ppiBindingData: {
-    status: "success",
-    gene: "CNNM2",
-    variant: "p.Ser489Cys",
-    bindingShift: null,
-    interfaceResidues: [
-      { pos: 489, description: "Interface site", isVariantPosition: true },
-      { pos: 511, description: "Subunit contact", isVariantPosition: false }
+    chains: [
+      { id: "A", accession: "Q13564", gene: "NAE1", length: 534, carriesVariant: true },
+      { id: "B", accession: "Q8TBC4", gene: "UBA3", length: 463, carriesVariant: false },
     ],
-    lookups: LOOKUPS_OK,
-    stringPartners: [{ partner: "PTP4A1", score: 0.97 }]
-  }
+  },
+  ppiBindingData: PPI,
 } as any;
 
-function makeProps(result: any, overrides: Record<string, unknown> = {}) {
+function makeProps(result: any) {
   return {
     analysisState: { result, isLoading: false },
     energyUnit: "kcal/mol" as const,
-    formatDdGValue: (val: number | null, unit: string) => `${val} ${unit}`,
-    setSelectedMetric: vi.fn(),
-    isDark: false,
-    classCard: "",
-    classCardHeader: "",
-    classCardTitle: "",
-    classBorderSec: "",
-    classTextBody: "",
-    classTextMute: "",
-    foldingDdG: null,
-    foldingStatus: null,
+    formatDdGValue: (v: number) => `${v}`,
     onTabChange: vi.fn(),
-    ...overrides
   } as any;
 }
 
-function renderTab(result: any, overrides: Record<string, unknown> = {}) {
-  const props = makeProps(result, overrides);
+function renderTab(result: any) {
+  const props = makeProps(result);
   const view = render(<InteractionsTab {...props} />);
-  return {
-    ...view,
-    props,
-    /** Swap the analysis result the way a new query would, without unmounting. */
-    show(next: any) {
-      view.rerender(<InteractionsTab {...makeProps(next, overrides)} />);
-    }
-  };
+  return { ...view, props, show: (next: any) => view.rerender(<InteractionsTab {...makeProps(next)} />) };
 }
 
-describe("InteractionsTab — partner table", () => {
-  it("names the population and the ordering the partner rows were drawn from", () => {
-    renderTab(MONOMER_RESULT);
-    const caption = screen.getByText(/strongest partners by combined association score/i);
-    expect(caption).toHaveTextContent("4 strongest partners");
-    expect(caption).toHaveTextContent("ranked descending");
-    expect(caption).toHaveTextContent("Homo sapiens (TaxID 9606)");
-  });
-
-  it("renders the rows in descending score order, not merely saying it does", () => {
-    // Describing the ordering in the caption is not the same as having it: with
-    // the fixture reversed this was the only assertion that noticed.
-    const { container } = renderTab(MONOMER_RESULT);
-    const order = Array.from(container.querySelectorAll("tbody th")).map((th) =>
-      th.textContent?.replace(/^\d/, "").trim()
+describe("InteractionsTab — the finding", () => {
+  it("places Asp116 outside UniProt's two UBA3 sites and says so in one sentence", () => {
+    renderTab(RESULT);
+    expect(screen.getByText("Outside mapped sites")).toBeInTheDocument();
+    expect(screen.getByTestId("interactions-finding-sentence")).toHaveTextContent(
+      "Asp116 does not fall in any binding site UniProt maps for NAE1."
     );
-    expect(order).toEqual(["PTP4A1", "AS3MT", "CBSL", "NOVEL1"]);
   });
 
-  it("labels each STRING score with the band STRING publishes for it", () => {
-    renderTab(MONOMER_RESULT);
-    expect(screen.getByText("PTP4A1")).toBeInTheDocument();
-    expect(screen.getByText("Highest")).toBeInTheDocument();
-    expect(screen.getByText("High")).toBeInTheDocument();
-    expect(screen.getByText("Medium")).toBeInTheDocument();
-    expect(screen.getByText("Low")).toBeInTheDocument();
+  it("never calls a heterodimer a monomer, and never claims the residue is intramolecular", () => {
+    // The defect this pins: the tab read "Monomer · Intramolecular · ΔΔG_bind N/A" for NAE1.
+    const { container } = renderTab(RESULT);
+    expect(container).not.toHaveTextContent(/monomer|intramolecular/i);
+    expect(container).not.toHaveTextContent(/N\/A|Pending|Uncharacterized|OpenBind/);
   });
 
-  it("does not fall back to Medium for a score below STRING's medium cut-off", () => {
-    // Regression guard. The bands used to have no floor: anything under 0.700 was
-    // labelled "Medium", so the 0.200 partner reported itself as medium-confidence
-    // evidence. Under that code this render produced two "Medium" chips and no "Low".
-    renderTab(MONOMER_RESULT);
-    expect(screen.getAllByText("Medium")).toHaveLength(1);
-    expect(screen.getAllByText("Low")).toHaveLength(1);
-    expect(screen.getByText("0.200")).toBeInTheDocument();
+  it("ends the fact strip with the engine record", () => {
+    renderTab(RESULT);
+    const facts = within(screen.getByTestId("interactions-finding")).getAllByRole("term").map(dt => dt.textContent);
+    expect(facts).toEqual(["Curated partners", "Mapped sites", "Binding change", "Engine record"]);
+  });
+});
+
+describe("InteractionsTab — partner grid", () => {
+  it("lists curated binders before STRING-only associations", () => {
+    renderTab(RESULT);
+    const grid = screen.getByTestId("partner-grid");
+    const groups = Array.from(grid.querySelectorAll("tbody")).map(tb => tb.getAttribute("data-group"));
+    expect(groups).toEqual(["physical", "functional"]);
+    const functional = grid.querySelector('tbody[data-group="functional"]')!;
+    expect(within(functional as HTMLElement).getByText("UBE2F")).toBeInTheDocument();
+    expect(within(grid.querySelector('tbody[data-group="physical"]') as HTMLElement).getByText("HEXB")).toBeInTheDocument();
   });
 
-  it("tones each row's chip and rail by band, and leaves an unbanded score unnamed", () => {
-    // `data-tone` is the entire colour contract, and it was previously unasserted:
-    // mutating every tone to "neutral" kept the suite green.
-    const nonFinite = {
-      ...MONOMER_RESULT,
-      ppiBindingData: {
-        ...MONOMER_RESULT.ppiBindingData,
-        stringPartners: [
-          { partner: "PTP4A1", score: 0.97 },
-          { partner: "AS3MT", score: 0.818 },
-          { partner: "WEIRD", score: NaN }
-        ]
-      }
-    };
-    const { container } = renderTab(nonFinite);
-    const tones = Array.from(container.querySelectorAll("tbody .ev-tier")).map((el) =>
-      el.getAttribute("data-tone")
-    );
-    expect(tones).toEqual(["highest", "high", "neutral"]);
-
-    const fills = Array.from(container.querySelectorAll(".ev-conf-fill")).map((el) =>
-      el.getAttribute("data-tone")
-    );
-    // A score below every band is not the Low band: the classifier declines to
-    // name it, so the rail must not borrow Low's tone.
-    expect(fills).toEqual(["highest", "high", "none"]);
+  it("shows UBA3's mapped sites and that Asp116 is outside them", () => {
+    renderTab(RESULT);
+    const row = screen.getByRole("link", { name: "UBA3" }).closest("tr")!;
+    expect(row).toHaveTextContent("211, 331–344");
+    expect(row).toHaveTextContent("Asp116 outside");
+    expect(row).not.toHaveAttribute("data-hit");
   });
 
-  it("prints a dash and an unnamed band for a non-finite score", () => {
-    const nonFinite = {
-      ...MONOMER_RESULT,
-      ppiBindingData: { ...MONOMER_RESULT.ppiBindingData, stringPartners: [{ partner: "WEIRD", score: NaN }] }
-    };
-    renderTab(nonFinite);
-    expect(screen.getByText("—")).toBeInTheDocument();
-    expect(screen.getByText("Unclassified")).toBeInTheDocument();
+  it("draws STRING association in neutral ink: no benign-green chip", () => {
+    const { container } = renderTab(RESULT);
+    expect(container.querySelector('[data-tone="good"]')).toBeNull();
+    expect(screen.getAllByText("Highest confidence").length).toBeGreaterThan(0);
   });
 
-  it("marks the partner cell as each row's header", () => {
-    // A bare <td> makes the partner a third data cell; a screen reader then reads
-    // the row as three unrelated values instead of "PTP4A1 — 0.970 — Highest".
-    renderTab(MONOMER_RESULT);
-    const rowHeaders = screen.getAllByRole("rowheader");
-    expect(rowHeaders).toHaveLength(4);
-    expect(rowHeaders[0]).toHaveTextContent("PTP4A1");
-  });
-
-  it("draws one tick per inter-band cut on each strength rail", () => {
-    const { container } = renderTab(MONOMER_RESULT);
-    // Four bands => three cuts (0.400 / 0.700 / 0.900), on each of four rows.
-    const ticks = container.querySelectorAll(".ev-conf-tick");
-    expect(ticks).toHaveLength(12);
-
-    const firstRow = container.querySelector("tbody tr")!;
-    const positions = Array.from(firstRow.querySelectorAll(".ev-conf-tick")).map(
-      (tick) => (tick as HTMLElement).style.left
-    );
-    expect(positions).toEqual(["90%", "70%", "40%"]);
-  });
-
-  it("keeps the partner link pointing at STRING-db and off the current tab", () => {
-    renderTab(MONOMER_RESULT);
-    const link = screen.getByRole("link", { name: /PTP4A1/ });
-    expect(link).toHaveAttribute("href", "https://string-db.org/network/9606.PTP4A1");
+  it("links partners with STRING's documented URL form", () => {
+    renderTab(RESULT);
+    const link = screen.getByRole("link", { name: "UBA3" });
+    expect(link).toHaveAttribute("href", "https://string-db.org/cgi/network?identifiers=NAE1%0dUBA3&species=9606");
     expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("makes the horizontal scroller reachable by keyboard", () => {
-    const { container } = renderTab(MONOMER_RESULT);
-    const scroller = container.querySelector(".ev-table-scroller")!;
-    expect(scroller).toHaveAttribute("tabindex", "0");
-    expect(scroller).toHaveAttribute("role", "region");
-    expect(scroller).toHaveAccessibleName(/interaction partners/i);
+    renderTab(RESULT);
+    expect(screen.getByRole("region", { name: "Interaction partners of NAE1" })).toHaveAttribute("tabindex", "0");
+  });
+});
+
+describe("InteractionsTab — binding energy change", () => {
+  it("does not run DDMut-PPI on open; it offers it on the modelled chains", async () => {
+    renderTab(RESULT);
+    const card = screen.getByTestId("binding-card");
+    expect(card).toHaveTextContent("Not measured yet");
+    expect(fetchWithAuthMock).not.toHaveBeenCalled();
+
+    fetchWithAuthMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "ok", gene: "NAE1", variant: "p.Asp116Gly", ddgBind: -1.42, unit: "kcal/mol", signConvention: "negative-weakens",
+        predictor: "DDMut-PPI", mutation: "D116G",
+        wildType: { source: "boltz-2-model", provenance: "Boltz-2 via JapanFold", ipTm: 0.86, chains: [{ id: "A", accession: "Q13564", gene: "NAE1" }, { id: "B", accession: "Q8TBC4", gene: "UBA3" }] },
+      }),
+    });
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: /Estimate binding change/ }));
+    });
+    const [url, init] = fetchWithAuthMock.mock.calls[0];
+    expect(url).toBe("/api/v1/ppi/binding-shift");
+    expect(JSON.parse(init.body).chains.map((c: any) => c.accession)).toEqual(["Q13564", "Q8TBC4"]);
+    // DDMut-PPI's sign: negative is weaker binding. No class word is attached.
+    expect(card).toHaveTextContent("−1.42 kcal/mol");
+    expect(card).toHaveTextContent("Weaker binding to UBA3");
+    expect(card).not.toHaveTextContent(/disruptive|allosteric|surface neutral/i);
+    expect(within(card).getByRole("img")).toHaveAttribute("aria-label", expect.stringContaining("negative is weaker binding"));
+  });
+
+  it("does not render a value stored by the earlier service, which scored the variant model as its wild type", () => {
+    renderTab({ ...RESULT, multimerData: null, ppiBindingData: { ...PPI, bindingShift: { ddgBind: 2.14, classification: "INTERFACE_DISRUPTIVE" } } });
+    const card = screen.getByTestId("binding-card");
+    expect(card).not.toHaveTextContent("2.14");
+    expect(card).toHaveTextContent("earlier version");
+  });
+
+  it("points to the Multimer tab when no complex has been modelled", () => {
+    const { props } = renderTab({ ...RESULT, multimerData: null });
+    fireEvent.click(screen.getByRole("button", { name: /Open Multimer assembly/ }));
+    expect(props.onTabChange).toHaveBeenCalledWith("multimers");
   });
 });
 
 describe("InteractionsTab — request state", () => {
-  it("does not claim a protein has no partners while STRING-db is still being asked", async () => {
-    fetchWithAuthMock.mockImplementation(hangingFetch());
-    renderTab(UNFETCHED_RESULT);
+  const FRESH = { ...RESULT, ppiBindingData: null };
 
-    expect(await screen.findByText("Querying STRING-db…")).toBeInTheDocument();
-    expect(screen.queryByText("No interaction partners")).toBeNull();
-    expect(screen.queryByText("No curated interface residues")).toBeNull();
-    // The live region is in the document and empty, which is the precondition for
-    // its message ever being announced.
-    expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+  it("does not claim absence while the lookups are still running", () => {
+    fetchWithAuthMock.mockImplementation(hangingFetch());
+    const { container } = renderTab(FRESH);
+    expect(screen.getByText("Reading partners")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent(/No partners listed|UniProt maps no/);
   });
 
   it("still shows pending after a superseded request aborts mid-flight", async () => {
-    // Regression guard for the abort race: the aborted request's `finally` used to
-    // clear the flag the replacement had just set, so while the new query was in
-    // flight both `pending` and `unavailable` were false and the tab printed
-    // settled-absence copy for a query it had not finished. The stub rejects with
-    // AbortError the way the real fetch does, which is what makes the old bug
-    // reachable here.
     fetchWithAuthMock.mockImplementation(hangingFetch());
-    const view = renderTab(UNFETCHED_RESULT);
-    expect(await screen.findByText("Querying STRING-db…")).toBeInTheDocument();
-
-    view.show({ ...UNFETCHED_RESULT, metadata: { ...UNFETCHED_RESULT.metadata, variant: "p.Ala100Val" } });
-
-    // Drain the aborted request's rejection microtask chain. Without this the
-    // assertion runs before the old code's `finally` cleared the flag, and the
-    // test would pass against the very bug it exists to catch.
+    const { show } = renderTab(FRESH);
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      show({ ...FRESH, metadata: { ...FRESH.metadata, variant: "p.Asp116Asn" } });
     });
-
-    expect(screen.getByText("Querying STRING-db…")).toBeInTheDocument();
-    expect(screen.queryByText("No interaction partners")).toBeNull();
-    expect(screen.queryByText("No curated interface residues")).toBeNull();
+    expect(screen.getByText("Reading partners")).toBeInTheDocument();
   });
 
-  it("separates a failed query from a genuinely empty result", async () => {
-    fetchWithAuthMock.mockRejectedValue(new Error("offline"));
-    renderTab(UNFETCHED_RESULT);
-
-    expect(await screen.findByText("Partners not retrieved")).toBeInTheDocument();
-    expect(screen.getByText("Curated sites not retrieved")).toBeInTheDocument();
-    expect(screen.queryByText("No interaction partners")).toBeNull();
-  });
-
-  it("announces a failure through a live region that was already in the document", async () => {
-    fetchWithAuthMock.mockRejectedValue(new Error("offline"));
-    renderTab(UNFETCHED_RESULT);
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("offline");
-    // The node is present and empty BEFORE the message arrives — a role="alert"
-    // inserted already populated is not reliably announced.
-    expect(alert).toHaveAttribute("aria-live", "assertive");
-  });
-
-  it("reads the lowest confidence band from the shared table, not a literal", async () => {
-    fetchWithAuthMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        status: "success",
-        gene: "CNNM2",
-        variant: "p.Ser489Cys",
-        bindingShift: null,
-        interfaceResidues: [],
-        lookups: LOOKUPS_OK,
-        stringPartners: []
-      })
+  it("separates a failed lookup from an empty answer", async () => {
+    fetchWithAuthMock.mockResolvedValue({ ok: false });
+    await act(async () => {
+      renderTab(FRESH);
     });
-    renderTab(UNFETCHED_RESULT);
-
-    const empty = await screen.findByText("No interaction partners");
-    expect(empty.parentElement).toHaveTextContent("(0.150)");
+    expect(screen.getByText("Partners not retrieved")).toBeInTheDocument();
+    expect(screen.getByText("Not checked")).toBeInTheDocument();
   });
 
-  it.each([
-    ["failed", "Partners not retrieved"],
-    [undefined, "Partners not reported"]
-  ])("refuses to call the partner list empty when the lookup was %s", (stringPartners, expected) => {
-    // The endpoint returns an empty array for every non-answer. Rendering that as
-    // "no association for this gene" states something about the protein that a
-    // failed or absent lookup cannot support.
-    const result = {
-      ...MONOMER_RESULT,
-      ppiBindingData: {
-        ...MONOMER_RESULT.ppiBindingData,
-        stringPartners: [],
-        lookups: { stringPartners, interfaceResidues: "ok" }
-      }
-    };
-    renderTab(result);
-    expect(screen.getByText(expected)).toBeInTheDocument();
-    expect(screen.queryByText("No interaction partners")).toBeNull();
-  });
-
-  it.each([
-    ["failed", "Curated sites not retrieved"],
-    ["skipped", "Interface annotations not checked"],
-    [undefined, "Interface annotations not reported"]
-  ])("refuses to call the curated sites empty when the lookup was %s", (interfaceResidues, expected) => {
-    const result = {
-      ...MONOMER_RESULT,
-      ppiBindingData: {
-        ...MONOMER_RESULT.ppiBindingData,
-        interfaceResidues: [],
-        lookups: { stringPartners: "ok", interfaceResidues }
-      }
-    };
-    renderTab(result);
-    expect(screen.getByText(expected)).toBeInTheDocument();
-    expect(screen.queryByText("No curated interface residues")).toBeNull();
-  });
-
-  it("still reports a genuine empty lookup as empty", () => {
-    // The counterpart to the two tests above: `ok` with nothing in it IS an
-    // answer, and the section must keep saying so.
-    renderTab({
-      ...MONOMER_RESULT,
-      ppiBindingData: {
-        ...MONOMER_RESULT.ppiBindingData,
-        stringPartners: [],
-        interfaceResidues: [],
-        lookups: { stringPartners: "ok", interfaceResidues: "ok" }
-      }
+  it("sends only gene, variant and accession, and stores the answer on the result", async () => {
+    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => PPI });
+    await act(async () => {
+      renderTab(FRESH);
     });
-    expect(screen.getByText("No interaction partners")).toBeInTheDocument();
-    expect(screen.getByText("No curated interface residues")).toBeInTheDocument();
-  });
-
-  it("opens the partner's network when the row is clicked, but not twice via the link", () => {
-    const openSpy = vi.fn();
-    vi.stubGlobal("open", openSpy);
-    const { container } = renderTab(MONOMER_RESULT);
-    const firstRow = container.querySelector("tbody tr")!;
-
-    // A non-link cell: the row handler is the only thing listening.
-    fireEvent.click(firstRow.querySelectorAll("td")[0]);
-    expect(openSpy).toHaveBeenCalledWith(
-      "https://string-db.org/network/9606.PTP4A1",
-      "_blank",
-      "noopener,noreferrer"
-    );
-
-    // The anchor keeps its own navigation, so the row handler must stand down or
-    // the click would open two tabs.
-    openSpy.mockClear();
-    fireEvent.click(screen.getByRole("link", { name: /PTP4A1/ }));
-    expect(openSpy).not.toHaveBeenCalled();
-  });
-
-  it("renders the payload the endpoint returns and stores it on the analysis result", async () => {
-    // The happy path had no test at all: no test ever resolved the fetch mock, so
-    // the table's real data source and the cross-store write were unexecuted.
-    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => MONOMER_RESULT.ppiBindingData });
-    renderTab(UNFETCHED_RESULT);
-
-    expect(await screen.findByText("PTP4A1")).toBeInTheDocument();
-    expect(setAnalysisStateMock).toHaveBeenCalledTimes(1);
-    const next = setAnalysisStateMock.mock.calls[0][0]({ result: { metadata: { gene: "CNNM2" } } });
-    expect(next.result.ppiBindingData).toBe(MONOMER_RESULT.ppiBindingData);
-  });
-
-  it("sends the zero-synthetic-fallbacks request body", async () => {
-    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => MONOMER_RESULT.ppiBindingData });
-    renderTab({
-      ...UNFETCHED_RESULT,
-      multimerData: { status: "success", chainCount: 2, chainIds: ["A", "B"], complexPdb: "WT.PDB", interfaceContacts: [] }
-    });
-    await screen.findByText("PTP4A1");
-
     const [url, init] = fetchWithAuthMock.mock.calls[0];
     expect(url).toBe("/api/v1/ppi/binding-affinity");
-    expect(init.method).toBe("POST");
-    const body = JSON.parse(init.body);
-    expect(body).toMatchObject({
-      gene: "CNNM2",
-      variant: "p.Ser489Cys",
-      chainA: "A",
-      chainB: "B",
-      wtPdb: "WT.PDB",
-      // The protocol the comment documents, which nothing asserted.
-      mutPdb: null
-    });
-  });
-});
-
-describe("InteractionsTab — interface affinity panel", () => {
-  it("says why ΔΔG_bind is absent for a monomer, instead of only showing N/A", () => {
-    renderTab(MONOMER_RESULT);
-    expect(screen.getByText("N/A")).toBeInTheDocument();
-    expect(
-      screen.getByText(/curated as a single-chain monomer, so there is no inter-chain interface/i)
-    ).toBeInTheDocument();
-    expect(screen.getByText("Monomer: no inter-chain interface to score")).toBeInTheDocument();
+    expect(JSON.parse(init.body)).toEqual({ gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564" });
+    const updater = setAnalysisStateMock.mock.calls[0][0];
+    expect(updater({ result: { a: 1 } }).result.ppiBindingData).toBe(PPI);
   });
 
-  it.each([
-    [1.6, "danger", "Interface disruptive"],
-    [0.7, "warning", "Allosteric perturbation"],
-    [0.4, "good", "Surface neutral"]
-  ])("tones a computed shift of %s as %s", (ddgBind: number, tone: string, classification: string) => {
-    // The computed branch — the value, its tone cut-points and its classification
-    // chip — was entirely unasserted.
-    renderTab(scoredResult(ddgBind));
-    const value = screen.getByText(`${ddgBind} kcal/mol`);
-    expect(value).toHaveAttribute("data-tone", tone);
-    expect(screen.getByText(classification)).toHaveAttribute("data-tone", tone);
-  });
-
-  it("explains a computed shift and drops the quaternary CTA", () => {
-    renderTab(scoredResult(1.6));
-    expect(
-      screen.getByText(/predicts an interface binding shift of 1.6 kcal\/mol/i)
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Open Quaternary Assembly/i })).toBeNull();
-  });
-
-  it("offers the quaternary-assembly tab when no complex exists to score", () => {
-    const { props } = renderTab(MULTIMER_RESULT);
-    const cta = screen.getByRole("button", { name: /Open Quaternary Assembly/i });
-    fireEvent.click(cta);
-    expect(props.onTabChange).toHaveBeenCalledWith("multimers");
-  });
-
-  it("does not offer the quaternary-assembly tab when the protein is a monomer", () => {
-    // Nothing to model: sending the reader to the Multimers tab would be a dead end.
-    renderTab(MONOMER_RESULT);
-    expect(screen.queryByRole("button", { name: /Open Quaternary Assembly/i })).toBeNull();
-  });
-
-  it("reports a direct quaternary contact as the danger case", () => {
-    // The most consequential claim in the tab — "this substitution sits at the
-    // interface" — carried a danger tone and had no assertion behind it.
-    renderTab(CONTACT_RESULT);
-    expect(screen.getByText("Direct contact < 5 Å")).toHaveAttribute("data-tone", "danger");
-    expect(screen.getByText(/modelled quaternary contact/i)).toBeInTheDocument();
-  });
-
-  it("reports a curated interface residue as the danger case", () => {
-    renderTab(CURATED_RESULT);
-    expect(screen.getByText("Interface residue")).toHaveAttribute("data-tone", "danger");
-  });
-
-  it("lists curated interface residues and marks the variant's own position", () => {
-    renderTab(CURATED_RESULT);
-    expect(screen.getByText("Residue 489")).toBeInTheDocument();
-    expect(screen.getByText("Residue 511")).toBeInTheDocument();
-    expect(screen.getAllByText("Mutation site")).toHaveLength(1);
-  });
-
-  it("reports the curated subunit annotation when no interface residues are annotated", () => {
-    renderTab(MONOMER_RESULT);
-    expect(screen.getByText("No curated interface residues")).toBeInTheDocument();
-    expect(screen.getByText("Curated SUBUNIT annotation")).toBeInTheDocument();
-  });
-
-  it("disables Refresh for assistive tech without dropping keyboard focus", () => {
-    // `disabled` removes the control from the tab order, so activating Refresh
-    // with the keyboard used to send focus to <body>. Asserted on the attributes
-    // rather than with toBeDisabled(), whose aria-disabled handling would report
-    // this deliberately-focusable control as disabled.
+  it("re-reads a stored payload written before the sites rewrite instead of rendering it", async () => {
     fetchWithAuthMock.mockImplementation(hangingFetch());
-    renderTab(UNFETCHED_RESULT);
-    const refresh = screen.getByRole("button", { name: /Analyzing/i });
-    expect(refresh).toHaveAttribute("aria-disabled", "true");
-    expect(refresh).not.toHaveAttribute("disabled");
+    renderTab({ ...RESULT, ppiBindingData: { ...PPI, lookups: { stringPartners: "ok", interfaceResidues: "ok" } } });
+    expect(fetchWithAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Read again in the tab order while busy", () => {
+    fetchWithAuthMock.mockImplementation(hangingFetch());
+    renderTab(FRESH);
+    const btn = screen.getByRole("button", { name: /Reading/ });
+    expect(btn).toHaveAttribute("aria-disabled", "true");
+    expect(btn).not.toBeDisabled();
   });
 
   it("renders nothing until an analysis result exists", () => {

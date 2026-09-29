@@ -592,10 +592,10 @@ const SYNTHESIS_SOURCES: AttributionEntry[] = [
   },
   {
     id: "japanfold",
-    name: "JapanFold (OpenBind-0, Boltz-2, ESMC, SaProt)",
+    name: "JapanFold (Boltz-2, ESMC, SaProt)",
     provider: "Tenstorrent Galaxy™ execution tier",
     kind: "service",
-    role: "Primary remote execution for the structure-aware models and for interface binding-affinity work on multimers: OpenBind-0 scores the interface, Boltz-2 models the complex, ESMC and SaProt supply structure-conditioned likelihoods.",
+    role: "Primary remote execution for the structure-aware models: Boltz-2 models complexes (the variant complex on the Multimer tab, the wild-type complex DDMut-PPI scores on the Protein interactions tab), ESMC and SaProt supply structure-conditioned likelihoods.",
     url: "https://api.japanfold.aiand.com",
     release: "Live endpoint configured by JAPANFOLD_URL",
     citation: null,
