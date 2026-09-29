@@ -16,7 +16,9 @@ describe("UniProt Features Service", () => {
   it("should parse and retain Domain, Binding site with ligand, and Transmembrane features", async () => {
     const mockUniProtJson = {
       genes: [{ geneName: { value: "MAST2" } }],
-      comments: [{ commentType: "SUBUNIT", note: { texts: [{ value: "Homodimer." }] } }],
+      // UniProt REST's real shape: SUBUNIT text at `texts`, not `note.texts` (the old mock copied the
+      // parser's wrong path, which is how every protein came to read as a monomer with tests green).
+      comments: [{ commentType: "SUBUNIT", texts: [{ value: "Homodimer." }] }],
       features: [
         {
           type: "Domain",

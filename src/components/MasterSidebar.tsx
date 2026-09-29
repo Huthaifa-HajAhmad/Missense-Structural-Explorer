@@ -150,15 +150,21 @@ export const MASTER_VIEW_ITEMS: NavItem[] = [
   ...FOOTER_ITEMS,
 ];
 
+/**
+ * Evidence sub-tabs, in reading order: curated evidence first (population, then the domain context a
+ * curator reads before any prediction), then sequence and RNA predictions, then structure from the
+ * residue outward (residue → fold → assembly → partners), and the reference table last. Multimer
+ * assembly sits beside Protein interactions because the interactions view reuses its complex.
+ */
 export const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population data"          },
+  { id: "function",     label: "Functional domains"       },
   { id: "predictors",   label: "In-silico predictors"     },
   { id: "alphagenome",  label: "AlphaGenome"              },
   { id: "splicing",     label: "RNA splicing"             },
   { id: "structure",    label: "Residue shifts & pockets" },
   { id: "perturbation", label: "Structural perturbation"  },
   { id: "multimers",    label: "Multimer assembly"        },
-  { id: "function",     label: "Functional domains"       },
   { id: "interactions", label: "Protein interactions"     },
   { id: "guidelines",   label: "Score thresholds"         },
 ];

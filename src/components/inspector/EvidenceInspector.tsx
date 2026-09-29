@@ -19,6 +19,7 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
 import { PopulationRail } from "./PopulationRail";
+import { MultimerRail } from "./MultimerRail";
 import { PredictorsRail } from "./PredictorsRail";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
 import { GuidelinesRail } from "./GuidelinesRail";
@@ -50,8 +51,6 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   /** Per-source build-gate refusals recorded server-side (unmapping defect F-13). */
   const assemblyRefusals = analysisResult.conservationData?.assemblyRefusals ?? null;
   const conservationData = analysisResult.conservationData;
-  const multimerData = analysisResult.multimerData;
-  const subunitComment = multimerData?.subunitComment || analysisResult.uniprotFeatures?.subunitComment;
 
   // Active subtab category normalization
   const tab = activeEvidenceTab?.toLowerCase() || "clinical";
@@ -135,51 +134,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
         </div>
       )}
 
-      {tab === "multimers" && (
-        <div className="flex flex-col gap-3">
-          <span className="eyebrow">
-            <Box className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Quaternary Structure Methodology
-          </span>
-
-          {/* ipTM & Quality Metrics */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <span className="text-[11px] font-bold text-cs-text-primary block">
-              Interface Quality (ipTM)
-            </span>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              <strong>ipTM &ge; 0.80</strong> indicates high-confidence subunit interface geometry. <strong>Overall pTM</strong> measures whole-complex structural topology.
-            </p>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              Inter-chain contact boundary is evaluated at heavy-atom distance &le; 4.5 &Aring;.
-            </p>
-          </div>
-
-          {/* Curated Subunit Annotation */}
-          {subunitComment && (
-            <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-              <span className="text-[10px] font-mono font-bold uppercase text-cs-text-muted block">
-                Swiss-Prot SUBUNIT Curation
-              </span>
-              <p className="text-[11px] text-cs-text-primary italic leading-relaxed">
-                &ldquo;{subunitComment}&rdquo;
-              </p>
-            </div>
-          )}
-
-          {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">Boltz-2 / OpenFold3</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">Tier 1 · JapanFold</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">UniProtKB</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">Swiss-Prot Curated</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {tab === "multimers" && <MultimerRail analysisResult={analysisResult} />}
 
       {tab === "function" && (
         <div className="flex flex-col gap-3">

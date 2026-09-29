@@ -1,0 +1,335 @@
+/* ============================================================
+   MULTIMER ASSEMBLY — tab, assembly diagram, interface track, ipTM ruler, rail
+   ------------------------------------------------------------
+   Self-contained `mlt-*` classes in the house voice Population Data set:
+
+     label  11px sans 600, uppercase, tracked, muted — section eyebrows, column heads ONLY
+     field  12px sans 400, muted                     — names of values, captions
+     body   13px sans 400, secondary                 — sentences, descriptions
+     data   13px mono 500, tabular, ink              — figures, codes, identifiers
+
+   No red/green anywhere: nothing on this tab is an ACMG band. Clay marks the variant and the
+   rows the interface call read; a modelled interface is clay, a solved one is ink; amber only
+   for a run fault. Tokens only.
+   ============================================================ */
+
+.mlt-screen,
+.mlt-rail {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-prose);
+  line-height: 1.5;
+  color: var(--cs-text-secondary);
+}
+.mlt-screen { display: flex; flex-direction: column; gap: 24px; }
+
+.mlt-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
+.mlt-ink { color: var(--cs-text-primary); }
+
+.mlt-screen .eyebrow,
+.mlt-rail .eyebrow,
+.mlt-table thead th,
+.mlt-group__title {
+  font-family: var(--cs-font-sans);
+  font-size: var(--cs-font-size-badge);
+  font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+}
+.mlt-screen .eyebrow > svg,
+.mlt-rail .eyebrow > svg { color: var(--cs-text-muted); }
+
+.mlt-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mlt-button {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px;
+  border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input, 8px);
+  background: var(--cs-surface); color: var(--cs-text-primary);
+  font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
+  cursor: pointer;
+}
+.mlt-button:hover { background: color-mix(in srgb, var(--cs-text-secondary) 6%, var(--cs-surface)); }
+.mlt-button:disabled { opacity: 0.6; cursor: default; }
+.mlt-button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+.mlt-card {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card, 12px);
+  overflow: hidden;
+}
+.mlt-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mlt-section > h2.eyebrow { margin: 0; }
+
+/* ── Finding ────────────────────────────────────────────────── */
+.mlt-hero__body {
+  display: grid; grid-template-columns: minmax(0, 1fr) 232px; gap: 20px; align-items: stretch;
+  padding: 18px 20px 18px;
+}
+.mlt-hero__text { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.mlt-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mlt-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.mlt-figure {
+  font-size: var(--cs-font-size-display);
+  font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: -0.01em; line-height: 1.2;
+  color: var(--cs-text-primary);
+}
+.mlt-figure[data-empty] { color: var(--cs-text-muted); }
+.mlt-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.mlt-hero__finding { margin: 0; max-width: 72ch; }
+.mlt-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.mlt-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
+
+.mlt-hero__diagram {
+  margin: 0; padding: 8px 8px 6px; border-radius: 10px;
+  background: var(--cs-surface-2); border: 1px solid var(--cs-border-subtle);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+}
+.mlt-hero__diagram figcaption { font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+
+.mlt-callout {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0;
+  padding: 9px 12px; border-radius: 8px; font-size: var(--cs-font-size-prose);
+}
+.mlt-callout > svg { flex: none; margin-top: 3px; }
+.mlt-callout[data-tone="warning"] { background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
+.mlt-callout--banner { border-radius: 0; padding: 10px 20px; border-top: 1px solid var(--cs-border-subtle); }
+
+.mlt-facts {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0; border-top: 1px solid var(--cs-border-subtle);
+}
+.mlt-fact { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 16px 14px; border-left: 1px solid var(--cs-border-subtle); }
+.mlt-fact:first-child { padding-left: 20px; border-left: 0; }
+.mlt-fact dt { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.mlt-fact dd { margin: 0; min-height: 22px; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); overflow-wrap: anywhere; }
+.mlt-fact__sub { font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); line-height: 1.4; overflow-wrap: anywhere; }
+
+@container (max-width: 720px) {
+  .mlt-hero__body { grid-template-columns: 1fr; }
+  .mlt-hero__diagram { justify-self: stretch; }
+  .mlt-diagram { max-width: 200px; }
+  .mlt-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mlt-fact:nth-child(3) { padding-left: 20px; border-left: 0; }
+  .mlt-fact:nth-child(n + 3) { border-top: 1px solid var(--cs-border-subtle); }
+}
+
+/* ── Assembly diagram ───────────────────────────────────────── */
+.mlt-diagram { display: block; width: 100%; max-width: 232px; height: auto; overflow: visible; }
+.mlt-diagram__chain circle { stroke-width: 1.5; }
+.mlt-diagram__chain[data-role="variant"] circle { fill: color-mix(in srgb, var(--cs-accent-clay) 14%, var(--cs-surface)); stroke: var(--cs-accent-clay); }
+.mlt-diagram__chain[data-role="self"] circle { fill: color-mix(in srgb, var(--cs-text-secondary) 8%, var(--cs-surface)); stroke: var(--cs-text-muted); }
+.mlt-diagram__chain[data-role="partner"] circle { fill: var(--cs-surface); stroke: var(--cs-text-secondary); }
+.mlt-diagram__id { font-family: var(--cs-font-mono); font-size: 13px; font-weight: 600; fill: var(--cs-text-primary); }
+.mlt-diagram__gene { font-family: var(--cs-font-sans); font-size: 10.5px; fill: var(--cs-text-muted); }
+.mlt-diagram__seam { stroke: var(--cs-text-muted); stroke-width: 2.5; stroke-linecap: round; }
+.mlt-diagram__seam[data-variant] { stroke: var(--cs-accent-clay); stroke-width: 3.5; }
+.mlt-diagram__variant circle { fill: var(--cs-surface); stroke: var(--cs-accent-clay); stroke-width: 2; }
+.mlt-diagram__variant[data-measured] circle { fill: var(--cs-accent-clay); stroke: var(--cs-surface); stroke-width: 2; }
+
+/* ── Interface track ────────────────────────────────────────── */
+.mlt-track { --mlt-track-label: 168px; padding: 14px 16px 16px; }
+.mlt-track__body { position: relative; display: flex; flex-direction: column; }
+.mlt-track__row {
+  display: grid; grid-template-columns: var(--mlt-track-label) minmax(0, 1fr); align-items: center;
+  min-height: 34px; border-top: 1px solid var(--cs-border-subtle);
+}
+.mlt-track__row--axis { min-height: 22px; border-top: 0; }
+.mlt-track__body > .mlt-track__row:first-of-type { border-top: 0; }
+.mlt-track__label { display: flex; flex-direction: column; min-width: 0; padding-right: 12px; line-height: 1.3; }
+.mlt-track__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mlt-track__sub { font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mlt-track__lane {
+  position: relative; height: 14px; border-radius: 3px;
+  background: color-mix(in srgb, var(--cs-text-secondary) 7%, transparent);
+}
+.mlt-track__lane--domains { height: 18px; background: transparent; border-bottom: 1px solid var(--cs-border); border-radius: 0; }
+.mlt-track__lane--empty { background: transparent; height: auto; }
+.mlt-track__mark { position: absolute; top: 0; bottom: 0; border-radius: 1px; }
+.mlt-track__row[data-kind="predicted"] .mlt-track__mark { background: var(--cs-accent-clay); opacity: 0.8; }
+.mlt-track__row[data-kind="solved"] .mlt-track__mark { background: var(--cs-text-primary); opacity: 0.72; }
+.mlt-track__domain {
+  position: absolute; top: 1px; bottom: 1px; overflow: hidden; border-radius: 3px;
+  background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cs-text-secondary) 26%, transparent);
+}
+.mlt-track__domain-name {
+  display: block; padding: 0 5px; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 10.5px; color: var(--cs-text-secondary);
+}
+.mlt-track__none { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 18px; }
+.mlt-track__axis {
+  position: relative; height: 16px;
+  font-family: var(--cs-font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--cs-text-muted);
+}
+.mlt-track__axis > span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.mlt-track__axis > span[data-edge="start"] { left: 0; transform: none; }
+.mlt-track__axis > span[data-edge="end"] { transform: translateX(-100%); }
+.mlt-track__variant {
+  position: absolute; top: -20px; bottom: 0; width: 0; z-index: 1; pointer-events: none;
+  border-left: 1.5px solid var(--cs-accent-clay);
+}
+.mlt-track__variant-label {
+  position: absolute; top: -2px; left: 4px; padding: 0 4px; border-radius: 3px;
+  font-family: var(--cs-font-mono); font-size: 10.5px; font-weight: 600; line-height: 16px; white-space: nowrap;
+  color: var(--cs-text-accent); background: var(--cs-surface);
+}
+.mlt-track__more { margin: 8px 0 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+@container (max-width: 640px) {
+  .mlt-track { --mlt-track-label: 116px; }
+}
+
+/* ── Readings table ─────────────────────────────────────────── */
+.mlt-table-wrap { overflow-x: auto; }
+.mlt-table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.mlt-table--compact { min-width: 0; }
+.mlt-table thead th {
+  padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
+  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+}
+.mlt-table td,
+.mlt-table tbody th {
+  padding: 11px 16px; text-align: left; vertical-align: top; font-weight: inherit;
+  border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-secondary);
+}
+.mlt-table tbody:last-of-type tr:last-child > * { border-bottom: 0; }
+.mlt-table tr[data-rule-input] > * { background: color-mix(in srgb, var(--cs-accent-clay) 6%, transparent); }
+.mlt-group > th { padding: 16px 16px 8px !important; background: transparent; }
+.mlt-table tbody + tbody .mlt-group > th { border-top: 1px solid var(--cs-border); }
+.mlt-group__inner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.mlt-group__meta { font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
+
+.mlt-subject { width: 200px; min-width: 170px; }
+.mlt-subject__name { display: block; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.mlt-subject__note { display: block; margin-top: 1px; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); font-weight: 400; }
+.mlt-quote { color: var(--cs-text-primary) !important; max-width: 64ch; }
+.mlt-reason { font-size: var(--cs-font-size-caption); line-height: 1.5; }
+.mlt-scale { min-width: 180px; padding-top: 14px !important; }
+.mlt-num {
+  text-align: right !important; white-space: nowrap;
+  font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
+  font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary) !important;
+}
+.mlt-table thead th.mlt-num { font-family: var(--cs-font-sans); }
+.mlt-unit {
+  display: block; margin-top: 2px;
+  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: 400; color: var(--cs-text-muted);
+}
+.mlt-status { text-align: right !important; width: 1%; white-space: nowrap; }
+
+.mlt-foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
+  min-height: 40px; padding: 8px 16px;
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+}
+.mlt-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.mlt-key { display: inline-block; flex: none; width: 14px; height: 10px; border-radius: 2px; }
+.mlt-key[data-kind="predicted"] { background: var(--cs-accent-clay); opacity: 0.8; }
+.mlt-key[data-kind="solved"] { background: var(--cs-text-primary); opacity: 0.72; }
+.mlt-key[data-kind="variant"] { width: 0; height: 14px; border-radius: 0; border-left: 1.5px solid var(--cs-accent-clay); }
+
+.mlt-empty { margin: 0; padding: 14px 16px; }
+.mlt-empty strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+
+.mlt-link {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 24px; margin-left: auto; padding: 0 2px;
+  border: 0; background: none; border-radius: 4px; cursor: pointer;
+  font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
+  color: var(--cs-text-accent);
+}
+.mlt-link:hover { text-decoration: underline; }
+.mlt-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+/* ── ipTM ruler ─────────────────────────────────────────────── */
+.mlt-ruler { position: relative; min-width: 140px; }
+.mlt-ruler__track { position: relative; height: 10px; border-radius: 5px; background: color-mix(in srgb, var(--cs-text-secondary) 6%, transparent); }
+.mlt-ruler__bands { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
+.mlt-ruler__band { position: absolute; top: 0; bottom: 0; background: var(--cs-text-secondary); }
+.mlt-ruler__band[data-band="low"] { opacity: 0.06; }
+.mlt-ruler__band[data-band="grey"] { opacity: 0.14; }
+.mlt-ruler__band[data-band="confident"] { opacity: 0.26; }
+.mlt-ruler__band[data-active] { box-shadow: inset 0 0 0 1.5px var(--cs-text-primary); }
+.mlt-ruler__tick { position: absolute; top: -3px; bottom: -3px; width: 0; margin-left: -0.75px; border-left: 1.5px dashed var(--cs-text-secondary); opacity: 0.8; }
+.mlt-ruler__marker {
+  position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: var(--cs-text-primary); box-shadow: 0 0 0 2px var(--cs-surface);
+}
+.mlt-ruler__axis {
+  position: relative; height: 14px; margin-top: 4px;
+  font-family: var(--cs-font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--cs-text-muted);
+}
+.mlt-ruler__axis > span { position: absolute; top: 0; transform: translateX(-50%); }
+.mlt-ruler__axis > span[data-edge="start"] { transform: none; }
+.mlt-ruler__axis > span[data-edge="end"] { transform: translateX(-100%); }
+
+/* ============================================================
+   MULTIMER RAIL (inspector)
+   ============================================================ */
+.mlt-rail { display: flex; flex-direction: column; }
+.mlt-rsec { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid var(--cs-border-subtle); }
+.mlt-rsec:first-child { padding-top: 0; border-top: 0; }
+.mlt-rsec > h3.eyebrow { margin: 0; }
+.mlt-rail__note { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+
+.mlt-steps {
+  list-style: none; margin: 0; padding: 14px; display: flex; flex-direction: column;
+  border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-surface);
+}
+.mlt-step { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; padding-bottom: 14px; }
+.mlt-step:last-child { padding-bottom: 0; }
+.mlt-step:not(:last-child)::before { content: ""; position: absolute; left: 9.5px; top: 22px; bottom: 2px; width: 1px; background: var(--cs-border); }
+.mlt-step__n {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-text-muted); background: var(--cs-surface); border: 1px solid var(--cs-border);
+}
+.mlt-step:last-child .mlt-step__n { color: var(--cs-surface); background: var(--cs-text-primary); border-color: transparent; }
+.mlt-step[data-state="warn"] .mlt-step__n { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); border-color: transparent; }
+.mlt-step__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mlt-step__label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 20px; }
+.mlt-step__value { display: flex; flex-direction: column; gap: 2px; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+.mlt-step__sub { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+
+.mlt-cuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.mlt-cut {
+  display: grid; grid-template-columns: 136px 84px minmax(0, 1fr); align-items: center; gap: 8px; padding: 5px 0;
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+}
+.mlt-cut + .mlt-cut { border-top: 1px solid var(--cs-border-subtle); }
+.mlt-cut__label { color: var(--cs-text-secondary); }
+.mlt-cut__rule { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
+.mlt-cut__here { font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); white-space: nowrap; }
+.mlt-cut[data-active] .mlt-cut__label,
+.mlt-cut[data-active] .mlt-cut__rule { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+
+.mlt-kv { display: flex; flex-direction: column; margin: 0; }
+.mlt-kv > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 0; }
+.mlt-kv > div + div { border-top: 1px solid var(--cs-border-subtle); }
+.mlt-kv dt { flex: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.mlt-kv dd { margin: 0; min-width: 0; text-align: right; font-size: var(--cs-font-size-caption); color: var(--cs-text-primary); overflow-wrap: anywhere; }
+
+.mlt-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.mlt-notes > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 24px; color: var(--cs-text-muted); border-radius: 4px;
+}
+.mlt-notes > summary::-webkit-details-marker { display: none; }
+.mlt-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }
+.mlt-notes[open] > summary::before { transform: rotate(90deg); }
+.mlt-notes > summary:hover { color: var(--cs-text-primary); }
+.mlt-notes > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.mlt-notes ul { margin: 6px 0 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
+@media (prefers-reduced-motion: reduce) { .mlt-notes > summary::before { transition: none; } }
+
+.mlt-refs { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
+.mlt-refs a { color: var(--cs-text-accent); text-decoration: none; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); }
+.mlt-refs a:hover { text-decoration: underline; }
+.mlt-refs a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 3px; }
+
+@media print {
+  .mlt-diagram, .mlt-track__mark, .mlt-track__domain, .mlt-ruler__band, .mlt-key { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .mlt-button, .mlt-link { display: none; }
+  .mlt-table-wrap { overflow: visible; }
+}

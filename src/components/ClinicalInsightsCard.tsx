@@ -860,12 +860,12 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", background: "var(--cs-warn-soft)" }}>
                 <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-text-warning-on-soft)" }}>
                   <Activity className="w-3.5 h-3.5" />
-                  <span>Quaternary Assembly Detected</span>
+                  <span>Forms a complex</span>
                 </div>
                 <p className="text-[12px] leading-relaxed pl-5 font-sans" style={{ color: "var(--cs-text-warning-on-soft)" }}>
-                  This protein forms a <strong>{analysisState.result.uniprotFeatures.subunitComment}</strong>.
-                  Monomeric stability analysis misses quaternary tetramerization/oligomerization defects.
-                  It is strongly recommended to run advanced quaternary whole-complex modeling (Boltz-1/Chai-1) to evaluate interface disruption.
+                  UniProt&apos;s SUBUNIT record: <strong>{analysisState.result.uniprotFeatures.subunitComment}</strong>{" "}
+                  The stability estimates here are for the single chain and do not see subunit interfaces; the
+                  Multimer assembly tab shows the complex and whether this residue sits at an interface.
                 </p>
               </div>
             )}

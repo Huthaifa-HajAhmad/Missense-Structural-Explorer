@@ -16,6 +16,7 @@ import {
 // make this service part of that barrel's import cycle): the entry-name conversion below must hand
 // back exactly what `validateUniProt` accepts, and a second copy of the pattern here would drift.
 import { UNIPROT_PATTERN } from "../../utils/validation.ts";
+import { parseSubunitAssembly, statesMultimer } from "../../../src/shared/multimerAssembly.ts";
 
 export interface UniprotCacheOptions {
   l1Cache?: LRUCache<string, any>;
@@ -686,6 +687,15 @@ export interface UniprotFeaturesResult {
   subunitComment?: string | null;
   isMultimer?: boolean;
   sequenceLength?: number;
+  /** UniProt's curated binary interactions (IntAct), the only source a heteromer partner's accession is
+   *  taken from: a gene symbol named in the SUBUNIT sentence is resolved against this list or not at all. */
+  interactionPartners?: UniprotInteractionPartner[];
+}
+
+export interface UniprotInteractionPartner {
+  accession: string;
+  gene: string | null;
+  experiments: number | null;
 }
 
 /** Feature types we care about for clinical/functional/domain annotation */
@@ -835,15 +845,35 @@ export async function fetchUniprotFeatures(
           .filter((f) => f.start > 0 && f.end > 0);
 
         // Extract subunit comment and check isMultimer
-        const subunitCommentBlock = json?.comments?.find((c: any) => c.commentType === "SUBUNIT");
-        const subunitComment = subunitCommentBlock?.note?.texts?.[0]?.value ?? null;
-        const isMultimer = subunitComment 
-          ? /homo|hetero|dimer|trimer|tetramer|pentamer|hexamer|heptamer|octamer|oligomer|complex/i.test(subunitComment)
-          : false;
+        // UniProt REST puts a SUBUNIT comment's text at `comment.texts[]`, not `comment.note.texts[]`
+        // (the shape of SUBCELLULAR LOCATION notes). Reading `note` returned null for every protein,
+        // which the Multimer tab rendered as "a single-chain monomer". `note` is kept as a fallback only.
+        const subunitBlocks: any[] = (json?.comments ?? []).filter((c: any) => c?.commentType === "SUBUNIT");
+        const subunitTexts: string[] = subunitBlocks
+          .flatMap((c: any) => [...(c?.texts ?? []), ...(c?.note?.texts ?? [])])
+          .map((t: any) => (typeof t?.value === "string" ? t.value.trim() : ""))
+          .filter(Boolean);
+        const subunitComment = subunitTexts.length ? subunitTexts.join(" ") : null;
+        const isMultimer = statesMultimer(parseSubunitAssembly(subunitComment));
+
+        const interactionPartners: UniprotInteractionPartner[] = [];
+        for (const c of (json?.comments ?? []) as any[]) {
+          if (c?.commentType !== "INTERACTION") continue;
+          for (const it of c?.interactions ?? []) {
+            const two = it?.interactantTwo;
+            const acc = typeof two?.uniProtKBAccession === "string" ? two.uniProtKBAccession : null;
+            if (!acc || acc === key || interactionPartners.some(p => p.accession === acc)) continue;
+            interactionPartners.push({
+              accession: acc,
+              gene: typeof two?.geneName === "string" ? two.geneName : null,
+              experiments: Number.isFinite(it?.numberOfExperiments) ? it.numberOfExperiments : null,
+            });
+          }
+        }
 
         const sequenceLength = typeof json?.sequence?.length === "number" ? json.sequence.length : undefined;
 
-        const result: UniprotFeaturesResult = { features, geneName, subunitComment, isMultimer, sequenceLength };
+        const result: UniprotFeaturesResult = { features, geneName, subunitComment, isMultimer, sequenceLength, interactionPartners };
         return result;
       } catch (err: any) {
         console.error(`[UniProt Features] Error fetching ${key}:`, err.message);
