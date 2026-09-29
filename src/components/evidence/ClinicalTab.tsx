@@ -423,16 +423,23 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
               </div>
             ) : (
               <>
-                <div className="pop-card__head">
+                <div className="pop-card__head pop-card__head--cols">
                   <span className="pop-card__head-label">Source</span>
+                  <span className="pop-card__head-label">Reading</span>
                 </div>
-                <p className="pop-readings__empty">No source reported this allele.</p>
+                <p className="pop-readings__empty">
+                  <span className="pop-readings__empty-mark" aria-hidden="true" />
+                  <strong>No source reported this allele.</strong>
+                </p>
               </>
             )}
 
             {noReadingLines.length > 0 && (
               <div className="pop-noread">
-                <h3 className="pop-noread__title">No reading</h3>
+                {/* With nothing observed, the summary line above already says it. */}
+                {observedLines.length > 0
+                  ? <h3 className="pop-noread__title">No reading</h3>
+                  : <h3 className="sr-only">No reading</h3>}
                 <ul className="pop-noread__list">
                   {noReadingLines.map(line => <NoReadingItem key={line.observation.key} line={line} />)}
                 </ul>
@@ -489,9 +496,14 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
             </div>
 
             {!clinvar.availability.hasValue ? (
-              <p className="pop-clinvar__empty">
-                {clinvar.availability.reason ?? "No classification in ClinVar is available for this variant."}
-              </p>
+              <div className="pop-clinvar__empty">
+                <p className="pop-clinvar__empty-title">
+                  {clinvar.availability.state === "no-result" ? "No classification" : clinvar.availability.label ?? "Not available"}
+                </p>
+                <p className="pop-clinvar__empty-body">
+                  {clinvar.availability.reason ?? "No classification in ClinVar is available for this variant."}
+                </p>
+              </div>
             ) : (
               <dl className="pop-clinvar__rows">
                 <div>

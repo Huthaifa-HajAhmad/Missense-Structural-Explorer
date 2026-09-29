@@ -43,6 +43,30 @@ through `formatEvidenceCode` ("PP3 Moderate", "BP4 Very Strong").
 - Rail: sections separated by hairlines, only the rule trace framed; cut-point rows plain, active
   row marked by weight and "this variant", not a fill. Size the code column for the longest code.
 
+## Cards, rows and empty states (from the Population Data table/ClinVar polish)
+The first Population revision boxed every row as a tinted, dashed pill inside a tinted card; it read
+as a placeholder. The standard now:
+- **One tint per card.** `--cs-surface` for the card body; `--cs-surface-2` only for its head bar
+  (column heads, 40px, the one uppercase label voice) and its foot bar (caption, muted). Rows are
+  never tinted and never boxed.
+- **Rows are flat**, separated by a `--cs-border-subtle` hairline (`tr + tr > * { border-top }`),
+  padding 11px 16px (10px 16px for compact lists), every row on the card's 16px left edge.
+  The row the rule read gets a 6% `--cs-accent-clay` wash, not a border or a pill.
+- **Dashed borders mean "unconfirmed"** (the dashed accent chip, a local cut-point). Never use them
+  to draw an empty state or an absent row.
+- **Absent rows**: name in primary ink (13px), reason as a muted 12px caption in its own column
+  (name column ~160px), a state chip only when the state is not a plain "no result".
+- **Empty state = a statement on the card**, not a box: either a summary line (hollow 8px muted ring
+  + bold primary sentence, hairline below) above the per-source list, or a bold primary title with
+  the reason as secondary prose under it (max ~60ch). Title from the availability state
+  ("No classification" for no-result, else the `ENGINE_STATE_LABELS` label).
+- **Column heads line up with what is under them.** An empty-state head uses the list's grid tracks;
+  never a lone column label over nothing.
+- **Key/value blocks** (e.g. ClinVar Classification/Review/Condition): flat `dl` rows, 84px muted
+  12px field column, hairlines between, no per-row boxes.
+- **Neutral marks stay neutral.** Review stars use `--cs-text-secondary` (filled) over `--cs-border`
+  (empty): gold/amber would collide with the run-fault colour.
+
 ## Layout vocabulary (copy the values into your own prefix — do not reference these classes)
 The names below are Population's and Predictors' own classes; read them as templates.
 - Screen: `pop-screen @container` (flex column, 20px gap).

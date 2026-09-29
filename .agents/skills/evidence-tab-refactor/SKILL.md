@@ -108,6 +108,11 @@ listing its INVARIANTS and the defects it replaced — the codebase's convention
    spanning their reason across the numeric columns, a legend foot.
 3. *Secondary panel* only if it is a different kind of evidence (ClinVar assertion on Population).
 
+**Cards and rows** — one tint per card, on its head and foot bars only; rows flat with hairline
+dividers on the card's 16px edge; no dashed boxes for empty states (dashed means "unconfirmed");
+an empty state is a bold sentence on the card, never a box inside it. See "Cards, rows and empty
+states" in `references/design-system.md`.
+
 **Rail (Evidence Lineage)** — `rail-section`s: (1) Rule trace, numbered `rail-steps`, last step the
 engine record, `data-state="warn"` on a mismatch; (2) the cut-points list `rail-cuts` with the band
 this variant is in marked "this variant"; (3) `rail-notes` "Method" details with the caveats a
