@@ -70,6 +70,28 @@ const GZF1 = {
   },
 };
 
+/** NAE1 p.Asp116Gly, from the second-pass screenshot (unseen rows chosen to match its group shares). */
+const NAE1 = {
+  status: "live",
+  aviPhred: 24.6,
+  aviRaw: 1.0507,
+  aviQuantile: 0.99653,
+  topPercentile: 0.347,
+  atlasUrl: "https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=chr16:66823281:T%3EC",
+  featureAttributions: {
+    Splicing: 0.176,
+    "ChIP-Histone": 0.024,
+    "RNA-seq": 0.018,
+    "DNASE-seq": 0.016,
+    "ATAC-seq": 0.012,
+    CAGE: 0.006,
+    PROCAP: 0.004,
+    AlphaMissense: 0.291,
+    Cactus: 0.38,
+    "PhastCons 470": 0.19,
+  },
+};
+
 describe("a build refusal is stated as a coverage decision, never as a credential problem", () => {
   it("renders the canonical label and the server's own reason", () => {
     renderTab({ refusals: [{ source: "alphagenome", reason: REFUSAL }] });
@@ -134,13 +156,21 @@ describe("the score is a rank, never an ACMG strength", () => {
     expect(screen.queryByText(/P_benign|\/ 50\.0/)).not.toBeInTheDocument();
   });
 
-  it("states the rank against all possible SNVs, with the canonical positive state", () => {
+  it("states the rank against all possible SNVs, with no green 'Computed' chip", () => {
     renderTab({ alphagenome: GZF1 });
-    expect(screen.getByTestId("avi-status")).toHaveTextContent("Computed");
+    // Green means benign in this app; a scored AVI shows its rank, not a success chip.
+    expect(screen.queryByTestId("avi-status")).not.toBeInTheDocument();
+    expect(screen.queryByText("Computed")).not.toBeInTheDocument();
     expect(screen.getByTestId("avi-headline")).toHaveTextContent("Top 0.23%");
     expect(screen.getByText(/of all ~9 billion possible hg38 SNVs/)).toBeInTheDocument();
     expect(screen.getByText(/about 1 in 437/)).toBeInTheDocument();
     expect(screen.getByTestId("avi-caveat")).toHaveTextContent(/not a probability of pathogenicity/);
+  });
+
+  it("says 'Not counted for ACMG' once, and puts the engine record in the facts", () => {
+    renderTab({ alphagenome: GZF1 });
+    expect(screen.getAllByText(/Not counted for ACMG/)).toHaveLength(1);
+    expect(within(screen.getByTestId("avi-facts")).getByText("No ACMG code")).toBeInTheDocument();
   });
 
   it("treats a measured quantile of 0 as a value, not as missing", () => {
@@ -168,32 +198,62 @@ describe("what the score is made of", () => {
   it("names AlphaMissense as a separate predictor, not as protein structure", () => {
     renderTab({ alphagenome: GZF1 });
     expect(screen.queryByText(/steric|hydrophobic packing|AlphaFold Structural/i)).not.toBeInTheDocument();
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/AlphaMissense \(\+0\.686\), which the Predictors tab already counts/);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Mostly evidence this workspace already reads\./);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/88% of the score comes from AlphaMissense \(88%\)/);
   });
 
-  it("says a conservation-dominated score names no molecular route", () => {
-    renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { AlphaMissense: 0.076, Splicing: 0.008, Cactus: 0.531 } } });
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Most of the score \(86%\) comes from conservation/);
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/does not name a molecular route/);
+  it("says a conservation-led score is re-read evidence too — not only an AlphaMissense-led one", () => {
+    // NAE1 p.Asp116Gly (the second-pass screenshot): conservation 51%, AlphaMissense 26%, AlphaGenome's
+    // own predictions 23%. The old finding said only "the position is constrained" and never that
+    // three quarters of the score was evidence the Predictors tab already reads.
+    renderTab({ alphagenome: NAE1 });
+    const finding = screen.getByTestId("avi-composition");
+    expect(finding).toHaveTextContent(/Mostly evidence this workspace already reads\./);
+    expect(finding).toHaveTextContent(/77% of the score comes from conservation \(51%\) and AlphaMissense \(26%\)/);
+    expect(finding).toHaveTextContent(/AlphaGenome's own molecular predictions add 23%, led by splicing \(\+0\.176\)/);
+    expect(within(screen.getByTestId("avi-origin-split")).getByText("23% new from AlphaGenome")).toBeInTheDocument();
+  });
+
+  it("leads with AlphaGenome's own predictions when they carry most of the score", () => {
+    renderTab({ alphagenome: { status: "live", aviPhred: 18.2, featureAttributions: { Splicing: 0.6, AlphaMissense: 0.2, Cactus: 0.1 } } });
+    const finding = screen.getByTestId("avi-composition");
+    expect(finding).toHaveTextContent(/Mostly AlphaGenome's own predictions\./);
+    expect(finding).toHaveTextContent(/67% of the score comes from AlphaGenome's predicted molecular effects, led by splicing/);
+  });
+
+  it("bands the table by origin: new from AlphaGenome first, then evidence read elsewhere", () => {
+    renderTab({ alphagenome: NAE1 });
+    const table = screen.getByTestId("avi-contributions");
+    const bands = table.querySelectorAll("tbody");
+    expect(bands[0]).toHaveAttribute("data-origin", "new");
+    expect(bands[1]).toHaveAttribute("data-origin", "reused");
+    expect(within(bands[1] as HTMLElement).getByTestId("avi-feature-CACTUS_241_WAY")).toHaveTextContent(/same kind of evidence as phyloP and GERP/);
+  });
+
+  it("links the largest molecular effect to the splicing tab only when it is splicing", () => {
+    renderTab({ alphagenome: NAE1 });
+    expect(within(screen.getByTestId("avi-facts")).getByText(/Splicing/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("avi-facts")).getByText(/compare with the RNA splicing tab/)).toBeInTheDocument();
   });
 
   it("folds contributions under 2% behind a row that says how many it holds", () => {
     renderTab({ alphagenome: GZF1 });
     expect(screen.getByTestId("avi-feature-MERGED_SPLICING")).toBeInTheDocument();
     expect(screen.queryByTestId("avi-feature-MAX_ABS_CHIP_TF")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /9 more — each under 2% of the total, 5 not attributed/ })).toBeInTheDocument();
+    // GZF1 has 6 attributed features: the "new" band shows Splicing and folds the other 9.
+    expect(screen.getByRole("button", { name: /9 more, each under 2% of the total, 5 not attributed/ })).toBeInTheDocument();
   });
 
   it("keeps absent and zero apart: an unattributed feature is a dash, a measured 0 is 0", () => {
     renderTab({ alphagenome: GZF1 });
-    for (const b of screen.getAllByRole("button", { name: /more — each under/ })) fireEvent.click(b);
+    for (const b of screen.getAllByRole("button", { name: /more, each under/ })) fireEvent.click(b);
     expect(within(screen.getByTestId("avi-feature-MAX_ABS_CHIP_TF")).getByText("+0.000")).toBeInTheDocument();
     expect(within(screen.getByTestId("avi-feature-CACTUS_241_WAY")).getByText("Not attributed")).toBeInTheDocument();
   });
 
   it("does not elect a feature from an all-zero vector", () => {
     renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Splicing: 0, AlphaMissense: 0 } } });
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/every attribution is zero/);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Every attribution is zero/);
   });
 
   it("explains a live score that arrived without attributions", () => {

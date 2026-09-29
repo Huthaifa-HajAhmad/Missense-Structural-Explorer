@@ -182,7 +182,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               their votes overlap with PM2/BS1 and are partly circular for a variant already in ClinVar.
             </li>
             <li>
-              The AlphaGenome AVI is a rank among scored variants, not a probability, and contains
+              The AlphaGenome AVI is a rank among all possible SNVs, not a probability, and contains
               AlphaMissense, so it is informational. It no longer raises PP3 to Moderate or Strong.
             </li>
             <li>

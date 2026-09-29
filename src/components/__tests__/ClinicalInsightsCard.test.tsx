@@ -81,10 +81,11 @@ describe("ClinicalInsightsCard residue property radar", () => {
 
     // Source lines come straight from PROPERTY_SCALE_DEFINITIONS, so the axis
     // names here cannot drift from the Residue Shifts tab again.
-    expect(screen.getByText(/Hydrophobicity: Kyte & Doolittle/)).toBeInTheDocument();
-    expect(screen.getByText(/Size: Side-chain van der Waals volume/)).toBeInTheDocument();
-    expect(screen.getByText(/Polarity: Standard biochemical polarity/)).toBeInTheDocument();
-    expect(screen.getByText(/Charge: Hand-normalised charge index/)).toBeInTheDocument();
+    // Each axis now cites its published scale (residueScales.ts), not a hand-made table.
+    expect(screen.getByText(/Hydropathy: Kyte and Doolittle 1982/)).toBeInTheDocument();
+    expect(screen.getByText(/Volume: Grantham 1974 side-chain volume/)).toBeInTheDocument();
+    expect(screen.getByText(/Polarity: Grantham 1974 polarity/)).toBeInTheDocument();
+    expect(screen.getByText(/Charge: Formal side-chain charge at pH 7.4/)).toBeInTheDocument();
 
     // The names this chart used to invent must be gone.
     expect(screen.queryByText(/Molecular Size/)).not.toBeInTheDocument();
@@ -157,7 +158,7 @@ describe("ClinicalInsightsCard biochemical narrative", () => {
     expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument();
     // The degraded state is labelled, and the derived scales still render.
     expect(screen.getByText(/State: Rule-based only/)).toBeInTheDocument();
-    expect(screen.getByText(/Hydrophobicity: Kyte & Doolittle/)).toBeInTheDocument();
+    expect(screen.getByText(/Hydropathy: Kyte and Doolittle 1982/)).toBeInTheDocument();
   });
 });
 

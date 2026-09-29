@@ -43,6 +43,8 @@ export interface PocketResult {
     engine?: "p2rank" | "fpocket";
     scoreSource?: "probability" | "rescaled_raw_score" | "unavailable";
     volumeSource?: "measured" | "unavailable" | "scaled_surface_points";
+    /** P2Rank model profile; its probabilities are calibrated per profile. */
+    profile?: string;
   } | null;
 }
 

@@ -126,23 +126,12 @@ def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str,
     except Exception as e:
         print(f"[Model Server] ESM-2 remote feature extraction skipped (not supported by HF API): {e}")
 
-    mut_masked_seq = mut_sequence[:pos-1] + "<mask>" + mut_sequence[pos:]
-    mut_preds = client.fill_mask(mut_masked_seq, model=model_name, targets=targets, top_k=20)
-    
-    mut_scores = {}
-    for item in mut_preds:
-        tok_str = item.token_str if hasattr(item, "token_str") else item["token_str"]
-        score_val = item.score if hasattr(item, "score") else item["score"]
-        mut_scores[tok_str] = score_val
-        
-    for aa in targets:
-        if aa not in mut_scores:
-            mut_scores[aa] = 1e-9
-            
-    mut_total_score = sum(mut_scores.values())
-    mut_probs = {aa: (mut_scores[aa] / mut_total_score) for aa in targets}
-    
-    kl_div = float(sum(probs[aa] * np.log((probs[aa] + 1e-9) / (mut_probs[aa] + 1e-9)) for aa in targets))
+    # KL divergence is not reported on this path. Masking the substituted site in the mutant
+    # sequence yields exactly the wild-type masked sequence, so the old calculation compared two
+    # identical inputs and was ~0 by construction — a placeholder that read as a measurement.
+    # SaProt's remote path already returns None for the same reason; the local path, which reads
+    # both unmasked sequences, still measures it.
+    kl_div = None
     
     return {
         "status": "success",
@@ -154,7 +143,7 @@ def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str,
         "positionalEntropy": round(pos_entropy, 4),
         "embeddingShift": round(embedding_shift, 4) if embedding_shift is not None else None,
         "localShiftMap": local_shift_map,
-        "klDivergence": round(kl_div, 4),
+        "klDivergence": kl_div,
         "provenance": f"ESM-2 ({model_name.split('/')[-1]} - Remote)"
     }
 

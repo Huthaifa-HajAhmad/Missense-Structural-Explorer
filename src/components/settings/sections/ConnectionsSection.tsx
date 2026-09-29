@@ -185,7 +185,7 @@ export function ConnectionsSection() {
           placeholder="Enter ALPHAGENOME_API_KEY…"
           value={settings.alphagenomeApiKey || ""}
           onChange={(value) => updateSetting("alphagenomeApiKey", value)}
-          description="Enables variant impact (AVI) scoring, 18-modality SHAP attributions, and Atlas track predictions."
+          description="Enables variant impact (AVI) scoring, the SHAP contributions of its 18 features, and Atlas track predictions."
           action={{
             label: "Test connection",
             busyLabel: "Testing…",

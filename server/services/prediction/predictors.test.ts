@@ -131,6 +131,19 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
     });
 
     it("should evaluate predictStructuralDisruption rules correctly", async () => {
+      // Burial now comes only from the measured accessible surface (the owner's "show as
+      // unmeasured" decision); a Cα-packing estimate no longer makes a residue "core". The
+      // sidecar is stubbed so each case states whether accessibility was measured.
+      let sasaStdout = JSON.stringify({ status: "error", message: "stubbed: not measured" });
+      const core = JSON.stringify({ status: "success", sasa: 5, rsa: 0.03, burialStatus: "core" });
+      vi.doMock("child_process", async importOriginal => ({
+        ...(await importOriginal<typeof import("child_process")>()),
+        execFile: (_file: string, _args: string[], _opts: unknown, cb: (e: null, r: { stdout: string; stderr: string }) => void) =>
+          cb(null, { stdout: sasaStdout, stderr: "" })
+      }));
+      vi.resetModules();
+      const { predictStructuralDisruption } = await import("../stability/biophysics.ts");
+
       function formatPdbAtomLine(serial: number, name: string, resName: string, chain: string, resSeq: number, x: number, y: number, z: number): string {
         const chars = Array(80).fill(" ");
         chars.splice(0, 4, ..."ATOM".split(""));
@@ -175,6 +188,13 @@ END
         pdbBuried += formatPdbAtomLine(i + 1, "CA", "VAL", "A", 15 + i, x, y, z) + "\n";
       }
       pdbBuried += "TER\nEND";
+      // Densely packed but not measured: no burial word, so the buried-core rules stay silent.
+      const resUnmeasured = await predictStructuralDisruption(pdbBuried, "D", 15, "R", "A");
+      expect(resUnmeasured.burialStatus).toBeUndefined();
+      expect(resUnmeasured.level).toBe("low");
+      expect(resUnmeasured.sasaUnavailableReason).toBe("stubbed: not measured");
+
+      sasaStdout = core;
       const resB = await predictStructuralDisruption(pdbBuried, "D", 15, "R", "A");
       expect(resB.level).toBe("high");
       expect(resB.reason).toContain("Buried charge reversal");
@@ -210,6 +230,8 @@ END
       `.trim();
       const resNormal = await predictStructuralDisruption(pdbNeutral, "A", 30, "V", "A");
       expect(resNormal.level).toBe("low");
+      vi.doUnmock("child_process");
+      vi.resetModules();
     }, 60000);
   });
 

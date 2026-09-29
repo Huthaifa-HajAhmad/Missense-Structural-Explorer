@@ -643,7 +643,9 @@ export const pocketFinderResponseSchema = z.object({
     .object({
       engine: z.enum(["p2rank", "fpocket"]).optional(),
       scoreSource: z.enum(["probability", "rescaled_raw_score", "unavailable"]).optional(),
-      volumeSource: z.enum(["measured", "unavailable", "scaled_surface_points"]).optional()
+      volumeSource: z.enum(["measured", "unavailable", "scaled_surface_points"]).optional(),
+      /** P2Rank model profile; its probabilities are calibrated per profile. */
+      profile: z.string().optional()
     })
     .optional()
 });
@@ -1300,7 +1302,9 @@ export const analyzeVariantResponseSchema = z.object({
     burialStatus: z.enum(["core", "surface", "boundary"]).optional(),
     neighborCount: z.number().optional(),
     rsa: z.number().nullable().optional(),
-    sasa: z.number().nullable().optional()
+    sasa: z.number().nullable().optional(),
+    /** Why accessibility was not measured, when the SASA step failed. */
+    sasaUnavailableReason: z.string().optional()
   }).optional(),
   uniprotFeatures: z.object({
     features: z.array(z.object({
@@ -1968,6 +1972,8 @@ export interface DisruptionPredictorResult {
   neighborCount?: number;
   rsa?: number | null;
   sasa?: number | null;
+  /** Why accessibility was not measured, when the SASA step failed. */
+  sasaUnavailableReason?: string;
 }
 
 export interface GnomadConstraintData {
