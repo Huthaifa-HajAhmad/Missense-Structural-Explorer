@@ -5,12 +5,13 @@
  * WHY THIS MODULE EXISTS
  * ----------------------
  * The perturbation surfaces previously coloured every model's ΔLLR against a single
- * constant, `THRESHOLDS.esm.pathogenic` (-5.0), and averaged raw ΔLLR across models to
+ * constant, `THRESHOLDS.esm.pathogenic` (-5.0, since deleted: it was a local mark that no paper
+ * published for any model), and averaged raw ΔLLR across models to
  * build a "consensus". Both are wrong, and they are wrong for the same reason: the
  * zero-shot log-likelihood ratio is **model-native**. Its magnitude depends on the
  * model's training objective, parameter count and output vocabulary, so an LLR of -5.0
- * does not mean the same thing in ESM-1b (whose -5.0 is a documented benign cut-point)
- * as it does in SaProt or ESMC.
+ * does not mean the same thing in ESM-1b (whose ClinGen bands are on the ESM-1b scale
+ * alone) as it does in SaProt or ESMC.
  *
  * The consequence was visible in the UI: a SaProt ΔLLR of -0.031 and an ESMC-6B ΔLLR of
  * -8.430 were both tested against -5.0, so SaProt rendered green and ESMC red on a scale
@@ -35,6 +36,8 @@
  * computes the rank correlation of predicted scores against experimental DMS scores.
  * Do not fill these in from clinical intuition.
  */
+
+import { CALIBRATION_SOURCES, PP3_BP4_CALIBRATION } from "./thresholds/calibration";
 
 /** Whether a model's raw score may be tested against a fixed cut-point. */
 export type CalibrationStatus =
@@ -92,24 +95,32 @@ export const EMBEDDING_DIMS = {
 /**
  * Keys are stable model identifiers shared with the perturbation model cards.
  *
- * `esm1b` is retained because `THRESHOLDS.esm` still derives -5.0/-2.0 from it and
- * other evidence tabs consume those constants. It is deliberately absent from the
- * perturbation model set, which is precisely the point: the only model family in
- * `CALIBRATIONS` that *is* calibrated does not appear on this tab.
+ * `esm1b` is the only calibrated row, and its cut-points are READ from
+ * `PP3_BP4_CALIBRATION.esm1b` (Bergquist 2025) rather than typed here: a second copy is how this
+ * row came to carry Brandes 2023's own operating point (-7.5) and an unsourced -5.0, labelled
+ * "calibrated", while the PP3/BP4 evaluator used the ClinGen bands. It is deliberately absent
+ * from the perturbation model set, which is precisely the point: the only model family here
+ * that *is* calibrated does not appear on this tab.
  */
+const ESM1B_BANDS = PP3_BP4_CALIBRATION.esm1b;
 export const MODEL_CALIBRATIONS: Record<string, ModelCalibration> = {
   esm1b: {
     id: "esm1b",
     label: "ESM-1b",
     family: "esm1b",
     status: "calibrated",
-    cutPoints: { pathogenic: -7.5, benign: -5.0 },
-    cutPointSource: "ESM-1b (Brandes et al. 2023, Nature Genetics)",
+    // "pathogenic" / "benign" here mean at least PP3 Supporting / BP4 Supporting on ClinGen's ESM1b
+    // bands; the stronger tiers stay in PP3_BP4_CALIBRATION for the evaluators that grade strength.
+    cutPoints: { pathogenic: ESM1B_BANDS.pp3.Supporting ?? null, benign: ESM1B_BANDS.bp4.Supporting ?? null },
+    cutPointSource: `ESM1b LLR, ClinGen PP3/BP4 calibration (${CALIBRATION_SOURCES[ESM1B_BANDS.source].short})`,
     embeddingDim: null,
     note:
-      "The only cut-point in this registry derived for the model it is applied to. " +
-      "ESM-1b is not one of the models evaluated on the perturbation tab.",
-    provenance: "Brandes, N., et al. (2023). Genome-wide prediction of disease variant effects with a deep protein language model. Nature Genetics."
+      "The only row in this registry with a calibrated cut-point derived for the model it is applied to: " +
+      "ClinGen's PP3/BP4 bands for the ESM1b LLR. Between the two Supporting cut-points the score is " +
+      "indeterminate. ESM-1b is not one of the models evaluated on the perturbation tab.",
+    provenance:
+      `${CALIBRATION_SOURCES[ESM1B_BANDS.source].citation} doi:${CALIBRATION_SOURCES[ESM1B_BANDS.source].doi}. ` +
+      "Model: Brandes N, et al. Genome-wide prediction of disease variant effects with a deep protein language model. Nat Genet 2023 (whose own −7.5 operating point is not used)."
   },
 
   esm2_650m: {

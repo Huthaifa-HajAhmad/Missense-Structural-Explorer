@@ -8,6 +8,7 @@ import {
   resolveModelCalibration
 } from "../modelCalibration";
 import { resolveServedModel } from "../perturbationModels";
+import { PP3_BP4_CALIBRATION, calibratedCall } from "../thresholds/calibration";
 
 /**
  * Moved from perturbationHelpers.test.ts when the 0–100 composite and its text helpers were removed
@@ -63,11 +64,37 @@ describe("Model calibration registry", () => {
       expect(describeWithinModelRank(undefined)).toContain("unavailable");
     });
 
-    it("keeps ESM-1b's cut-points attached to ESM-1b alone", () => {
+    it("gives ESM-1b ClinGen's ESM1b bands, read from the one calibration table", () => {
+      // The row used to carry Brandes 2023's own operating point (-7.5) and an unsourced -5.0 while
+      // the PP3/BP4 evaluator used Bergquist 2025, so one score got two verdicts. Bergquist 2025
+      // Table 1: PP3 Supporting <= -10.7, BP4 Supporting >= -6.3.
+      const bands = PP3_BP4_CALIBRATION.esm1b;
+      expect(MODEL_CALIBRATIONS.esm1b.cutPoints).toEqual({ pathogenic: bands.pp3.Supporting, benign: bands.bp4.Supporting });
+      expect(MODEL_CALIBRATIONS.esm1b.cutPoints).toEqual({ pathogenic: -10.7, benign: -6.3 });
+      expect(MODEL_CALIBRATIONS.esm1b.cutPointSource).toContain("Bergquist");
       expect(isCalibrated(MODEL_CALIBRATIONS.esm1b)).toBe(true);
-      expect(classifyLlr(-8.0, MODEL_CALIBRATIONS.esm1b)).toBe("pathogenic");
-      expect(classifyLlr(-1.0, MODEL_CALIBRATIONS.esm1b)).toBe("benign");
-      expect(classifyLlr(-6.0, MODEL_CALIBRATIONS.esm1b)).toBe("intermediate");
+    });
+
+    it("classifies an ESM-1b LLR on those bands, edges inclusive", () => {
+      const esm1b = MODEL_CALIBRATIONS.esm1b;
+      expect(classifyLlr(-12.0, esm1b)).toBe("pathogenic");
+      expect(classifyLlr(-10.7, esm1b)).toBe("pathogenic");
+      expect(classifyLlr(-8.0, esm1b)).toBe("intermediate");
+      expect(classifyLlr(-6.3, esm1b)).toBe("benign");
+      expect(classifyLlr(-1.0, esm1b)).toBe("benign");
+      // The retired numbers no longer decide anything: -7.5 was Brandes's operating point.
+      expect(classifyLlr(-7.5, esm1b)).toBe("intermediate");
+      expect(classifyLlr(-6.0, esm1b)).toBe("benign");
+    });
+
+    it("agrees with the PP3/BP4 evaluator on the same score", () => {
+      // classifyLlr's pathogenic/benign are "at least Supporting"; the evaluator grades strength.
+      for (const llr of [-25, -12.5, -10.7, -8, -6.3, -3, 4]) {
+        const call = calibratedCall("esm1b", llr);
+        const verdict = classifyLlr(llr, MODEL_CALIBRATIONS.esm1b);
+        const expected = call?.direction === "PP3" ? "pathogenic" : call?.direction === "BP4" ? "benign" : "intermediate";
+        expect(verdict, `ESM1b LLR ${llr}`).toBe(expected);
+      }
     });
 
     it("selects the SaProt variant from the engine setting", () => {

@@ -35,6 +35,7 @@ language model's own residue distribution. That rank doesn't depend on any model
 | 19 | Medium | The SaProt loading banner guessed its stage from elapsed seconds and drew a fake progress bar. | `SaProtLoadingProgressBanner` | Replaced by the canonical "Running" state and the 35M/re-run actions. |
 | 20 | Low | The Structure inspector said rigid-backbone "displacement values are physically interpretable". | `StructureInspector.tsx` | States that they are zero by construction. |
 | 21 | Low | Legacy status words ("Standby", "N/A"); a `useMemo` after an early return; Tailwind palette colours and inline theme styles; the typo "116cannot". | Components | New tab and model are listed in `energeticsLabels.guard.test.ts`. Tokens only. |
+| 22 | Medium | The ESM-1b registry row was labelled "calibrated" with Brandes 2023's own operating point (−7.5) and an unsourced −5.0, while the PP3/BP4 evaluator used ClinGen's ESM1b bands (Bergquist 2025). One score could get two verdicts. `THRESHOLDS.esm` (−5.0/−2.0) and `THRESHOLDS.esm1b` (−7.5/−5.0) were dead copies of the same numbers. | `modelCalibration.ts`, `constants.ts`; nothing read the two constants. | Registry cut-points are read from `PP3_BP4_CALIBRATION.esm1b` (PP3 Supporting ≤ −10.7, BP4 Supporting ≥ −6.3); both dead constants deleted; tests pin agreement with `calibratedCall`. Bands taken from the repo's recorded Bergquist Table 1 values — the paper page could not be re-fetched (HTTP 429). |
 
 ## What the screen shows now (NAE1)
 
@@ -52,8 +53,6 @@ and `inspector/PerturbationRail.tsx` (which replaces `PerturbationInspector`). T
 
 ## Follow-ups not done
 
-- `THRESHOLDS.esm` / the ESM-1b registry row gives −7.5/−5.0 and cites Brandes 2023. The ClinGen-calibrated
-  ESM1b bands (Bergquist 2025) are PP3 ≤ −10.7 and BP4 ≥ −6.3. That row is not on this tab but should be reconciled.
 - `calculateLocalSidechainRmsd` still returns 0.0 when the window has too few atoms. The runner now keeps a failure as null,
   but the function's own empty case should return null too (it has two callers).
 - The header strip's LOEUF 0.94 reads "Moderate constraint". That is outside this tab; review it with the gene-constraint header.

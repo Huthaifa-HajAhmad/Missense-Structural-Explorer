@@ -159,11 +159,9 @@ export const THRESHOLDS = {
     pathogenic: 0.133,
     benign: -0.0404,
   },
-  /** Retained for legacy readers; no evaluator uses it. ESM-family scores other than ESM1b are uncalibrated. */
-  esm: {
-    pathogenic: -5.0,
-    benign: -2.0,
-  },
+  // `esm` (-5.0 / -2.0) and `esm1b` (-7.5 / -5.0) were removed: nothing read them, the -5.0/-2.0 pair
+  // was published for no model, and -7.5 is Brandes 2023's own operating point. ESM1b's PP3/BP4
+  // bands are in `calibration.ts` (Bergquist 2025); every other ESM-family LLR is uncalibrated.
   metaRnn: {
     pathogenic: 0.5,
     benign: 0.5,
@@ -179,11 +177,6 @@ export const THRESHOLDS = {
   dann: {
     pathogenic: 0.96,
     benign: 0.96,
-  },
-  /** Brandes et al. 2023 operating point (−7.5). The PP3/BP4 evaluator reads Bergquist 2025 in `calibration.ts`. */
-  esm1b: {
-    pathogenic: -7.5,
-    benign: -5.0,
   },
   /** Local cut-points — GPN-Star publishes none. Informational only. */
   gpnStar: {
