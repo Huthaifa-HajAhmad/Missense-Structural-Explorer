@@ -161,12 +161,25 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
       originalEnv[key] = process.env[key];
     }
     /**
-     * The binary only has to EXIST: the runner validates the path before it runs anything, and the
-     * process itself is faked above. `rotabase.txt`/`molecules/` resolve from the repository, which
-     * is what a real deployment does too.
+     * Everything the runner validates on disk is built here, so this test does not depend on the
+     * repository carrying FoldX's parameter files.
+     *
+     * It used to depend on exactly that, and the comment that stood here said so approvingly:
+     * "`rotabase.txt`/`molecules/` resolve from the repository, which is what a real deployment does
+     * too". That stopped being true on 2026-09-29, when FoldX's licensed parameters were untracked
+     * (see .gitignore -- they ship under the CRG Academic License and cannot be redistributed). A
+     * fresh clone has none of them, so CI failed with "FoldX parameter files missing: molecules/
+     * directory not found in tools/foldx, tools/foldx_linux, or /app/tools/foldx" while every local
+     * run stayed green, because the files are still sitting on a developer's disk.
+     *
+     * `detector.ts:69-71` sets `foldxDir = path.dirname(FOLDX_BINARY)`, so the fixtures belong
+     * beside the fake binary and no production code has to change to accommodate the test.
      */
     const fakeBin = path.join(workspace, "foldx-fake.bin");
     fs.writeFileSync(fakeBin, "");
+    fs.mkdirSync(path.join(workspace, "molecules"), { recursive: true });
+    fs.writeFileSync(path.join(workspace, "molecules", "placeholder.json"), "{}");
+    fs.writeFileSync(path.join(workspace, "rotabase.txt"), "");
     process.env.FOLDX_BINARY = fakeBin;
     process.env.FOLDX_CACHE_DIR = path.join(workspace, "foldx_cache");
 

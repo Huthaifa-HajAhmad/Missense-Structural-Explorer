@@ -11,17 +11,20 @@ logs/
 .kilo/
 temp_jobs/
 
-# Third-party / licensed tools (do not commit binaries or downloads)
-tools/foldx/*
-!tools/foldx/rotabase.txt
-!tools/foldx/molecules/
-!tools/foldx/molecules/**
-!tools/foldx/foldx.cmd
-tools/foldx_linux/*
-!tools/foldx_linux/molecules/
-!tools/foldx_linux/molecules/**
-!tools/foldx_linux/foldx_20261231
-!tools/foldx_linux/rotabase.txt
+# Third-party / licensed tools. KEEP LOCAL — never committed.
+#
+# FoldX ships under the CRG Academic License: free for academic use, but the grant is
+# non-transferable and scoped to "computers and/or servers at their research site" for research
+# purposes. Committing tools/foldx_linux/foldx_20261231 redistributes an 82.7 MB licensed binary,
+# and rotabase.txt and molecules/*.json are part of the same licensed distribution. README.md
+# already tells users to register at foldxsuite.crg.eu and install FoldX themselves, which is the
+# correct distribution path, so tracking any of it contradicts the README.
+#
+# The `!` negations that used to re-include these files are what made the previous comment ("do not
+# commit binaries or downloads") untrue. They were deliberately removed: the folder patterns below
+# now cover everything with no exceptions.
+tools/foldx/
+tools/foldx_linux/
 tools/p2rank/
 
 # Dev scratch scripts
@@ -39,14 +42,14 @@ Desktop.ini
 /server.js
 .vite/
 
-# Python bytecode and checkpoints
+# Python bytecode. Checkpoints and model weights are third-party artefacts carrying their own
+# terms, so they are kept local on the same reasoning as the licensed tools above: a fresh clone
+# and a fresh VM fetch them rather than inherit them from git. The `!` negations that used to
+# re-include the ThermoMPNN and ESM weights are deliberately gone.
 __pycache__/
 *.pyc
 *.pth
 *.pt
-!tools/model_server_app/checkpoints/stability_oracle_cdna117k.pt
-!tools/thermompnn/models/*.pt
-!tools/thermompnn/vanilla_model_weights/*.pt
 .venv/
 tools/.venv/
 tools/vesm/
@@ -76,6 +79,17 @@ graphify-out/
 
 # Local secrets
 .sidecar_secret
+
+# Deployment runbook, kept local. It documents the OCI host, the deployment topology, and the shape
+# of the production secrets. Every credential in it is a placeholder (<YOUR_CLOUDFLARE_TUNNEL_TOKEN>,
+# <32_byte_hex_token>), but the host is real -- it appears as OCI_SSH_HOST's example, 92.5.173.166 --
+# so it does not belong in a repository that is public.
+#
+# UNTRACKING THIS DOES NOT HIDE IT. As of 2026-09-29 the file is still present in history on main and
+# on all four claude/* branches, so publishing the repo would still expose the host. Removing it for
+# real needs git-filter-repo, and on this repository that means a rewrite plus a fresh repository,
+# because GitHub's refs/pull/* are read-only and keep pointing at the old commits.
+doc/DEPLOYMENT_OCI.md
 
 # Local editor and workspace caches
 .commandcode/
