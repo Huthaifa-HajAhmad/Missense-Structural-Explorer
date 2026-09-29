@@ -15,6 +15,10 @@ interface CanaryVariantBenchmark {
   mockData: any;
 }
 
+/**
+ * The PM1 sites below carry `ECO:0000269` (experimental) because PM1 now counts only experimentally
+ * evidenced sites (`src/shared/functionalSites.ts`); an untagged site models "no evidence cited".
+ */
 const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "PAH",
@@ -37,7 +41,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
       gnomadConstraint: { pli: 0.85, missense_z: 2.1, oe_mis: 0.65, isPP2Constrained: true },
       gnomadFrequency: { maxAF: 0.00001, groupMaxAF: 0.00001 },
       acmgWeighting: "standard",
-      uniprotFeatures: { features: [{ type: "Active site", start: 143, end: 410, description: "Catalytic active site" }] },
+      uniprotFeatures: { features: [{ type: "Active site", start: 143, end: 410, description: "Catalytic active site", evidence: [{ code: "ECO:0000269" }] }] },
       sequence: "M".repeat(452)
     }
   },
@@ -62,7 +66,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
       gnomadConstraint: { pli: 0.99, missense_z: 3.5, oe_mis: 0.35, isPP2Constrained: true },
       gnomadFrequency: { maxAF: 0.000005, groupMaxAF: 0.000005 },
       acmgWeighting: "standard",
-      uniprotFeatures: { features: [{ type: "Binding site", start: 102, end: 292, description: "DNA-binding site" }] },
+      uniprotFeatures: { features: [{ type: "Binding site", start: 102, end: 292, description: "DNA-binding site", evidence: [{ code: "ECO:0000269" }] }] },
       sequence: "M".repeat(393)
     }
   },
@@ -87,7 +91,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
       gnomadConstraint: { pli: 1.0, missense_z: 2.8, oe_mis: 0.45, isPP2Constrained: true },
       gnomadFrequency: { maxAF: 0.000002, groupMaxAF: 0.000002 },
       acmgWeighting: "standard",
-      uniprotFeatures: { features: [{ type: "Metal binding", start: 1, end: 100, description: "Zinc finger metal binding site" }] },
+      uniprotFeatures: { features: [{ type: "Metal binding", start: 1, end: 100, description: "Zinc finger metal binding site", evidence: [{ code: "ECO:0000269" }] }] },
       sequence: "M".repeat(1863)
     }
   },

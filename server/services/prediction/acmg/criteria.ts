@@ -10,6 +10,7 @@ import type { GnomadVariantFrequency, GnomadGeneConstraint } from "../../externa
 import type { UniprotFeaturesResult } from "../../external-api/uniprot.ts";
 import { isNullVariant, isInFrameIndel, isIndelInRepeatRegion } from "./syntax.ts";
 import type { ACMGItem } from "./classifier.ts";
+import { assessPm1, featureCoversResidue } from "../../../../src/shared/functionalSites.ts";
 
 export interface ACMGEvidenceInput {
   gene: string;
@@ -112,10 +113,9 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
       if (uniprotFeatures?.features && Array.isArray(uniprotFeatures.features) && pos) {
         isCriticalDomain = uniprotFeatures.features.some((f: any) => {
           const type = (f.type || "").toLowerCase();
-          const start = f.start;
-          const end = f.end;
+          // `featureCoversResidue`, not `start <= pos <= end`: a disulfide bond covers its two cysteines only.
           return (type.includes("domain") || type.includes("site") || type.includes("active") || type.includes("binding")) &&
-                 pos >= start && pos <= end;
+                 featureCoversResidue(f, pos);
         });
       }
 
@@ -385,20 +385,20 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   // -------------------------------------------------------------------------
   // PM1 — Mutational hotspot and/or critical and well-established functional domain
   // -------------------------------------------------------------------------
+  /**
+   * The rule lives in `src/shared/functionalSites.ts` (`assessPm1`), which the Functional domains tab
+   * reads too. It replaced a test that took any UniProt active/binding/metal/disulfide annotation at the
+   * residue, whatever its evidence, read a disulfide bond as covering every residue between its two
+   * cysteines, and never applied the PP3 + PM1 ≤ Strong cap.
+   */
   if (uniprotFeatures?.features && !skipPathogenicComp) {
     const posMatch = variant.match(/\d+/);
     const pos = posMatch ? parseInt(posMatch[0], 10) : NaN;
     if (!isNaN(pos)) {
-      const criticalFeature = uniprotFeatures.features.find((f: any) => {
-        const matchesType = ["Active site", "Binding site", "Metal binding", "Disulfide bond"].includes(f.type);
-        return matchesType && pos >= f.start && pos <= f.end;
-      });
-
-      if (criticalFeature) {
-        criteria.push({
-          code: "PM1",
-          reason: `Variant resides within a critical functional domain/hotspot: ${criticalFeature.type} (${criticalFeature.description || "curated site"}) spanning residues ${criticalFeature.start}–${criticalFeature.end}.`
-        });
+      const pp3Code = criteria.find((c) => c.code.startsWith("PP3"))?.code ?? null;
+      const pm1 = assessPm1(uniprotFeatures.features as any[], pos, { pp3Code });
+      if (pm1.status === "met") {
+        criteria.push({ code: "PM1", reason: pm1.reason });
       }
     }
   }

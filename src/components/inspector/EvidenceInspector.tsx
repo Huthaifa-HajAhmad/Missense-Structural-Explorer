@@ -3,7 +3,6 @@ import {
   ShieldAlert,
   Zap,
   Box,
-  Layers,
   Info,
   Cpu,
   Sparkles,
@@ -17,7 +16,7 @@ import {
 } from "../../shared/thresholds";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
-import { FeaturePaletteLegend } from "./FeaturePaletteLegend";
+import { FunctionRail } from "./FunctionRail";
 import { PopulationRail } from "./PopulationRail";
 import { MultimerRail } from "./MultimerRail";
 import { InteractionsRail } from "./InteractionsRail";
@@ -63,42 +62,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "multimers" && <MultimerRail analysisResult={analysisResult} />}
 
-      {tab === "function" && (
-        <div className="flex flex-col gap-3">
-          <span className="eyebrow">
-            <Layers className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Domain &amp; Feature Architecture
-          </span>
-
-          {/* Feature Legend — rendered from the palette the track paints with, instead of a second
-              hand-written list. That list had four of five swatches wrong (indigo domains, amber
-              binding sites, emerald PTMs, cyan disulfides) and no entry at all for transmembrane
-              regions or the other curated sites, so reading it to interpret the track misled. */}
-          <FeaturePaletteLegend />
-
-          {/* Interactive Navigation Guide */}
-          <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1.5">
-            <span className="text-[11px] font-bold text-cs-text-primary block">
-              Inspection &amp; Zoom Controls
-            </span>
-            <p className="text-[11px] text-cs-text-secondary leading-relaxed font-sans">
-              Use the zoom slider or zoom buttons to focus on specific sequence windows. Clicking domain cards dynamically highlights and scrolls to corresponding SVG pins.
-            </p>
-          </div>
-
-          {/* Provenance */}
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1 text-[11px]">
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">UniProtKB Feature Table</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">Swiss-Prot Verified</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-semibold text-cs-text-primary">InterPro / Pfam</span>
-              <span className="font-mono text-[10px] text-cs-text-muted">v2024</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {tab === "function" && <FunctionRail analysisResult={analysisResult} />}
 
       {tab === "clinical" && <PopulationRail analysisResult={analysisResult} />}
 
