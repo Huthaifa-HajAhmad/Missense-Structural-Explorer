@@ -67,15 +67,37 @@ export function LandscapeLegend() {
             </tbody>
           </table>
         </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px]">
+          <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="unscored" />SNV-reachable, no score</span>
+          <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="unreachable" />needs ≥ 2 nucleotide changes (not in dbNSFP)</span>
+          <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="reference">·</span>reference residue</span>
+          <span className="flex items-center gap-1.5"><span className="ls-swatch" style={{ outline: "2px solid var(--cs-accent-clay)", outlineOffset: -1 }} />queried variant</span>
+        </div>
         <p className="text-[11px] leading-snug text-cs-text-muted">
-          The bands were calibrated for single variants. Grid cells show a residue summary (mean or max over its
-          SNV-reachable missense substitutions), so on the grid the colour is for orientation and does not count as
-          PP3/BP4. The queried variant's own band is stated in the finding above.
+          Heatmap cells are single substitutions, so their band applies to that substitution. The bands were
+          calibrated for single variants: in the summary row and the overview, which show residue summaries (mean or
+          max over SNV-reachable missense substitutions), the colour is for orientation and does not count as PP3/BP4.
         </p>
       </div>
 
       <div className="flex flex-col gap-2 border-t border-cs-border-subtle pt-3">
-        <span className="font-semibold text-cs-text-primary">Conservation shade — codon mean, darker = more conserved</span>
+        <span className="font-semibold text-cs-text-primary">Nucleotide lane — AlphaGenome AVI genome-wide rank</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px]">
+          {["below top 10%", "top 10%", "top 1%", "top 0.1%", "top 0.01%"].map((label, level) => (
+            <span key={label} className="flex items-center gap-1.5">
+              <span className="ls-swatch ls-nt" data-rank={String(level)} />
+              {label}
+            </span>
+          ))}
+        </div>
+        <p className="text-[11px] leading-snug text-cs-text-muted">
+          A rank among all possible SNVs, not a probability and not an ACMG band. AlphaMissense is one of the AVI's
+          inputs, so this lane is not independent of the heatmap.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2 border-t border-cs-border-subtle pt-3">
+        <span className="font-semibold text-cs-text-primary">Conservation shade — codon mean, stronger shade = more conserved</span>
         <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px]">
           {(["gerp", "phylop"] as const).map((tool) => {
             const [a, b, c] = CONSERVATION_BREAKS[tool];

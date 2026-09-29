@@ -548,7 +548,9 @@ export function AppViews({
                 landscapeMeta={analysisState.result?.landscapeMeta}
                 uniprotFeatures={analysisState.result?.uniprotFeatures?.features}
                 metricMode={metricMode}
+                setMetricMode={setMetricMode}
                 windowSize={windowSize}
+                setWindowSize={setWindowSize}
                 onResidueClick={handleResidueClickMemo}
               />
             </div>

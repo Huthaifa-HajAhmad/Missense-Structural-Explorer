@@ -234,6 +234,9 @@ export async function fetchLandscape(gene: string, startPos?: number, endPos?: n
   const end =
     endPos ?? (sequence ? sequence.length : Math.max(start, ...candidates.flatMap((c) => c.readings.map((r) => r.pos))));
   const { positions, qualityFlags } = aggregateLandscape(candidates, { start, end, sequence, choice });
+  const hitCap = windowed ? 2000 : 10000;
+  // The source stops at the cap; residues past it read as unscored, which the flag makes visible.
+  if (hits.length >= hitCap) qualityFlags.push(`truncated:${hitCap}`);
 
   const meta: LandscapeMeta = {
     source: candidates.length > 0 ? "myvariant" : "none",

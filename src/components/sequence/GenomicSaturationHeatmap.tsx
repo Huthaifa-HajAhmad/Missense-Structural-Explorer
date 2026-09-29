@@ -1,18 +1,14 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
+import React, { useState, useMemo, useCallback, useRef, memo } from "react";
 import { Dna, ExternalLink, ChevronDown, ChevronUp, Sparkles, Activity } from "lucide-react";
-import { useApiClient } from "../../apiClient";
+import type { AlphaGenomeRegionState } from "./useAlphaGenomeRegion";
 import {
-  AlphaGenomeRegionSaturationResponse,
   AlphaGenomeSaturationPosition,
   AlphaGenomeSaturationVariant
 } from "../../shared/contracts";
 import { aviRankBand } from "../../shared/alphagenomeEvidence";
 import { complementBase, displayBase } from "../../shared/landscapeEvidence";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
-import {
-  MAX_SATURATION_REGION_BP,
-  buildSaturationRegion
-} from "../../shared/alphagenomeRegion";
+import { MAX_SATURATION_REGION_BP } from "../../shared/alphagenomeRegion";
 import {
   DensityTrack,
   isDensityPoint,
@@ -36,10 +32,12 @@ const RANK_LEGEND: Array<{ level: 0 | 1 | 2 | 3 | 4; label: string }> = [
 ];
 
 export interface GenomicSaturationHeatmapProps {
-  chrom?: string | null;
+  /** Shared region query (useAlphaGenomeRegion); the focus grid's aligned lane reads the same one. */
+  region: AlphaGenomeRegionState;
   genomicPos?: number | null;
   genomicAlt?: string | null;
-  spliceProximity?: any;
+  /** Starts collapsed under the redesigned tab, where the aligned lane carries the coding bases. */
+  defaultExpanded?: boolean;
   mutationIndex: number;
   residueIndex: number | null;
   hoveredResidueIndex?: number | null;
@@ -195,10 +193,10 @@ const CodonBracket = memo(function CodonBracket({
 });
 
 export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
-  chrom,
+  region,
   genomicPos,
   genomicAlt,
-  spliceProximity,
+  defaultExpanded = true,
   mutationIndex,
   residueIndex,
   hoveredResidueIndex,
@@ -206,16 +204,10 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   onResidueHover,
   onSelectGenomicVariant
 }: GenomicSaturationHeatmapProps) {
-  const { fetchWithAuth } = useApiClient();
-  // The region query is keyed to the genomic interval, not to the fetch closure's identity: token
-  // rotation or a settings change rebuilds `fetchWithAuth` and must not re-issue a 5 kb request.
-  const fetchRef = useRef(fetchWithAuth);
-  fetchRef.current = fetchWithAuth;
-  const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [data, setData] = useState<AlphaGenomeRegionSaturationResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState<number>(0);
+  const [isExpanded, setIsExpanded] = useState<boolean>(defaultExpanded);
+  const regionParams = region.params;
+  const data = region.data;
+  const error = region.error;
   const [hoveredCell, setHoveredCell] = useState<{
     pos: number;
     ref: string;
@@ -223,70 +215,6 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
     variant: AlphaGenomeSaturationVariant | null;
     codonIndex: number | null;
   } | null>(null);
-
-  /*
-   * Region window: exon ± 15 bp splice flank, else ± 45 bp around the variant, clamped to the
-   * contract's request cap. Kept in a memo of its own because the fetch effect depends on its
-   * identity — a fresh object per render would re-issue a 5 kb query on every hover.
-   */
-  const regionParams = useMemo(
-    () =>
-      buildSaturationRegion({
-        chrom: chrom || spliceProximity?.chrom,
-        genomicPos,
-        exonStart: spliceProximity?.exonStart,
-        exonEnd: spliceProximity?.exonEnd,
-        exonNumber: spliceProximity?.exonNumber,
-        strand: spliceProximity?.strand,
-        transcriptId: spliceProximity?.transcriptId
-      }),
-    [chrom, genomicPos, spliceProximity]
-  );
-
-  useEffect(() => {
-    let active = true;
-    if (!regionParams) {
-      setData(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
-    const fetchRegion = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await fetchRef.current("/api/v1/alphagenome/region-saturation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(regionParams)
-        });
-
-        if (!response.ok) {
-          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-        }
-
-        const json: AlphaGenomeRegionSaturationResponse = await response.json();
-        if (active) {
-          setData(json);
-        }
-      } catch (err: any) {
-        if (active) {
-          console.warn("[GenomicSaturationHeatmap] Query failed:", err);
-          setError(err.message || "Failed to load regional AlphaGenome data");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchRegion();
-    return () => {
-      active = false;
-    };
-  }, [regionParams, reloadKey]);
 
   // Shade by rank decade on one clay ramp. The AVI has no ClinGen calibration, so this grid draws
   // no PP3/BP4 colours: it used to paint Phred ≥ 35 / 25 / 15 as PP3 Strong / Moderate / Supporting
@@ -315,7 +243,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
   const strandNote = isReverseStrand ? " (genomic + strand; shown complemented on the − coding strand)" : "";
   // A request is in flight, or this is the frame between an interval resolving and its effect
   // starting. Showing the empty state there would describe an answered query that has not been.
-  const pending = loading || (regionParams !== null && data === null && error === null);
+  const pending = region.pending;
 
   // Ordered positions according to transcription orientation
   const orderedPositions = useMemo(() => {
@@ -582,7 +510,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
               <div className="flex items-center gap-2 mt-1">
                 <button
                   type="button"
-                  onClick={() => setReloadKey(k => k + 1)}
+                  onClick={region.reload}
                   className="px-2.5 py-1 rounded bg-cs-surface border border-cs-border hover:bg-cs-surface-2 text-cs-text-primary text-[11px] font-mono transition cursor-pointer"
                 >
                   Retry Query

@@ -19,7 +19,7 @@ import {
   PP3_BP4_CALIBRATION,
   type CalibratedToolKey
 } from "./thresholds/calibration";
-import type { LandscapeMeta, LandscapeResidueItem } from "./contracts";
+import type { LandscapeContext, LandscapeMeta, LandscapeResidueItem } from "./contracts";
 
 export type LandscapeTool = "revel" | "alphaMissense";
 export type SummaryMode = "mean" | "max";
@@ -162,6 +162,9 @@ export interface LandscapeFindingInput {
   variantAm: number | null;
   mode: SummaryMode;
   meta: LandscapeMeta | null | undefined;
+  /** Gene-wide context; `undefined` while loading, `null` when it failed. */
+  context?: LandscapeContext | null;
+  domains?: Array<{ name: string; start: number; end: number }>;
 }
 
 export interface LandscapeFinding {
@@ -169,6 +172,8 @@ export interface LandscapeFinding {
   window: string;
   /** One sentence on the queried substitution, or null without a target. */
   variant: string | null;
+  /** Gene-wide facts around the target (domain, regional constraint, ClinVar, gnomAD), or null. */
+  context: string | null;
   /** Data-quality warnings the reader must see before trusting the rows. */
   cautions: string[];
   /** True when there were no scores to summarise at all. */
@@ -184,6 +189,7 @@ const f3 = (n: number) => n.toFixed(3);
  */
 export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding {
   const { rows, window, target, variantRevel, variantAm, mode, meta } = input;
+  const context = contextSentence(input);
   const inWindow = rows.filter((r) => r.residx >= window.start && r.residx <= window.end);
   const scored = inWindow.filter((r) => residueSummary(r, "alphaMissense", mode) !== null);
   const width = window.end - window.start + 1;
@@ -194,6 +200,8 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
       cautions.push(
         `${flag.split(":")[1]} residue(s) in the scored window carry a different reference amino acid in dbNSFP than the displayed UniProt sequence; the two numberings may differ there.`
       );
+    } else if (flag.startsWith("truncated:")) {
+      cautions.push("The source stopped at its row limit for this gene; residues past it may read as unscored.");
     } else if (flag.startsWith("overcount:")) {
       cautions.push(`Residue ${flag.split(":")[1]} reports more substitutions than one codon admits; its summary is unreliable.`);
     }
@@ -210,6 +218,7 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
     return {
       window: `No AlphaMissense residue summaries were returned for residues ${window.start}–${window.end}.`,
       variant: variantSentence(target, variantRevel, variantAm, rows),
+      context,
       cautions,
       empty: true
     };
@@ -222,7 +231,7 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
     `Of ${scored.length} scored residues in ${window.start}–${window.end} (${width} aa), ${pp3} ${pp3 === 1 ? "has" : "have"} a ${stat} AlphaMissense score in the PP3 range and ${bp4} in the BP4 range` +
     ` (ClinGen bands, ${calibrationSourceShort("alphaMissense")}; on residue summaries they orient, they do not score evidence).`;
 
-  return { window: windowText, variant: variantSentence(target, variantRevel, variantAm, rows), cautions, empty: false };
+  return { window: windowText, variant: variantSentence(target, variantRevel, variantAm, rows), context, cautions, empty: false };
 }
 
 function variantSentence(
@@ -242,13 +251,88 @@ function variantSentence(
   const range = residueRange(row, "alphaMissense");
   const n = residueCount(row, "alphaMissense");
   let context = "";
-  if (am !== null && range && n > 1) {
+  const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
+  const own = subs.find((x) => x.alt === target.mut);
+  if (am !== null && own && subs.length > 1) {
+    const rank = subs.filter((x) => (x.am as number) > (own.am as number)).length + 1;
+    context = `; it ranks ${rank} of ${subs.length} SNV-reachable substitutions at residue ${target.pos} by AlphaMissense (1 = highest)`;
+  } else if (am !== null && range && n > 1) {
     const [lo, hi] = range;
     const where = am >= hi ? "the highest" : am <= lo ? "the lowest" : "within the range";
     context = `; among the ${n} scored substitutions at residue ${target.pos} (AlphaMissense ${f3(lo)}–${f3(hi)}) it is ${where}`;
   }
   return `${name}: ${parts.join(" · ")}${context}.`;
 }
+
+function contextSentence(input: LandscapeFindingInput): string | null {
+  const { target, context, domains } = input;
+  if (!target || target.pos <= 0) return null;
+  if (context === undefined) return "Gene-wide ClinVar, gnomAD and regional-constraint context is loading…";
+  const parts: string[] = [];
+  const dom = (domains ?? []).find((d) => target.pos >= d.start && target.pos <= d.end);
+  parts.push(dom ? `Inside ${dom.name} (${dom.start}–${dom.end})` : "Not in an annotated UniProt domain or region");
+  if (context === null) {
+    parts.push("ClinVar, gnomAD and regional constraint could not be loaded");
+    return parts.join(" · ") + ".";
+  }
+  if (context.regions === null) parts.push("regional constraint not loaded");
+  else {
+    const region = context.regions.find((r) => target.pos >= r.start && target.pos <= r.end);
+    parts.push(
+      region
+        ? `regional missense O/E ${region.oe ?? "—"} for ${region.start}–${region.end} (gnomAD v2, GRCh37 numbering)`
+        : context.regions.length
+          ? "outside every gnomAD v2 constrained region"
+          : "no regional missense constraint call for this gene"
+    );
+  }
+  if (context.clinvar === null) parts.push("ClinVar not loaded");
+  else {
+    const plp = context.clinvar.filter((c) => c.cls === "plp");
+    const here = plp.filter((c) => c.pos === target.pos).length;
+    if (here) parts.push(`${here} ClinVar P/LP missense at this residue`);
+    else if (plp.length) {
+      const nearest = plp.reduce((a, b) => (Math.abs(b.pos - target.pos) < Math.abs(a.pos - target.pos) ? b : a));
+      parts.push(`nearest ClinVar P/LP missense ${Math.abs(nearest.pos - target.pos)} residues away (residue ${nearest.pos})`);
+    } else parts.push("no ClinVar P/LP missense in this gene");
+  }
+  if (context.gnomad === null) parts.push("gnomAD not loaded");
+  else {
+    const near = context.gnomad.filter((g) => Math.abs(g.pos - target.pos) <= 5).reduce((n, g) => n + g.variants, 0);
+    parts.push(`${near} gnomAD missense variant${near === 1 ? "" : "s"} within ±5 residues`);
+  }
+  return parts.join(" · ") + ".";
+}
+
+/* ─────────────────────────── genetic code ─────────────────────────── */
+
+const BASES = "TCAG";
+const TABLE = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG";
+
+/** Standard genetic code; `*` for stop, null for anything that is not a DNA codon. */
+export function translateCodon(codon: string): string | null {
+  const c = codon.toUpperCase();
+  if (!/^[ACGT]{3}$/.test(c)) return null;
+  return TABLE[16 * BASES.indexOf(c[0]) + 4 * BASES.indexOf(c[1]) + BASES.indexOf(c[2])];
+}
+
+/** Amino acids one SNV away from `codon` (stop and synonymous excluded). */
+export function snvReachableAminoAcids(codon: string): Set<string> {
+  const out = new Set<string>();
+  const wt = translateCodon(codon);
+  if (!wt) return out;
+  for (let k = 0; k < 3; k++) {
+    for (const b of "ACGT") {
+      if (b === codon[k].toUpperCase()) continue;
+      const aa = translateCodon(codon.slice(0, k) + b + codon.slice(k + 1));
+      if (aa && aa !== "*" && aa !== wt) out.add(aa);
+    }
+  }
+  return out;
+}
+
+/** Heatmap row order: physicochemical groups, so a row block reads as a property. */
+export const HEATMAP_AA_ORDER = ["A", "V", "L", "I", "M", "F", "W", "Y", "S", "T", "N", "Q", "C", "G", "P", "D", "E", "K", "R", "H"] as const;
 
 /* ─────────────────────────── provenance ─────────────────────────── */
 

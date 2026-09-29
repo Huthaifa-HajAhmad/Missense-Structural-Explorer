@@ -8,6 +8,22 @@
    • The queried residue: an outline, not a fill.
    ========================================================================== */
 
+:root {
+  --ls-pp3-strong: color-mix(in srgb, var(--cs-danger) 72%, var(--cs-surface));
+  --ls-pp3-moderate: color-mix(in srgb, var(--cs-danger) 44%, var(--cs-surface));
+  --ls-pp3-supporting: color-mix(in srgb, var(--cs-danger) 20%, var(--cs-surface));
+  --ls-indeterminate: color-mix(in srgb, var(--cs-text-muted) 14%, var(--cs-surface));
+  --ls-bp4-supporting: color-mix(in srgb, var(--cs-text-indigo-on-soft) 18%, var(--cs-surface));
+  --ls-bp4-moderate: color-mix(in srgb, var(--cs-text-indigo-on-soft) 40%, var(--cs-surface));
+  --ls-bp4-strong: color-mix(in srgb, var(--cs-text-indigo-on-soft) 70%, var(--cs-surface));
+  --ls-rank-0: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface));
+  --ls-rank-1: color-mix(in srgb, var(--cs-accent-clay) 22%, var(--cs-surface));
+  --ls-rank-2: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-surface));
+  --ls-rank-3: color-mix(in srgb, var(--cs-accent-clay) 72%, var(--cs-surface));
+  --ls-rank-4: var(--cs-accent-clay);
+  --ls-hatch: repeating-linear-gradient(135deg, color-mix(in srgb, var(--cs-border) 80%, transparent) 0 1.5px, transparent 1.5px 5px);
+}
+
 .ls-band[data-band="pp3-strong"]     { background: color-mix(in srgb, var(--cs-danger) 72%, var(--cs-surface)); color: #fff; }
 .ls-band[data-band="pp3-moderate"]   { background: color-mix(in srgb, var(--cs-danger) 44%, var(--cs-surface)); color: var(--cs-text-primary); }
 .ls-band[data-band="pp3-supporting"] { background: color-mix(in srgb, var(--cs-danger) 20%, var(--cs-surface)); color: var(--cs-text-primary); }
@@ -113,3 +129,54 @@
 }
 .ls-finding__body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--cs-text-primary); }
 .ls-finding__caution { font-size: 12px; color: var(--cs-text-warning); }
+
+/* Substitution heatmap and aligned nucleotide lane */
+.ls-sub {
+  flex-shrink: 0;
+  height: 14px;
+  margin-right: 1px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.ls-sub[data-band="pp3-strong"]     { background: var(--ls-pp3-strong); }
+.ls-sub[data-band="pp3-moderate"]   { background: var(--ls-pp3-moderate); }
+.ls-sub[data-band="pp3-supporting"] { background: var(--ls-pp3-supporting); }
+.ls-sub[data-band="indeterminate"]  { background: var(--ls-indeterminate); }
+.ls-sub[data-band="bp4-supporting"] { background: var(--ls-bp4-supporting); }
+.ls-sub[data-band="bp4-moderate"]   { background: var(--ls-bp4-moderate); }
+.ls-sub[data-band="bp4-strong"]     { background: var(--ls-bp4-strong); }
+.ls-sub[data-band="unscored"]       { background: var(--cs-surface); border-color: var(--cs-border-subtle); }
+.ls-sub[data-band="unreachable"]    { background: var(--ls-hatch), var(--cs-surface); border-color: var(--cs-border-subtle); }
+.ls-sub[data-band="reference"]      { background: var(--cs-surface); border-color: var(--cs-border-subtle); color: var(--cs-text-muted); font-size: 9px; line-height: 12px; }
+.ls-sub[data-focus="target"]   { outline: 2px solid var(--cs-accent-clay); outline-offset: -1px; position: relative; z-index: 2; }
+.ls-sub[data-focus="selected"] { outline: 2px solid var(--cs-text-primary); outline-offset: -1px; position: relative; z-index: 3; }
+.ls-sub:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; position: relative; z-index: 4; }
+
+.ls-nt { flex-shrink: 0; height: 13px; padding: 0; border: 0; cursor: pointer; }
+.ls-nt[data-rank="0"] { background: var(--ls-rank-0); }
+.ls-nt[data-rank="1"] { background: var(--ls-rank-1); }
+.ls-nt[data-rank="2"] { background: var(--ls-rank-2); }
+.ls-nt[data-rank="3"] { background: var(--ls-rank-3); }
+.ls-nt[data-rank="4"] { background: var(--ls-rank-4); }
+.ls-nt[data-rank="ref"]  { background: var(--cs-surface); box-shadow: inset 0 0 0 1px var(--cs-border-subtle); }
+.ls-nt[data-rank="none"] { background: var(--cs-bg-subtle); }
+.ls-nt[data-focus="target"]   { box-shadow: inset 0 0 0 2px var(--cs-text-primary); }
+.ls-nt[data-focus="selected"] { box-shadow: inset 0 0 0 2px var(--cs-accent-clay); }
+.ls-nt:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; position: relative; z-index: 4; }
+
+.ls-panel {
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card, 10px);
+  background: var(--cs-surface);
+}
+.ls-gutter {
+  flex-shrink: 0;
+  padding-right: 8px;
+  text-align: right;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  color: var(--cs-text-muted);
+  user-select: none;
+}

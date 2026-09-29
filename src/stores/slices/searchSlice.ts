@@ -12,7 +12,21 @@ import {
   summarizeEvidence,
 } from "../../components/report/reportStatus";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
-import type { LandscapeResidueItem } from "../../shared/contracts";
+import type { LandscapeOverview, LandscapeResidueItem } from "../../shared/contracts";
+
+export interface LandscapeViewState {
+  colorBy: "alphaMissense" | "revel";
+  lanes: { clinvar: boolean; gnomad: boolean; regions: boolean };
+}
+
+/** Keyed by `gene|variant`; a selection from a previous query is ignored by comparing the key. */
+export interface LandscapeSelection {
+  key: string;
+  kind: "residue" | "substitution" | "nucleotide";
+  pos: number;
+  /** Alternative amino acid, for a substitution. */
+  alt?: string;
+}
 
 export interface SearchState {
   gene: string;
@@ -36,6 +50,12 @@ export interface SearchState {
    * before use, so rows from a previous query are never read.
    */
   landscapeExtra: { key: string; rows: LandscapeResidueItem[] } | null;
+  /** Landscape display choices shared by the tab and its inspector rail. */
+  landscapeView: LandscapeViewState;
+  /** What the reader picked on the Landscape tab; keyed like `landscapeExtra`. */
+  landscapeSelection: LandscapeSelection | null;
+  /** Whole-protein summaries and gene context, keyed like `landscapeExtra`. */
+  landscapeOverview: { key: string; status: "loading" | "ready" | "error"; data: LandscapeOverview | null; error: string | null } | null;
   searchVal: string;
   customGene: string;
   customVariant: string;
@@ -64,6 +84,9 @@ export interface SearchActions {
   setHoveredResidueIndex: (index: number | null) => void;
   setSelectedGenomicVariant: (variant: any | null) => void;
   addLandscapeRows: (key: string, rows: LandscapeResidueItem[]) => void;
+  setLandscapeView: (patch: Partial<LandscapeViewState>) => void;
+  setLandscapeSelection: (selection: LandscapeSelection | null) => void;
+  setLandscapeOverview: (value: SearchState["landscapeOverview"]) => void;
   setSearchVal: (val: string) => void;
   setCustomGene: (gene: string) => void;
   setCustomVariant: (variant: string) => void;
@@ -148,6 +171,9 @@ export const createSearchSlice: StateCreator<
   hoveredResidueIndex: null,
   selectedGenomicVariant: null,
   landscapeExtra: null,
+  landscapeView: { colorBy: "alphaMissense", lanes: { clinvar: true, gnomad: true, regions: true } },
+  landscapeSelection: null,
+  landscapeOverview: null,
   searchVal: initial.gene && initial.variant ? `${initial.gene} ${initial.variant}` : "",
   customGene: initial.gene,
   customVariant: initial.variant,
@@ -178,6 +204,10 @@ export const createSearchSlice: StateCreator<
         rows: [...(state.landscapeExtra?.key === key ? state.landscapeExtra.rows : []), ...rows]
       }
     })),
+  setLandscapeView: (patch) =>
+    set((state: any) => ({ landscapeView: { ...state.landscapeView, ...patch, lanes: { ...state.landscapeView.lanes, ...(patch.lanes ?? {}) } } })),
+  setLandscapeSelection: (landscapeSelection) => set({ landscapeSelection }),
+  setLandscapeOverview: (landscapeOverview) => set({ landscapeOverview }),
   setSearchVal: (searchVal) => set({ searchVal }),
   setCustomGene: (customGene) => set({ customGene, numberingBasis: null }),
   setCustomVariant: (customVariant) => set({ customVariant, numberingBasis: null }),

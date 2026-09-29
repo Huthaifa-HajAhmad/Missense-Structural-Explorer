@@ -2,6 +2,7 @@ import { type Router } from "express";
 import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import { fetchLandscape } from "../../services/external.ts";
+import { fetchLandscapeContext } from "../../services/prediction/landscape-context.ts";
 
 const MAX_LANDSCAPE_WINDOW = 121;
 
@@ -163,6 +164,24 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     } catch (error: any) {
       console.error("Landscape endpoint failure:", error);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching landscape data.");
+    }
+  });
+
+  // 2b. Landscape overview: whole-protein residue summaries plus gene-wide ClinVar, gnomAD and
+  // regional-constraint context. Kept apart from the ±25 window so the focus grid never waits on it.
+  apiRouter.post("/analyze-variant/landscape-overview", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
+    const context = await validateAndParseVariantRequest(req, res);
+    if (!context) return;
+    try {
+      const [landscape, geneContext] = await Promise.all([fetchLandscape(context.gene), fetchLandscapeContext(context.gene)]);
+      res.json({
+        positions: landscape.positions.map(({ substitutions: _omit, ...rest }) => rest),
+        meta: landscape.meta,
+        context: geneContext
+      });
+    } catch (error: any) {
+      console.error("Landscape overview failure:", error);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching the landscape overview.");
     }
   });
 

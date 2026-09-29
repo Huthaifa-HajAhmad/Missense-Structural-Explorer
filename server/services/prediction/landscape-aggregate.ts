@@ -62,6 +62,19 @@ export interface LandscapePositionData {
   phylop: number | null;
   /** Distinct nucleotides behind `gerp` / `phylop`. */
   nucleotideCount: number;
+  /**
+   * The SNV-reachable missense substitutions at this residue, one entry per alternative amino
+   * acid. AlphaMissense scores the amino-acid change, so it is one value; REVEL scores the SNV, so
+   * when two SNVs give the same amino acid the higher REVEL is kept. Omitted from whole-protein
+   * summaries to keep that payload small.
+   */
+  substitutions?: SubstitutionScore[];
+}
+
+export interface SubstitutionScore {
+  alt: string;
+  am: number | null;
+  revel: number | null;
 }
 
 export interface LandscapeMeta {
@@ -318,12 +331,13 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
     gerp: Map<string, number>;
     phylop: Map<string, number>;
     aaref: Map<string, number>;
+    subs: Map<string, SubstitutionScore>;
   };
   const buckets = new Map<number, Bucket>();
   const bucket = (pos: number) => {
     let b = buckets.get(pos);
     if (!b) {
-      b = { seen: new Set(), revel: [], am: [], gerp: new Map(), phylop: new Map(), aaref: new Map() };
+      b = { seen: new Set(), revel: [], am: [], gerp: new Map(), phylop: new Map(), aaref: new Map(), subs: new Map() };
       buckets.set(pos, b);
     }
     return b;
@@ -344,6 +358,14 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
     b.seen.add(c.variantKey);
     if (r.revel !== null) b.revel.push(r.revel);
     if (r.am !== null) b.am.push(r.am);
+    if (c.aaalt && AMINO_ACIDS.has(c.aaalt)) {
+      const prev = b.subs.get(c.aaalt);
+      b.subs.set(c.aaalt, {
+        alt: c.aaalt,
+        am: prev?.am ?? r.am,
+        revel: prev?.revel !== undefined && prev.revel !== null ? (r.revel !== null ? Math.max(prev.revel, r.revel) : prev.revel) : r.revel
+      });
+    }
   }
 
   const qualityFlags: string[] = [];
@@ -378,7 +400,8 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
       amCount: am.length,
       gerp: mean(gerp),
       phylop: mean(phylop),
-      nucleotideCount: Math.max(b?.gerp.size ?? 0, b?.phylop.size ?? 0)
+      nucleotideCount: Math.max(b?.gerp.size ?? 0, b?.phylop.size ?? 0),
+      substitutions: b ? [...b.subs.values()].sort((x, y) => x.alt.localeCompare(y.alt)) : []
     });
   }
   if (mismatches > 0) qualityFlags.push(`ref-mismatch:${mismatches}`);

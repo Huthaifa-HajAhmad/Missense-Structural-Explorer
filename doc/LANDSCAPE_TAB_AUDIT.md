@@ -281,3 +281,25 @@ axis, and the finding card exists.
 - Feeding the finding to Insights and Report.
 
 These make up the §5 redesign. Clickable mockup (illustrative data): https://claude.ai/artifact/Ej3Dv7jYDYY4tRL4hhFAfb
+
+## 9. Redesign built (29 September 2026)
+
+The §5 redesign is now the tab. It follows the approved mockup, with real data paths in place of
+the mockup's illustrative numbers.
+
+| Part | What it does | Where |
+|---|---|---|
+| Finding card | Adds a gene-context sentence: domain, regional O/E, nearest ClinVar P/LP, gnomAD missense within ±5. The variant is ranked among the scored substitutions at its residue. | `landscapeEvidence.ts` (`landscapeFinding`) |
+| Toolbar | Colour by (AlphaMissense / REVEL), residue summary, focus width, lane toggles, back to the variant. Controls moved here from the rail. | `LandscapeToolbar.tsx` |
+| Overview | Whole protein on one strip: domains, AlphaMissense residue summaries, ClinVar lollipops, gnomAD dots, regional O/E, the focus window as a box. Click or use arrow/Page keys to move the window. | `LandscapeOverview.tsx`, `POST /analyze-variant/landscape-overview`, `landscape-context.ts` |
+| Focus heatmap | 20 rows × residues, one cell per substitution, on the calibrated bands. Substitutions one SNV cannot reach are hatched, using the codon from the nucleotide lane. The queried cell is outlined. A summary row sits beneath. | `LandscapeFocus.tsx`; server adds `substitutions` per residue |
+| Nucleotide lane | The AlphaGenome AVI rank of every SNV, three cells under each residue on the coding strand, with the codon row. It shares one region request with the exon panel, which now starts collapsed. | `LandscapeFocus.tsx`, `useAlphaGenomeRegion.ts` |
+| Rail | Selection by kind: residue (scored substitutions as clickable letters over the bands, plus ClinVar, gnomAD and O/E at the residue); substitution (own scores, bands, rank); nucleotide (genomic and coding change, AVI rank). | `LandscapeInspector.tsx` |
+
+**Caveats:**
+- The ClinVar and gnomAD lanes come from gnomAD's GraphQL API (GRCh38, gnomAD's canonical
+  transcript). The field names follow its public schema but could not be exercised from the
+  development sandbox. A failed source shows as "not loaded", never as "none".
+- Regional constraint exists only for gnomAD v2 (GRCh37 canonical numbering), and the tab says so.
+- Substitutions that need two or more nucleotide changes have no dbNSFP score. They are drawn
+  hatched rather than filled from another source.

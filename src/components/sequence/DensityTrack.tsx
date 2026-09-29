@@ -1,10 +1,9 @@
 import React from "react";
 
 /**
- * Shared profile track used by both landscape panels, so the nucleotide and residue panels read as
+ * Profile track for the AlphaGenome exon panel, kept generic so a residue panel can reuse it and read as
  * one instrument: same gutter, height, stroke, guide style and gap semantics. It draws a line per
- * series (a profile of per-position values, not a density) and, separately, point markers for
- * values of a different kind, e.g. the queried variant's own score over a line of residue means.
+ * series: a profile of per-position values, not a density.
  */
 
 export const DENSITY_TRACK_HEIGHT = 64;
@@ -31,18 +30,6 @@ export type DensityGuide = {
   label: string;
 };
 
-/**
- * A single value drawn as a diamond at one column, never joined to a series. Used for the queried
- * variant's own score: joining it into a line of residue summaries would draw two kinds of number
- * as one curve.
- */
-export type DensityMarker = {
-  key: string;
-  index: number;
-  value: number;
-  color: string;
-  label: string;
-};
 
 /**
  * Print a threshold exactly as it is compared in code. A guide labelled "AM 0.56" over a
@@ -105,7 +92,6 @@ export interface DensityTrackProps {
   modeLabel?: string;
   ariaLabel: string;
   emptyNotice?: string;
-  markers?: DensityMarker[];
 }
 
 const TRACK_LABEL = "Profile";
@@ -118,15 +104,14 @@ export function DensityTrack({
   unitLabel,
   modeLabel,
   ariaLabel,
-  emptyNotice,
-  markers = []
+  emptyNotice
 }: DensityTrackProps) {
   const count = series[0]?.points.length ?? 0;
   const width = count * columnWidth;
   const height = DENSITY_TRACK_HEIGHT;
 
   const paths = series.map((s) => buildDensitySegments(s.points, columnWidth, domain, height));
-  const hasData = paths.some((d) => d.length > 0) || markers.length > 0;
+  const hasData = paths.some((d) => d.length > 0);
 
   if (!hasData) {
     return (
@@ -214,22 +199,6 @@ export function DensityTrack({
               />
             ) : null
           )}
-          {markers.map((m) => {
-            const cx = m.index * columnWidth + columnWidth / 2;
-            const cy = densityY(m.value, domain, height);
-            return (
-              <g key={m.key}>
-                <path
-                  d={`M ${cx} ${cy - 4.5} L ${cx + 4.5} ${cy} L ${cx} ${cy + 4.5} L ${cx - 4.5} ${cy} Z`}
-                  fill={m.color}
-                  stroke="var(--cs-surface-2)"
-                  strokeWidth={1.25}
-                >
-                  <title>{m.label}</title>
-                </path>
-              </g>
-            );
-          })}
           {/* ... and their labels above it, with a halo, so no curve can occlude a threshold. */}
           {guides.map(guideLabel)}
         </svg>

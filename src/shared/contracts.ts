@@ -1230,7 +1230,8 @@ export const landscapeResidueSchema = z.object({
   amCount: z.number().optional(),
   gerp: z.number().nullable(),
   phylop: z.number().nullable(),
-  nucleotideCount: z.number().optional()
+  nucleotideCount: z.number().optional(),
+  substitutions: z.array(z.object({ alt: z.string(), am: z.number().nullable(), revel: z.number().nullable() })).optional()
 });
 
 /** Where the landscape rows came from, on which transcript, and what went wrong reading them. */
@@ -1247,6 +1248,30 @@ export const landscapeMetaSchema = z.object({
 });
 
 export type LandscapeMeta = z.infer<typeof landscapeMetaSchema>;
+
+/** Gene-wide context for the Landscape overview (server/services/prediction/landscape-context.ts). */
+export const landscapeContextSchema = z.object({
+  clinvar: z.array(z.object({
+    pos: z.number(),
+    cls: z.enum(["plp", "blb", "other"]),
+    significance: z.string(),
+    stars: z.number().nullable(),
+    hgvsp: z.string()
+  })).nullable(),
+  gnomad: z.array(z.object({ pos: z.number(), variants: z.number(), maxAc: z.number() })).nullable(),
+  regions: z.array(z.object({ start: z.number(), end: z.number(), oe: z.number().nullable(), pValue: z.number().nullable() })).nullable(),
+  transcript: z.string().nullable(),
+  regionsBasis: z.string(),
+  errors: z.array(z.string())
+});
+export type LandscapeContext = z.infer<typeof landscapeContextSchema>;
+
+export const landscapeOverviewResponseSchema = z.object({
+  positions: z.array(landscapeResidueSchema),
+  meta: landscapeMetaSchema,
+  context: landscapeContextSchema
+});
+export type LandscapeOverview = z.infer<typeof landscapeOverviewResponseSchema>;
 
 export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),
@@ -1741,6 +1766,7 @@ export interface LandscapeResidueItem {
   gerp: number | null;
   phylop: number | null;
   nucleotideCount?: number;
+  substitutions?: Array<{ alt: string; am: number | null; revel: number | null }>;
   residue?: string;
 }
 

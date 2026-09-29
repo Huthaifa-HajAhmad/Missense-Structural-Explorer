@@ -1,7 +1,9 @@
 import {
   biophysicalAnalysisResponseSchema,
   BiophysicalAnalysisResponse,
+  landscapeOverviewResponseSchema,
   type LandscapeMeta,
+  type LandscapeOverview,
   type LandscapeResidueItem
 } from "../shared/contracts";
 import { CLIENT_STREAM_IDLE_BUDGET_MS } from "../shared/timeouts";
@@ -222,6 +224,24 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         throw new Error(errorMsg);
       }
       return await res.json();
+    },
+
+    /** Whole-protein residue summaries plus ClinVar / gnomAD / regional-constraint context. */
+    async getLandscapeOverview(
+      params: { gene: string; uniprotId: string; variant: string },
+      signal?: AbortSignal
+    ): Promise<LandscapeOverview> {
+      const res = await fetchWithAuth("/api/v1/analyze-variant/landscape-overview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+        timeout: 130000,
+        signal
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res, "Failed to get the landscape overview"));
+      }
+      return landscapeOverviewResponseSchema.parse(await res.json());
     },
 
     async getStructuralAssessments(

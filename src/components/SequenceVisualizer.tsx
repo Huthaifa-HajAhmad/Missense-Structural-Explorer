@@ -1,15 +1,19 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
-import { Dna, AlertTriangle, Crosshair } from "lucide-react";
+import { Dna, AlertTriangle } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useApiClient } from "../apiClient";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
 import { landscapeFinding, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
+import { aviRankBand } from "../shared/alphagenomeEvidence";
 import { AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
-import { SequenceRowGrid } from "./sequence/SequenceRowGrid";
 import { LandscapeLegend } from "./sequence/LandscapeLegend";
+import { LandscapeToolbar } from "./sequence/LandscapeToolbar";
+import { LandscapeOverview } from "./sequence/LandscapeOverview";
+import { LandscapeFocus, type NucleotidePick } from "./sequence/LandscapeFocus";
 import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
+import { codonsByResidue, useAlphaGenomeRegion } from "./sequence/useAlphaGenomeRegion";
 import type { DomainSpan, TargetMutation, VariantScores } from "./sequence/types";
 
 interface SequenceVisualizerProps {
@@ -25,7 +29,9 @@ interface SequenceVisualizerProps {
   landscapeMeta?: LandscapeMeta | null;
   uniprotFeatures?: Array<{ type?: string; description?: string; start: number; end: number }> | null;
   metricMode?: SummaryMode;
+  setMetricMode?: (mode: SummaryMode) => void;
   windowSize?: number;
+  setWindowSize?: (size: number) => void;
 }
 
 /** Scores are fetched this far either side of the window centre when the reader navigates. */
@@ -75,6 +81,11 @@ export function windowRange(center: number, size: number, length: number): { sta
   return { start, end };
 }
 
+/**
+ * The Landscape tab: finding → controls → whole-protein overview → focus window (residues,
+ * every substitution, conservation, codon-aligned nucleotides) → legend → exon panel. Everything
+ * shares one residue axis and one selection, which the inspector rail reads.
+ */
 const SequenceVisualizer = memo(function SequenceVisualizer({
   uniprotId,
   gene,
@@ -88,7 +99,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   landscapeMeta,
   uniprotFeatures,
   metricMode = "mean",
-  windowSize = 31
+  setMetricMode,
+  windowSize = 31,
+  setWindowSize
 }: SequenceVisualizerProps) {
   const { settings } = useSettings();
   const { apiClient } = useApiClient();
@@ -99,10 +112,19 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const { sequence, isLoading: sequenceLoading, error: sequenceError } = useProteinSequence(uniprotId);
   const mutation = useMemo(() => parseTargetMutation(variant, residueIndex), [variant, residueIndex]);
   const targetPos = mutation.pos;
+  const key = `${gene ?? ""}|${variant}`;
+
+  const view = useVariantAnalysisStore((s) => s.landscapeView);
+  const setView = useVariantAnalysisStore((s) => s.setLandscapeView);
+  const selection = useVariantAnalysisStore((s) => (s.landscapeSelection?.key === key ? s.landscapeSelection : null));
+  const setSelection = useVariantAnalysisStore((s) => s.setLandscapeSelection);
+  const selectedGenomicVariant = useVariantAnalysisStore((s) => s.selectedGenomicVariant);
+  const overview = useVariantAnalysisStore((s) => (s.landscapeOverview?.key === key ? s.landscapeOverview : null));
+  const setOverview = useVariantAnalysisStore((s) => s.setLandscapeOverview);
 
   /*
-   * Window centre. It starts on the queried residue and moves only when the reader selects a residue
-   * outside the window (a domain jump, a codon click in the genomic grid), so clicking inside the
+   * Window centre. It starts on the queried residue and moves when the reader picks a spot on the
+   * overview, or selects a residue outside the window (a domain jump), so clicking inside the
    * window does not scroll the grid under the pointer.
    */
   const [center, setCenter] = useState<number>(targetPos);
@@ -116,23 +138,19 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [residueIndex]);
 
-  const wildWindow = useMemo(
+  const residues = useMemo(
     () => (sequence ? sequence.slice(range.start - 1, range.end).split("") : []),
     [sequence, range.start, range.end]
   );
 
-  /*
-   * Scores for windows the reader navigates to. The pipeline loads ±25 around the variant; a jump
-   * outside that loads the new window once and merges it.
-   */
-  const extraKey = `${gene ?? ""}|${variant}`;
-  const extraRows = useVariantAnalysisStore((s) => (s.landscapeExtra?.key === extraKey ? s.landscapeExtra.rows : null));
+  /* Scores for windows the reader navigates to: the pipeline loads ±25 around the variant. */
+  const extraRows = useVariantAnalysisStore((s) => (s.landscapeExtra?.key === key ? s.landscapeExtra.rows : null));
   const addLandscapeRows = useVariantAnalysisStore((s) => s.addLandscapeRows);
   const [extraLoading, setExtraLoading] = useState(false);
   const requested = useRef<Set<string>>(new Set());
   useEffect(() => {
     requested.current = new Set();
-  }, [extraKey]);
+  }, [key]);
 
   const landscapeMap = useMemo(() => {
     const map = new Map<number, LandscapeResidueItem>();
@@ -143,7 +161,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   }, [landscapeData, extraRows]);
 
   useEffect(() => {
-    if (!gene || !uniprotId || !variant || !landscapeData || wildWindow.length === 0) return;
+    if (!gene || !uniprotId || !variant || !landscapeData || residues.length === 0) return;
     let missing = false;
     for (let p = range.start; p <= range.end; p++) {
       if (!landscapeMap.has(p)) {
@@ -154,22 +172,53 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     if (!missing) return;
     const start = Math.max(1, center - FETCH_HALF_SPAN);
     const end = Math.min(sequence.length, center + FETCH_HALF_SPAN);
-    const key = `${start}-${end}`;
-    if (requested.current.has(key)) return;
-    requested.current.add(key);
+    const reqKey = `${start}-${end}`;
+    if (requested.current.has(reqKey)) return;
+    requested.current.add(reqKey);
     const controller = new AbortController();
     setExtraLoading(true);
     apiClient
       .getLandscapeData({ gene, uniprotId, variant, landscapeWindow: { start, end } }, controller.signal)
-      .then((res) => addLandscapeRows(extraKey, res.landscapeData ?? []))
+      .then((res) => addLandscapeRows(key, res.landscapeData ?? []))
       .catch((err: any) => {
         // Forget the request so a later visit (or a re-run after an abort) asks again.
-        requested.current.delete(key);
+        requested.current.delete(reqKey);
         if (err?.name !== "AbortError") console.warn("[Landscape] window fetch failed:", err);
       })
       .finally(() => setExtraLoading(false));
     return () => controller.abort();
-  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, wildWindow.length, apiClient, addLandscapeRows, extraKey]);
+  }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key]);
+
+  /*
+   * Whole-protein overview and gene context: one request per query, after the window has loaded.
+   * Not aborted on re-render (a re-run finds the loading entry and skips); a late answer for an
+   * older query is dropped by comparing the key.
+   */
+  const hasLandscape = Boolean(landscapeData);
+  useEffect(() => {
+    if (!gene || !uniprotId || !variant || !hasLandscape) return;
+    if (useVariantAnalysisStore.getState().landscapeOverview?.key === key) return;
+    setOverview({ key, status: "loading", data: null, error: null });
+    const stillCurrent = () => useVariantAnalysisStore.getState().landscapeOverview?.key === key;
+    apiClient
+      .getLandscapeOverview({ gene, uniprotId, variant })
+      .then((data) => stillCurrent() && setOverview({ key, status: "ready", data, error: null }))
+      .catch((err: any) => stillCurrent() && setOverview({ key, status: "error", data: null, error: err?.message ?? "request failed" }));
+  }, [gene, uniprotId, variant, hasLandscape, key, apiClient, setOverview]);
+
+  const parsedGenomic = useMemo(
+    () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
+    [predictorData?.gnomadVariantId, variant]
+  );
+  const genomicPos = parsedGenomic?.pos || conservationData?.spliceProximity?.genomicPos || null;
+  const region = useAlphaGenomeRegion({
+    chrom: parsedGenomic?.chrom || conservationData?.spliceProximity?.chrom || null,
+    genomicPos,
+    spliceProximity: conservationData?.spliceProximity
+  });
+  const strand = (region.params?.strand ?? null) as "+" | "-" | null;
+  const codons = useMemo(() => codonsByResidue(region.data?.positions, strand), [region.data, strand]);
+  const laneStatus = !region.params ? "none" : region.pending ? "pending" : region.error ? "error" : "ready";
 
   const residueClass = useCallback(
     (res: string) => {
@@ -186,7 +235,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   );
 
   const setHovered = useVariantAnalysisStore((s) => s.setHoveredResidueIndex);
-  const onResidueHover = useCallback((pos: number | null) => setHovered(pos), [setHovered]);
+  const onHover = useCallback((pos: number | null) => setHovered(pos), [setHovered]);
 
   const variantScores: VariantScores = useMemo(
     () => ({
@@ -215,19 +264,60 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         variantRevel: variantScores.revel,
         variantAm: variantScores.am,
         mode: metricMode,
-        meta: landscapeMeta
+        meta: landscapeMeta,
+        context: overview?.status === "ready" ? overview.data?.context ?? null : overview?.status === "error" ? null : undefined,
+        domains
       }),
-    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta]
+    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta, overview, domains]
   );
 
-  const parsedGenomic = useMemo(
-    () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
-    [predictorData?.gnomadVariantId, variant]
+  const pickResidue = useCallback(
+    (pos: number) => {
+      setSelection({ key, kind: "residue", pos });
+      onResidueClick?.(pos);
+    },
+    [key, setSelection, onResidueClick]
   );
-
+  const pickSubstitution = useCallback(
+    (pos: number, alt: string) => {
+      setSelection({ key, kind: "substitution", pos, alt });
+      onResidueClick?.(pos);
+    },
+    [key, setSelection, onResidueClick]
+  );
+  const pickNucleotide = useCallback(
+    (pick: NucleotidePick) => {
+      useVariantAnalysisStore.getState().setSelectedGenomicVariant({
+        chrom: region.params?.chrom,
+        pos: pick.position.pos,
+        ref: pick.position.ref,
+        alt: pick.genomicAlt,
+        isRef: false,
+        phred: pick.phred,
+        rankBand: aviRankBand(pick.phred)?.label ?? null,
+        topModality: pick.position.variants[pick.genomicAlt]?.topModality ?? pick.position.topModality ?? null,
+        codonIndex: pick.codonIndex,
+        codonPosition: pick.codonPosition,
+        isExonic: pick.position.isExonic,
+        strand
+      });
+      setSelection({ key, kind: "nucleotide", pos: pick.codonIndex });
+      onResidueClick?.(pick.codonIndex);
+    },
+    [key, setSelection, onResidueClick, region.params?.chrom, strand]
+  );
+  const pickOverview = useCallback(
+    (pos: number) => {
+      setCenter(pos);
+      setSelection({ key, kind: "residue", pos });
+      onResidueClick?.(pos);
+    },
+    [key, setSelection, onResidueClick]
+  );
   const handleSelectGenomicVariant = useCallback((v: any) => {
     useVariantAnalysisStore.getState().setSelectedGenomicVariant(v);
-  }, []);
+    if (v?.codonIndex) setSelection({ key, kind: "nucleotide", pos: v.codonIndex });
+  }, [key, setSelection]);
 
   const hasSequence = sequence.length > 0;
   /*
@@ -239,39 +329,29 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   if (sequenceLoading) sawLoad.current = uniprotId;
   const pendingSequence = sequenceLoading || (!hasSequence && !sequenceError && sawLoad.current !== uniprotId);
   const awayFromTarget = targetPos > 0 && (targetPos < range.start || targetPos > range.end);
+  const selectedGenomic =
+    selectedGenomicVariant && typeof selectedGenomicVariant.pos === "number"
+      ? { pos: selectedGenomicVariant.pos, alt: String(selectedGenomicVariant.alt ?? "").toUpperCase() }
+      : null;
 
   return (
     <div id="sequence-alignment-visualizer" className="flex flex-col gap-4 animate-fade-in text-cs-text-primary w-full p-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-cs-border-subtle">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-            <Dna className="w-4 h-4 text-cs-accent-clay" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold text-cs-text-primary">Residue landscape</h3>
-            <p className="text-xs mt-0.5 text-cs-text-muted">
-              {targetPos > 0
-                ? `REVEL, AlphaMissense and conservation per residue around ${mutation.wt}${targetPos}${mutation.mut}`
-                : "REVEL, AlphaMissense and conservation per residue"}
-            </p>
-          </div>
+      <div className="flex items-center gap-2.5 pb-3 border-b border-cs-border-subtle">
+        <div className="p-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
+          <Dna className="w-4 h-4 text-cs-accent-clay" />
         </div>
-        {awayFromTarget && (
-          <button
-            type="button"
-            onClick={() => setCenter(targetPos)}
-            className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border border-cs-border bg-cs-surface text-cs-text-primary hover:border-cs-accent-clay cursor-pointer"
-          >
-            <Crosshair className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Back to residue {targetPos}
-          </button>
-        )}
+        <div>
+          <h3 className="text-sm font-semibold text-cs-text-primary">Residue landscape</h3>
+          <p className="text-xs mt-0.5 text-cs-text-muted">
+            {targetPos > 0
+              ? `Predictors, conservation, population and nucleotide ranks on one residue axis around ${mutation.wt}${targetPos}${mutation.mut}`
+              : "Predictors, conservation, population and nucleotide ranks on one residue axis"}
+          </p>
+        </div>
       </div>
 
       {!uniprotId ? (
-        <div className="text-center py-12 text-cs-text-muted text-sm">
-          Run an analysis to see the residue landscape around the variant.
-        </div>
+        <div className="text-center py-12 text-cs-text-muted text-sm">Run an analysis to see the residue landscape around the variant.</div>
       ) : pendingSequence ? (
         <div className="h-28 flex flex-col items-center justify-center text-cs-text-muted text-xs gap-2" role="status">
           <div className="w-5 h-5 border-2 border-cs-accent-clay border-t-transparent rounded-full animate-spin" />
@@ -281,8 +361,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         <div className="p-4 rounded-lg border border-cs-danger/30 bg-cs-danger-soft text-sm text-cs-text-primary flex items-start gap-2" role="alert">
           <AlertTriangle className="w-4 h-4 text-cs-danger shrink-0 mt-0.5" />
           <span>
-            The UniProt sequence for {uniprotId} could not be loaded{sequenceError ? ` (${sequenceError})` : ""}, so residues
-            cannot be laid out. Scores are not shown without the sequence they belong to.
+            The UniProt sequence for {uniprotId} could not be loaded{sequenceError ? ` (${sequenceError})` : ""}, so residues cannot be laid
+            out. Scores are not shown without the sequence they belong to.
           </span>
         </div>
       ) : (
@@ -299,6 +379,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
                 <>
                   {finding.variant && <span className="font-semibold">{finding.variant}</span>}
                   <span>{finding.window}</span>
+                  {finding.context && <span className="text-cs-text-secondary">{finding.context}</span>}
+                  <span className="text-[12px] text-cs-text-muted">
+                    PM1 context only: no ACMG code is proposed here. Band colours on residue summaries orient; they do not score evidence.
+                  </span>
                   {finding.cautions.map((c) => (
                     <span key={c} className="ls-finding__caution flex items-start gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -310,34 +394,75 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             </div>
           </section>
 
-          <SequenceRowGrid
-            wildWindow={wildWindow}
-            relativeStartIndex={range.start}
-            mutation={mutation}
-            residueIndex={residueIndex}
-            hoveredResidueIndex={hoveredResidueIndex}
-            landscapeMap={landscapeMap}
-            metricMode={metricMode}
+          <LandscapeToolbar
+            view={view}
+            onView={setView}
+            mode={metricMode}
+            onMode={setMetricMode}
+            width={windowSize}
+            onWidth={setWindowSize}
+            targetPos={targetPos}
+            awayFromTarget={awayFromTarget}
+            onBack={() => {
+              setCenter(targetPos);
+              setSelection({ key, kind: "substitution", pos: targetPos, alt: mutation.mut || undefined });
+              onResidueClick?.(targetPos);
+            }}
+          />
+
+          <LandscapeOverview
+            length={sequence.length}
+            status={overview?.status ?? "idle"}
+            error={overview?.error}
+            positions={overview?.data?.positions ?? null}
+            context={overview?.data?.context ?? null}
+            domains={domains}
+            window={range}
+            targetPos={targetPos}
+            mode={metricMode}
+            lanes={view.lanes}
+            onPick={pickOverview}
+            pageStep={windowSize}
+          />
+
+          <LandscapeFocus
+            residues={residues}
+            start={range.start}
+            target={mutation}
+            width={windowSize}
+            rows={landscapeMap}
+            mode={metricMode}
+            colorBy={view.colorBy}
             variantScores={variantScores}
             domains={domains}
-            residueClass={residueClass}
-            onResidueClick={onResidueClick}
-            onResidueHover={onResidueHover}
+            selected={selection}
+            selectedGenomic={selectedGenomic}
+            hoveredPos={hoveredResidueIndex ?? null}
             loadingWindow={!landscapeData || extraLoading}
+            codons={codons}
+            strand={strand}
+            laneStatus={laneStatus}
+            genomicPos={genomicPos}
+            genomicAlt={parsedGenomic?.alt || null}
+            onPickResidue={pickResidue}
+            onPickSubstitution={pickSubstitution}
+            onPickNucleotide={pickNucleotide}
+            onHover={onHover}
+            residueClass={residueClass}
           />
 
           <LandscapeLegend />
 
           <GenomicSaturationHeatmap
-            chrom={parsedGenomic?.chrom || conservationData?.spliceProximity?.chrom || null}
-            genomicPos={parsedGenomic?.pos || conservationData?.spliceProximity?.genomicPos || null}
+            region={region}
+            genomicPos={genomicPos}
             genomicAlt={parsedGenomic?.alt || null}
-            spliceProximity={conservationData?.spliceProximity}
+            defaultExpanded={false}
             mutationIndex={targetPos}
             residueIndex={residueIndex}
             hoveredResidueIndex={hoveredResidueIndex}
             onResidueClick={onResidueClick}
-            onResidueHover={onResidueHover}
+            onResidueHover={onHover}
             onSelectGenomicVariant={handleSelectGenomicVariant}
           />
         </div>

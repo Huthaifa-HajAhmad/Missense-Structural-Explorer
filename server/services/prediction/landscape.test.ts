@@ -85,6 +85,7 @@ describe("per-transcript aggregation", () => {
     expect(at116.revelCount).toBe(1);
     expect(at116.revelMean).toBeCloseTo(0.231);
     expect(at116.amMean).toBeCloseTo(0.362);
+    expect(at116.substitutions).toEqual([{ alt: "G", am: 0.362, revel: 0.231 }]);
   });
 
   it("never counts more SNVs at a residue than a codon admits, however many transcripts list it", () => {
