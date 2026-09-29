@@ -14,7 +14,7 @@ import biotite.structure as stripe
 import biotite.structure.io as stripe_io
 from biotite.structure.sse import annotate_sse
 
-# Tien et al. 2013 Max SASA values (empirical max SASA in Gly-X-Gly tripeptide)
+# Tien et al. 2013 theoretical maximum SASA values (Gly-X-Gly tripeptide), doi:10.1371/journal.pone.0080635
 MAX_SASA = {
     'ALA': 129.0, 'ARG': 274.0, 'ASN': 195.0, 'ASP': 193.0, 'CYS': 167.0,
     'GLN': 225.0, 'GLU': 223.0, 'GLY': 104.0, 'HIS': 224.0, 'ILE': 197.0,

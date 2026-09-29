@@ -4,7 +4,6 @@ import {
   BURIAL_RSA_BANDS,
   PACKING_NEIGHBOUR_BANDS,
   classifyBurialRsa,
-  classifyPackingDensity,
   deriveBurialEvidence
 } from "../burialEvidence";
 
@@ -32,16 +31,11 @@ describe("burial band classification", () => {
     expect(classifyBurialRsa(Number.NaN)).toBeNull();
   });
 
-  it("bands packing density on the shared cutoffs", () => {
-    expect(PACKING_NEIGHBOUR_BANDS).toEqual({ coreMin: 15, surfaceMax: 7, radiusAngstrom: 10 });
-
-    expect(classifyPackingDensity(24)).toBe("core");
-    expect(classifyPackingDensity(PACKING_NEIGHBOUR_BANDS.coreMin)).toBe("core");
-    expect(classifyPackingDensity(14)).toBe("boundary");
-    expect(classifyPackingDensity(8)).toBe("boundary");
-    expect(classifyPackingDensity(PACKING_NEIGHBOUR_BANDS.surfaceMax)).toBe("surface");
-    expect(classifyPackingDensity(0)).toBe("surface");
-    expect(classifyPackingDensity(null)).toBeNull();
+  it("keeps no packing cut-points: the Cα count never decides a word", () => {
+    // ≥ 15 core / ≤ 7 surface had no source and called most exposed residues boundary
+    // (2OCJ chain A: 34 of 48 residues with ≥ 35% RSA). The owner chose, 2026-09-29, to give
+    // burial only from measured accessibility.
+    expect(PACKING_NEIGHBOUR_BANDS).toEqual({ radiusAngstrom: 10 });
   });
 });
 
@@ -61,28 +55,27 @@ describe("deriveBurialEvidence", () => {
     expect(evidence.disagreement).toBeNull();
   });
 
-  it("says the word is a packing estimate when the accessibility step did not run", () => {
-    // The common production case: the SASA sidecar fails, so the engine falls back to
-    // counting Cα neighbours — and the old panel presented that as measured burial.
-    const evidence = deriveBurialEvidence({ burialStatus: "boundary", neighbourCount: 14 });
+  it("says burial was not measured when the accessibility step did not run", () => {
+    // The common production case: the SASA sidecar fails. The count is a reading, not a word.
+    const evidence = deriveBurialEvidence({ neighbourCount: 9 });
 
-    expect(evidence.basis).toBe("residue-packing");
-    expect(evidence.basisLabel).toBe("Estimated from packing");
-    expect(evidence.indicators.packing.isBasis).toBe(true);
-    expect(evidence.indicators.rsa.valueLabel).toBeNull();
-    expect(evidence.indicators.rsa.band).toBeNull();
-    expect(evidence.caveat).toMatch(/proxy for burial rather than a measurement/i);
+    expect(evidence.status).toBe("undetermined");
+    expect(evidence.label).toBe("Not measured");
+    expect(evidence.basis).toBe("none");
+    expect(evidence.indicators.packing.valueLabel).toBe("9");
+    expect(evidence.indicators.packing.band).toBeNull();
+    expect(evidence.indicators.packing.isBasis).toBe(false);
+    expect(evidence.caveat).toMatch(/missing evidence/i);
+    expect(evidence.staleWord).toBeNull();
   });
 
-  it("reports a disagreement between the two indicators instead of hiding it", () => {
-    const evidence = deriveBurialEvidence({ burialStatus: "surface", neighbourCount: 20, rsa: 0.6 });
+  it("names a stored packing word as stale instead of showing it as a finding", () => {
+    // A payload from the previous engine carries "boundary" from the packing fallback.
+    const evidence = deriveBurialEvidence({ burialStatus: "boundary", neighbourCount: 9 });
 
-    expect(evidence.indicators.rsa.band).toBe("surface");
-    expect(evidence.indicators.packing.band).toBe("core");
-    expect(evidence.disagreement).toMatch(/point different ways/i);
-    expect(evidence.disagreement).toMatch(/accessibility measurement/i);
-    // The reported word still wins: it is the one the engine actually measured.
-    expect(evidence.status).toBe("surface");
+    expect(evidence.status).toBe("undetermined");
+    expect(evidence.staleWord).toMatch(/earlier engine estimated from packing/i);
+    expect(evidence.disagreement).toBeNull();
   });
 
   it("flags a word that disagrees with the accessibility value beside it", () => {
@@ -102,44 +95,15 @@ describe("deriveBurialEvidence", () => {
     expect(evidence.indicators.rsa.isBasis).toBe(false);
   });
 
-  it("flags the engine's own not-found default as a disagreement, without claiming a basis", () => {
-    // `predictStructuralDisruption` returns burialStatus "boundary" with neighborCount 0
-    // when the residue is missing from the model. Zero neighbours is a surface reading, so the
-    // pair cannot be presented as two agreeing indicators — and the panel must not then claim
-    // the word was "decided by Cα packing density" while its own packing card reads SURFACE.
+  it("treats the engine's old not-found default as unmeasured, not as boundary", () => {
+    // The engine used to return burialStatus "boundary" with neighborCount 0 when the residue
+    // was missing from the model. With no accessibility that is not a finding.
     const evidence = deriveBurialEvidence({ burialStatus: "boundary", neighbourCount: 0 });
 
-    expect(evidence.indicators.packing.band).toBe("surface");
-    expect(evidence.disagreement).not.toBeNull();
+    expect(evidence.status).toBe("undetermined");
     expect(evidence.basis).toBe("none");
     expect(evidence.basisLabel).toBe("Not measured");
-    expect(evidence.basisDetail).toMatch(/not reproducible/i);
-    expect(evidence.indicators.packing.isBasis).toBe(false);
-  });
-
-  it("describes a packing-derived word in packing terms, not accessibility terms", () => {
-    // Packing density does not measure solvent contact. The measured sentence asserted it and
-    // the panel qualified it in the same breath, beside a caveat calling packing a proxy. All
-    // three words are checked, not just core: re-adding a measured claim to the boundary or
-    // surface sentence has to fail something.
-    const cases: Array<[string, number, RegExp]> = [
-      ["core", 20, /densely packed/i],
-      ["boundary", 10, /intermediate packing/i],
-      ["surface", 3, /sparsely packed/i],
-    ];
-
-    for (const [word, neighbours, sentence] of cases) {
-      const evidence = deriveBurialEvidence({ burialStatus: word, neighbourCount: neighbours });
-
-      expect(evidence.basis, `${word} should rest on packing`).toBe("residue-packing");
-      expect(evidence.detail).toMatch(sentence);
-      // The surface sentence does say the position "contacts solvent" — a packing statement —
-      // so the guard is against the *measured* vocabulary, not against that word.
-      expect(evidence.detail).not.toMatch(
-        /little or no solvent contact|accessible surface|relative solvent accessibility|sits in a pocket/i
-      );
-      expect(evidence.basisDetail).toMatch(/packing density/i);
-    }
+    expect(evidence.staleWord).not.toBeNull();
   });
 
   it("keeps the accessibility sentence for a word the measurement decided", () => {
@@ -165,20 +129,17 @@ describe("deriveBurialEvidence", () => {
     expect(dense.indicators.packing.domainMax).toBeGreaterThanOrEqual(41);
     expect(dense.indicators.packing.marker).toBe(41);
     expect(dense.indicators.rsa.domainMax).toBeGreaterThanOrEqual(140);
-    // The thresholds stay where the classifier's cutoffs are, whatever the domain.
-    expect(dense.indicators.packing.ticks.map(t => t.value)).toEqual([7, 15]);
+    // The RSA marks stay where the classifier's cut-points are; packing has none.
+    expect(dense.indicators.packing.ticks).toEqual([]);
     expect(dense.indicators.rsa.ticks.map(t => t.value)).toEqual([15, 35]);
   });
 
-  it("does not claim a basis when only a measurement is reported and no word is", () => {
-    // The schema permits `rsa` without `burialStatus`; nothing decided a word, so nothing can
-    // be named as its basis even though a measurement exists.
+  it("bands a measured accessibility even when the payload carries no word", () => {
     const evidence = deriveBurialEvidence({ rsa: 0.2 });
 
-    expect(evidence.status).toBe("undetermined");
-    expect(evidence.basis).toBe("none");
-    expect(evidence.indicators.rsa.isBasis).toBe(false);
-    expect(evidence.basisDetail).toMatch(/not reproducible/i);
+    expect(evidence.status).toBe("boundary");
+    expect(evidence.basis).toBe("solvent-accessibility");
+    expect(evidence.indicators.rsa.isBasis).toBe(true);
   });
 
   it("states absence as absence rather than defaulting to a word", () => {
@@ -191,11 +152,10 @@ describe("deriveBurialEvidence", () => {
     expect(evidence.indicators.packing.valueLabel).toBeNull();
   });
 
-  it("does not invent a word from a value the engine did not band", () => {
-    // A payload that reports the classification but no measurement cannot band anything.
+  it("does not show a word that no measurement stands behind", () => {
     const evidence = deriveBurialEvidence({ burialStatus: "core" });
 
-    expect(evidence.status).toBe("core");
+    expect(evidence.status).toBe("undetermined");
     expect(evidence.basis).toBe("none");
     expect(evidence.indicators.rsa.band).toBeNull();
     expect(evidence.indicators.packing.band).toBeNull();
@@ -207,7 +167,7 @@ describe("deriveBurialEvidence", () => {
     expect(evidence.indicators.rsa.domainMax).toBe(100);
     expect(evidence.indicators.rsa.ticks.map(t => t.label)).toEqual(["15%", "35%"]);
     expect(evidence.indicators.rsa.marker).toBeCloseTo(20);
-    expect(evidence.indicators.packing.ticks.map(t => t.label)).toEqual(["7", "15"]);
+    expect(evidence.indicators.packing.ticks).toEqual([]);
     expect(evidence.indicators.packing.marker).toBe(14);
   });
 });

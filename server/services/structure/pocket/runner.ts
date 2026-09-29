@@ -124,6 +124,7 @@ export interface PocketInfoResult {
     engine: "p2rank" | "fpocket";
     scoreSource: "probability" | "rescaled_raw_score" | "unavailable";
     volumeSource: "measured" | "unavailable";
+    profile?: string;
   };
 }
 
@@ -203,6 +204,8 @@ export async function findBindingPocketInternal(
   let pocketScoreSource: "probability" | "rescaled_raw_score" | "unavailable" = "unavailable";
   let pocketVolumeSource: "measured" | "unavailable" = "unavailable";
   let pocketEngine: "p2rank" | "fpocket" = "p2rank";
+  /** The P2Rank profile the probability is calibrated for; probabilities do not compare across profiles. */
+  let pocketProfile: string | null = null;
   /** Distance from the variant residue to P2Rank's own cavity centre, when reported. */
   let cavityCentreDistance: number | null = null;
 
@@ -258,6 +261,7 @@ export async function findBindingPocketInternal(
      * point count multiplied by ten.
      */
     const p2rankProfile = process.env.P2RANK_CONFIG_PROFILE?.trim() || "alphafold";
+    pocketProfile = p2rankProfile;
     let execArgs = [
       "predict",
       "-f",
@@ -473,7 +477,9 @@ export async function findBindingPocketInternal(
           }
 
           pocketResidues = Object.values(pocketResiduesMap);
-          pocketResidues.sort((a, b) => b.score - a.score);
+          // Nearest the variant residue first. This used to sort by a hand-set residue
+          // "propensity" weight, so the client's "top 8" had no stated order.
+          pocketResidues.sort((a, b) => a.distance - b.distance);
 
           /*
            * The 0–100 score carries one of two different quantities, and the
@@ -710,7 +716,9 @@ export async function findBindingPocketInternal(
           }
 
           pocketResidues = Object.values(pocketResiduesMap);
-          pocketResidues.sort((a, b) => b.score - a.score);
+          // Nearest the variant residue first. This used to sort by a hand-set residue
+          // "propensity" weight, so the client's "top 8" had no stated order.
+          pocketResidues.sort((a, b) => a.distance - b.distance);
 
           // fpocket reports a real volume in Å³ and a raw score, not a calibrated
           // probability — so the score is flagged as rescaled and the volume as
@@ -779,7 +787,8 @@ export async function findBindingPocketInternal(
     provenance: {
       engine: pocketEngine,
       scoreSource: pocketScoreSource,
-      volumeSource: pocketVolumeSource
+      volumeSource: pocketVolumeSource,
+      ...(p2rankSuccess && pocketProfile ? { profile: pocketProfile } : {})
     },
     status: p2rankSuccess ? "success" : "fallback"
   };

@@ -17,6 +17,12 @@
  * this module stays dependency-free and unit-testable.
  */
 
+import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import {
+  RESIDUE_SCALE_SOURCES,
+  formatNativeResidueValue,
+  nativeResidueValue,
+} from "./residueScales.ts";
 import {
   describeFallbackReason,
   isNarrativeFallbackReason,
@@ -72,31 +78,35 @@ export interface PropertyScaleDefinition {
  * Ordering is deliberate and shared by every renderer: hydrophobicity and size
  * describe the side chain's physical bulk and water behaviour, polarity and
  * charge describe its electrochemistry.
+ *
+ * Every axis is a published scale (`residueScales.ts`). The labels used to cite Kyte & Doolittle,
+ * "van der Waals volume" and "IUPAC classification" over a hand-made table that matched none of
+ * them, so the anchors and sources below name exactly what the numbers are.
  */
 export const PROPERTY_SCALE_DEFINITIONS: readonly PropertyScaleDefinition[] = [
   {
     key: "hydrophobicity",
-    label: "Hydrophobicity",
-    shortLabel: "Hydrophobicity",
+    label: "Hydropathy",
+    shortLabel: "Hydropathy",
     lowAnchor: "Hydrophilic",
     highAnchor: "Hydrophobic",
-    increasesPhrase: "more hydrophobic (further along the hydropathy index)",
-    decreasesPhrase: "less hydrophobic (toward the hydrophilic end of this index)",
+    increasesPhrase: "more hydrophobic",
+    decreasesPhrase: "more hydrophilic",
     rationale:
       "How strongly the side chain avoids water. Positions buried in the protein interior are usually hydrophobic and solvent-exposed positions usually hydrophilic, so a large move on this axis at a buried position is a classic route to misfolding.",
-    source: "Kyte & Doolittle hydropathy, normalised 0–100",
+    source: "Kyte and Doolittle 1982 hydropathy index (\u22124.5 to +4.5)",
   },
   {
     key: "size",
-    label: "Residue Volume / Size",
-    shortLabel: "Size",
+    label: "Side-chain volume",
+    shortLabel: "Volume",
     lowAnchor: "Small",
     highAnchor: "Large",
     increasesPhrase: "bulkier",
     decreasesPhrase: "smaller",
     rationale:
-      "Side-chain bulk. A bulkier residue at a tightly packed position can clash with its neighbours; a smaller one can leave a hole in the core. Read this together with the burial and packing metrics below.",
-    source: "Side-chain van der Waals volume, normalised 0–100",
+      "Side-chain bulk. A bulkier residue at a tightly packed position can clash with its neighbours; a smaller one can leave a hole in the core. Read this together with the burial reading below.",
+    source: "Grantham 1974 side-chain volume (3 to 170 \u00c5\u00b3)",
   },
   {
     key: "polarity",
@@ -108,32 +118,39 @@ export const PROPERTY_SCALE_DEFINITIONS: readonly PropertyScaleDefinition[] = [
     decreasesPhrase: "less polar",
     rationale:
       "How unevenly the side chain distributes its electrons, which governs how readily it forms hydrogen bonds. Polarity shifts rearrange local hydrogen-bond networks.",
-    source: "Standard biochemical polarity classification, normalised 0–100",
+    source: "Grantham 1974 polarity (4.9 to 13.0)",
   },
   {
     key: "charge",
-    label: "Isoelectric Charge Index",
+    label: "Net charge",
     shortLabel: "Charge",
-    lowAnchor: "Negative",
-    highAnchor: "Positive",
+    lowAnchor: "\u22121",
+    highAnchor: "+1",
     /*
-     * The phrase describes the INDEX, not the chemistry. The 0–100 table assigns
-     * non-neutral values to residues with no net charge at pH 7.4 (Cys 35, Ser/Thr
-     * 45, Tyr 45, Trp 48, Pro 52), so wording this axis as "(more basic)" /
-     * "(more acidic)" asserted categorical chemistry that is false: Trp(48)→Ala(50)
-     * rendered as "becomes more basic" though neither residue is basic, and
-     * Ser(45)→Cys(35) as "more acidic" though Ser is not acidic. The parenthetical
-     * is therefore reserved for moves that actually cross between the acidic and
-     * basic poles, and no phrase claims an acid/base identity change on its own.
+     * The axis is the formal side-chain charge at pH 7.4, so a move is one of four real events:
+     * a charge lost, gained or reversed, or none. The previous hand-normalised "index" assigned
+     * Cys 35, Ser 45 and His 75, which let Trp→Ala read as "more positive" with no charge on
+     * either residue. `describeChargeChange` words the event; these phrases are its fallback.
      */
-    increasesPhrase: "further toward the positive end of this index",
-    decreasesPhrase: "further toward the negative end of this index",
+    increasesPhrase: "more positive",
+    decreasesPhrase: "more negative",
     rationale:
-      "Position on a hand-normalised charge index, where 0 is negative, 50 is neutral and 100 is positive. A move that crosses the neutral midpoint is the consequential case for salt bridges and for the residue's pKa; smaller moves shift the index without changing the residue's acid/base character.",
-    source: "Hand-normalised charge index (0–50–100); not a computed net charge at pH 7.4",
-    midpointLabel: "Neutral",
+      "Formal side-chain charge at pH 7.4: Asp and Glu \u22121, Lys and Arg +1, everything else 0. His is counted as 0 because its pKa (about 6) leaves it mostly neutral at this pH, although a local environment can raise it. A lost or reversed charge is the consequential case for salt bridges.",
+    source: "Formal side-chain charge at pH 7.4",
+    midpointLabel: "0",
   },
 ] as const;
+
+/**
+ * Words a charge move as the chemical event it is. Returns null when neither residue is charged.
+ */
+export function describeChargeChange(wildTypeCharge: number, mutantCharge: number): string | null {
+  if (wildTypeCharge === mutantCharge) return null;
+  const sign = (n: number) => (n < 0 ? "negative" : "positive");
+  if (mutantCharge === 0) return `loses its ${sign(wildTypeCharge)} charge`;
+  if (wildTypeCharge === 0) return `gains a ${sign(mutantCharge)} charge`;
+  return `reverses charge, ${sign(wildTypeCharge)} to ${sign(mutantCharge)}`;
+}
 
 /**
  * Look up an axis definition by key.
@@ -191,8 +208,20 @@ export interface BiochemicalContrastRow {
   deltaLabel: string;
   /** Magnitude word only, e.g. "marked". */
   magnitudeLabel: string;
-  /** e.g. "more positive (more basic)" or "no change". */
+  /** e.g. "less polar", "loses its negative charge" or "no change". */
   plainChange: string;
+  /**
+   * The predicate a sentence ends with: "becomes less polar", or for charge the event itself
+   * ("loses its negative charge"). Kept beside `plainChange` so no renderer glues "becomes" onto
+   * an event.
+   */
+  changePredicate: string;
+  /** Values on the published scale, formatted with a true minus sign, e.g. "−3.5". Null when the
+   *  caller supplied only 0–100 positions. */
+  wildTypeNative: string | null;
+  mutantNative: string | null;
+  /** Unit of the native values ("Å³") or "". */
+  unit: string;
   /** One sentence combining the numbers and the plain-language sense. */
   interpretation: string;
   rationale: string;
@@ -275,18 +304,27 @@ function plainChangePhrase(
 function buildContrastRow(
   definition: PropertyScaleDefinition,
   wildTypeValue: number,
-  mutantValue: number
+  mutantValue: number,
+  codes: { wildType: string; mutant: string } | null
 ): BiochemicalContrastRow {
   const delta = Math.round((mutantValue - wildTypeValue) * 10) / 10;
   const absoluteDelta = Math.abs(delta);
   const direction: ShiftDirection = delta > 0 ? "increase" : delta < 0 ? "decrease" : "unchanged";
   const magnitude = classifyShiftMagnitude(absoluteDelta);
-  const plainChange = plainChangePhrase(definition, direction);
+
+  const wtNative = codes ? nativeResidueValue(definition.key, codes.wildType) : null;
+  const mutNative = codes ? nativeResidueValue(definition.key, codes.mutant) : null;
+  const chargeEvent =
+    definition.key === "charge" && wtNative !== null && mutNative !== null
+      ? describeChargeChange(wtNative, mutNative)
+      : null;
+  const plainChange = chargeEvent ?? plainChangePhrase(definition, direction);
+  const changePredicate = chargeEvent ?? (direction === "unchanged" ? "is unchanged" : `becomes ${plainChange}`);
 
   const interpretation =
     direction === "unchanged"
-      ? `${definition.label} is identical for both residues on this scale (${wildTypeValue} of 100), so this descriptor carries no information about the pair.`
-      : `${definition.label} moves ${formatDelta(delta)} points (${wildTypeValue} \u2192 ${mutantValue}): the side chain becomes ${plainChange}. This is a ${magnitude} change on this scale.`;
+      ? `${definition.label} is the same for both residues, so this axis carries no information about the pair.`
+      : `${definition.label} moves ${formatDelta(delta)} points of its 0\u2013100 range: the side chain ${changePredicate}. This is a ${magnitude} move on this scale.`;
 
   const wildTypePosition = clampPercent(wildTypeValue);
   const mutantPosition = clampPercent(mutantValue);
@@ -308,6 +346,10 @@ function buildContrastRow(
     deltaLabel: formatDelta(delta),
     magnitudeLabel: magnitude,
     plainChange,
+    changePredicate,
+    wildTypeNative: wtNative === null ? null : formatNativeResidueValue(definition.key, wtNative),
+    mutantNative: mutNative === null ? null : formatNativeResidueValue(definition.key, mutNative),
+    unit: RESIDUE_SCALE_SOURCES[definition.key].unit,
     interpretation,
     rationale: definition.rationale,
     source: definition.source,
@@ -340,10 +382,10 @@ function buildContrastSummary(params: {
 
   const axis = headlineRow.label.toLowerCase();
   if (changedRowCount === 1) {
-    return `Only one of ${rows.length} axes moves: ${axis} ${headlineRow.deltaLabel} (\u2192 ${headlineRow.plainChange}).`;
+    return `Only one of ${rows.length} axes moves: ${axis}, where the side chain ${headlineRow.changePredicate}.`;
   }
 
-  return `${changedRowCount} of ${rows.length} axes move. The largest is ${axis} ${headlineRow.deltaLabel} \u2014 the side chain becomes ${headlineRow.plainChange}.`;
+  return `${changedRowCount} of ${rows.length} axes move. The largest is ${axis}: the side chain ${headlineRow.changePredicate}.`;
 }
 
 /**
@@ -365,8 +407,14 @@ export function buildBiochemicalContrast(params: {
   if (!wildTypeValues || !mutantValues) return null;
 
   const definitions = params.definitions ?? PROPERTY_SCALE_DEFINITIONS;
+  // Native values are looked up only for standard one-letter codes; a caller passing custom
+  // positions (tests, synthetic pairs) still gets the 0–100 rows.
+  const codes =
+    nativeResidueValue("charge", wildTypeCode) !== null && nativeResidueValue("charge", mutantCode) !== null
+      ? { wildType: wildTypeCode, mutant: mutantCode }
+      : null;
   const rows = definitions.map(definition =>
-    buildContrastRow(definition, wildTypeValues[definition.key], mutantValues[definition.key])
+    buildContrastRow(definition, wildTypeValues[definition.key], mutantValues[definition.key], codes)
   );
 
   const changedRows = rows.filter(row => row.direction !== "unchanged");
@@ -753,6 +801,8 @@ export interface PocketProvenance {
   volumeSource?: "measured" | "unavailable" | "scaled_surface_points" | null;
   /** `probability` = P2Rank's calibrated per-profile field; `rescaled_raw_score` = a score rescaled to look like one. */
   scoreSource?: "probability" | "rescaled_raw_score" | "unavailable" | null;
+  /** P2Rank model profile (`default`, `alphafold`, …). Probabilities are calibrated per profile. */
+  profile?: string | null;
 }
 
 export interface PocketNarrativeInput {
@@ -795,7 +845,22 @@ export interface PocketNarrative {
     /** What the distance is measured to, so a label cannot misname it. */
     reference: string;
   };
-  ranking: { band: PocketRankingBand; label: string; score: number | null; detail: string };
+  ranking: {
+    band: PocketRankingBand;
+    label: string;
+    score: number | null;
+    detail: string;
+    /**
+     * The value as P2Rank means it: a probability on 0–1 when the payload says the field carries
+     * one, otherwise the rescaled score. The tab printed "23 / 100" and the rail "23%" for the same
+     * field; both now print this.
+     */
+    display: string | null;
+    /** What `display` is. "unverified" = an older payload without provenance. */
+    kind: "probability" | "rescaled_raw_score" | "unverified";
+    /** P2Rank profile the value was calibrated for, when reported. */
+    profile: string | null;
+  };
   volume: {
     band: PocketVolumeBand;
     label: string;
@@ -809,15 +874,21 @@ export interface PocketNarrative {
     /** P2Rank's solvent-accessible surface point count, when reported. */
     surfacePoints: number | null;
   };
-  cofactor: { name: string | null; detail: string };
-  lining: { count: number; nearest: PocketResidueSummary | null; includesVariantResidue: boolean };
+  lining: {
+    count: number;
+    nearest: PocketResidueSummary | null;
+    includesVariantResidue: boolean;
+    /**
+     * The pocket's residues nearest the variant first. The runner orders them by a hand-set
+     * residue "propensity" weight, which made the tab's "top 8" look randomly ordered.
+     */
+    byDistance: PocketResidueSummary[];
+  };
   /** Failure/limitation notes the reader must see next to the numbers. */
   caveats: string[];
   /** Term-by-term explanation of the three KPI numbers. */
   glossary: { term: string; meaning: string }[];
 }
-
-const COFACTOR_ABSENT_MARKERS = ["none", "not recorded", "no curated", "n/a", "unknown"];
 
 function classifyProximity(distance: number | null, includesVariantResidue: boolean): PocketProximityBand {
   if (includesVariantResidue) return "lining";
@@ -926,7 +997,7 @@ function distanceReference(hasCavityCentre: boolean): string {
 
 const EMPTY_CLASSIFICATION: PocketNarrative["classification"] = Object.freeze({
   code: "UNCLASSIFIED",
-  label: "UNCLASSIFIED",
+  label: "Unclassified",
   detail: "No pocket computation has been classified yet.",
 });
 
@@ -938,31 +1009,31 @@ function spatialClassificationFor(
     case "lining":
       return {
         code: "ACTIVE_SITE_LINING",
-        label: "ACTIVE_SITE_LINING",
+        label: "Lines the pocket",
         detail: "This residue is one of the residues P2Rank returned as part of the cavity wall.",
       };
     case "proximal":
       return {
         code: "ACTIVE_SITE_PROXIMATE",
-        label: "ACTIVE_SITE_PROXIMATE",
+        label: "Within 8 \u00c5",
         detail: `This residue sits within ${POCKET_PROXIMITY_BANDS.proximal} \u00c5 of ${reference} \u2014 first shell.`,
       };
     case "peripheral":
       return {
         code: "POCKET_PERIPHERAL",
-        label: "POCKET_PERIPHERAL",
+        label: "Pocket rim",
         detail: `This residue sits ${POCKET_PROXIMITY_BANDS.proximal}\u2013${POCKET_PROXIMITY_BANDS.peripheral} \u00c5 from ${reference} \u2014 on the rim rather than in the cavity.`,
       };
     case "distal":
       return {
         code: "DISTAL_SURFACE",
-        label: "DISTAL_SURFACE",
+        label: "Distal",
         detail: `This residue is further than ${POCKET_PROXIMITY_BANDS.peripheral} \u00c5 from ${reference}, so it does not shape the cavity itself.`,
       };
     default:
       return {
         code: "UNCLASSIFIED",
-        label: "UNCLASSIFIED",
+        label: "Unclassified",
         detail: `No distance to ${reference} was reported, so spatial classification cannot be assigned.`,
       };
   }
@@ -973,9 +1044,9 @@ function spatialClassificationFor(
  *
  * A present pocket object whose status is missing or unrecognised is treated as
  * `unavailable`, not `absent`. `absent` means "no computation was requested",
- * and returning it for a payload that exists made the inspector show "No cavity
- * scan requested / Standby" while the main column's badge showed "Model Offline"
- * for the same object.
+ * and returning it for a payload that exists made the inspector report that no
+ * scan was requested while the main column reported the model as down for the
+ * same object.
  *
  * `"fallback"` is the runner's marker for *fpocket* having produced the numbers
  * after P2Rank did not (`runner.ts:551`). It is real cavity data, so it is mapped
@@ -1103,9 +1174,9 @@ const EMPTY_GLOSSARY = [
       "How far the variant residue sits from the pocket: from the cavity centre when the engine reports one (P2Rank does), otherwise from the centroid of the pocket's own residues, which grows as the pocket gets larger.",
   },
   {
-    term: "P2Rank ranking index",
+    term: "Ligand-site probability",
     meaning:
-      "P2Rank's confidence that the cavity is a ligand-binding site, on the 0\u2013100 scale this panel reports. P2Rank documents this quantity as a probability calibrated against known complexes, per model profile \u2014 so it is not an affinity, and values from different profiles are not comparable.",
+      "P2Rank's probability, from 0 to 1, that the cavity is a ligand-binding site. It is calibrated per model profile, so it is not an affinity and values from different profiles are not comparable. When it rounds to zero the runner reports a rescaled score instead, and says so.",
   },
   {
     term: "Pocket volume",
@@ -1142,7 +1213,7 @@ export function derivePocketNarrative(
     bottomLine: null,
     classification: EMPTY_CLASSIFICATION,
     proximity: { band: "unknown", label: PROXIMITY_LABELS.unknown, distance: null, detail: "", reference: DISTANCE_REFERENCE },
-    ranking: { band: "unknown", label: RANKING_LABELS.unknown, score: null, detail: "" },
+    ranking: { band: "unknown", label: RANKING_LABELS.unknown, score: null, detail: "", display: null, kind: "unverified", profile: null },
     volume: {
       band: "unknown",
       label: VOLUME_LABELS.unknown,
@@ -1151,8 +1222,7 @@ export function derivePocketNarrative(
       isMeasured: false,
       surfacePoints: null
     },
-    cofactor: { name: null, detail: "" },
-    lining: { count: 0, nearest: null, includesVariantResidue: false },
+    lining: { count: 0, nearest: null, includesVariantResidue: false, byDistance: [] },
     caveats: [],
     glossary: [...EMPTY_GLOSSARY],
     ...overrides
@@ -1161,7 +1231,7 @@ export function derivePocketNarrative(
   if (status === "loading") {
     return emptyResult({
       headline: "Scoring cavities",
-      badge: "Computing",
+      badge: ENGINE_STATE_LABELS.running,
       badgeTone: "neutral",
       plainLanguage:
         "P2Rank is scanning the 3D model for surface cavities and measuring their distance to this residue.",
@@ -1173,7 +1243,7 @@ export function derivePocketNarrative(
   if (status === "error") {
     return emptyResult({
       headline: "Cavity scan failed",
-      badge: "Error",
+      badge: ENGINE_STATE_LABELS.failed,
       badgeTone: "danger",
       plainLanguage: options.error ? `P2Rank could not complete: ${options.error}` : "P2Rank could not complete.",
       bottomLine:
@@ -1185,7 +1255,7 @@ export function derivePocketNarrative(
   if (status === "absent") {
     return emptyResult({
       headline: "No cavity scan requested",
-      badge: "Standby",
+      badge: ENGINE_STATE_LABELS["no-result"],
       badgeTone: "neutral",
       plainLanguage:
         "No P2Rank prediction has been run for this residue yet. Pocket proximity is only computed once a 3D model for this variant is available.",
@@ -1206,7 +1276,7 @@ export function derivePocketNarrative(
      */
     return emptyResult({
       headline: "No cavity returned for this residue",
-      badge: "No pocket reported",
+      badge: ENGINE_STATE_LABELS["no-result"],
       badgeTone: "neutral",
       plainLanguage:
         "P2Rank produced no cavity for this residue. That can mean its search found no cavity within reach, or that the residue could not be located in the modelled structure at all; this payload does not distinguish the two.",
@@ -1243,8 +1313,8 @@ export function derivePocketNarrative(
 
   if (status === "unavailable") {
     return emptyResult({
-      headline: "P2Rank unavailable",
-      badge: "Model offline",
+      headline: "P2Rank did not run",
+      badge: ENGINE_STATE_LABELS["not-installed"],
       badgeTone: "warn",
       plainLanguage:
         "P2Rank did not run for this variant, so no cavity could be measured. This is an infrastructure result rather than a biological one.",
@@ -1342,23 +1412,29 @@ export function derivePocketNarrative(
 
   const distanceClause = buildDistanceClause(rawDistance, includesVariantResidue, reference);
 
-  const rankingClause =
-    score !== null
-      ? `P2Rank's ranking index for that cavity is ${score} of 100 (${RANKING_LABELS[
-          rankingBand
-        ].toLowerCase()}), which means ${RANKING_DETAILS[rankingBand]}.`
-      : `P2Rank reported no ranking index for that cavity.`;
+  const scoreSource = pocket?.provenance?.scoreSource;
+  const rankingKind: PocketNarrative["ranking"]["kind"] =
+    scoreSource === "probability" ? "probability" : scoreSource === "rescaled_raw_score" ? "rescaled_raw_score" : "unverified";
+  const profile = pocket?.provenance?.profile?.trim() || null;
+  const rankingDisplay =
+    score === null ? null : rankingKind === "probability" ? (score / 100).toFixed(2) : `${score}`;
+  const profileClause = profile ? ` under its ${profile} profile` : "";
+  let rankingClause: string;
+  if (score === null) {
+    rankingClause = "P2Rank reported no score for that cavity.";
+  } else if (rankingKind === "probability") {
+    rankingClause = `P2Rank gives that cavity a ${rankingDisplay} probability of being a ligand-binding site${profileClause}.`;
+  } else if (rankingKind === "rescaled_raw_score") {
+    rankingClause = `P2Rank's probability for that cavity rounded to zero, so the runner reports a rescaled score of ${score}, which is not a probability.`;
+  } else {
+    rankingClause = `P2Rank reported a score of ${score} for that cavity; this result does not say whether it is a probability.`;
+  }
 
   const volumeClause = buildVolumeClause(volume, volumeBand, isMeasuredVolume, surfacePoints);
 
   const plainLanguage = `${distanceClause} ${rankingClause} ${volumeClause}`;
 
   const bottomLine = buildPocketBottomLine(proximityBand, rankingBand);
-
-  const cofactorName =
-    pocket?.likelyCofactor && !COFACTOR_ABSENT_MARKERS.some(marker => pocket.likelyCofactor!.toLowerCase().includes(marker))
-      ? pocket.likelyCofactor
-      : null;
 
   const caveats = [
     "P2Rank detects cavity geometry, not function: it cannot tell whether a cavity actually binds a ligand in the cell.",
@@ -1398,6 +1474,9 @@ export function derivePocketNarrative(
       label: RANKING_LABELS[rankingBand],
       score,
       detail: RANKING_DETAILS[rankingBand],
+      display: rankingDisplay,
+      kind: rankingKind,
+      profile,
     },
     volume: {
       band: volumeBand,
@@ -1408,13 +1487,12 @@ export function derivePocketNarrative(
       isMeasured: isMeasuredVolume,
       surfacePoints,
     },
-    cofactor: {
-      name: cofactorName,
-      detail: cofactorName
-        ? "Curated UniProt annotation for the ligand or cofactor known to occupy this region of the protein."
-        : "No curated ligand or cofactor annotation is recorded for this position, so the predicted cavity has no known physiological occupant in the databases."
+    lining: {
+      count: residues.length,
+      nearest,
+      includesVariantResidue,
+      byDistance: [...neighbours].sort((a, b) => a.distance - b.distance),
     },
-    lining: { count: residues.length, nearest, includesVariantResidue },
     caveats,
     glossary: [...EMPTY_GLOSSARY]
   };
