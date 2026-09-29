@@ -1,13 +1,48 @@
 import React from "react";
-import { ArrowRight, Cpu, Gauge, ShieldAlert } from "lucide-react";
+import { BookOpen, Database, GitBranch, Ruler, Scale } from "lucide-react";
 import type { AnalysisResult, EnergeticsData } from "../../types";
+import { useSettings } from "../../context/SettingsContext";
+import { CALIBRATION_SOURCES, THRESHOLDS, formatEvidenceCode } from "../../shared/thresholds";
 import {
-  buildGuidelinesRows,
-  guidelinesFinding,
-  summarizeGuidelinesRows,
-  type GuidelinesRow,
-} from "../../shared/thresholds";
+  CLINGEN_CLASS_BANDS,
+  CLINGEN_POINTS,
+  RICHARDS_2015,
+  TAVTIGIAN_2020,
+  buildThresholdEvidence,
+} from "../../shared/thresholdEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
+import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+
+/**
+ * GuidelinesRail — the Evidence Lineage inspector for the Score thresholds tab.
+ *
+ * The column shows every cut-point; the rail shows HOW the computational codes were reached: a rule
+ * trace (vote → PP3/BP4, gene constraint → PP2, BP1 not assessed, engine record), the bands this
+ * variant actually reached, the ClinGen point scale as a reference, method notes and sources.
+ *
+ * It replaced five boxed cards that repeated the tab (a second "Pathogenic Concordance" verdict and
+ * every score again), labelled REVEL "Conservation", defined BP3 as "…or structurally neutral
+ * substitution" (invented) and showed only the pathogenic half of the point scale, tinted amber.
+ * Built from the same `buildThresholdEvidence` object as the column.
+ */
+
+type StepState = "done" | "warn" | "idle";
+
+function Step({ n, label, state = "done", children }: { n: number; label: string; state?: StepState; children: React.ReactNode }) {
+  return (
+    <li className="gt-step" data-state={state}>
+      <span className="gt-step__n" aria-hidden="true">{n}</span>
+      <div className="gt-step__body">
+        <span className="gt-step__label">{label}</span>
+        <div className="gt-step__value">{children}</div>
+      </div>
+    </li>
+  );
+}
+
+const POINTS_MIN = -8;
+const POINTS_MAX = 11;
+const pointsPct = (v: number) => ((v - POINTS_MIN) / (POINTS_MAX - POINTS_MIN)) * 100;
 
 export interface GuidelinesRailProps {
   analysisResult: AnalysisResult;
@@ -16,291 +51,237 @@ export interface GuidelinesRailProps {
   onSelectEvidenceTab?: (tab: string) => void;
 }
 
-const GROUP_TINTS: Record<string, { bg: string; fg: string; border: string }> = {
-  path: {
-    bg: "var(--cs-bg-danger)",
-    fg: "var(--cs-text-danger-on-soft)",
-    border: "color-mix(in srgb, var(--cs-text-danger) 25%, transparent)",
-  },
-  benign: {
-    bg: "var(--cs-bg-success)",
-    fg: "var(--cs-text-good-on-soft)",
-    border: "color-mix(in srgb, var(--cs-text-success) 25%, transparent)",
-  },
-  vus: {
-    bg: "var(--cs-bg-warning)",
-    fg: "var(--cs-text-warning-on-soft)",
-    border: "color-mix(in srgb, var(--cs-text-warning) 30%, transparent)",
-  },
-  info: {
-    bg: "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)",
-    fg: "var(--cs-accent-clay)",
-    border: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)",
-  },
-  nodata: {
-    bg: "var(--cs-surface)",
-    fg: "var(--cs-text-muted)",
-    border: "var(--cs-border)",
-  },
-};
-
-export function GuidelinesRail({
-  analysisResult,
-  foldingDdG,
-  foldingEnergetics,
-  onSelectEvidenceTab,
-}: GuidelinesRailProps) {
-  const rows = buildGuidelinesRows({
+export function GuidelinesRail({ analysisResult, foldingDdG, foldingEnergetics }: GuidelinesRailProps) {
+  const { settings } = useSettings();
+  const ev = buildThresholdEvidence({
     result: analysisResult,
     foldingDdG,
     foldingEnergetics,
+    alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
   });
-  const summary = summarizeGuidelinesRows(rows);
-  const finding = guidelinesFinding(summary);
+  const { predictor, engine, constraint } = ev;
+  const vote = predictor.vote;
+  const PP2 = THRESHOLDS.pp2Constraint;
 
-  const revelRow = rows.find(r => r.key === "revel");
-  const foldxRow = rows.find(r => r.key === "foldx");
+  const insilicoStale = engine.known && !engine.insilico.withheldByWeighting && (engine.insilico.code ?? null) !== vote.code;
 
-  const conservationData = analysisResult.conservationData;
-  const revel = conservationData?.revel ?? null;
-  const ddG = foldingDdG;
-
-  const nPath = summary.pathSupporting.length;
-  const nBenign = summary.benignSupporting.length;
-  const nScored = summary.total - summary.noData.length;
-
-  const statusTone: "neutral" | "danger" | "warning" | "good" =
-    nScored === 0
-      ? "neutral"
-      : nPath > nBenign
-      ? "danger"
-      : nBenign > nPath
-      ? "good"
-      : nPath > 0 || nBenign > 0
-      ? "warning"
-      : "neutral";
-
-  const statusText =
-    nScored === 0
-      ? "Awaiting Data"
-      : nPath > nBenign
-      ? "Pathogenic Concordance"
-      : nBenign > nPath
-      ? "Benign / Neutral"
-      : nPath > 0 || nBenign > 0
-      ? "Conflicting Signals"
-      : "Indeterminate";
-
-  const statusDesc = finding.predicate;
-
-  const groupCount = (g: "path" | "benign" | "vus" | "info" | "nodata") =>
-    g === "path"
-      ? summary.pathSupporting.length
-      : g === "benign"
-      ? summary.benignSupporting.length
-      : g === "vus"
-      ? summary.vus.length
-      : g === "info"
-      ? summary.informational.length
-      : summary.noData.length;
-
-  const matchedLists: { key: "path" | "benign" | "info"; label: string; items: GuidelinesRow[] }[] = [
-    { key: "path", label: "Pathogenic-supporting", items: summary.pathSupporting },
-    { key: "benign", label: "Benign / neutral", items: summary.benignSupporting },
-    { key: "info", label: "Informational-only", items: summary.informational },
+  // Bands this variant reached: calibrated tools in a band, then voters on their authors' cut.
+  const reached = [
+    ...ev.ladder
+      .filter(l => l.at && l.at !== "none")
+      .map(l => {
+        const [dir, strength] = (l.at as string).split(":");
+        const row = ev.rows.find(r => r.reading.key === l.key)!;
+        const line = row.cutLines.find(x => x.startsWith(dir)) ?? "";
+        return {
+          key: l.key,
+          text: `${l.name} ${l.scoreText} · ${formatEvidenceCode(dir + (strength === "Supporting" ? "" : `_${strength}`))}${l.votes ? "" : " (not counted)"}`,
+          rule: line.replace(/^(PP3|BP4) /, "").split(" · ")[0],
+        };
+      }),
+    ...predictor.voters.pathogenic
+      .filter(v => v.cutpoints.kind === "authors")
+      .map(v => ({ key: v.key, text: `${v.name} ${v.scoreText} · authors' cut`, rule: v.cutpoints.marks.map(m => m.label).join(" · ") })),
   ];
 
+  // PP3 Supporting / BP4 Supporting on the point scale, as the engine records them.
+  const insilicoPoints = (() => {
+    const code = engine.insilico.code;
+    if (!code) return null;
+    const strength = (code.includes("_") ? code.split("_")[1] : "Supporting") as keyof typeof CLINGEN_POINTS;
+    return (code.startsWith("PP3") ? 1 : -1) * (CLINGEN_POINTS[strength] ?? 1);
+  })();
+
+  const r = analysisResult as any;
+  const sources: Array<[string, string]> = [];
+  const add = (label: string, value: unknown) => {
+    if (typeof value === "string" && value.trim()) sources.push([label, value.trim()]);
+  };
+  add("Missense scores", analysisResult.conservationData?.source ?? "dbNSFP via MyVariant.info");
+  add("CADD · AlphaMissense", analysisResult.predictorData?.source ?? "Ensembl VEP");
+  add("Gene constraint", analysisResult.gnomadConstraint ? "gnomAD v4 (GraphQL)" : null);
+  add("ESMC / VESM", r.esmcEval?.provenance);
+
+  const refs = [...Object.values(CALIBRATION_SOURCES), TAVTIGIAN_2020, RICHARDS_2015];
+
   return (
-    <div className="flex flex-col gap-3">
-      <span className="eyebrow">
-        <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" aria-hidden="true" />
-        Concordance &amp; Calibration Guide
-      </span>
-
-      {/* Concordance Status Card */}
-      <div className="p-3 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface-2)] space-y-2">
-        <div className="flex items-center justify-between gap-1">
-          <span
-            className="ev-tier font-mono font-bold text-[10px] uppercase"
-            data-tone={statusTone}
-          >
-            {statusText}
-          </span>
-        </div>
-        <p className="text-[11px] text-[var(--cs-text-secondary)] leading-snug font-sans m-0">
-          {statusDesc}
-        </p>
-        <div className="pt-2 border-t border-[var(--cs-border-subtle)] flex flex-col gap-1 text-[10px] font-mono text-[var(--cs-text-muted)]">
-          <div className="flex justify-between items-center">
-            <span>REVEL Conservation:</span>
-            <span className="font-semibold text-[var(--cs-text-primary)]">
-              {revel !== null ? `${revel.toFixed(3)}${revelRow ? ` · ${revelRow.matchLabel}` : ""}` : "N/A"}
+    <div className="gt-rail" data-testid="thresholds-rail">
+      {/* ── 1. Rule trace ── */}
+      <section className="gt-rsec" aria-labelledby="gt-rail-trace">
+        <h3 className="eyebrow" id="gt-rail-trace">
+          <GitBranch className="w-3.5 h-3.5" />
+          Rule trace
+        </h3>
+        <ol className="gt-steps" data-testid="threshold-rule-trace">
+          <Step n={1} label="In-silico vote" state={vote.nVoting === 0 ? "idle" : "done"}>
+            <span>
+              {vote.nPathogenic} pathogenic · {vote.nBenign} benign · {vote.nIndeterminate} indeterminate
             </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span>FoldX ΔΔG Stability:</span>
-            <span className="font-semibold text-[var(--cs-text-primary)]">
-              {ddG !== null ? `${ddG.toFixed(2)} kcal/mol${foldxRow ? ` · ${foldxRow.matchLabel}` : ""}` : "N/A"}
+            <span className="gt-step__sub">
+              {vote.direction === "pathogenic" ? "Plurality → PP3 at Supporting"
+                : vote.direction === "benign" ? "Plurality → BP4 at Supporting"
+                : vote.direction === "tie" ? "Tie → no criterion"
+                : "Nothing to count → no criterion"}
             </span>
-          </div>
-        </div>
-      </div>
+          </Step>
+          <Step n={2} label="Gene constraint → PP2" state={constraint.missenseZ === null ? "idle" : "done"}>
+            <span>
+              {constraint.missenseZ === null
+                ? `${ENGINE_STATE_LABELS["no-result"]} from gnomAD, so PP2 was not tested`
+                : `Z ${constraint.missenseZ.toFixed(2)}${constraint.oeMis !== null ? `, o/e ${constraint.oeMis.toFixed(2)}` : ""} → ${constraint.pp2RuleMet ? "met" : "not met"}`}
+            </span>
+            <span className="gt-step__sub">Rule: Z ≥ {PP2.missenseZ} and o/e &lt; {PP2.oeMisBelow} (local proxy)</span>
+          </Step>
+          <Step n={3} label="BP1" state={engine.bp1Stale ? "warn" : "done"}>
+            <span>Not assessed</span>
+            <span className="gt-step__sub">Needs the gene&apos;s curated disease mechanism; pLI is not that fact.</span>
+            {engine.bp1Stale && (
+              <span className="gt-step__warn">This result records BP1 from an earlier engine. Re-run the analysis to refresh it.</span>
+            )}
+          </Step>
+          <Step n={4} label="Engine record" state={insilicoStale || engine.insilico.withheldByWeighting ? "warn" : "done"}>
+            <span className="gt-step__codes">
+              {!engine.known
+                ? vote.code ? `Not in payload (the vote supports ${vote.code})` : "Not in payload"
+                : engine.codes.length
+                  ? engine.codes.map(c => (
+                      <span key={c} className="ev-tier chip-code" data-tone={c.startsWith("B") ? "good" : "danger"}>{formatEvidenceCode(c)}</span>
+                    ))
+                  : "No computational code"}
+            </span>
+            {engine.insilico.withheldByWeighting && (
+              <span className="gt-step__warn">The vote supports {vote.code}; the {engine.insilico.weighting} weighting withholds it.</span>
+            )}
+            {insilicoStale && (
+              <span className="gt-step__warn">
+                The payload records {engine.insilico.code ? formatEvidenceCode(engine.insilico.code) : "no PP3 or BP4"} where the current rule gives {vote.code ?? "neither"}. Re-run the analysis to refresh it.
+              </span>
+            )}
+          </Step>
+        </ol>
+      </section>
 
-      {/* Live Threshold Matches Roll-Up */}
-      <div className="p-3 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface-2)] space-y-2">
-        <span className="text-[10px] font-mono font-bold uppercase text-[var(--cs-text-muted)] flex items-center gap-1.5">
-          <Gauge className="w-3 h-3 text-[var(--cs-accent-clay)]" aria-hidden="true" />
-          Live Threshold Matches
-        </span>
+      {/* ── 2. Bands reached ── */}
+      <section className="gt-rsec" aria-labelledby="gt-rail-bands">
+        <h3 className="eyebrow" id="gt-rail-bands">
+          <Ruler className="w-3.5 h-3.5" />
+          Bands this variant reached
+        </h3>
+        {reached.length ? (
+          <ul className="gt-rcuts" data-testid="threshold-bands-reached">
+            {reached.map(x => (
+              <li key={x.key} className="gt-rcut">
+                <span className="gt-rcut__name">{x.text}</span>
+                <span className="gt-rcut__rule">{x.rule}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="gt-rail-note">No score reaches a PP3 or BP4 band or an authors&apos; cut for this variant.</p>
+        )}
+      </section>
 
-        <div className="flex flex-wrap gap-1">
-          {(["path", "benign", "vus", "info", "nodata"] as const).map(g => {
-            const tint = GROUP_TINTS[g];
-            const count = groupCount(g);
-            if (count === 0) return null;
+      {/* ── 3. ClinGen points (reference) ── */}
+      <section className="gt-rsec" aria-labelledby="gt-rail-points">
+        <h3 className="eyebrow" id="gt-rail-points">
+          <Scale className="w-3.5 h-3.5" />
+          ClinGen points (reference)
+        </h3>
+        <div
+          className="gt-points"
+          role="img"
+          aria-label={`Tavtigian 2020 point scale: benign at −7 or below, likely benign −6 to −1, uncertain 0 to 5, likely pathogenic 6 to 9, pathogenic 10 or more.${insilicoPoints !== null ? ` The recorded in-silico code is worth ${insilicoPoints > 0 ? "+" : ""}${insilicoPoints}.` : ""}`}
+        >
+          {CLINGEN_CLASS_BANDS.map(b => {
+            const lo = (b.min ?? POINTS_MIN) - 0.5;
+            const hi = (b.max ?? POINTS_MAX - 0.5) + 0.5;
+            const left = pointsPct(Math.max(POINTS_MIN, lo));
             return (
-              <span
-                key={g}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-sans"
-                style={{ background: tint.bg, color: tint.fg, borderColor: tint.border }}
-                title={g === "nodata" ? "Metrics with no score for this variant" : undefined}
-              >
-                <span className="font-mono font-bold tabular-nums">{count}</span>
-                <span>
-                  {g === "path"
-                    ? "path."
-                    : g === "benign"
-                    ? "benign"
-                    : g === "vus"
-                    ? "VUS"
-                    : g === "info"
-                    ? "info"
-                    : "no data"}
-                </span>
+              <span key={b.id} className="gt-points__band" data-id={b.id} title={b.label} style={{ left: `${left}%`, width: `${pointsPct(Math.min(POINTS_MAX, hi)) - left}%` }}>
+                {b.id}
               </span>
             );
           })}
+          {[-7, 0, 6, 10].map(t => (
+            <span key={t} className="gt-points__tick" style={{ left: `${pointsPct(t)}%` }}>{t > 0 ? `+${t}` : t}</span>
+          ))}
+          {insilicoPoints !== null && engine.insilico.code && (
+            <>
+              <span className="gt-points__mark" style={{ left: `${pointsPct(insilicoPoints)}%` }} />
+              <span className="gt-points__marklabel" style={{ left: `${pointsPct(insilicoPoints)}%` }}>
+                {engine.insilico.code.split("_")[0]} {insilicoPoints > 0 ? "+" : "−"}{Math.abs(insilicoPoints)}
+              </span>
+            </>
+          )}
         </div>
+        <p className="gt-rail-note">
+          Supporting 1, Moderate 2, Strong 4, Very strong 8 points (Tavtigian 2020). The engine classifies with the
+          Richards 2015 combining rules, not by summing points.
+        </p>
+      </section>
 
-        <div className="pt-1 space-y-1.5">
-          {matchedLists.map(({ key, label, items }) => {
-            if (items.length === 0) return null;
-            const tint = GROUP_TINTS[key];
-            return (
-              <div key={key} className="space-y-0.5">
-                <span className="eyebrow block">
-                  {label} · {items.length}
-                </span>
-                {items.map(row => (
-                  <div key={row.key} className="flex justify-between items-center gap-2 text-[10px]">
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ background: tint.fg }}
-                      />
-                      <span className="text-[var(--cs-text-secondary)] truncate">{row.name}</span>
-                    </span>
-                    <span className="font-mono font-semibold text-[var(--cs-text-primary)] tabular-nums shrink-0">
-                      {row.display}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+      {/* ── 4. Method ── */}
+      <section className="gt-rsec" aria-labelledby="gt-rail-notes" id={INSPECTOR_SECTIONS.thresholdKey} tabIndex={-1}>
+        <h3 className="eyebrow" id="gt-rail-notes">
+          <BookOpen className="w-3.5 h-3.5" />
+          Method
+        </h3>
+        <details className="gt-notes" open>
+          <summary>How to read these cut-points</summary>
+          <ul>
+            <li>
+              PP3 and BP4: computational evidence that a missense change is damaging or not. ClinGen (Pejaver 2022)
+              recommends one calibrated tool chosen in advance; the engine&apos;s vote across seven tools is a local
+              rule, held at Supporting strength.
+            </li>
+            <li>
+              MetaRNN and ClinPred use gnomAD allele frequency, which PM2 and BS1 also read, and are trained on ClinVar.
+            </li>
+            <li>
+              PP2: missense variant in a gene with a low rate of benign missense variation where missense is a common
+              disease mechanism. gnomAD missense Z with o/e is the engine&apos;s proxy for it.
+            </li>
+            <li>
+              BP1: missense variant in a gene where truncating variants are the known cause of disease. It needs curated
+              gene–disease knowledge, so it is not assessed automatically.
+            </li>
+            <li>
+              ΔΔG measures folding stability, not pathogenicity, and no ACMG criterion takes a ΔΔG cut-point. The marks
+              drawn are local.
+            </li>
+            <li>Conservation (phyloP, GERP++) is constraint, and it overlaps the meta-predictors that already use it.</li>
+          </ul>
+        </details>
+      </section>
 
-          {summary.pathSupporting.length === 0 &&
-            summary.benignSupporting.length === 0 &&
-            summary.informational.length === 0 && (
-              <p className="text-[10px] text-[var(--cs-text-muted)] italic m-0">
-                No metric reaches a calibrated cut-point yet — scores populate as pipeline stages complete.
-              </p>
-            )}
-        </div>
-      </div>
-
-      {/* Relocated ACMG/AMP Evidence Codes Key */}
-      <div
-        id={INSPECTOR_SECTIONS.thresholdKey}
-        tabIndex={-1}
-        className="p-3 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface-2)] space-y-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-      >
-        <span className="text-[10px] font-mono font-bold uppercase text-[var(--cs-text-muted)] block">
-          ACMG/AMP Evidence Codes Key
-        </span>
-        <div className="space-y-1.5 text-[11px]">
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">PP3 / BP4</span>
-            <span className="text-[var(--cs-text-secondary)] text-right">
-              Computational algorithms predict a deleterious (PP3) / neutral (BP4) effect on the protein.
-            </span>
-          </div>
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">PM1</span>
-            <span className="text-[var(--cs-text-secondary)] text-right">
-              Located in a mutational hot spot or a well-established functional domain without benign variation (Richards 2015). This platform tests the site reading only: an experimentally evidenced active, binding, metal or disulfide site at the residue.
-            </span>
-          </div>
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">BP3</span>
-            <span className="text-[var(--cs-text-secondary)] text-right">
-              In-frame deletion or insertion in a repetitive region without a known function. It does not apply to missense substitutions.
-            </span>
-          </div>
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">PP2 / BP1</span>
-            <span className="text-[var(--cs-text-secondary)] text-right">
-              Missense-predominant constraint (PP2) / gene where mostly truncating variants cause disease (BP1).
-            </span>
-          </div>
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-mono font-bold text-[var(--cs-accent-clay)] shrink-0">Info</span>
-            <span className="text-[var(--cs-text-secondary)] text-right">
-              Model-native scale with no published cut-point — reported, never classified.
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ClinGen Evidence Point Scale */}
-      <div className="p-3 rounded-lg border border-[var(--cs-border)] bg-[var(--cs-surface-2)] space-y-1.5">
-        <span className="text-[10px] font-mono font-bold uppercase text-[var(--cs-text-muted)] block">
-          ClinGen Evidence Point Scale
-        </span>
-        <div className="space-y-1 text-[11px]">
-          <div className="flex justify-between">
-            <span className="text-[var(--cs-text-secondary)]">Very Strong (Pathogenic)</span>
-            <span className="font-mono font-bold text-[var(--cs-text-danger-on-soft)]">8 points</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[var(--cs-text-secondary)]">Strong (Pathogenic)</span>
-            <span className="font-mono font-bold text-[var(--cs-text-danger)]">4 points</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[var(--cs-text-secondary)]">Moderate (Pathogenic)</span>
-            <span className="font-mono font-bold text-[var(--cs-text-warning-on-soft)]">2 points</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[var(--cs-text-secondary)]">Supporting (Pathogenic)</span>
-            <span className="font-mono font-bold text-[var(--cs-text-warning)]">1 point</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Cross-navigation button */}
-      {onSelectEvidenceTab && (
-        <button
-          type="button"
-          onClick={() => onSelectEvidenceTab("predictors")}
-          className="gt-rail-btn"
-        >
-          <div className="flex items-center gap-2">
-            <Cpu className="w-4 h-4 text-[var(--cs-accent-clay)]" aria-hidden="true" />
-            <span>Open In-Silico Predictors</span>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-        </button>
-      )}
+      {/* ── 5. Sources ── */}
+      <section className="gt-rsec" aria-labelledby="gt-rail-sources">
+        <h3 className="eyebrow" id="gt-rail-sources">
+          <Database className="w-3.5 h-3.5" />
+          Sources
+        </h3>
+        <dl className="prd-kv">
+          {sources.map(([label, value]) => (
+            <div key={label} className="prd-kv__row">
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <ul className="gt-refs">
+          {refs.map(src => (
+            <li key={src.doi}>
+              {src.citation}{" "}
+              <a href={`https://doi.org/${src.doi}`} target="_blank" rel="noopener noreferrer">
+                doi:{src.doi}
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
+
+export default GuidelinesRail;

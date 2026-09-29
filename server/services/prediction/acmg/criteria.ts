@@ -419,16 +419,17 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   }
 
   // -------------------------------------------------------------------------
-  // BP1 — Missense variant in gene where primarily truncating variants cause disease
+  // BP1 — NOT APPLIED AUTOMATICALLY (owner decision, doc/THRESHOLDS_TAB_REVIEW.md)
   // -------------------------------------------------------------------------
-  if (isLofIntolerant && gnomadConstraint?.isPP2Constrained === false && !isNullVariant(variant) && !skipBenignComp) {
-    const misZ  = gnomadConstraint.missense_z !== null && gnomadConstraint.missense_z !== undefined ? gnomadConstraint.missense_z.toFixed(2) : "N/A";
-    const oeMis = gnomadConstraint.oe_mis     !== null && gnomadConstraint.oe_mis     !== undefined ? gnomadConstraint.oe_mis.toFixed(3)     : "N/A";
-    criteria.push({
-      code: "BP1",
-      reason: `Missense variant in gene ${gene} with high loss-of-function intolerance (pLI: ${gnomadConstraint.pli}) but lacking significant missense constraint (missense Z: ${misZ}, oe_mis: ${oeMis}). Truncating/loss-of-function variants are the primary established disease mechanism.`
-    });
-  }
+  /**
+   * BP1 is "missense variant in a gene for which primarily truncating variants are known to cause
+   * disease" (Richards 2015). That is a curated fact about the gene–disease mechanism. This block
+   * used to apply it whenever pLI ≥ 0.9 and the gene was not missense-constrained — but pLI measures
+   * intolerance to loss of function in the population, not which variant class causes disease, and
+   * a gene can be LoF-intolerant with pathogenic missense variants. The proxy pushed classifications
+   * toward benign without the fact the criterion requires, so the engine no longer applies BP1; the
+   * Threshold Guide reports it as "not assessed".
+   */
 
   // -------------------------------------------------------------------------
   // PM4 / BP3 — In-frame Indels in repeat vs non-repeat regions

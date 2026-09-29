@@ -18,7 +18,10 @@ export interface RuleBasedInsights {
 }
 
 /**
- * Evidence weight encoding (per Table 4 of Richards et al. 2015):
+ * Evidence weights used ONLY to sort criteria into pathogenic (> 0) and benign (< 0) sides; the
+ * verdict comes from the Richards et al. 2015 combining rules below, not from a points total.
+ * Richards 2015 defines no points (its Table 4 lists criteria). These are not Tavtigian 2020's
+ * point scale either (there, benign Supporting is −1, not −2), so never sum them into a score.
  *   PVS1 = 8   PS = 4   PM = 2   PP = 1
  *   BA1  = -8  BS = -4  BP = -2
  */

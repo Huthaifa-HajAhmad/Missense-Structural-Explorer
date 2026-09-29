@@ -1,74 +1,57 @@
 // @vitest-environment jsdom
 /**
- * EvidenceInspector.test.tsx — the Thresholds pane of the evidence inspector.
+ * EvidenceInspector.test.tsx — the Score thresholds pane of the evidence inspector.
  *
- * Pins the inspector-usefulness invariants: the live match roll-up driven by
- * the shared row builder, the relocated verbose ACMG key (the focus target of
- * the main column's pointer button), and the retained ClinGen point scale.
+ * Pins what the rail may claim: a rule trace read from the same model as the tab, BP1 reported as
+ * not assessed, the bands this variant reached, and the full ClinGen point scale labelled as a
+ * reference. It must never again print a cross-modal "concordance" verdict or the invented BP3 key.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+vi.mock("../../../context/SettingsContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../context/SettingsContext")>();
+  return { ...actual, useSettings: () => ({ settings: { alphagenomeApiKey: "" }, openSettingsTab: vi.fn() }) };
+});
+
 import { render, screen, within } from "@testing-library/react";
 import { EvidenceInspector } from "../EvidenceInspector";
 import { INSPECTOR_SECTIONS } from "../../../lib/inspectorFocus";
+import { NAE1_RESULT } from "../../../shared/__tests__/fixtures/nae1Thresholds";
 
-const MACO1_RESULT: any = {
-  predictorData: { caddPhred: 32.0, amPathogenicity: 0.933, amClass: "pathogenic" },
-  conservationData: {
-    revel: 0.527, bayesdel: 0.125, metarnn: 0.836, clinpred: 0.923,
-    eigenPhred: 11.7, dann: 0.999, popeve: -4.235, esm1b: -13.54,
-    gerp: 6.03, phylop: 9.57
-  },
-  esmcEval: { llr: -8.43 },
-  dynamut2: null, ddmut: null, rasp: null, thermompnn: null,
-  misZ: 3.13, loeuf: null
-};
-
-function renderPane(props: Partial<React.ComponentProps<typeof EvidenceInspector>> = {}) {
-  return render(
-    <EvidenceInspector
-      analysisResult={MACO1_RESULT}
-      activeEvidenceTab="guidelines"
-      foldingDdG={-0.97}
-      {...props}
-    />
-  );
+function renderPane(result: any = NAE1_RESULT) {
+  return render(<EvidenceInspector analysisResult={result} activeEvidenceTab="guidelines" foldingDdG={2.62} />);
 }
 
-describe("EvidenceInspector — thresholds pane", () => {
-  it("summarises live matches from the same row builder as the table", () => {
+describe("EvidenceInspector — score thresholds pane", () => {
+  it("traces the vote, the PP2 rule, BP1 and the engine record", () => {
     renderPane();
-    const pane = screen.getByText("Live Threshold Matches").closest("div");
-    expect(pane).toBeTruthy();
-    const scope = within(pane!.parentElement!);
-    // One chip per non-empty group, with the matched counts for this payload.
-    expect(scope.getByText("path.")).toBeTruthy();
-    expect(scope.getByText("benign")).toBeTruthy();
-    expect(scope.getByText("no data")).toBeTruthy();
-    // Matched metrics are listed by name with their scores. REVEL 0.527 is
-    // indeterminate on the ClinGen bands, so CADD (PP3 Moderate) is the pin.
-    expect(scope.getByText("CADD PHRED")).toBeTruthy();
-    expect(scope.getAllByText("32.0").length).toBeGreaterThanOrEqual(1);
+    const trace = within(screen.getByTestId("threshold-rule-trace"));
+    expect(trace.getByText("3 pathogenic · 1 benign · 2 indeterminate")).toBeTruthy();
+    expect(trace.getByText("Z 1.09, o/e 0.88 → not met")).toBeTruthy();
+    expect(trace.getByText("Not assessed")).toBeTruthy();
+    expect(trace.getByText("PP3")).toBeTruthy();
   });
 
-  it("hosts the relocated ACMG/AMP evidence-code key as a focus target", () => {
+  it("lists only the bands this variant reached", () => {
     renderPane();
-    const key = screen.getByText("ACMG/AMP Evidence Codes Key").closest("div");
-    expect(key?.id).toBe(INSPECTOR_SECTIONS.thresholdKey);
-    expect(key?.getAttribute("tabindex")).toBe("-1");
-    // The relocation also closed the old key's PP2/BP1 documentation gap.
-    expect(screen.getByText("PP2 / BP1")).toBeTruthy();
+    const bands = within(screen.getByTestId("threshold-bands-reached"));
+    expect(bands.getByText("REVEL 0.231 · BP4")).toBeTruthy();
+    expect(bands.getByText("CADD 26.3 · PP3")).toBeTruthy();
+    expect(bands.getByText("phyloP 7.64 · PP3 (not counted)")).toBeTruthy();
+    expect(bands.queryByText(/AlphaMissense/)).toBeNull();
   });
 
-  it("keeps the concordance status and the ClinGen point scale", () => {
-    renderPane();
-    // The rail derives concordance directly from the 20-metric shared model (7 pathogenic vs 1 benign)
-    expect(screen.getByText("Pathogenic Concordance")).toBeTruthy();
-    expect(screen.getByText("ClinGen Evidence Point Scale")).toBeTruthy();
-    expect(screen.getByText("8 points")).toBeTruthy();
+  it("warns when the payload still carries an automatic BP1", () => {
+    renderPane({ ...NAE1_RESULT, ruleBasedInsights: { acmgCriteria: [{ code: "PP3" }, { code: "BP1" }] } });
+    expect(screen.getByText(/records BP1 from an earlier engine/)).toBeTruthy();
   });
 
-  it("offers a cross-link into the Predictors tab", () => {
-    renderPane({ onSelectEvidenceTab: () => {} });
-    expect(screen.getByRole("button", { name: /Open In-Silico Predictors/i })).toBeTruthy();
+  it("shows the whole point scale as a reference and keeps the method notes as the focus target", () => {
+    renderPane();
+    for (const id of ["B", "LB", "VUS", "LP", "P"]) expect(screen.getByText(id)).toBeTruthy();
+    expect(screen.getByText(/not by summing points/)).toBeTruthy();
+    const notes = document.getElementById(INSPECTOR_SECTIONS.thresholdKey);
+    expect(notes?.getAttribute("tabindex")).toBe("-1");
+    expect(document.body.textContent).not.toMatch(/concordance/i);
+    expect(document.body.textContent).not.toMatch(/structurally neutral substitution/);
   });
 });

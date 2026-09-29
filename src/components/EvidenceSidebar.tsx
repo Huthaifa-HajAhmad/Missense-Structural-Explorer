@@ -55,7 +55,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   { id: "function",     label: "Function",      Icon: TrendingUp },
   { id: "energetics",   label: "Energetics",    Icon: Activity   },
-  { id: "guidelines",   label: "Threshold Guide", Icon: ShieldAlert },
+  { id: "guidelines",   label: "Score thresholds", Icon: ShieldAlert },
 ];
 
 /** Determines whether a tab's parent section is active */
