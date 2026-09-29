@@ -231,12 +231,12 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     name: "dbscSNV",
     provider: "Jian, Boerwinkle & Liu (UTHealth Houston)",
     kind: "dataset",
-    role: "AdaBoost and Random Forest splice-consensus scores that sit beside SpliceAI, so a splice call is never one model's word alone.",
+    role: "AdaBoost and Random Forest splice-consensus scores, shown beside SpliceAI as context on the authors' 0.6 cut-point. They make no call: the splicing rule reads SpliceAI alone (Walker 2023).",
     url: "https://doi.org/10.1093/nar/gku1206",
     release: null,
     citation:
       "Jian, X., Boerwinkle, E., & Liu, X. (2014). In silico prediction of splice-altering single nucleotide variants in the human genome. Nucleic Acids Research 42, 13534–13544. https://doi.org/10.1093/nar/gku1206",
-    usedBy: ["src/shared/thresholds/evaluators.ts", "server/services/prediction/predictors/dbnsfp-query.ts"]
+    usedBy: ["src/shared/splicingEvidence.ts", "server/services/prediction/predictors/dbnsfp-query.ts"]
   },
   {
     id: "consurf",

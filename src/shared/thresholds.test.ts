@@ -82,57 +82,38 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateGpnStar(null)).toBe("unavailable");
     });
 
-    it("should evaluate splice-site proximity and SpliceAI scores correctly", () => {
-      // Near splice site -> pathogenic
-      expect(evaluateSplicePredictor({ distance: 2, isNearSpliceSite: true }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("pathogenic");
-      
-      // High SpliceAI score -> pathogenic
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.35, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.35 })).toBe("pathogenic");
+    it("applies the splicing rule on SpliceAI alone: >= 0.2 PP3, < 0.1 BP4 (Walker 2023)", () => {
+      const sai = (max_ds: number | null) => ({ ds_ag: null, ds_al: null, ds_dg: null, ds_dl: null, max_ds });
 
-      // Far and low SpliceAI -> benign
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
+      // At and above the PP3 band edge.
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.2))).toBe("pathogenic");
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.35))).toBe("pathogenic");
+
+      // Between the bands: neither criterion.
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.1))).toBe("vus");
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.19))).toBe("vus");
 
       /**
-       * Live SpliceAI regression (MACO1 p.Glu433Lys).
-       *
-       * 16 bp from the exon 7 donor. Illumina's precomputed tables hold no SpliceAI value
-       * for this position, so the tables yielded null and the app reported
-       * "Unavailable / Unmapped" — for a variant SpliceAI does score. The Broad Lookup API
-       * returns max ΔScore 0.004 here, which evaluates to a measured benign (BP4) rather
-       * than an indeterminate result. This pins that a scored-but-tiny delta at a distance
-       * outside the consensus flank is benign, not unavailable.
+       * Below 0.1 is a BP4 reading wherever the variant sits. The old rule demanded > 12 bp from the
+       * junction and called BP4 only at <= 0.02 (cited to a non-existent "ClinGen SVI 2019"), so 0.05
+       * read as indeterminate and 0.01 at 10 bp read as VUS.
        */
-      expect(
-        evaluateSplicePredictor(
-          { distance: 16, isNearSpliceSite: false },
-          { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.004, max_ds: 0.004 }
-        )
-      ).toBe("benign");
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.05))).toBe("benign");
+      expect(evaluateSplicePredictor({ distance: 10, isNearSpliceSite: false }, sai(0.01))).toBe("benign");
+      // MACO1 p.Glu433Lys (Broad lookup, max delta 0.004): a measured BP4 reading, not "unavailable".
+      expect(evaluateSplicePredictor({ distance: 16, isNearSpliceSite: false }, sai(0.004))).toBe("benign");
 
-      // Boundary distance tests (consensusFlankDistance = 12 bp)
-      // Distance 5 bp with isNearSpliceSite -> pathogenic
-      expect(evaluateSplicePredictor({ distance: 5, isNearSpliceSite: true }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("pathogenic");
+      // Distance alone is not PP3: 2 bp from a junction with a tiny delta is a BP4 reading.
+      expect(evaluateSplicePredictor({ distance: 2, isNearSpliceSite: true }, sai(0.01))).toBe("benign");
 
-      // Distance 10 bp (inside consensus flank <= 12 bp) even with benign SpliceAI -> vus
-      expect(evaluateSplicePredictor({ distance: 10, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("vus");
+      // dbscSNV is the authors' cut-point, not a band: it neither decides PP3 nor substitutes for SpliceAI.
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, { ada_score: 0.9, rf_score: 0.9 })).toBe("unavailable");
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, { ada_score: 0.1, rf_score: 0.1 })).toBe("unavailable");
 
-      // Distance 12 bp (exact consensus flank boundary) with benign SpliceAI -> vus
-      expect(evaluateSplicePredictor({ distance: 12, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("vus");
-
-      // Distance 13 bp (outside consensus flank > 12 bp) with benign SpliceAI -> benign
-      expect(evaluateSplicePredictor({ distance: 13, isNearSpliceSite: false }, { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 })).toBe("benign");
-
-      // Far but missing both predictors -> unavailable (Zero-Heuristics SCI-002)
+      // No SpliceAI score -> the rule cannot be applied.
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, null)).toBe("unavailable");
       expect(evaluateSplicePredictor({ distance: 25, isNearSpliceSite: false }, undefined, undefined)).toBe("unavailable");
-
-      // Far with benign dbscSNV and missing SpliceAI -> benign
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, null, { ada_score: 0.1, rf_score: 0.1 })).toBe("benign");
-
-      // Far with intermediate SpliceAI (0.05) -> vus
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, { ds_ag: 0.05, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.05 }, null)).toBe("vus");
-
-      // Both null / undefined -> unavailable
+      expect(evaluateSplicePredictor(null, sai(null))).toBe("unavailable");
       expect(evaluateSplicePredictor(null, null)).toBe("unavailable");
       expect(evaluateSplicePredictor(undefined, undefined)).toBe("unavailable");
     });

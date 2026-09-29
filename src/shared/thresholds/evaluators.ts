@@ -163,45 +163,29 @@ export function evaluatePopEve(score: number | null | undefined): PredictorSigna
   return "vus";
 }
 
+/**
+ * The splicing half of PP3/BP4: SpliceAI's max delta score on the ClinGen SVI Splicing Subgroup
+ * bands (Walker et al. 2023) — ≥ 0.2 supports PP3, below 0.1 supports BP4, between is neither.
+ *
+ * ONE input decides it. The previous rule also returned "pathogenic" for any variant within 5 bp of
+ * a junction and for a dbscSNV score ≥ 0.6, required > 12 bp from the junction before anything
+ * could be benign, and called BP4 only at ≤ 0.02. None of those has a published basis: Walker 2023
+ * names a SpliceAI score, distance alone is not PP3 (a canonical ±1/2 change is a PVS1 question),
+ * and dbscSNV's 0.6 is its authors' cut-point, not a ClinGen band.
+ *
+ * `spliceProximity` and `dbscsnv` stay in the signature for callers written against the old rule;
+ * they are deliberately ignored. The ACMG engine does not call this — splicing is not an engine
+ * input (owner decision, doc/SPLICING_TAB_REVIEW.md); the Splicing tab reports it as
+ * "what the splicing rule would support" beside the engine's own record.
+ */
 export function evaluateSplicePredictor(
-  spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null,
-  spliceai?: { ds_ag: number | null; ds_al: number | null; ds_dg: number | null; ds_dl: number | null; max_ds: number | null } | null,
-  dbscsnv?: { ada_score: number | null; rf_score: number | null } | null
+  _spliceProximity?: { distance: number; isNearSpliceSite: boolean } | null,
+  spliceai?: { max_ds: number | null; ds_ag?: number | null; ds_al?: number | null; ds_dg?: number | null; ds_dl?: number | null } | null,
+  _dbscsnv?: { ada_score: number | null; rf_score: number | null } | null
 ): PredictorSignal {
-  const isNear = spliceProximity?.isNearSpliceSite ?? false;
-  const maxDs = spliceai?.max_ds ?? null;
-  const isSpliceAIPathogenic = maxDs !== null && maxDs >= THRESHOLDS.spliceai.pathogenicSupporting;
-  const isDbscsnvPathogenic = (dbscsnv?.ada_score != null && dbscsnv.ada_score >= THRESHOLDS.dbscsnv.spliceAltering) ||
-                             (dbscsnv?.rf_score != null && dbscsnv.rf_score >= THRESHOLDS.dbscsnv.spliceAltering);
-
-  if (isNear || isSpliceAIPathogenic || isDbscsnvPathogenic) {
-    return "pathogenic";
-  }
-
-  if ((spliceProximity === undefined || spliceProximity === null) &&
-      (spliceai === undefined || spliceai === null) &&
-      (dbscsnv === undefined || dbscsnv === null)) {
-    return "unavailable";
-  }
-
-  const dist = spliceProximity?.distance ?? Infinity;
-  const hasSpliceAI = spliceai?.max_ds != null;
-  const isSpliceAIBenign = hasSpliceAI ? (spliceai!.max_ds! <= THRESHOLDS.spliceai.benign) : null;
-
-  const hasDbscsnv = dbscsnv?.ada_score != null || dbscsnv?.rf_score != null;
-  const isDbscsnvBenign = hasDbscsnv
-    ? ((dbscsnv?.ada_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering && (dbscsnv?.rf_score ?? 0) < THRESHOLDS.dbscsnv.spliceAltering)
-    : null;
-
-  const consensusFlank = THRESHOLDS.spliceai?.consensusFlankDistance ?? 12;
-  if (dist > consensusFlank && isSpliceAIBenign !== false && isDbscsnvBenign !== false
-      && (isSpliceAIBenign === true || isDbscsnvBenign === true)) {
-    return "benign";
-  }
-
-  if (isSpliceAIBenign === null && isDbscsnvBenign === null) {
-    return "unavailable";
-  }
-
+  const maxDs = spliceai?.max_ds;
+  if (maxDs === null || maxDs === undefined || !Number.isFinite(maxDs)) return "unavailable";
+  if (maxDs >= THRESHOLDS.spliceai.splicingPp3) return "pathogenic";
+  if (maxDs < THRESHOLDS.spliceai.splicingBp4Below) return "benign";
   return "vus";
 }

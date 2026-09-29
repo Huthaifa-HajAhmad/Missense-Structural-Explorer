@@ -47,6 +47,10 @@ const GUARDED_SURFACES = [
    */
   "src/components/evidence/AlphaGenomeTab.tsx",
   "src/components/evidence/PredictorsTab.tsx",
+  // The splicing redesign's rail and model: the old inspector printed "N/A" for a rule a predictor
+  // could not reach, and the old tab "Unannotated" / "Unmapped" for absences with known reasons.
+  "src/components/inspector/SplicingRail.tsx",
+  "src/shared/splicingEvidence.ts",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

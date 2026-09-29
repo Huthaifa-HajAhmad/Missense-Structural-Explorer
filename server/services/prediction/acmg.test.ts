@@ -200,21 +200,21 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
   });
 
   it("should evaluate splicing signals via evaluateSplicePredictor without polluting predictor concordance", () => {
-    // 1. Splice-site adjacent should evaluate to pathogenic in evaluateSplicePredictor
+    // 1. Junction proximity alone is not PP3 (Walker 2023 decides on SpliceAI): a tiny delta 2 bp away is a BP4 reading.
     const spliceSignalAdj = evaluateSplicePredictor(
       { distance: 2, isNearSpliceSite: true },
       { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
     );
-    expect(spliceSignalAdj).toBe("pathogenic");
+    expect(spliceSignalAdj).toBe("benign");
 
-    // 2. High SpliceAI score should evaluate to pathogenic in evaluateSplicePredictor
+    // 2. SpliceAI >= 0.2 supports PP3.
     const spliceSignalHigh = evaluateSplicePredictor(
       { distance: 15, isNearSpliceSite: false },
       { ds_ag: 0.25, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.25 }
     );
     expect(spliceSignalHigh).toBe("pathogenic");
 
-    // 3. Far distance and low SpliceAI should evaluate to benign in evaluateSplicePredictor
+    // 3. SpliceAI < 0.1 supports BP4.
     const spliceSignalBenign = evaluateSplicePredictor(
       { distance: 15, isNearSpliceSite: false },
       { ds_ag: 0.01, ds_al: 0.01, ds_dg: 0.01, ds_dl: 0.01, max_ds: 0.01 }
