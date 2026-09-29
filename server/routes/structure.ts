@@ -22,7 +22,7 @@ import {
 } from "../services/external.ts";
 import { resolveStructure } from "../services/structure-resolver.ts";
 import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
-import { foldSequence } from "../services/esmfold.ts";
+import { foldSequenceWithProvenance } from "../services/esmfold.ts";
 import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
 import fs from "fs";
 import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
@@ -314,13 +314,15 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
 
       if (mutatedSequence && mutatedSequence !== wtSequence) {
         console.log(`[ESMFold] Folding both WT and Mutant sequences`);
-        const wtPdb = await foldSequence(wtSequence, token);
-        const mutPdb = await foldSequence(mutatedSequence, token);
-        res.json({ wtPdb, mutPdb, chain: "A", status: "success" });
+        const wt = await foldSequenceWithProvenance(wtSequence, token);
+        const mut = await foldSequenceWithProvenance(mutatedSequence, token);
+        // Each structure names its engine: a Tier-1 outage between the two folds can hand the
+        // variant to a different model than the wild type, and the viewer must be able to say so.
+        res.json({ wtPdb: wt.pdb, mutPdb: mut.pdb, chain: "A", status: "success", engines: { wildType: wt.engine, variant: mut.engine } });
       } else if (wtSequence) {
         console.log(`[ESMFold] Folding single WT sequence`);
-        const pdb = await foldSequence(wtSequence, token);
-        res.json({ pdb, status: "success" });
+        const wt = await foldSequenceWithProvenance(wtSequence, token);
+        res.json({ pdb: wt.pdb, status: "success", engines: { wildType: wt.engine, variant: null } });
       } else {
         throw new Error("No sequence resolved for ESMFold query.");
       }

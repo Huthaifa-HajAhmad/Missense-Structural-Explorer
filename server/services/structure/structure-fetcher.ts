@@ -373,9 +373,12 @@ export async function fetchPdbFromRcsb(
 
 interface RawHomologCandidate {
   pdbId: string;
+  /** RCSB's search relevance score (0–1, normalised to the top hit). NOT sequence identity. */
   score: number;
-  identity: number;
-  coverage: number;
+  /** Sequence identity (%) from the alignment's match context; null when the search did not return one. */
+  identity: number | null;
+  /** Aligned length as % of the query; null when not reported. */
+  coverage: number | null;
   title: string;
   organism: string;
   isHuman: boolean;
@@ -386,7 +389,8 @@ interface RawHomologCandidate {
 }
 
 async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawHomologCandidate[]> {
-  const cacheKey = `raw_homologs_${validatedUniprot}`;
+  // v2: entries cached before the verbose search stored the relevance score as "identity".
+  const cacheKey = `raw_homologs_v2_${validatedUniprot}`;
   const cached = pdbCache.get(cacheKey);
   if (cached) {
     try {
@@ -438,6 +442,13 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
               }
             },
             request_options: {
+              /**
+               * "verbose" is what returns each hit's `match_context` (sequence identity, aligned
+               * range). The default ("compact") returns identifiers and a relevance score only, so the
+               * old parser fell back to the SCORE as "identity" and to 80% of the query as "coverage":
+               * the inspector listed 9QN5 at "5% ID" under a search whose own identity cut-off is 22%.
+               */
+              results_verbosity: "verbose",
               results_content_type: ["experimental"],
               paginate: {
                 start: 0,
@@ -547,19 +558,18 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
         const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
         const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
 
-        let rawIdentity: number = info.score;
-        let alignedLen = Math.round(seqLen * 0.8);
+        // Only the alignment's own match context may supply identity, coverage or range; absent, they
+        // stay null rather than being filled from the relevance score or a guessed 80%.
         const mc = info.rawHit.services?.[0]?.nodes?.[0]?.match_context?.[0];
-        if (mc) {
-          if (typeof mc.sequence_identity === "number") rawIdentity = mc.sequence_identity;
-          if (typeof mc.alignment_length === "number") alignedLen = mc.alignment_length;
-        }
+        const rawIdentity: number | null = typeof mc?.sequence_identity === "number" ? mc.sequence_identity : null;
+        const alignedLen: number | null = typeof mc?.alignment_length === "number" ? mc.alignment_length : null;
 
-        const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
-        const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
+        const identityPercent = rawIdentity === null ? null : Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
+        const coveragePercent = alignedLen === null ? null : Math.min(100, Math.round((alignedLen / seqLen) * 100));
 
-        const qFrom = typeof mc?.query_sequence_from === "number" ? mc.query_sequence_from : undefined;
-        const qTo = typeof mc?.query_sequence_to === "number" ? mc.query_sequence_to : undefined;
+        const pickNumber = (...values: unknown[]) => values.find((v): v is number => typeof v === "number");
+        const qFrom = pickNumber(mc?.query_beg, mc?.query_sequence_from);
+        const qTo = pickNumber(mc?.query_end, mc?.query_sequence_to);
 
         candidates.push({
           pdbId,
@@ -591,7 +601,7 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
 
 export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
   const validatedUniprot = validateUniProt(uniprotId);
-  const posCacheKey = `homologs_${validatedUniprot}_pos_${pos ?? "none"}`;
+  const posCacheKey = `homologs_v2_${validatedUniprot}_pos_${pos ?? "none"}`;
   const cachedData = pdbCache.get(posCacheKey);
   if (cachedData) {
     try {
@@ -616,20 +626,23 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
 
   try {
     const candidates = rawCandidates.map(c => {
+      // Unknown when the alignment range was not reported — never assumed true.
       const coversPos = (pos !== undefined && c.querySeqFrom !== undefined && c.querySeqTo !== undefined)
         ? (pos >= c.querySeqFrom && pos <= c.querySeqTo)
-        : true;
+        : undefined;
       return {
         ...c,
         coversPosition: coversPos
       };
     });
 
-    // Sort priority: 1. Covers variant position, 2. Identity descending, 3. Better resolution
+    // Sort priority: 1. Covers variant position, 2. Identity descending (unreported last), 3. Better resolution
+    const coverRank = (v: boolean | undefined) => (v === true ? 0 : v === undefined ? 1 : 2);
     candidates.sort((a, b) => {
-      if (a.coversPosition && !b.coversPosition) return -1;
-      if (!a.coversPosition && b.coversPosition) return 1;
-      if (b.identity !== a.identity) return b.identity - a.identity;
+      if (coverRank(a.coversPosition) !== coverRank(b.coversPosition)) return coverRank(a.coversPosition) - coverRank(b.coversPosition);
+      const idA = a.identity ?? -1;
+      const idB = b.identity ?? -1;
+      if (idB !== idA) return idB - idA;
       const resA = a.resolution ?? 999;
       const resB = b.resolution ?? 999;
       return resA - resB;
@@ -651,7 +664,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       const orgNorm = h.organism.toLowerCase().trim();
       const titleRoot = getTitleRoot(h.title);
 
-      if (h.identity >= 95) {
+      if (h.identity !== null && h.identity >= 95) {
         if (seenSelfOrganisms.has(orgNorm)) {
           continue;
         }
@@ -663,7 +676,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       }
       const existingIdentities = seenOrganisms.get(orgNorm)!;
 
-      const isRedundantIdentity = existingIdentities.some(id => Math.abs(id - h.identity) < 5);
+      const isRedundantIdentity = h.identity !== null && existingIdentities.some(id => Math.abs(id - h.identity!) < 5);
       if (isRedundantIdentity) {
         continue;
       }
@@ -673,7 +686,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
         continue;
       }
 
-      existingIdentities.push(h.identity);
+      if (h.identity !== null) existingIdentities.push(h.identity);
       seenTitleRoots.add(titleClusterKey);
       homologs.push(h);
 

@@ -120,19 +120,26 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
     vi.restoreAllMocks();
   });
 
-  it("should parse polymer_entity hits, calculate accurate sequence identity percentages, and deduplicate redundant models from the same species", async () => {
+  it("reads sequence identity from the verbose match context (not the relevance score) and deduplicates redundant models from the same species", async () => {
     const mockSequence = "MKVLVLGSGGREHALAWKAAQAAPEVVAVHT";
+    // `results_verbosity: "verbose"` returns each hit's alignment. The relevance `score` is set
+    // DIFFERENT from the identity on purpose: the parser used to read the score as identity.
+    const hit = (identifier: string, identity: number) => ({
+      identifier,
+      score: 0.5,
+      services: [{ nodes: [{ match_context: [{ sequence_identity: identity / 100, alignment_length: 31, query_beg: 1, query_end: 31 }] }] }]
+    });
 
     const mockRcsbSearchResult = {
       result_set: [
-        { identifier: "5V3M_3", score: 1.0 }, // Self or near-identical human (100% -> top representative kept)
-        { identifier: "5V3X_3", score: 1.0 }, // Duplicate 100% human structure -> should be filtered as redundant
-        { identifier: "5V3J_3", score: 0.98 }, // 98% Mouse
-        { identifier: "5WJQ_3", score: 0.97 }, // 97% Mouse (micro-redundant to 5V3J in same 95-100% bucket -> should be filtered)
-        { identifier: "2I13_3", score: 0.76 }, // 76% Mouse (distinct 75% bucket -> kept)
-        { identifier: "5V3G_3", score: 0.74 }, // 74% Human (75% bucket Human -> kept)
-        { identifier: "5EGB_3", score: 0.60 }, // 60% Human (60% bucket Human -> kept)
-        { identifier: "6ML2_1", score: 0.51 }  // 51% Mouse (50% bucket Mouse -> kept)
+        hit("5V3M_3", 100), // Self or near-identical human (100% -> top representative kept)
+        hit("5V3X_3", 100), // Duplicate 100% human structure -> should be filtered as redundant
+        hit("5V3J_3", 98), // 98% Mouse
+        hit("5WJQ_3", 97), // 97% Mouse (micro-redundant to 5V3J in same 95-100% bucket -> should be filtered)
+        hit("2I13_3", 76), // 76% Mouse (distinct 75% bucket -> kept)
+        hit("5V3G_3", 74), // 74% Human (75% bucket Human -> kept)
+        hit("5EGB_3", 60), // 60% Human (60% bucket Human -> kept)
+        hit("6ML2_1", 51)  // 51% Mouse (50% bucket Mouse -> kept)
       ]
     };
 
@@ -242,6 +249,39 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
 
     // 7. 6ML2 (51% Mouse) is included
     expect(pdbIds).toContain("6ML2");
+
+    // Coverage and range come from the alignment too.
+    expect(hit5V3G?.coverage).toBe(100);
+    expect(hit5V3G?.querySeqFrom).toBe(1);
+    expect(hit5V3G?.querySeqTo).toBe(31);
+  });
+
+  it("reports identity, coverage and range as unknown when the search returned no match context", async () => {
+    // 9QN5 on NAE1 was listed at "5% ID · In Range": its relevance score as identity, an invented 80%
+    // coverage, and a range assumed to cover the variant.
+    const mockSequence = "MKVLVLGSGGREHALAWKAAQAAPEVVAVHT";
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uniprotkb")) return new Response(`>sp|Q13564|NAE1\n${mockSequence}`, { status: 200 });
+      if (u.includes("rcsbsearch")) {
+        return new Response(JSON.stringify({ result_set: [{ identifier: "9QN5_1", score: 0.05 }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("graphql")) {
+        return new Response(JSON.stringify({ data: { entries: [{
+          rcsb_id: "9QN5",
+          struct: { title: "Cryo-EM structure" },
+          rcsb_entry_info: { experimental_method: "ELECTRON MICROSCOPY", resolution_combined: [1.97] },
+          polymer_entities: [{ rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }] }]
+        }] } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("{}", { status: 200 });
+    }));
+
+    const [only] = await fetchPdbHomologs("Q13564", 116);
+    expect(only.pdbId).toBe("9QN5");
+    expect(only.identity).toBeNull();
+    expect(only.coverage).toBeNull();
+    expect(only.coversPosition).toBeUndefined();
   });
 
   it("should dynamically re-rank and isolate cache results across different mutation positions", async () => {

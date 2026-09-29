@@ -2,7 +2,7 @@
  * aligner.ts — Structural superposition, RMSD calculation and PDB coordinate transformation
  */
 import { type PdbAtom, parseAtomsFromPdbMaybeAsync } from "../pdb-parser.ts";
-import { LOCAL_STRUCTURAL_WINDOW } from "../../../../src/shared/thresholds.ts";
+import { LOCAL_ALIGNMENT_FIT_WINDOW, LOCAL_STRUCTURAL_WINDOW } from "../../../../src/shared/thresholds.ts";
 import {
   type Matrix3,
   transpose3x3,
@@ -258,7 +258,8 @@ export async function alignMutantToWt(
   }
 
   // Determine subset of CA pairs to compute Kabsch rotation & translation matrix
-  const localAlignmentWindow = 15;
+  // Shared with the 3D view, which states the fitted window beside the RMSD it produces.
+  const localAlignmentWindow = LOCAL_ALIGNMENT_FIT_WINDOW;
   let alignWt = matchedWt;
   let alignMut = matchedMut;
 

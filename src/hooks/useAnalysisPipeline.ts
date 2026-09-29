@@ -92,7 +92,8 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
       },
       structure: {
         setPdbText: flat.setPdbText || (() => {}),
-        setStructureProvenance: flat.setStructureProvenance || (() => {}),
+        // Provenance of `pdbText` — kept apart from FoldX's template (see `pdbTextProvenance`).
+        setStructureProvenance: flat.setPdbTextProvenance || flat.setStructureProvenance || (() => {}),
         setComputedPocket: flat.setComputedPocket || (() => {}),
         setIsPocketLoading: flat.setIsPocketLoading || (() => {}),
         setPocketError: flat.setPocketError || (() => {}),

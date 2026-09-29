@@ -145,4 +145,23 @@ describe("structural-diff/geometry pure math utilities", () => {
   it("getKabschTransform throws on empty point sets", () => {
     expect(() => getKabschTransform([], [])).toThrow();
   });
+  it("svd3 returns singular values in descending order and still reconstructs the matrix", () => {
+    // The Kabsch reflection fix flips the last column, which is only correct when it holds the
+    // smallest singular value.
+    const A: Matrix3 = [
+      [0.2, 0.1, 3.0],
+      [0.0, 1.5, 0.3],
+      [0.1, 0.2, 0.05],
+    ];
+    const { U, S, V } = svd3(A);
+    expect(S[0]).toBeGreaterThanOrEqual(S[1]);
+    expect(S[1]).toBeGreaterThanOrEqual(S[2]);
+    const US: Matrix3 = [
+      [U[0][0] * S[0], U[0][1] * S[1], U[0][2] * S[2]],
+      [U[1][0] * S[0], U[1][1] * S[1], U[1][2] * S[2]],
+      [U[2][0] * S[0], U[2][1] * S[1], U[2][2] * S[2]],
+    ];
+    const back = multiply3x3(US, transpose3x3(V));
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) expect(back[i][j]).toBeCloseTo(A[i][j], 8);
+  });
 });

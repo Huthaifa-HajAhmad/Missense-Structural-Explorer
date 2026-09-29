@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, cleanup } from "@testing-library/react";
 import { StructureInspector } from "../StructureInspector";
+import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 
 /**
  * The inspector's de novo folding notice — the banner this file exists to stop from regressing.
@@ -24,37 +25,45 @@ import { StructureInspector } from "../StructureInspector";
  *      "PROTEIN LENGTH: 51 AA" for that same 711 aa protein — was invisible to a reader.
  *
  * Each of those is pinned below, so a revert fails here rather than in front of a user.
+ *
+ * The rail now reads the store through `useStructure3dEvidence` (the 3D redesign), so the fixture
+ * seeds the store instead of passing props; the invariants are unchanged.
  */
 
-function renderNotice(overrides: Record<string, unknown> = {}) {
-  const props = {
-    analysisResult: {
-      metadata: {
-        gene: "GZF1",
-        variant: "p.Arg591Trp",
-        uniprotId: "Q9H116",
-        residueIndex: 591,
-        wildType: "Arg",
-        mutant: "Trp",
-        sequence: "M".repeat(711),
-        mutatedSequence: "M".repeat(711),
+function renderNotice(overrides: {
+  family?: "alphafold" | "esmfold";
+  metadata?: Record<string, unknown>;
+  esmFoldingError?: string | null;
+  foldingStatus?: string | null;
+} = {}) {
+  useVariantAnalysisStore.setState({
+    analysisState: {
+      isLoading: false,
+      error: null,
+      result: {
+        metadata: overrides.metadata ?? {
+          gene: "GZF1",
+          variant: "p.Arg591Trp",
+          uniprotId: "Q9H116",
+          residueIndex: 591,
+          wildType: "Arg",
+          mutant: "Trp",
+          sequence: "M".repeat(711),
+          mutatedSequence: "M".repeat(711),
+        },
+        uniprotFeatures: { features: [] },
       },
-      uniprotFeatures: { features: [] },
-    },
-    viewMode: "wildtype" as const,
-    isFolding: false,
-    foldingStatus: null,
-    foldingDdG: null,
-    homologs: [],
-    metrics: null,
-    hasMutantModel: false,
-    active3dModelTab: "esmfold2" as const,
-    esmFoldingError: null,
-    ...overrides,
-  };
-
-  return render(<StructureInspector {...(props as any)} />);
+    } as any,
+    esmFoldingError: overrides.esmFoldingError ?? null,
+    foldingStatus: (overrides.foldingStatus ?? null) as any,
+    esmFoldWtPdb: null,
+    esmFoldMutPdb: null,
+    isEsmFolding: false,
+  } as any);
+  return render(<StructureInspector family={overrides.family ?? "esmfold"} />);
 }
+
+beforeEach(() => cleanup());
 
 const noticeOf = (container: HTMLElement) => container.querySelector("[data-folding-notice]");
 
@@ -82,23 +91,13 @@ describe("StructureInspector — the de novo folding notice", () => {
   });
 
   it("says nothing at all when both tiers accept the sequence", () => {
-    const { container } = renderNotice({
-      analysisResult: {
-        metadata: { mutatedSequence: "M".repeat(120), sequence: "M".repeat(120) },
-        uniprotFeatures: { features: [] },
-      },
-    });
+    const { container } = renderNotice({ metadata: { mutatedSequence: "M".repeat(120), sequence: "M".repeat(120) } });
 
     expect(noticeOf(container)).toBeNull();
   });
 
   it("warns rather than informs once no de novo model is possible, and still names the number", () => {
-    const { container } = renderNotice({
-      analysisResult: {
-        metadata: { mutatedSequence: "M".repeat(1500), sequence: "M".repeat(1500) },
-        uniprotFeatures: { features: [] },
-      },
-    });
+    const { container } = renderNotice({ metadata: { mutatedSequence: "M".repeat(1500), sequence: "M".repeat(1500) } });
 
     const notice = noticeOf(container);
     expect(notice).not.toBeNull();
@@ -111,12 +110,7 @@ describe("StructureInspector — the de novo folding notice", () => {
   it("takes the length from the mutant translation, not from a shorter window field", () => {
     // The shape of the original run: a 711 aa protein whose `sequence` field carried something much
     // shorter. Reading the wrong one is how the canvas came to print 51 aa.
-    const { container } = renderNotice({
-      analysisResult: {
-        metadata: { sequence: "M".repeat(50), mutatedSequence: "M".repeat(711) },
-        uniprotFeatures: { features: [] },
-      },
-    });
+    const { container } = renderNotice({ metadata: { sequence: "M".repeat(50), mutatedSequence: "M".repeat(711) } });
 
     expect(container.textContent).toContain("711 aa");
     expect(container.textContent).not.toContain("50 aa");
@@ -127,8 +121,8 @@ describe("StructureInspector — the de novo folding notice", () => {
       esmFoldingError: "Request timed out after 240000ms",
     });
 
-    // (3) the contradiction: a reassuring "folding uses Tier-1" line above a rose "Generation Failed".
-    expect(screen.getByText("ESMFold-2 Generation Failed")).toBeTruthy();
+    // (3) the contradiction: a reassuring "folding uses Tier-1" line above a failure report.
+    expect(container.textContent).toContain("De novo folding failed");
     expect(noticeOf(container)).toBeNull();
   });
 
@@ -149,12 +143,9 @@ describe("StructureInspector — the de novo folding notice", () => {
     // FoldX (non-ESM) mode with a FoldX failure: the notice is about the SEQUENCE, so it must survive,
     // and it is the panel that points a reader at AlphaFold2 for a full-length model.
     const { container } = renderNotice({
-      active3dModelTab: "alphafold2" as const,
-      foldingStatus: "failed" as const,
-      analysisResult: {
-        metadata: { mutatedSequence: "M".repeat(1500), sequence: "M".repeat(1500) },
-        uniprotFeatures: { features: [] },
-      },
+      family: "alphafold",
+      foldingStatus: "failed",
+      metadata: { mutatedSequence: "M".repeat(1500), sequence: "M".repeat(1500) },
     });
 
     expect(noticeOf(container)?.getAttribute("data-folding-notice")).toBe("warning");

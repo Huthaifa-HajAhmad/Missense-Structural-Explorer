@@ -140,13 +140,15 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
     const homologs = await fetchPdbHomologs(uniprotId, pos);
 
     // Rank by resolution (ascending — lower Å is better), then identity (descending)
+    // The tier's own contract: ≥30% identity AND covering the mutation position. Coverage was not
+    // checked, and "identity" used to be the search's relevance score.
     const ranked = homologs
-      .filter(h => h.identity >= 30)
+      .filter(h => h.identity !== null && h.identity >= 30 && (pos === undefined || h.coversPosition === true))
       .sort((a, b) => {
         const resA = a.resolution ?? 99;
         const resB = b.resolution ?? 99;
         if (resA !== resB) return resA - resB;
-        return b.identity - a.identity;
+        return (b.identity ?? 0) - (a.identity ?? 0);
       });
 
     if (ranked.length > 0) {
@@ -163,7 +165,7 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
             pdbId: best.pdbId,
             resolution: best.resolution ?? null,
             method: best.method ?? null,
-            identity: best.identity,
+            identity: best.identity!,
             organism: best.organism
           },
           pdbText,
@@ -172,7 +174,7 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
             pdbId: best.pdbId,
             resolution: best.resolution,
             method: best.method,
-            identity: best.identity
+            identity: best.identity!
           }
         };
       }

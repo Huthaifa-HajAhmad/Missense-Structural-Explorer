@@ -4,6 +4,7 @@ import { VariantPreset } from "./types";
 import { useSettings } from "./context/SettingsContext";
 import { useApiClient } from "./apiClient";
 import { useBiophysicalModeling } from "./hooks/useBiophysicalModeling";
+import { useFoldxSuperposition } from "./hooks/useFoldxSuperposition";
 import { useStructuralFolding } from "./hooks/useStructuralFolding";
 import { useAnalysisPipeline } from "./hooks/useAnalysisPipeline";
 import { getVariantStyles } from "./shared/variantStyles";
@@ -41,6 +42,8 @@ export default function useVariantAnalysis() {
     apiClient,
     fetchWithAuth
   );
+  // Pairs the FoldX variant with its own template for the 3D superposition and its measurements.
+  useFoldxSuperposition(apiClient);
   const structuralFolding = useStructuralFolding({
     setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,
     setEsmFoldMutPdb: useVariantAnalysisStore.getState().setEsmFoldMutPdb,
@@ -50,7 +53,9 @@ export default function useVariantAnalysis() {
     setIsEsmFolding: useVariantAnalysisStore.getState().setIsEsmFolding,
     setEsmFoldingError: useVariantAnalysisStore.getState().setEsmFoldingError,
     setActive3dModelTab: useVariantAnalysisStore.getState().setActive3dModelTab,
-    resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState
+    resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState,
+    setEsmFoldEngines: useVariantAnalysisStore.getState().setEsmFoldEngines,
+    setEsmFoldSingleStructure: useVariantAnalysisStore.getState().setEsmFoldSingleStructure
   });
   const pipeline = useAnalysisPipeline();
   /**
@@ -129,7 +134,12 @@ export default function useVariantAnalysis() {
           },
           structure: {
             setPdbText: currentStore.setPdbText,
-            setStructureProvenance: currentStore.setStructureProvenance,
+            /**
+             * The structure sink's provenance describes `pdbText`, so it goes to `pdbTextProvenance`.
+             * It used to share `structureProvenance` with the FoldX sink above, and whichever ran
+             * last named the structure on the 3D toolbar.
+             */
+            setStructureProvenance: currentStore.setPdbTextProvenance,
             setComputedPocket: currentStore.setComputedPocket,
             setIsPocketLoading: currentStore.setIsPocketLoading,
             setPocketError: currentStore.setPocketError,

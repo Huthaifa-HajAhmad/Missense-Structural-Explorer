@@ -4,6 +4,14 @@ import type { PocketResult, EnergeticsData, StructuralDiffResult } from "../../t
 import type { StructureProvenance } from "../../shared/contracts";
 import type { FoldxProgress } from "../../shared/foldxPhase";
 
+export interface FoldxReferenceState {
+  state: "idle" | "loading" | "ready" | "unavailable";
+  reason: string | null;
+  provenance: StructureProvenance | null;
+}
+
+export const IDLE_FOLDX_REFERENCE: FoldxReferenceState = { state: "idle", reason: null, provenance: null };
+
 export interface BiophysicalState {
   // Normalized Sub-State Models
   primaryBiophysics: VariantBiophysicsState;
@@ -11,7 +19,26 @@ export interface BiophysicalState {
 
   // Shared / Global Viewer State
   pdbText: string | null;
+  /**
+   * Where `pdbText` came from — the wild type the AlphaFold view draws.
+   *
+   * `structureProvenance` below is ALSO written by the FoldX run (with its template), last writer
+   * wins, so the toolbar labelled the AlphaFold model "RCSB PDB: 1YOV" once FoldX finished on 1YOV.
+   * The two are kept apart: this field describes `pdbText`, and FoldX's template lives on
+   * `foldingEnergetics.structureProvenance`.
+   */
+  pdbTextProvenance: StructureProvenance | null;
+  /** @deprecated Ambiguous (see `pdbTextProvenance`); read `foldingEnergetics.structureProvenance` for FoldX's template. */
   structureProvenance: StructureProvenance | null;
+  /**
+   * The coordinates FoldX built its variant on, fetched so the superposition pairs the variant with
+   * its OWN template. Overlaying it on the AlphaFold model instead measured AlphaFold-versus-crystal
+   * differences and reported them as the substitution's effect.
+   */
+  foldxReferencePdb: string | null;
+  foldxReference: FoldxReferenceState;
+  /** The FoldX variant after superposition on `foldxReferencePdb`; its B column holds Cα displacement (Å). */
+  foldxAlignedPdb: string | null;
   compareMode: boolean;
   compareVariant: string;
   comparisonLayout: "split" | "overlay";
@@ -94,7 +121,10 @@ export interface BiophysicalActions {
 
   // Shared / Global Setters
   setPdbText: (pdbText: string | null) => void;
+  setPdbTextProvenance: (pdbTextProvenance: StructureProvenance | null) => void;
   setStructureProvenance: (structureProvenance: StructureProvenance | null) => void;
+  setFoldxReference: (reference: FoldxReferenceState, referencePdb?: string | null) => void;
+  setFoldxAlignedPdb: (foldxAlignedPdb: string | null) => void;
   setCompareMode: (compareMode: boolean) => void;
   setCompareVariant: (compareVariant: string) => void;
   setComparisonLayout: (comparisonLayout: "split" | "overlay") => void;
@@ -149,7 +179,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
 
   // Shared
   pdbText: null,
+  pdbTextProvenance: null,
   structureProvenance: null,
+  foldxReferencePdb: null,
+  foldxReference: IDLE_FOLDX_REFERENCE,
+  foldxAlignedPdb: null,
   compareMode: false,
   compareVariant: "p.Arg408Pro",
   comparisonLayout: "split",
@@ -326,7 +360,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
 
   // Shared Setters
   setPdbText: (pdbText) => set({ pdbText }),
+  setPdbTextProvenance: (pdbTextProvenance) => set({ pdbTextProvenance }),
   setStructureProvenance: (structureProvenance) => set({ structureProvenance }),
+  setFoldxReference: (foldxReference, referencePdb) =>
+    set(referencePdb === undefined ? { foldxReference } : { foldxReference, foldxReferencePdb: referencePdb }),
+  setFoldxAlignedPdb: (foldxAlignedPdb) => set({ foldxAlignedPdb }),
   setCompareMode: (compareMode) => set({ compareMode }),
   setCompareVariant: (compareVariant) => set((state) => ({
     compareVariant,
@@ -488,7 +526,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     primaryBiophysics: createInitialBiophysicsState(""),
     compareBiophysics: createInitialBiophysicsState("p.Arg408Pro"),
     pdbText: null,
+    pdbTextProvenance: null,
     structureProvenance: null,
+    foldxReferencePdb: null,
+    foldxReference: IDLE_FOLDX_REFERENCE,
+    foldxAlignedPdb: null,
     mutantPdb: null,
     foldedResidueIndex: null,
     isFolding: false,

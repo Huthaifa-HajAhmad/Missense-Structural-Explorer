@@ -16,6 +16,7 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
 import { useNarrativeResynthesis } from "../hooks/useNarrativeResynthesis";
 import { lazyWithRetry } from "../lib/utils";
+import { useStructure3dEvidence } from "../lib/useStructure3dEvidence";
 
 const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "MolstarViewer");
 
@@ -109,7 +110,8 @@ export function AppViews({
   const storePdbText = useVariantAnalysisStore(s => s.pdbText);
   const storeActive3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
   const storeCustomPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
-  const storeCompareMutantPdb = useVariantAnalysisStore(s => s.compareMutantPdb);
+  const storeFoldxReferencePdb = useVariantAnalysisStore(s => s.foldxReferencePdb);
+  const storeFoldxAlignedPdb = useVariantAnalysisStore(s => s.foldxAlignedPdb);
   const storeEsmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
   const storeFoldxMetrics = useVariantAnalysisStore(s => s.foldxMetrics);
   const storeEsmFoldMetrics = useVariantAnalysisStore(s => s.esmFoldMetrics);
@@ -154,7 +156,6 @@ export function AppViews({
   const pdbText = state?.pdbText ?? storePdbText;
   const active3dModelTab = state?.active3dModelTab ?? storeActive3dModelTab;
   const customPdbUrl = state?.customPdbUrl ?? storeCustomPdbUrl;
-  const compareMutantPdb = storeCompareMutantPdb ?? state?.compareMutantPdb;
   const esmFoldAlignedPdb = storeEsmFoldAlignedPdb ?? state?.esmFoldAlignedPdb;
   const foldxMetrics = storeFoldxMetrics ?? state?.foldxMetrics;
   const esmFoldMetrics = storeEsmFoldMetrics ?? state?.esmFoldMetrics;
@@ -162,7 +163,6 @@ export function AppViews({
   const isHomologsLoading = state?.isHomologsLoading ?? storeIsHomologsLoading;
 
   const setSelectedResidueIndex = actions?.setSelectedResidueIndex ?? useVariantAnalysisStore.getState().setSelectedResidueIndex;
-  const setFoldedResidueIndex = actions?.setFoldedResidueIndex ?? useVariantAnalysisStore.getState().setFoldedResidueIndex;
   const setViewMode = actions?.setViewMode ?? useVariantAnalysisStore.getState().setViewMode;
   const clearHistory = actions?.clearHistory ?? useVariantAnalysisStore.getState().clearHistory;
   const setCustomPdbUrl = actions?.setCustomPdbUrl ?? useVariantAnalysisStore.getState().setCustomPdbUrl;
@@ -174,125 +174,67 @@ export function AppViews({
 
   const { apiClient } = useApiClient();
   const isEsm = masterView === "structure_esmfold";
-  const [foldxAlignmentScope, setFoldxAlignmentScope] = useState<"local" | "global">("global");
-  const [esmAlignmentScope, setEsmAlignmentScope] = useState<"local" | "global">("local");
-  const alignmentScope = isEsm ? esmAlignmentScope : foldxAlignmentScope;
+  const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
+
+  /**
+   * One 3D model for the canvas and the toolbar. It decides which modes exist and falls back when
+   * one is not available; the coordinates below follow `structureModel.viewMode`, not the stored
+   * mode, so the canvas can never draw a mode the model has ruled out.
+   */
+  const structureModel = useStructure3dEvidence(isEsm ? "esmfold" : "alphafold");
+  const variantPosition = analysisState.result?.metadata?.residueIndex ?? null;
+
+  useEffect(() => {
+    if (isStructureActive && structureModel.viewMode !== viewMode) setViewMode(structureModel.viewMode);
+  }, [isStructureActive, structureModel.viewMode, viewMode, setViewMode]);
+
+  /**
+   * The coordinates the canvas draws, per family and mode.
+   *
+   * Replaced a selection that superposed the RAW FoldX variant (`compareMutantPdb || mutantPdb`) on the
+   * AlphaFold model — two different templates in two different frames — and drew the ESMFold "mutant"
+   * view from the ALIGNED file, whose B column the aligner overwrites with Cα displacement (it was then
+   * coloured as pLDDT).
+   */
+  const canvasData = useMemo(() => {
+    const mode = structureModel.viewMode;
+    if (isEsm) {
+      if (mode === "mutant") return { primary: esmFoldMutPdb || null, compare: null };
+      if (mode === "superimposed") return { primary: esmFoldWtPdb || null, compare: esmFoldAlignedPdb || null };
+      return { primary: esmFoldWtPdb || null, compare: null };
+    }
+    if (mode === "mutant") return { primary: mutantPdb || null, compare: null };
+    if (mode === "superimposed") return { primary: storeFoldxReferencePdb, compare: storeFoldxAlignedPdb };
+    return { primary: customPdbUrl ? null : pdbText || null, compare: null };
+  }, [isEsm, structureModel.viewMode, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, mutantPdb, storeFoldxReferencePdb, storeFoldxAlignedPdb, customPdbUrl, pdbText]);
 
   const alignmentRequestIdRef = useRef(0);
 
-  const resolvedStructureProps = useMemo(() => {
-    let customPdbData: string | undefined = undefined;
-    let comparePdbData: string | undefined = undefined;
-    const metrics = isEsm ? esmFoldMetrics : foldxMetrics;
-    const hasMutantModel = isEsm
-      ? Boolean(esmFoldMutPdb || esmFoldAlignedPdb)
-      : Boolean(mutantPdb || compareMutantPdb);
-
-    if (isEsm) {
-      if (viewMode === "wildtype") {
-        customPdbData = esmFoldWtPdb || undefined;
-        comparePdbData = undefined;
-      } else if (viewMode === "mutant") {
-        customPdbData = esmFoldAlignedPdb || esmFoldMutPdb || esmFoldWtPdb || undefined;
-        comparePdbData = undefined;
-      } else if (viewMode === "superimposed") {
-        customPdbData = esmFoldWtPdb || undefined;
-        comparePdbData = esmFoldAlignedPdb || undefined;
-      }
-    } else {
-      // AlphaFold2 / FoldX
-      if (viewMode === "wildtype") {
-        customPdbData = customPdbUrl ? undefined : (pdbText || undefined);
-        comparePdbData = undefined;
-      } else if (viewMode === "mutant") {
-        customPdbData = mutantPdb || undefined;
-        comparePdbData = undefined;
-      } else if (viewMode === "superimposed") {
-        customPdbData = customPdbUrl ? undefined : (pdbText || undefined);
-        comparePdbData = compareMutantPdb || mutantPdb || undefined;
-      }
-    }
-
-    const residueIndex = (viewMode === "mutant" || viewMode === "superimposed")
-      ? (foldedResidueIndex || selectedResidueIndex)
-      : selectedResidueIndex;
-
-    return {
-      customPdbData,
-      comparePdbData,
-      hasMutantModel,
-      metrics: (viewMode === "superimposed" || viewMode === "mutant") ? metrics : undefined,
-      residueIndex,
-      active3dModelTab: isEsm ? ("esmfold2" as const) : ("alphafold2" as const)
-    };
-  }, [
-    isEsm,
-    viewMode,
-    esmFoldWtPdb,
-    esmFoldMutPdb,
-    esmFoldAlignedPdb,
-    esmFoldMetrics,
-    pdbText,
-    mutantPdb,
-    compareMutantPdb,
-    foldxMetrics,
-    customPdbUrl,
-    selectedResidueIndex,
-    foldedResidueIndex
-  ]);
-
+  /** ESMFold only: FoldX keeps the template backbone, so its pair has no fit scope to choose. */
   const handleAlignmentScopeChange = useCallback(async (newScope: "local" | "global") => {
-    if (newScope === alignmentScope) return;
-    if (isEsm) {
-      setEsmAlignmentScope(newScope);
-    } else {
-      setFoldxAlignmentScope(newScope);
-    }
+    const store = useVariantAnalysisStore.getState();
+    if (!isEsm || newScope === store.esmAlignmentScope) return;
+    store.setEsmAlignmentScope(newScope);
     const reqId = ++alignmentRequestIdRef.current;
-    if (isEsm && esmFoldWtPdb && esmFoldMutPdb) {
-      const mutPdbToAlign = esmFoldMutPdb;
-      const posMatch = variant?.match(/\d+/);
-      const pos = analysisState.result?.metadata?.residueIndex || foldedResidueIndex || selectedResidueIndex || (posMatch ? parseInt(posMatch[0], 10) : 1);
-      try {
-        const alignData = await apiClient.structuralAlign({
-          pdb1: esmFoldWtPdb,
-          pdb2: mutPdbToAlign,
-          targetIndex: pos,
-          alignmentScope: newScope
-        });
-        if (reqId !== alignmentRequestIdRef.current) return;
-        if (alignData.alignedPdb) {
-          useVariantAnalysisStore.getState().setEsmFoldAlignedPdb(alignData.alignedPdb);
-          useVariantAnalysisStore.getState().setEsmFoldMetrics(alignData.metrics);
-        }
-      } catch (err) {
-        if (reqId === alignmentRequestIdRef.current) {
-          console.warn("[Alignment Scope Update Error]:", err);
-        }
+    if (!esmFoldWtPdb || !esmFoldMutPdb || !variantPosition) return;
+    try {
+      const alignData = await apiClient.structuralAlign({
+        pdb1: esmFoldWtPdb,
+        pdb2: esmFoldMutPdb,
+        targetIndex: variantPosition,
+        alignmentScope: newScope
+      });
+      if (reqId !== alignmentRequestIdRef.current) return;
+      if (alignData.alignedPdb) {
+        store.setEsmFoldAlignedPdb(alignData.alignedPdb);
+        store.setEsmFoldMetrics(alignData.metrics);
       }
-    } else if (!isEsm && pdbText && mutantPdb) {
-      const posMatch = variant?.match(/\d+/);
-      const variantPos = posMatch ? parseInt(posMatch[0], 10) : 1;
-      const pos = analysisState.result?.metadata?.residueIndex || foldedResidueIndex || selectedResidueIndex || variantPos;
-      try {
-        const alignData = await apiClient.structuralAlign({
-          pdb1: pdbText,
-          pdb2: mutantPdb,
-          targetIndex: pos,
-          alignmentScope: newScope
-        });
-        if (reqId !== alignmentRequestIdRef.current) return;
-        if (alignData.alignedPdb) {
-          useVariantAnalysisStore.getState().setCompareMutantPdb(alignData.alignedPdb);
-          useVariantAnalysisStore.getState().setFoldxMetrics(alignData.metrics);
-        }
-      } catch (err) {
-        if (reqId === alignmentRequestIdRef.current) {
-          console.warn("[FoldX Alignment Scope Update Error]:", err);
-        }
+    } catch (err) {
+      if (reqId === alignmentRequestIdRef.current) {
+        console.warn("[Alignment Scope Update Error]:", err);
       }
     }
-  }, [alignmentScope, isEsm, esmFoldWtPdb, esmFoldMutPdb, pdbText, mutantPdb, foldedResidueIndex, selectedResidueIndex, variant, apiClient]);
+  }, [isEsm, esmFoldWtPdb, esmFoldMutPdb, variantPosition, apiClient]);
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
   // Citations currently shown by the Literature view — passed to the inspector so the
@@ -310,7 +252,6 @@ export function AppViews({
     setLiteratureSearchQuery(q);
     setLiteratureSearchVersion((v) => v + 1);
   }, []);
-  const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
   const [hasEverMountedStructure, setHasEverMountedStructure] = useState(isStructureActive);
 
   useEffect(() => {
@@ -351,13 +292,15 @@ export function AppViews({
   const handleLiteratureError = useMemo(() => createErrorHandler("Literature View"), [createErrorHandler]);
   const handleConsoleError = useMemo(() => createErrorHandler("Developer Console"), [createErrorHandler]);
 
+  /**
+   * A click selects a residue; it no longer rewrites `foldedResidueIndex`. That field is the position
+   * FoldX mutated, and the superposition reads it: clicking residue 200 in the variant view used to
+   * move the "variant site" — and every site measurement — to residue 200.
+   */
   const handleResidueClickMemo = useCallback((idx: number | null) => {
     if (!idx) return;
     setSelectedResidueIndex(idx);
-    if (viewMode === "mutant" || viewMode === "superimposed") {
-      setFoldedResidueIndex(idx);
-    }
-  }, [viewMode, setFoldedResidueIndex, setSelectedResidueIndex]);
+  }, [setSelectedResidueIndex]);
 
   /**
    * Shared by the main Residue Shifts tab and the inspector's pocket narrative:
@@ -510,20 +453,21 @@ export function AppViews({
                       </div>
                     }>
                       <MolstarViewerLazy
-                        residueIndex={resolvedStructureProps.residueIndex}
+                        model={structureModel}
+                        primaryPdbData={canvasData.primary}
+                        comparePdbData={canvasData.compare}
+                        allowFetch={!isEsm && structureModel.viewMode === "wildtype" && !customPdbUrl}
+                        variantPosition={variantPosition}
+                        selectedResidue={selectedResidueIndex ?? null}
                         onResidueClick={handleResidueClickMemo}
-                        variant={variant}
-                        heightClass="h-full"
-                        active3dModelTab={resolvedStructureProps.active3dModelTab}
-                        onModelTabChange={(tab) => setMasterView(tab === "esm3" || tab === "esmfold2" ? "structure_esmfold" : "structure_alphafold")}
-                        viewMode={viewMode}
-                        customPdbData={resolvedStructureProps.customPdbData}
-                        comparePdbData={resolvedStructureProps.comparePdbData}
-                        alignmentScope={alignmentScope}
+                        onModeChange={setViewMode}
                         onAlignmentScopeChange={handleAlignmentScopeChange}
-                        mutantStatus={viewMode === "mutant" ? (foldingStatus as any) : undefined}
-                        mutantDdG={viewMode === "mutant" ? (foldingDdG as any) : undefined}
-                        metrics={resolvedStructureProps.metrics}
+                        onSwitchToAlphaFold={() => setMasterView("structure_alphafold")}
+                        onOpenPocketTab={() => {
+                          setActiveEvidenceTab("structure");
+                          setMasterView("evidence");
+                        }}
+                        heightClass="h-full"
                       />
                     </Suspense>
                   </ErrorBoundary>
@@ -687,10 +631,8 @@ export function AppViews({
               activeEvidenceTab={activeEvidenceTab}
               onSelectEvidenceTab={setActiveEvidenceTab}
               onSelectResidueIndex={setSelectedResidueIndex}
-              metrics={resolvedStructureProps.metrics}
-              comparePdbData={resolvedStructureProps.comparePdbData}
-              hasMutantModel={resolvedStructureProps.hasMutantModel}
-              active3dModelTab={resolvedStructureProps.active3dModelTab}
+              metrics={isEsm ? esmFoldMetrics : foldxMetrics}
+              active3dModelTab={isEsm ? "esmfold2" : "alphafold2"}
               computedPocket={computedPocket}
               isPocketLoading={isPocketLoading}
               pocketError={pocketError}

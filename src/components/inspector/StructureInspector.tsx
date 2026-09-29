@@ -1,755 +1,278 @@
 import React from "react";
-import { 
-  Layers, 
-  Activity, 
-  Sparkles, 
-  Target, 
-  Info, 
-  ShieldAlert, 
-  ExternalLink,
-  ChevronDown,
-  ChevronUp,
-  Scale,
-  AlertCircle
-} from "lucide-react";
-import { AnalysisResult, PdbHomolog } from "../../types";
-import { PDB_SOURCE_RCSB } from "../../shared/contracts";
-import { describeFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
-import {
-  describeDeNovoCapacityNotice,
-  describeDeNovoFoldTimeout,
-  isFoldingTimeoutError,
-  readProteinLength,
-  resolveDeNovoFoldingCapacity,
-} from "../../shared/foldingLimits";
+import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler } from "lucide-react";
+import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { describeDeNovoCapacityNotice, readProteinLength, resolveDeNovoFoldingCapacity } from "../../shared/foldingLimits";
+import type { CoordinateIdentity, ModelFamily, TraceStep } from "../../shared/structure3dEvidence";
 
-import type { StructuralMetrics } from "../../types";
+/**
+ * 3D structure — the inspector rail. It renders the same model as the viewer's toolbar and colour key
+ * (`useStructure3dEvidence`), as a trace a curator can audit.
+ *
+ * It replaced a panel that, on NAE1 p.Asp116Gly, showed "pLDDT Confidence 94.5 (Very High)" for a
+ * crystal B-factor; "PDB B-Factor" for the AlphaFold model (the B-factor metadata was never wired);
+ * "Local Window RMSD ±15 residue active-site" for a ±5 window; χ1 "0.0°" for a glycine; "N/A" four
+ * times; homolog identities that were RCSB relevance scores and coverages that were a hard-coded 80%;
+ * "ESMFold-2 … (Lin et al. 2023)", which cites ESMFold v1; and a de novo tip asserting that local
+ * alignment "snaps structured domains (< 1.0 Å RMSD)". The model switch moved to the canvas toolbar,
+ * where it stays usable when this panel is collapsed.
+ */
 
-interface StructureInspectorProps {
-  analysisResult: AnalysisResult | null;
-  viewMode: "wildtype" | "mutant" | "superimposed";
-  setViewMode?: (mode: "wildtype" | "mutant" | "superimposed") => void;
-  isFolding: boolean;
-  /**
-   * The FoldX worker's reported phase.
-   *
-   * Drives the model-switcher label: "Repacking…" was shown for the WHOLE leg, including the
-   * minutes a job spends queued and the phase that is actually a template repair, so a reader could
-   * not tell a waiting job from a working one.
-   */
-  foldingProgress?: FoldxProgress | null;
-  foldingStatus: "failed" | "success" | "unavailable" | null;
-  foldingDdG: number | null;
-  homologs?: PdbHomolog[];
-  isHomologsLoading?: boolean;
-  customPdbUrl?: string | null;
-  setCustomPdbUrl?: (url: string | null) => void;
-  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
-  metrics?: StructuralMetrics | null;
-  comparePdbData?: string | null;
-  hasMutantModel?: boolean;
-  bFactorMetadata?: { source: string; details?: string } | null;
-  esmFoldingError?: string | null;
-  isEsmFolding?: boolean;
-  onSwitchToAlphaFold?: () => void;
+function Step({ step }: { step: TraceStep }) {
+  return (
+    <li className="s3d-step" data-state={step.state}>
+      <span className="s3d-step__n" aria-hidden="true">{step.n}</span>
+      <div className="s3d-step__body">
+        <span className="s3d-step__label">{step.label}</span>
+        <span className="s3d-step__value">{step.value}</span>
+        {step.sub && <span className="s3d-step__sub">{step.sub}</span>}
+        {step.warn && <span className="s3d-step__warn">{step.warn}</span>}
+      </div>
+    </li>
+  );
 }
 
-export const StructureInspector: React.FC<StructureInspectorProps> = ({
-  analysisResult,
-  viewMode,
-  setViewMode,
-  isFolding,
-  foldingProgress = null,
-  foldingStatus,
-  foldingDdG,
-  homologs = [],
-  isHomologsLoading = false,
-  customPdbUrl = null,
-  setCustomPdbUrl,
-  active3dModelTab = "alphafold2",
-  metrics,
-  comparePdbData,
-  hasMutantModel = false,
-  bFactorMetadata,
-  esmFoldingError = null,
-  isEsmFolding = false,
-  onSwitchToAlphaFold
-}) => {
-  const metadata = analysisResult?.metadata;
-  const wtRes = metadata?.wildType || "WT";
-  const mutRes = metadata?.mutant || "MUT";
-  const residueIdx = metadata?.residueIndex || 0;
+function IdentityRow({ role, identity }: { role: string; identity: CoordinateIdentity }) {
+  return (
+    <div className="s3d-canvas-card__row">
+      <span className="s3d-canvas-card__role">{role}</span>
+      <span className="s3d-canvas-card__name">
+        {identity.href ? (
+          <a href={identity.href} target="_blank" rel="noreferrer">{identity.name}</a>
+        ) : (
+          identity.name
+        )}
+        <span className="s3d-canvas-card__sub">{[identity.kind, identity.detail].filter(Boolean).join(" · ")}</span>
+        <span className="s3d-canvas-card__sub">{identity.channel.note}</span>
+      </span>
+    </div>
+  );
+}
 
-  const isEsmMode = active3dModelTab === "esmfold2" || active3dModelTab === "esm3";
-  const hasCompareData = Boolean(comparePdbData || viewMode === "mutant");
-  /** Named once: both the label and its tooltip must describe the same stage or neither is trustworthy. */
-  const foldxPhaseView = describeFoldxPhase(foldingProgress?.phase);
-  const [isPhysicsExpanded, setIsPhysicsExpanded] = React.useState(false);
+export interface StructureInspectorProps {
+  family: ModelFamily;
+  setCustomPdbUrl?: (url: string | null) => void;
+}
 
-  const bestExperimental = React.useMemo(() => {
-    if (!homologs || homologs.length === 0) return null;
-    const candidates = homologs.filter(h => {
-      return h.coversPosition ?? (
-        residueIdx > 0 && h.querySeqFrom !== undefined && h.querySeqTo !== undefined
-          ? (residueIdx >= h.querySeqFrom && residueIdx <= h.querySeqTo)
-          : true
-      );
-    });
-    const pool = candidates.length > 0 ? candidates : homologs;
-    return [...pool].sort((a, b) => {
-      const idA = typeof a.identity === "number" ? a.identity : 0;
-      const idB = typeof b.identity === "number" ? b.identity : 0;
-      if (idB !== idA) return idB - idA;
-      const resA = a.resolution ?? 99;
-      const resB = b.resolution ?? 99;
-      return resA - resB;
-    })[0] || null;
-  }, [homologs, residueIdx]);
+export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, setCustomPdbUrl }) => {
+  const model = useStructure3dEvidence(family);
+  const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
+  const hasResult = useVariantAnalysisStore(s => Boolean(s.analysisState?.result));
+  const deNovoFailed = useVariantAnalysisStore(s => Boolean(s.esmFoldingError));
 
-  const handleTabKeyDown = (e: React.KeyboardEvent, currentTab: "wildtype" | "mutant" | "superimposed") => {
-    const tabs: Array<"wildtype" | "mutant" | "superimposed"> = ["wildtype", "mutant", "superimposed"];
-    const isMutantAvailable = isEsmMode ? hasMutantModel : (!isFolding && foldingStatus === "success");
-    const availableTabs = tabs.filter(t => t === "wildtype" || isMutantAvailable);
-    const currentIndex = availableTabs.indexOf(currentTab);
-    if (currentIndex === -1) return;
+  if (!hasResult) {
+    return (
+      <div className="s3d-rail">
+        <p className="s3d-empty">
+          <strong>No variant loaded</strong>
+          The trace appears once a variant has been analysed.
+        </p>
+      </div>
+    );
+  }
 
-    let targetTab: "wildtype" | "mutant" | "superimposed" | null = null;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-      e.preventDefault();
-      targetTab = availableTabs[(currentIndex + 1) % availableTabs.length];
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-      e.preventDefault();
-      targetTab = availableTabs[(currentIndex - 1 + availableTabs.length) % availableTabs.length];
-    }
-
-    if (targetTab) {
-      setViewMode?.(targetTab);
-      const parent = e.currentTarget.parentElement;
-      const targetBtn = parent?.querySelector<HTMLButtonElement>(`[data-tab-id="${targetTab}"]`);
-      targetBtn?.focus();
-    }
-  };
+  const { canvas, comparison, readings, site, experimental } = model;
+  /**
+   * The de novo length notice (`foldingLimits`). Shown in the ESMFold view while no fold is on screen,
+   * and in the AlphaFold view only when no de novo model is possible at all. Suppressed while a fold
+   * failure is reported: a "folding uses Tier-1" line under a failure is the contradiction the old
+   * panel shipped.
+   */
+  const capacityNotice =
+    proteinLength !== null && !(family === "esmfold" && deNovoFailed)
+      ? describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(proteinLength))
+      : null;
+  const capacity =
+    capacityNotice && (family === "esmfold" ? !model.canvas.primary : capacityNotice.tone === "warning") ? capacityNotice : null;
 
   return (
-    <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Active Coordinate Model Switcher (Segmented Control) ── */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted">
-          Active Coordinate Model
-        </span>
-
-        <div 
-          className="p-1 rounded-xl border border-cs-border-subtle bg-cs-surface-2 grid grid-cols-3 gap-1"
-          role="tablist"
-          aria-label="Coordinate Model Selection"
-        >
-          {/* Wild-Type */}
-          <button
-            type="button"
-            role="tab"
-            data-tab-id="wildtype"
-            aria-selected={viewMode === "wildtype"}
-            tabIndex={viewMode === "wildtype" ? 0 : -1}
-            onKeyDown={(e) => handleTabKeyDown(e, "wildtype")}
-            onClick={() => setViewMode?.("wildtype")}
-            className={`py-2 px-1.5 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer active:scale-[0.96] ${
-              viewMode === "wildtype"
-                ? "border-cs-border bg-cs-surface text-cs-text-primary shadow-xs"
-                : "border-transparent text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-surface/50"
-            }`}
-            title="View baseline reference wild-type coordinates"
-          >
-            <div className="flex flex-col items-center justify-center gap-1.5">
-              <span 
-                className={`w-2 h-2 rounded-full transition-all ${
-                  viewMode === "wildtype" ? "bg-emerald-500 shadow-[0_0_6px_#10b981]" : "bg-cs-text-muted"
-                }`} 
-              />
-              <span className="truncate">{isEsmMode ? "WT (ESMFold-2)" : "WT (AF2)"}</span>
-            </div>
-          </button>
-
-          {/* Mutant */}
-          <button
-            type="button"
-            role="tab"
-            data-tab-id="mutant"
-            aria-selected={viewMode === "mutant"}
-            tabIndex={viewMode === "mutant" ? 0 : -1}
-            onKeyDown={(e) => handleTabKeyDown(e, "mutant")}
-            disabled={isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")}
-            onClick={() => setViewMode?.("mutant")}
-            className={`py-2 px-1.5 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer active:scale-[0.96] ${
-              viewMode === "mutant"
-                ? "border-cs-border bg-cs-surface text-cs-text-primary shadow-xs"
-                : "border-transparent text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-surface/50"
-            } ${(isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")) ? "opacity-60 cursor-not-allowed" : ""}`}
-            title={
-              isEsmMode 
-                ? "View de novo predicted mutant coordinates" 
-                : isFolding 
-                  ? foldxPhaseView?.detail ?? "FoldX force-field run in progress — stage not reported by the compute server yet." 
-                  : foldingStatus !== "success" 
-                    ? "FoldX simulation in flight or not computed." 
-                    : "View FoldX repacked mutant coordinates"
-            }
-          >
-            <div className="flex flex-col items-center justify-center gap-1.5">
-              <span 
-                className={`w-2 h-2 rounded-full transition-all ${
-                  viewMode === "mutant" ? "bg-amber-500 shadow-[0_0_6px_#f59e0b]" : "bg-cs-text-muted"
-                }`} 
-              />
-              {/*
-                * The server's own word for the stage, or the neutral "Running" from the engine-status
-                * vocabulary. "Repacking..." used to cover the entire leg — queue wait, template
-                * repair and the five-run build — so the label could not distinguish waiting from
-                * working, and "Modelling..." would have replaced one invented step with another.
-                */}
-              <span className="truncate">
-                {isFolding ? (foldxPhaseView?.label ?? "Running") + "..." : (isEsmMode ? "Mutant (ESMFold-2)" : "Mutant (FoldX)")}
-              </span>
-            </div>
-          </button>
-
-          {/* Superposition */}
-          <button
-            type="button"
-            role="tab"
-            data-tab-id="superimposed"
-            aria-selected={viewMode === "superimposed"}
-            tabIndex={viewMode === "superimposed" ? 0 : -1}
-            onKeyDown={(e) => handleTabKeyDown(e, "superimposed")}
-            disabled={isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")}
-            onClick={() => setViewMode?.("superimposed")}
-            className={`py-2 px-1.5 rounded-lg border text-[11px] font-semibold text-center transition-all cursor-pointer active:scale-[0.96] ${
-              viewMode === "superimposed"
-                ? "border-cs-border bg-cs-surface text-cs-text-primary shadow-xs"
-                : "border-transparent text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-surface/50"
-            } ${(isEsmMode ? !hasMutantModel : (isFolding || foldingStatus !== "success")) ? "opacity-60 cursor-not-allowed" : ""}`}
-            title="Superimpose mutant on reference wild-type coordinates with dual side-chain stick visualization"
-          >
-            <div className="flex flex-col items-center justify-center gap-1.5">
-              <span 
-                className={`w-2 h-2 rounded-full transition-all ${
-                  viewMode === "superimposed" ? "bg-cyan-500 shadow-[0_0_6px_#06b6d4]" : "bg-cs-text-muted"
-                }`} 
-              />
-              <span className="truncate">Superposition</span>
-            </div>
-          </button>
-        </div>
-
-        {/* ESMFold-2 Standby / Error Fallback Notice (Task 4.7) */}
-        {isEsmMode && (esmFoldingError || foldingStatus === "failed") && (
-          <div className="p-2.5 rounded-xl border border-rose-500/25 bg-rose-500/10 flex flex-col gap-1.5 text-[11px] animate-slide-in">
-            <div className="flex items-center gap-1.5 font-bold text-rose-600 dark:text-rose-400">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-              <span>ESMFold-2 Generation Failed</span>
-            </div>
-            <p className="text-[10px] text-cs-text-secondary leading-snug">
-              {/*
-                * The timeout sentence is built by `describeDeNovoFoldTimeout`, which HEDGES the cause.
-                * This branch used to state "high GPU cluster load" as fact, but the error that reaches
-                * it is a client-side abort or a bare `TimeoutError` — neither carries one bit of
-                * information about the provider's load, so the app was reporting a guess as telemetry.
-                */}
-              {esmFoldingError && isFoldingTimeoutError(esmFoldingError)
-                ? `${describeDeNovoFoldTimeout({ verbosity: "brief" })} Mutant and superposition coordinates are disabled.`
-                : (esmFoldingError || "De novo structure generation could not complete.")}
-            </p>
-            {onSwitchToAlphaFold && (
-              <button
-                type="button"
-                onClick={onSwitchToAlphaFold}
-                className="mt-0.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold font-mono bg-cs-surface border border-cs-border hover:bg-cs-surface-2 transition-all cursor-pointer active:scale-[0.96] flex items-center justify-center gap-1 text-cs-text-primary self-start"
-              >
-                <span>Switch to AlphaFold2 Model</span>
-              </button>
-            )}
+    <div className="s3d-rail" data-testid="structure-rail">
+      {/* ── 1. What is on the canvas ── */}
+      <section className="s3d-rsec" aria-labelledby="s3d-rail-canvas">
+        <h3 className="eyebrow" id="s3d-rail-canvas">
+          <span><Layers className="w-3.5 h-3.5" aria-hidden="true" />On the canvas</span>
+          <span className="s3d-rsec__meta">{model.modes.find(m => m.id === model.viewMode)?.label}</span>
+        </h3>
+        {canvas.primary ? (
+          <div className="s3d-canvas-card" data-testid="structure-rail-canvas">
+            <IdentityRow
+              role={canvas.secondary && family === "alphafold" ? "Template" : canvas.primary.role === "variant" ? "Variant" : "Wild type"}
+              identity={canvas.primary}
+            />
+            {canvas.secondary && <IdentityRow role="Variant" identity={canvas.secondary} />}
           </div>
+        ) : (
+          <p className="s3d-empty">
+            <strong>{canvas.chip.label}</strong>
+            {family === "esmfold" ? "No de novo structure is loaded." : "The wild-type coordinates are loading."}
+          </p>
         )}
-
-        {/* FoldX Repacking Details Card (Replacing floating FoldX banner dropdown) */}
-        {!isEsmMode && foldingStatus === "success" && (
-          <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-cs-text-primary flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                FoldX Model Energetics
-              </span>
-              {foldingDdG !== null && (
-                <span className="text-[10.5px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                  ΔΔG: {foldingDdG > 0 ? `+${foldingDdG.toFixed(2)}` : foldingDdG.toFixed(2)} kcal/mol
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] text-cs-text-secondary font-sans leading-snug">
-              Biophysically repacked coordinates reflecting local FoldX empirical force-field energy minimization.
-            </p>
-          </div>
+        {model.notices.map(n => (
+          <p key={n.key} className="s3d-notice" data-tone={n.tone}>
+            <strong>{n.title}</strong>
+            {n.body}
+          </p>
+        ))}
+        {capacity && (
+          <p className="s3d-notice" data-tone={capacity.tone === "warning" ? "warning" : "info"} data-folding-notice={capacity.tone}>
+            <strong>{capacity.title}</strong>
+            {capacity.body}
+          </p>
         )}
-      </div>
+      </section>
 
-      {/* ── 2. WT vs MT Overlay Metrics ── */}
-      {metrics && hasCompareData && (
-        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-pink-600 dark:text-pink-400 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5" />
-              WT vs MT Overlay Metrics
-            </span>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-600 border border-pink-500/20 font-semibold">
-              Superposition
-            </span>
-          </div>
+      {/* ── 2. Trace ── */}
+      <section className="s3d-rsec" aria-labelledby="s3d-rail-trace">
+        <h3 className="eyebrow" id="s3d-rail-trace">
+          <span><GitBranch className="w-3.5 h-3.5" aria-hidden="true" />Trace</span>
+        </h3>
+        <ol className="s3d-steps" data-testid="structure-rule-trace">
+          {model.trace.map(step => <Step key={step.n} step={step} />)}
+        </ol>
+      </section>
 
-          <div className="p-3 rounded-xl border border-cs-border bg-cs-surface-2 font-mono text-[11px] space-y-2.5">
-            {/* Hero Metric: Local Window RMSD */}
-            <div className="p-2.5 rounded-lg border border-pink-500/30 bg-pink-500/5 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-pink-600 dark:text-pink-400 block font-mono">
-                  Local Window RMSD (Cα)
-                </span>
-                <span className="text-[9px] text-cs-text-muted font-sans block">
-                  ±15 residue active-site backbone shift
-                </span>
-              </div>
-              <span className="font-bold text-sm text-pink-600 dark:text-pink-400 tabular-nums">
-                {metrics.localWindowRmsd !== undefined && metrics.localWindowRmsd !== null ? `${metrics.localWindowRmsd.toFixed(3)} Å` : "N/A"}
-              </span>
-            </div>
-
-            {/* Key-Value Metrics Grid */}
-            <div className="grid grid-cols-1 gap-1 text-[10.5px]">
-              <div className="flex items-center justify-between p-1.5 rounded bg-cs-surface/60 border border-cs-border-subtle/50">
-                <span className="text-cs-text-secondary">Global Cα RMSD:</span>
-                <span className="font-bold text-cs-text-primary tabular-nums">
-                  {metrics.globalRmsd !== undefined && metrics.globalRmsd !== null ? `${metrics.globalRmsd.toFixed(3)} Å` : "N/A"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-cs-surface/60 border border-cs-border-subtle/50">
-                <span className="text-cs-text-secondary">Dihedral χ1 Deviation:</span>
-                <span className="font-bold text-cs-text-primary tabular-nums">
-                  {metrics.chi1Deviation !== undefined && metrics.chi1Deviation !== null ? `${metrics.chi1Deviation.toFixed(1)}°` : "0.0°"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-cs-surface/60 border border-cs-border-subtle/50">
-                <span className="text-cs-text-secondary">SASA Net Delta (WT → MT):</span>
-                <span className="font-bold text-cs-text-primary tabular-nums">
-                  {metrics.sasaDiff?.delta !== undefined && metrics.sasaDiff?.delta !== null ? `${metrics.sasaDiff.delta.toFixed(1)} Å²` : "N/A"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-cs-surface/60 border border-cs-border-subtle/50">
-                <span className="text-cs-text-secondary">Hydrogen-Bond Delta:</span>
-                <span className="font-bold text-rose-500 tabular-nums">
-                  {metrics.hBondsDiff ? `-${metrics.hBondsDiff.lostCount} / +${metrics.hBondsDiff.gainedCount}` : "N/A"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-cs-surface/60 border border-cs-border-subtle/50">
-                <span className="text-cs-text-secondary">Contact-Map Delta:</span>
-                <span className="font-bold text-rose-500 tabular-nums">
-                  {metrics.contactsDiff ? `-${metrics.contactsDiff.lostCount} / +${metrics.contactsDiff.gainedCount}` : "N/A"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 3. Model Interpretation & Provenance Notices (Collapsible Disclosure - Task 3.9) ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <Scale className="w-3.5 h-3.5 text-cs-accent-clay" />
-            Model Provenance & Physics
-          </span>
-          <button
-            type="button"
-            onClick={() => setIsPhysicsExpanded(p => !p)}
-            className="flex items-center gap-1 text-[9.5px] font-mono text-cs-accent-clay hover:underline cursor-pointer active:scale-[0.96]"
-          >
-            <span>{isPhysicsExpanded ? "Hide Details" : "Details"}</span>
-            {isPhysicsExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-        </div>
-
-        {/* 1-Line Summary Badge */}
-        <div className="p-2 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex items-center justify-between gap-2 text-[10.5px]">
-          <div className="flex items-center gap-1.5 truncate">
-            {isEsmMode ? (
-              <>
-                <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                <span className="font-semibold text-cs-text-primary truncate">ESMFold-2 De Novo Dynamics</span>
-              </>
-            ) : (
-              <>
-                <Target className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                <span className="font-semibold text-cs-text-primary truncate">FoldX Local Rigid Perturbation</span>
-              </>
-            )}
-          </div>
-          <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded bg-cs-surface border border-cs-border-subtle text-cs-text-muted shrink-0">
-            {isEsmMode ? "pLDDT in B-Factor" : (bFactorMetadata?.source === "alphafold" ? "AF2 Confidence" : "PDB B-Factor")}
-          </span>
-        </div>
-
-        {/* Expanded Details */}
-        {isPhysicsExpanded && (
-          <div className="flex flex-col gap-2 animate-slide-in">
-            {isEsmMode ? (
-              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-primary space-y-1.5">
-                <div className="flex items-center gap-1.5 font-bold font-mono uppercase text-[10px] text-cs-text-primary">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                  <span>ESMFold-2 De Novo Structural Dynamics (Lin et al. 2023)</span>
-                </div>
-                <p className="text-[10px] text-cs-text-secondary leading-snug font-sans">
-                  Single-sequence de novo models. For large multi-domain proteins (&gt;400 aa), elevated global Cα RMSD often reflects stochastic conformational sampling of flexible linkers rather than whole-domain denaturation.
-                </p>
-                <p className="text-[9.5px] text-cs-text-muted leading-snug font-sans">
-                  Tip: Local pocket alignment snaps structured domains (&lt;1.0 Å RMSD) to isolate active-site perturbations.
-                </p>
-              </div>
-            ) : (
-              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-primary space-y-1">
-                <div className="flex items-center gap-1.5 font-bold font-mono uppercase text-[10px] text-cs-text-primary">
-                  <Target className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>FoldX Local Perturbation</span>
-                </div>
-                <p className="text-[10px] text-cs-text-secondary leading-snug font-sans">
-                  Rigid-backbone comparison: FoldX copies the wild-type backbone, so Cα displacement is zero by construction; side-chain repacking is what varies.
-                </p>
-              </div>
-            )}
-
-            {bFactorMetadata && (
-              <div className="p-2.5 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-primary space-y-1">
-                <div className="flex items-center gap-1.5 font-bold font-mono uppercase text-[10px] text-amber-600 dark:text-amber-400">
-                  <Info className="w-3.5 h-3.5" />
-                  <span>B-Factor / pLDDT Notice</span>
-                </div>
-                <p className="text-[10px] text-cs-text-secondary leading-snug font-sans">
-                  {bFactorMetadata.source === "alphafold"
-                    ? "B-factors represent wild-type confidence (pLDDT) from AlphaFold DB, not physical temperature factors."
-                    : "B-factors represent wild-type experimental temperature factors from PDB."}
-                </p>
-              </div>
-            )}
-          </div>
+      {/* ── 3. Comparison ── */}
+      <section className="s3d-rsec" aria-labelledby="s3d-rail-compare">
+        <h3 className="eyebrow" id="s3d-rail-compare">
+          <span><Ruler className="w-3.5 h-3.5" aria-hidden="true" />Wild type against variant</span>
+          {comparison.fit && <span className="s3d-rsec__meta">{model.alignment.scope === "global" ? "whole-chain fit" : "local fit"}</span>}
+        </h3>
+        {comparison.state === "ready" && readings.length > 0 ? (
+          <>
+            <p className="s3d-empty">{comparison.headline}.</p>
+            <ul className="s3d-readings" data-testid="structure-readings">
+              {readings.map(r => (
+                <li key={r.key} className="s3d-reading">
+                  <span className="s3d-reading__label">{r.label}</span>
+                  <span className="s3d-reading__value" data-state={r.state}>
+                    {r.value ?? (r.state === "not-applicable" ? "Not applicable" : "Not measured")}
+                  </span>
+                  <span className="s3d-reading__note">{r.note}</span>
+                  {r.caveat && <span className="s3d-reading__caveat">{r.caveat}</span>}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="s3d-empty">
+            <strong>{comparison.headline}</strong>
+            {comparison.reason}
+          </p>
         )}
-      </div>
+      </section>
 
-      {/* ── 4. Experimental PDB Templates (Homologs) ── */}
-      {setCustomPdbUrl && (
-        <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted">
-              PDB Experimental Templates
-            </span>
-            <span className="text-[9px] font-mono text-cs-text-muted">
-              {homologs.length} structures
-            </span>
+      {/* ── 4. Variant site ── */}
+      <section className="s3d-rsec" aria-labelledby="s3d-rail-site">
+        <h3 className="eyebrow" id="s3d-rail-site">
+          <span><Crosshair className="w-3.5 h-3.5" aria-hidden="true" />Variant site</span>
+          {site.selected !== null && <span className="s3d-rsec__meta">selected: {site.selected}</span>}
+        </h3>
+        <dl className="s3d-kv" data-testid="structure-site">
+          <div className="s3d-kv__row">
+            <dt>Substitution</dt>
+            <dd className="s3d-mono">{site.substitution ?? "Not reported"}</dd>
           </div>
-
-          {/* Option A 1-Click Fast Switcher */}
-          {bestExperimental && (
-            customPdbUrl === null ? (
-              <button
-                type="button"
-                onClick={() => setCustomPdbUrl(`/api/v1/pdb/entry/${bestExperimental.pdbId}`)}
-                className="p-2 rounded-xl border border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300 flex items-center justify-between gap-2 text-[10.5px] font-semibold hover:bg-blue-500/15 transition-all cursor-pointer active:scale-[0.96]"
-                title={`1-Click Switch: Switch to best experimental structure (PDB ${bestExperimental.pdbId}, ${bestExperimental.resolution ? `${bestExperimental.resolution}Å` : bestExperimental.method})`}
-              >
-                <div className="flex items-center gap-1.5 truncate">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6] shrink-0" />
-                  <span className="truncate">Switch to Best Experimental PDB ({bestExperimental.pdbId})</span>
-                </div>
-                <span className="text-[9px] font-mono shrink-0 font-bold bg-blue-500/20 px-1.5 py-0.5 rounded">
-                  {bestExperimental.resolution ? `${bestExperimental.resolution}Å` : "1-Click"}
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCustomPdbUrl(null)}
-                className="p-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2 text-[10.5px] font-semibold hover:bg-emerald-500/15 transition-all cursor-pointer active:scale-[0.96]"
-                title="1-Click Switch: Revert to authentic Full-Length AlphaFold DB model"
-              >
-                <div className="flex items-center gap-1.5 truncate">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] shrink-0" />
-                  <span className="truncate">Switch to Full-Length AlphaFold2</span>
-                </div>
-                <span className="text-[9px] font-mono shrink-0 font-bold bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                  1-Click AF2
-                </span>
-              </button>
-            )
+          <div className="s3d-kv__row">
+            <dt>In the structure</dt>
+            <dd>
+              {site.check.state === "match" ? "Matches" : site.check.state === "mismatch" ? "Different residue" : site.check.state === "absent" ? "Not modelled" : "Not checked"}
+              <span className="s3d-kv__note">{site.check.text}</span>
+            </dd>
+          </div>
+          <div className="s3d-kv__row">
+            <dt>{site.confidence.kind === "b-factor" ? "Mobility" : "Confidence"}</dt>
+            <dd>
+              <span className="s3d-mono">{site.confidence.text}</span>
+              <span className="s3d-kv__note">{site.confidence.note}</span>
+            </dd>
+          </div>
+          {site.burial && (
+            <div className="s3d-kv__row">
+              <dt>Accessibility</dt>
+              <dd>{site.burial}</dd>
+            </div>
           )}
+          {site.region && (
+            <div className="s3d-kv__row">
+              <dt>UniProt region</dt>
+              <dd>{site.region}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
 
-          <div className="flex flex-col gap-1.5 max-h-60 overflow-y-auto pr-0.5 cs-scrollbar">
-            {/* Default AlphaFold DB option */}
-            <button
-              type="button"
-              onClick={() => setCustomPdbUrl(null)}
-              className={`p-2 rounded-lg border text-[11px] transition-all flex items-center gap-2.5 w-full text-left cursor-pointer active:scale-[0.96] ${
-                customPdbUrl === null 
-                  ? "border-cs-border bg-cs-surface-2" 
-                  : "border-transparent hover:bg-cs-bg-subtle"
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${customPdbUrl === null ? "bg-emerald-500 shadow-[0_0_6px_#10b981]" : "bg-cs-text-muted"}`} />
-              <div className="flex flex-col text-left truncate w-full">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-[11px] text-cs-text-primary">AlphaFold2 Model</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded font-mono bg-cs-surface border border-cs-border text-cs-text-muted">
-                    Full-Length
+      {/* ── 5. Experimental structures (AlphaFold view) ── */}
+      {family === "alphafold" && setCustomPdbUrl && (
+        <section className="s3d-rsec" aria-labelledby="s3d-rail-entries">
+          <h3 className="eyebrow" id="s3d-rail-entries">
+            <span><Database className="w-3.5 h-3.5" aria-hidden="true" />Experimental structures</span>
+            <span className="s3d-rsec__meta">
+              {experimental.loading ? "Searching RCSB" : `${experimental.rows.length} listed`}
+            </span>
+          </h3>
+          {experimental.rows.length === 0 ? (
+            <p className="s3d-empty">
+              {experimental.loading ? "Searching the PDB for entries of this protein and its homologs." : "RCSB's sequence search returned no experimental entry."}
+            </p>
+          ) : (
+            <ul className="s3d-entries" data-testid="structure-entries">
+              {experimental.rows.map(row => (
+                <li key={row.pdbId} className="s3d-entry" data-loaded={row.loaded || undefined}>
+                  <span className="s3d-entry__id">
+                    {row.pdbId}
+                    {experimental.best?.pdbId === row.pdbId && <span className="s3d-entry__tag">closest covering entry</span>}
                   </span>
-                </div>
-                <span className="text-[10px] text-cs-text-secondary truncate">
-                  UniProt: {analysisResult?.metadata?.uniprotId || "Default"}
-                </span>
-              </div>
-            </button>
-
-            {/* Loading homologs */}
-            {isHomologsLoading && (
-              <div className="flex items-center gap-2 p-2 text-[10.5px] font-mono text-cs-text-muted">
-                <span className="cs-spinner cs-spinner-sm shrink-0" />
-                <span>Searching RCSB PDB for homologs...</span>
-              </div>
-            )}
-
-            {/* Homolog hits */}
-            {!isHomologsLoading && homologs.map((hom) => {
-              const homUrl = `/api/v1/pdb/entry/${hom.pdbId}`;
-              const isSelected = customPdbUrl === homUrl || customPdbUrl === `https://files.rcsb.org/download/${hom.pdbId}.pdb`;
-              const identityVal = typeof hom.identity === "number" ? hom.identity : Math.round((hom.score || 0) * 100);
-              const coverageVal = typeof hom.coverage === "number" ? hom.coverage : 80;
-              const isCovered = hom.coversPosition ?? (
-                residueIdx > 0 && hom.querySeqFrom !== undefined && hom.querySeqTo !== undefined
-                  ? (residueIdx >= hom.querySeqFrom && residueIdx <= hom.querySeqTo)
-                  : true
-              );
-
-              return (
-                <button
-                  key={hom.pdbId}
-                  type="button"
-                  onClick={() => setCustomPdbUrl(homUrl)}
-                  title={`${hom.title}\n• Sequence Identity: ${identityVal}%\n• Alignment Coverage: ${coverageVal}%\n• Organism: ${hom.organism}\n• Aligned Region: ${hom.querySeqFrom ?? '?'}-${hom.querySeqTo ?? '?'}\n• Mutation Site Status: ${isCovered ? `In Range (covers pos ${residueIdx})` : `Out of Bounds (pos ${residueIdx} is outside ${hom.querySeqFrom}-${hom.querySeqTo})`}\n• Method: ${hom.method}${hom.resolution ? ` (${hom.resolution} Å)` : ''}`}
-                  className={`p-2 rounded-lg border text-[11px] transition-all flex items-center gap-2 w-full text-left cursor-pointer active:scale-[0.96] ${
-                    isSelected 
-                      ? "border-cs-accent-clay bg-cs-surface-2 shadow-xs" 
-                      : "border-cs-border-subtle hover:bg-cs-bg-subtle"
-                  }`}
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{
-                      backgroundColor: isSelected ? "var(--cs-accent-clay)" : (isCovered ? "#10b981" : "#f59e0b")
-                    }}
-                  />
-                  <div className="flex flex-col text-left truncate w-full gap-0.5">
-                    <div className="flex items-center justify-between gap-1 w-full">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="font-mono font-bold text-[11px] text-cs-text-primary">
-                          {hom.pdbId}
-                        </span>
-                        {hom.querySeqFrom && hom.querySeqTo && (
-                          <span className="text-[9px] font-mono text-cs-text-muted">
-                            ({hom.querySeqFrom}–{hom.querySeqTo})
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {residueIdx > 0 && (
-                          isCovered ? (
-                            <span className="text-[8.5px] px-1 py-0.5 rounded font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                              In Range
-                            </span>
-                          ) : (
-                            <span className="text-[8.5px] px-1 py-0.5 rounded font-mono font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                              Out of Bounds
-                            </span>
-                          )
-                        )}
-                        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-semibold bg-cs-surface border border-cs-border text-cs-text-secondary">
-                          {identityVal}% ID
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[9.5px] truncate text-cs-text-secondary">
-                      <span className="truncate italic">{hom.organism}</span>
-                      {hom.resolution && (
-                        <span className="font-mono text-[9px] shrink-0 ml-1 text-cs-text-muted">
-                          {hom.resolution}Å
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-
-            {!isHomologsLoading && homologs.length === 0 && (
-              <span className="text-[10px] p-2 italic font-mono text-cs-text-muted">
-                No PDB homologs found (≥22% sequence identity)
-              </span>
-            )}
-          </div>
-
-          {/* Out of bounds active selection notice */}
-          {customPdbUrl && (() => {
-            const selectedHom = homologs.find(h => `/api/v1/pdb/entry/${h.pdbId}` === customPdbUrl || `https://files.rcsb.org/download/${h.pdbId}.pdb` === customPdbUrl);
-            if (!selectedHom) return null;
-            const isCovered = selectedHom.coversPosition ?? (
-              residueIdx > 0 && selectedHom.querySeqFrom !== undefined && selectedHom.querySeqTo !== undefined
-                ? (residueIdx >= selectedHom.querySeqFrom && residueIdx <= selectedHom.querySeqTo)
-                : true
-            );
-            if (!isCovered && residueIdx > 0) {
-              return (
-                <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-700 dark:text-amber-300 leading-snug">
-                  <span className="font-semibold">Out of bounds template:</span> PDB {selectedHom.pdbId} covers residues {selectedHom.querySeqFrom ?? '?' }–{selectedHom.querySeqTo ?? '?'}. Mutation site (position {residueIdx}) is outside the aligned coordinates. Switch back to AlphaFold2 Model for full-length structural context.
-                </div>
-              );
-            }
-            if (selectedHom.coverage && selectedHom.coverage < 90) {
-              return (
-                <div className="p-2 rounded-lg bg-cs-surface-2 border border-cs-border-subtle text-[10px] text-cs-text-secondary leading-snug">
-                  <span className="font-semibold text-cs-text-primary">Domain Construct:</span> PDB {selectedHom.pdbId} ({selectedHom.method}{selectedHom.resolution ? ` • ${selectedHom.resolution}Å` : ''}) covers {selectedHom.coverage}% of sequence{selectedHom.querySeqFrom && selectedHom.querySeqTo ? ` (${selectedHom.querySeqFrom}–${selectedHom.querySeqTo})` : ''}. Unmodelled domains are not present in this crystal construct.
-                </div>
-              );
-            }
-            return null;
-          })()}
-        </div>
+                  <button
+                    type="button"
+                    className="s3d-entry__load"
+                    aria-pressed={row.loaded}
+                    onClick={() => setCustomPdbUrl(row.loaded ? null : row.url)}
+                    aria-label={row.loaded ? `Return to the AlphaFold model from PDB ${row.pdbId}` : `Load PDB ${row.pdbId} on the canvas`}
+                  >
+                    {row.loaded ? "Shown" : "Show"}
+                  </button>
+                  <span className="s3d-entry__meta">
+                    {[
+                      row.identity === "Not reported" ? "identity not reported" : `identity ${row.identity}`,
+                      row.range ? `aligned ${row.range}` : "range not reported",
+                      row.coversSite === "yes" ? "covers the site" : row.coversSite === "no" ? "does not cover the site" : null,
+                      row.method ? row.method.toLowerCase() : null,
+                      row.resolution,
+                      row.organism,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="s3d-empty s3d-dim">{experimental.note}</p>
+        </section>
       )}
 
-      {/* ── 5. Mutated Residue Structural Neighborhood (Task 3.8 Enriched) ── */}
-      {residueIdx > 0 && (() => {
-        const disruption = analysisResult?.disruptionPredictor;
-        const plddtVal = disruption?.plddt;
-        const plddtBadge = plddtVal == null ? null : (
-          plddtVal >= 90 ? { label: `${plddtVal.toFixed(1)} (Very High)`, cls: "text-blue-500 bg-blue-500/10 border-blue-500/20" } :
-          plddtVal >= 70 ? { label: `${plddtVal.toFixed(1)} (Confident)`, cls: "text-cyan-500 bg-cyan-500/10 border-cyan-500/20" } :
-          plddtVal >= 50 ? { label: `${plddtVal.toFixed(1)} (Low)`, cls: "text-amber-500 bg-amber-500/10 border-amber-500/20" } :
-          { label: `${plddtVal.toFixed(1)} (Very Low)`, cls: "text-orange-500 bg-orange-500/10 border-orange-500/20" }
-        );
-        const burial = disruption?.burialStatus;
-        const rsaPercent = disruption?.rsa != null ? `${Math.round(disruption.rsa * 100)}%` : null;
-        const feature = analysisResult?.uniprotFeatures?.features?.find(
-          (f: any) => residueIdx >= f.start && residueIdx <= f.end && (f.type === "DOMAIN" || f.type === "REGION" || f.type === "BINDING" || f.type === "ACT_SITE")
-        );
-
-        return (
-          <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted">
-              Target Residue Context
-            </span>
-
-            <div className="p-2.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 space-y-1.5">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-cs-text-secondary">Position:</span>
-                <span className="font-mono font-bold text-cs-text-primary">Residue #{residueIdx}</span>
-              </div>
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-cs-text-secondary">Mutation:</span>
-                <span className="font-mono font-bold text-cs-accent-clay">{wtRes} → {mutRes}</span>
-              </div>
-              {plddtBadge && (
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-cs-text-secondary">pLDDT Confidence:</span>
-                  <span className={`font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${plddtBadge.cls}`}>
-                    {plddtBadge.label}
-                  </span>
-                </div>
-              )}
-              {(burial || rsaPercent) && (
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-cs-text-secondary">Solvent Exposure:</span>
-                  <span className="font-mono text-[10.5px] text-cs-text-primary capitalize">
-                    {burial || "Calculated"} {rsaPercent ? `(${rsaPercent} RSA)` : ""}
-                  </span>
-                </div>
-              )}
-              {feature && (
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-cs-text-secondary">Functional Region:</span>
-                  <span className="font-mono text-[10px] text-cs-accent-clay truncate max-w-[140px]" title={feature.description}>
-                    {feature.description || feature.type}
-                  </span>
-                </div>
-              )}
-              {analysisResult?.metadata?.pdbId && (
-                <div className="flex justify-between items-center text-[11px]">
-                  {/* The source is not always AlphaFold: an RCSB entry is an experimental
-                      structure, and labelling its accession a model id is a false identity. */}
-                  <span className="text-cs-text-secondary">
-                    {analysisResult.metadata.pdbSource === PDB_SOURCE_RCSB ? "PDB Entry:" : "Model ID:"}
-                  </span>
-                  <span className="font-mono text-[10px] text-cs-text-muted truncate max-w-[130px]">
-                    {analysisResult.metadata.pdbId}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ── 6. De novo folding constraints notice (Task 2.6) ──────────────────────────────
-        *
-        * REWRITTEN. The version this replaces read:
-        *
-        *   "ℹ️ ESMFold-2 Token Notice: Protein exceeds public 400 aa threshold. Sovereign JapanFold
-        *    inference engine configured in Settings is used for de novo folding."
-        *
-        * under a guard of `mutatedSequence.length > 768`, claiming an engine and a Settings entry that
-        * exist nowhere in this repository, from a routing rule the server does not implement — crossing
-        * 400 aa DELETES the keyless fallback rather than selecting a different engine. It also sat
-        * beneath the rose "Generation Failed" card while asserting a working engine, and omitted its
-        * own residue count, so its disagreement with the canvas beside it (which said 51 aa for a
-        * 711 aa protein) could not be seen. All of that is now derived from one module.
-        */}
-      {(() => {
-        /**
-         * Suppressed whenever a generation failure is already on screen.
-         *
-         * This notice describes what the app WILL do with a sequence of this length. The rose card
-         * above reports that it did not happen. Rendering both put a reassuring line directly under
-         * "ESMFold-2 Generation Failed", and the reassuring one was the false one.
-         */
-        if (isEsmMode && (esmFoldingError || foldingStatus === "failed")) return null;
-
-        const reading = readProteinLength(metadata);
-        if (reading.residues === null) return null;
-
-        const notice = describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(reading.residues));
-        if (!notice) return null;
-
-        return (
-          <div
-            data-folding-notice={notice.tone}
-            className={`p-2.5 rounded-lg border bg-cs-surface-2 border-cs-border-subtle text-[10.5px] leading-relaxed ${
-              notice.tone === "warning"
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-cs-text-secondary"
-            }`}
-          >
-            <div className="flex items-start gap-1.5">
-              {notice.tone === "warning" ? (
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-              ) : (
-                <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-cs-text-muted" aria-hidden="true" />
-              )}
-              <span>
-                <strong className="text-cs-text-primary">{notice.title}:</strong> {notice.body}
-              </span>
-            </div>
-          </div>
-        );
-      })()}
+      {/* ── 6. Method ── */}
+      <section className="s3d-rsec" aria-labelledby="s3d-rail-method">
+        <h3 className="eyebrow" id="s3d-rail-method">
+          <span><BookOpen className="w-3.5 h-3.5" aria-hidden="true" />Method and sources</span>
+        </h3>
+        <details className="s3d-notes">
+          <summary>What the view can and cannot tell you</summary>
+          <ul>
+            {model.notes.map(note => <li key={note}>{note}</li>)}
+            <li>{model.engineRecord}</li>
+          </ul>
+        </details>
+        <ul className="s3d-refs" data-testid="structure-sources">
+          {model.sources.map(src => (
+            <li key={src.doi}>
+              {src.citation}
+              <br />
+              <a href={`https://doi.org/${src.doi}`} target="_blank" rel="noreferrer">doi:{src.doi}</a>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 };

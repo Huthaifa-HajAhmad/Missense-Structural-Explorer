@@ -374,7 +374,69 @@ export const THRESHOLDS = {
   },
 } as const;
 
+/**
+ * ±residues around the variant over which per-residue Cα displacements, and the "local" Cα RMSD, are
+ * reported (`structural-diff/aligner.ts`). The 3D inspector printed "±15 residue" beside this ±5
+ * number; the 15 is {@link LOCAL_ALIGNMENT_FIT_WINDOW}, a different quantity.
+ */
 export const LOCAL_STRUCTURAL_WINDOW = 5;
+
+/**
+ * ±residues whose Cα atoms fit the Kabsch superposition when the alignment scope is "local". It was a
+ * literal in the aligner and a second literal in the toolbar tooltip. The local RMSD
+ * ({@link LOCAL_STRUCTURAL_WINDOW}) sits INSIDE this fitted window, so under a local fit it is small
+ * by construction and says little about the mutation.
+ */
+export const LOCAL_ALIGNMENT_FIT_WINDOW = 15;
+
+/**
+ * Colour bands of the 3D view, each with its provenance. The Mol* themes and the on-canvas legend
+ * both read these, so what is drawn and what the key says cannot drift apart.
+ */
+export const STRUCTURE_COLOUR_BANDS = {
+  /**
+   * PUBLISHED. AlphaFold DB's pLDDT bands and colours (Jumper et al. 2021; Varadi et al. 2022):
+   * very high > 90, confident 70–90, low 50–70, very low < 50. The edges are exclusive below, as in
+   * Mol*'s own pLDDT theme: a value must EXCEED `min` (exactly 90 is "confident", exactly 50 "very low").
+   */
+  plddt: [
+    { min: 90, label: "Very high", range: "> 90", color: 0x0053d6 },
+    { min: 70, label: "Confident", range: "70–90", color: 0x65cbf3 },
+    { min: 50, label: "Low", range: "50–70", color: 0xffdb13 },
+    { min: -Infinity, label: "Very low", range: "≤ 50", color: 0xff7d45 },
+  ],
+  /**
+   * RELATIVE, not a cut-point. Crystallographic B-factors depend on resolution, refinement and
+   * crystal packing, so absolute B values are not comparable between entries (Sun et al. 2019,
+   * Chem Rev). The theme colours each atom by the quartile of ITS OWN entry's Cα B-factors. The old
+   * theme banded raw B at 20/40/60 Å² with no source.
+   */
+  bFactorQuartile: [
+    { label: "Lowest quarter", color: 0x3f5f8a },
+    { label: "Second quarter", color: 0x8aa6c1 },
+    { label: "Third quarter", color: 0xd9b26a },
+    { label: "Highest quarter", color: 0xc4683f },
+  ],
+  /**
+   * APP-DEFINED, unsourced: per-residue Cα displacement after superposition, in Å. Drawn with a
+   * dashed key and labelled as this app's own marks.
+   */
+  displacement: [
+    { max: 0.2, label: "< 0.2 Å", color: 0x3b6ea5 },
+    { max: 0.5, label: "0.2–0.5 Å", color: 0x7fb0d6 },
+    { max: 1.0, label: "0.5–1.0 Å", color: 0xb8c98a },
+    { max: 2.5, label: "1.0–2.5 Å", color: 0xe0a458 },
+    { max: Infinity, label: "≥ 2.5 Å", color: 0xc4523a },
+  ],
+  /**
+   * ESM3 embedding shift, four steps over the engine's own bands `THRESHOLDS.esm3Drift`
+   * (none / minor / moderate / major). The heatmap used to band at 0.05 / 0.15 / 0.35 while the
+   * engine classified the same score at 0.08 / 0.22 / 0.38.
+   */
+  esm3Shift: [0x9fb8cf, 0x8fb996, 0xe0a458, 0xc4523a],
+  /** Residues the channel does not cover (no score, outside the model, non-atomic). */
+  none: 0xa8a29e,
+} as const;
 
 /**
  * STRING confidence bands, strongest first — the single ordered list the PPI

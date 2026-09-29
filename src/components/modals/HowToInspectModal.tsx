@@ -1,7 +1,6 @@
 import React from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { BookOpen, X } from "lucide-react";
-import { VARIANT_PRESETS } from "../../data";
 
 interface HowToInspectModalProps {
   isOpen: boolean;
@@ -36,38 +35,40 @@ export function HowToInspectModal({
             className="relative max-w-md w-full rounded-2xl border shadow-xl p-6 transition-colors z-10 bg-cs-surface border-cs-border-subtle text-cs-text-primary"
           >
             <div className="flex items-center justify-between pb-3 border-b border-cs-border-subtle">
-              <h3 className="text-sm font-bold uppercase tracking-wider flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-cs-accent-clay" />
-                How to inspect missense mutations
+              <h3 className="text-sm font-semibold flex items-center gap-2 font-sans">
+                <BookOpen className="w-4 h-4 text-cs-accent-clay" aria-hidden="true" />
+                Reading the 3D view
               </h3>
               <button
                 type="button"
                 onClick={onClose}
-                className="text-cs-text-muted hover:text-cs-text-secondary rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 cursor-pointer"
+                aria-label="Close the guide"
+                className="p-1 text-cs-text-muted hover:text-cs-text-secondary rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="mt-4 space-y-4 text-xs select-none">
-              <ul className="space-y-3.5 pl-4 list-disc marker:text-cs-accent-clay text-cs-text-secondary">
-                <li>
-                  Analyze residue <strong className="font-mono text-cs-accent-clay">#{selectedResidueIndex || "408"}</strong> inside the rendered 3D fold. Use right-click or scroll-wheel to zoom.
-                </li>
-                <li>
-                  Determine structural state context: outer alpha-helices, beta-sheet strands, or loops.
-                </li>
-                <li>
-                  Check for steric clashes or broken hydrogen bonds resulting from substitution size/charge differentials.
-                </li>
-                <li>
-                  Compare structures by toggling between <strong className="font-semibold text-cs-text-primary">Wild-Type</strong> and simulated <strong className="text-cs-accent-mag font-semibold">Mutant</strong> views.
-                </li>
-              </ul>
-              <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-                <p className="text-[11px] italic text-slate-500">
-                  "{VARIANT_PRESETS.find(p => p.gene === gene)?.description || "Inspect chemical/geometric substitutions inside protein chain constructs."}"
-                </p>
-              </div>
+            {/*
+              * Rewritten. The old guide told the reader to "analyze residue #408" whenever nothing was
+              * selected (a hard-coded default from one preset variant), gave the wrong mouse controls, and
+              * quoted a preset's marketing line.
+              */}
+            <div className="mt-4 space-y-3 text-[13px] leading-relaxed font-sans text-cs-text-secondary">
+              <p>
+                <strong className="text-cs-text-primary font-semibold">Move.</strong> Drag to rotate, right-drag to pan, scroll to zoom.
+                The variant chip in the toolbar frames the site{selectedResidueIndex ? ` (residue ${selectedResidueIndex} is selected)` : ""}; clicking a residue selects it without changing the variant.
+              </p>
+              <p>
+                <strong className="text-cs-text-primary font-semibold">Colours.</strong> pLDDT is the model&apos;s confidence in its own coordinates, not a measure of importance.
+                A crystal structure&apos;s B-factor measures mobility in the crystal and is coloured relative to its own entry. Every colouring has a key on the canvas that says where its bands come from.
+              </p>
+              <p>
+                <strong className="text-cs-text-primary font-semibold">Wild type against variant.</strong> FoldX keeps the template backbone fixed, so look at the side chains at the site; the superposition always pairs the variant with FoldX&apos;s own template.
+                In the ESMFold view the two structures are separate predictions, so part of any difference is the predictions&apos; own.
+              </p>
+              <p>
+                <strong className="text-cs-text-primary font-semibold">Evidence.</strong> No ACMG criterion reads the 3D view. The inspector traces where each structure and number came from.
+              </p>
             </div>
           </motion.div>
         </div>

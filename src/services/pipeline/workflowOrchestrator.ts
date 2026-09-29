@@ -327,8 +327,10 @@ export async function executeFullAnalysisWorkflow({
       if (cached.foldingEnergetics) {
         biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
         if (cached.foldingEnergetics.structureProvenance) {
+          // FoldX's TEMPLATE. It is not written to the structure sink: that sink describes `pdbText`,
+          // and restoring the template there is how a cached run labelled the AlphaFold model with
+          // the crystal entry FoldX had used.
           biophysicalSink.setStructureProvenance?.(cached.foldingEnergetics.structureProvenance);
-          structureSink.setStructureProvenance?.(cached.foldingEnergetics.structureProvenance);
         }
       }
       if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);

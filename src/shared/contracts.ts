@@ -781,7 +781,17 @@ export const esmFoldResponseSchema = z.object({
   mutPdb: z.string().optional(),
   chain: z.string().optional(),
   plddt: z.array(z.number()).optional(),
-  status: z.enum(["success", "cached", "failed"])
+  status: z.enum(["success", "cached", "failed"]),
+  /**
+   * Which engine folded each structure (`server/services/structure/esmfold.ts`). Optional so an older
+   * server still parses; the viewer then says the engine was not reported rather than guessing.
+   */
+  engines: z
+    .object({
+      wildType: z.string().nullable(),
+      variant: z.string().nullable()
+    })
+    .optional()
 });
 
 export type EsmFoldRequest = z.infer<typeof esmFoldRequestSchema>;
@@ -1299,6 +1309,8 @@ export const analyzeVariantResponseSchema = z.object({
     level: z.enum(["high", "low", "unknown"]),
     reason: z.string(),
     plddt: z.number().nullable(),
+    bFactor: z.number().nullable().optional(),
+    bFactorKind: z.enum(["plddt", "temperature-factor", "unknown"]).optional(),
     burialStatus: z.enum(["core", "surface", "boundary"]).optional(),
     neighborCount: z.number().optional(),
     rsa: z.number().nullable().optional(),
@@ -1459,9 +1471,12 @@ export interface NearestResidue {
 
 export interface PdbHomolog {
   pdbId: string;
+  /** RCSB search relevance score — not identity. */
   score: number;
-  identity: number;
-  coverage: number;
+  /** Sequence identity (%) from the alignment; null when RCSB returned no match context. */
+  identity: number | null;
+  /** Aligned length as % of the query; null when not reported. */
+  coverage: number | null;
   title: string;
   organism: string;
   method: string;
@@ -2030,7 +2045,11 @@ export interface UniprotFeaturesData {
 export interface DisruptionPredictorResult {
   level: "high" | "low" | "unknown";
   reason: string;
+  /** AlphaFold pLDDT at the site; null when the structure was experimental (see `bFactorKind`). */
   plddt: number | null;
+  /** The site Cα's raw B column, and what it holds: pLDDT or a crystallographic temperature factor. */
+  bFactor?: number | null;
+  bFactorKind?: "plddt" | "temperature-factor" | "unknown";
   burialStatus?: "core" | "surface" | "boundary";
   neighborCount?: number;
   rsa?: number | null;

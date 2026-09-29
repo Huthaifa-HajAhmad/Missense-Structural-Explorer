@@ -1,539 +1,236 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
-import { MolstarToolbar } from "./molstar/MolstarToolbar";
-import { MolstarInfoOverlay } from "./molstar/MolstarInfoOverlay";
 import { useMolstarPlugin } from "./molstar/useMolstarPlugin";
-import { useMolstarStructure } from "./molstar/useMolstarStructure";
-import { useMolstarPocket } from "./molstar/useMolstarPocket";
-import { MolstarViewerProps } from "./molstar/molstarThemes";
-import { Activity, Layers, Settings, CheckCircle2, Info } from "lucide-react";
-import {
-  ESM_ATLAS_PUBLIC_MAX_AA,
-  JAPANFOLD_ESMFOLD2_MAX_AA,
-  describeDeNovoFoldTimeout,
-  formatResidueCount,
-  isFoldingLengthLimitError,
-  isFoldingTimeoutError,
-  parseReportedSequenceLength,
-  readProteinLength,
-  resolveDeNovoFoldingCapacity,
-} from "../shared/foldingLimits";
-import { Script } from "molstar/lib/mol-script/script";
-import { StructureSelection } from "molstar/lib/mol-model/structure";
-import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
+import { useMolstarStructure, type PlddtFilter } from "./molstar/useMolstarStructure";
+import { StructureToolbar } from "./molstar/StructureToolbar";
+import { StructureLegend } from "./molstar/StructureLegend";
+import { StructurePocketPanel } from "./molstar/StructurePocketPanel";
+import { StructureStatusOverlay } from "./molstar/StructureStatusOverlay";
+import { readProteinLength } from "../shared/foldingLimits";
+import { derivePocketNarrative } from "../shared/residueShiftEvidence";
+import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../shared/structure3dEvidence";
 
-export type { PocketResidue, PocketResult } from './molstar/molstarThemes';
-export {
-  CustomPLDDTColorTheme,
-  CustomPLDDTColorThemeProvider,
-  CustomBFactorColorTheme,
-  CustomBFactorColorThemeProvider,
-  CustomESM3AllostericColorTheme,
-  CustomESM3AllostericColorThemeProvider,
-  CustomDisplacementColorTheme,
-  CustomDisplacementColorThemeProvider
-} from './molstar/molstarThemes';
+export interface MolstarViewerProps {
+  /** The 3D evidence model (`useStructure3dEvidence`), built once by the caller. */
+  model: Structure3dEvidence;
+  /** Coordinates for the primary structure; null lets the viewer load `customPdbUrl` or fetch. */
+  primaryPdbData: string | null;
+  /** The superposed variant, when the model shows a superposition. */
+  comparePdbData: string | null;
+  /** Fetch the AlphaFold DB model when no coordinates were supplied (AlphaFold view only). */
+  allowFetch: boolean;
+  variantPosition: number | null;
+  selectedResidue: number | null;
+  onResidueClick: (index: number | null) => void;
+  onModeChange: (mode: ViewMode) => void;
+  onAlignmentScopeChange?: (scope: AlignmentScope) => void;
+  onSwitchToAlphaFold?: () => void;
+  onOpenPocketTab?: () => void;
+  heightClass?: string;
+}
 
-export default function MolstarViewer({ 
-  residueIndex, 
-  customPdbData, 
-  onResidueClick,
+/**
+ * The 3D structure view: toolbar, canvas, colour key, pocket panel and status, all rendered from one
+ * evidence model. The inspector rail renders the same model as a trace.
+ *
+ * Removed with this rewrite: a draggable "Biophysical Insight Alert" no caller ever fed, a ΔΔG
+ * formatter and energy-unit read that nothing displayed, and props (`metrics`, `mutantDdG`,
+ * `compareVariant`) the component accepted and ignored.
+ */
+export default function MolstarViewer({
+  model,
+  primaryPdbData,
   comparePdbData,
-  compareResidueIndex,
-  compareVariant,
-  disruptionWarning,
-  mutantStatus,
-  mutantDdG,
+  allowFetch,
+  variantPosition,
+  selectedResidue,
+  onResidueClick,
+  onModeChange,
+  onAlignmentScopeChange,
+  onSwitchToAlphaFold,
+  onOpenPocketTab,
   heightClass,
-  variant,
-  active3dModelTab = "alphafold2",
-  onModelTabChange,
-  metrics,
-  viewMode,
-  alignmentScope,
-  onAlignmentScopeChange
 }: MolstarViewerProps) {
-  const { theme: contextTheme, settings, showPolarContacts: contextShowPolarContacts, setIsSettingsOpen } = useSettings();
+  const { theme, settings, showPolarContacts, setIsSettingsOpen } = useSettings();
   const { fetchWithAuth } = useApiClient();
+  const actions = useVariantAnalysisActions();
+
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId);
   const gene = useVariantAnalysisStore(s => s.gene);
+  const variant = useVariantAnalysisStore(s => s.variant);
   const customPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
-  const structureProvenance = useVariantAnalysisStore(s => s.structureProvenance);
   const computedPocket = useVariantAnalysisStore(s => s.computedPocket);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading);
   const pocketError = useVariantAnalysisStore(s => s.pocketError);
-  const pdbId = useVariantAnalysisStore(s => s.analysisState?.result?.metadata?.pdbId);
-  const pdbSource = useVariantAnalysisStore(s => s.analysisState?.result?.metadata?.pdbSource);
+  const chain = useVariantAnalysisStore(s => (s.analysisState?.result?.metadata as any)?.chain ?? null);
+  const esm3Scores = useVariantAnalysisStore(s => {
+    const e: any = s.analysisState?.result?.esm3Eval;
+    return e && !("error" in e) && Array.isArray(e.perturbationScores) ? (e.perturbationScores as number[]) : null;
+  });
+  const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
+  const landscapeLength = useVariantAnalysisStore(s => s.analysisState?.result?.landscapeData?.length ?? null);
   const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
   const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
-  const esmFoldPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
-  const esm3Eval = useVariantAnalysisStore(s => s.analysisState?.result?.esm3Eval);
-  const landscapeLength = useVariantAnalysisStore(s => s.analysisState?.result?.landscapeData?.length ?? null);
-  /**
-   * Full-length residue count of the analysed protein — the ONLY number this viewer may label
-   * "Protein Length".
-   *
-   * `landscapeData.length` covers a scan window AROUND the variant, and a previous version fell back
-   * to it under that label: on the run that prompted this audit it printed "Protein Length: 51 aa"
-   * for a 711 aa protein, while the inspector beside it said the sequence exceeded 400 aa. Both
-   * panels read the same run and disagreed by 14x. Selected as a primitive so zustand compares by
-   * value rather than re-rendering on every store write.
-   */
-  const proteinLengthResidues = useVariantAnalysisStore(
-    s => readProteinLength(s.analysisState?.result?.metadata).residues
-  );
+  const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
 
-  const analysisActions = useVariantAnalysisActions();
-  const onResidueHover = analysisActions.setHoveredResidueIndex;
-  const onPdbTextLoaded = analysisActions.setPdbText;
+  const isDark = theme !== "light";
+  const residueColorHex = parseInt((settings.residueColor || "#C46849").replace("#", ""), 16);
 
-  const isDark = contextTheme !== "light";
-  const showPolarContacts = contextShowPolarContacts;
-  const residueColorHex = parseInt((settings.residueColor || "#F97316").replace("#", ""), 16);
-  const cameraDuration = settings.cameraDuration;
-  const autoZoomOnSelect = settings.autoZoomOnSelect;
-  const show3DLabels = settings.show3DLabels !== undefined ? settings.show3DLabels : true;
-  const neonHighContrast = settings.neonHighContrast === true;
-  const energyUnit = settings.energyUnit;
-
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [plddtFilter, setPlddtFilter] = useState<PlddtFilter>("none");
+  const [pocketOpen, setPocketOpen] = useState(false);
+  const [showPocket, setShowPocket] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleFsChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
-    document.addEventListener("fullscreenchange", handleFsChange);
-    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+    const onChange = () => setIsFullscreen(document.fullscreenElement === cardRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  const [isAlertClosed, setIsAlertClosed] = useState<boolean>(false);
-  const [alertPosition, setAlertPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const t = window.setTimeout(() => setCopyState("idle"), 2400);
+    return () => window.clearTimeout(t);
+  }, [copyState]);
 
-  const formatDdG = (val: number | null | undefined, unit?: "kcal/mol" | "kJ/mol") => {
-    if (val === null || val === undefined) return "";
-    if (unit === "kJ/mol") {
-      const kj = val * 4.184;
-      return `${val.toFixed(2)} kcal/mol [~${kj.toFixed(2)} kJ/mol]`;
-    }
-    return `${val.toFixed(2)} kcal/mol`;
-  };
-
-  // 1. Plugin Lifecycle & Canvas Hook
   const plugin = useMolstarPlugin({
     isDark,
-    onResidueHover,
-    onResidueClick
+    onResidueHover: actions.setHoveredResidueIndex,
+    onResidueClick,
   });
 
-  // 2. Pocket Hook
-  const pocket = useMolstarPocket();
+  const pocket = useMemo(
+    () => derivePocketNarrative(computedPocket as any, { isLoading: isPocketLoading, error: pocketError, variantResidueIndex: variantPosition, variantResidueChain: chain }),
+    [computedPocket, isPocketLoading, pocketError, variantPosition, chain]
+  );
+  const pocketIndices = useMemo(() => (pocket.status === "success" ? pocket.lining.byDistance.map(r => r.index) : []), [pocket]);
 
-  // 3. Structure Loading & Representation Hook
   const structure = useMolstarStructure({
     pluginRef: plugin.pluginRef,
     pluginCreated: plugin.pluginCreated,
     uniprotId,
     gene,
-    customPdbData,
-    customPdbUrl,
+    primaryPdbData,
+    customPdbUrl: customPdbUrl || null,
     comparePdbData,
-    residueIndex: residueIndex ?? null,
-    compareResidueIndex: (compareResidueIndex ?? residueIndex) ?? null,
+    allowFetch,
+    colour: model.colour,
+    plddtFilter: model.plddtFilter.available ? plddtFilter : "none",
+    plddtScale: model.plddtFilter.available ? model.plddtFilter.scale : null,
+    esm3Scores: model.representation === "esm3" ? esm3Scores : null,
+    variantPosition,
+    selectedResidue,
     showPolarContacts,
-    show3DLabels,
-    residueColorHex,
-    autoZoomOnSelect,
-    cameraDuration,
-    neonHighContrast,
-    showPocket: pocket.showPocket,
-    computedPocket,
-    pocketComponentRefRef: pocket.pocketComponentRefRef,
+    show3DLabels: settings.show3DLabels !== false,
+    residueColorHex: Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849,
+    neonHighContrast: settings.neonHighContrast === true,
+    autoZoomOnSelect: settings.autoZoomOnSelect,
+    cameraDuration: settings.cameraDuration,
+    showPocket,
+    pocketResidueIndices: pocketIndices,
     fetchWithAuth,
-    onPdbTextLoaded,
-    variant: variant || undefined,
-    esmFoldPdb,
-    esm3Eval: esm3Eval,
-    active3dModelTab,
-    viewMode,
+    onPdbTextLoaded: (text, provenance) => {
+      actions.setPdbText(text);
+      useVariantAnalysisStore.getState().setPdbTextProvenance(provenance);
+    },
+    onEntryLoaded: text => useVariantAnalysisStore.getState().setCustomPdbText(text),
     setLoading: plugin.setLoading,
-    setLoadError: plugin.setLoadError
+    setLoadError: plugin.setLoadError,
   });
 
-  const handleToggleFullscreen = async () => {
-    const el = plugin.containerRef.current?.closest('.molstar-viewer-card') as HTMLElement | null
-      || plugin.containerRef.current?.parentElement?.parentElement as HTMLElement | null;
-    if (!document.fullscreenElement && el) {
-      try { await el.requestFullscreen(); setIsFullscreen(true); } catch (e) {}
-    } else {
-      try { await document.exitFullscreen(); setIsFullscreen(false); } catch (e) {}
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-    setIsDragging(true);
-    setDragStart({
-      x: e.clientX - alertPosition.x,
-      y: e.clientY - alertPosition.y,
-    });
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      setAlertPosition({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      });
-    };
-    const handleMouseUp = () => setIsDragging(false);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDragging, dragStart]);
-
-  const focusOnPocketResidue = (index: number) => {
-    const localPlugin = plugin.pluginRef.current;
-    const struct = structure.structureRef.current;
-    if (!localPlugin || !struct) return;
+  const toggleFullscreen = async () => {
     try {
-      const expression = MS.struct.generator.atomGroups({
-        'residue-test': MS.core.rel.eq([
-          MS.struct.atomProperty.macromolecular.auth_seq_id(),
-          index
-        ])
-      });
-      const selection = Script.getStructureSelection(expression, struct.obj.data);
-      const loci = StructureSelection.toLociWithSourceUnits(selection);
-      localPlugin.managers.camera.focusLoci(loci, { durationMs: 800, extraRadius: 8 });
-    } catch (e) {
-      console.warn("Failed to focus pocket residue:", e);
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await cardRef.current?.requestFullscreen();
+    } catch (err) {
+      console.warn("[3D] Full screen is not available:", err);
     }
   };
+
+  const fileStem = [gene, variant, model.canvas.chip.label, model.representation]
+    .filter(Boolean)
+    .join("_")
+    .replace(/[^A-Za-z0-9._-]+/g, "-");
+
+  const warnings = model.notices.filter(n => n.tone === "warning");
+  const hasVariant = Boolean(uniprotId || primaryPdbData || customPdbUrl);
 
   return (
-    <div className={`flex flex-col gap-3 w-full ${heightClass === "h-full" ? "h-full min-h-0" : ""}`}>
-      {/* INFO & WARNING OVERLAYS */}
-      <MolstarInfoOverlay
-        isPocketPanelOpen={pocket.isPocketPanelOpen}
-        setIsPocketPanelOpen={pocket.setIsPocketPanelOpen}
-        pocketPosition={pocket.pocketPosition}
-        handlePocketMouseDown={pocket.handlePocketMouseDown}
-        residueIndex={residueIndex ?? null}
-        isPocketLoading={isPocketLoading}
-        pocketError={pocketError}
-        computedPocket={computedPocket}
-        showPocket={pocket.showPocket}
-        setShowPocket={pocket.setShowPocket}
-        disruptionWarning={disruptionWarning || null}
-        isAlertClosed={isAlertClosed}
-        setIsAlertClosed={setIsAlertClosed}
-        alertPosition={alertPosition}
-        isDragging={isDragging}
-        handleMouseDown={handleMouseDown}
-      />
-
-      {/* VIEWER CANVAS CARD */}
-      <div className={`molstar-viewer-card relative w-full ${heightClass === "h-full" ? "flex-grow min-h-0" : (heightClass || "h-[650px]")} flex flex-col overflow-hidden transition-all border rounded-xl`} style={{ background: "var(--cs-bg)", borderColor: "var(--cs-border)" }}>
-
-        {/* TOP CONTROL TOOLBAR */}
-        <MolstarToolbar
-          comparePdbData={comparePdbData || null}
-          customPdbData={customPdbData || null}
-          mutantStatus={mutantStatus}
-          active3dModelTab={active3dModelTab}
-          structureProvenance={structureProvenance}
-          viewMode={viewMode || null}
-          alignmentScope={alignmentScope}
+    <div className={`w-full ${heightClass === "h-full" ? "h-full min-h-0" : heightClass || "h-[650px]"}`}>
+      <div ref={cardRef} className="s3d-viewer" data-testid="structure-viewer">
+        <StructureToolbar
+          model={model}
+          variantPosition={variantPosition}
+          selectedResidue={selectedResidue}
+          onModeChange={onModeChange}
+          onRepresentationChange={(rep: RepresentationId) => useVariantAnalysisStore.getState().setStructureRepresentation(rep)}
+          plddtFilter={plddtFilter}
+          onPlddtFilterChange={setPlddtFilter}
           onAlignmentScopeChange={onAlignmentScopeChange}
-          activePdbId={structure.activePdbId}
-          customPdbUrl={customPdbUrl || null}
-          pdbSource={pdbSource || null}
-          pdbId={pdbId || null}
-          uniprotId={uniprotId || null}
-          gene={gene || null}
-          residueIndex={residueIndex ?? null}
-          focusOnPocketResidue={focusOnPocketResidue}
-          viewerStyle={structure.viewerStyle}
-          setViewerStyle={structure.setViewerStyle}
-          templateSource={structure.templateSource}
-          plddtFilter={structure.plddtFilter}
-          setPlddtFilter={structure.setPlddtFilter}
-          isPocketPanelOpen={pocket.isPocketPanelOpen}
-          setIsPocketPanelOpen={pocket.setIsPocketPanelOpen}
-          setShowPocket={pocket.setShowPocket}
-          captureMenuOpen={plugin.captureMenuOpen}
-          setCaptureMenuOpen={plugin.setCaptureMenuOpen}
+          onFocusSite={() => variantPosition && structure.focusResidue(variantPosition)}
+          onBackToSite={() => onResidueClick(variantPosition)}
+          pocketOpen={pocketOpen}
+          onTogglePocket={() => {
+            const next = !pocketOpen;
+            setPocketOpen(next);
+            setShowPocket(next);
+          }}
+          captureOpen={plugin.captureMenuOpen}
+          setCaptureOpen={plugin.setCaptureMenuOpen}
           captureMenuRef={plugin.captureMenuRef}
-          handleDownloadCapture={() => plugin.handleDownloadCapture(gene, uniprotId)}
-          handleCopyCapture={plugin.handleCopyCapture}
+          onDownload={() => plugin.handleDownloadCapture(fileStem)}
+          onCopy={async () => setCopyState((await plugin.handleCopyCapture()) ? "copied" : "failed")}
+          copyState={copyState}
+          onOpenGuide={() => actions.setIsHowToInspectOpen(true)}
           isFullscreen={isFullscreen}
-          handleToggleFullscreen={handleToggleFullscreen}
+          onToggleFullscreen={toggleFullscreen}
         />
 
-        {/* Main Viewport Container */}
-        <div className="flex-1 min-h-0 relative w-full h-full">
+        {warnings.length > 0 && (
+          <div className="s3d-banner" role="note">
+            <AlertTriangle aria-hidden="true" />
+            <span>
+              <strong>{warnings[0].title}.</strong> {warnings[0].body}
+            </span>
+          </div>
+        )}
 
-          {/* ESM3 Unavailable Overlay */}
-          {structure.viewerStyle === "esm3-allosteric" && (!esm3Eval || ("error" in esm3Eval)) && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
-              <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-muted)" }} />
-              <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>
-                {esm3Eval && "error" in esm3Eval ? "ESM3 Prediction Failed" : "ESM3 Representation Data Unavailable"}
-              </p>
-              <p className="text-xs max-w-md mb-4 text-center leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                {esm3Eval && "error" in esm3Eval
-                  ? (esm3Eval as any).error
-                  : "Allosteric perturbation heatmap requires an active Biohub API token. Configure your Biohub key in Settings to analyze structure-level attention maps."}
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsSettingsOpen(true)}
-                className="px-4 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--cs-surface-2)] cursor-pointer transition-colors shadow-sm"
-                style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)", borderColor: "var(--cs-border)" }}
-              >
-                Configure API Key
-              </button>
-            </div>
+        <div className="s3d-stage">
+          <div ref={plugin.containerRef} className="s3d-canvas" id="molstar-viewer-container" />
+          <StructureLegend legend={model.legend} />
+          {pocketOpen && (
+            <StructurePocketPanel
+              pocket={pocket}
+              variantPosition={variantPosition}
+              showOnStructure={showPocket}
+              onToggleShow={() => setShowPocket(s => !s)}
+              onFocusResidue={structure.focusResidue}
+              onOpenTab={onOpenPocketTab}
+              onClose={() => {
+                setPocketOpen(false);
+                setShowPocket(false);
+              }}
+            />
           )}
-
-          {/* ESMFold-2 Active Prediction Loading State */}
-          {(active3dModelTab === "esmfold2" || active3dModelTab === "esm3") && isEsmFolding && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
-              <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent)", borderTopColor: "transparent" }}></div>
-              <p className="font-mono text-xs font-bold tracking-wider uppercase animate-pulse" style={{ color: "var(--cs-accent)" }}>
-                Predicting 3D Mutant Structure via ESMFold-2...
-              </p>
-            </div>
-          )}
-
-          {/* Standard Model Loading Overlay */}
-          {plugin.loading && !isEsmFolding && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 backdrop-blur-sm" style={{ background: "var(--cs-surface)", color: "var(--cs-text-primary)" }}>
-              <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent)", borderTopColor: "transparent" }}></div>
-              <p className="font-mono text-xs font-bold tracking-wider uppercase animate-pulse" style={{ color: "var(--cs-accent)" }}>
-                {customPdbData ? "Rendering Mutant Structure..." : "Fetching Structure Coordinates..."}
-              </p>
-            </div>
-          )}
-
-          {/* Structure Load Error Overlay */}
-          {(plugin.loadError || ((active3dModelTab === "esmfold2" || active3dModelTab === "esm3") && !isEsmFolding && !esmFoldPdb && !customPdbData)) && (() => {
-            const isEsmMode = active3dModelTab === "esmfold2" || active3dModelTab === "esm3";
-            /**
-             * Residue counts, from the only two sources that describe THIS protein.
-             *
-             * `reportedLength` is the count the server said it rejected — the sole authority on what it
-             * actually tried to fold. `proteinLengthResidues` is the full-length translation.
-             *
-             * The previous version parsed any `(\d+)\s*aa` out of the error and, failing that, fell back
-             * to `landscapeData.length` — the width of a scan WINDOW around the variant — then printed
-             * it under the label "Protein Length". The loose pattern is gone
-             * (`parseReportedSequenceLength` accepts only the canonical shapes), and the window is now
-             * reported as a window.
-             */
-            const reportedLength = parseReportedSequenceLength(esmFoldingError);
-            const detectedAaLength = reportedLength ?? proteinLengthResidues;
-            const isLengthLimit = isFoldingLengthLimitError(esmFoldingError);
-            const exceedsTier1 =
-              detectedAaLength !== null &&
-              !resolveDeNovoFoldingCapacity(detectedAaLength).tier1Available;
-            /**
-             * Shown only when it is a genuinely different quantity, so the two numbers can never be
-             * read as two answers to one question.
-             */
-            const scanWindowLength =
-              landscapeLength !== null && landscapeLength !== detectedAaLength ? landscapeLength : null;
-
-            return (
-              <div
-                className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center backdrop-blur-md overflow-y-auto"
-                style={{
-                  background: isDark ? "rgba(26, 24, 22, 0.88)" : "rgba(255, 255, 255, 0.88)",
-                  color: "var(--cs-text-primary)"
-                }}
-              >
-                <div
-                  className="max-w-md w-full p-6 rounded-2xl border flex flex-col items-center text-center shadow-lg transition-all animate-fade-in"
-                  style={{
-                    background: "var(--cs-surface)",
-                    borderColor: "var(--cs-border)"
-                  }}
-                >
-                  {isEsmMode ? (
-                    <>
-                      {/* Diagnostic Badges */}
-                      <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-                        <span
-                          className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
-                          style={{
-                            background: "var(--cs-surface-2)",
-                            borderColor: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-border)",
-                            color: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-text-secondary)"
-                          }}
-                        >
-                          {isLengthLimit
-                            ? (exceedsTier1
-                                ? `ESMFold-2 Limit: ${formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} aa`
-                                : `ESM Atlas Limit: ${ESM_ATLAS_PUBLIC_MAX_AA} aa`)
-                            : "ESMFold Service Notice"}
-                        </span>
-                        {detectedAaLength !== null && (
-                          <span
-                            className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
-                            style={{
-                              background: "var(--cs-surface-2)",
-                              borderColor: "var(--cs-border)",
-                              color: "var(--cs-text-muted)"
-                            }}
-                          >
-                            Protein Length: {formatResidueCount(detectedAaLength)} aa
-                          </span>
-                        )}
-                        {scanWindowLength !== null && (
-                          <span
-                            className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase border"
-                            style={{
-                              background: "var(--cs-surface-2)",
-                              borderColor: "var(--cs-border)",
-                              color: "var(--cs-text-muted)"
-                            }}
-                            title="The residue-level landscape covers a window around the variant, not the whole protein."
-                          >
-                            Scan Window: {formatResidueCount(scanWindowLength)} aa
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Icon */}
-                      <div
-                        className="w-12 h-12 rounded-full flex items-center justify-center mb-3 shadow-xs"
-                        style={{
-                          background: isLengthLimit ? "rgba(196, 104, 73, 0.12)" : "rgba(220, 38, 38, 0.1)",
-                          color: isLengthLimit ? "var(--cs-accent-clay)" : "var(--cs-text-danger)"
-                        }}
-                      >
-                        {isLengthLimit ? <Layers className="w-6 h-6" /> : <Activity className="w-6 h-6" />}
-                      </div>
-
-                      {/* Title */}
-                      <h4 className="font-semibold text-base mb-2" style={{ color: "var(--cs-text-primary)" }}>
-                        {isLengthLimit
-                          ? (exceedsTier1
-                              ? `Sequence Exceeds De Novo ESMFold Limit (${formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} aa)`
-                              : `Sequence Exceeds Public ESMFold Limit (${ESM_ATLAS_PUBLIC_MAX_AA} aa)`)
-                          : "ESMFold Structure Unavailable"}
-                      </h4>
-
-                      {/* Message Body */}
-                      <p className="text-xs leading-relaxed mb-5" style={{ color: "var(--cs-text-secondary)" }}>
-                        {/*
-                          * The timeout explanation is shared with the inspector's failure card, so the two
-                          * panels cannot tell different stories about one run — and it hedges the cause,
-                          * because a client abort carries no evidence of the provider's load.
-                          */}
-                        {isFoldingTimeoutError(esmFoldingError)
-                          ? describeDeNovoFoldTimeout({ residues: detectedAaLength, verbosity: "detailed" })
-                          : (esmFoldingError || (isLengthLimit
-                              ? (exceedsTier1
-                                  ? `Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to ${formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} residues, and the public ESM Atlas endpoint to ${ESM_ATLAS_PUBLIC_MAX_AA}. This protein has ${formatResidueCount(detectedAaLength!)} residues.`
-                                  : `The public ESM Atlas API limits de novo single-sequence folding to proteins ≤ ${ESM_ATLAS_PUBLIC_MAX_AA} amino acids. This protein has ${detectedAaLength !== null ? `${formatResidueCount(detectedAaLength)} residues` : `more than ${ESM_ATLAS_PUBLIC_MAX_AA} residues`}.`)
-                              : "The ESMFold-2 de novo structure generation service encountered an error or is offline."))}
-                      </p>
-
-                      {/* Action Buttons */}
-                      <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full justify-center mb-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onModelTabChange?.("alphafold2");
-                            analysisActions.setActive3dModelTab("alphafold2");
-                          }}
-                          className="w-full sm:w-auto px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all cursor-pointer shadow-sm flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.96]"
-                          style={{ background: "var(--cs-accent-clay)" }}
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Switch to AlphaFold Structure</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsSettingsOpen(true)}
-                          className="w-full sm:w-auto px-3 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-1.5 hover:bg-[var(--cs-surface-2)] active:scale-[0.96]"
-                          style={{
-                            background: "var(--cs-surface-2)",
-                            borderColor: "var(--cs-border)",
-                            color: "var(--cs-text-primary)"
-                          }}
-                        >
-                          <Settings className="w-3.5 h-3.5" style={{ color: "var(--cs-text-muted)" }} />
-                          <span>Configure API Key</span>
-                        </button>
-                      </div>
-
-                      {/* Informational Callout */}
-                      <div
-                        className="w-full p-2.5 rounded-lg border text-[11px] leading-relaxed text-left"
-                        style={{
-                          background: "var(--cs-surface-2)",
-                          borderColor: "var(--cs-border-subtle)",
-                          color: "var(--cs-text-muted)"
-                        }}
-                      >
-                        <p className="flex items-start gap-1.5">
-                          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--cs-accent-clay)" }} />
-                          <span>
-                            {isLengthLimit ? (
-                              <>
-                                <strong>Public API Restriction:</strong> Tier-1 JapanFold ESMFold-2 limits de novo single-sequence folding to {formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA)} residues, while the public ESM Atlas endpoint limits folding to {ESM_ATLAS_PUBLIC_MAX_AA} residues. Switch to <strong>AlphaFold</strong> to inspect full-length coordinates, or configure an <strong>EvolutionaryScale / Biohub API key</strong> in Settings for full-length de novo folding.
-                              </>
-                            ) : (
-                              <>
-                                <strong>Alternative:</strong> Switch to the <strong>AlphaFold structure</strong> to inspect predicted 3D coordinates for this variant.
-                              </>
-                            )}
-                          </span>
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Activity className="w-10 h-10 mb-3" style={{ color: "var(--cs-text-danger)" }} />
-                      <p className="font-semibold text-base mb-1" style={{ color: "var(--cs-text-primary)" }}>
-                        Structure Unavailable
-                      </p>
-                      <p className="text-xs max-w-sm mb-3 leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                        {plugin.loadError || "3D model coordinates generation failed or endpoint is unreachable."}
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Onboarding Welcome Overlay */}
-          {!uniprotId && !customPdbData && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-8 text-center" style={{ background: "var(--cs-bg)", color: "var(--cs-text-primary)" }}>
-              <h3 className="text-sm font-semibold font-mono uppercase tracking-wider mb-3" style={{ color: "var(--cs-accent)" }}>
-                3D Molecular Workspace Ready
-              </h3>
-              <p className="text-xs max-w-sm mb-6 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-                Submit a genetic variant search query to load and inspect 3D protein structures.
-              </p>
-            </div>
-          )}
-
-          <div 
-            ref={plugin.containerRef} 
-            id="molstar-viewer-container" 
-            className="w-full h-full text-slate-900 transition-all duration-700 ease-out opacity-100 scale-100 blur-0"
+          <StructureStatusOverlay
+            family={model.family}
+            hasVariant={hasVariant}
+            loading={plugin.loading}
+            loadError={plugin.loadError}
+            deNovoFolding={isEsmFolding}
+            deNovoError={esmFoldingError}
+            deNovoLoaded={Boolean(esmFoldWtPdb)}
+            proteinLength={proteinLength}
+            scanWindowLength={landscapeLength !== null && landscapeLength !== proteinLength ? landscapeLength : null}
+            customEntryLoaded={Boolean(customPdbUrl)}
+            onSwitchToAlphaFold={onSwitchToAlphaFold}
+            onClearEntry={() => actions.setCustomPdbUrl(null)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         </div>
       </div>

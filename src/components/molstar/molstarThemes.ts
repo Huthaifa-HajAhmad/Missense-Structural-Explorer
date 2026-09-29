@@ -1,343 +1,214 @@
 /**
- * molstarThemes.ts — Molstar color themes, interfaces, and utilities.
- * Extracted from MolstarViewer.tsx. No React imports needed.
+ * molstarThemes.ts — the 3D view's Mol* colour themes.
+ *
+ * Every band and colour comes from `STRUCTURE_COLOUR_BANDS` / `THRESHOLDS.esm3Drift` in
+ * `src/shared/thresholds`, which the on-canvas legend reads too, so the canvas and its key cannot
+ * disagree. Which theme a structure gets is decided by `src/shared/structure3dEvidence.ts` from
+ * provenance — never here, and never from the B-factor values themselves.
+ *
+ * Replaced: a pLDDT theme that assumed 0–100 (ESM Atlas writes 0–1, so every residue came out "very
+ * low"); a B-factor theme banded at 20/40/60 Å² with no source (B-factors are not comparable across
+ * entries); an "ESM3 Allosteric" theme banded at 0.05/0.15/0.35 while the engine used 0.08/0.22/0.38.
  */
-import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
-import { Script } from "molstar/lib/mol-script/script";
-import { StructureSelection, StructureElement, StructureProperties, Unit, Bond } from "molstar/lib/mol-model/structure";
-import { Vec3 } from "molstar/lib/mol-math/linear-algebra/3d/vec3";
+import { StructureElement, StructureProperties, Unit, Bond } from "molstar/lib/mol-model/structure";
 import { Color } from "molstar/lib/mol-util/color";
 import { ColorTheme } from "molstar/lib/mol-theme/color";
-import { TableLegend } from "molstar/lib/mol-util/legend";
 import { ColorThemeCategory } from "molstar/lib/mol-theme/color/categories";
-
-// Pocket coordinate-level structures
-export interface PocketResidue {
-  index: number;
-  name: string;
-  distance: number;
-  score: number;
-  role: string;
-  type: string;
-}
-
-export interface PocketResult {
-  pocketResidues: PocketResidue[];
-  pocketScore: number;
-  pocketVolume: number;
-  likelyCofactor: string;
-  pocketDistance: number | null;
-  status?: string;
-}
-
-const CustomPLDDTColors = {
-  'No Score': Color(0xaaaaaa),
-  'Very Low': Color(0xff7d45),
-  'Low': Color(0xffdb13),
-  'Confident': Color(0x65cbf3),
-  'Very High': Color(0x0053d6)
-};
-
-const CustomPLDDTLegend = TableLegend(Object.entries(CustomPLDDTColors) as any);
-
-export function CustomPLDDTColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0xaaaaaa);
-  
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0xaaaaaa);
-      
-      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
-      
-      if (score < 0 || typeof score !== 'number') {
-        return Color(0xaaaaaa);
-      } else if (score <= 50) {
-        return Color(0xff7d45); // Orange/Red
-      } else if (score <= 70) {
-        return Color(0xffdb13); // Yellow
-      } else if (score <= 90) {
-        return Color(0x65cbf3); // Cyan
-      } else {
-        return Color(0x0053d6); // Blue
-      }
-    };
-    
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) {
-        return getColor(location);
-      } else if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0xaaaaaa);
-    };
-  }
-  
-  return {
-    factory: CustomPLDDTColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'Custom pLDDT confidence coloring based on PDB B-factors',
-    legend: CustomPLDDTLegend
-  };
-}
-
-export const CustomPLDDTColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'plddt-confidence',
-  label: 'pLDDT Confidence (B-factor)',
-  category: ColorThemeCategory.Validation,
-  factory: CustomPLDDTColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure
-};
-
-export function CustomBFactorColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0xaaaaaa);
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0xaaaaaa);
-      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
-      if (score === null || score === undefined || typeof score !== 'number') {
-        return Color(0xaaaaaa);
-      } else if (score < 20) {
-        return Color(0x0053d6); // Blue (Highly Rigid)
-      } else if (score < 40) {
-        return Color(0x65cbf3); // Cyan (Stable)
-      } else if (score < 60) {
-        return Color(0xffdb13); // Yellow (Moderately Mobile)
-      } else {
-        return Color(0xff7d45); // Orange/Red (Highly Mobile)
-      }
-    };
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) return getColor(location);
-      if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0xaaaaaa);
-    };
-  }
-  return {
-    factory: CustomBFactorColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'Custom B-factor mobility coloring based on PDB temperature factors',
-    legend: TableLegend(Object.entries({
-      'Highly Rigid (<20)': Color(0x0053d6),
-      'Stable (20-40)': Color(0x65cbf3),
-      'Moderately Mobile (40-60)': Color(0xffdb13),
-      'Highly Mobile (>60)': Color(0xff7d45),
-    }) as any)
-  };
-}
-
-export const CustomBFactorColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'bfactor-mobility',
-  label: 'B-factor / Mobility',
-  category: ColorThemeCategory.Validation,
-  factory: CustomBFactorColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure
-};
-
-export function CustomDisplacementColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0x3b82f6);
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0x3b82f6);
-      const score = unit.model.atomicConformation.B_iso_or_equiv.value(element);
-      if (score === null || score === undefined || typeof score !== 'number' || isNaN(score)) {
-        return Color(0x3b82f6);
-      } else if (score < 0.2) {
-        return Color(0x3b82f6); // Negligible (<0.2 Å) Blue
-      } else if (score < 0.5) {
-        return Color(0x65cbf3); // Minor (0.2-0.5 Å) Cyan/Light Blue
-      } else if (score < 1.0) {
-        return Color(0x10b981); // Moderate (0.5-1.0 Å) Green
-      } else if (score < 2.5) {
-        return Color(0xf59e0b); // Significant (1.0-2.5 Å) Orange/Yellow
-      } else {
-        return Color(0xef4444); // Severe (>=2.5 Å) Red
-      }
-    };
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) return getColor(location);
-      if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0x3b82f6);
-    };
-  }
-  return {
-    factory: CustomDisplacementColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'Custom backbone Cα displacement heatmap coloring',
-    legend: TableLegend(Object.entries({
-      'Negligible (<0.2 Å)': Color(0x3b82f6),
-      'Minor (0.2-0.5 Å)': Color(0x65cbf3),
-      'Moderate (0.5-1.0 Å)': Color(0x10b981),
-      'Significant (1.0-2.5 Å)': Color(0xf59e0b),
-      'Severe (≥2.5 Å)': Color(0xef4444)
-    }) as any)
-  };
-}
-
-export const CustomDisplacementColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'backbone-displacement',
-  label: 'Backbone Displacement (heatmap)',
-  category: ColorThemeCategory.Validation,
-  factory: CustomDisplacementColorTheme,
-  getParams: () => ({}),
-  defaultValues: {},
-  isApplicable: (ctx: any) => !!ctx.structure
-};
-
-export function CustomESM3AllostericColorTheme(ctx: any, props: any) {
-  let color = (location: any) => Color(0x38bdf8);
-  const perturbationScores: number[] = props?.perturbationScores || [];
-  if (ctx.structure) {
-    const l = StructureElement.Location.create(ctx.structure.root);
-    const getColor = (location: any) => {
-      const { unit, element } = location;
-      if (!Unit.isAtomic(unit)) return Color(0x38bdf8);
-      const seqNum = StructureProperties.residue.auth_seq_id(location);
-      const score = (perturbationScores && seqNum > 0 && seqNum <= perturbationScores.length)
-        ? perturbationScores[seqNum - 1]
-        : -1;
-      if (score === null || score === undefined || score < 0 || isNaN(score)) return Color(0x94a3b8); // Uncomputed Grey
-      if (score <= 0.05) return Color(0x38bdf8); // Unperturbed Ice Cyan
-      if (score <= 0.15) return Color(0x34d399); // Minor Emerald
-      if (score <= 0.35) return Color(0xf59e0b); // Moderate Amber
-      return Color(0xe11d48); // High Disruption Rose/Crimson
-    };
-    color = (location: any) => {
-      if (StructureElement.Location.is(location)) return getColor(location);
-      if (Bond.isLocation(location)) {
-        l.unit = location.aUnit;
-        l.element = location.aUnit.elements[location.aIndex];
-        return getColor(l);
-      }
-      return Color(0x38bdf8);
-    };
-  }
-  return {
-    factory: CustomESM3AllostericColorTheme,
-    granularity: 'group' as any,
-    preferSmoothing: true,
-    color,
-    props,
-    description: 'ESM3 Allosteric Disruption Heatmap',
-    legend: TableLegend(Object.entries({
-      'No Data / Uncomputed': Color(0x94a3b8),
-      'Unperturbed (<0.05)': Color(0x38bdf8),
-      'Minor Shift (0.05-0.15)': Color(0x34d399),
-      'Moderate Shift (0.15-0.35)': Color(0xf59e0b),
-      'Severe Allosteric Hub (>0.35)': Color(0xe11d48),
-    }) as any)
-  };
-}
-
 import { ParamDefinition as PD } from "molstar/lib/mol-util/param-definition";
+import { STRUCTURE_COLOUR_BANDS, THRESHOLDS } from "../../shared/thresholds";
 
-export const CustomESM3AllostericColorThemeParams = {
-  perturbationScores: PD.Value<number[]>([], { isEssential: true })
-};
+export type { PocketResidue, PocketResult } from "../../types";
 
-export function getCustomESM3AllostericColorThemeParams(ctx: any) {
-  return CustomESM3AllostericColorThemeParams;
+const NONE = Color(STRUCTURE_COLOUR_BANDS.none);
+
+/**
+ * Wraps a per-atom colour function into a Mol* theme: bonds take their first atom's colour, and any
+ * non-atomic location is "not covered".
+ */
+function atomTheme(
+  ctx: any,
+  props: any,
+  factory: any,
+  description: string,
+  colorOf: (unit: Unit.Atomic, element: number, location: StructureElement.Location) => Color
+) {
+  let color = (_location: any) => NONE;
+  if (ctx.structure) {
+    const scratch = StructureElement.Location.create(ctx.structure.root);
+    const atomColor = (location: StructureElement.Location) => {
+      const { unit, element } = location;
+      if (!Unit.isAtomic(unit)) return NONE;
+      return colorOf(unit, element, location);
+    };
+    color = (location: any) => {
+      if (StructureElement.Location.is(location)) return atomColor(location);
+      if (Bond.isLocation(location)) {
+        scratch.unit = location.aUnit;
+        scratch.element = location.aUnit.elements[location.aIndex];
+        return atomColor(scratch);
+      }
+      return NONE;
+    };
+  }
+  return { factory, granularity: "group" as any, preferSmoothing: true, color, props, description };
 }
 
-export const CustomESM3AllostericColorThemeProvider: ColorTheme.Provider<any, any> = {
-  name: 'esm3-allosteric',
-  label: 'ESM3 Allosteric Perturbation',
-  category: ColorThemeCategory.Validation,
-  factory: CustomESM3AllostericColorTheme,
-  getParams: getCustomESM3AllostericColorThemeParams,
-  defaultValues: PD.getDefaultValues(CustomESM3AllostericColorThemeParams),
-  isApplicable: (ctx: any) => !!ctx.structure
+/* ── pLDDT, AlphaFold DB bands, on either stored scale ─────────────────── */
+
+export const PlddtThemeParams = {
+  /** 100 when the file stores 0–100 (AlphaFold DB, ESMFold2), 1 when it stores 0–1 (ESM Atlas). */
+  scale: PD.Numeric(100, { min: 1, max: 100, step: 99 }),
 };
+
+export function plddtColor(raw: number, scale: number): Color {
+  if (!Number.isFinite(raw) || raw < 0) return NONE;
+  const value = scale === 1 ? raw * 100 : raw;
+  const band = STRUCTURE_COLOUR_BANDS.plddt.find(b => value > b.min) ?? STRUCTURE_COLOUR_BANDS.plddt[3];
+  return Color(band.color);
+}
+
+export function PlddtColorTheme(ctx: any, props: any) {
+  const scale = props?.scale === 1 ? 1 : 100;
+  return atomTheme(ctx, props, PlddtColorTheme, "pLDDT, AlphaFold DB bands", (unit, element) =>
+    plddtColor(unit.model.atomicConformation.B_iso_or_equiv.value(element), scale)
+  );
+}
+
+export const PlddtColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: "plddt-confidence",
+  label: "pLDDT (AlphaFold DB bands)",
+  category: ColorThemeCategory.Validation,
+  factory: PlddtColorTheme,
+  getParams: () => PlddtThemeParams,
+  defaultValues: PD.getDefaultValues(PlddtThemeParams),
+  isApplicable: (ctx: any) => !!ctx.structure,
+};
+
+/* ── Crystallographic B-factor, by quartile of this structure ──────────── */
+
+/** Quartile cuts of Cα B-factors over the structure the theme is applied to. */
+function caQuartiles(structure: any): [number, number, number] | null {
+  const values: number[] = [];
+  const loc = StructureElement.Location.create(structure.root);
+  for (const unit of structure.units) {
+    if (!Unit.isAtomic(unit)) continue;
+    loc.unit = unit;
+    const els = unit.elements;
+    for (let i = 0; i < els.length; i++) {
+      loc.element = els[i];
+      if (StructureProperties.atom.label_atom_id(loc) !== "CA") continue;
+      const b = unit.model.atomicConformation.B_iso_or_equiv.value(els[i]);
+      if (Number.isFinite(b)) values.push(b);
+    }
+  }
+  if (values.length < 4) return null;
+  values.sort((a, b) => a - b);
+  const q = (p: number) => {
+    const pos = (values.length - 1) * p;
+    const lo = Math.floor(pos);
+    const hi = Math.ceil(pos);
+    return lo === hi ? values[lo] : values[lo] + (values[hi] - values[lo]) * (pos - lo);
+  };
+  return [q(0.25), q(0.5), q(0.75)];
+}
+
+export function BFactorQuartileColorTheme(ctx: any, props: any) {
+  const cuts = ctx.structure ? caQuartiles(ctx.structure) : null;
+  const colours = STRUCTURE_COLOUR_BANDS.bFactorQuartile.map(b => Color(b.color));
+  return atomTheme(ctx, props, BFactorQuartileColorTheme, "B-factor quartile within this entry", (unit, element) => {
+    if (!cuts) return NONE;
+    const b = unit.model.atomicConformation.B_iso_or_equiv.value(element);
+    if (!Number.isFinite(b)) return NONE;
+    return b <= cuts[0] ? colours[0] : b <= cuts[1] ? colours[1] : b <= cuts[2] ? colours[2] : colours[3];
+  });
+}
+
+export const BFactorQuartileColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: "bfactor-quartile",
+  label: "B-factor (quartiles of this entry)",
+  category: ColorThemeCategory.Validation,
+  factory: BFactorQuartileColorTheme,
+  getParams: () => ({}),
+  defaultValues: {},
+  isApplicable: (ctx: any) => !!ctx.structure,
+};
+
+/* ── Cα displacement after superposition (the aligner writes Å into B) ─── */
+
+export function displacementColor(value: number): Color {
+  if (!Number.isFinite(value)) return NONE;
+  const band = STRUCTURE_COLOUR_BANDS.displacement.find(b => value < b.max) ?? STRUCTURE_COLOUR_BANDS.displacement[4];
+  return Color(band.color);
+}
+
+export function DisplacementColorTheme(ctx: any, props: any) {
+  return atomTheme(ctx, props, DisplacementColorTheme, "Cα displacement after superposition (app-defined bands)", (unit, element) =>
+    displacementColor(unit.model.atomicConformation.B_iso_or_equiv.value(element))
+  );
+}
+
+export const DisplacementColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: "backbone-displacement",
+  label: "Cα displacement (app-defined bands)",
+  category: ColorThemeCategory.Validation,
+  factory: DisplacementColorTheme,
+  getParams: () => ({}),
+  defaultValues: {},
+  isApplicable: (ctx: any) => !!ctx.structure,
+};
+
+/* ── ESM3 embedding shift, the engine's own bands ───────────────────────── */
+
+export const Esm3ShiftThemeParams = {
+  perturbationScores: PD.Value<number[]>([], { isEssential: true }),
+};
+
+export function esm3ShiftColor(score: number | null | undefined): Color {
+  if (score === null || score === undefined || !Number.isFinite(score) || score < 0) return NONE;
+  const d = THRESHOLDS.esm3Drift;
+  const c = STRUCTURE_COLOUR_BANDS.esm3Shift;
+  return Color(score < d.none ? c[0] : score < d.minor ? c[1] : score < d.moderate ? c[2] : c[3]);
+}
+
+export function Esm3ShiftColorTheme(ctx: any, props: any) {
+  const scores: number[] = props?.perturbationScores || [];
+  return atomTheme(ctx, props, Esm3ShiftColorTheme, "ESM3 embedding shift (engine bands)", (_unit, _element, location) => {
+    // Scores are indexed by UniProt position; the model only offers this theme on UniProt-numbered structures.
+    const seq = StructureProperties.residue.auth_seq_id(location);
+    return esm3ShiftColor(seq > 0 && seq <= scores.length ? scores[seq - 1] : null);
+  });
+}
+
+export const Esm3ShiftColorThemeProvider: ColorTheme.Provider<any, any> = {
+  name: "esm3-shift",
+  label: "ESM3 embedding shift",
+  category: ColorThemeCategory.Validation,
+  factory: Esm3ShiftColorTheme,
+  getParams: () => Esm3ShiftThemeParams,
+  defaultValues: PD.getDefaultValues(Esm3ShiftThemeParams),
+  isApplicable: (ctx: any) => !!ctx.structure,
+};
+
+export const STRUCTURE_THEME_PROVIDERS = [
+  PlddtColorThemeProvider,
+  BFactorQuartileColorThemeProvider,
+  DisplacementColorThemeProvider,
+  Esm3ShiftColorThemeProvider,
+];
 
 export function isValidPdbUrl(url: string): boolean {
   if (!url) return false;
+  // Protocol-relative ("//host/…") is an external origin, and `fetchWithAuth` would send it the
+  // session credentials; it used to pass as a "local" path because it starts with "/".
+  if (url.startsWith("//") || url.startsWith("\\")) return false;
   if (url.startsWith("/") || (!url.startsWith("http://") && !url.startsWith("https://"))) {
     return true;
   }
   try {
     const parsed = new URL(url);
-    const allowedDomains = [
-      "alphafold.ebi.ac.uk",
-      "files.rcsb.org",
-      "pdbe.org",
-      "www.ebi.ac.uk"
-    ];
-    return allowedDomains.some(domain => 
-      parsed.hostname === domain || parsed.hostname.endsWith("." + domain)
-    );
+    const allowedDomains = ["alphafold.ebi.ac.uk", "files.rcsb.org", "pdbe.org", "www.ebi.ac.uk"];
+    return allowedDomains.some(domain => parsed.hostname === domain || parsed.hostname.endsWith("." + domain));
   } catch {
     return false;
   }
-}
-
-// Declare custom property to store selection status or custom controls if needed
-export interface MolstarViewerProps {
-  residueIndex: number | null;
-  customPdbData?: string;
-  customPdbUrl?: string;
-  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
-  onModelTabChange?: (tab: "alphafold2" | "esmfold2" | "esm3") => void;
-  uniprotId?: string;
-  gene?: string;
-  showPolarContacts?: boolean;
-  theme?: "dark" | "light";
-  onResidueHover?: (index: number | null) => void;
-  onResidueClick?: (index: number | null) => void;
-  comparePdbData?: string | null;
-  compareResidueIndex?: number | null;
-  compareVariant?: string | null;
-  disruptionWarning?: {
-    type: "both" | "clash" | "hbond";
-    title: string;
-    description: string;
-  } | null;
-  mutantStatus?: string | null;
-  mutantDdG?: number | null;
-  heightClass?: string;
-  variant?: string;
-  residueColorHex?: number;
-  cameraDuration?: number;
-  autoZoomOnSelect?: boolean;
-  neonHighContrast?: boolean;
-  energyUnit?: string;
-  fetchNearestResidues?: any;
-  onPdbTextLoaded?: (text: string) => void;
-  computedPocket?: PocketResult | null;
-  isPocketLoading?: boolean;
-  pocketError?: string | null;
-  pdbId?: string | null;
-  pdbSource?: string | null;
-  metrics?: any | null;
-  viewMode?: "wildtype" | "mutant" | "superimposed";
-  alignmentScope?: "local" | "global";
-  onAlignmentScopeChange?: (scope: "local" | "global") => void;
 }

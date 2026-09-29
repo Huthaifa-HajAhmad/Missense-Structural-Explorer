@@ -134,16 +134,16 @@ export function describeDeNovoCapacityNotice(capacity: DeNovoFoldingCapacity): F
   if (!capacity.tier1Available) {
     return {
       tone: "warning",
-      title: "ESMFold-2 Size Limit",
-      body: `This ${residues} aa sequence exceeds the de novo folding ceilings of ${tier1} aa for Tier-1 JapanFold ESMFold-2 and ${ESM_ATLAS_PUBLIC_MAX_AA} aa for the public ESM Atlas endpoint, so no de novo model can be produced for it. AlphaFold2 coordinates are the full-length option.`,
+      title: "Too long for de novo folding",
+      body: `This ${residues} aa sequence exceeds the de novo folding ceilings of ${tier1} aa for Tier-1 JapanFold (ESMFold2-Fast) and ${ESM_ATLAS_PUBLIC_MAX_AA} aa for the public ESM Atlas endpoint, so no de novo model can be produced for it. AlphaFold2 coordinates are the full-length option.`,
     };
   }
 
   if (!capacity.publicFallbackAvailable) {
     return {
       tone: "info",
-      title: "ESMFold-2 Fallback Notice",
-      body: `This ${residues} aa sequence exceeds the ${ESM_ATLAS_PUBLIC_MAX_AA} aa ceiling of the keyless public ESM Atlas endpoint, so that fallback is unavailable. Folding uses Tier-1 JapanFold ESMFold-2, which accepts up to ${tier1} aa; if Tier-1 does not answer, there is no fallback for this length.`,
+      title: "No keyless fallback at this length",
+      body: `This ${residues} aa sequence exceeds the ${ESM_ATLAS_PUBLIC_MAX_AA} aa ceiling of the keyless public ESM Atlas endpoint, so that fallback is unavailable. Folding uses Tier-1 JapanFold (ESMFold2-Fast), which accepts up to ${tier1} aa; if Tier-1 does not answer, there is no fallback for this length.`,
     };
   }
 
@@ -165,7 +165,7 @@ export function describeDeNovoFoldTimeout(options: { residues?: number | null; v
   const cause = "the folding provider's queue depth is the usual cause, though its load is not visible from here";
 
   if (verbosity === "detailed" && residues !== null) {
-    return `ESMFold-2 de novo prediction timed out for this ${formatResidueCount(residues)} aa sequence: ${cause}.`;
+    return `De novo prediction timed out for this ${formatResidueCount(residues)} aa sequence: ${cause}.`;
   }
 
   return `De novo prediction timed out before the folding service returned coordinates: ${cause}.`;

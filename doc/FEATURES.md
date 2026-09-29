@@ -13,27 +13,40 @@ Instead of relying on static pre-calculated variants, the dashboard dynamically 
 
 ---
 
-## 2. Interactive 3D Viewer Capabilities (Molstar Engine)
-The molecular canvas (WebGL) allows users to manipulate structures with high precision:
+## 2. 3D Structure View (Mol*)
+Two views share one canvas, toolbar, colour key and inspector trace, all rendered from
+`src/shared/structure3dEvidence.ts` (review: `doc/STRUCTURE_3D_REVIEW.md`).
 
-### 2.1. Structural Preset Color Themes
-* **PLDDT Confidence**: Colors the peptide chain by AlphaFold's *predicted local distance difference test* score (Very High [Dark Blue] -> confident backbone; Medium [Yellow] -> flexible loop; Very Low [Orange] -> intrinsically disordered regions).
-* **Element / CPK**: Standard chemical modeling colors (Carbon: Grey, Oxygen: Red, Nitrogen: Blue, Sulfur: Yellow, Zinc: Grey/Plum).
-* **Hydrophobicity**: Colors the interior residue cores differently from the hydrophilic outward-facing residues.
-* **Secondary Structure**: Distinct coloring for alpha-helices, beta-sheets, and coils.
+### 2.1. What is on the canvas
+* **AlphaFold2 view**: the AlphaFold DB model as wild type; the FoldX variant (BuildModel on the
+  template the stability run resolved — often an experimental PDB chain, not the AlphaFold model);
+  and a superposition that pairs the variant with **its own template**, fetched and checked against
+  the template FoldX reported. Experimental entries from RCSB's sequence search can be loaded as the
+  wild type; they keep their own numbering, and the view checks the residue at the variant position.
+* **ESMFold view**: wild type and variant folded as two separate single-sequence predictions. The
+  server names the engine that answered for each (ESMFold2-Fast via JapanFold or EvolutionaryScale
+  Forge, or ESMFold v1 via the public ESM Atlas), and the view warns when the two differ.
+* The toolbar names the structure, the variant site (click to frame it) and any residue you
+  clicked, and switches wild type / variant / superposition.
 
-### 2.2. Representation Controls
-* **Cartoon/Ribbon**: Essential secondary structure scaffolding overview.
-* **Ball & Stick**: Full-atom modeling tracing individual sidechain configurations.
-* **Spacefill (Van der Waals Spheres)**: Renders physical atomic volumes, highlighting steric clashes.
-* **Gaussian Surface**: Shows full solvent-accessible molecular envelopes to check if a residue is buried or surface-exposed.
+### 2.2. Colourings (each with an on-canvas key and its provenance)
+* **pLDDT** with AlphaFold DB's published bands (> 90, 70–90, 50–70, ≤ 50), read ×100 when an ESM
+  Atlas file stores 0–1. A pLDDT filter (≥ 50 / ≥ 70) is offered only for a pLDDT column.
+* **B-factor, relative**: crystallographic temperature factors coloured by quartile within their own
+  entry — mobility in the crystal, not confidence.
+* **Cα displacement** after superposition (this app's own bands, dashed key). Not offered for FoldX,
+  whose fixed backbone makes every displacement zero by construction.
+* **ESM3 embedding shift**: per-residue cosine distance between wild-type and variant ESM3
+  representations, on the engine's own bands. A language-model signal, not allostery.
+* **Plain cartoon** and **wild type / variant pair** colours.
 
-### 2.3. Pocket Focusing & Center Actions
-* Hovering over residues tells the researcher their exact position, chain label, and name.
-* Clicking **Center Mutation** instantly re-aligns the camera, zooms in, establishes a 3D focus sphere around the target residue, and displays the surrounding atoms with full resolution.
-* **Hydrogen Bonds & Polar Contacts Calculation**: A dedicated interactive toggle dynamically measures and traces spatial inter-atomic distances to render polar hydrogen-bonding contacts (represented as dashed 3D vectors) between the mutation site side-chain and surrounding structural pockets.
-
----
+### 2.3. Site and pocket
+* The variant site is drawn as sticks with a residue label; the polar-contacts setting adds the
+  residues within 5 Å and the non-covalent contacts Mol* finds among them.
+* The **Pocket** panel shows the P2Rank pocket nearest the variant from the same model as the Residue
+  shifts and pockets tab (distance, probability or score, cavity size, lining residues nearest
+  first — click one to frame it) and can draw the lining on the structure.
+* Images download with a file name recording the structure and the colouring.
 
 ## 3. Interactive Sequence & Alignment Browser
 The sequence panel contains a fully synchronized biophysical-to-sequence map:
@@ -86,7 +99,7 @@ The interface features a cohesive theme alignment across all scientific canvases
 Accessible from the sidebar **Settings** action (and deep-linked from every "Configure API key" prompt), a right-side slide-over drawer (`motion` spring choreography, portal-mounted, focus-trapped with scroll lock) organizes seven sections with instant-apply controls:
 
 * **🎨 Appearance**: Light / Dark / **System** color scheme (system follows the OS preference live), workspace accent color, **Reduce motion** (first-run default honors the OS accessibility setting and gates both CSS and spring animations), and **High-contrast viewport** (enlarges the mutated-residue highlight and adds a translucent halo in the 3D viewer).
-* **🔬 Viewport**: Target residue highlight swatches (vibrant + muted families), camera transition speed, auto-zoom on selection, 3D residue labels, and polar-contact rendering (synced with the structure legend modal).
+* **🔬 Viewport**: Target residue highlight swatches (vibrant + muted families), camera transition speed, auto-zoom on selection, 3D residue labels, and polar-contact rendering (the site environment within 5 Å).
 * **🧬 Sequence**: Residue color scheme and ribbon slice size — the slice size now genuinely seeds the landscape/ribbon window on startup.
 * **⚗️ Analysis**: ACMG weighting model, ΔΔG energy unit, **default structure source (AlphaFold2 / ESMFold)** and **default perturbation model (SaProt / ESM-2 / ESMc)** for new sessions, plus **simulation conditions (pH, temperature, ionic strength)** forwarded to biophysical stability requests.
 * **🖥️ Workspace**: Automatic alert banners toggle (suppresses warn/error toasts while still logging to the console) and opt-in search history with its retention limit.
@@ -116,10 +129,10 @@ The biophysical properties are derived and normalized (0–100 scale) from estab
 
 ---
 
-## 9. ESM Representation Models & ESM3 Allosteric Perturbations
-To capture sequence-context constraints and allosteric disruptions, the diagnostic pipeline integrates deep transformer-based protein representations:
+## 9. ESM Representation Models & ESM3 Embedding Shift
+To capture sequence-context constraints, the diagnostic pipeline integrates deep transformer-based protein representations:
 
 * **ESMC-6B & VESM-150M zero-shot sequence constraints**: Renders actual, non-fabricated likelihoods ($P_{wt}$, $P_{mut}$), log-likelihood ratios ($\Delta$ LLR), zero-shot mutant percentile rank, and positional Shannon entropy in bits, computed from the model logits.
-* **ESM3 3D Allosteric Disruption**: Computes L2-norm distance metrics of the hidden state embeddings between WT and Mutant sequences across the structure, plotting localized perturbation profiles and mapping allosteric structural drift.
+* **ESM3 embedding shift**: The per-residue cosine distance (1 − cosine similarity) between wild-type and variant ESM3 embeddings (`tools/model_server_app/routers/esm3.py`), banded with the app's own `THRESHOLDS.esm3Drift` marks. It is a language-model representation change; it does not measure allostery, motion or structural drift.
 * **Generative Local Coordinate Refinement**: Leverages ESM3's structural track and coordinate masking to perform localized mutant sidechain conformation refinement, aligning with standard biophysical simulations.
 

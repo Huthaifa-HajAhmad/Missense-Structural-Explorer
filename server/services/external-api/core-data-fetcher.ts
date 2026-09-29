@@ -290,7 +290,9 @@ export async function fetchCoreVariantData(
     try {
       let wtPdbText: string | null = null;
       let chainId: string | undefined;
+      let structureSource: "alphafold" | "experimental" = "alphafold";
       if (pdbMap && pdbMap.pdbId) {
+        structureSource = "experimental";
         wtPdbText = await fetchPdbFromRcsb(
           pdbMap.pdbId,
           pdbMap.chainId,
@@ -304,7 +306,7 @@ export async function fetchCoreVariantData(
         chainId = "A";
       }
       if (wtPdbText) {
-        return predictStructuralDisruption(wtPdbText, wt1Letter, pos, mut1Letter, chainId);
+        return predictStructuralDisruption(wtPdbText, wt1Letter, pos, mut1Letter, chainId, structureSource);
       }
     } catch (err) {
       console.warn("[Triage Parallel Run Warning] Failed to predict structural disruption:", err);

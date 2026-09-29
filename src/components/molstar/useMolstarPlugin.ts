@@ -5,12 +5,16 @@ import { DefaultPluginUISpec } from "molstar/lib/mol-plugin-ui/spec";
 import { PluginConfig } from "molstar/lib/mol-plugin/config";
 import { Vec3 } from "molstar/lib/mol-math/linear-algebra/3d/vec3";
 import { StructureElement, StructureProperties } from "molstar/lib/mol-model/structure";
-import {
-  CustomPLDDTColorThemeProvider,
-  CustomBFactorColorThemeProvider,
-  CustomESM3AllostericColorThemeProvider,
-  CustomDisplacementColorThemeProvider
-} from "./molstarThemes";
+import { Color } from "molstar/lib/mol-util/color";
+import { STRUCTURE_THEME_PROVIDERS } from "./molstarThemes";
+
+/** `rgb(r, g, b)` / `rgba(…)` → a Mol* colour; null when the string is not an opaque colour. */
+function cssColorToMolstar(css: string): number | null {
+  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\s*\)/.exec(css);
+  if (!m) return null;
+  if (m[4] !== undefined && Number(m[4]) === 0) return null;
+  return Color.fromRgb(Number(m[1]), Number(m[2]), Number(m[3]));
+}
 
 export interface UseMolstarPluginOptions {
   isDark: boolean;
@@ -152,11 +156,10 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
           }
         }
 
-        // Register custom color themes
-        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomPLDDTColorThemeProvider);
-        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomBFactorColorThemeProvider);
-        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomESM3AllostericColorThemeProvider);
-        localPlugin.representation.structure.themes.colorThemeRegistry.add(CustomDisplacementColorThemeProvider);
+        // The 3D view's colour themes (bands shared with the on-canvas legend).
+        for (const provider of STRUCTURE_THEME_PROVIDERS) {
+          localPlugin.representation.structure.themes.colorThemeRegistry.add(provider);
+        }
 
         // Hover subscription
         hoverSubscription = localPlugin.behaviors.interaction.hover.subscribe((event: any) => {
@@ -226,6 +229,49 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     };
   }, [webglResetCounter]);
 
+  /**
+   * The canvas background follows the app theme. It used to be fixed when the plugin was created, so
+   * switching between light and dark left a white canvas inside a dark card (or the reverse). The
+   * colour is read from the container's computed background, so it is always the current token.
+   */
+  useEffect(() => {
+    const plugin = pluginRef.current;
+    const host = containerRef.current;
+    if (!pluginCreated || !plugin?.canvas3d || !host) return;
+    const frame = window.requestAnimationFrame(() => {
+      let el: HTMLElement | null = host;
+      let colour: number | null = null;
+      while (el && colour === null) {
+        colour = cssColorToMolstar(getComputedStyle(el).backgroundColor);
+        el = el.parentElement;
+      }
+      if (colour === null) return;
+      try {
+        plugin.canvas3d.setProps({ renderer: { backgroundColor: colour as any } });
+      } catch (err) {
+        console.warn("[3D] Could not set the canvas background:", err);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pluginCreated, isDark]);
+
+  // Close the capture menu on an outside click or Escape; it used to stay open until toggled.
+  useEffect(() => {
+    if (!captureMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (captureMenuRef.current && !captureMenuRef.current.contains(e.target as Node)) setCaptureMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCaptureMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [captureMenuOpen]);
+
   const captureCanvasBlob = (): Promise<Blob | null> => {
     return new Promise((resolve) => {
       const canvas = containerRef.current?.querySelector('canvas');
@@ -234,14 +280,16 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     });
   };
 
-  const handleDownloadCapture = async (gene?: string, uniprotId?: string) => {
+  /** `fileStem` names the structure and colouring, so a saved image records what it shows. */
+  const handleDownloadCapture = async (fileStem: string) => {
     setCaptureMenuOpen(false);
+    const fileName = `structure_${fileStem || "view"}.png`;
     const helper = pluginRef.current?.managers?.viewportScreenshot
       || pluginRef.current?.helpers?.viewportScreenshot
       || pluginRef.current?.viewportScreenshot;
     if (helper) {
       try {
-        await helper.download(`structural-snapshot-${gene || "gene"}-${uniprotId || "uniprot"}.png`);
+        await helper.download(fileName);
         return;
       } catch (err) {
         console.warn('Molstar screenshot helper failed, falling back:', err);
@@ -251,24 +299,27 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     if (blob) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = `structural-snapshot-${gene || "gene"}-${uniprotId || "uniprot"}.png`;
+      link.download = fileName;
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);
     }
   };
 
-  const handleCopyCapture = async () => {
+  /** Resolves true when the image reached the clipboard, so the caller can say whether it worked. */
+  const handleCopyCapture = async (): Promise<boolean> => {
     setCaptureMenuOpen(false);
     try {
       const blob = await captureCanvasBlob();
       if (blob && navigator.clipboard?.write) {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      } else {
-        console.warn('Clipboard write not supported in this browser.');
+        return true;
       }
+      console.warn('Clipboard write not supported in this browser.');
+      return false;
     } catch (err) {
       console.warn('Failed to copy image to clipboard:', err);
+      return false;
     }
   };
 

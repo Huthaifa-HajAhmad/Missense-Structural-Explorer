@@ -51,6 +51,13 @@ export async function fetchStructuralModelData(
         return null;
       }));
 
+  /**
+   * Which kind of structure `pdbTextPromise` resolved to. The ESM3 evaluation reads the site's B
+   * column as "pLDDT"; for a mapped crystal entry that is a temperature factor (see
+   * `fetchEsm3StructureEval`), so the source travels with the text.
+   */
+  let pdbTextSource: "alphafold" | "experimental" | null = null;
+
   // Single-pass PDB text resolution shared across both ESM3 and SaProt
   const pdbTextPromise = pdbMappingPromise.then(async (pdbMap) => {
     let text: string | null = null;
@@ -67,9 +74,11 @@ export async function fetchStructuralModelData(
         console.warn(`[Structural PDB Fetch] Failed to fetch PDB text for ${pdbMap.pdbId}:`, pdbFetchErr.message);
       }
     }
+    if (text) pdbTextSource = "experimental";
     if (!text && uniprotId) {
       try {
         text = await fetchAlphafoldPdb(uniprotId);
+        if (text) pdbTextSource = "alphafold";
       } catch (afFetchErr: any) {
         console.warn(`[Structural AF2 PDB Fetch] Failed to fetch AF2 PDB text for ${uniprotId}:`, afFetchErr.message);
       }
@@ -79,7 +88,7 @@ export async function fetchStructuralModelData(
 
   const esm3EvalPromise = pdbTextPromise.then(async (pdbText) => {
     try {
-      const res = await fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, pdbText, biohubToken, sequence);
+      const res = await fetchEsm3StructureEval(uniprotId, pos, wt1Letter, mut1Letter, pdbText, biohubToken, sequence, pdbTextSource);
       if (!res) return { error: "ESM3 returned empty evaluation", status: "offline" as const };
       return res;
     } catch (err: any) {

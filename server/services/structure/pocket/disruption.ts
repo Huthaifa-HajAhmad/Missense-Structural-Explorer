@@ -11,7 +11,16 @@ const execFileAsync = promisify(execFile);
 export interface DisruptionPrediction {
   level: "high" | "low" | "unknown";
   reason: string;
+  /**
+   * pLDDT of the target Cα — ONLY when the structure is an AlphaFold model. For a crystal structure
+   * the B column is a temperature factor, and it used to be returned here: NAE1 p.Asp116Gly showed
+   * "pLDDT 94.5 (Very High)" for 1YOV's B-factor, and the Energetics consensus down-weighted FoldX
+   * for every crystal residue whose B-factor was under 70 Å².
+   */
   plddt: number | null;
+  /** The target Cα's raw B column and what it holds. */
+  bFactor?: number | null;
+  bFactorKind?: "plddt" | "temperature-factor" | "unknown";
   burialStatus?: "core" | "surface" | "boundary";
   neighborCount?: number;
   sasa?: number;
@@ -65,7 +74,13 @@ export async function predictStructuralDisruption(
   wtResidue1: string,
   position: number,
   mutantResidue1: string,
-  chain?: string
+  chain?: string,
+  /**
+   * Where `wtPdbText` came from. The B column's meaning follows from it: pLDDT for an AlphaFold model,
+   * a temperature factor for an experimental entry. Omitted (older callers, fixtures): the column is
+   * reported as `plddt`, as before, with `bFactorKind: "unknown"`.
+   */
+  structureSource?: "alphafold" | "experimental"
 ): Promise<DisruptionPrediction> {
   const lines = wtPdbText.split(/\r?\n/);
   
@@ -112,7 +127,7 @@ export async function predictStructuralDisruption(
     return { level: "unknown", reason: "Target residue not found in structure.", plddt: null };
   }
 
-  let plddt: number | null = null;
+  let caBFactor: number | null = null;
   for (const line of lines) {
     if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
       const atomName = line.slice(12, 16).trim();
@@ -122,12 +137,16 @@ export async function predictStructuralDisruption(
         const bFactorStr = line.slice(60, 66).trim();
         const bVal = parseFloat(bFactorStr);
         if (!isNaN(bVal)) {
-          plddt = bVal;
+          caBFactor = bVal;
           break;
         }
       }
     }
   }
+
+  const bFactorKind: "plddt" | "temperature-factor" | "unknown" =
+    structureSource === "alphafold" ? "plddt" : structureSource === "experimental" ? "temperature-factor" : "unknown";
+  const plddt = bFactorKind === "temperature-factor" ? null : caBFactor;
 
   const targetStruct = structures.find(s => 
     (resolvedChain === undefined || s.chain === resolvedChain) && 
@@ -181,6 +200,8 @@ export async function predictStructuralDisruption(
       level,
       reason,
       plddt,
+      bFactor: caBFactor,
+      bFactorKind,
       burialStatus,
       neighborCount,
       sasa,
