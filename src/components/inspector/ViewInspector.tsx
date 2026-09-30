@@ -28,7 +28,7 @@ import EnergeticsInspector from "./EnergeticsInspector";
 import LandscapeInspector from "./LandscapeInspector";
 import InsightsInspector from "./InsightsInspector";
 import LiteratureInspector from "./LiteratureInspector";
-import type { Citation } from "../LiteratureView";
+import type { LiteratureEvidence } from "../../shared/literatureEvidence";
 import ReportInspector from "./ReportInspector";
 
 export interface ViewInspectorProps {
@@ -59,8 +59,8 @@ export interface ViewInspectorProps {
   disruptionPredictor?: { plddt?: number } | null;
   literatureSearchQuery?: string;
   onLiteratureSearch?: (query: string) => void;
-  /** Citations currently displayed by the Literature view (filter applied). */
-  literatureCitations?: Citation[];
+  /** The Literature view's evidence model (filters applied): the rail traces and exports from it. */
+  literatureEvidence?: LiteratureEvidence | null;
   metricMode?: "mean" | "max";
   setMetricMode?: (mode: "mean" | "max") => void;
   windowSize?: number;
@@ -98,7 +98,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   landscape: { title: "Landscape", subtitle: "Selection, display and sources", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
   report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },
-  literature: { title: "Literature Tools", subtitle: "Query Provenance & Citation Export", Icon: BookOpen },
+  literature: { title: "Evidence Lineage", subtitle: "How this list was obtained", Icon: BookOpen },
   console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
   /* The inspector rail is hidden on the About view, but the record is exhaustive
      by type — a programmatic navigation must not render an undefined title. */
@@ -158,7 +158,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   disruptionPredictor = null,
   literatureSearchQuery = "",
   onLiteratureSearch,
-  literatureCitations = [],
+  literatureEvidence = null,
   metricMode = "mean",
   setMetricMode,
   windowSize = 31,
@@ -521,7 +521,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             variant={variant}
             searchQuery={literatureSearchQuery}
             onSearch={onLiteratureSearch}
-            citations={literatureCitations}
+            evidence={literatureEvidence}
           />
         )}
 

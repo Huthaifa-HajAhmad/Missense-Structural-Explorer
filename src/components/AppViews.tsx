@@ -10,7 +10,8 @@ import DevConsolePanel from "./DevConsolePanel";
 import AboutView from "./AboutView";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
-import LiteratureView, { type Citation } from "./LiteratureView";
+import LiteratureView from "./LiteratureView";
+import type { LiteratureEvidence } from "../shared/literatureEvidence";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useSettings } from "../context/SettingsContext";
@@ -243,9 +244,9 @@ export function AppViews({
   }, [isEsm, esmFoldWtPdb, esmFoldMutPdb, variantPosition, apiClient]);
 
   const [literatureSearchQuery, setLiteratureSearchQuery] = useState("");
-  // Citations currently shown by the Literature view — passed to the inspector so the
-  // citation export serializes exactly what the user sees.
-  const [literatureCitations, setLiteratureCitations] = useState<Citation[]>([]);
+  // The Literature view's evidence model — passed to the inspector so its search trace and the
+  // citation export describe and serialise exactly what the user sees.
+  const [literatureEvidence, setLiteratureEvidence] = useState<LiteratureEvidence | null>(null);
   // Bumped whenever the inspector applies a query: it tells LiteratureView to (re-)execute
   // even when the query text is unchanged, which a plain string prop cannot signal —
   // without this, re-applying after an error was a silent no-op behind a success toast.
@@ -592,10 +593,11 @@ export function AppViews({
                 onError={handleLiteratureError}
               >
                 <LiteratureView 
-                  gene={gene} 
+                  gene={gene}
+                  variant={variant}
                   searchQuery={literatureSearchQuery}
                   onSearchQueryChange={setLiteratureSearchQuery}
-                  onDisplayedCitationsChange={setLiteratureCitations}
+                  onEvidenceChange={setLiteratureEvidence}
                   searchVersion={literatureSearchVersion}
                 />
               </ErrorBoundary>
@@ -651,7 +653,7 @@ export function AppViews({
               disruptionPredictor={disruptionPredictor}
               literatureSearchQuery={literatureSearchQuery}
               onLiteratureSearch={handleLiteratureSearch}
-              literatureCitations={literatureCitations}
+              literatureEvidence={literatureEvidence}
               metricMode={metricMode}
               setMetricMode={setMetricMode}
               windowSize={windowSize}

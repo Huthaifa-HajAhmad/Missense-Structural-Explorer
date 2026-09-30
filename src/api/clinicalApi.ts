@@ -85,6 +85,13 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
       hitCount?: number | null;
       returnedCount?: number;
       query?: string | null;
+      /** The Europe PMC query string the server sent (or, when `degraded`, tried to send). */
+      europePmcQuery?: string | null;
+      /** Europe PMC did not answer: the citations are the gene's cached set, not this query's own. */
+      degraded?: boolean;
+      /** When this query's own sweep last completed (ms since epoch); null when unknown or degraded. */
+      fetchedAt?: number | null;
+      pageSize?: number;
     }> {
       const params = new URLSearchParams();
       if (force) params.set("force", "true");
@@ -129,7 +136,12 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
           })),
           hitCount: z.number().nullable().optional(),
           returnedCount: z.number().optional(),
-          query: z.string().nullable().optional()
+          query: z.string().nullable().optional(),
+          // Absent from a server that predates the provenance fields; the tab then says "not reported".
+          europePmcQuery: z.string().nullable().optional(),
+          degraded: z.boolean().optional(),
+          fetchedAt: z.number().nullable().optional(),
+          pageSize: z.number().optional()
         }).parse(await res.json());
       }, { deadlineAt, signal });
     }

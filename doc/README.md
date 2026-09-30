@@ -38,6 +38,10 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 * **Goal**: Records how each finding of the 2026-09-30 independent audit was verified, fixed, refuted with evidence, or left as an owner decision.
 * **Key Topics**: Richards 2015 combining rules, ClinVar "Conflicting" handling, citation integrity, PM2 strength decision.
 
+### 9. [Literature Tab Review](./LITERATURE_TAB_REVIEW.md)
+* **Goal**: Records the audit and redesign of the Literature tab: what it claimed, what it now proves, and why no journal metrics are shown.
+* **Key Topics**: Query provenance, full-text matches, variant-specific search, degraded-search reporting.
+
 ---
 
 ## 🛠️ Infrastructure Overview

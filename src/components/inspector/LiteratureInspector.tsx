@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BookOpen, Search, Download, RotateCcw, Check } from "lucide-react";
-import type { Citation } from "../LiteratureView";
+import { Check, Database, Download, ExternalLink, GitBranch, RotateCcw, Search, Sparkles } from "lucide-react";
+import type { Citation, LiteratureEvidence } from "../../shared/literatureEvidence";
 
 interface LiteratureInspectorProps {
   gene: string;
   variant: string;
   searchQuery?: string;
   onSearch?: (query: string) => void;
-  /** Citations currently displayed in the Literature view (local filter applied).
-   *  The export serializes exactly this list — never canned data. */
-  citations?: Citation[];
+  /** The Literature view's evidence model (filters applied). The trace, the query box and the export
+   *  all read it, so the rail can never describe a different search from the list. The export
+   *  serialises `evidence.displayed` — never canned data. */
+  evidence?: LiteratureEvidence | null;
 }
 
 /* ── Citation serializers ──────────────────────────────────────────────────
@@ -136,27 +137,47 @@ export const toCsv = (list: Citation[], gene: string, variant: string): string =
   return `${[header.join(","), ...rows].join("\r\n")}\r\n`;
 };
 
+function Step({ n, label, state = "done", last = false, children }: { n: number; label: string; state?: "done" | "warn" | "idle"; last?: boolean; children: React.ReactNode }) {
+  return (
+    <li className="rail-step" data-state={state} data-last={last || undefined}>
+      <span className="rail-step__n" aria-hidden="true">{n}</span>
+      <div className="rail-step__body">
+        <span className="rail-step__label">{label}</span>
+        <span className="rail-step__value">{children}</span>
+      </div>
+    </li>
+  );
+}
+
+const formatSweep = (ms: number | null) =>
+  ms === null
+    ? null
+    : new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Literature tools — the trace behind the list.
+ *
+ * It renders the SAME `LiteratureEvidence` model as the tab, so the two cannot describe different
+ * searches. The query box used to be pre-filled with a client-built default that was never the query
+ * that ran; the trace now prints the string the server sent, and the box below it edits from there.
+ */
 export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   gene,
   variant,
   searchQuery = "",
   onSearch,
-  citations = []
+  evidence
 }) => {
-  const defaultQuery = `(${gene || "GENE"}[Gene]) AND ("missense"[All Fields] OR "mutation"[All Fields] OR ${variant || "variant"})`;
-  const [customQuery, setCustomQuery] = useState(searchQuery || defaultQuery);
+  const suggestion = evidence?.variantQuery ?? `${gene || "GENE"} AND (mutation OR variant)`;
+  const [customQuery, setCustomQuery] = useState(searchQuery || suggestion);
   const [justApplied, setJustApplied] = useState(false);
   const appliedTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (searchQuery) {
-      setCustomQuery(searchQuery);
-    } else {
-      setCustomQuery(defaultQuery);
-    }
-    // defaultQuery is derived from gene/variant, so those cover its inputs too.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gene, variant, searchQuery]);
+    setCustomQuery(searchQuery || suggestion);
+    // `suggestion` is in the list on purpose: the evidence model arrives after the first render, so
+    // the box would otherwise keep the generic fallback instead of the variant query.
+  }, [gene, variant, searchQuery, suggestion]);
 
   // Clear a pending "applied" reset on unmount rather than firing setState into a dead
   // tree; clearing before re-arming also keeps one confirmation from firing twice.
@@ -175,13 +196,18 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
     flashApplied();
   };
 
+  // Back to the gene-wide default: an empty query is what the server reads as "the default".
   const handleResetQuery = () => {
-    setCustomQuery(defaultQuery);
-    onSearch?.(defaultQuery);
+    setCustomQuery(suggestion);
+    onSearch?.("");
     flashApplied();
   };
 
+  const citations = evidence?.displayed ?? [];
   const citationCount = citations.length;
+  const sentQuery = evidence?.response?.europePmcQuery ?? null;
+  const notSearched = searchQuery.trim() === "" && customQuery === suggestion;
+  const sweep = formatSweep(evidence?.response?.fetchedAt ?? null);
 
   const handleExportCitations = (format: "bibtex" | "ris" | "csv") => {
     if (citationCount === 0) return;
@@ -214,108 +240,153 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. Interactive Europe PMC query ── */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <Search className="w-3.5 h-3.5 text-cs-accent-clay" />
-            PubMed / Europe PMC Query
-          </span>
-          {customQuery !== defaultQuery && (
-            <button
-              type="button"
-              onClick={handleResetQuery}
-              className="text-[9.5px] font-mono text-cs-text-muted hover:text-cs-accent-clay flex items-center gap-1 cursor-pointer transition-colors"
-              title="Reset to standard gene & variant query"
-            >
-              <RotateCcw className="w-2.5 h-2.5" />
-              Reset Query
+    <div className="lit-rail" data-testid="literature-rail">
+      {/* ── 1. How the list was obtained ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-trace">
+        <h3 className="eyebrow" id="lit-rail-trace">
+          <GitBranch className="w-3.5 h-3.5" />
+          Search trace
+        </h3>
+        {evidence ? (
+          <ol className="rail-steps" data-testid="search-trace">
+            {evidence.trace.map((step, i) => (
+              <Step key={step.key} n={i + 1} label={step.label} state={step.state} last={i === evidence.trace.length - 1}>
+                <span className={step.mono ? "lit-mono lit-break" : undefined} data-testid={`trace-${step.key}`}>{step.value}</span>
+                {step.sub && <span className="rail-step__sub">{step.sub}</span>}
+              </Step>
+            ))}
+          </ol>
+        ) : (
+          <p className="lit-rail__empty">No search has run yet.</p>
+        )}
+        {evidence?.faults.map(f => (
+          <p key={f} className="lit-rail__warn" role="status">{f}</p>
+        ))}
+      </section>
+
+      {/* ── 2. Change the search ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-query">
+        <h3 className="eyebrow" id="lit-rail-query">
+          <Search className="w-3.5 h-3.5" />
+          Change the search
+          {customQuery !== suggestion && (
+            <button type="button" className="lit-rail__reset" onClick={handleResetQuery} title="Back to the gene-wide default">
+              <RotateCcw aria-hidden="true" />
+              Reset
             </button>
           )}
+        </h3>
+        <label className="lit-rail__field" htmlFor="lit-rail-query-input">
+          {notSearched ? "Suggested query — not run yet" : "Query (plain Europe PMC syntax)"}
+        </label>
+        <textarea
+          id="lit-rail-query-input"
+          value={customQuery}
+          onChange={e => setCustomQuery(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleApplySearch();
+            }
+          }}
+          rows={3}
+          spellCheck={false}
+          placeholder="Enter a Europe PMC query…"
+        />
+        <button type="button" className="lit-btn lit-btn--block" onClick={handleApplySearch} aria-live="polite">
+          {justApplied ? <Check aria-hidden="true" /> : <Search aria-hidden="true" />}
+          {justApplied ? "Applied to the list" : "Search Europe PMC"}
+        </button>
+        <p className="rail-step__sub">Enter applies; Shift+Enter adds a line. The gene is added to any query that does not name it.</p>
+      </section>
+
+      {/* ── 3. Export ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-export">
+        <h3 className="eyebrow" id="lit-rail-export">
+          <Download className="w-3.5 h-3.5" />
+          Export
+        </h3>
+        <p className="lit-rail__lead">
+          {citationCount > 0
+            ? `The ${citationCount} ${citationCount === 1 ? "paper" : "papers"} shown, with any filter applied.`
+            : "No papers are shown, so there is nothing to export."}
+        </p>
+        <div className="lit-rail__export">
+          {(["bibtex", "ris", "csv"] as const).map(fmt => (
+            <button
+              key={fmt}
+              type="button"
+              className="lit-btn lit-btn--quiet"
+              onClick={() => handleExportCitations(fmt)}
+              disabled={citationCount === 0}
+              title={citationCount === 0 ? "Load papers first" : `Download ${fmt.toUpperCase()} of the shown papers`}
+            >
+              <Download aria-hidden="true" />
+              {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}
+            </button>
+          ))}
         </div>
+        {evidence && evidence.counts.pinned > 0 && (
+          <p className="rail-step__sub">{evidence.counts.pinned} pinned for the Report — pins are kept per variant and appear in its literature block.</p>
+        )}
+      </section>
 
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2.5">
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold text-cs-text-secondary uppercase tracking-wider block">
-              Search Query String:
-            </span>
-            <textarea
-              value={customQuery}
-              onChange={(e) => setCustomQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleApplySearch();
-                }
-              }}
-              rows={3}
-              aria-label="Europe PMC search query"
-              className="w-full p-2 rounded bg-cs-surface border border-cs-border font-mono text-[10px] text-cs-text-primary leading-relaxed resize-y focus:outline-none focus:border-cs-accent-clay transition-colors"
-              placeholder="Enter PubMed MeSH or keyword query..."
-            />
+      {/* ── 4. What reads this list ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-reads">
+        <h3 className="eyebrow" id="lit-rail-reads">
+          <Sparkles className="w-3.5 h-3.5" />
+          What reads this list
+        </h3>
+        <dl className="rail-kv">
+          <div className="rail-kv__row"><dt>ACMG engine</dt><dd>Nothing. No criterion is scored from literature.</dd></div>
+          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to 5 abstracts from the gene-wide set, ranked by embedding similarity. Searches here do not change them.</dd></div>
+          <div className="rail-kv__row"><dt>Report</dt><dd>Only papers you pin.</dd></div>
+        </dl>
+      </section>
+
+      {/* ── 5. Method ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-method">
+        <details className="rail-notes">
+          <summary id="lit-rail-method">Method notes</summary>
+          <ul>
+            <li>Europe PMC searches titles, abstracts and open-access full text. A record can match without the gene appearing in its abstract; those are marked “{gene || "gene"} not in abstract”.</li>
+            <li>“Names the variant” is a literal match of the notations listed in the trace, in the title or abstract. It does not read full text, tables or figures, nucleotide (c.) notation, or gene aliases.</li>
+            <li>The naming count in the finding comes from a second, background search for the variant notations. It is cached like any search, and if it fails the tab says so instead of showing a zero.</li>
+            <li>A record that names the variant reports nothing about its finding. Read it before relying on it.</li>
+            <li>Results are ordered by text check, then newest. No journal ranking or impact metric is applied or shown.</li>
+          </ul>
+        </details>
+      </section>
+
+      {/* ── 6. Sources ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-sources">
+        <h3 className="eyebrow" id="lit-rail-sources">
+          <Database className="w-3.5 h-3.5" />
+          Sources
+        </h3>
+        <dl className="rail-kv rail-kv--sources">
+          <div className="rail-kv__row">
+            <dt>Europe PMC</dt>
+            <dd>
+              <a className="lit-link" href="https://europepmc.org/" target="_blank" rel="noopener noreferrer">
+                REST search, core records<ExternalLink aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </dd>
           </div>
-
-          <button
-            type="button"
-            onClick={handleApplySearch}
-            aria-live="polite"
-            className={`w-full py-2 px-3 rounded-lg border text-[11px] font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs ${
-              justApplied
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                : "bg-cs-accent-clay text-white border-cs-accent-clay hover:opacity-90"
-            }`}
-          >
-            {justApplied ? (
-              <>
-                <Check className="w-3.5 h-3.5" />
-                <span>Query Applied to Literature View</span>
-              </>
-            ) : (
-              <>
-                <Search className="w-3.5 h-3.5" />
-                <span>Search Europe PMC</span>
-              </>
-            )}
-          </button>
-
-          <div className="flex justify-between items-center text-[10px] text-cs-text-muted pt-1 border-t border-cs-border-subtle">
-            <span>Query Target:</span>
-            <span className="font-mono">Live In-App Citation Feed</span>
+          <div className="rail-kv__row"><dt>Sweep completed</dt><dd>{sweep ?? "Not reported"}</dd></div>
+          <div className="rail-kv__row">
+            <dt>Reference</dt>
+            <dd>
+              <a className="lit-link" href="https://doi.org/10.1093/nar/gkaa994" target="_blank" rel="noopener noreferrer">
+                Europe PMC in 2020<ExternalLink aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            </dd>
           </div>
-        </div>
-      </div>
-
-      {/* ── 2. Batch Citation Export Tools ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Citation Export Tools
-        </span>
-
-        <div className="p-3 rounded-lg border border-cs-border bg-cs-surface-2 space-y-2">
-          <span className="text-[10px] font-semibold text-cs-text-secondary">
-            {citationCount > 0
-              ? `Export the ${citationCount} citation${citationCount === 1 ? "" : "s"} currently shown:`
-              : "No citations loaded to export."}
-          </span>
-          <div className="grid grid-cols-3 gap-1.5">
-            {(["bibtex", "ris", "csv"] as const).map((fmt) => (
-              <button
-                key={fmt}
-                type="button"
-                onClick={() => handleExportCitations(fmt)}
-                disabled={citationCount === 0}
-                title={citationCount === 0 ? "Load citations in the Literature view first" : `Download ${fmt.toUpperCase()} of the shown citations`}
-                className="py-1.5 rounded border border-cs-border bg-cs-surface hover:border-cs-accent-clay hover:text-cs-accent-clay font-mono text-[10.5px] uppercase font-bold text-cs-text-secondary cursor-pointer transition-all flex items-center justify-center gap-1 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-cs-border disabled:hover:text-cs-text-secondary"
-              >
-                <Download className="w-2.5 h-2.5" />
-                {fmt}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+        </dl>
+        {sentQuery === null && evidence && evidence.load === "ready" && (
+          <p className="rail-step__sub">This server did not report the query it sent.</p>
+        )}
+      </section>
     </div>
   );
 };
