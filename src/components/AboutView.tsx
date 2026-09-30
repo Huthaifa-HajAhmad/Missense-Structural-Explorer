@@ -66,8 +66,7 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   gnomad: "gnomAD",
   clinvar: "ClinVar",
   foldx: "FoldX",
-  cacheSchemaVersion: "Cache schema",
-  stackerCalibration: "Stacker calibration"
+  cacheSchemaVersion: "Cache schema"
 };
 
 const MODEL_REVISIONS = Object.entries(PROVENANCE_MODEL_REVISIONS) as [

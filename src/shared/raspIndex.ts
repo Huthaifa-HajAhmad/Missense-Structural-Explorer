@@ -30,7 +30,38 @@
  * silently reinterpreted — a schema drift is exactly the kind of change that would otherwise
  * produce plausible-looking wrong answers.
  */
-export const RASP_INDEX_SCHEMA_VERSION = 2;
+export const RASP_INDEX_SCHEMA_VERSION = 3;
+
+/**
+ * Layouts this build can READ. v2 is the experimental-structure-only index (no `source` column); v3
+ * adds a `source` per row so the proteome-wide AlphaFold predictions can sit beside it. Accepting v2
+ * is what keeps an upgrade from switching RaSP off in a deployment that has not rebuilt its index.
+ */
+export const RASP_INDEX_READABLE_VERSIONS: readonly number[] = [2, 3];
+
+/**
+ * Where a RaSP row came from (Blaabjerg 2023; github.com/KULL-Centre/_2022_ML-ddG-Blaabjerg):
+ *   experimental — `df_rasp_gnomad_clinvar.csv` (Zenodo 10.5281/zenodo.6835877), ~1,345 proteins with
+ *                  experimental structures; the authors note some residue numbering was shifted to the
+ *                  structure's.
+ *   alphafold    — the per-protein PRISM files for the AlphaFold human proteome (UP000005640 v2,
+ *                  23,391 proteins), numbered along the full-length model, i.e. UniProt numbering.
+ */
+export type RaspSource = "experimental" | "alphafold";
+
+export const RASP_SOURCE_LABEL: Record<RaspSource, string> = {
+  experimental: "Experimental-structure set",
+  alphafold: "AlphaFold proteome (UP000005640 v2)",
+};
+
+/** Per-source protein counts an index records, when it records them (v3). */
+export type RaspSourceCounts = Partial<Record<RaspSource, number>>;
+
+/** What a deployment's index covers — carried to the client so "not covered" can say how much is. */
+export interface RaspCoverage {
+  proteins: number;
+  sources: RaspSourceCounts;
+}
 
 /** What the index says about itself. */
 export interface RaspIndexMeta {
@@ -38,6 +69,8 @@ export interface RaspIndexMeta {
   rows: number;
   proteins: number;
   builtAt: string | null;
+  /** Proteins per source (v3 only; a v2 index is experimental-only by definition). */
+  sources?: RaspSourceCounts | null;
 }
 
 /** The verdict on one index, plus the numbers behind it. */
@@ -85,11 +118,11 @@ export function verifyRaspIndex(
     };
   }
 
-  if (meta.schemaVersion !== RASP_INDEX_SCHEMA_VERSION) {
+  if (!RASP_INDEX_READABLE_VERSIONS.includes(meta.schemaVersion)) {
     return {
       ...base,
       usable: false,
-      reason: `the index was built with schema v${meta.schemaVersion} but this build expects v${RASP_INDEX_SCHEMA_VERSION}`
+      reason: `the index was built with schema v${meta.schemaVersion} but this build reads v${RASP_INDEX_READABLE_VERSIONS.join(" or v")}`
     };
   }
 

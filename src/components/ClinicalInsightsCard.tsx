@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useMemo, useRef, useState, useLayoutEffect } from "react";
-import { getResidueContext, getCalibration } from "../shared/uncertainty";
 import { generateProvenanceManifest } from "../shared/provenance";
-import { computeCalibratedConsensus, THRESHOLDS } from "../shared/thresholds";
+import { computeStabilityConsensus, THRESHOLDS } from "../shared/thresholds";
+import { toCanonicalDdg } from "../shared/engineStatus";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
 import { formatAlleleFrequency } from "../shared/frequencyEvidence";
@@ -128,11 +128,12 @@ export function deriveConsensus(args: {
   foldingEnergetics?: any;
   /** The FoldX single-value fallback, which the badge applies and the first version omitted. */
   foldingDdG?: number | null;
+  /** Accepted for existing callers; the consensus no longer weights by pLDDT (see below). */
   plddt?: number | null;
 }) {
-  const { result, foldingEnergetics: fe, foldingDdG, plddt } = args;
+  const { result, foldingEnergetics: fe, foldingDdG } = args;
   if (!result) return null;
-  return computeCalibratedConsensus(
+  return computeStabilityConsensus(
     {
       // Mirrors `EnergeticsView`'s `energetics` memo key for key. The five remote engines read from
       // `foldingEnergetics` only — an extra `?? result.dynamut2` fallback here would be a divergence,
@@ -146,12 +147,9 @@ export function deriveConsensus(args: {
       stabilityoracle: fe?.stabilityoracle ?? null,
       foldxRepairFailed: fe?.foldxRepairFailed ?? false,
       foldxBinaryMissing: fe?.foldxBinaryMissing ?? false
-    },
-    // The ARRAY. Passing the wrapper object threw inside the export handlers.
-    result.uniprotFeatures?.features,
-    // The variant's own residue, as the badge uses — not the live viewer selection.
-    result.metadata?.residueIndex ?? 0,
-    plddt ?? null
+    }
+    // Values only. The residue context and pLDDT arguments fed per-context "AUC" weights that had no
+    // source (`protein_class_calibration.json`); they were retired with the probability.
   );
 }
 
@@ -540,20 +538,27 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         // `buildExportVerdictContext`.
         consensusEvidenceComplete: foldingEnergetics?.evidenceComplete ?? null,
         consensusPendingTools: foldingEnergetics?.pendingTools ?? [],
-        consensusProbability:
-          derivedConsensus?.consensusProbability ??
-          (foldingEnergetics as any)?.consensusProbability ??
-          null,
-        // Derived with it, NOT read from the snapshot — otherwise the interval can contradict the
-        // probability it is supposed to bound, which is what the export did before this.
-        consensusConfMin:
-          derivedConsensus?.consensusConfMin ??
-          (foldingEnergetics as any)?.consensusConfMin ??
-          null,
-        consensusConfMax:
-          derivedConsensus?.consensusConfMax ??
-          (foldingEnergetics as any)?.consensusConfMax ??
-          null
+        /**
+         * The agreement behind the verdict, derived with it. This replaced `consensusProbability` and
+         * `consensusConfMin/Max`, which came from hand-typed curves (`thresholds/consensus.ts`).
+         */
+        consensusEnginesCounted: derivedConsensus?.enginesCounted ?? null,
+        consensusEnginesDestabilizing: derivedConsensus?.enginesDestabilizing ?? null,
+        consensusMedianDdg: derivedConsensus?.medianDdg ?? null,
+        /**
+         * Every engine in ONE sign convention. The per-engine keys above are the providers' raw values
+         * (kept as they were for existing readers); DynaMut2 and DDMut report negative = destabilizing,
+         * so a reader comparing engines must use these.
+         */
+        signConvention: "canonicalDdg: kcal/mol, positive = destabilizing for every engine",
+        canonicalDdg: {
+          foldx: toCanonicalDdg("foldx", foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx ?? null),
+          dynamut2: toCanonicalDdg("dynamut2", foldingEnergetics?.dynamut2 ?? analysisState.result.dynamut2 ?? null),
+          ddmut: toCanonicalDdg("ddmut", foldingEnergetics?.ddmut ?? analysisState.result.ddmut ?? null),
+          rasp: toCanonicalDdg("rasp", foldingEnergetics?.rasp ?? analysisState.result.rasp ?? null),
+          thermompnn: toCanonicalDdg("thermompnn", foldingEnergetics?.thermompnn ?? analysisState.result.thermompnn ?? null),
+          stabilityoracle: toCanonicalDdg("stabilityoracle", foldingEnergetics?.stabilityoracle ?? null)
+        }
       },
       acmgCriteriaSuggestions: {
         ruleBased: analysisState.result.ruleBasedInsights || null,
@@ -927,84 +932,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                   </>
                 )}
 
-                {/* Predictor Uncertainty & Local Calibration Dashboard */}
-                <div className={`pt-3 border-t ${classBorderSec}`}>
-                  <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-2.5" style={{ color: "var(--cs-text-accent)" }}>
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    <span>Predictor Local Calibration & Uncertainty</span>
-                  </div>
-                  <div className="pl-5 space-y-3.5">
-                    {(() => {
-                      const uniprotFeatures = analysisState.result?.uniprotFeatures?.features;
-                      const residueIndex = analysisState.result?.metadata?.residueIndex ?? 0;
-                      const context = getResidueContext(uniprotFeatures, residueIndex);
-
-                      const contextLabels: Record<string, string> = {
-                        globular: "Structured / Globular Domain",
-                        transmembrane: "Transmembrane / Hydrophobic Helix",
-                        disordered: "Intrinsically Disordered Region (IDR) / Loop",
-                        unknown: "Unannotated / Unknown Context"
-                      };
-
-                      const predictors = [
-                        { name: "revel", label: "REVEL", score: analysisState.result?.conservationData?.revel },
-                        { name: "alphaMissense", label: "AlphaMissense", score: analysisState.result?.predictorData?.amPathogenicity },
-                        { name: "cadd", label: "CADD PHRED", score: analysisState.result?.predictorData?.caddPhred },
-                        { name: "popEVE", label: "PopEVE", score: analysisState.result?.conservationData?.popeve },
-                        { name: "foldx", label: "FoldX ddG", score: foldingEnergetics?.foldxMean ?? foldingEnergetics?.foldx ?? null },
-                        { name: "thermompnn", label: "ThermoMPNN ddG", score: foldingEnergetics?.thermompnn ?? null },
-                        { name: "stabilityoracle", label: "StabilityOracle ddG", score: foldingEnergetics?.stabilityoracle ?? analysisState.result?.foldingEnergetics?.stabilityoracle ?? null },
-                        { name: "dynamut2", label: "DynaMut2 ddG", score: foldingEnergetics?.dynamut2 ?? analysisState.result?.dynamut2 ?? null },
-                        { name: "ddmut", label: "DDMut ddG", score: foldingEnergetics?.ddmut ?? analysisState.result?.ddmut ?? null },
-                        { name: "rasp", label: "RaSP ddG", score: foldingEnergetics?.rasp ?? analysisState.result?.rasp ?? null }
-                      ].filter(pred => pred.score !== undefined && pred.score !== null);
-
-                      return (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="text-cs-text-muted font-medium">Mapped Residue Context:</span>
-                            <span className="font-bold px-2 py-0.5 rounded text-[10px] bg-cs-accent-clay/10 text-cs-text-accent border border-cs-accent-clay/20" style={{ color: "var(--cs-text-accent)" }}>
-                              {contextLabels[context] || "Standard Context"}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            {predictors.map(pred => {
-                              const cal = getCalibration(pred.name, context);
-                              const isHigh = cal.auc >= 0.85;
-                              const isLow = cal.auc < 0.65;
-                              const calibrationBadgeStyle = isHigh
-                                ? "text-cs-text-good-on-soft border-cs-good/30"
-                                : isLow
-                                ? "text-cs-danger border-cs-danger/30"
-                                : "text-cs-warn border-cs-warn/30";
-                              const calibrationBadgeBg = isHigh
-                                ? "var(--cs-good-soft)"
-                                : isLow
-                                ? "var(--cs-danger-soft)"
-                                : "var(--cs-warn-soft)";
-                              
-                              return (
-                                <div key={pred.name} className="p-3 rounded-lg border flex flex-col justify-between" style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface-2)" }}>
-                                  <div className="flex items-center justify-between flex-wrap gap-1">
-                                    <span className="text-[11px] font-bold" style={{ color: "var(--cs-text-primary)" }}>{pred.label}</span>
-                                    <span className={`text-[10px] font-mono px-1.5 py-0.5 border rounded font-semibold ${calibrationBadgeStyle}`} style={{ background: calibrationBadgeBg }}>
-                                      AUC {cal.auc.toFixed(2)}
-                                    </span>
-                                  </div>
-                                  <p className="text-[10px] leading-relaxed mt-1" style={{ color: "var(--cs-text-muted)" }}>
-                                    {cal.comment || `Standard performance mapping for this structural context.`}
-                                  </p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-
+                {/*
+                  A "Predictor Local Calibration & Uncertainty" panel sat here: per-context AUC badges and
+                  comments ("State-of-the-art performance in disordered sequences") read from
+                  `protein_class_calibration.json`, a table with no source, study or fitting code. It was
+                  removed with the stacking calibration (doc/ENERGETICS_TAB_REVIEW.md). The Predictors tab
+                  carries the published ClinGen calibrations.
+                */}
                 {/* Chemical Property Similarity Radar Chart */}
                 <div className={`pt-3 border-t ${classBorderSec}`}>
                   <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--cs-text-accent)" }}>

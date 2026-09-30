@@ -38,8 +38,8 @@ function readCode(relative: string): string {
 }
 
 /** A CALL to the consensus, TOLERATING WHITESPACE before the parenthesis. */
-const CONSENSUS_CALL = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/g;
-const CONSENSUS_CALL_ONE = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/;
+const CONSENSUS_CALL = /\bcompute(?:Calibrated|Stability)?Consensus(?:Verdict)?\s*\(/g;
+const CONSENSUS_CALL_ONE = /\bcompute(?:Calibrated|Stability)?Consensus(?:Verdict)?\s*\(/;
 /**
  * A bare MENTION — no parenthesis required. The whole-server walk uses THIS one.
  *
@@ -53,7 +53,7 @@ const CONSENSUS_CALL_ONE = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\s*\(/;
  * one, so the walk flags the MENTION rather than the call. The authoritative file is exempt along with
  * its import, and test files are exempt because a test may compute a consensus to check it.
  */
-const CONSENSUS_MENTION = /\bcompute(?:Calibrated)?Consensus(?:Verdict)?\b/g;
+const CONSENSUS_MENTION = /\bcompute(?:Calibrated|Stability)?Consensus(?:Verdict)?\b/g;
 
 function isTestFile(relative: string): boolean {
   return /\.(test|spec)\.[cm]?[jt]sx?$/.test(relative) || /(^|\/)(__tests__|tests)\//.test(relative);
@@ -107,7 +107,9 @@ describe("the consensus has a single server-side computation site", () => {
   it.each(MUST_NOT_COMPUTE)("%s does not compute a consensus", relative => {
     const source = readCode(relative);
     expect(
-      source.includes("computeCalibratedConsensus") || source.includes("computeConsensusVerdict"),
+      source.includes("computeCalibratedConsensus") ||
+        source.includes("computeStabilityConsensus") ||
+        source.includes("computeConsensusVerdict"),
       `${relative} computes a consensus, but ${MUST_NOT_COMPUTE.find(([f]) => f === relative)?.[1]}`
     ).toBe(false);
   });

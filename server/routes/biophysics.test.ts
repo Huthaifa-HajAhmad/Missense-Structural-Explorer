@@ -611,6 +611,108 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
       cacheSpy.mockRestore();
     });
 
+    /**
+     * The defect behind "DDMut and DynaMut2 still say No result": on a cache hit the response left
+     * after 1.5 s with `pending` and no job id, the id arrived later with nothing to carry it, and
+     * the client settled both engines to no-result. The response now carries a token, and the
+     * long-poll route hands over the id once the submission settles.
+     */
+    it("hands a slow cache-hit submission's job id to the client through the remote-submissions route", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      const subRoute = apiRouter.stack.find(s => s.route && s.route.path === "/remote-submissions/:token");
+      if (!route?.route || !subRoute?.route) throw new Error("routes not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+      const subHandler = subRoute.route.stack[subRoute.route.stack.length - 1].handle;
+
+      const externalServices = await import("../services/external.ts");
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve("178940463982"), 2500))
+      );
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve("1789404644525461"), 2500))
+      );
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue({
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: { foldx: 1.25, foldxMean: 1.25, rasp: -0.2, thermompnn: 0.8, stabilityoracle: 0.4, dynamut2: null, ddmut: null }
+      } as any);
+
+      const mkRes = () => {
+        const out: any = { statusCode: 200, body: null };
+        out.status = (c: number) => { out.statusCode = c; return out; };
+        out.json = (b: any) => { out.body = b; return out; };
+        return out;
+      };
+      const res = mkRes();
+      await handler({
+        body: { wtPdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", mutation: "SA489C", uniprotId: "Q9H116" },
+        headers: {}
+      } as any, res, () => {});
+
+      expect(res.body.dynamut2Status).toBe("pending");
+      expect(res.body.dynamut2JobId ?? null).toBeNull();
+      expect(typeof res.body.remoteSubmissionToken).toBe("string");
+
+      const subRes = mkRes();
+      await subHandler({ params: { token: res.body.remoteSubmissionToken }, headers: {} } as any, subRes, () => {});
+      expect(subRes.body.settled).toBe(true);
+      expect(subRes.body.dynamut2JobId).toBe("178940463982");
+      expect(subRes.body.dynamut2Status).toBe("pending");
+      expect(subRes.body.ddmutJobId).toBe("1789404644525461");
+
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    }, 15000);
+
+    it("rejects an unknown remote-submission token", async () => {
+      const subRoute = apiRouter.stack.find(s => s.route && s.route.path === "/remote-submissions/:token");
+      if (!subRoute?.route) throw new Error("route not found");
+      const subHandler = subRoute.route.stack[subRoute.route.stack.length - 1].handle;
+      let code = 200;
+      const res: any = { status(c: number) { code = c; return this; }, json() { return this; } };
+      await subHandler({ params: { token: "00000000-0000-4000-8000-000000000000" }, headers: {} } as any, res, () => {});
+      expect(code).toBe(404);
+    });
+
+    /**
+     * The defect behind "RaSP almost never shows a result": the queue worker looks RaSP up AFTER FoldX
+     * has cached its record, so every cached record carries `rasp: null`, and the cache-hit path
+     * served it without ever querying the index.
+     */
+    it("looks RaSP up on a cache hit instead of serving the cached null", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
+      if (!route?.route) throw new Error("Route /generate-mutant not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+      const externalServices = await import("../services/external.ts");
+      const d2Spy = vi.spyOn(externalServices, "submitDynaMut2Job").mockResolvedValue("1");
+      const ddmutSpy = vi.spyOn(externalServices, "submitDdmutJob").mockResolvedValue("2");
+      const biophysicsModule = await import("../services/biophysics.ts");
+      const cacheSpy = vi.spyOn(biophysicsModule, "getMutantFromCache").mockResolvedValue({
+        pdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND",
+        ddG: 1.25,
+        status: "success",
+        energetics: { foldx: 1.25, foldxMean: 1.25, rasp: null, raspReason: undefined, thermompnn: 0.8, stabilityoracle: 0.4, dynamut2: -0.5, ddmut: -0.4 }
+      } as any);
+      const raspSpy = vi.spyOn(biophysicsModule, "runRaspLocal").mockResolvedValue({ score: 1.7 });
+
+      let body: any = null;
+      await handler({
+        body: { wtPdb: "ATOM      1  CA  SER A 489      1.000   1.000   1.000  1.00  0.00           C\nEND", mutation: "SA489C", uniprotId: "Q9H116" },
+        headers: {}
+      } as any, { status() { return this; }, json(b: any) { body = b; return this; } } as any, () => {});
+
+      expect(raspSpy).toHaveBeenCalledWith("", "", "A", 489, "S", "C", "Q9H116");
+      expect(body.energetics.rasp).toBe(1.7);
+
+      raspSpy.mockRestore();
+      d2Spy.mockRestore();
+      ddmutSpy.mockRestore();
+      cacheSpy.mockRestore();
+    });
+
     it("should gracefully handle external submission failures without crashing", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/generate-mutant");
       expect(route).toBeDefined();

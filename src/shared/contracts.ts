@@ -92,7 +92,13 @@ export const structureProvenanceSchema = z.object({
   foldxVersion: z.string().optional(),
   foldxRuns: z.number().optional(),
   seed: z.number().nullable().optional(),
+  /**
+   * @deprecated Older servers stamped "2023-Zenodo-6835877" and "VESM_150M_v1" on EVERY run, whether or
+   * not RaSP returned a value or any VESM model ran. Kept optional so cached payloads parse; read
+   * `energetics.raspSource` instead.
+   */
   raspDatasetSnapshot: z.string().optional(),
+  /** @deprecated See `raspDatasetSnapshot`. No Energetics engine uses VESM. */
   vesmModel: z.string().optional(),
   afdbVersion: z.string().optional(),
   modelSha: z.string().optional(),
@@ -131,13 +137,34 @@ export const energeticsDataSchema = z.object({
   thermompnn: nullableFiniteNumber.optional(),
   consensusVerdict: z.string().nullable().optional(),
   raspReason: z.string().optional(),
+  /** Which RaSP table served `rasp` (see `shared/raspIndex.ts`). */
+  raspSource: z.enum(["experimental", "alphafold"]).optional(),
+  /** What the installed RaSP index covers, so "not covered" can say how much is. */
+  raspCoverage: z
+    .object({
+      proteins: z.number().int().nonnegative(),
+      sources: z.object({ experimental: z.number().optional(), alphafold: z.number().optional() }),
+    })
+    .optional(),
   evidenceComplete: z.boolean().optional(),
   pendingTools: z.array(z.string()).optional(),
   rawDdGs: z.array(z.number()).nullable().optional(),
   stabilityoracle: nullableFiniteNumber.optional(),
+  /**
+   * @deprecated No longer produced. They came from hand-typed curves (`thresholds/consensus.ts`) and
+   * are kept only so payloads cached before their retirement still parse. Nothing may read them.
+   */
   consensusProbability: nullableFiniteNumber.optional(),
+  /** @deprecated See `consensusProbability`. */
   consensusConfMin: nullableFiniteNumber.optional(),
+  /** @deprecated See `consensusProbability`. */
   consensusConfMax: nullableFiniteNumber.optional(),
+  /** Engines whose ΔΔG the consensus counted. */
+  consensusEnginesCounted: z.number().int().nonnegative().optional(),
+  /** Counted engines at or past their own destabilizing mark. */
+  consensusEnginesDestabilizing: z.number().int().nonnegative().optional(),
+  /** Median canonical ΔΔG of the counted engines, kcal/mol. */
+  consensusMedianDdg: nullableFiniteNumber.optional(),
   seed: nullableFiniteNumber.optional(),
   bFactorMetadata: z.object({
     source: z.string(),

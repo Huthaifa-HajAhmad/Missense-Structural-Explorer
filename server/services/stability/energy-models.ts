@@ -25,12 +25,15 @@ import { finished } from "stream/promises";
 import crypto from "crypto";
 import { anySignal } from "../../utils.ts";
 import { DatabaseSync } from "node:sqlite";
-import { computeCalibratedConsensus } from "../../../src/shared/thresholds.ts";
+import { computeStabilityConsensus } from "../../../src/shared/thresholds.ts";
 import {
   verifyRaspIndex,
-  RASP_INDEX_SCHEMA_VERSION,
+  RASP_INDEX_READABLE_VERSIONS,
+  type RaspCoverage,
   type RaspIndexMeta,
-  type RaspIndexVerdict
+  type RaspIndexVerdict,
+  type RaspSource,
+  type RaspSourceCounts
 } from "../../../src/shared/raspIndex.ts";
 import { CONFIG } from "../../config.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
@@ -39,7 +42,7 @@ import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
 // ---------------------------------------------------------------------------
 
-const raspCache = new LRUCache<string, { score: number | null; reason?: string }>({ max: 200 });
+const raspCache = new LRUCache<string, RaspLookup>({ max: 200 });
 defaultCacheRegistry.registerCache("raspCache", raspCache, { ttlDesc: "none" });
 
 /**
@@ -77,15 +80,21 @@ function readRaspIndexCounts(db: DatabaseSync): { rows: number; proteins: number
 /** Reads the index's own completeness record, or null when it has none. */
 function readRaspIndexMeta(db: DatabaseSync): RaspIndexMeta | null {
   try {
-    const row = db.prepare(
-      "SELECT schema_version, rows, proteins, built_at FROM rasp_index_meta LIMIT 1"
-    ).get() as any;
+    const row = db.prepare("SELECT * FROM rasp_index_meta LIMIT 1").get() as any;
     if (!row) return null;
+    let sources: RaspSourceCounts | null = null;
+    try {
+      sources = typeof row.sources === "string" ? (JSON.parse(row.sources) as RaspSourceCounts) : null;
+    } catch {
+      sources = null;
+    }
     return {
       schemaVersion: Number(row.schema_version),
       rows: Number(row.rows),
       proteins: Number(row.proteins),
-      builtAt: row.built_at ?? null
+      builtAt: row.built_at ?? null,
+      // A v2 index predates the column and holds the experimental CSV only.
+      sources: sources ?? { experimental: Number(row.proteins) }
     };
   } catch {
     // The table itself is missing: an index built by an older script.
@@ -152,13 +161,13 @@ export function inspectRaspIndexFile(dbPath: string = RASP_SQLITE_PATH): RaspInd
             "the index carries no completeness record, so a truncated index would be indistinguishable from a complete one"
         };
       }
-      if (meta.schemaVersion !== RASP_INDEX_SCHEMA_VERSION) {
+      if (!RASP_INDEX_READABLE_VERSIONS.includes(meta.schemaVersion)) {
         return {
           usable: false,
           rows: meta.rows,
           proteins: meta.proteins,
           meta,
-          reason: `the index was built with schema v${meta.schemaVersion} but this build expects v${RASP_INDEX_SCHEMA_VERSION}`
+          reason: `the index was built with schema v${meta.schemaVersion} but this build reads v${RASP_INDEX_READABLE_VERSIONS.join(" or v")}`
         };
       }
       // Reported as usable on the strength of its own record; the loader confirms it with a count.
@@ -205,6 +214,8 @@ function resetRaspIndexVerdict(): void {
   closeRaspSqliteHandle();
   raspSqliteKey = null;
   raspSqliteUsable = false;
+  raspCoverage = null;
+  raspHasSourceColumn = false;
 }
 
 /**
@@ -276,6 +287,8 @@ function getRaspSqliteDb(): DatabaseSync | null {
 
     raspSqliteDb = db;
     raspSqliteUsable = true;
+    raspCoverage = { proteins: verdict.proteins, sources: verdict.meta?.sources ?? { experimental: verdict.proteins } };
+    raspHasSourceColumn = hasSourceColumn(db);
     console.log(
       `[RaSP SQLite] Index verified: ${verdict.rows.toLocaleString()} rows across ` +
         `${verdict.proteins.toLocaleString()} proteins (schema v${verdict.meta?.schemaVersion}, ` +
@@ -288,22 +301,60 @@ function getRaspSqliteDb(): DatabaseSync | null {
   }
 }
 
+/** What the verified index covers; null until an index has verified. */
+let raspCoverage: RaspCoverage | null = null;
+/** v3 indexes carry a per-row `source`; v2 ones are experimental-only. */
+let raspHasSourceColumn = false;
+
+function hasSourceColumn(db: DatabaseSync): boolean {
+  try {
+    return (db.prepare("PRAGMA table_info(rasp_variants)").all() as Array<{ name: string }>).some(c => c.name === "source");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The coverage of the index this process has verified, for the "not covered" copy. Null when no
+ * index is usable (the caller then reports a store fault, not a coverage miss).
+ */
+export function getRaspCoverage(): RaspCoverage | null {
+  return getRaspSqliteDb() ? raspCoverage : null;
+}
+
+export interface RaspLookup {
+  score: number | null;
+  reason?: string;
+  /** Which table served the score. */
+  source?: RaspSource;
+}
+
 function lookupRaspSqlite(
   db: DatabaseSync,
   uniprotId: string,
   pos: number,
   wt: string,
   mut: string
-): { score: number | null; reason?: string } {
+): RaspLookup {
   try {
     const wt1 = wt.length === 3 ? AMINO_ACID_3_TO_1[wt.toUpperCase()] || wt : wt;
     const mut1 = mut.length === 3 ? AMINO_ACID_3_TO_1[mut.toUpperCase()] || mut : mut;
+    /**
+     * With both sources present, the AlphaFold-proteome row wins: it is UniProt-numbered by
+     * construction and was checked against its own sequence at ingest, whereas the authors note that
+     * some experimental-set positions were shifted to the structure's numbering.
+     */
     const stmt = db.prepare(
-      "SELECT rasp_score FROM rasp_variants WHERE uniprot_id = ? AND pos = ? AND wt = ? AND mut = ? LIMIT 1"
+      raspHasSourceColumn
+        ? "SELECT rasp_score, source FROM rasp_variants WHERE uniprot_id = ? AND pos = ? AND wt = ? AND mut = ? " +
+            "ORDER BY CASE source WHEN 'alphafold' THEN 0 ELSE 1 END LIMIT 1"
+        : "SELECT rasp_score, 'experimental' AS source FROM rasp_variants WHERE uniprot_id = ? AND pos = ? AND wt = ? AND mut = ? LIMIT 1"
     );
-    const row = (stmt.get as any)(uniprotId, pos, wt1.toUpperCase(), mut1.toUpperCase()) as { rasp_score: number | null } | undefined;
+    const row = (stmt.get as any)(uniprotId, pos, wt1.toUpperCase(), mut1.toUpperCase()) as
+      | { rasp_score: number | null; source: RaspSource }
+      | undefined;
     if (row === undefined) return { score: null, reason: "Residue position is not present in the pre-computed database" };
-    return { score: row.rasp_score };
+    return { score: row.rasp_score, source: row.source };
   } catch (err: any) {
     console.warn("[RaSP SQLite] Lookup error:", err.message);
     return { score: null, reason: "Error querying pre-computed RaSP database" };
@@ -410,7 +461,7 @@ export async function lookupPrecomputedRaspScore(
   pos: number,
   wt: string,
   mut: string
-): Promise<{ score: number | null; reason?: string }> {
+): Promise<RaspLookup> {
   const sqliteDb = getRaspSqliteDb();
   if (sqliteDb) {
     return lookupRaspSqlite(sqliteDb, uniprotId, pos, wt, mut);
@@ -439,7 +490,7 @@ export async function runRaspLocal(
   wtAa: string,
   mutAa: string,
   uniprotId?: string | null
-): Promise<{ score: number | null; reason?: string } | null> {
+): Promise<RaspLookup | null> {
   // P1-1 Fix: Key cache on canonical protein/variant identifiers rather than temp file paths
   const cacheKey = `${uniprotId ?? ""}|${chain}|${pos}|${wtAa}|${mutAa}`;
   const cached = raspCache.get(cacheKey);
@@ -721,7 +772,7 @@ export async function pollThermoMpnnJob(
 
 /**
  * Enriches raw FoldX calculations with live remote job outputs, RaSP stability scores,
- * and calibrated consensus statistics.
+ * and the stability agreement (`computeStabilityConsensus`: engines past their own mark, median ΔΔG).
  */
 export function enrichBiophysicalResult(
   foldxRawResult: any,
@@ -773,7 +824,7 @@ export function enrichBiophysicalResult(
   const foldxRepairSkipped = foldxRawResult?.energetics?.foldxRepairSkipped ?? false;
   const foldxRepairSkippedReason = foldxRawResult?.energetics?.foldxRepairSkippedReason ?? null;
   const foldxRepairCached = foldxRawResult?.energetics?.foldxRepairCached === true;
-  const calResult = computeCalibratedConsensus({
+  const calResult = computeStabilityConsensus({
     foldxMean,
     rasp,
     thermompnn: thermompnnVal,
@@ -847,12 +898,20 @@ export function enrichBiophysicalResult(
       ddmut: ddmutVal,
       rasp,
       raspReason,
+      // Which RaSP table served the value, and what the installed index covers (for "not covered").
+      ...(foldxRawResult?.energetics?.raspSource ? { raspSource: foldxRawResult.energetics.raspSource } : {}),
+      ...(foldxRawResult?.energetics?.raspCoverage ? { raspCoverage: foldxRawResult.energetics.raspCoverage } : {}),
       thermompnn: thermompnnVal,
       stabilityoracle: stabilityoracleVal,
-      consensusProbability: calResult.consensusProbability,
-      consensusConfMin: calResult.consensusConfMin,
-      consensusConfMax: calResult.consensusConfMax,
+      /**
+       * The agreement count, not a probability. `consensusProbability` / `consensusConfMin/Max` are no
+       * longer emitted: they came from hand-typed curves (see `thresholds/consensus.ts`). Old cached
+       * payloads may still carry them; the schema keeps them optional and no surface reads them.
+       */
       consensusVerdict,
+      consensusEnginesCounted: calResult.enginesCounted,
+      consensusEnginesDestabilizing: calResult.enginesDestabilizing,
+      consensusMedianDdg: calResult.medianDdg,
       evidenceComplete,
       pendingTools
     },

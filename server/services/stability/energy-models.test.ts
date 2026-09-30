@@ -300,3 +300,80 @@ describe("RaSP index durability", () => {
     expect(second).toEqual(first);
   });
 });
+
+/**
+ * Two RaSP sources in one index, and an index from before sources existed.
+ *
+ * The AlphaFold-proteome row must win over the experimental-set row: it is UniProt-numbered by
+ * construction, whereas the authors note some experimental positions follow the structure's numbering.
+ * And a v2 index (no `source` column) must keep working, or an upgrade would switch RaSP off in every
+ * deployment that has not rebuilt.
+ */
+describe("RaSP sources", () => {
+  const dataDir = path.dirname(process.env.RASP_CSV_PATH ?? path.join(process.cwd(), "data", "x"));
+  const csvPath = process.env.RASP_CSV_PATH ?? path.join(dataDir, "df_rasp_gnomad_clinvar.csv");
+  const sqlitePath = process.env.RASP_SQLITE_PATH ?? path.join(dataDir, "df_rasp_gnomad_clinvar.sqlite");
+  const proteomeDir = path.join(dataDir, "rasp-proteome-test");
+  const saved: Record<string, Buffer | null> = {};
+
+  beforeAll(() => {
+    closeRaspResources();
+    for (const p of [csvPath, sqlitePath]) saved[p] = fs.existsSync(p) ? fs.readFileSync(p) : null;
+    fs.mkdirSync(dataDir, { recursive: true });
+  });
+
+  afterAll(() => {
+    closeRaspResources();
+    for (const [p, content] of Object.entries(saved)) {
+      try {
+        if (content) fs.writeFileSync(p, content);
+        else if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {}
+    }
+    fs.rmSync(proteomeDir, { recursive: true, force: true });
+  });
+
+  it("prefers the AlphaFold-proteome row and reports its source and the coverage", async () => {
+    fs.writeFileSync(
+      csvPath,
+      "uniprot_id,pdb_chain,pdb,chain_id,variant,RaSP;score_ml,clinvar;Clinvar_signifiance,gnomad;AF\n" +
+        "P00439,A,1pdb,A,R2W,1.45,,\nP01112,A,2pdb,A,G12V,2.54,,\n"
+    );
+    fs.mkdirSync(proteomeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(proteomeDir, "AF-P00439-F1-model_v2.txt"),
+      "# --------------------\n#     sequence: MRAG\n# --------------------\n#\nvariant score_ml_fermi score_ml\nR2W 0.81 2.40\n"
+    );
+    await buildRaspSqliteDatabase(csvPath, sqlitePath, { proteomeDir });
+    closeRaspResources();
+
+    const { getRaspCoverage } = await import("./energy-models.ts");
+    const both = await lookupPrecomputedRaspScore("P00439", 2, "R", "W");
+    expect(both).toEqual({ score: 2.4, source: "alphafold" });
+    const experimentalOnly = await lookupPrecomputedRaspScore("P01112", 12, "G", "V");
+    expect(experimentalOnly).toEqual({ score: 2.54, source: "experimental" });
+    expect(getRaspCoverage()).toEqual({ proteins: 2, sources: { experimental: 2, alphafold: 1 } });
+  });
+
+  it("still serves a v2 index that has no source column", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    closeRaspResources();
+    if (fs.existsSync(sqlitePath)) fs.unlinkSync(sqlitePath);
+    const db = new DatabaseSync(sqlitePath, { open: true });
+    db.exec(`
+      CREATE TABLE rasp_variants (uniprot_id TEXT NOT NULL, pos INTEGER NOT NULL, wt TEXT NOT NULL, mut TEXT NOT NULL,
+        pdb TEXT, pdb_chain TEXT, chain_id TEXT, rasp_score REAL, clinvar_significance TEXT, gnomad_af REAL) STRICT;
+      CREATE TABLE rasp_index_meta (schema_version INTEGER NOT NULL, rows INTEGER NOT NULL, proteins INTEGER NOT NULL,
+        source_file TEXT, source_bytes INTEGER, built_at TEXT NOT NULL) STRICT;
+      INSERT INTO rasp_variants VALUES ('P00439', 408, 'R', 'H', NULL, NULL, NULL, 1.45, NULL, NULL);
+      INSERT INTO rasp_index_meta VALUES (2, 1, 1, 'df.csv', 0, '2026-01-01');
+    `);
+    // Pad past the loader's 1 KB placeholder floor, as a real index always is.
+    db.exec(`CREATE TABLE pad (x TEXT); INSERT INTO pad VALUES ('${"x".repeat(4096)}');`);
+    db.close();
+
+    const { getRaspCoverage } = await import("./energy-models.ts");
+    expect(await lookupPrecomputedRaspScore("P00439", 408, "Arg", "His")).toEqual({ score: 1.45, source: "experimental" });
+    expect(getRaspCoverage()).toEqual({ proteins: 1, sources: { experimental: 1 } });
+  });
+});

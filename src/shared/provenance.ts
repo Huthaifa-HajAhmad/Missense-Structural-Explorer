@@ -27,8 +27,12 @@ export const PROVENANCE_DATA_SOURCES = {
   gnomad: "r4 (GraphQL API)",
   clinvar: "2024-latest (NCBI E-utilities)",
   foldx: "FoldX 5.0 (BuildModel & RepairPDB)",
-  cacheSchemaVersion: "v3",
-  stackerCalibration: "v1.2 (Calibrated Multi-Model Logistic Stacking)"
+  cacheSchemaVersion: "v3"
+  /**
+   * `stackerCalibration: "v1.2 (Calibrated Multi-Model Logistic Stacking)"` was removed: no stacker was
+   * ever fitted (tools/train_stacker.py writes hand-typed curves), so the manifest asserted a
+   * calibration that does not exist. See doc/ENERGETICS_TAB_REVIEW.md.
+   */
 };
 
 export const PROVENANCE_MODEL_REVISIONS = {

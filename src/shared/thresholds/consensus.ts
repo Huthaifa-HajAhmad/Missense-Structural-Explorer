@@ -1,295 +1,96 @@
-import stackingConfig from "../stacking_config.json" with { type: "json" };
-import { getResidueContext, getCalibration } from "../uncertainty.ts";
-import { THRESHOLDS } from "./constants.ts";
-
 /**
- * Normalizes any raw predictor score into a canonical positive destabilization magnitude vector (H-4).
- * Canonical Rule: Positive magnitude (> 0) indicates destabilization.
- */
-export function normalizeDestabilizationMagnitude(
-  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn" | "stabilityoracle",
-  score: number | null
-): { magnitude: number | null; isDestabilizing: boolean } {
-  if (score === null || score === undefined || isNaN(score)) {
-    return { magnitude: null, isDestabilizing: false };
-  }
-
-  switch (tool) {
-    case "foldx": {
-      // FoldX: Positive score = destabilizing (threshold >= 1.5)
-      const isDestab = score >= THRESHOLDS.foldxDdG.destabilizingStrong;
-      return { magnitude: score, isDestabilizing: isDestab };
-    }
-    case "dynamut2": {
-      // DynaMut2: Negative score = destabilizing (threshold <= -1.0)
-      const isDestab = score <= THRESHOLDS.dynamut2.destabilizing;
-      return { magnitude: -score, isDestabilizing: isDestab };
-    }
-    case "ddmut": {
-      // DDMut: Negative score = destabilizing (threshold <= -1.0)
-      const isDestab = score <= THRESHOLDS.ddmut.destabilizing;
-      return { magnitude: -score, isDestabilizing: isDestab };
-    }
-    case "rasp": {
-      // RaSP: Positive score = destabilizing (threshold >= 1.0)
-      const isDestab = score >= THRESHOLDS.rasp.destabilizing;
-      return { magnitude: score, isDestabilizing: isDestab };
-    }
-    case "stabilityoracle": {
-      // StabilityOracle: Positive score = destabilizing (threshold >= 1.0)
-      const isDestab = score >= THRESHOLDS.stabilityoracle.destabilizing;
-      return { magnitude: score, isDestabilizing: isDestab };
-    }
-    case "thermompnn": {
-      // ThermoMPNN: Positive score = destabilizing (threshold >= 1.0 kcal/mol, deltaG = mutant - WT)
-      const isDestab = score >= THRESHOLDS.thermompnn.destabilizing;
-      return { magnitude: score, isDestabilizing: isDestab };
-    }
-    default:
-      return { magnitude: score, isDestabilizing: false };
-  }
-}
-
-export interface CalibratedScore {
-  p: number;
-  lower: number;
-  upper: number;
-}
-
-/**
- * Maps a raw ddG score from a specific tool to its calibrated probability,
- * lower conformal bound, and upper conformal bound by interpolating pre-fit curves.
- */
-export function calibrateRawScore(
-  tool: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn" | "stabilityoracle",
-  score: number | null
-): CalibratedScore | null {
-  if (score === null || score === undefined || isNaN(score)) {
-    return null;
-  }
-
-  const config = (stackingConfig as any)[tool];
-  if (!config || !config.bins || config.bins.length === 0) {
-    return null;
-  }
-
-  const bins = config.bins;
-  
-  // Edge cases (clipping)
-  if (score <= bins[0].raw) {
-    return { p: bins[0].p, lower: bins[0].lower, upper: bins[0].upper };
-  }
-  if (score >= bins[bins.length - 1].raw) {
-    return { p: bins[bins.length - 1].p, lower: bins[bins.length - 1].lower, upper: bins[bins.length - 1].upper };
-  }
-
-  // Linear interpolation between matching bin edges
-  for (let i = 0; i < bins.length - 1; i++) {
-    const binA = bins[i];
-    const binB = bins[i + 1];
-    if (score >= binA.raw && score <= binB.raw) {
-      const denom = binB.raw - binA.raw;
-      const ratio = denom === 0 ? 0 : (score - binA.raw) / denom;
-      return {
-        p: binA.p + ratio * (binB.p - binA.p),
-        lower: binA.lower + ratio * (binB.lower - binA.lower),
-        upper: binA.upper + ratio * (binB.upper - binA.upper),
-      };
-    }
-  }
-
-  return { p: bins[0].p, lower: bins[0].lower, upper: bins[0].upper };
-}
-
-export interface CalibratedConsensusResult {
-  consensusProbability: number | null;
-  consensusConfMin: number | null;
-  consensusConfMax: number | null;
-  /**
-   * The verdict, typed as the closed set below rather than `string`.
-   *
-   * This is what makes the original defect a *compile* error rather than a silent dead branch: with
-   * the union, `verdict === "destabilizing"` is rejected by TypeScript (TS2367, no overlap), which no
-   * regex-based guard can guarantee.
-   */
-  consensusVerdict: ConsensusVerdict;
-}
-
-/**
- * Every string `computeCalibratedConsensus` can return.
+ * consensus.ts — the ΔΔG stability consensus, as an agreement count.
  *
- * Exported so the verdict is a *closed set* rather than free text. Surfaces used to compare it
- * against literals they had invented — `SplicingTab` tested `consensusVerdict === "destabilizing"`,
- * which the function can never produce, so that branch was dead and a variant whose only evidence
- * was a destabilizing prediction was reported "Thermodynamically Tolerated". A guard test also
- * rejects any literal that is not a fragment of a real verdict.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHAT THIS REPLACED (read before adding a "probability" back)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * This module used to map each engine's ΔΔG to a "calibrated probability of destabilization" through
+ * `stacking_config.json`, weight them, attach a "conformal interval", and threshold the average into
+ * "High / Moderate / Low Misfolding Risk". The curves were typed by hand in `tools/train_stacker.py`
+ * (its download, homology-filter and Venn-ABERS steps were `pass` or "simulation"), and the weights were
+ * further scaled by per-context AUCs in `protein_class_calibration.json` that had no source either.
+ * Nothing in it was fitted to data, so every number it produced was presented with a precision it did
+ * not have. It was removed, not relabelled (doc/ENERGETICS_TAB_REVIEW.md, "Calibration retired").
+ *
+ * What it computes now is what the Energetics tab shows: how many engines that returned a value sit
+ * past their OWN destabilizing mark (`shared/engineStatus.ts`), their median ΔΔG and range, and a
+ * verdict from the closed set `STABILITY_VERDICTS`. The rule lives in `shared/energeticsEvidence.ts`;
+ * this module is the server-safe entry point to it, so the stored verdict, the export and the screen
+ * cannot disagree.
+ *
+ * If a calibrated probability is ever wanted, it must come from a fitted, reproducible model with a
+ * held-out evaluation checked into the repository — not a table of literals.
  */
-export const CONSENSUS_VERDICTS = {
-  insufficient: "Insufficient Biophysical Data",
-  lowNeutral: "Low Misfolding Risk (Neutral Stability)",
-  high: "High Misfolding Risk (Destabilizing Consensus)",
-  moderate: "Moderate Misfolding Risk (Conflicting Stability)",
-  elevatedSingle: "Elevated Misfolding Risk (Single-Tool Estimate)",
-  lowSingle: "Low Misfolding Risk (Single-Tool Estimate)"
-} as const;
 
-/** The closed set of verdicts, as a type. */
-export type ConsensusVerdict = (typeof CONSENSUS_VERDICTS)[keyof typeof CONSENSUS_VERDICTS];
+import {
+  STABILITY_VERDICTS,
+  buildEnergeticsEvidence,
+  type StabilityVerdict,
+} from "../energeticsEvidence.ts";
+
+/** The closed set of verdicts. Kept under this name for the closed-set guard and older imports. */
+export const CONSENSUS_VERDICTS = STABILITY_VERDICTS;
+
+/** The closed set of verdicts, as a type. A comparison with any other literal fails `tsc` (TS2367). */
+export type ConsensusVerdict = StabilityVerdict;
 
 /** All verdict strings, for exhaustive iteration in tests and guards. */
 export const CONSENSUS_VERDICT_VALUES: readonly string[] = Object.values(CONSENSUS_VERDICTS);
 
 /**
- * True when `literal` is a legitimate way to inspect a verdict — either a whole verdict or a
- * fragment of one (so `includes("High")`, `includes("Moderate")` and `includes("Insufficient")`
- * remain valid), matched case-sensitively as the string comparisons are.
+ * True when `literal` is a legitimate way to inspect a verdict — a whole verdict or a fragment of one
+ * (`includes("Disagree")`), matched case-sensitively as string comparisons are.
  */
 export function isConsensusVerdictFragment(literal: string): boolean {
   if (!literal) return false;
   return CONSENSUS_VERDICT_VALUES.some(verdict => verdict.includes(literal));
 }
 
-/**
- * Calculates consensus probability and conformal intervals from available predictors
- * by doing a weighted average of individual calibrated probabilities.
- */
-export function computeCalibratedConsensus(
-  energetics: {
-    foldxMean?: number | null;
-    foldx?: number | null;
-    dynamut2?: number | null;
-    ddmut?: number | null;
-    rasp?: number | null;
-    thermompnn?: number | null;
-    stabilityoracle?: number | null;
-    foldxRepairFailed?: boolean;
-    foldxBinaryMissing?: boolean;
-  } | null,
-  uniprotFeatures?: any[],
-  residueIndex?: number,
-  plddt?: number | null
-): CalibratedConsensusResult {
-  if (!energetics) {
-    return {
-      consensusProbability: null,
-      consensusConfMin: null,
-      consensusConfMax: null,
-      consensusVerdict: CONSENSUS_VERDICTS.insufficient
-    };
-  }
+/** The engine values the consensus reads. Raw provider values: the sign is normalized per engine. */
+export interface StabilityConsensusInput {
+  foldxMean?: number | null;
+  foldx?: number | null;
+  dynamut2?: number | null;
+  ddmut?: number | null;
+  rasp?: number | null;
+  thermompnn?: number | null;
+  stabilityoracle?: number | null;
+  foldxRepairFailed?: boolean;
+  foldxBinaryMissing?: boolean;
+}
 
-  const isFoldxExcluded = !!energetics.foldxRepairFailed || !!energetics.foldxBinaryMissing;
-  const foldxVal = isFoldxExcluded ? null : (energetics.foldxMean ?? energetics.foldx ?? null);
-  const dynamut2 = energetics.dynamut2 ?? null;
-  const ddmut = energetics.ddmut ?? null;
-  const rasp = energetics.rasp ?? null;
-  const thermompnn = energetics.thermompnn ?? null;
-
-  const stabilityoracle = energetics.stabilityoracle ?? null;
-
-  const tools: Array<{ name: "foldx" | "dynamut2" | "ddmut" | "rasp" | "thermompnn" | "stabilityoracle"; val: number | null }> = [
-    { name: "foldx", val: foldxVal },
-    { name: "dynamut2", val: dynamut2 },
-    { name: "ddmut", val: ddmut },
-    { name: "rasp", val: rasp },
-    { name: "thermompnn", val: thermompnn },
-    { name: "stabilityoracle", val: stabilityoracle }
-  ];
-
-  const context = getResidueContext(uniprotFeatures, residueIndex ?? 0);
-
-  // Structural confidence damping for structure-dependent predictors (SCI-004)
-  const plddtVal = (plddt !== null && plddt !== undefined) ? plddt : 100;
-  const structureConfidenceFactor = plddtVal >= 70 ? 1.0 : (plddtVal >= 50 ? 0.5 : 0.1);
-  /**
-   * Identifies atomic-coordinate-sensitive engines (FoldX, ThermoMPNN, StabilityOracle).
-   * These engines rely on precise atomic packing, rotamer orientations, and 3D graph topologies;
-   * their ΔΔG estimates degrade rapidly in low-confidence/disordered regions (pLDDT < 70),
-   * requiring proportional down-weighting. In contrast, sequence-inferred or distance-invariant
-   * methods are less sensitive to coordinate jitter.
-   */
-  const isStructureTool = (name: string) => ["foldx", "thermompnn", "stabilityoracle"].includes(name);
-
-  let totalWeight = 0;
-  let weightedProbSum = 0;
-  let weightedLowerSum = 0;
-  let weightedUpperSum = 0;
-  let availableCount = 0;
-
-  for (const tool of tools) {
-    if (tool.val !== null) {
-      const cal = calibrateRawScore(tool.name, tool.val);
-      if (cal !== null) {
-        const baseWeight = (stackingConfig as any)[tool.name]?.weight ?? 1.0;
-        const calInfo = getCalibration(tool.name, context);
-        const weight = baseWeight * calInfo.weightMultiplier * (isStructureTool(tool.name) ? structureConfidenceFactor : 1.0);
-
-        totalWeight += weight;
-        weightedProbSum += weight * cal.p;
-        weightedLowerSum += weight * cal.lower;
-        weightedUpperSum += weight * cal.upper;
-        availableCount++;
-      }
-    }
-  }
-
-  if (availableCount === 0 || totalWeight === 0) {
-    return {
-      consensusProbability: null,
-      consensusConfMin: null,
-      consensusConfMax: null,
-      consensusVerdict: CONSENSUS_VERDICTS.insufficient
-    };
-  }
-
-  const consensusProbability = weightedProbSum / totalWeight;
-  const consensusConfMin = weightedLowerSum / totalWeight;
-  const consensusConfMax = weightedUpperSum / totalWeight;
-
-  // Probability-based consensus threshold mapping
-  let consensusVerdict: ConsensusVerdict = CONSENSUS_VERDICTS.lowNeutral;
-  if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
-    consensusVerdict = CONSENSUS_VERDICTS.high;
-  } else if (consensusProbability >= THRESHOLDS.biophysicalConsensus.moderateRiskProbability) {
-    consensusVerdict = CONSENSUS_VERDICTS.moderate;
-  }
-
-  // Handle single-predictor fallback label schema
-  if (availableCount === 1) {
-    if (consensusProbability >= THRESHOLDS.biophysicalConsensus.highRiskProbability) {
-      consensusVerdict = CONSENSUS_VERDICTS.elevatedSingle;
-    } else {
-      consensusVerdict = CONSENSUS_VERDICTS.lowSingle;
-    }
-  }
-
-  return {
-    consensusProbability,
-    consensusConfMin,
-    consensusConfMax,
-    consensusVerdict
-  };
+export interface StabilityConsensusResult {
+  consensusVerdict: ConsensusVerdict;
+  /** Engines whose value is counted (an excluded FoldX value is shown elsewhere, never counted). */
+  enginesCounted: number;
+  /** Counted engines at or past their own destabilizing mark. */
+  enginesDestabilizing: number;
+  /** Median canonical ΔΔG of the counted engines, kcal/mol (positive = destabilizing). */
+  medianDdg: number | null;
+  minDdg: number | null;
+  maxDdg: number | null;
 }
 
 /**
- * Unified calculation of structural energetics consensus stability verdict.
- * Kept for backward compatibility.
+ * The stability consensus for one set of engine values.
+ *
+ * Deliberately takes VALUES only: statuses (running, provider busy…) describe the run, not the verdict,
+ * and the screen adds them itself. With no engine counted the verdict is "Insufficient Biophysical Data".
  */
-export function computeConsensusVerdict(
-  energetics: {
-    foldxMean?: number | null;
-    foldx?: number | null;
-    dynamut2?: number | null;
-    ddmut?: number | null;
-    rasp?: number | null;
-    thermompnn?: number | null;
-    stabilityoracle?: number | null;
-    foldxRepairFailed?: boolean;
-    foldxBinaryMissing?: boolean;
-  } | null,
-  uniprotFeatures?: any[],
-  residueIndex?: number,
-  plddt?: number | null
-): ConsensusVerdict {
-  return computeCalibratedConsensus(energetics, uniprotFeatures, residueIndex, plddt).consensusVerdict;
+export function computeStabilityConsensus(energetics: StabilityConsensusInput | null): StabilityConsensusResult {
+  const ev = buildEnergeticsEvidence({ foldingEnergetics: (energetics ?? null) as Record<string, any> | null });
+  const a = ev.agreement;
+  return {
+    consensusVerdict: a.verdict,
+    enginesCounted: a.nCounted,
+    enginesDestabilizing: a.destabilizing.length,
+    medianDdg: a.median,
+    minDdg: a.min,
+    maxDdg: a.max,
+  };
+}
+
+/** The verdict alone. */
+export function computeConsensusVerdict(energetics: StabilityConsensusInput | null): ConsensusVerdict {
+  return computeStabilityConsensus(energetics).consensusVerdict;
 }

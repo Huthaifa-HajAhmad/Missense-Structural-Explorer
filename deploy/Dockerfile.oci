@@ -56,8 +56,31 @@ ENV UV_COMPILE_BYTECODE=1
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv python install 3.12 && uv sync --project tools --no-dev --python 3.12
 
-# Copy source tree
-COPY . .
+# Copy the source tree the type-check and the bundle actually read.
+#
+# NOT `COPY . .`, deliberately. The build context on the deploy host also carries tools/p2rank
+# (621 MB) and tools/vesm (568 MB) -- gitignored, downloaded onto the VM, and read by no build step:
+# they contain no .ts/.tsx at all, and nothing under src/ or server/ imports from tools/. Copying
+# them anyway made this layer ~1.2 GB, and because `COPY . .` is invalidated by every commit, that
+# ~1.2 GB was rebuilt and re-cached on every deploy -- which is where the 122.9 GB of build cache on
+# the VM came from, on a disk that was 73% full.
+#
+# The RUNNER stage still does `COPY tools/ ./tools/` straight from the build context, so p2rank,
+# vesm, foldx, thermompnn and model_server_app keep reaching the image exactly as they did before.
+# Only the builder stops carrying the ones it never reads.
+#
+# The two tools/**/*.ts entry points and the two geometry harnesses ARE included: `tsc --noEmit` has
+# no `include` in tsconfig.json, so it type-checks every .ts/.tsx under the root, and dropping them
+# would quietly narrow that gate rather than merely speed it up.
+COPY src ./src
+COPY server ./server
+COPY scripts ./scripts
+COPY assets ./assets
+COPY data ./data
+COPY tools/header-geometry ./tools/header-geometry
+COPY tools/function-track-geometry ./tools/function-track-geometry
+COPY tools/ingest_dbnsfp.ts tools/run_proteingym_benchmark.ts ./tools/
+COPY index.html tsconfig.json vite.config.ts server.ts ecosystem.config.cjs ./
 
 # The only gate that may run here is the artifact-level type-check.
 #

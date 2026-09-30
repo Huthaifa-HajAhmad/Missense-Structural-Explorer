@@ -415,6 +415,59 @@ describe("foldxService", () => {
     expect(sink.setDdmutStatus).not.toHaveBeenCalledWith(null);
   });
 
+  it("collects job ids a cache-hit response could not carry, instead of settling to no result", async () => {
+    // The cache-hit route answers before the BioSig submissions return an id, and now hands back a
+    // token to collect them. Settling first is what turned DDMut/DynaMut2 into "No result".
+    const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
+      if (url.includes("/generate-mutant")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "success",
+            pdb: "ATOM",
+            ddG: 1.5,
+            energetics: { foldx: 1.5 },
+            dynamut2Status: "pending",
+            dynamut2JobId: null,
+            ddmutStatus: "pending",
+            ddmutJobId: null,
+            remoteSubmissionToken: "11111111-2222-4333-8444-555555555555"
+          })
+        };
+      }
+      expect(url).toBe("/api/v1/remote-submissions/11111111-2222-4333-8444-555555555555");
+      return {
+        ok: true,
+        json: async () => ({
+          settled: true,
+          dynamut2JobId: "178940463982",
+          dynamut2Status: "pending",
+          ddmutJobId: null,
+          ddmutStatus: "unavailable"
+        })
+      };
+    });
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+    expect(sink.setDynamut2JobId).toHaveBeenCalledWith("178940463982");
+    // An engine that now has a live poller is not settled away...
+    expect(sink.setDynamut2Status).not.toHaveBeenCalledWith(null);
+    // ...and one whose submission failed carries that fact, not a blank.
+    expect(sink.setDdmutStatus).toHaveBeenCalledWith("unavailable");
+  });
+
   it("settles pending engines on the ERROR exits, not only on the terminal commits", async () => {
     /**
      * The defect: the settle helper ran on the three terminal commits only, and it was defined
