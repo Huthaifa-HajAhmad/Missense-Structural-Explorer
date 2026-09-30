@@ -20,6 +20,7 @@ import {
 } from "../services/external.ts";
 import { type RuleBasedInsights, type ACMGItem } from "../services/acmg.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../src/shared/aminoAcids.ts";
+import { isEngineOwnedCode } from "../../src/shared/acmgCriteriaView.ts";
 import { AuditLogger } from "../utils.ts";
 import { GeminiError } from "../services/gemini.ts";
 import { narrativeCache } from "../services/cache.ts";
@@ -191,8 +192,10 @@ export function handleNarrativeResponse(
   const ruleCodesSet = new Set(ruleInsights.acmgCriteria.map((c: ACMGItem) => c.code));
 
   // Only include AI suggestions that don't duplicate a rule-based code
+  // and none for a code the engine owns: it ruled on those from data the model was never shown, so a
+  // proposal there can only contradict "not met" or "withheld" (see `ENGINE_OWNED_CODES`).
   const uniqueAiCriteria = aiCriteria
-    .filter((c: ACMGItem) => !ruleCodesSet.has(c.code))
+    .filter((c: ACMGItem) => !ruleCodesSet.has(c.code) && !isEngineOwnedCode(c.code))
     .map((c: ACMGItem) => ({ ...c, source: "ai_suggested" as const }));
 
   const mergedCriteria: (ACMGItem & { source?: string })[] = [

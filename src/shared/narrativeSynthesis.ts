@@ -89,3 +89,17 @@ export function describeSampling(temperature: number): string {
   if (temperature === 0) return "0 (greedy, repeatable)";
   return String(temperature);
 }
+
+/**
+ * What the narrative prompt is given, in words a reader can check the summary against.
+ *
+ * The prompt (`performGeminiAnalysis`) carries ClinVar, AlphaMissense, CADD, REVEL, GERP, phyloP and the
+ * top STRING partners. It carries no allele frequency, gene constraint, functional domain, stability,
+ * splicing or structure reading — yet asks the model for "specific molecular hypotheses based on
+ * peptide chain coordinates" and lets it propose criteria. `narrativeSynthesis.test.ts` reads the prompt
+ * source and fails if a block named here disappears or a "not sent" source appears in it.
+ */
+export const NARRATIVE_PROMPT_EVIDENCE = {
+  sent: ["ClinVar", "AlphaMissense", "CADD", "REVEL", "GERP++", "phyloP", "STRING partners"],
+  notSent: ["gnomAD frequency", "gene constraint", "functional domains", "stability (ΔΔG)", "splicing", "3D structure"],
+} as const;

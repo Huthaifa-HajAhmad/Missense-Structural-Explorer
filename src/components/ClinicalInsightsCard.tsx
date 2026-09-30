@@ -1,104 +1,34 @@
-import React, { memo, useCallback, useMemo, useRef, useState, useLayoutEffect } from "react";
+import React, { memo, useCallback, useMemo } from "react";
 import { generateProvenanceManifest } from "../shared/provenance";
-import { computeStabilityConsensus, THRESHOLDS } from "../shared/thresholds";
+import { computeStabilityConsensus } from "../shared/thresholds";
 import { toCanonicalDdg } from "../shared/engineStatus";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
-import { formatAlleleFrequency } from "../shared/frequencyEvidence";
 // One ACMG criteria list and one provenance vocabulary for every surface that renders criteria.
-import { ACMG_SOURCE_LABEL, acmgCriteriaView } from "../shared/acmgCriteriaView";
 // The condensed clinical summary this view shows in place of the full narrative, plus the shared
 // "is this narrative AI-authored or rule-based" verdict — the payload carries both kinds of text.
 import { summariseNarrative } from "../shared/narrativeSummary";
 import { deriveNarrativeAuthorship } from "../shared/narrativeAuthorship";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
-import { 
-  FileText, 
-  CheckCircle2, 
-  Copy, 
-  ShieldAlert, 
-  Activity, 
-  Layers, 
-  Atom, 
-  ExternalLink, 
-  Database,
+import {
+  FileText,
+  CheckCircle2,
+  Copy,
   Lightbulb,
   Download,
   KeyRound,
   Settings,
-  AlertTriangle,
-  ChevronRight
+  AlertTriangle
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
-import { 
-  Radar, 
-  RadarChart, 
-  PolarGrid, 
-  PolarAngleAxis, 
-  PolarRadiusAxis, 
-  ResponsiveContainer, 
-  Tooltip 
-} from "recharts";
-
-/**
- * Shown when no criterion carries `ai_suggested`.
- *
- * Deliberately covers both causes rather than asserting one. The server drops a model-suggested code
- * when the rule engine already computed the same code (`uniqueAiCriteria` in
- * `server/routes/shared.ts`), so an empty group means either that the model proposed nothing or that
- * everything it proposed was already evidenced — and this card cannot tell which from the payload.
- * "The model suggested no additional criteria" would be a claim it cannot support.
- */
-const NO_AI_CRITERIA_NOTE =
-  "No additional criteria were proposed by the model — either it proposed none, or every code it proposed was already computed by the rule engine and is listed above.";
-
-function SafeResponsiveContainer({ children }: { children: React.ReactElement }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!containerRef.current) return;
-    const checkSize = () => {
-      if (containerRef.current) {
-        const { clientWidth, clientHeight } = containerRef.current;
-        if (clientWidth > 0 && clientHeight > 0) {
-          setDimensions(prev => {
-            if (prev && prev.width === clientWidth && prev.height === clientHeight) {
-              return prev;
-            }
-            return { width: clientWidth, height: clientHeight };
-          });
-        }
-      }
-    };
-    checkSize();
-    const observer = new ResizeObserver(checkSize);
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <div ref={containerRef} className="w-full h-full min-h-[155px]" style={{ minWidth: 0, minHeight: 155 }}>
-      {dimensions ? (
-        <ResponsiveContainer
-          width="100%"
-          height="100%"
-          minWidth={0}
-          minHeight={0}
-          initialDimension={dimensions}
-        >
-          {children}
-        </ResponsiveContainer>
-      ) : null}
-    </div>
-  );
-}
+import { InsightsScreen } from "./insights/InsightsScreen";
+import { buildInsightsEvidence } from "../shared/insightsEvidence";
+import { functionEvidenceInputFrom } from "./evidence/function/functionInput";
+import type { EvidenceTabId } from "../shared/insightsEvidence";
 import { VARIANT_PRESETS } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
 import type { MasterView } from "./MasterSidebar";
-import { resolveResidueShiftModel } from "../lib/residueShiftModel";
-import { deriveBiochemicalNarrative, getPropertyScaleDefinition } from "../shared/residueShiftEvidence";
 
 /**
  * The consensus verdict DERIVED from the current run state, built from EXACTLY the expressions
@@ -235,6 +165,8 @@ interface ClinicalInsightsCardProps {
    * compile and send the reader to a blank pane — the one failure a navigation prop must not have.
    */
   onNavigateToView?: (view: MasterView) => void;
+  /** Open one Evidence sub-tab, so a lane on the board can send the reader to the tab that owns it. */
+  onOpenEvidenceTab?: (tab: EvidenceTabId) => void;
 }
 
 const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
@@ -262,7 +194,8 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   foldingEnergetics,
   foldingDdG,
   disruptionPredictor,
-  onNavigateToView
+  onNavigateToView,
+  onOpenEvidenceTab
 }: ClinicalInsightsCardProps) {
   const { openSettingsTab } = useSettings();
   const isPresetData = VARIANT_PRESETS.some(
@@ -341,126 +274,19 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
     }, 80);
   }, [onNavigateToView]);
 
-  /**
-   * Shared with the Residue Shifts inspector: one classification of "is there a
-   * usable narrative", so the two views cannot disagree and neither prints the
-   * pipeline's fallback markdown as prose.
-   */
-  const biochemicalNarrative = useMemo(
-    () =>
-      deriveBiochemicalNarrative(analysisState.result?.insights?.biochemicalShift, {
-        isLoading: isNarrativeLoading
-      }),
-    [analysisState.result?.insights?.biochemicalShift, isNarrativeLoading]
-  );
-
-  const renderResiduePropertyRadar = useCallback(() => {
-    /*
-     * Resolved through the shared model rather than by re-parsing `variant` here.
-     *
-     * Two defects this closes:
-     *   1. Axis names were local to this chart ("Charge", "Molecular Size") and had
-     *      already drifted from the Residue Shifts tab ("Isoelectric Charge Index",
-     *      "Residue Volume / Size"). Both now read PROPERTY_SCALE_DEFINITIONS.
-     *   2. An unresolved residue fell back to a flat all-50 profile, which drew a
-     *      plausible-looking radar out of a parse failure. Missing data now reads as
-     *      missing data.
-     */
-    const model = resolveResidueShiftModel({
-      wildType: analysisState.result?.metadata?.wildType,
-      mutant: analysisState.result?.metadata?.mutant,
-      /*
-       * `metadata.variant`, not the `variant` prop. The prop is the live search
-       * box (`searchSlice.setVariant`), so an unsubmitted edit would make this
-       * chart describe a different substitution than the tab and the inspector,
-       * which both read metadata. The pipeline stores `wildType/mutant: ""` for
-       * placeholder, error and demo states, so the fallback is reachable.
-       */
-      variant: analysisState.result?.metadata?.variant
+  const insightsEvidence = useMemo(() => {
+    const result = analysisState.result;
+    if (!result) return null;
+    const consensus = deriveConsensus({ result, foldingEnergetics, foldingDdG, plddt: disruptionPredictor?.plddt });
+    return buildInsightsEvidence({
+      result,
+      functionInput: functionEvidenceInputFrom(result),
+      stability: consensus
+        ? { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing }
+        : null,
+      isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
     });
-
-    if (!model.contrast) {
-      return (
-        <div
-          className="p-3 rounded-lg border text-[11px] leading-relaxed font-sans"
-          style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}
-        >
-          Residue property comparison is unavailable: the wild-type or variant residue could not be resolved to the
-          normalised amino-acid scales. No profile is plotted, because a defaulted one would misrepresent the substitution.
-        </div>
-      );
-    }
-
-    const radarData = model.contrast.rows.map(row => ({
-      subject: getPropertyScaleDefinition(row.key).shortLabel,
-      WT: row.wildTypeValue,
-      MUT: row.mutantValue
-    }));
-
-    const wtColor = "var(--cs-good)";
-    const mutColor = "var(--cs-danger)";
-
-    return (
-      <div className="flex flex-col sm:flex-row items-center gap-4 justify-between p-3 rounded-lg border cs-surface-card transition-colors">
-        <div className="w-full sm:w-[50%] h-[155px]">
-          <SafeResponsiveContainer>
-            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-              <PolarGrid stroke={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)"} />
-              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: "var(--cs-text-secondary)" }} />
-              <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10, fill: "var(--cs-text-muted)" }} />
-              <Radar name="Wild-Type" dataKey="WT" stroke={wtColor} fill={wtColor} fillOpacity={0.12} />
-              <Radar name="Mutant" dataKey="MUT" stroke={mutColor} fill={mutColor} fillOpacity={0.12} />
-              <Tooltip contentStyle={{ fontSize: 10, background: "var(--cs-surface)", borderColor: "var(--cs-border)", color: "var(--cs-text-primary)" }} />
-            </RadarChart>
-          </SafeResponsiveContainer>
-        </div>
-        <div className="w-full sm:w-[45%] flex flex-col gap-1.5 text-[10.5px]">
-          <div className="flex items-center gap-2 pb-1 border-b cs-border-card-sep border-dashed">
-            <span className="w-2.5 h-2.5 rounded" style={{ background: wtColor }}></span>
-            <span style={{ color: "var(--cs-text-primary)" }}>Wild-Type ({model.wildTypeLabel})</span>
-          </div>
-          <div className="flex items-center gap-2 pb-2">
-            <span className="w-2.5 h-2.5 rounded" style={{ background: mutColor }}></span>
-            <span style={{ color: "var(--cs-text-primary)" }}>Mutant ({model.mutantLabel})</span>
-          </div>
-          <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
-            Plots the same normalised 0&ndash;100 descriptors as the Residue Shifts &amp; Pockets tab. Overlapping
-            profiles indicate conservative substitutions; deviations show which chemical axis moved.
-          </p>
-          {/*
-            The signed-axis note is load-bearing, not decoration: charge is 0 for
-            Asp/Glu, 50 for neutral and 100 for Lys/Arg, and on a radar radius 0 is
-            the origin. Without this sentence those two residues plot at the centre
-            and read as "no charge" when they are the most strongly charged.
-          */}
-          <p className="leading-relaxed font-sans" style={{ color: "var(--cs-text-muted)" }}>
-            On the charge axis, 0 = negative, 50 = neutral and 100 = positive, so a charge profile near the
-            centre means a neutral residue rather than an uncharged one. The other three axes are magnitudes,
-            where further from the centre is simply more of that property. The axes are fixed descriptors of the
-            residue pair, not predictions of effect.
-          </p>
-          <div className="mt-1.5 pt-1.5 border-t cs-border-card-sep border-dashed text-[10px] leading-normal" style={{ color: "var(--cs-text-muted)" }}>
-            <strong>Primary Literature Scales:</strong>
-            <ul className="list-disc pl-3 mt-0.5 space-y-0.5">
-              {model.contrast.rows.map(row => {
-                const definition = getPropertyScaleDefinition(row.key);
-                return (
-                  <li key={row.key}>
-                    {definition.shortLabel}: {definition.source}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </div>
-      </div>
-    );
-  }, [
-    isDark,
-    analysisState.result?.metadata?.wildType,
-    analysisState.result?.metadata?.mutant,
-    analysisState.result?.metadata?.variant
-  ]);
+  }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt]);
 
   const handleExportJSON = () => {
     if (!analysisState.result) return;
@@ -488,15 +314,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         variant: variant,
         uniprotId: uniprotId || analysisState.result.metadata?.uniprotId || "",
         timestamp: new Date().toISOString(),
-        appVersion: "1.0.0",
-        models: {
-          foldx: "FoldX BuildModel 5.0",
-          dynamut2: "DynaMut2 Consensus",
-          ddmut: "DDMut Deep Learning",
-          rasp: "RaSP Precomputed",
-          thermompnn: "ThermoMPNN Neural Stability",
-          alphamissense: "AlphaMissense (via EVE/REVEL/AM)"
-        }
+        // Model and version strings were literals here ("DynaMut2 Consensus", "RaSP Precomputed",
+        // appVersion "1.0.0") that named engines whether or not they served the run. Only what the
+        // payload records is exported.
+        narrativeModel: (analysisState.result.insights as { model?: string } | undefined)?.model ?? null
       },
       inputParameters: {
         gene,
@@ -609,7 +430,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           <div className="flex items-center gap-2 flex-wrap">
             <FileText className="w-4 h-4" style={{ color: "var(--cs-text-accent)" }} />
             <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
-              Variant Insights Report
+              Insights
             </h3>
             {analysisState.result && analysisState.result.isDemoData && isPresetData && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border cs-badge cs-badge-clay">
@@ -619,7 +440,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           </div>
           <span className="text-[10px] font-medium tracking-wide mt-0.5 flex items-center gap-1" style={{ color: "var(--cs-warn)" }}>
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            AI narrative suggestions only; not a clinical determination. Professional evaluation required.
+            The classification is computed by rules; the written summary is AI-generated. Neither is a clinical determination. Professional evaluation required.
           </span>
         </div>
         
@@ -710,585 +531,39 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             </button>
           </div>
         ) : analysisState.result ? (
-          /* Analysis result presenting structured key metrics and narrative report */
-          <div className="flex flex-col gap-5 w-full text-cs-text-secondary">
-            {/*
-              * CONCISE clinical summary, not the narrative.
-              *
-              * The full AI narrative used to render here verbatim, in a collapsible panel — the same
-              * ~2,500 characters the Report view's "Executive Summary & Clinical Narrative" section
-              * prints, in a second pane of one viewport. Two copies of one AI text is a provenance
-              * problem before it is a layout problem: only the Report copy is covered by the section
-              * toggles, the print pass, the EHR export and the SHA-256 fingerprint, so the two could
-              * be read as different artefacts while being byte-identical.
-              *
-              * The Report keeps the narrative in full and unchanged; this surface shows the
-              * conclusion and points at the source of truth. `summariseNarrative` selects the
-              * narrative's own clinical section and trims on a sentence boundary — it writes no
-              * prose, so nothing here can be attributed to the model that the model did not say.
-              */}
-            {narrativeSummary.text && (
-              <div
-                className="rounded-xl border overflow-hidden"
-                style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
-              >
-                <div className="flex items-center justify-between gap-2 px-4 py-3" style={{ borderBottom: "1px solid var(--cs-border-subtle)" }}>
-                  <span className="flex items-center gap-1.5 font-bold font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Clinical summary</span>
-                  </span>
-                  {narrativeSummary.truncated && (
-                    /*
-                     * Named, not just chipped. The summary keeps whole sentences, so a claim can
-                     * survive the cut while the sentence qualifying or reversing it does not — which
-                     * is why the disclosure has to say the text continues rather than merely hint at
-                     * it with a one-word tag.
-                     */
-                    <span className="text-[10px] font-mono uppercase tracking-wider shrink-0" style={{ color: "var(--cs-text-muted)" }}>
-                      Excerpt — continues
-                    </span>
-                  )}
-                </div>
-
-                <div className="px-4 py-3 flex flex-col gap-2">
-                  {narrativeSummary.sourceSection && (
-                    <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: "var(--cs-text-muted)" }}>
-                      {narrativeSummary.sourceSection}
-                    </span>
-                  )}
-                  {/*
-                    * One <p> per paragraph. `summariseNarrative` preserves blank-line paragraph breaks
-                    * as `\n\n`, and a single <p> paints those as an ordinary space — so a summary that
-                    * reported two paragraphs rendered as one run-on block.
-                    */}
-                  {narrativeSummary.text.split("\n\n").map((paragraph, index) => (
-                    <p
-                      key={index}
-                      className="text-[12.5px] leading-relaxed font-sans m-0"
-                      style={{ color: "var(--cs-text-primary)" }}
-                    >
-                      {paragraph}
-                    </p>
-                  ))}
-
-                  <button
-                    type="button"
-                    onClick={handleOpenFullNarrative}
-                    /*
-                     * The house focus idiom, not `outline-2`. This is the only `outline-2` in `src/`
-                     * and `scripts/check-focus-indicators.mjs` does not recognise it as a replacement
-                     * for a suppressed outline — so a keyboard user could have had no indicator at all
-                     * on the one control that navigates away. `focus-visible:ring-*` is what the rest of
-                     * the app uses and what that script audits.
-                     */
-                    className="self-start flex items-center gap-1 text-[11px] font-semibold cursor-pointer transition-colors hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-                    style={{ color: "var(--cs-text-accent)" }}
-                  >
-                    <span>{narrativeSummary.truncated ? "Read the full narrative in the Report" : "Open the full report"}</span>
-                    <ChevronRight className="w-3.5 h-3.5 shrink-0" />
-                  </button>
-
-                  {/*
-                    * Says who wrote the prose and whether it is complete. Derived from the payload,
-                    * so a degraded run cannot be presented here as an AI synthesis.
-                    */}
-                  <span className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-                    {narrativeIsAi
-                      ? `AI-synthesised${narrativeModel ? ` by ${narrativeModel}` : ""} — condensed for this view; the Report holds the complete text.`
-                      : "Rule-based synthesis — assembled from retrieved database evidence, not from a language model."}
-                  </span>
-                </div>
-              </div>
+          <div className="flex flex-col gap-5 w-full">
+            {insightsEvidence && (
+              <InsightsScreen
+                evidence={insightsEvidence}
+                narrative={narrativeSummary.text ? {
+                  paragraphs: narrativeSummary.text.split("\n\n"),
+                  sourceSection: narrativeSummary.sourceSection ?? null,
+                  truncated: narrativeSummary.truncated,
+                  isAi: narrativeIsAi,
+                  model: narrativeModel,
+                } : null}
+                onOpenTab={onOpenEvidenceTab}
+                onOpenReport={handleOpenFullNarrative}
+              />
             )}
-
-            {/* Splicing Warning Alert */}
-            {(() => {
-              const spliceai = analysisState.result.conservationData?.spliceai;
-              const spliceProximity = analysisState.result.conservationData?.spliceProximity;
-              const isSpliceLoading = !spliceai && isBiophysicalLoading;
-              const isNearJunction = spliceProximity?.isNearSpliceSite;
-              /**
-               * The splicing rule's PP3 band (Walker 2023), from the shared constant. This read a
-               * hand-written `>= 0.10` — half the published cut — and called it "high probability of
-               * splicing disruption", then claimed the engine's PP3 vote "includes this splice
-               * disruption signal". The engine has never read splicing; the RNA splicing tab says so.
-               */
-              const hasSpliceDisruption = spliceai && spliceai.max_ds !== null && spliceai.max_ds >= THRESHOLDS.spliceai.splicingPp3;
-
-              if (isSpliceLoading && isNearJunction) {
-                return (
-                  <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)", background: "color-mix(in srgb, var(--cs-accent-clay) 6%, transparent)" }}>
-                    <div className="flex items-center gap-2 font-semibold text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>
-                      <span>Splice junction proximity</span>
-                    </div>
-                    <p className="text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-secondary)" }}>
-                      Variant is <strong>{spliceProximity.distance} bp</strong> from a splice junction. SpliceAI is still running.
-                    </p>
-                  </div>
-                );
-              }
-
-              if (hasSpliceDisruption) {
-                return (
-                  <div className="rounded-xl border p-4 flex flex-col gap-2 animate-fade-in" style={{ borderColor: "color-mix(in srgb, var(--cs-danger) 25%, transparent)", background: "var(--cs-danger-soft)" }}>
-                    <div className="flex items-center gap-2 font-semibold text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-danger-on-soft)" }}>
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                      <span>Predicted splicing change</span>
-                    </div>
-                    <p className="text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-danger-on-soft)" }}>
-                      SpliceAI max Δ <strong>{spliceai!.max_ds!.toFixed(2)}</strong> is at or above {THRESHOLDS.spliceai.splicingPp3.toFixed(1)},
-                      which the ClinGen splicing rule reads as support for PP3. The engine&apos;s PP3/BP4 comes from the
-                      missense vote and does not include it — see the RNA splicing tab.
-                    </p>
-                  </div>
-                );
-              }
-
-              if (isNearJunction && !spliceai) {
-                return (
-                  <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", background: "var(--cs-warn-soft)" }}>
-                    <div className="flex items-center gap-2 font-semibold text-[11px] uppercase tracking-wider" style={{ color: "var(--cs-text-warning-on-soft)" }}>
-                      <span>Near a splice junction, no SpliceAI score</span>
-                    </div>
-                    <p className="text-[12px] leading-relaxed font-sans" style={{ color: "var(--cs-text-warning-on-soft)" }}>
-                      Variant is <strong>{spliceProximity.distance} bp</strong> from a splice junction and no SpliceAI score reached
-                      it. Distance is not evidence either way; check the splicing prediction directly.
-                    </p>
-                  </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* Multimer Warning Alert */}
-            {analysisState.result.uniprotFeatures?.isMultimer && (
-              <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", background: "var(--cs-warn-soft)" }}>
-                <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-text-warning-on-soft)" }}>
-                  <Activity className="w-3.5 h-3.5" />
-                  <span>Forms a complex</span>
-                </div>
-                <p className="text-[12px] leading-relaxed pl-5 font-sans" style={{ color: "var(--cs-text-warning-on-soft)" }}>
-                  UniProt&apos;s SUBUNIT record: <strong>{analysisState.result.uniprotFeatures.subunitComment}</strong>{" "}
-                  The stability estimates here are for the single chain and do not see subunit interfaces; the
-                  Multimer assembly tab shows the complex and whether this residue sits at an interface.
-                </p>
-              </div>
-            )}
-
-            {/* Structured Dynamic Insights Panel */}
-            {isNarrativeLoading ? (
-              <div className="rounded-xl border p-4 space-y-4 transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-                <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>
-                  <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-                  <span className="animate-pulse">Analyzing biophysical properties with Gemini AI...</span>
-                </div>
-                <div className="space-y-2 pl-5 pt-1">
-                  <div className="h-3 rounded animate-pulse w-3/4" style={{ background: "var(--cs-bg-subtle)" }}></div>
-                  <div className="h-3 rounded animate-pulse w-5/6" style={{ background: "var(--cs-bg-subtle)" }}></div>
-                  <div className="h-3 rounded animate-pulse w-1/2" style={{ background: "var(--cs-bg-subtle)" }}></div>
-                </div>
-              </div>
-            ) : analysisState.result.insights ? (
-              <div className="rounded-xl border p-4 space-y-4 transition-all" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}>
-                {/* Biochemical Shift & Structural Impact (Biophysical Report) */}
-                {isBiophysicalLoading ? (
-                  <div className="flex items-center gap-2 font-bold font-mono text-[10px] uppercase tracking-wider py-4 pl-5" style={{ color: "var(--cs-text-accent)" }}>
-                    <div className="w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-                    <span className="animate-pulse">Predicting biophysical shifts...</span>
-                  </div>
-                ) : (
-                  <>
-                    {/* Biochemical Shift Section */}
-                    <div>
-                      <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--cs-text-accent)" }}>
-                        <Activity className="w-3.5 h-3.5" />
-                        <span>Biochemical Shift</span>
-                      </div>
-                      {/* Rendered through the shared derivation so the degraded case
-                          ("Warning: Biochemical Shift Unavailable") reads as a status
-                          instead of printing its markdown markers, and so this view
-                          and the Residue Shifts inspector cannot disagree about
-                          whether a narrative exists. */}
-                      <p className={`text-[12px] leading-relaxed font-sans pl-5 transition-colors ${classTextBody}`}>
-                        {biochemicalNarrative.prose || biochemicalNarrative.detail || "Rule-based amino acid property shifts computed. Detailed AI synthesis unavailable."}
-                      </p>
-                      {biochemicalNarrative.state === "unavailable" && (
-                        <p className="text-[10px] font-mono pl-5 pt-0.5" style={{ color: "var(--cs-text-muted)" }}>
-                          State: {biochemicalNarrative.badge}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Structural Impact Section */}
-                    <div className={`pt-3 border-t ${classBorderSec}`}>
-                      <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--cs-text-accent)" }}>
-                        <Layers className="w-3.5 h-3.5" />
-                        <span>Structural Impact (ΔΔG Implications)</span>
-                      </div>
-                      <p className={`text-[12px] leading-relaxed font-sans pl-5 transition-colors ${classTextBody}`}>
-                        {formatEnergyString(analysisState.result.insights?.structuralImpact) || "Structural energetics and delta-delta-G implications evaluated."}
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                {/*
-                  A "Predictor Local Calibration & Uncertainty" panel sat here: per-context AUC badges and
-                  comments ("State-of-the-art performance in disordered sequences") read from
-                  `protein_class_calibration.json`, a table with no source, study or fitting code. It was
-                  removed with the stacking calibration (doc/ENERGETICS_TAB_REVIEW.md). The Predictors tab
-                  carries the published ClinGen calibrations.
-                */}
-                {/* Chemical Property Similarity Radar Chart */}
-                <div className={`pt-3 border-t ${classBorderSec}`}>
-                  <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--cs-text-accent)" }}>
-                    <Activity className="w-3.5 h-3.5" />
-                    <span>Residue Property Comparison (Radar Profile)</span>
-                  </div>
-                  <div className="pl-5 pt-1">
-                    {renderResiduePropertyRadar()}
-                  </div>
-                </div>
-
-
-
-                {/* ACMG Criteria Badge list */}
-                {/* Plausibility Statements and ACMG Evidence Suggester */}
-                {((analysisState.result.insights && (analysisState.result.insights.acmgCriteria.length > 0 || analysisState.result.insights.plausibility)) ||
-                  (analysisState.result.ruleBasedInsights && (analysisState.result.ruleBasedInsights.acmgCriteria.length > 0 || analysisState.result.ruleBasedInsights.plausibility))) && (
-                  <div className={`pt-3 border-t ${classBorderSec} space-y-4`}>
-                    <div className="flex items-center flex-wrap gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--cs-text-accent)" }}>
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                      <span>ACMG / AMP Pathogenicity Evidence Suggester</span>
-                    </div>
-                    <div className="space-y-4 pl-5">
-                      {/* Unified ACMG Consensus Verdict Badge */}
-                      {(() => {
-                        const verdict = analysisState.result.insights?.acmgVerdict || analysisState.result.ruleBasedInsights?.acmgVerdict || "Variant of Uncertain Significance (VUS)";
-                        const criteria = analysisState.result.insights?.acmgCriteria || analysisState.result.ruleBasedInsights?.acmgCriteria || [];
-                        const codesMet = criteria.map(c => c.code).join(", ");
-                        
-                        const isPath = verdict.includes("Pathogenic");
-                        const isBenign = verdict.includes("Benign");
-                        const badgeStyle = "font-bold border";
-                        const badgeBg = isPath
-                          ? "var(--cs-danger-soft)"
-                          : isBenign
-                          ? "var(--cs-good-soft)"
-                          : "var(--cs-warn-soft)";
-                        const badgeFg = isPath
-                          ? "var(--cs-text-danger-on-soft)"
-                          : isBenign
-                          ? "var(--cs-text-good-on-soft)"
-                          : "var(--cs-text-warning-on-soft)";
-                        const badgeBorder = isPath
-                          ? "color-mix(in srgb, var(--cs-danger) 25%, transparent)"
-                          : isBenign
-                          ? "color-mix(in srgb, var(--cs-good) 25%, transparent)"
-                          : "color-mix(in srgb, var(--cs-warn) 25%, transparent)";
-                        
-                        return (
-                          /*
-                           * NO `shadow-*` UTILITY HERE. This card carried `shadow-sm` while every
-                           * sibling panel in the same column — the two plausibility blocks, the
-                           * criteria list, the radar card — carried none, so the verdict read as a
-                           * floating widget inside a flat card. Elevation in this design is not a
-                           * shadow: `--cs-shadow-card` and `--cs-shadow-sm` are both `none`, and
-                           * depth is carried by the fill ramp plus a hairline border (see the
-                           * "LIGHT NEUTRAL RAMP" note in `styles/variables.css`). A raw Tailwind
-                           * shadow bypasses the token and reintroduces the elevation this design
-                           * deliberately removed. `src/components/__tests__/clinicalElevation.test.ts`
-                           * fails if one comes back.
-                           */
-                          <div className="p-3.5 rounded-lg border flex flex-col md:flex-row md:items-center justify-between gap-3"
-                            style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                            <div>
-                              <span className="block text-[10px] font-mono font-bold uppercase tracking-wider mb-0.5" style={{ color: "var(--cs-text-muted)" }}>
-                                ACMG Pathogenicity Verdict (Consensus)
-                              </span>
-                              <span className={`inline-block text-[11px] px-2.5 py-1 rounded-lg uppercase mt-1 ${badgeStyle}`} style={{ background: badgeBg, color: badgeFg, borderColor: badgeBorder }}>
-                                {verdict}
-                              </span>
-                            </div>
-                            <div className="text-right md:text-left">
-                              <span className="block text-[10px] font-mono font-bold uppercase tracking-wider mb-0.5" style={{ color: "var(--cs-text-muted)" }}>
-                                Combinatorial Rule
-                              </span>
-                              <span className="text-xs font-mono leading-relaxed font-bold" style={{ color: "var(--cs-text-primary)" }}>
-                                {codesMet ? `Criteria met: ${codesMet}` : "No evidence codes met"}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Plausibility Panels */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {analysisState.result.ruleBasedInsights?.plausibility && (
-                          <div className="rounded-lg p-3 border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                            <span className="block text-[10px] font-mono font-bold uppercase tracking-wider mb-1" style={{ color: "var(--cs-text-accent)" }}>
-                              Rule-Based Suggester Plausibility
-                            </span>
-                            <p className="text-[11px] leading-relaxed font-sans" style={{ color: "var(--cs-text-primary)" }}>
-                              {analysisState.result.ruleBasedInsights.plausibility}
-                            </p>
-                          </div>
-                        )}
-                        
-                        {isNarrativeLoading ? (
-                          <div className="rounded-lg p-3 border flex items-center justify-center min-h-[60px]" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                            <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-                          </div>
-                        ) : analysisState.result.insights?.plausibility ? (
-                          <div className="rounded-lg p-3 border" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border-subtle)" }}>
-                            <span className="block text-[10px] font-mono font-bold uppercase tracking-wider mb-1" style={{ color: "var(--cs-warn)" }}>
-                              AI-Generated Plausibility Reasoning
-                            </span>
-                            <p className="text-[11px] leading-relaxed font-sans" style={{ color: "var(--cs-text-primary)" }}>
-                              {analysisState.result.insights.plausibility}
-                            </p>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Unified Suggested Criteria list
-                        *
-                        * Both provenances render, from the ONE source-tagged list the server returns.
-                        * Two defects lived in the twelve lines this replaces:
-                        *
-                        *   1. The section is headed "…Evidence Suggester", and when the AI returned
-                        *      any criteria of its own this block filtered them straight out
-                        *      (`dbVerified = mergedList.filter(source === "database_verified")`) and
-                        *      printed only "No database-verified criteria met." — the AI's
-                        *      suggestions, the one thing the section exists to show, were never
-                        *      displayed. When the AI returned none, the same block re-tagged the rule
-                        *      engine's codes as `database_verified` locally, so this card and the
-                        *      Insights rail asserted opposite provenance for PP3/PP2/PM2.
-                        *   2. A single header over a single list could not say which codes were
-                        *      computed from retrieved database values and which a model proposed.
-                        *
-                        * `acmgCriteriaView` resolves the merge once for every surface; the grouping
-                        * and the labels below are shared vocabulary (`ACMG_SOURCE_LABEL`).
-                        */}
-                      {(() => {
-                        const criteria = acmgCriteriaView(
-                          analysisState.result.insights?.acmgCriteria,
-                          analysisState.result.ruleBasedInsights?.acmgCriteria
-                        );
-                        const database = criteria.filter(c => c.source === "database_verified");
-                        const inferred = criteria.filter(c => c.source === "ai_suggested");
-
-                        const group = (
-                          key: "database_verified" | "ai_suggested",
-                          heading: string,
-                          items: typeof criteria,
-                          emptyNote: string
-                        ) => {
-                          const isDatabase = key === "database_verified";
-                          const badgeBg = isDatabase ? "var(--cs-accent-clay)" : "var(--cs-warn)";
-                          const containerBg = isDatabase
-                            ? "color-mix(in srgb, var(--cs-accent-clay) 4%, transparent)"
-                            : "color-mix(in srgb, var(--cs-warn) 4%, transparent)";
-                          const borderColor = isDatabase
-                            ? "color-mix(in srgb, var(--cs-accent-clay) 15%, transparent)"
-                            : "color-mix(in srgb, var(--cs-warn) 25%, transparent)";
-
-                          return (
-                            <div className="flex flex-col gap-2 pt-1">
-                              <span className="flex items-baseline justify-between gap-2 text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: "var(--cs-text-muted)" }}>
-                                <span>{heading}</span>
-                                <span className="tabular-nums">{items.length}</span>
-                              </span>
-                              {items.length > 0 ? (
-                                <div className="space-y-2">
-                                  {items.map(item => (
-                                    <div
-                                      key={`${key}-${item.code}`}
-                                      className="rounded-lg p-2.5 transition flex flex-col gap-1 border"
-                                      style={{ background: containerBg, borderColor }}
-                                    >
-                                      <div className="flex items-center justify-between flex-wrap gap-2 w-full">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded text-white shrink-0" style={{ background: badgeBg }}>
-                                            {item.code}
-                                          </span>
-                                          <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: "var(--cs-text-primary)" }}>
-                                            Suggested criteria evidence
-                                          </span>
-                                        </div>
-                                        <span
-                                          className="text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 border"
-                                          style={{
-                                            background: isDatabase ? "var(--cs-good-soft)" : "var(--cs-warn-soft)",
-                                            color: isDatabase ? "var(--cs-text-good-on-soft)" : "var(--cs-text-warning-on-soft)",
-                                            borderColor: isDatabase ? "color-mix(in srgb, var(--cs-good) 30%, transparent)" : "color-mix(in srgb, var(--cs-warn) 30%, transparent)",
-                                          }}
-                                        >
-                                          {ACMG_SOURCE_LABEL[key]}
-                                        </span>
-                                      </div>
-                                      <p className="text-[10px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-                                        {item.reason}
-                                      </p>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-[10px] italic" style={{ color: "var(--cs-text-muted)" }}>
-                                  {emptyNote}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        };
-
-                        return (
-                          <div className="space-y-4">
-                            {group(
-                              "database_verified",
-                              "Criteria met, from the rule engine",
-                              database,
-                              "No criteria were computed from retrieved database values."
-                            )}
-                            {group(
-                              "ai_suggested",
-                              "Criteria proposed by the model (not computed)",
-                              inferred,
-                              NO_AI_CRITERIA_NOTE
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
-
-                {/* ClinVar & gnomAD Database Grounding (S-1) */}
-                {analysisState.result.clinvar && (
-                  <div className={`pt-3 border-t ${classBorderSec}`}>
-                    <div className="flex items-center gap-1.5 font-bold font-mono text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--cs-text-accent)" }}>
-                      <Database className="w-3.5 h-3.5" />
-                      <span>ClinVar & gnomAD Evidence Database Grounding</span>
-                    </div>
-                    <div className="pl-5 space-y-3">
-                      {analysisState.result.clinvar.uid ? (
-                        <div className="rounded-xl p-4 border transition-all duration-300"
-                          style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
-                          {/* Grid of ClinVar metrics */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs mb-3">
-                            <div>
-                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>ClinVar Significance</span>
-                              {(() => {
-                                const c = analysisState.result.clinvar.classification.toLowerCase();
-                                const isPath = c.includes("pathogenic");
-                                const isBenign = c.includes("benign");
-                                return (
-                                  <span
-                                    className="inline-block mt-1 px-2.5 py-0.5 rounded text-[11px] font-bold border"
-                                    style={{
-                                      background: isPath ? "var(--cs-danger-soft)" : isBenign ? "var(--cs-good-soft)" : "var(--cs-warn-soft)",
-                                      color: isPath ? "var(--cs-text-danger-on-soft)" : isBenign ? "var(--cs-text-good-on-soft)" : "var(--cs-text-warning-on-soft)",
-                                      borderColor: isPath
-                                        ? "color-mix(in srgb, var(--cs-danger) 25%, transparent)"
-                                        : isBenign
-                                        ? "color-mix(in srgb, var(--cs-good) 25%, transparent)"
-                                        : "color-mix(in srgb, var(--cs-warn) 25%, transparent)"
-                                    }}
-                                  >
-                                    {analysisState.result.clinvar.classification}
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                            <div>
-                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Review Status</span>
-                              <span className="block mt-1 text-xs font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-                                {analysisState.result.clinvar.reviewStatus || "Not specified"}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Associated Trait</span>
-                              <span className="block mt-1 text-xs font-semibold truncate max-w-[240px]" style={{ color: "var(--cs-text-primary)" }} title={analysisState.result.clinvar.trait}>
-                                {analysisState.result.clinvar.trait || "None listed"}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider" style={{ color: "var(--cs-text-muted)" }}>Last Evaluated</span>
-                              <span className="block mt-1 text-xs" style={{ color: "var(--cs-text-secondary)" }}>
-                                {analysisState.result.clinvar.lastEvaluated && !isNaN(new Date(analysisState.result.clinvar.lastEvaluated).getTime()) ? new Date(analysisState.result.clinvar.lastEvaluated).toLocaleDateString() : "Not specified"}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          {/* ClinVar-submitted population frequencies.
-                              The heading read "gnomAD / Population Allele Frequencies" over data
-                              that is by definition ClinVar's own submitted frequencies — the same
-                              misattribution the Population Frequencies screen corrected. The value
-                              also used `toExponential(3)` ("5.500e-6") where every other surface
-                              reports "5.50e-6", so the same frequency rendered two ways. */}
-                          {analysisState.result.clinvar.alleleFrequencies && analysisState.result.clinvar.alleleFrequencies.length > 0 && (
-                            <div className="mt-3 pt-3 border-t text-xs" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                              <span className="block text-[10px] font-mono uppercase font-semibold tracking-wider mb-2" style={{ color: "var(--cs-text-muted)" }}>ClinVar-submitted population frequencies</span>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {analysisState.result.clinvar.alleleFrequencies.map((freq: any, fIdx: number) => (
-                                  <div key={fIdx} className="flex justify-between items-center pr-4 text-xs">
-                                    <span className="font-semibold" style={{ color: "var(--cs-text-muted)" }}>{freq.source}:</span>
-                                    <span className="font-bold font-mono tabular-nums" style={{ color: "var(--cs-text-accent)" }}>
-                                      {formatAlleleFrequency(
-                                        typeof freq.value === "string" ? parseFloat(freq.value) : freq.value,
-                                      )}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* ClinVar Portal Link */}
-                          <div className="mt-3 pt-2.5 border-t flex justify-end text-[10px]" style={{ borderColor: "var(--cs-border-subtle)" }}>
-                            <a 
-                              href={`https://www.ncbi.nlm.nih.gov/clinvar/variation/${analysisState.result.clinvar.uid}/`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="hover:opacity-85 font-bold flex items-center gap-1 text-[var(--cs-text-accent)]"
-                            >
-                              NCBI ClinVar Link #{analysisState.result.clinvar.uid} <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg p-3 border text-center text-xs font-mono" style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)", color: "var(--cs-text-muted)" }}>
-                          No matching variant found in NCBI ClinVar database.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : null}
-
-            {/**
-              * Only a FINISHED run may announce this. The condition used to be `!insights` alone,
-              * which is also true while the model is still working — so every fresh synthesis
-              * declared "could not be parsed or generated" beside its own progress bar, a failure
-              * claim the reader has no way to tell apart from a real one.
-              */}
+            {/* Only a FINISHED run may say the structured report is missing: `insights` is also absent
+                while the model is still working, so this must not fire beside a live progress state. */}
             {!analysisState.result.insights && !structuredAnalysisPending && (
-              <div className="p-3 rounded-lg border text-xs leading-relaxed" style={{ background: "var(--cs-accent-mag-soft)", borderColor: "var(--cs-accent-mag)", color: "var(--cs-text-primary)" }}>
-                <span className="font-bold block uppercase text-[10px] mb-1 tracking-wider" style={{ color: "var(--cs-warn)" }}>Structured Report Unavailable</span>
-                {analysisState.result.analysis
-                  ? "This run returned the clinical narrative but no structured interpretation (biochemical shifts, structural impacts, ACMG criteria), so those sections are omitted. Re-running AI synthesis may return them."
-                  : "This run returned neither a structured interpretation nor a clinical narrative. Re-run the analysis to try again."}
-              </div>
+              <p className="ins-callout m-0" data-tone="warning">
+                <span>
+                  <strong>No structured interpretation came back.</strong>{" "}
+                  {analysisState.result.analysis
+                    ? "The run returned the clinical narrative only. The board above is built from the rule engine, which does not depend on it."
+                    : "The run returned neither a structured interpretation nor a narrative. Re-run the analysis to try again."}
+                </span>
+              </p>
             )}
-
-
           </div>
         ) : (
           /* Startup or placeholder state */
           <div className="text-center py-12" style={{ color: "var(--cs-text-muted)" }}>
             <Lightbulb className="w-10 h-10 mx-auto stroke-[1.5] mb-2 animate-pulse" style={{ color: "var(--cs-text-accent)" }} />
-            <p className="text-sm font-semibold font-mono uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>Variant Insights Report Ready</p>
+            <p className="text-sm font-semibold font-mono uppercase tracking-wider" style={{ color: "var(--cs-text-accent)" }}>Insights ready</p>
             <div className="w-16 h-[1px] mx-auto my-3" style={{ background: "var(--cs-border)" }} />
             <p className="text-xs max-w-sm mx-auto mt-1 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
               Submit a variant search query to generate an automated clinical insights narrative, ACMG criteria classifications, biochemical property comparisons, and structural plausibility reasoning.

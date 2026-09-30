@@ -75,92 +75,9 @@ function renderCard(result: any, overrides: Record<string, unknown> = {}) {
   );
 }
 
-describe("ClinicalInsightsCard residue property radar", () => {
-  it("labels the axes with the shared definitions rather than its own names", () => {
-    renderCard(baseResult());
-
-    // Source lines come straight from PROPERTY_SCALE_DEFINITIONS, so the axis
-    // names here cannot drift from the Residue Shifts tab again.
-    // Each axis now cites its published scale (residueScales.ts), not a hand-made table.
-    expect(screen.getByText(/Hydropathy: Kyte and Doolittle 1982/)).toBeInTheDocument();
-    expect(screen.getByText(/Volume: Grantham 1974 side-chain volume/)).toBeInTheDocument();
-    expect(screen.getByText(/Polarity: Grantham 1974 polarity/)).toBeInTheDocument();
-    expect(screen.getByText(/Charge: Formal side-chain charge at pH 7.4/)).toBeInTheDocument();
-
-    // The names this chart used to invent must be gone.
-    expect(screen.queryByText(/Molecular Size/)).not.toBeInTheDocument();
-  });
-
-  it("names both residues from the resolved pair", () => {
-    renderCard(baseResult());
-    expect(screen.getByText("Wild-Type (Glu)")).toBeInTheDocument();
-    expect(screen.getByText("Mutant (Lys)")).toBeInTheDocument();
-  });
-
-  it("explains that the charge axis is signed on a radial scale", () => {
-    // On a radar, radius 0 is the origin, so Asp/Glu (charge 0) plot at the centre
-    // and read as "no charge" unless the signed axis is spelled out.
-    renderCard(baseResult());
-    expect(screen.getByText(/0 = negative, 50 = neutral and 100 = positive/)).toBeInTheDocument();
-  });
-
-  it("reports missing data instead of plotting a defaulted profile", () => {
-    // Genomic notation the string parser rejects, with no metadata residues.
-    renderCard(
-      baseResult({
-        metadata: { gene: "MACO1", variant: "chr1:25484258:G:A", wildType: "", mutant: "" }
-      })
-    );
-
-    expect(screen.getByText(/Residue property comparison is unavailable/)).toBeInTheDocument();
-    expect(screen.queryByText(/Wild-Type \(/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Hydrophobicity: Kyte & Doolittle/)).not.toBeInTheDocument();
-  });
-
-  it("resolves from metadata even when the variant string cannot be parsed", () => {
-    // The real defect the shared resolver fixed: a blank radar for input the
-    // string parser rejects, despite usable metadata residues.
-    renderCard(
-      baseResult({
-        metadata: {
-          gene: "MACO1",
-          variant: "chr1:25484258:G:A",
-          wildType: "Glu",
-          mutant: "Lys",
-          residueIndex: 433
-        }
-      })
-    );
-
-    expect(screen.getByText("Wild-Type (Glu)")).toBeInTheDocument();
-    expect(screen.queryByText(/Residue property comparison is unavailable/)).not.toBeInTheDocument();
-  });
-});
-
-describe("ClinicalInsightsCard biochemical narrative", () => {
-  it("renders real prose verbatim", () => {
-    renderCard(baseResult());
-    expect(screen.getByText(/Charge swap: Negative \(Glu\) to Positive \(Lys\)/)).toBeInTheDocument();
-  });
-
-  it("classifies the pipeline fallback as a state rather than printing its markdown", () => {
-    renderCard(
-      baseResult({
-        insights: {
-          biochemicalShift: "\u26a0\ufe0f **Biochemical Shift Unavailable** (Failed)",
-          structuralImpact: "",
-          acmgCriteria: []
-        }
-      })
-    );
-
-    expect(screen.getByText(/Biochemical Shift Unavailable/)).toBeInTheDocument();
-    expect(screen.queryByText(/\*\*/)).not.toBeInTheDocument();
-    // The degraded state is labelled, and the derived scales still render.
-    expect(screen.getByText(/State: Rule-based only/)).toBeInTheDocument();
-    expect(screen.getByText(/Hydropathy: Kyte and Doolittle 1982/)).toBeInTheDocument();
-  });
-});
+// The residue-property radar and the biochemical-shift prose were removed from this tab: both repeat the
+// Residue Shifts tab, which keeps its own axis-definition and fallback tests (residueShift*.test.*). The
+// Insights tab consolidates the evidence tabs and does not restate them.
 
 describe("ClinicalInsightsCard structured-report banner", () => {
   /**
@@ -175,7 +92,7 @@ describe("ClinicalInsightsCard structured-report banner", () => {
 
   it("stays silent while the narrative stage is still synthesizing", () => {
     renderCard(withoutInsights(), { isNarrativeLoading: true });
-    expect(screen.queryByText(/Structured Report Unavailable/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No structured interpretation came back/)).not.toBeInTheDocument();
   });
 
   it("stays silent while the wider run is still streaming evidence", () => {
@@ -183,18 +100,18 @@ describe("ClinicalInsightsCard structured-report banner", () => {
       analysisState: { result: withoutInsights(), isLoading: true, error: null },
       isNarrativeLoading: false,
     });
-    expect(screen.queryByText(/Structured Report Unavailable/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No structured interpretation came back/)).not.toBeInTheDocument();
   });
 
   it("reports the omission once the run has finished, and does not claim a narrative that is absent", () => {
     renderCard(withoutInsights(), { isNarrativeLoading: false });
-    expect(screen.getByText(/Structured Report Unavailable/)).toBeInTheDocument();
-    expect(screen.getByText(/returned the clinical narrative but no structured interpretation/)).toBeInTheDocument();
+    expect(screen.getByText(/No structured interpretation came back/)).toBeInTheDocument();
+    expect(screen.getByText(/returned the clinical narrative only/)).toBeInTheDocument();
 
     // No narrative either: the old copy would have promised "only the raw clinical narrative is
     // available" while there was none to read.
     renderCard(withoutInsights({ analysis: "" }), { isNarrativeLoading: false });
-    expect(screen.getByText(/neither a structured interpretation nor a clinical narrative/)).toBeInTheDocument();
+    expect(screen.getByText(/neither a structured interpretation nor a narrative/)).toBeInTheDocument();
   });
 });
 
@@ -293,6 +210,47 @@ describe("ClinicalInsightsCard export handlers", () => {
       expect(consensus.canonicalDdg.ddmut).toBe(1.2);
     } finally {
       (URL as any).createObjectURL = originalCreate;
+    }
+  });
+});
+
+describe("ClinicalInsightsCard consolidated case", () => {
+  const withCriteria = () =>
+    baseResult({
+      ruleBasedInsights: {
+        plausibility: "",
+        acmgVerdict: "Variant of Uncertain Significance (VUS)",
+        acmgCriteria: [{ code: "PP3", reason: "3/6 predictors agree" }],
+        partialEvidence: { available: [], unavailable: [] },
+      },
+      insights: {
+        biochemicalShift: "",
+        structuralImpact: "",
+        acmgVerdict: "Variant of Uncertain Significance (VUS)",
+        acmgCriteria: [
+          { code: "PP3", reason: "3/6 predictors agree", source: "database_verified" },
+          { code: "PM2", reason: "counts not provided in the prompt", source: "ai_suggested" },
+        ],
+      },
+    });
+
+  it("leads with the engine's classification and lists only its codes as counted", () => {
+    renderCard(withCriteria());
+    expect(screen.getByText("Rule-engine classification")).toBeInTheDocument();
+    expect(screen.getByText(/The engine counted 1 criterion: PP3\./)).toBeInTheDocument();
+    expect(screen.getByText(/Uncertain/, { selector: ".ins-tier" })).toBeInTheDocument();
+  });
+
+  it("does not present the model's PM2 as evidence beside an engine that did not record it", () => {
+    renderCard(withCriteria());
+    expect(screen.getByText(/The model proposed PM2, and it is left out/)).toBeInTheDocument();
+    expect(screen.queryByText("Criteria met: PP3, PM2")).not.toBeInTheDocument();
+  });
+
+  it("gives every evidence area a row on the board", () => {
+    renderCard(withCriteria());
+    for (const name of ["Computational", "Population", "Splicing", "Protein function", "Stability", "Assembly", "Sequence models"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
     }
   });
 });
