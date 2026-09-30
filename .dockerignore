@@ -9,6 +9,24 @@ data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
 data/*.csv
+
+# RaSP index-build leftovers. Excluded 2026-09-30, after they broke CD on the deploy host.
+#
+# `data/*.sqlite` does NOT match a `.sqlite.building` name, and there was no `*.zip` rule, so the two
+# largest files on the VM -- the 10.05 GB `df_rasp_gnomad_clinvar.sqlite.building` the builder writes
+# before swapping it in, and the 9.04 GB proteome source zip -- entered the build context during an
+# on-server index rebuild and `COPY data ./data` shipped them into a layer. Observed: run 36710716430
+# died with "no space left on device" writing /app/data/df_rasp_gnomad_clinvar.sqlite.building, run
+# 36719593581 the same writing /app/data/rasp_preds_alphafold_..._v2.zip, and run 36697775556 was
+# OOM-killed (rc=137) mid-build -- on a disk the 62 GB of accumulated build cache had already filled.
+#
+# The exclusion costs nothing: ../data is bind-mounted at /app/data at runtime, so a copied copy is
+# shadowed anyway. It is insurance rather than a speedup -- it only bites during a rebuild, which is
+# exactly when the failure happened. Keep the small JSONs below unignored, or `COPY data ./data` has
+# nothing to copy and the seed layer breaks.
+data/*.building
+data/*.zip
+
 dist
 logs
 .cache
