@@ -65,6 +65,7 @@
     "molstar": "^5.10.1",
     "motion": "^12.23.24",
     "piscina": "^5.3.0",
+    "pptxgenjs": "4.0.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-markdown": "^10.1.0",

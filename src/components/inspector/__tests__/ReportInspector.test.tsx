@@ -45,9 +45,10 @@ describe("ReportInspector", () => {
     expect(s.stability).toBe(false);
   });
 
-  it("does not offer a PowerPoint button before it exists", () => {
+  it("offers the Word and PowerPoint exports", () => {
     mount();
-    expect(screen.queryByRole("button", { name: /PowerPoint/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Download Word (.docx)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download PowerPoint (.pptx)" })).toBeInTheDocument();
   });
 
   it("names the input fields and warns against patient identifiers", () => {
