@@ -108,7 +108,8 @@ jobs:
             for p in $ASSET_PATHS; do
               if [ -e "$p" ]; then
                 mkdir -p "$ASSET_SAFE/$(dirname "$p")"
-                cp -a "$p" "$ASSET_SAFE/$p"
+                # -T: copy AS the destination, never INTO it.
+                cp -aT "$p" "$ASSET_SAFE/$p"
                 echo "[CD] preserved $p"
               fi
             done
@@ -117,8 +118,21 @@ jobs:
 
             for p in $ASSET_PATHS; do
               if [ -e "$ASSET_SAFE/$p" ]; then
+                # `rm -rf` first, and `-T` on the copy.
+                #
+                # This loop used to compound. `cp -a "$ASSET_SAFE/$p" "$p"` copies INTO `$p` when
+                # `$p` already exists as a directory -- and after the first untracking deploy it
+                # always does, because git leaves untracked paths alone, so the directory survives
+                # the checkout. Every deploy then pushed the tree one level deeper: tools/foldx_linux
+                # reached EIGHT nested levels, the binary was nowhere near the path the runner looks
+                # for, and each deploy duplicated the whole tree again (disk 49% -> 64%). The first
+                # version of this step was tested against the tracked->untracked transition, where
+                # the destination genuinely is absent and the copy is correct; the steady state,
+                # which is every deploy after that, was never exercised. The `rm -rf` clears the
+                # accumulated nesting too, so the next deploy repairs it rather than deepening it.
+                rm -rf "$p"
                 mkdir -p "$(dirname "$p")"
-                cp -a "$ASSET_SAFE/$p" "$p"
+                cp -aT "$ASSET_SAFE/$p" "$p"
                 echo "[CD] restored $p"
               fi
             done
@@ -127,6 +141,13 @@ jobs:
             # A warning, not an error: the app degrades to "FoldX unavailable" rather than failing
             # to serve (see doc/ENERGETICS_AUDIT_AND_PLAN.md), and a missing licensed binary must
             # not take the site down for an unrelated reason.
+            #
+            # The chmod matters because the Dockerfile's own `chmod +x` only applies to the copy
+            # inside the image; this path is bind-mounted from the host, so the bit has to be right
+            # here. `cp -a` preserves it once set, but a cache re-seeded from a copy that lost it
+            # (any route through a non-POSIX filesystem) would not, and the check below would then
+            # report a binary that is present but unrunnable.
+            chmod +x tools/foldx_linux/foldx_20261231 2>/dev/null || true
             if [ -x tools/foldx_linux/foldx_20261231 ]; then
               echo "[CD] FoldX binary present and executable"
             else
