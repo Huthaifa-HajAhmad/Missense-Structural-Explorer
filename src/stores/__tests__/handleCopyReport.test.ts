@@ -136,7 +136,7 @@ describe("handleCopyReport", () => {
     expect(text).toContain("Canonical UniProt:  Q9H4Z3");
     expect(text).toMatch(/Evidence Completeness: \d+ of \d+ sources retrieved\./);
     // The source tag on the criterion now travels with it, which is what makes the two buttons agree.
-    expect(text).toContain("(Source: database_verified)");
+    expect(text).toContain("(Rule engine)");
   });
 
   it("honours the report's own section toggles", async () => {

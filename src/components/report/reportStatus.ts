@@ -439,7 +439,7 @@ export function generateStructuredEhrReport(params: GenerateStructuredEhrReportP
       "ACMG / AMP EVIDENCE CRITERIA",
       "-------------------------------------------------------",
       acmgCriteria && acmgCriteria.length > 0
-        ? acmgCriteria.map((c) => `[${c.code}] ${c.reason || "Applied"}${c.source === "ai_suggested" ? " (Model-proposed, not counted)" : c.source ? " (Rule engine)" : ""}`).join("\n")
+        ? acmgCriteria.map((c) => `[${c.code}] ${c.reason || "Applied"}${c.source === "ai_suggested" ? " (Model-proposed, not counted)" : c.source === "database_verified" ? " (Rule engine)" : c.source ? ` (Source: ${c.source})` : ""}`).join("\n")
         : "No ACMG/AMP criteria recorded."
     );
   }

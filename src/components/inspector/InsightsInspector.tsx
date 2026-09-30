@@ -1,123 +1,147 @@
-import React from "react";
-import { Sparkles, Bot, ShieldAlert, CheckCircle2, XCircle, RotateCcw, FileText } from "lucide-react";
+import React, { useMemo } from "react";
+import { GitBranch, Bot, BookOpen, Sparkles, Vote } from "lucide-react";
 import { AnalysisResult } from "../../types";
-import { useVariantAnalysisStore, useVariantAnalysisActions } from "../../context/VariantAnalysisContext";
-import { ACMG_SOURCE_LABEL, acmgCriteriaView, partitionCriteria } from "../../shared/acmgCriteriaView";
+import { useVariantAnalysisStore } from "../../context/VariantAnalysisContext";
+import { formatEvidenceCode } from "../../shared/thresholds";
+import { buildInsightsEvidence } from "../../shared/insightsEvidence";
+import { buildPredictorEvidence } from "../../shared/predictorEvidence";
+import { deriveNarrativeAuthorship } from "../../shared/narrativeAuthorship";
+import { isFallbackNarrative } from "../../services/pipeline/variantCache";
+import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
 
+/**
+ * Insights rail: how the case on screen was assembled.
+ *
+ * Renders from the SAME `buildInsightsEvidence` object as the tab, so the count, the tier and the
+ * dropped proposals cannot differ between the two panes. It replaces a rail that counted the model's
+ * proposals under "N Met" while the tier had used none of them, and that listed the live search box as
+ * the directions the narrative had been written under.
+ */
 interface InsightsInspectorProps {
   analysisResult: AnalysisResult | null;
   isNarrativeLoading?: boolean;
 }
 
-export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
-  analysisResult,
-  isNarrativeLoading = false
-}) => {
-  const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
-  const { setUserDirections } = useVariantAnalysisActions();
+type StepState = "done" | "warn" | "idle";
 
-  /**
-   * The server's merged, source-tagged list — see `shared/acmgCriteriaView.ts` for why this is not
-   * re-derived here. Deriving it produced a rail that labelled the rule engine's own PP3/PP2/PM2 as
-   * "AI Inferred" while the card in the main column labelled the same codes "DATABASE-VERIFIED".
-   */
-  const uniqueCriteria = acmgCriteriaView(
-    analysisResult?.insights?.acmgCriteria,
-    analysisResult?.ruleBasedInsights?.acmgCriteria
+function Step({ n, label, state = "done", children }: { n: number; label: string; state?: StepState; children: React.ReactNode }) {
+  return (
+    <li className="rail-step" data-state={state}>
+      <span className="rail-step__n" aria-hidden="true">{n}</span>
+      <div className="rail-step__body">
+        <span className="rail-step__label">{label}</span>
+        <div className="rail-step__value">{children}</div>
+      </div>
+    </li>
   );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rail-kv__row">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisResult, isNarrativeLoading = false }) => {
+  const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
+
+  const ev = useMemo(
+    () =>
+      analysisResult
+        ? buildInsightsEvidence({ result: analysisResult, functionInput: functionEvidenceInputFrom(analysisResult), stability: null, isLoading: isNarrativeLoading })
+        : null,
+    [analysisResult, isNarrativeLoading]
+  );
+  const predictors = useMemo(() => (analysisResult ? buildPredictorEvidence({ result: analysisResult }) : null), [analysisResult]);
+
+  if (!analysisResult || !ev) {
+    return (
+      <div className="pop-rail ins-rail">
+        <p className="ins-p">Run a variant to see how its case was assembled.</p>
+      </div>
+    );
+  }
+
+  const narrative = analysisResult.analysis ?? "";
+  const authorship = deriveNarrativeAuthorship({
+    analysis: narrative,
+    isDegraded: isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason),
+    declaredSource: (analysisResult.insights as { source?: string } | undefined)?.source,
+  });
+  const readCount = ev.lanes.filter(l => l.state === "read").length;
+  const vote = predictors?.vote;
+  const voters = predictors?.voters;
+  const names = (rs: Array<{ name: string }> | undefined) => (rs && rs.length ? rs.map(r => r.name).join(", ") : "none");
 
   return (
-    <div className="flex flex-col gap-4 text-xs font-sans">
-      {/* ── 1. AI Inference Provenance ──
-        *
-        * Every value below is read from the payload or from a shared constant. This card previously
-        * hardcoded all four — model, generation mode, sampling temperature and status — and three of
-        * the four were wrong (see `shared/narrativeSynthesis.ts`). In a clinical rail, a hardcoded
-        * parameter is a provenance claim nothing checks.
-        */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Bot className="w-3.5 h-3.5 text-cs-accent-clay" />
-          AI Synthesis Telemetry
-        </span>
+    <div className="pop-rail ins-rail" data-testid="insights-rail">
+      <section className="rail-section" aria-labelledby="ins-rail-trace">
+        <h3 className="eyebrow" id="ins-rail-trace"><GitBranch className="w-3.5 h-3.5" />How the case was built</h3>
+        <ol className="rail-steps" data-testid="insights-trace">
+          <Step n={1} label="Evidence tabs read">
+            {readCount} of {ev.lanes.length} areas returned a reading. Each row on the board is that tab&apos;s own recorded call.
+          </Step>
+          <Step n={2} label="Narrative">
+            {authorship === "ai" ? "Written by the language model." : narrative ? "Assembled from database evidence, not a model." : "No narrative yet."}{" "}
+            {ev.proposals.length + ev.droppedEngineOwned.length > 0
+              ? `It proposed ${ev.proposals.length + ev.droppedEngineOwned.length} ${ev.proposals.length + ev.droppedEngineOwned.length === 1 ? "criterion" : "criteria"}.`
+              : "It proposed no criteria."}
+          </Step>
+          <Step n={3} label="Criteria merge">
+            The engine&apos;s codes are kept.
+            {ev.droppedEngineOwned.length > 0 && <> Left out, because the engine decides them: {ev.droppedEngineOwned.map(d => d.code).join(", ")}.</>}
+            {ev.proposals.length > 0 && <> Listed, not counted: {ev.proposals.map(d => d.code).join(", ")}.</>}
+          </Step>
+          <Step n={4} label="Engine record" state={ev.recordMismatch ? "warn" : "done"}>
+            {ev.engineCodes.length
+              ? <>{ev.engineCodes.map(c => formatEvidenceCode(c.code)).join(", ")}.</>
+              : "No criterion recorded."}{" "}
+            {ev.verdictText && <>Tier: {ev.verdictText}.</>}
+            {ev.recordMismatch && <span className="rail-step__warn">The current combining rule gives a different tier: an earlier engine classified this payload.</span>}
+          </Step>
+        </ol>
+        <p className="ins-p ins-dim">The prose is not checked against the criteria; only the criteria list is merged.</p>
+      </section>
 
-        <NarrativeProvenanceRow
-          analysisResult={analysisResult}
-          isNarrativeLoading={isNarrativeLoading}
-        />
-      </div>
+      <section className="rail-section" aria-labelledby="ins-rail-vote">
+        <h3 className="eyebrow" id="ins-rail-vote"><Vote className="w-3.5 h-3.5" />In-silico vote, live</h3>
+        {vote && vote.nVoting > 0 ? (
+          <dl className="rail-kv">
+            <Row label="Pathogenic"><span className="pop-mono">{vote.nPathogenic}</span> · {names(voters?.pathogenic)}</Row>
+            <Row label="Benign"><span className="pop-mono">{vote.nBenign}</span> · {names(voters?.benign)}</Row>
+            <Row label="Indeterminate"><span className="pop-mono">{vote.nIndeterminate}</span></Row>
+          </dl>
+        ) : (
+          <p className="ins-p">No voting predictor returned a score.</p>
+        )}
+        <p className="ins-p ins-dim">Read from the same function the Predictors tab uses, not from the text the engine stored.</p>
+      </section>
 
-      {/* ── 2. ACMG / AMP Rule Verification Trace ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-            <ShieldAlert className="w-3.5 h-3.5 text-cs-accent-clay" />
-            ACMG Criteria Audit Trace
-          </span>
-          <span className="text-[10px] font-mono font-bold text-cs-text-accent">
-            {partitionCriteria(uniqueCriteria).engine.length} Met
-          </span>
-        </div>
+      <section className="rail-section" aria-labelledby="ins-rail-method">
+        <h3 className="eyebrow" id="ins-rail-method"><Bot className="w-3.5 h-3.5" />Narrative method</h3>
+        <NarrativeProvenanceRow analysisResult={analysisResult} isNarrativeLoading={isNarrativeLoading} />
+        <dl className="rail-kv">
+          <Row label="Weighting"><span>{ev.weighting ?? "Not recorded"}</span></Row>
+        </dl>
+      </section>
 
-        {/*
-          * A nested scroll region inside an already-scrolling rail puts a second scrollbar in a
-          * 320px column, and it hid the third of three criteria behind it — the header said "3 Met"
-          * while two cards were visible. The list is short by construction (the ACMG whitelist is
-          * 25 codes and a run records a handful), so it renders in full.
-          */}
-        <div className="space-y-1.5 pr-0.5">
-          {uniqueCriteria.length > 0 ? (
-            uniqueCriteria.map((crit) => (
-              <div
-                key={crit.code}
-                className="p-2 rounded-lg border border-cs-border-subtle bg-cs-surface-2 flex flex-col gap-1"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-[11px] text-cs-text-accent">
-                    {crit.code}
-                  </span>
-                  {/*
-                    * The label comes from the shared vocabulary, and the tone from the provenance
-                    * itself rather than from a substring of it. This chip read "Rule Engine" before,
-                    * while the card beside it printed "DATABASE-VERIFIED" for the same code.
-                    */}
-                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold border uppercase ${
-                    crit.source === "database_verified"
-                      ? "text-cs-text-good-on-soft border-cs-good/30"
-                      : "text-cs-text-accent border-cs-accent-clay/30"
-                  }`} style={{ background: crit.source === "database_verified" ? "var(--cs-good-soft)" : "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)" }}>
-                    {ACMG_SOURCE_LABEL[crit.source]}
-                  </span>
-                </div>
-                <p className="text-[11px] leading-snug text-cs-text-secondary">
-                  {crit.reason}
-                </p>
-              </div>
-            ))
-          ) : (
-            <div className="p-3 rounded-lg border border-dashed border-cs-border-subtle bg-cs-surface-2 text-center italic text-cs-text-muted text-[11px]">
-              No individual ACMG pathogenic criteria codes triggered.
-            </div>
-          )}
-        </div>
-      </div>
+      <section className="rail-section" aria-labelledby="ins-rail-dir">
+        <h3 className="eyebrow" id="ins-rail-dir"><Sparkles className="w-3.5 h-3.5" />Synthesis directions</h3>
+        <p className="ins-p">{userDirections ? <em>&ldquo;{userDirections}&rdquo;</em> : "None set."}</p>
+        <p className="ins-p ins-dim">This is what the search box holds now. The run does not record the directions it used, so it can differ from what the narrative saw.</p>
+      </section>
 
-      {/* ── 3. Prompt Focus Directions ── */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
-          Active Synthesis Directions
-        </span>
-
-        <div className="p-2.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2 text-[11px] text-cs-text-secondary leading-relaxed">
-          {userDirections ? (
-            <span className="italic">"{userDirections}"</span>
-          ) : (
-            <span className="text-cs-text-muted italic">Default biophysical & clinical interpretation mode.</span>
-          )}
-        </div>
-      </div>
+      <section className="rail-section" aria-labelledby="ins-rail-src">
+        <h3 className="eyebrow" id="ins-rail-src"><BookOpen className="w-3.5 h-3.5" />Sources</h3>
+        <dl className="rail-kv rail-kv--sources">
+          <Row label="Combining rule"><span>Richards et al. 2015</span></Row>
+          <Row label="PP3 / BP4"><span>ClinGen SVI · Pejaver et al. 2022</span></Row>
+        </dl>
+      </section>
     </div>
   );
 };

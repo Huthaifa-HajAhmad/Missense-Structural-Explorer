@@ -114,80 +114,70 @@ describe("Insights rail — inference provenance", () => {
   });
 });
 
-describe("Insights rail — ACMG criteria provenance", () => {
-  /**
-   * The contradiction, reproduced: PP3 is present in the server's merged, tagged list AND in the raw
-   * rule-engine list the client also receives. The rail used to dedupe both with a last-wins Map, so
-   * the untagged copy won and PP3 rendered as a model suggestion.
-   */
+describe("Insights rail — how the case was built", () => {
   const RESULT = {
-    metadata: { gene: "CNNM2", variant: "p.Ser489Cys" },
+    metadata: { gene: "CNNM2", variant: "p.Ser489Cys", acmgWeighting: "standard" },
+    analysis: "A narrative.",
+    predictorData: { caddPhred: 26.3, amPathogenicity: 0.362, amClass: "ambiguous" },
+    conservationData: { revel: 0.231, metarnn: 0.529, clinpred: 0.977 },
+    ruleBasedInsights: {
+      plausibility: "",
+      acmgVerdict: "Variant of Uncertain Significance (VUS)",
+      acmgCriteria: [{ code: "PP3", reason: "3/6 predictors agree" }],
+      partialEvidence: { available: [], unavailable: [] },
+    },
     insights: {
       model: MODEL,
-      acmgCriteria: [
-        { code: "PP3", reason: "4/10 predictors agree on pathogenic impact.", source: "database_verified" },
-        { code: "PP2", reason: "Missense variant in a gnomAD-constrained gene.", source: "database_verified" },
-        { code: "PS3", reason: "Functional assay reported in the literature.", source: "ai_suggested" },
-      ],
-    },
-    ruleBasedInsights: {
+      source: "ai_inference",
       acmgVerdict: "Variant of Uncertain Significance (VUS)",
       acmgCriteria: [
-        { code: "PP3", reason: "4/10 predictors agree on pathogenic impact." },
-        { code: "PP2", reason: "Missense variant in a gnomAD-constrained gene." },
+        { code: "PP3", reason: "3/6 predictors agree", source: "database_verified" },
+        { code: "PM2", reason: "counts not provided in the prompt", source: "ai_suggested" },
+        { code: "PS3", reason: "assay in an abstract", source: "ai_suggested" },
       ],
     },
-    attemptedModels: [MODEL],
   } as any;
 
-  function renderRail(result: any = RESULT) {
-    return render(
+  const renderRail = (result: any = RESULT) =>
+    render(
       <SettingsProvider>
         <InsightsInspector analysisResult={result} />
       </SettingsProvider>
     );
-  }
 
-  it("labels a rule-engine criterion as database-verified, never as AI-inferred", () => {
+  it("counts only the engine's criteria and says which proposals were left out or listed", () => {
     renderRail();
-
-    expect(screen.getByText("PP3")).toBeInTheDocument();
-    // The defect: this rail said "AI Inferred" for the rule engine's own codes, contradicting the
-    // "DATABASE-VERIFIED" chip the card beside it printed for the same code.
-    expect(screen.queryByText(/AI Inferred/i)).not.toBeInTheDocument();
-    // Two of the three came from the rule engine; only PS3 is the model's.
-    expect(screen.getAllByText("Rule engine")).toHaveLength(2);
-    expect(screen.getAllByText("Model-proposed")).toHaveLength(1);
+    const trace = screen.getByTestId("insights-trace");
+    expect(trace).toHaveTextContent("PP3");
+    expect(trace).toHaveTextContent(/Left out, because the engine decides them:\s*PM2/);
+    expect(trace).toHaveTextContent(/Listed, not counted:\s*PS3/);
+    expect(trace).toHaveTextContent("It proposed 2 criteria.");
   });
 
-  it("still labels a model-proposed code as model-proposed", () => {
+  it("does not claim the prose was reconciled with the rules", () => {
     renderRail();
-    expect(screen.getByText("Model-proposed")).toBeInTheDocument();
+    expect(screen.getByText(/The prose is not checked against the criteria/)).toBeInTheDocument();
+    expect(screen.queryByText(/reconciled with rule-based/i)).not.toBeInTheDocument();
   });
 
-  it("counts every criterion it renders, including the ones past a former scroll cut-off", () => {
+  it("reads the in-silico vote live from the predictor model", () => {
     renderRail();
-
-    // The header once said "3 Met" while a scroll container hid one card. It now counts engine codes
-    // only (two here); the model's PS3 is listed but not counted toward the tier.
-    expect(screen.getByText("2 Met")).toBeInTheDocument();
-    for (const code of ["PP3", "PP2", "PS3"]) {
-      expect(screen.getByText(code)).toBeInTheDocument();
-    }
+    expect(screen.getByText("Pathogenic")).toBeInTheDocument();
+    expect(screen.getByText(/REVEL/)).toBeInTheDocument();
   });
 
-  it("renders the rule-engine fallback when no narrative has run yet", () => {
-    renderRail({
-      metadata: { gene: "CNNM2", variant: "p.Ser489Cys" },
-      insights: null,
-      ruleBasedInsights: {
-        acmgVerdict: "Variant of Uncertain Significance (VUS)",
-        acmgCriteria: [{ code: "PM2", reason: "Extremely rare in gnomAD." }],
-      },
-    });
+  it("warns when the recorded tier differs from the current combining rule", () => {
+    renderRail({ ...RESULT, ruleBasedInsights: { ...RESULT.ruleBasedInsights, acmgVerdict: "Likely Pathogenic" } });
+    expect(screen.getByText(/an earlier engine classified this payload/)).toBeInTheDocument();
+  });
 
-    expect(screen.getByText("PM2")).toBeInTheDocument();
-    expect(screen.getByText("Rule engine")).toBeInTheDocument();
-    expect(screen.queryByText("Model-proposed")).not.toBeInTheDocument();
+  it("says the synthesis directions shown are the search box's, not the run's", () => {
+    renderRail();
+    expect(screen.getByText(/The run does not record the directions it used/)).toBeInTheDocument();
+  });
+
+  it("says so when there is nothing to show", () => {
+    renderRail(null);
+    expect(screen.getByText(/Run a variant/)).toBeInTheDocument();
   });
 });

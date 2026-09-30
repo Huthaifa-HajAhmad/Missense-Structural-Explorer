@@ -336,7 +336,7 @@ describe("generateStructuredEhrReport", () => {
     expect(reportText).toContain("Canonical UniProt:  Q9H8M5");
     expect(reportText).toContain("Headline Verdict:   Variant of Uncertain Significance (VUS)");
     expect(reportText).toContain("[PM2] Absent from controls (Source: gnomad)");
-    expect(reportText).toContain("[PP3] Multiple computational evidence supports (Source: database_verified)");
+    expect(reportText).toContain("[PP3] Multiple computational evidence supports (Rule engine)");
     expect(reportText).toContain("FoldX ΔΔG:          +1.85 kcal/mol");
     // The old line printed an uncalibrated "P = 88%" and probability bounds as "95% CI" in kcal/mol.
     // The export now states engine agreement in words, as the Energetics tab does.

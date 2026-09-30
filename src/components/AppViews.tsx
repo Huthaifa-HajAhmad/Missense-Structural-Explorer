@@ -551,6 +551,10 @@ export function AppViews({
                   foldingEnergetics={foldingEnergetics}
                   disruptionPredictor={disruptionPredictor}
                   onNavigateToView={setMasterView}
+                  onOpenEvidenceTab={(tab) => {
+                    setActiveEvidenceTab(tab);
+                    setMasterView("evidence");
+                  }}
                 />
               </ErrorBoundary>
             )}
