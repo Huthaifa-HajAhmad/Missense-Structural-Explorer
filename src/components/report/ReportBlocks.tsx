@@ -1,660 +1,315 @@
 /**
- * ReportBlocks.tsx — Presentational building blocks for the Clinical Report.
+ * ReportBlocks.tsx — the presentational pieces of the Variant evidence report.
  *
- * Deliberately dumb: every one of these renders a value it is handed. All derivation lives in
- * `reportStatus.ts` so the logic is unit-testable without a DOM.
+ * Every piece renders a value it is handed from `buildReportDocument`; nothing here derives a
+ * classification, a count or a sentence. The only thing the reader can change is prose, and the
+ * only state kept here is whether a textarea is open.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Bold, List } from "lucide-react";
 import {
-  AlertTriangle,
-  BookOpen,
-  CheckCircle2,
-  ChevronRight,
-  CircleDashed,
-  ExternalLink,
-  RefreshCw,
-  Sparkles,
-} from "lucide-react";
-import { useApiClient } from "../../apiClient";
-import { describeConnectionFailure } from "../../shared/fetch-retry";
-import type { EvidenceSource } from "./reportStatus";
-import type { EnergeticsData } from "../../shared/contracts";
-import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
-import { energeticsAgreementText } from "../../shared/energeticsEvidence";
-import { toCanonicalDdg } from "../../shared/engineStatus";
+  parseProse,
+  type ProseRun,
+  type ReportBlock,
+  type ReportChip,
+  type ReportDocument,
+  type ReportLink,
+} from "../../shared/reportDocument";
+import type { ReportSectionKey } from "../../stores/slices/uiSlice";
 
-// ---------------------------------------------------------------------------
-// Section shell
-// ---------------------------------------------------------------------------
+export type OpenTab = (tab: ReportLink["tab"]) => void;
 
-interface ReportSectionProps {
-  id: string;
-  title: string;
-  /** Optional trailing summary shown collapsed, so the report still scans without expanding. */
-  meta?: React.ReactNode;
-  defaultOpen?: boolean;
-  isOpen?: boolean;
-  onToggle?: (open: boolean) => void;
-  children: React.ReactNode;
+// ── Small pieces ─────────────────────────────────────────────────────────────────────────────────
+
+export function ReportChipView({ chip }: { chip: ReportChip }) {
+  return (
+    <span className={`ev-tier${chip.dashed ? " rpt-chip--dashed" : ""}`} data-tone={chip.tone}>
+      {chip.label}
+    </span>
+  );
 }
 
-/**
- * Disclosure section.
- *
- * Uses a `grid-template-rows: 0fr -> 1fr` transition rather than a keyframe so the animation is
- * interruptible if the reader toggles rapidly, and only the chevron's own properties animate.
- */
-export const ReportSection: React.FC<ReportSectionProps> = ({
-  id,
-  title,
-  meta,
-  defaultOpen = true,
-  isOpen,
-  onToggle,
-  children,
-}) => {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
-  const open = isOpen !== undefined ? isOpen : internalOpen;
-  const toggle = useCallback(() => {
-    if (onToggle) {
-      onToggle(!open);
-    } else {
-      setInternalOpen((prev) => !prev);
-    }
-  }, [onToggle, open]);
+const Runs = ({ runs }: { runs: ProseRun[] }) => (
+  <>
+    {runs.map((r, i) => (r.bold ? <strong key={i}>{r.text}</strong> : <React.Fragment key={i}>{r.text}</React.Fragment>))}
+  </>
+);
 
-  const panelId = `${id}-panel`;
-  const buttonId = `${id}-button`;
+/** Prose in the report's small markup. Nothing here is ever injected as HTML. */
+export function ProseView({ text }: { text: string }) {
+  const nodes = parseProse(text);
+  if (nodes.length === 0) return null;
+  return (
+    <div className="rpt-prose">
+      {nodes.map((n, i) =>
+        n.type === "ul" ? (
+          <ul key={i}>{n.items.map((it, j) => <li key={j}><Runs runs={it} /></li>)}</ul>
+        ) : n.type === "h" ? (
+          <h3 key={i}><Runs runs={n.runs} /></h3>
+        ) : (
+          <p key={i}><Runs runs={n.runs} /></p>
+        )
+      )}
+    </div>
+  );
+}
+
+function IncludeTick({ block, onToggle }: { block: ReportBlock; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={block.included}
+      aria-label={`${block.included ? "Leave out" : "Include"} ${block.title}`}
+      className="rpt-check"
+      onClick={onToggle}
+    />
+  );
+}
+
+// ── The classification hero ──────────────────────────────────────────────────────────────────────
+
+function TierLadder({ block }: { block: ReportBlock }) {
+  const v = block.verdict;
+  if (!v || v.tier === null) return null;
+  const side = v.tierIndex >= 3 ? "pathogenic" : v.tierIndex <= 1 ? "benign" : "neutral";
+  return (
+    <div className="rpt-tiers" role="img" aria-label={`Tier ${v.tier} on a five-step scale from benign to pathogenic`}>
+      {v.tiers.map((t, i) => (
+        <div key={t} className="rpt-tier" data-active={i === v.tierIndex ? "" : undefined} data-side={i === v.tierIndex ? side : undefined}>
+          {t}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ClassificationHero({ block }: { block: ReportBlock }) {
+  const v = block.verdict;
+  if (!v) return null;
+  return (
+    <div className="rpt-hero">
+      <p className="rpt-hero__figure" data-testid="report-verdict">{v.text ?? "No classification"}</p>
+      <TierLadder block={block} />
+    </div>
+  );
+}
+
+// ── Editor ───────────────────────────────────────────────────────────────────────────────────────
+
+function ProseEditor({ block, onChange, onDone }: { block: ReportBlock; onChange: (text: string) => void; onDone: () => void }) {
+  const [value, setValue] = useState(block.text);
+  const area = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { area.current?.focus(); }, []);
+
+  const commit = (next: string, selStart?: number, selEnd?: number) => {
+    setValue(next);
+    onChange(next);
+    if (selStart !== undefined) {
+      requestAnimationFrame(() => {
+        area.current?.focus();
+        area.current?.setSelectionRange(selStart, selEnd ?? selStart);
+      });
+    }
+  };
+
+  const wrapBold = () => {
+    const el = area.current;
+    if (!el) return;
+    const { selectionStart: a, selectionEnd: b } = el;
+    const chosen = value.slice(a, b) || "text";
+    commit(`${value.slice(0, a)}**${chosen}**${value.slice(b)}`, a + 2, a + 2 + chosen.length);
+  };
+
+  const bullet = () => {
+    const el = area.current;
+    if (!el) return;
+    const a = value.lastIndexOf("\n", el.selectionStart - 1) + 1;
+    const nl = value.indexOf("\n", el.selectionEnd);
+    const b = nl === -1 ? value.length : nl;
+    const lines = value.slice(a, b).split("\n").map(l => (/^\s*[-*•]\s/.test(l) ? l : `- ${l}`));
+    const joined = lines.join("\n");
+    commit(value.slice(0, a) + joined + value.slice(b), a, a + joined.length);
+  };
 
   return (
-    <section
-      id={id}
-      className="rounded-xl border overflow-hidden shrink-0 report-section"
-      style={{ borderColor: "var(--cs-border-subtle)", background: "var(--cs-surface)" }}
-    >
-      <h2 className="m-0">
-        <button
-          id={buttonId}
-          type="button"
-          onClick={toggle}
-          aria-expanded={open}
-          aria-controls={panelId}
-          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left cursor-pointer transition-colors hover:bg-cs-bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50"
-        >
-          <span className="report-chevron" data-open={open} aria-hidden="true">
-            <ChevronRight className="w-3.5 h-3.5" strokeWidth={2} />
-          </span>
-          <span
-            className="text-[11px] font-mono font-bold uppercase tracking-widest transition-colors"
-            style={{ color: open ? "var(--cs-text-primary)" : "var(--cs-text-secondary)" }}
-          >
-            {title}
-          </span>
-          {meta ? <span className="ml-auto flex items-center gap-2 text-[10.5px]">{meta}</span> : null}
-        </button>
-      </h2>
-
-      <div
-        id={panelId}
-        role="region"
-        aria-labelledby={buttonId}
-        className="report-disclosure"
-        data-open={open}
-        inert={!open ? true : undefined}
-      >
-        <div className="overflow-hidden">
-          <div className="px-4 pb-4 pt-0.5">{children}</div>
-        </div>
+    <div className="rpt-edit">
+      <div className="rpt-edit__tools">
+        <button type="button" className="rpt-btn" onClick={wrapBold} aria-label="Bold"><Bold className="w-3.5 h-3.5" aria-hidden="true" /></button>
+        <button type="button" className="rpt-btn" onClick={bullet} aria-label="Bulleted list"><List className="w-3.5 h-3.5" aria-hidden="true" /> List</button>
+        <span className="rpt-dim">Only this text is editable. Tables, figures and the classification are not.</span>
       </div>
+      <textarea
+        ref={area}
+        className="rpt-edit__area"
+        aria-label={`Edit ${block.title}`}
+        value={value}
+        rows={Math.min(14, Math.max(4, value.split("\n").length + 1))}
+        onChange={e => commit(e.target.value)}
+      />
+      <div className="rpt-edit__tools" style={{ borderTop: "1px solid var(--cs-border-subtle)", borderBottom: 0 }}>
+        <button type="button" className="rpt-btn" data-variant="primary" onClick={onDone}>Done</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Body pieces ──────────────────────────────────────────────────────────────────────────────────
+
+function BlockTable({ block }: { block: ReportBlock }) {
+  const t = block.table;
+  if (!t) return null;
+  const numeric = new Set(t.numeric ?? []);
+  return (
+    <div className="rpt-table-wrap">
+      <table className="rpt-table">
+        <thead>
+          <tr>{t.headers.map((h, i) => <th key={h} className={numeric.has(i) ? "rpt-num" : undefined}>{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {t.rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((c, j) => <td key={j} className={numeric.has(j) ? "rpt-num" : j === 0 ? "rpt-strong" : undefined}>{c}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BlockFacts({ block }: { block: ReportBlock }) {
+  if (block.facts.length === 0) return null;
+  return (
+    <dl className="rpt-facts">
+      {block.facts.map(f => (
+        <div key={f.label}>
+          <dt>{f.label}</dt>
+          <dd className={f.mono ? "rpt-mono" : undefined}>{f.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+const EMPTY_STATEMENT: Partial<Record<ReportSectionKey, string>> = {
+  literature: "No papers are pinned. Pin papers from the Literature tab with Add to report, and the report cites only those.",
+  needed: "Nothing further is listed as missing for this variant.",
+  notes: "Add your own notes here, for example the case discussion or the follow-up you would run.",
+  summary: "No written summary was produced for this run.",
+};
+
+// ── One block ────────────────────────────────────────────────────────────────────────────────────
+
+export interface ReportBlockCardProps {
+  block: ReportBlock;
+  editing: boolean;
+  onToggle: () => void;
+  onStartEdit: () => void;
+  onStopEdit: () => void;
+  onEdit: (text: string) => void;
+  onRevert: () => void;
+  onKeepMine: () => void;
+  onOpenTab?: OpenTab;
+}
+
+export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopEdit, onEdit, onRevert, onKeepMine, onOpenTab }: ReportBlockCardProps) {
+  const isClassification = block.key === "classification";
+  const hasProse = block.text.trim().length > 0;
+  const emptyStatement = block.empty && !hasProse ? EMPTY_STATEMENT[block.key] ?? "Nothing to report." : null;
+
+  return (
+    <section id={`report-${block.key}`} className="rpt-card report-section" data-block={block.key} data-edited={block.edited ? "" : undefined}>
+      <header className="rpt-card__head">
+        <IncludeTick block={block} onToggle={onToggle} />
+        <h2 className="eyebrow rpt-label">{block.title}</h2>
+        <span className="rpt-card__chips">
+          {block.chips.map(c => <ReportChipView key={c.label} chip={c} />)}
+        </span>
+        <span className="rpt-card__spacer" />
+        {block.edited && !editing ? <button type="button" className="rpt-btn" data-variant="quiet" onClick={onRevert}>Revert to draft</button> : null}
+        {editing
+          ? null
+          : <button type="button" className="rpt-btn" data-variant="quiet" onClick={onStartEdit}>{hasProse ? "Edit" : block.key === "notes" ? "Add notes" : "Write"}</button>}
+      </header>
+
+      {isClassification ? <ClassificationHero block={block} /> : null}
+
+      {block.stale ? (
+        <div className="rpt-callout" role="status">
+          <p><strong>The evidence changed after you edited this.</strong> Your wording is kept, but the drafted text is now different.</p>
+          <button type="button" className="rpt-btn" onClick={onKeepMine}>Keep my text</button>
+          <button type="button" className="rpt-btn" onClick={onRevert}>Use the new draft</button>
+        </div>
+      ) : null}
+
+      {editing ? <ProseEditor block={block} onChange={onEdit} onDone={onStopEdit} /> : hasProse ? <ProseView text={block.text} /> : null}
+      {emptyStatement && !editing ? <div className="rpt-empty"><p>{emptyStatement}</p></div> : null}
+
+      {!isClassification || block.facts.length > 0 ? <BlockFacts block={block} /> : null}
+      <BlockTable block={block} />
+
+      {(block.caption || block.reads.length > 0) ? (
+        <footer className="rpt-card__foot">
+          {block.caption ? <span>{block.caption}</span> : null}
+          {block.reads.length > 0 && onOpenTab ? (
+            <span>
+              <b>Reads:</b>{" "}
+              {block.reads.map((r, i) => (
+                <React.Fragment key={`${r.label}-${i}`}>
+                  {i > 0 ? ", " : ""}
+                  <button type="button" className="rpt-link" onClick={() => onOpenTab(r.tab)}>{r.label}</button>
+                </React.Fragment>
+              ))}
+            </span>
+          ) : null}
+        </footer>
+      ) : null}
     </section>
   );
-};
-
-// ---------------------------------------------------------------------------
-// ACMG evidence
-// ---------------------------------------------------------------------------
-
-interface AcmgEvidenceListProps {
-  criteria: Array<{ code: string; reason?: string; source?: string }>;
 }
 
-/**
- * Provenance tags for a criterion, on the one vocabulary every surface uses.
- *
- * These read "database" / "AI" while the Insights rail read "Rule Engine" / "AI Inferred" and the
- * card between them read "DATABASE-VERIFIED" — one fact in three words, which is part of why the
- * rail's mislabelling survived review. See `shared/acmgCriteriaView.ts`.
- */
-const SOURCE_LABEL: Record<string, { label: string; tone: string }> = {
-  database_verified: { label: ACMG_SOURCE_LABEL.database_verified, tone: "var(--cs-good)" },
-  ai_suggested: { label: ACMG_SOURCE_LABEL.ai_suggested, tone: "var(--cs-accent-clay)" },
-};
+// ── Left out ─────────────────────────────────────────────────────────────────────────────────────
 
-/**
- * ACMG/AMP criteria rendered as evidence rows with their justification.
- *
- * The design this replaces showed bare code chips in three separate places and discarded the
- * per-criterion reasoning entirely, which is the part a curator actually needs.
- */
-export const AcmgEvidenceList: React.FC<AcmgEvidenceListProps> = ({ criteria }) => {
-  if (!criteria.length) {
-    return (
-      <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
-        No ACMG/AMP criteria were applied. This typically means the available evidence did not reach
-        a criteria threshold, or the required evidence sources were unavailable.
-      </p>
-    );
-  }
-
+export function LeftOutCard({ blocks, onInclude }: { blocks: ReportBlock[]; onInclude: (key: ReportSectionKey) => void }) {
+  if (blocks.length === 0) return null;
   return (
-    <ul className="m-0 p-0 list-none flex flex-col gap-2">
-      {criteria.map((criterion, index) => {
-        const source = SOURCE_LABEL[criterion.source ?? ""] ?? null;
-        return (
-          <li
-            key={`${criterion.code}-${index}`}
-            className="flex items-start gap-2.5 rounded-lg px-2.5 py-2"
-            style={{ background: "var(--cs-surface-2)", border: "1px solid var(--cs-border-subtle)" }}
-          >
-            <span
-              className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-mono font-bold tabular-nums"
-              style={{
-                background: "var(--cs-surface)",
-                border: "1px solid var(--cs-border)",
-                color: "var(--cs-text-primary)",
-              }}
-            >
-              {criterion.code}
-            </span>
-            <span className="min-w-0 flex-1 text-[11.5px] leading-relaxed" style={{ color: "var(--cs-text-secondary)" }}>
-              {criterion.reason || "No justification recorded."}
-            </span>
-            {source ? (
-              <span
-                className="shrink-0 text-[9.5px] font-mono font-semibold uppercase tracking-wider"
-                style={{ color: source.tone }}
-              >
-                {source.label}
-              </span>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Evidence inventory
-// ---------------------------------------------------------------------------
-
-interface EvidenceInventoryProps {
-  sources: EvidenceSource[];
-  present: number;
-  total: number;
-  onNavigateSection?: (sectionId: string) => void;
-}
-
-export const EvidenceInventory: React.FC<EvidenceInventoryProps> = ({ sources, present, total, onNavigateSection }) => {
-  const complete = present === total;
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-[11.5px] m-0 flex items-center gap-1.5" style={{ color: "var(--cs-text-secondary)" }}>
-        {complete ? (
-          <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--cs-good)" }} strokeWidth={2} />
-        ) : (
-          <CircleDashed className="w-3.5 h-3.5" style={{ color: "var(--cs-warn)" }} strokeWidth={2} />
-        )}
-        <span>
-          <strong style={{ color: "var(--cs-text-primary)" }}>
-            {present} of {total}
-          </strong>{" "}
-          evidence sources contributed to this report.
-        </span>
-      </p>
-
-      <ul className="m-0 p-0 list-none grid grid-cols-1 md:grid-cols-2 gap-1.5">
-        {sources.map((source) => {
-          const isPresent = source.status === "present";
-          return (
-            <li
-              key={source.id}
-              className="flex items-start gap-2 rounded-lg px-2.5 py-1.5"
-              style={{ background: "var(--cs-surface-2)", border: "1px solid var(--cs-border-subtle)" }}
-            >
-              <span
-                aria-hidden="true"
-                className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{
-                  background: isPresent ? "var(--cs-good)" : "transparent",
-                  border: isPresent ? "none" : "1px solid var(--cs-text-muted)",
-                }}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline justify-between gap-1.5">
-                  <span className="text-[11.5px] font-medium" style={{ color: "var(--cs-text-primary)" }}>
-                    {source.label}
-                  </span>
-                  {source.feeds ? (
-                    <a
-                      href={`#report-${source.feeds}`}
-                      onClick={(e) => {
-                        if (onNavigateSection) {
-                          e.preventDefault();
-                          onNavigateSection(source.feeds);
-                        }
-                      }}
-                      className="report-press text-[10px] font-mono hover:underline report-screen-only inline-flex items-center gap-0.5"
-                      style={{ color: "var(--cs-accent-clay)" }}
-                      title={`Jump to ${source.feeds} section`}
-                    >
-                      View section &rarr;
-                    </a>
-                  ) : null}
-                  <span className="sr-only">{isPresent ? "— retrieved" : "— not retrieved"}</span>
-                </span>
-                <span className="block text-[10.5px] leading-snug" style={{ color: "var(--cs-text-muted)" }}>
-                  {source.detail}
-                </span>
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Structural context
-// ---------------------------------------------------------------------------
-
-interface StructuralContextProps {
-  metadata?: any;
-  foldingStatus?: string | null;
-}
-
-export const StructuralContext: React.FC<StructuralContextProps> = ({ metadata, foldingStatus }) => {
-  const rows: Array<[string, string]> = [
-    ["Model", metadata?.pdbId ? String(metadata.pdbId) : "—"],
-    ["Source", metadata?.pdbSource ? String(metadata.pdbSource) : "—"],
-    ["Residue", metadata?.residueIndex != null ? `#${metadata.residueIndex}` : "—"],
-    ["Substitution", metadata?.wildType && metadata?.mutant ? `${metadata.wildType} → ${metadata.mutant}` : "—"],
-  ];
-
-  const hasModel = Boolean(metadata?.pdbId || metadata?.pdbSource);
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      {!hasModel ? (
-        <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
-          No macromolecular model is loaded for this variant, so structural reasoning is not part of
-          this report. Open the <strong style={{ color: "var(--cs-text-secondary)" }}>3D Structure</strong> tab
-          to retrieve or fold a model.
-        </p>
-      ) : null}
-
-      <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-1.5">
-        {rows.map(([label, value]) => (
-          <React.Fragment key={label}>
-            <dt className="text-[10.5px] uppercase tracking-wider font-mono m-0" style={{ color: "var(--cs-text-muted)" }}>
-              {label}
-            </dt>
-            <dd className="text-[11.5px] font-mono m-0 tabular-nums" style={{ color: "var(--cs-text-primary)" }}>
-              {value}
-            </dd>
-          </React.Fragment>
-        ))}
-      </dl>
-
-      {foldingStatus ? (
-        <p className="text-[10.5px] m-0" style={{ color: "var(--cs-text-muted)" }}>
-          Mutant model status: <span className="font-mono">{foldingStatus}</span>
-        </p>
-      ) : null}
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Energetics
-// ---------------------------------------------------------------------------
-
-interface EnergeticsProps {
-  energetics?: EnergeticsData | null;
-  foldingDdG?: number | null;
-  result?: any;
-  formatDeltaG: (value: number | null | undefined) => string;
-}
-
-const ENERGETIC_ENGINES: Array<{
-  id: string;
-  label: string;
-  note: string;
-  getValue: (energetics?: EnergeticsData | null, foldingDdG?: number | null, result?: any) => number | null | undefined;
-}> = [
-  {
-    id: "foldx",
-    label: "FoldX ΔΔG",
-    note: "Protein stability change on mutation (empirical force field)",
-    getValue: (e, fd, r) => e?.foldx ?? e?.foldxMean ?? fd ?? r?.foldingDdG,
-  },
-  {
-    id: "dynamut2",
-    label: "DynaMut2 ΔΔG",
-    note: "Normal mode & distance network consensus",
-    // Canonical sign: DynaMut2 reports negative = destabilizing, and this block's legend says positive.
-    getValue: (e, _, r) => toCanonicalDdg("dynamut2", e?.dynamut2 ?? r?.dynamut2),
-  },
-  {
-    id: "ddmut",
-    label: "DDMut ΔΔG",
-    note: "Deep learning & graph-based stability",
-    getValue: (e, _, r) => toCanonicalDdg("ddmut", e?.ddmut ?? r?.ddmut),
-  },
-  {
-    id: "thermompnn",
-    label: "ThermoMPNN ΔΔG",
-    note: "ProteinMPNN neural transfer embeddings",
-    getValue: (e, _, r) => e?.thermompnn ?? r?.thermompnn,
-  },
-  {
-    id: "rasp",
-    label: "RaSP ΔΔG",
-    note: "Rapid stability perturbation (Rosetta-trained CNN)",
-    getValue: (e, _, r) => e?.rasp ?? r?.rasp,
-  },
-  {
-    id: "stabilityoracle",
-    label: "StabilityOracle ΔΔG",
-    note: "3D Siamese Graphormer structural model",
-    getValue: (e, _, r) => e?.stabilityoracle ?? r?.stabilityoracle,
-  },
-];
-
-export const EnergeticsSummary: React.FC<EnergeticsProps> = ({ energetics, foldingDdG, result, formatDeltaG }) => {
-  const available = ENERGETIC_ENGINES.map((eng) => ({
-    ...eng,
-    val: eng.getValue(energetics, foldingDdG, result),
-  })).filter((eng) => typeof eng.val === "number" && Number.isFinite(eng.val));
-
-  const agreementText = energeticsAgreementText(energetics as Record<string, any> | null | undefined);
-  const hasConsensus = Boolean(agreementText);
-
-  if (!available.length && !hasConsensus) {
-    return (
-      <div className="space-y-2">
-        <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
-          No free-energy calculations are available for this variant. Run{" "}
-          <strong style={{ color: "var(--cs-text-secondary)" }}>FoldX</strong> or{" "}
-          <strong style={{ color: "var(--cs-text-secondary)" }}>DynaMut2</strong> from the 3D Structure
-          tab to add biophysical evidence — this is what distinguishes a destabilising variant from a
-          functionally disruptive one.
-        </p>
-        {energetics?.pendingTools && energetics.pendingTools.length > 0 && (
-          <div className="flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg border border-dashed border-cs-border bg-cs-surface-2" style={{ color: "var(--cs-text-muted)" }}>
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-cs-accent-clay" strokeWidth={1.75} />
-            <span>Calculations in progress: {energetics.pendingTools.join(", ")}</span>
-          </div>
-        )}
-        {energetics?.foldxBinaryMissing && (
-          <div className="flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-muted">
-            <AlertTriangle className="w-3.5 h-3.5 text-cs-warn" strokeWidth={1.75} />
-            <span>FoldX binary is not installed on the server host.</span>
-          </div>
-        )}
-        {(energetics?.foldxRepairFailed || energetics?.foldxError) && (
-          <div className="flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg border border-cs-border bg-cs-surface-2 text-cs-text-muted">
-            <AlertTriangle className="w-3.5 h-3.5 text-cs-warn" strokeWidth={1.75} />
-            <span>{energetics.foldxError || "FoldX structure repair failed."}</span>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      {/*
-        Engine agreement, in words. This block printed a "Calibrated Thermodynamic Consensus" with
-        "P = 24%" and a "95% CI" whose bounds were probabilities formatted as kcal/mol. The curves
-        behind P were never fitted to data (tools/train_stacker.py), so the report now states what the
-        Energetics tab states: how many engines pass their own mark, and their median.
-      */}
-      {agreementText && (
-        <div
-          className="p-3 rounded-xl border"
-          style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
-        >
-          <span className="text-[10px] font-mono uppercase tracking-wider font-bold block" style={{ color: "var(--cs-text-muted)" }}>
-            Stability engines · not an ACMG input
-          </span>
-          <span className="text-xs" style={{ color: "var(--cs-text-primary)" }}>
-            {agreementText}
-          </span>
+    <section className="rpt-card report-section" aria-label="Not in this report" data-testid="report-left-out">
+      <header className="rpt-card__head">
+        <h2 className="eyebrow rpt-label">Not in this report</h2>
+      </header>
+      {blocks.map(b => (
+        <div key={b.key} className="rpt-left" id={`report-${b.key}`}>
+          <span className="rpt-left__name">{b.title}</span>
+          <span className="rpt-dim">left out by you</span>
+          <button type="button" className="rpt-btn" data-variant="quiet" onClick={() => onInclude(b.key)}>Include</button>
+          {b.stillCounted.length > 0 ? (
+            <span className="rpt-left__note">Its {b.stillCounted.join(", ")} is still counted in the classification.</span>
+          ) : null}
         </div>
-      )}
-
-      {available.length > 0 && (
-        <ul className="m-0 p-0 list-none grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {available.map((row) => (
-            <li
-              key={row.id}
-              className="flex items-baseline justify-between gap-3 rounded-lg px-3 py-2"
-              style={{ background: "var(--cs-surface-2)", border: "1px solid var(--cs-border-subtle)" }}
-            >
-              <span className="min-w-0">
-                <span className="block text-[11.5px] font-medium" style={{ color: "var(--cs-text-primary)" }}>
-                  {row.label}
-                </span>
-                <span className="block text-[10px] leading-snug" style={{ color: "var(--cs-text-muted)" }}>
-                  {row.note}
-                </span>
-              </span>
-              <span
-                className="shrink-0 text-[12px] font-mono font-semibold tabular-nums"
-                style={{ color: "var(--cs-text-primary)" }}
-              >
-                {formatDeltaG(row.val)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {energetics?.pendingTools && energetics.pendingTools.length > 0 && (
-        <div className="flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg border border-dashed border-cs-border bg-cs-surface-2" style={{ color: "var(--cs-text-muted)" }}>
-          <RefreshCw className="w-3.5 h-3.5 animate-spin text-cs-accent-clay" strokeWidth={1.75} />
-          <span>Calculations in progress: {energetics.pendingTools.join(", ")}</span>
-        </div>
-      )}
-
-      <p className="text-[10.5px] m-0 leading-relaxed" style={{ color: "var(--cs-text-muted)" }}>
-        Positive ΔΔG indicates destabilisation. A variant can alter folding energetics without being
-        pathogenic, and can be pathogenic without destabilising the fold.
-      </p>
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Bibliography
-// ---------------------------------------------------------------------------
-
-interface ReportBibliographyProps {
-  gene: string;
-  variant: string;
-}
-
-interface Citation {
-  id: string;
-  title: string;
-  authors: string;
-  journal: string;
-  year: number | null;
-}
-
-/**
- * Bibliography is fetched lazily and only when its section is enabled, so it never delays the
- * report body. The previous design printed a "Scientific Literature Bibliography" checklist item
- * while never including any bibliography at all.
- */
-export const ReportBibliography: React.FC<ReportBibliographyProps> = ({ gene, variant }) => {
-  const { apiClient } = useApiClient();
-  const [citations, setCitations] = useState<Citation[]>([]);
-  const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [reloadTrigger, setReloadTrigger] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    if (!gene) return;
-    setState("loading");
-    setError(null);
-    apiClient
-      .getLiterature(gene, false, undefined, `${gene} ${variant} variant function`)
-      .then((data) => {
-        if (!active) return;
-        setCitations(Array.isArray(data?.citations) ? data.citations.slice(0, 8) : []);
-        setState("ready");
-      })
-      .catch((err: any) => {
-        if (!active) return;
-        // A severed response reads as "Failed to fetch" in every browser; say what happened
-        // instead. The raw error is untouched and still reaches the Dev Console report.
-        setError(describeConnectionFailure(err, "the bibliography") || err?.message || "Failed to load literature.");
-        setState("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, [apiClient, gene, variant, reloadTrigger]);
-
-  if (state === "loading") {
-    return (
-      <p className="text-xs m-0 flex items-center gap-2" style={{ color: "var(--cs-text-muted)" }}>
-        <RefreshCw className="w-3 h-3 animate-spin" strokeWidth={2} />
-        Retrieving indexed publications…
-      </p>
-    );
-  }
-
-  if (state === "error") {
-    return (
-      <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
-        {error}{" "}
-        <button
-          type="button"
-          onClick={() => setReloadTrigger((t) => t + 1)}
-          className="underline cursor-pointer"
-          style={{ color: "var(--cs-accent-clay)" }}
-        >
-          Retry
-        </button>
-      </p>
-    );
-  }
-
-  if (!citations.length) {
-    return (
-      <p className="text-xs m-0" style={{ color: "var(--cs-text-muted)" }}>
-        No indexed publications were retrieved for <span className="font-mono">{gene}</span>. Open the{" "}
-        <strong style={{ color: "var(--cs-text-secondary)" }}>Literature</strong> tab to broaden the query.
-      </p>
-    );
-  }
-
-  return (
-    <ol className="m-0 p-0 list-none flex flex-col gap-2">
-      {citations.map((citation) => (
-        <li key={citation.id} className="flex items-start gap-2.5">
-          <BookOpen className="mt-[3px] w-3.5 h-3.5 shrink-0" style={{ color: "var(--cs-text-muted)" }} strokeWidth={1.75} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-[11.5px] leading-snug" style={{ color: "var(--cs-text-primary)" }}>
-              {citation.title}
-            </span>
-            <span className="block text-[10.5px] mt-0.5" style={{ color: "var(--cs-text-muted)" }}>
-              {[citation.authors, citation.journal, citation.year].filter(Boolean).join(" · ")}
-              {citation.id ? (
-                <a
-                  href={`https://pubmed.ncbi.nlm.nih.gov/${citation.id}/`}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="ml-1.5 inline-flex items-center gap-0.5 underline"
-                  style={{ color: "var(--cs-accent-clay)" }}
-                >
-                  PMID {citation.id}
-                  <ExternalLink className="w-2.5 h-2.5" strokeWidth={2} />
-                </a>
-              ) : null}
-            </span>
-          </span>
-        </li>
       ))}
-    </ol>
+      <footer className="rpt-card__foot">
+        Left-out blocks are hidden from every export. The export names them in its footer, so a reader knows what was left out.
+      </footer>
+    </section>
   );
-};
+}
 
-// ---------------------------------------------------------------------------
-// Compact header chips
-// ---------------------------------------------------------------------------
+// ── Footer ───────────────────────────────────────────────────────────────────────────────────────
 
-export const VerdictChip: React.FC<{ verdict: string; tone: "pathogenic" | "benign" | "uncertain" | "none" }> = ({
-  verdict,
-  tone,
-}) => {
-  const palette = {
-    pathogenic: {
-      fg: "var(--cs-text-danger-on-soft)",
-      bg: "var(--cs-bg-danger)",
-      border: "color-mix(in srgb, var(--cs-text-danger) 28%, transparent)",
-      dot: "var(--cs-text-danger)",
-    },
-    benign: {
-      fg: "var(--cs-text-success)",
-      bg: "var(--cs-bg-success)",
-      border: "color-mix(in srgb, var(--cs-text-success) 28%, transparent)",
-      dot: "var(--cs-text-success)",
-    },
-    uncertain: {
-      fg: "var(--cs-text-warning-on-soft)",
-      bg: "var(--cs-bg-warning)",
-      border: "color-mix(in srgb, var(--cs-text-warning) 28%, transparent)",
-      dot: "var(--cs-text-warning)",
-    },
-    none: {
-      fg: "var(--cs-text-muted)",
-      bg: "var(--cs-surface-2)",
-      border: "var(--cs-border)",
-      dot: "var(--cs-text-muted)",
-    },
-  }[tone];
-
+export function ReportFooterCard({ doc }: { doc: ReportDocument }) {
+  const f = doc.footer;
   return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-semibold"
-      style={{ background: palette.bg, color: palette.fg, border: `1px solid ${palette.border}` }}
-    >
-      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: palette.dot }} />
-      {verdict}
-    </span>
+    <section className="rpt-card report-section" aria-label="Report footer" data-testid="report-footer">
+      <footer className="rpt-card__foot" style={{ borderTop: 0 }}>
+        <span><b>Research use.</b> {f.useStatement.replace(/^Research use\.\s*/, "")}</span>
+        <span>
+          <b>Left out by the author:</b> {f.omitted.length ? f.omitted.join("; ") : "nothing"}
+        </span>
+        <span>
+          <b>Document ID</b> <span className="rpt-mono">{f.documentId}</span>. A checksum of the exported text: it detects later changes and does not prove authorship.
+        </span>
+      </footer>
+    </section>
   );
-};
-
-export const SynthesisProvenance: React.FC<{ model?: string | null; isAi: boolean }> = ({ model, isAi }) => {
-  if (!isAi) return null;
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10.5px] font-mono font-medium"
-      style={{
-        background: "color-mix(in srgb, var(--cs-accent-clay) 10%, transparent)",
-        color: "var(--cs-accent-clay)",
-        border: "1px solid color-mix(in srgb, var(--cs-accent-clay) 24%, transparent)",
-      }}
-    >
-      <Sparkles className="w-3 h-3" strokeWidth={2} />
-      {model ? `AI synthesis · ${model}` : "AI synthesis"}
-    </span>
-  );
-};
+}

@@ -2,15 +2,11 @@ import { StateCreator } from "zustand";
 import { VariantPreset, SearchHistoryItem } from "../../types";
 import { getCachedVariant } from "../../services/pipeline/variantCache";
 import { normalizeUniprotAccession } from "../../shared/uniprotAccession";
-import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
-import { variantNumberingView } from "../../shared/numbering";
 // The one report builder. Pure — it imports only `src/shared` — so a store slice may call it, and
 // both "Copy Report" buttons emit the same document because of it.
-import {
-  buildEvidenceInventory,
-  generateStructuredEhrReport,
-  summarizeEvidence,
-} from "../../components/report/reportStatus";
+import { buildReportDocument } from "../../shared/reportDocument";
+import { reportInputFromRun } from "../../shared/reportInput";
+import { renderReportText } from "../../shared/reportRender";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
 import type { LandscapeOverview, LandscapeResidueItem } from "../../shared/contracts";
 
@@ -323,91 +319,29 @@ export const createSearchSlice: StateCreator<
     if (!result) return;
 
     /*
-     * ONE report builder, shared with the Report inspector's own "Copy Report (EHR / Text)".
+     * The same document the Report screen and its rail build, rendered as text.
      *
-     * This handler used to assemble its own three-line text:
-     *
-     *     `${clinvar.classification ?? ruleBasedInsights.acmgVerdict}\n\n${analysis}\n\nACMG: ${codes}`
-     *
-     * Two things were wrong with that, and only one of them was cosmetic:
-     *
-     *   - The verdict. `??` falls through on null/undefined only, and `clinvar.classification` is a
-     *     real string ("Not found in ClinVar") for an unheld variant — so pasting the report from the
-     *     INSIGHTS view began with "Not found in ClinVar" where a classification belongs, while the
-     *     button with the same label in the REPORT view began with the rule engine's verdict
-     *     ("Variant of Uncertain Significance (VUS)"). One label, two headline truths; the wrong one
-     *     read as a clinical finding because that is the position a classification occupies.
-     *   - Everything else. No plausibility, no ACMG reasons, no energetics, no provenance manifest,
-     *     no evidence completeness, no numbering basis, and no respect for the report's own section
-     *     toggles — five omissions in a text a clinician pastes into a record.
-     *
-     * `generateStructuredEhrReport` is pure (it imports only `src/shared`), so a store slice can call
-     * it without inverting the layering. Both entry points now emit the same document, and the only
-     * thing that differs between them is that this one reports the store's live energetics.
+     * This handler once assembled its own three-line text, and later a second copy of the Report's
+     * assembly, so two "Copy report" buttons emitted different documents for one run (one began with a
+     * ClinVar status where a classification belongs). It now calls the one builder with the author's
+     * draft from the store, so a block left out or edited in the Report is left out or edited here too.
      */
     const state = get();
-    const energetics = state.primaryBiophysics?.foldingEnergetics ?? state.foldingEnergetics ?? null;
-    const foldingDdG = state.primaryBiophysics?.foldingDdG ?? state.foldingDdG ?? null;
-
-    const resolvedGene = state.gene || result?.metadata?.gene || "";
-    const resolvedVariant = state.variant || result?.metadata?.variant || "";
-    const resolvedUniprot = state.uniprotId || result?.metadata?.uniprotId || "";
-
-    const numbering = variantNumberingView({
-      variant: resolvedVariant,
-      uniprotId: resolvedUniprot || null,
-      numberingRemap: (result as any)?.numberingRemap ?? (result?.metadata as any)?.numberingRemap ?? null,
-    });
-
-    /*
-     * Verdict precedence is the Report view's, deliberately: the deterministic rule engine first,
-     * then the reconciled insights, and ClinVar's classification only as a last resort. Reversing it
-     * is what put a database status in the verdict slot.
-     */
-    const headlineVerdict =
-      result?.ruleBasedInsights?.acmgVerdict
-      || result?.insights?.acmgVerdict
-      || result?.clinvar?.classification
-      || "";
-
-    const acmgCriteria = acmgCriteriaView(
-      result?.insights?.acmgCriteria,
-      result?.ruleBasedInsights?.acmgCriteria
+    const doc = buildReportDocument(
+      reportInputFromRun({
+        result,
+        gene: state.gene || result?.metadata?.gene || "",
+        variant: state.variant || result?.metadata?.variant || "",
+        uniprotId: state.uniprotId || result?.metadata?.uniprotId || "",
+        foldingEnergetics: (state.primaryBiophysics?.foldingEnergetics ?? state.foldingEnergetics ?? null) as any,
+        foldingDdG: (state.primaryBiophysics?.foldingDdG ?? state.foldingDdG ?? null) as number | null,
+        foldingStatus: (state.primaryBiophysics?.foldingStatus ?? state.foldingStatus ?? null) as string | null,
+        isLoading: state.isBiophysicalLoading,
+        draft: { sections: state.reportSections, edits: state.reportEdits, meta: state.reportMeta, citations: state.reportCitations },
+        generatedAt: new Date().toISOString(),
+      })
     );
-
-    const reportText = generateStructuredEhrReport({
-      gene: resolvedGene,
-      variant: resolvedVariant,
-      reportedVariant: numbering.reported
-        ? `${numbering.reported}${numbering.reportedBasisId ? ` (${numbering.reportedBasisId})` : ""}`
-        : numbering.display,
-      modelledVariant: numbering.modelled,
-      uniprotId: resolvedUniprot,
-      /*
-       * NO "MANE Select" fallback. A filed report asserted `Transcript: MANE Select` whenever no
-       * transcript resolved — a specific reference-sequence designation invented from a literal, in the
-       * one header block a reader uses to check that the right transcript was analysed. The builder
-       * omits the line when this is null, which is the honest rendering of "not resolved".
-       *
-       * (`ClinicalReportBar` still prints "MANE Select" as a display default in its masthead; that is a
-       * screen surface, and it is recorded as an open item rather than fixed here.)
-       */
-      reportedTranscriptId:
-        numbering.reportedTranscriptId
-        || numbering.reportedRefSeqId
-        || (result?.metadata as any)?.transcriptId
-        || null,
-      basisNote: numbering.basisNote,
-      headlineVerdict,
-      plausibility: result?.insights?.plausibility || result?.ruleBasedInsights?.plausibility || "",
-      acmgCriteria,
-      energetics,
-      foldingDdG,
-      result,
-      narrative: result?.analysis ?? "",
-      evidenceSummary: summarizeEvidence(buildEvidenceInventory(result, energetics, foldingDdG)),
-      sections: state.reportSections,
-    });
+    const reportText = renderReportText(doc);
 
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       console.warn("[Copy Report] Clipboard API unavailable in this environment.");

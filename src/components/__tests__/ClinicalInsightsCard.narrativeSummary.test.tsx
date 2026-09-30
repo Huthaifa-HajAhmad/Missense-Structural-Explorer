@@ -5,6 +5,7 @@ import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
 import ClinicalInsightsCard from "../ClinicalInsightsCard";
 import { SettingsProvider } from "../../context/SettingsContext";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
+import { DEFAULT_REPORT_SECTIONS } from "../../stores/slices/uiSlice";
 
 /**
  * The Insights view shows a CONDENSED narrative; the Report owns the full text.
@@ -94,9 +95,7 @@ function renderCard(result: any, overrides: Record<string, unknown> = {}) {
 
 /** The store is global, so a test that disables a section must put it back. */
 afterEach(() => {
-  useVariantAnalysisStore.getState().setReportSections({
-    summary: true, acmg: true, structure: true, energetics: true, literature: false,
-  });
+  useVariantAnalysisStore.getState().setReportSections({ ...DEFAULT_REPORT_SECTIONS, summary: true });
   vi.restoreAllMocks();
 });
 
@@ -160,9 +159,7 @@ describe("ClinicalInsightsCard — condensed clinical summary", () => {
   it("re-enables the Report's summary section before navigating, so the anchor resolves", () => {
     // A section switched off does not mount, so #report-summary would not exist and the scroll would
     // silently do nothing — the reader would land on a Report that does not contain the narrative.
-    useVariantAnalysisStore.getState().setReportSections({
-      summary: false, acmg: true, structure: true, energetics: true, literature: false,
-    });
+    useVariantAnalysisStore.getState().setReportSections({ ...DEFAULT_REPORT_SECTIONS, summary: false });
     expect(useVariantAnalysisStore.getState().reportSections.summary).toBe(false);
 
     const onNavigateToView = vi.fn();
