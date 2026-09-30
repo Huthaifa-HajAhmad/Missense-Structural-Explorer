@@ -50,7 +50,11 @@ export interface LandscapePositionData {
   revelMean: number | null;
   revelMin: number | null;
   revelMax: number | null;
-  /** Distinct missense SNVs with a REVEL score at this residue (≤ 9 by construction). */
+  /**
+   * Distinct missense substitutions (alternative amino acids) with a REVEL score at this residue.
+   * Summaries are taken over substitutions, not SNVs: AlphaMissense scores the amino-acid change, so
+   * two SNVs giving the same amino acid must not weigh it twice.
+   */
   revelCount: number;
   amMean: number | null;
   amMin: number | null;
@@ -325,19 +329,20 @@ export interface AggregateOutput {
 export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOptions): AggregateOutput {
   const { start, end, sequence, choice } = opts;
   type Bucket = {
+    /** Distinct missense SNVs, for the one-codon sanity check. */
     seen: Set<string>;
-    revel: number[];
-    am: number[];
     gerp: Map<string, number>;
     phylop: Map<string, number>;
     aaref: Map<string, number>;
     subs: Map<string, SubstitutionScore>;
+    /** Missense SNVs whose alternative amino acid was not reported; each counts as its own entry. */
+    unnamed: Array<{ revel: number | null; am: number | null }>;
   };
   const buckets = new Map<number, Bucket>();
   const bucket = (pos: number) => {
     let b = buckets.get(pos);
     if (!b) {
-      b = { seen: new Set(), revel: [], am: [], gerp: new Map(), phylop: new Map(), aaref: new Map(), subs: new Map() };
+      b = { seen: new Set(), gerp: new Map(), phylop: new Map(), aaref: new Map(), subs: new Map(), unnamed: [] };
       buckets.set(pos, b);
     }
     return b;
@@ -356,15 +361,12 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
 
     if (!isMissense(c) || b.seen.has(c.variantKey)) continue;
     b.seen.add(c.variantKey);
-    if (r.revel !== null) b.revel.push(r.revel);
-    if (r.am !== null) b.am.push(r.am);
     if (c.aaalt && AMINO_ACIDS.has(c.aaalt)) {
       const prev = b.subs.get(c.aaalt);
-      b.subs.set(c.aaalt, {
-        alt: c.aaalt,
-        am: prev?.am ?? r.am,
-        revel: prev?.revel !== undefined && prev.revel !== null ? (r.revel !== null ? Math.max(prev.revel, r.revel) : prev.revel) : r.revel
-      });
+      const revel = prev?.revel == null ? r.revel : r.revel == null ? prev.revel : Math.max(prev.revel, r.revel);
+      b.subs.set(c.aaalt, { alt: c.aaalt, am: prev?.am ?? r.am, revel });
+    } else {
+      b.unnamed.push({ revel: r.revel, am: r.am });
     }
   }
 
@@ -379,11 +381,10 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
     }
     const refMismatch = Boolean(sequence && aaref && sequence[pos - 1] && sequence[pos - 1] !== aaref);
     if (refMismatch) mismatches++;
-    const revel = b?.revel ?? [];
-    const am = b?.am ?? [];
-    if (revel.length > MAX_SNVS_PER_CODON || am.length > MAX_SNVS_PER_CODON) {
-      qualityFlags.push(`overcount:${pos}`);
-    }
+    const entries = b ? [...b.subs.values(), ...b.unnamed] : [];
+    const revel = entries.map((e) => e.revel).filter((v): v is number => v !== null);
+    const am = entries.map((e) => e.am).filter((v): v is number => v !== null);
+    if ((b?.seen.size ?? 0) > MAX_SNVS_PER_CODON) qualityFlags.push(`overcount:${pos}`);
     const gerp = b ? [...b.gerp.values()] : [];
     const phylop = b ? [...b.phylop.values()] : [];
     positions.push({

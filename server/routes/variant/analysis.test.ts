@@ -160,7 +160,7 @@ describe("Variant Analysis Route Handlers", () => {
       };
 
       await handler(req, res, () => {});
-      expect(landscapeSpy).toHaveBeenCalledWith("PAH", 1, 26);
+      expect(landscapeSpy).toHaveBeenCalledWith("PAH", 1, 26, "P00439");
       expect(responseBody.landscapeData).toBeDefined();
       expect(responseBody.landscapeMeta).toEqual({ source: "none" });
     });
@@ -179,10 +179,10 @@ describe("Variant Analysis Route Handlers", () => {
       const res: any = { status() { return this; }, json() { return this; } };
 
       await handler({ body: { gene: "PAH", variant: "p.Met1Val", landscapeWindow: { start: 60, end: 90 } }, headers: {} }, res, () => {});
-      expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 60, 90);
+      expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 60, 90, "P00439");
 
       await handler({ body: { gene: "PAH", variant: "p.Met1Val", landscapeWindow: { start: 1, end: 500 } }, headers: {} }, res, () => {});
-      expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 1, 26);
+      expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 1, 26, "P00439");
     });
   });
 

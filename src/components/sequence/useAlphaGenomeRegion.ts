@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApiClient } from "../../apiClient";
 import type { AlphaGenomeRegionSaturationResponse, AlphaGenomeSaturationPosition } from "../../shared/contracts";
 import { buildSaturationRegion, type SaturationRegion } from "../../shared/alphagenomeRegion";
-import { complementBase } from "../../shared/landscapeEvidence";
+import { complementBase, translateCodon } from "../../shared/landscapeEvidence";
 
 export interface AlphaGenomeRegionInput {
   chrom?: string | null;
@@ -33,19 +33,20 @@ export function useAlphaGenomeRegion({ chrom, genomicPos, spliceProximity }: Alp
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const params = useMemo(
-    () =>
-      buildSaturationRegion({
-        chrom: chrom || spliceProximity?.chrom,
-        genomicPos,
-        exonStart: spliceProximity?.exonStart,
-        exonEnd: spliceProximity?.exonEnd,
-        exonNumber: spliceProximity?.exonNumber,
-        strand: spliceProximity?.strand,
-        transcriptId: spliceProximity?.transcriptId
-      }),
-    [chrom, genomicPos, spliceProximity]
-  );
+  // Keyed on the interval's values, not on `spliceProximity`'s identity: the pipeline rebuilds that
+  // object on every state update, and a new identity must not re-issue a 5 kb query.
+  const built = buildSaturationRegion({
+    chrom: chrom || spliceProximity?.chrom,
+    genomicPos,
+    exonStart: spliceProximity?.exonStart,
+    exonEnd: spliceProximity?.exonEnd,
+    exonNumber: spliceProximity?.exonNumber,
+    strand: spliceProximity?.strand,
+    transcriptId: spliceProximity?.transcriptId
+  });
+  const paramsKey = built ? JSON.stringify(built) : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const params = useMemo(() => built, [paramsKey]);
 
   useEffect(() => {
     let active = true;
@@ -123,4 +124,22 @@ export function codonsByResidue(
     );
   }
   return out;
+}
+
+/**
+ * Keep only codons that translate to the residue drawn above them. AlphaGenome numbers codons on
+ * its own transcript; a numbering mismatch must show as a gap, never as bases under the wrong
+ * residue (which would also mis-hatch the heatmap's SNV reachability).
+ */
+export function alignCodonsToSequence(
+  codons: Map<number, CodonNucleotide[]>,
+  sequence: string
+): { codons: Map<number, CodonNucleotide[]>; mismatches: number } {
+  const kept = new Map<number, CodonNucleotide[]>();
+  let mismatches = 0;
+  for (const [pos, nts] of codons) {
+    if (translateCodon(nts.map((n) => n.codingRef).join("")) === sequence[pos - 1]) kept.set(pos, nts);
+    else mismatches++;
+  }
+  return { codons: kept, mismatches };
 }

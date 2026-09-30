@@ -58,6 +58,13 @@ function initDb() {
     );
   `);
 
+  // A database built before these columns existed keeps its old table under IF NOT EXISTS, and every
+  // insert below would then fail on an unknown column; add whatever is missing.
+  const existing = new Set((db.prepare('PRAGMA table_info(variant_scores)').all() as Array<{ name: string }>).map(c => c.name));
+  for (const [col, type] of [['chr', 'TEXT'], ['pos_genomic', 'INTEGER'], ['transcript', 'TEXT'], ['aaref', 'TEXT'], ['aaalt', 'TEXT']]) {
+    if (!existing.has(col)) db.exec(`ALTER TABLE variant_scores ADD COLUMN ${col} ${type};`);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS build_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
@@ -95,7 +102,7 @@ function parseIntInt(val: string): number | null {
  * landscape pooled different residues under one number. Preference: MANE Select, then the VEP
  * canonical flag, then the first entry.
  */
-export function chooseTranscriptIndex(mane: string, vepCanonical: string, transcriptCount: number): { index: number; basis: 'mane' | 'ensembl-canonical' | 'first-listed' } {
+export function chooseTranscriptIndex(mane: string, vepCanonical: string, transcriptCount: number): { index: number; basis: 'mane' | 'ensembl-canonical' | 'first-listed' | 'single' } {
   const maneList = mane ? mane.split(';') : [];
   const canonList = vepCanonical ? vepCanonical.split(';') : [];
   if (maneList.length === transcriptCount) {
@@ -106,7 +113,8 @@ export function chooseTranscriptIndex(mane: string, vepCanonical: string, transc
     const i = canonList.findIndex(v => v.trim().toUpperCase() === 'YES');
     if (i >= 0) return { index: i, basis: 'ensembl-canonical' };
   }
-  return { index: 0, basis: 'first-listed' };
+  // One transcript leaves nothing to choose; it must not count as an arbitrary pick.
+  return { index: 0, basis: transcriptCount <= 1 ? 'single' : 'first-listed' };
 }
 
 /** The `i`-th entry of a `;` list, or the single value when the field is not per-transcript. */
@@ -143,7 +151,7 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
   `);
 
   let count = 0;
-  const policyCounts = { 'mane': 0, 'ensembl-canonical': 0, 'first-listed': 0 };
+  const policyCounts = { 'mane': 0, 'ensembl-canonical': 0, 'first-listed': 0, 'single': 0 };
   db.exec('BEGIN TRANSACTION;');
 
   for await (const line of rl) {
@@ -185,7 +193,7 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
 
     const ref = getVal(['ref']) || null;
     const alt = getVal(['alt']) || null;
-    const aa_change = getVal(['aachange', 'aa_change', 'HGVSp', 'hgvsp']) || null;
+    const aa_change = at(['aachange', 'aa_change', 'HGVSp', 'hgvsp', 'HGVSp_VEP']) || null;
 
     // Scores
     const revel = parseFloater(at(['REVEL_score', 'revel', 'REVEL']));
@@ -248,7 +256,7 @@ async function main() {
   }
 
   const db = initDb();
-  const totals = { 'mane': 0, 'ensembl-canonical': 0, 'first-listed': 0 };
+  const totals = { 'mane': 0, 'ensembl-canonical': 0, 'first-listed': 0, 'single': 0 };
   for (const file of args) {
     if (fs.existsSync(file)) {
       const counts = await ingestFile(db, file);
@@ -261,8 +269,11 @@ async function main() {
   // transcript policy that held for the rows (mixed → "unknown").
   const setMeta = db.prepare('INSERT OR REPLACE INTO build_meta (key, value) VALUES (?, ?)');
   if (process.env.DBNSFP_VERSION) setMeta.run('dbnsfp_version', process.env.DBNSFP_VERSION);
-  const policy = totals['first-listed'] === 0 && totals['ensembl-canonical'] === 0 ? 'mane'
-    : totals['first-listed'] === 0 ? 'ensembl-canonical' : 'unknown';
+  // Named only when every multi-transcript row was placed by that flag; a mix of MANE and canonical
+  // rows is reported as the weaker of the two, and any arbitrary pick makes it unknown.
+  const policy = totals['first-listed'] > 0 ? 'unknown'
+    : totals['ensembl-canonical'] > 0 ? 'ensembl-canonical'
+    : totals['mane'] > 0 ? 'mane' : 'unknown';
   setMeta.run('transcript_policy', policy);
   console.log('[Ingest] SQLite Ingestion complete.');
 }

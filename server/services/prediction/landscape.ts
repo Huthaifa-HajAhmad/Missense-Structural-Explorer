@@ -136,7 +136,8 @@ async function fetchMyVariantHits(query: string, limit: number): Promise<any[]> 
   ].join(",");
   let from = 0;
   while (hits.length < limit) {
-    const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(query)}&fields=${fields}&size=${pageSize}&from=${from}`;
+    // Encoded: an unencoded "gerp++" reaches the server as "gerp  " ('+' decodes to a space).
+    const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(query)}&fields=${encodeURIComponent(fields)}&size=${pageSize}&from=${from}`;
     const res = await fetchWithRetry(url, { headers: { Accept: "application/json" }, timeout: 15000 });
     if (!res.ok) throw new Error(`myvariant.info query failed with status ${res.status}`);
     const data = (await res.json()) as any;
@@ -148,9 +149,9 @@ async function fetchMyVariantHits(query: string, limit: number): Promise<any[]> 
   return hits;
 }
 
-async function loadReferenceSequence(gene: string): Promise<{ accession: string | null; sequence: string | null }> {
+async function loadReferenceSequence(gene: string, requested?: string | null): Promise<{ accession: string | null; sequence: string | null }> {
   try {
-    const accession = await resolveGeneToUniprot(gene);
+    const accession = requested || (await resolveGeneToUniprot(gene));
     if (!accession) return { accession: null, sequence: null };
     const sequence = await fetchUniprotSequence(accession);
     return { accession, sequence: sequence || null };
@@ -163,15 +164,25 @@ async function loadReferenceSequence(gene: string): Promise<{ accession: string 
  * Per-residue REVEL / AlphaMissense / conservation for a gene window, read on one transcript.
  * Local dbNSFP first (when built and covering the window), else myvariant.info.
  */
-export async function fetchLandscape(gene: string, startPos?: number, endPos?: number): Promise<LandscapeResult> {
+export async function fetchLandscape(
+  gene: string,
+  startPos?: number,
+  endPos?: number,
+  /**
+   * The accession whose sequence the tab draws. The residue check and the sequence-agreement
+   * transcript choice must use that sequence, not whichever accession the gene symbol resolves to.
+   */
+  uniprotId?: string | null
+): Promise<LandscapeResult> {
   const normGene = normalizeGeneSymbol(gene);
   const windowed = startPos !== undefined && endPos !== undefined;
-  const cacheKey = `${normGene}_${windowed ? `${startPos}_${endPos}` : "full"}_${CACHE_SCHEMA}`;
+  const accessionKey = uniprotId ? uniprotId.trim().toUpperCase() : "auto";
+  const cacheKey = `${normGene}_${accessionKey}_${windowed ? `${startPos}_${endPos}` : "full"}_${CACHE_SCHEMA}`;
 
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, meta: { ...cached.meta, cached: true } };
 
-  const { accession, sequence } = await loadReferenceSequence(normGene);
+  const { accession, sequence } = await loadReferenceSequence(normGene, uniprotId);
   const start = startPos ?? 1;
   const retrievedAt = new Date().toISOString();
 
@@ -259,6 +270,6 @@ export async function fetchLandscape(gene: string, startPos?: number, endPos?: n
 }
 
 /** Rows only, for callers that predate the provenance block. */
-export async function fetchLandscapeData(gene: string, startPos?: number, endPos?: number) {
-  return (await fetchLandscape(gene, startPos, endPos)).positions;
+export async function fetchLandscapeData(gene: string, startPos?: number, endPos?: number, uniprotId?: string | null) {
+  return (await fetchLandscape(gene, startPos, endPos, uniprotId)).positions;
 }

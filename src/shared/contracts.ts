@@ -1213,7 +1213,8 @@ export type GenerateMutantResponse = z.infer<typeof generateMutantResponseSchema
 
 /**
  * One residue of the Landscape tab, read on ONE transcript (see
- * server/services/prediction/landscape-aggregate.ts). Counts are distinct missense SNVs, so never
+ * server/services/prediction/landscape-aggregate.ts). Counts are distinct missense substitutions
+ * (alternative amino acids reachable by one SNV), so never
  * above 9; `gerp` / `phylop` are means over the codon's distinct nucleotides.
  */
 export const landscapeResidueSchema = z.object({

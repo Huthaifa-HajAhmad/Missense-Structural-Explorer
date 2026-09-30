@@ -59,6 +59,8 @@ describe("fetchLandscape", () => {
     expect(p.refMismatch).toBe(false);
     expect(meta.source).toBe("myvariant");
     expect(meta.sourceVersion).toBe("dbNSFP 4.4a");
+    // "gerp++" must survive the query string: unencoded, '+' decodes to a space.
+    expect(String(fetchSpy.mock.calls[0][0])).toContain("dbnsfp.gerp%2B%2B");
     fetchSpy.mockRestore();
   });
 });
@@ -90,25 +92,50 @@ describe("per-transcript aggregation", () => {
 
   it("never counts more SNVs at a residue than a codon admits, however many transcripts list it", () => {
     const candidates: SnvCandidate[] = [];
+    const alts = ["G", "N", "E", "V", "A", "H", "Y", "N", "G"]; // 9 SNVs, 7 distinct amino acids
     for (let i = 0; i < 48; i++) {
-      // 48 rows: 9 distinct SNVs at residue 116, the rest other isoforms' residue 116.
+      // 48 rows: 9 SNVs at MANE residue 116, the rest another isoform's residue 116.
       const own = i < 9;
       candidates.push(
         candidateFromMyVariantHit(
           hit(`chr16:g.${own ? 1000 + Math.floor(i / 3) : 5000 + i}A>${"CGT"[i % 3]}`, {
-            aa: { ref: "D", alt: "G", pos: own ? [116, 200] : [300, 116] },
-            ensembl: { transcriptid: own ? ["ENST_MANE", "ENST_ISO2"] : ["ENST_MANE", "ENST_ISO2"] },
+            aa: { ref: "D", alt: own ? alts[i] : "G", pos: own ? [116, 200] : [300, 116] },
+            ensembl: { transcriptid: ["ENST_MANE", "ENST_ISO2"] },
             mane: ["MANE Select", "."],
-            revel: { score: [0.3, 0.3] }
+            revel: { score: [0.3, 0.3] },
+            alphamissense: { score: [own ? 0.1 * (i + 1) : 0.99, 0.5] }
           })
         )!
       );
     }
     const choice = selectReferenceTranscript(candidates, null);
     const { positions, qualityFlags } = aggregateLandscape(candidates, { start: 116, end: 116, sequence: null, choice });
-    expect(positions[0].revelCount).toBeLessThanOrEqual(MAX_SNVS_PER_CODON);
-    expect(positions[0].revelCount).toBe(9);
+    // Summaries are over the 7 distinct substitutions, never over other isoforms' rows.
+    expect(positions[0].amCount).toBe(7);
+    expect(positions[0].substitutions).toHaveLength(7);
+    expect(positions[0].amMax).toBeLessThan(0.99);
     expect(qualityFlags).not.toContain("overcount:116");
+  });
+
+  it("weighs a substitution once when two SNVs give the same amino acid", () => {
+    const a = candidateFromMyVariantHit(hit("chr1:g.10A>G", { aa: { ref: "D", alt: "G", pos: 5 }, revel: { score: 0.2 }, alphamissense: { score: 0.9 } }))!;
+    const b = candidateFromMyVariantHit(hit("chr1:g.11T>C", { aa: { ref: "D", alt: "G", pos: 5 }, revel: { score: 0.4 }, alphamissense: { score: 0.9 } }))!;
+    const c = candidateFromMyVariantHit(hit("chr1:g.12A>T", { aa: { ref: "D", alt: "V", pos: 5 }, revel: { score: 0.6 }, alphamissense: { score: 0.1 } }))!;
+    const { positions } = aggregateLandscape([a, b, c], { start: 5, end: 5, sequence: null, choice: { transcript: null, basis: "unknown" } });
+    expect(positions[0].amCount).toBe(2);
+    expect(positions[0].amMean).toBeCloseTo(0.5); // (0.9 + 0.1) / 2, not (0.9 + 0.9 + 0.1) / 3
+    expect(positions[0].substitutions).toEqual([
+      { alt: "G", am: 0.9, revel: 0.4 },
+      { alt: "V", am: 0.1, revel: 0.6 }
+    ]);
+  });
+
+  it("flags a residue with more SNVs than one codon admits", () => {
+    const many = Array.from({ length: 10 }, (_, i) =>
+      candidateFromMyVariantHit(hit(`chr1:g.${100 + i}A>G`, { aa: { ref: "D", alt: "G", pos: 5 }, revel: { score: 0.3 } }))!
+    );
+    const { qualityFlags } = aggregateLandscape(many, { start: 5, end: 5, sequence: null, choice: { transcript: null, basis: "unknown" } });
+    expect(qualityFlags).toContain("overcount:5");
   });
 
   it("falls back to agreement with the displayed sequence when dbNSFP carries no transcript flag", () => {

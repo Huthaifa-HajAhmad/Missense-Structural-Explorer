@@ -8,6 +8,9 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 import { LandscapeInspector } from "../LandscapeInspector";
+import { landscapeKey } from "../../../shared/landscapeEvidence";
+
+const KEY = landscapeKey("NAE1", "p.Asp116Gly", "Q13564");
 
 const result: any = {
   metadata: { residueIndex: 116, wildType: "D", mutant: "G", variant: "p.Asp116Gly" },
@@ -33,12 +36,13 @@ describe("LandscapeInspector", () => {
       useVariantAnalysisStore.setState({
         gene: "NAE1",
         variant: "p.Asp116Gly",
+        uniprotId: "Q13564",
         selectedResidueIndex: 116,
         hoveredResidueIndex: null,
         selectedGenomicVariant: null,
-        landscapeSelection: { key: "NAE1|p.Asp116Gly", kind: "residue", pos: 116 },
+        landscapeSelection: { key: KEY, kind: "residue", pos: 116 },
         landscapeOverview: {
-          key: "NAE1|p.Asp116Gly",
+          key: KEY,
           status: "ready",
           error: null,
           data: {
@@ -63,7 +67,7 @@ describe("LandscapeInspector", () => {
   });
 
   it("shows the selected substitution's own scores and its rank at the residue", () => {
-    act(() => useVariantAnalysisStore.setState({ landscapeSelection: { key: "NAE1|p.Asp116Gly", kind: "substitution", pos: 116, alt: "G" } } as any));
+    act(() => useVariantAnalysisStore.setState({ landscapeSelection: { key: KEY, kind: "substitution", pos: 116, alt: "G" } } as any));
     render(<LandscapeInspector analysisResult={result} />);
     expect(screen.getByText("the queried variant")).toBeTruthy();
     expect(screen.getByText("AlphaMissense 0.362 · Indeterminate")).toBeTruthy();

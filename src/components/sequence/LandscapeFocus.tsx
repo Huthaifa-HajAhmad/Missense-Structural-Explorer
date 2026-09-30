@@ -58,6 +58,8 @@ interface Props {
   codons: Map<number, CodonNucleotide[]>;
   strand: "+" | "-" | null;
   laneStatus: "pending" | "error" | "none" | "ready";
+  /** AlphaGenome codons dropped because they do not translate to the residue drawn above them. */
+  codonMismatches?: number;
   genomicPos: number | null;
   genomicAlt: string | null;
   onPickResidue: (pos: number) => void;
@@ -111,14 +113,17 @@ export function LandscapeFocus(props: Props) {
         const sub = rows.get(pos)?.substitutions?.find((s) => s.alt === alt);
         const v = sub ? (colorBy === "revel" ? sub.revel : sub.am) : null;
         const reachable = reachableByPos.get(pos);
-        const band = v !== null ? bandKey(colorBy, v) : reachable && !reachable.has(alt) ? "unreachable" : "unscored";
+        const pending = loadingWindow && !rows.has(pos);
+        const band = v !== null ? bandKey(colorBy, v) : pending ? "unscored" : reachable && !reachable.has(alt) ? "unreachable" : "unscored";
         const isTarget = pos === target.pos && alt === target.mut;
         const isSel = selected?.kind === "substitution" && selected.pos === pos && selected.alt === alt;
         const label =
           `${aa}${pos}${alt}: ` +
           (v !== null
             ? `${TOOL_NAME[colorBy]} ${f3(v)} (${bandLabel(colorBy, v)})`
-            : band === "unreachable"
+            : pending
+              ? "loading"
+              : band === "unreachable"
               ? "needs two or more nucleotide changes; not scored in dbNSFP"
               : `no ${TOOL_NAME[colorBy]} score${reachable ? " (SNV-reachable)" : ""}`) +
           (isTarget ? " · the queried variant" : "");
@@ -346,6 +351,12 @@ export function LandscapeFocus(props: Props) {
         </span>
         <span className="text-cs-text-muted">AlphaGenome AVI genome-wide rank · not an ACMG band · contains AlphaMissense</span>
       </div>
+      {laneStatus === "ready" && (props.codonMismatches ?? 0) > 0 && (
+        <div className="text-[11px] text-cs-text-warning" style={{ paddingLeft: GUTTER }}>
+          {props.codonMismatches} AlphaGenome codon{props.codonMismatches === 1 ? "" : "s"} did not translate to the residue shown and
+          {props.codonMismatches === 1 ? " is" : " are"} left out: its transcript numbering may differ from this sequence.
+        </div>
+      )}
       {ntLane()}
     </section>
   );

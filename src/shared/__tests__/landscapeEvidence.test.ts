@@ -7,6 +7,9 @@ import {
   conservationLevel,
   displayBase,
   landscapeFinding,
+  landscapeKey,
+  snvReachableAminoAcids,
+  translateCodon,
   legendSteps,
   provenanceLine
 } from "../landscapeEvidence";
@@ -149,5 +152,20 @@ describe("provenanceLine", () => {
     expect(provenanceLine(meta())).toBe("dbNSFP 4.4a via myvariant.info · ENST00000290810 (MANE Select)");
     expect(provenanceLine(meta({ sourceVersion: null, cached: true }))).toMatch(/dbNSFP version not reported.*cached$/);
     expect(provenanceLine(null)).toBe("Source not reported");
+  });
+});
+
+describe("genetic code and keys", () => {
+  it("translates codons and lists SNV-reachable amino acids", () => {
+    expect(translateCodon("GAT")).toBe("D");
+    expect(translateCodon("TAA")).toBe("*");
+    expect(translateCodon("GAN")).toBeNull();
+    // GAT (Asp): one change reaches A, G, V, N, Y, H, E — not W, not the stop, not D itself.
+    expect([...snvReachableAminoAcids("GAT")].sort()).toEqual(["A", "E", "G", "H", "N", "V", "Y"]);
+  });
+
+  it("keys landscape state by accession too", () => {
+    expect(landscapeKey("nae1", "p.Asp116Gly", "q13564")).toBe("NAE1|p.Asp116Gly|Q13564");
+    expect(landscapeKey("NAE1", "p.Asp116Gly", "Q13564")).not.toBe(landscapeKey("NAE1", "p.Asp116Gly", "P12345"));
   });
 });

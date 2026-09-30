@@ -4,11 +4,13 @@ import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "./dbnsfp_local.
  * Population counts for one variant from the local dbNSFP build.
  *
  * The ingest sums gnomAD exome and genome counts into one AC / AN pair, so the only frequency this
- * source can state is the combined one. It used to be reported four times (maxAF, groupMaxAF,
- * genomeAF, exomeAF) with exome counts set to 0, which described an exome/genome split and a
- * per-ancestry maximum the data does not contain. Now: the combined AF is `maxAF`; `groupMaxAF`
- * carries the same value flagged as a fallback (the ACMG engine already words that case); the
- * per-cohort fields are null.
+ * source can state is the combined one. The consumer (`src/shared/frequencyEvidence.ts`) recognises
+ * this source by `dataset === "gnomad_r4_local"` and reads the combined figures from `maxAF`,
+ * `genomeAC` and `genomeAN` as ONE "cohorts combined" row. So those carry the combined values, the
+ * exome fields are null (they used to be 0 with exomeAF set to the combined AF, which described an
+ * exome cohort the data does not have). `groupMaxAF` carries the combined AF, as before; it is not
+ * flagged `groupMaxAFIsFallback`, whose ACMG note names low ancestry counts as the cause, which is
+ * not why this source has no per-ancestry maximum.
  */
 export async function fetchLocalPopulationFrequencies(
   gene: string,
@@ -24,17 +26,14 @@ export async function fetchLocalPopulationFrequencies(
     gnomad: {
       maxAF: combinedAF,
       groupMaxAF: combinedAF,
-      groupMaxAFIsFallback: combinedAF !== null,
-      genomeAF: null,
+      genomeAF: combinedAF,
       exomeAF: null,
-      genomeAC: null,
+      genomeAC: rec.gnomad_ac,
       exomeAC: null,
-      genomeAN: null,
+      genomeAN: rec.gnomad_an,
       exomeAN: null,
-      combinedAC: rec.gnomad_ac,
-      combinedAN: rec.gnomad_an,
       nHomozygous: rec.gnomad_hom,
-      dataset: "gnomad_r4_local_combined"
+      dataset: "gnomad_r4_local"
     },
     aou: {
       aouAC: rec.aou_ac,

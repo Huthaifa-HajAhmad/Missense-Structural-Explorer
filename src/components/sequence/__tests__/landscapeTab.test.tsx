@@ -23,8 +23,8 @@ vi.mock("../../../context/SettingsContext", () => ({ useSettings: () => ({ setti
 import { LandscapeFocus } from "../LandscapeFocus";
 import { LandscapeOverview } from "../LandscapeOverview";
 import { GenomicSaturationHeatmap } from "../GenomicSaturationHeatmap";
-import { codonsByResidue } from "../useAlphaGenomeRegion";
-import SequenceVisualizer from "../../SequenceVisualizer";
+import { alignCodonsToSequence, codonsByResidue } from "../useAlphaGenomeRegion";
+import SequenceVisualizer, { resolveTarget } from "../../SequenceVisualizer";
 
 // NAE1-like: residue 116 is D (coding GAT), gene on the − strand. Genomic positions descend 5'→3'.
 const minusStrandCodon: AlphaGenomeSaturationPosition[] = [
@@ -110,8 +110,9 @@ describe("LandscapeFocus", () => {
 });
 
 describe("LandscapeOverview", () => {
-  it("moves the window from the keyboard and says when a lane was not loaded", () => {
+  it("moves the window from the keyboard without selecting, and says when a lane was not loaded", () => {
     const pick = vi.fn();
+    const move = vi.fn();
     render(
       <LandscapeOverview
         length={534}
@@ -123,15 +124,17 @@ describe("LandscapeOverview", () => {
         targetPos={116}
         mode="mean"
         lanes={{ clinvar: true, gnomad: true, regions: true }}
+        onMove={move}
         onPick={pick}
         pageStep={31}
       />
     );
     const slider = screen.getByRole("slider");
     fireEvent.keyDown(slider, { key: "ArrowRight" });
-    expect(pick).toHaveBeenLastCalledWith(117);
+    expect(move).toHaveBeenLastCalledWith(117);
     fireEvent.keyDown(slider, { key: "PageDown" });
-    expect(pick).toHaveBeenLastCalledWith(147);
+    expect(move).toHaveBeenLastCalledWith(147);
+    expect(pick).not.toHaveBeenCalled();
     expect(screen.getByText("ClinVar not loaded")).toBeTruthy();
     expect(screen.getByText("no regional missense constraint call for this gene")).toBeTruthy();
   });
@@ -194,5 +197,31 @@ describe("SequenceVisualizer states", () => {
     expect(screen.getByRole("slider", { name: "Focus window position" })).toBeTruthy();
     expect(screen.getByRole("group", { name: /Substitution heatmap/ })).toBeTruthy();
     sequenceState.sequence = "";
+  });
+});
+
+describe("resolveTarget", () => {
+  it("takes the pipeline's residue for genomic notation instead of following the selection", () => {
+    expect(resolveTarget("16-66823281-T-C", { pos: 116, wt: "D", mut: "G" })).toEqual({ pos: 116, wt: "D", mut: "G" });
+    expect(resolveTarget("16-66823281-T-C", null).pos).toBe(0);
+  });
+
+  it("prefers the resolved (remapped) numbering over the typed one", () => {
+    expect(resolveTarget("p.Asp125Gly", { pos: 116, wt: "Asp", mut: "Gly" })).toEqual({ pos: 116, wt: "D", mut: "G" });
+    expect(resolveTarget("p.Asp116Gly", null)).toEqual({ pos: 116, wt: "D", mut: "G" });
+  });
+});
+
+describe("alignCodonsToSequence", () => {
+  it("keeps a codon that encodes its residue and drops one that does not", () => {
+    const seq = "A".repeat(115) + "D";
+    const good = codonsByResidue(minusStrandCodon, "-"); // GAT → D at 116
+    expect(alignCodonsToSequence(good, seq)).toMatchObject({ mismatches: 0 });
+    expect(alignCodonsToSequence(good, seq).codons.has(116)).toBe(true);
+    // Genomic A at codon position 2 → coding T: GTT encodes V, not the D drawn at 116.
+    const wrong = codonsByResidue(minusStrandCodon.map((p, i) => (i === 1 ? { ...p, ref: "A" } : p)) as any, "-");
+    const aligned = alignCodonsToSequence(wrong, seq);
+    expect(aligned.mismatches).toBe(1);
+    expect(aligned.codons.has(116)).toBe(false);
   });
 });

@@ -351,6 +351,16 @@ export function AppViews({
   const handleLiteratureError = useMemo(() => createErrorHandler("Literature View"), [createErrorHandler]);
   const handleConsoleError = useMemo(() => createErrorHandler("Developer Console"), [createErrorHandler]);
 
+  // The queried residue as the pipeline resolved it; the Landscape target never follows the selection.
+  const landscapeMetadata = analysisState.result?.metadata;
+  const landscapeTarget = useMemo(
+    () =>
+      landscapeMetadata
+        ? { pos: landscapeMetadata.residueIndex ?? null, wt: landscapeMetadata.wildType ?? null, mut: landscapeMetadata.mutant ?? null }
+        : null,
+    [landscapeMetadata?.residueIndex, landscapeMetadata?.wildType, landscapeMetadata?.mutant]
+  );
+
   const handleResidueClickMemo = useCallback((idx: number | null) => {
     if (!idx) return;
     setSelectedResidueIndex(idx);
@@ -541,6 +551,7 @@ export function AppViews({
                 gene={gene}
                 variant={variant}
                 residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
+                targetResidue={landscapeTarget}
                 hoveredResidueIndex={hoveredResidueIndex}
                 predictorData={analysisState.result?.predictorData}
                 conservationData={analysisState.result?.conservationData}

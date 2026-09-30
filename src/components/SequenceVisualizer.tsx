@@ -5,7 +5,7 @@ import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useApiClient } from "../apiClient";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
-import { landscapeFinding, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
+import { landscapeFinding, landscapeKey, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
 import { aviRankBand } from "../shared/alphagenomeEvidence";
 import { AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
 import { LandscapeLegend } from "./sequence/LandscapeLegend";
@@ -13,14 +13,21 @@ import { LandscapeToolbar } from "./sequence/LandscapeToolbar";
 import { LandscapeOverview } from "./sequence/LandscapeOverview";
 import { LandscapeFocus, type NucleotidePick } from "./sequence/LandscapeFocus";
 import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
-import { codonsByResidue, useAlphaGenomeRegion } from "./sequence/useAlphaGenomeRegion";
+import { alignCodonsToSequence, codonsByResidue, useAlphaGenomeRegion } from "./sequence/useAlphaGenomeRegion";
 import type { DomainSpan, TargetMutation, VariantScores } from "./sequence/types";
 
 interface SequenceVisualizerProps {
   uniprotId: string;
   gene?: string | null;
   variant: string;
+  /** The residue the reader has selected (moves the window when outside it). */
   residueIndex: number | null;
+  /**
+   * The queried residue as the pipeline resolved it (canonical numbering, after any remap). The
+   * target must come from here, not from the selection: for genomic notation the variant string
+   * carries no residue, and falling back to the selection made the "queried residue" follow clicks.
+   */
+  targetResidue?: { pos: number | null; wt?: string | null; mut?: string | null } | null;
   hoveredResidueIndex?: number | null;
   onResidueClick?: (index: number) => void;
   predictorData?: any;
@@ -70,6 +77,24 @@ export function parseTargetMutation(variant: string, resolvedResidue: number | n
   return { wt: "", pos: resolvedResidue && resolvedResidue > 0 ? resolvedResidue : 0, mut: "" };
 }
 
+/**
+ * The queried substitution: the pipeline's resolved residue and letters when present (they carry
+ * any numbering remap), otherwise what the variant string states.
+ */
+export function resolveTarget(
+  variant: string,
+  resolved: { pos: number | null; wt?: string | null; mut?: string | null } | null | undefined
+): TargetMutation {
+  const parsed = parseTargetMutation(variant, null);
+  const pos = resolved?.pos && resolved.pos > 0 ? resolved.pos : parsed.pos;
+  const one = (v: string | null | undefined) => {
+    if (!v) return "";
+    const t = v.trim();
+    return t.length === 3 ? AMINO_ACID_MAP_3_TO_1[t.toUpperCase()] || "" : t.toUpperCase();
+  };
+  return { pos, wt: one(resolved?.wt) || parsed.wt, mut: one(resolved?.mut) || parsed.mut };
+}
+
 /** The residue range a window of `size` centred on `center` covers inside a protein of `length`. */
 export function windowRange(center: number, size: number, length: number): { start: number; end: number } {
   if (length <= 0) return { start: 1, end: 0 };
@@ -91,6 +116,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   gene,
   variant,
   residueIndex,
+  targetResidue,
   hoveredResidueIndex: hoveredResidueIndexProp,
   onResidueClick,
   predictorData,
@@ -110,9 +136,12 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const seqColorScheme = settings.seqColorScheme;
 
   const { sequence, isLoading: sequenceLoading, error: sequenceError } = useProteinSequence(uniprotId);
-  const mutation = useMemo(() => parseTargetMutation(variant, residueIndex), [variant, residueIndex]);
+  const mutation = useMemo(
+    () => resolveTarget(variant, targetResidue),
+    [variant, targetResidue?.pos, targetResidue?.wt, targetResidue?.mut]
+  );
   const targetPos = mutation.pos;
-  const key = `${gene ?? ""}|${variant}`;
+  const key = landscapeKey(gene, variant, uniprotId);
 
   const view = useVariantAnalysisStore((s) => s.landscapeView);
   const setView = useVariantAnalysisStore((s) => s.setLandscapeView);
@@ -148,6 +177,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const addLandscapeRows = useVariantAnalysisStore((s) => s.addLandscapeRows);
   const [extraLoading, setExtraLoading] = useState(false);
   const requested = useRef<Set<string>>(new Set());
+  const activeWindowRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     requested.current = new Set();
   }, [key]);
@@ -176,6 +206,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     if (requested.current.has(reqKey)) return;
     requested.current.add(reqKey);
     const controller = new AbortController();
+    activeWindowRequest.current = controller;
     setExtraLoading(true);
     apiClient
       .getLandscapeData({ gene, uniprotId, variant, landscapeWindow: { start, end } }, controller.signal)
@@ -185,7 +216,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         requested.current.delete(reqKey);
         if (err?.name !== "AbortError") console.warn("[Landscape] window fetch failed:", err);
       })
-      .finally(() => setExtraLoading(false));
+      // Only the latest request clears the flag; an aborted one finishing late must not.
+      .finally(() => activeWindowRequest.current === controller && setExtraLoading(false));
     return () => controller.abort();
   }, [gene, uniprotId, variant, landscapeData, landscapeMap, range.start, range.end, center, sequence.length, residues.length, apiClient, addLandscapeRows, key]);
 
@@ -195,6 +227,11 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
    * older query is dropped by comparing the key.
    */
   const hasLandscape = Boolean(landscapeData);
+  const [overviewAttempt, setOverviewAttempt] = useState(0);
+  const retryOverview = useCallback(() => {
+    setOverview(null);
+    setOverviewAttempt((n) => n + 1);
+  }, [setOverview]);
   useEffect(() => {
     if (!gene || !uniprotId || !variant || !hasLandscape) return;
     if (useVariantAnalysisStore.getState().landscapeOverview?.key === key) return;
@@ -204,7 +241,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       .getLandscapeOverview({ gene, uniprotId, variant })
       .then((data) => stillCurrent() && setOverview({ key, status: "ready", data, error: null }))
       .catch((err: any) => stillCurrent() && setOverview({ key, status: "error", data: null, error: err?.message ?? "request failed" }));
-  }, [gene, uniprotId, variant, hasLandscape, key, apiClient, setOverview]);
+  }, [gene, uniprotId, variant, hasLandscape, key, apiClient, setOverview, overviewAttempt]);
 
   const parsedGenomic = useMemo(
     () => parseGenomicCoordinateString(predictorData?.gnomadVariantId || variant),
@@ -217,7 +254,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     spliceProximity: conservationData?.spliceProximity
   });
   const strand = (region.params?.strand ?? null) as "+" | "-" | null;
-  const codons = useMemo(() => codonsByResidue(region.data?.positions, strand), [region.data, strand]);
+  const { codons, mismatches: codonMismatches } = useMemo(
+    () => alignCodonsToSequence(codonsByResidue(region.data?.positions, strand), sequence),
+    [region.data, strand, sequence]
+  );
   const laneStatus = !region.params ? "none" : region.pending ? "pending" : region.error ? "error" : "ready";
 
   const residueClass = useCallback(
@@ -421,7 +461,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             targetPos={targetPos}
             mode={metricMode}
             lanes={view.lanes}
+            onMove={setCenter}
             onPick={pickOverview}
+            onRetry={retryOverview}
             pageStep={windowSize}
           />
 
@@ -442,6 +484,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             codons={codons}
             strand={strand}
             laneStatus={laneStatus}
+            codonMismatches={codonMismatches}
             genomicPos={genomicPos}
             genomicAlt={parsedGenomic?.alt || null}
             onPickResidue={pickResidue}

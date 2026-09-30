@@ -334,6 +334,17 @@ export function snvReachableAminoAcids(codon: string): Set<string> {
 /** Heatmap row order: physicochemical groups, so a row block reads as a property. */
 export const HEATMAP_AA_ORDER = ["A", "V", "L", "I", "M", "F", "W", "Y", "S", "T", "N", "Q", "C", "G", "P", "D", "E", "K", "R", "H"] as const;
 
+/* ─────────────────────────── store keys ─────────────────────────── */
+
+/**
+ * Key for the per-query Landscape state in the store (navigated rows, overview, selection). The
+ * accession is part of it: the same gene and variant re-run against another UniProt entry is laid
+ * out on a different sequence, so none of the previous state may be reused.
+ */
+export function landscapeKey(gene: string | null | undefined, variant: string | null | undefined, uniprotId: string | null | undefined): string {
+  return `${(gene ?? "").toUpperCase()}|${variant ?? ""}|${(uniprotId ?? "").toUpperCase()}`;
+}
+
 /* ─────────────────────────── provenance ─────────────────────────── */
 
 const BASIS_TEXT: Record<LandscapeMeta["transcriptBasis"], string> = {

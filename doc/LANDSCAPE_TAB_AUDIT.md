@@ -303,3 +303,20 @@ the mockup's illustrative numbers.
 - Regional constraint exists only for gnomAD v2 (GRCh37 canonical numbering), and the tab says so.
 - Substitutions that need two or more nucleotide changes have no dbNSFP score. They are drawn
   hatched rather than filled from another source.
+
+## 10. Self-review before merge (30 September 2026)
+
+A full re-read of the branch found and fixed these:
+
+| # | Defect | Fix |
+|---|---|---|
+| R1 | **Population tab regression:** `local-population.ts` renamed the local dataset and nulled `genomeAC/AN`, so `frequencyEvidence.ts` no longer recognised the local ingest (`gnomad_r4_local`) and lost its counts. It also set `groupMaxAFIsFallback`, whose ACMG note blames low ancestry counts. | Dataset name and the combined values in `genomeAF/AC/AN` restored (the consumer's contract). Exome fields are null, and the fallback flag is removed. |
+| R2 | The myvariant `fields` list was sent unencoded, so `dbnsfp.gerp++` arrived as `dbnsfp.gerp  ` and GERP++ was never requested. | `encodeURIComponent`, with a test. |
+| R3 | Residue summaries counted SNVs, so an amino acid reachable by two SNVs had its AlphaMissense score weighed twice. | Summaries run over distinct substitutions (REVEL: the higher of the SNVs). The ≤ 9 over-count check still counts SNVs. |
+| R4 | The server checked residues against the gene symbol's UniProt entry, not the accession the tab draws. | The request's `uniprotId` is passed through and is part of the cache key. |
+| R5 | For genomic notation the target fell back to the *selected* residue, so the "queried residue", its outline and the finding followed clicks. | The target comes from the pipeline's `metadata.residueIndex/wildType/mutant` (`resolveTarget`), which also carries any numbering remap. |
+| R6 | Store state (navigated rows, overview, selection) was keyed by gene and variant only, so it was reused for a different accession. | `landscapeKey(gene, variant, uniprotId)`. |
+| R7 | AlphaGenome codons were drawn under residues without checking that they encode them. | `alignCodonsToSequence` drops mismatches, and the lane says how many. |
+| R8 | The AlphaGenome region was memoised on `spliceProximity`'s identity, so every pipeline update re-issued the region query. This bug was inherited from the old heatmap. | Keyed on the interval's values. |
+| R9 | Overview arrow keys selected a residue on every step. A failed overview had no retry. | The strip and keys move the window only (ClinVar markers select), and a Retry button was added. |
+| R10 | Minor: an aborted window request could clear the loading flag of the next one; heatmap cells read "no score" while loading; the rail showed a stale nucleotide beside a newer selection; the ingest could not add its new columns to an existing database and counted single-transcript rows as arbitrary picks; `aa_change` was not read at the chosen transcript; the overview route skipped the audit log; the context cache was unbounded. | Each fixed. |

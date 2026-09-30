@@ -50,6 +50,7 @@ export interface LandscapeContext {
 
 const GNOMAD_API = "https://gnomad.broadinstitute.org/api";
 const TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CACHED_GENES = 200;
 const cache = new Map<string, { at: number; value: LandscapeContext }>();
 
 const AA3: Record<string, string> = {
@@ -196,6 +197,10 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     errors
   };
   // Cache only a complete answer; a partial one is retried on the next request.
-  if (errors.length === 0) cache.set(gene, { at: Date.now(), value });
+  if (errors.length === 0) {
+    // Bounded: drop the oldest entry (Map keeps insertion order) rather than grow per gene forever.
+    if (cache.size >= MAX_CACHED_GENES) cache.delete(cache.keys().next().value as string);
+    cache.set(gene, { at: Date.now(), value });
+  }
   return value;
 }

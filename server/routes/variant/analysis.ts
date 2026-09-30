@@ -3,6 +3,12 @@ import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import { fetchLandscape } from "../../services/external.ts";
 import { fetchLandscapeContext } from "../../services/prediction/landscape-context.ts";
+import { validateAndParseVariantRequest } from "./variant-parser.ts";
+import {
+  runCoreAnalysis,
+  runStructuralAnalysis,
+} from "../../services/analysis-orchestrator.ts";
+import { PrewarmManager } from "../../services/prewarm-manager.ts";
 
 const MAX_LANDSCAPE_WINDOW = 121;
 
@@ -15,12 +21,6 @@ export function parseLandscapeWindow(raw: unknown): { start: number; end: number
   if (end - start + 1 > MAX_LANDSCAPE_WINDOW) return null;
   return { start, end };
 }
-import { validateAndParseVariantRequest } from "./variant-parser.ts";
-import {
-  runCoreAnalysis,
-  runStructuralAnalysis,
-} from "../../services/analysis-orchestrator.ts";
-import { PrewarmManager } from "../../services/prewarm-manager.ts";
 
 export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any): void {
   // 1. Core Endpoint
@@ -159,7 +159,7 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       const startPos = requested ? requested.start : pos !== undefined && pos !== null ? Math.max(1, pos - 25) : undefined;
       const endPos = requested ? requested.end : pos !== undefined && pos !== null ? pos + 25 : undefined;
 
-      const { positions, meta } = await fetchLandscape(gene, startPos, endPos);
+      const { positions, meta } = await fetchLandscape(gene, startPos, endPos, context.uniprotId);
       res.json({ landscapeData: positions, landscapeMeta: meta });
     } catch (error: any) {
       console.error("Landscape endpoint failure:", error);
@@ -172,8 +172,19 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
   apiRouter.post("/analyze-variant/landscape-overview", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
     const context = await validateAndParseVariantRequest(req, res);
     if (!context) return;
+
+    await AuditLogger.logVariantQuery("ANALYZE_VARIANT_LANDSCAPE_OVERVIEW", {
+      gene: context.gene,
+      variant: context.variant,
+      pos: context.pos,
+      requestId: (req.headers["x-request-id"] as string) || undefined,
+    });
+
     try {
-      const [landscape, geneContext] = await Promise.all([fetchLandscape(context.gene), fetchLandscapeContext(context.gene)]);
+      const [landscape, geneContext] = await Promise.all([
+        fetchLandscape(context.gene, undefined, undefined, context.uniprotId),
+        fetchLandscapeContext(context.gene)
+      ]);
       res.json({
         positions: landscape.positions.map(({ substitutions: _omit, ...rest }) => rest),
         meta: landscape.meta,

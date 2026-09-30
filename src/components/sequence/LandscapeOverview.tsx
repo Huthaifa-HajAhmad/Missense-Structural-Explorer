@@ -15,7 +15,11 @@ interface Props {
   targetPos: number;
   mode: SummaryMode;
   lanes: LandscapeViewState["lanes"];
+  /** Moves the focus window only (strip click, arrow keys); selects nothing. */
+  onMove: (pos: number) => void;
+  /** Selects a residue (a ClinVar marker). */
   onPick: (pos: number) => void;
+  onRetry?: () => void;
   /** Keyboard step for PageUp/PageDown: one focus width. */
   pageStep: number;
 }
@@ -55,7 +59,9 @@ export function LandscapeOverview({
   targetPos,
   mode,
   lanes,
+  onMove,
   onPick,
+  onRetry,
   pageStep
 }: Props) {
   const [ref, measured] = useWidth<HTMLDivElement>();
@@ -79,9 +85,9 @@ export function LandscapeOverview({
 
   const onKey = (e: React.KeyboardEvent) => {
     const step = { ArrowLeft: -1, ArrowRight: 1, PageUp: -pageStep, PageDown: pageStep } as Record<string, number>;
-    if (e.key in step) onPick(Math.min(length, Math.max(1, center + step[e.key])));
-    else if (e.key === "Home") onPick(1);
-    else if (e.key === "End") onPick(length);
+    if (e.key in step) onMove(Math.min(length, Math.max(1, center + step[e.key])));
+    else if (e.key === "Home") onMove(1);
+    else if (e.key === "End") onMove(length);
     else return;
     e.preventDefault();
   };
@@ -151,12 +157,28 @@ export function LandscapeOverview({
           aria-valuenow={center}
           aria-valuetext={`Residues ${window.start} to ${window.end}`}
           onKeyDown={onKey}
-          onClick={(e) => onPick(posAt(e.clientX, e.currentTarget))}
+          onClick={(e) => onMove(posAt(e.clientX, e.currentTarget))}
           onMouseMove={(e) => setHover(posAt(e.clientX, e.currentTarget))}
           onMouseLeave={() => setHover(null)}
         >
           {status === "loading" && <span className="absolute inset-0 flex items-center text-[11px] text-cs-text-muted">Loading whole-protein scores…</span>}
-          {status === "error" && <span className="absolute inset-0 flex items-center text-[11px] text-cs-text-warning">Whole-protein scores not loaded{error ? `: ${error}` : ""}</span>}
+          {status === "error" && (
+            <span className="absolute inset-0 flex items-center gap-2 text-[11px] text-cs-text-warning">
+              Whole-protein scores not loaded{error ? `: ${error}` : ""}
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRetry();
+                  }}
+                  className="px-2 py-0.5 rounded border border-cs-border bg-cs-surface text-cs-text-primary cursor-pointer"
+                >
+                  Retry
+                </button>
+              )}
+            </span>
+          )}
           {width > 0 && (
             <svg width={width} height={BAR_H} className="block" aria-hidden="true">
               <rect x={0} y={BAR_H - 1} width={width} height={1} fill="var(--cs-border-subtle)" />

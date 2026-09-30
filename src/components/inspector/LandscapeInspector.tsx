@@ -7,7 +7,7 @@ import { selectResidueLetter } from "../../stores/slices/searchSlice";
 import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
-import { complementBase, bandLabel, legendSteps, provenanceLine, residueCount, residueRange, residueSummary, type LandscapeTool, type SummaryMode } from "../../shared/landscapeEvidence";
+import { complementBase, bandLabel, landscapeKey, legendSteps, provenanceLine, residueCount, residueRange, residueSummary, type LandscapeTool, type SummaryMode } from "../../shared/landscapeEvidence";
 import LandscapeAgreementPlot from "../LandscapeAgreementPlot";
 
 interface LandscapeInspectorProps {
@@ -116,7 +116,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const storeGenomicVariant = useVariantAnalysisStore((s) => s.selectedGenomicVariant);
   const gene = useVariantAnalysisStore((s) => s.gene);
   const variant = useVariantAnalysisStore((s) => s.variant);
-  const extraKey = `${gene ?? ""}|${variant}`;
+  const uniprotId = useVariantAnalysisStore((s) => s.uniprotId);
+  const extraKey = landscapeKey(gene, variant, uniprotId);
   const extraRows = useVariantAnalysisStore((s) => (s.landscapeExtra?.key === extraKey ? s.landscapeExtra.rows : null));
   const selection = useVariantAnalysisStore((s) => (s.landscapeSelection?.key === extraKey ? s.landscapeSelection : null));
   const setSelection = useVariantAnalysisStore((s) => s.setLandscapeSelection);
@@ -230,7 +231,9 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     return out;
   })();
 
-  const g = selectedGenomicVariant;
+  // The picked nucleotide stays in the store after the reader moves on to a residue or substitution;
+  // it is shown only while it is the current selection (or when the exon panel set it alone).
+  const g = !selection || selection.kind === "nucleotide" ? selectedGenomicVariant : null;
   const codingChange =
     g && g.strand === "-" && !g.isRef ? ` (coding ${complementBase(String(g.ref))}>${complementBase(String(g.alt))})` : "";
 
