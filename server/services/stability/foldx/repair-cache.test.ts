@@ -37,7 +37,13 @@ describe("FoldX repaired-structure cache", () => {
     repairedStructureCache.clear();
     if (originalEnv === undefined) delete process.env.FOLDX_CACHE_DIR;
     else process.env.FOLDX_CACHE_DIR = originalEnv;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    /**
+     * Preventive, not a fix for an observed failure here: `FOLDX_CACHE_DIR` is this test's own temp
+     * directory, and cache.ts writes into it with promises -- including `unlink`s it does not await.
+     * `runner-repair-cache.test.ts` failed in CI with "ENOTEMPTY: directory not empty, rmdir ..."
+     * for exactly that reason, so the retries are added here rather than waiting to rediscover it.
+     */
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
 
   it("keys repair by structure and environment only — never by mutation", () => {
