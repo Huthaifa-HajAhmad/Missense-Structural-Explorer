@@ -137,6 +137,11 @@ function makeDifFxout(): string {
 const FAKE_FOLDX_JS = "";
 
 let workspace: string;
+/**
+ * FoldX's fixtures (fake binary, `molecules/`, `rotabase.txt`) and its on-disk cache. Kept in a
+ * separate temp directory from `workspace` on purpose -- see the cleanup note in `afterEach`.
+ */
+let foldxHome: string;
 let logPath: string;
 const originalEnv: Record<string, string | undefined> = {};
 
@@ -175,13 +180,19 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
      * `detector.ts:69-71` sets `foldxDir = path.dirname(FOLDX_BINARY)`, so the fixtures belong
      * beside the fake binary and no production code has to change to accommodate the test.
      */
-    const fakeBin = path.join(workspace, "foldx-fake.bin");
+    foldxHome = fs.mkdtempSync(path.join(os.tmpdir(), "foldx-home-"));
+    const fakeBin = path.join(foldxHome, "foldx-fake.bin");
     fs.writeFileSync(fakeBin, "");
-    fs.mkdirSync(path.join(workspace, "molecules"), { recursive: true });
-    fs.writeFileSync(path.join(workspace, "molecules", "placeholder.json"), "{}");
-    fs.writeFileSync(path.join(workspace, "rotabase.txt"), "");
+    fs.mkdirSync(path.join(foldxHome, "molecules"), { recursive: true });
+    fs.writeFileSync(path.join(foldxHome, "molecules", "placeholder.json"), "{}");
+    fs.writeFileSync(path.join(foldxHome, "rotabase.txt"), "");
     process.env.FOLDX_BINARY = fakeBin;
-    process.env.FOLDX_CACHE_DIR = path.join(workspace, "foldx_cache");
+    /**
+     * Outside `workspace`, and that placement is load-bearing rather than tidy: the runner writes
+     * this cache without awaiting it, so a write can still be in flight when `afterEach` deletes the
+     * job tree. See the note there.
+     */
+    process.env.FOLDX_CACHE_DIR = path.join(foldxHome, "foldx_cache");
 
     foldxLog.length = 0;
     repairedStructureCache.clear();
@@ -196,7 +207,23 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     foldxLog.length = 0;
     repairedStructureCache.clear();
     mutantCache.clear();
-    fs.rmSync(workspace, { recursive: true, force: true });
+    /**
+     * The retries are not decoration.
+     *
+     * `runner.ts:147` calls `writeMutantToCache(cacheKey, result)` WITHOUT awaiting it, which is
+     * deliberate -- a FoldX result should not be held up by a cache write -- and that write goes to
+     * `getFoldxCacheDir()`. While that directory sat inside `workspace`, a write still in flight
+     * when this cleanup ran could create a file mid-removal and fail the test with
+     *
+     *   Error: ENOTEMPTY: directory not empty, rmdir '/tmp/foldx-runner-...'
+     *
+     * which is what CI reported on 332e748. The failure said nothing about FoldX, and it did not
+     * reproduce in isolation because it needs the suite's timing. Two changes: the cache now lives
+     * in `foldxHome`, outside the tree being deleted, and the retries absorb the un-awaited
+     * `unlink`s in cache.ts that can likewise still be in flight.
+     */
+    fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    fs.rmSync(foldxHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
 
   it("reports repairing → modelling → finalizing, and caches the repaired template", async () => {

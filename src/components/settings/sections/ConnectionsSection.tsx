@@ -58,6 +58,23 @@ export function ConnectionsSection() {
   const sessionExpired = Boolean(settings.geminiSessionId) && !sessionActive;
   const minutesLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / 60_000));
 
+  /**
+   * The app's Gemini readiness is a composite, and every surface must agree on it: a server
+   * environment key, an active client session, or a client key — any one carries the clinical
+   * AI. The server diagnostics verdict alone (`diagnostics.geminiReady`, the server-env key)
+   * reported Offline while a live session ran, contradicting the rail ("Session Active") and
+   * the form gate on the same state.
+   */
+  const geminiOperational =
+    sessionActive || (!sessionExpired && serverGeminiReady) || Boolean(settings.geminiApiKey?.trim());
+  const geminiSource = sessionActive
+    ? "Session active"
+    : serverGeminiReady
+      ? diagnostics?.geminiModel || "Server key active"
+      : geminiOperational
+        ? "Client key"
+        : undefined;
+
   const handleGeminiKeyChange = (value: string) => {
     const previous = settings.geminiApiKey || "";
     updateSetting("geminiApiKey", value.trim());
@@ -228,13 +245,13 @@ export function ConnectionsSection() {
 
       <SettingsSection
         title="Server services"
-        hint={loading ? "Checking service readiness…" : "Reported by the server diagnostics endpoint. Cache controls live in Data & storage."}
+        hint={loading ? "Checking service readiness…" : "FoldX and the model server are reported by the server diagnostics endpoint; Gemini reflects whichever source is carrying it. Cache controls live in Data & storage."}
       >
         <SettingsBlock>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <ServicePill name="FoldX engine" ready={diagnostics?.foldxReady} />
             <ServicePill name="Model server" ready={diagnostics?.modelServerReady} />
-            <ServicePill name="Gemini" ready={diagnostics?.geminiReady} detail={diagnostics?.geminiModel} />
+            <ServicePill name="Gemini" ready={geminiOperational} detail={geminiSource} />
           </div>
         </SettingsBlock>
       </SettingsSection>
