@@ -284,6 +284,93 @@ export async function fetchFullPdbEntry(pdbId: string): Promise<string | null> {
   });
 }
 
+/** A PDB entry as the 3D view loads it: the chain that maps to the protein, in UniProt numbering if verified. */
+export interface EntryForVariant {
+  pdbText: string;
+  numbering: "uniprot" | "author";
+  chainId: string | null;
+  mapping: "sifts" | "needleman_wunsch" | null;
+  /** Why the entry keeps its own numbering, when it does. */
+  reason: string | null;
+}
+
+/** Protein chains in ATOM records, largest first, so a partner or peptide chain is tried last. */
+function proteinChainsBySize(pdbText: string): string[] {
+  const residues = new Map<string, Set<string>>();
+  for (const line of pdbText.split("\n")) {
+    if (line.startsWith("ENDMDL")) break;
+    if (!line.startsWith("ATOM  ") || line.length < 27) continue;
+    const chain = line.charAt(21).toUpperCase();
+    if (!chain.trim()) continue;
+    if (!residues.has(chain)) residues.set(chain, new Set());
+    residues.get(chain)!.add(line.substring(22, 27));
+  }
+  return [...residues.entries()]
+    .filter(([, set]) => set.size >= 20)
+    .sort((a, b) => b[1].size - a[1].size)
+    .map(([chain]) => chain);
+}
+
+const MAX_ENTRY_CHAINS_TRIED = 12;
+
+/**
+ * Loads a PDB entry for the 3D view in the variant's own numbering.
+ *
+ * The entries list offers any RCSB hit for the protein, and an entry loaded whole keeps its
+ * authors' numbering and every chain: the site highlight then landed on whatever residue carried
+ * the variant's number. Here the chain PDBe maps to the accession (or, failing that, any protein
+ * chain that aligns at ≥85% identity) is renumbered to UniProt, through the same deterministic
+ * resolver FoldX's templates pass, and only when the wild-type residue sits at the variant's
+ * position. Otherwise the whole entry is returned in its own numbering, with the reason.
+ */
+export async function fetchEntryForVariant(
+  pdbId: string,
+  uniprotId: string,
+  pos: number,
+  wt1: string
+): Promise<EntryForVariant | null> {
+  const full = await fetchFullPdbEntry(pdbId);
+  if (!full) return null;
+  const author = (reason: string): EntryForVariant => ({ pdbText: full, numbering: "author", chainId: null, mapping: null, reason });
+
+  let sequence: string | null = null;
+  try {
+    sequence = await fetchUniprotSequence(uniprotId);
+  } catch (_) {}
+  if (!sequence) return author(`The UniProt sequence of ${uniprotId} could not be fetched to match the entry's numbering.`);
+
+  const { querySiftsChains, resolvePdbCoordinatesDeterministically } = await import("./sequence-aligner.ts");
+  const sifts = await querySiftsChains(pdbId, uniprotId);
+  const inEntry = proteinChainsBySize(full);
+  // PDBe's chains for this accession first, those covering the site before the rest; then, for an
+  // ortholog or an unmapped entry, every protein chain, which the alignment tier must still accept.
+  const mapped = (sifts ?? [])
+    .filter(c => inEntry.includes(c.chainId))
+    .sort((a, b) => Number(pos >= b.unpStart && pos <= b.unpEnd) - Number(pos >= a.unpStart && pos <= a.unpEnd))
+    .map(c => c.chainId);
+  const candidates = [...new Set([...mapped, ...inEntry])].slice(0, MAX_ENTRY_CHAINS_TRIED);
+
+  for (const chainId of candidates) {
+    const resolved = await resolvePdbCoordinatesDeterministically({
+      pdbId,
+      chainId,
+      rawPdbText: full,
+      uniprotAccession: uniprotId,
+      uniprotSequence: sequence,
+      targetPos: pos,
+      expectedWt1: wt1,
+    });
+    if (resolved.valid && resolved.pdbText && resolved.source !== "alphafold_fallback") {
+      return { pdbText: resolved.pdbText, numbering: "uniprot", chainId, mapping: resolved.source, reason: null };
+    }
+  }
+  return author(
+    candidates.length === 0
+      ? `${pdbId.toUpperCase()} has no protein chain to match to ${uniprotId}.`
+      : `No chain of ${pdbId.toUpperCase()} carries ${wt1}${pos} under a verified mapping to ${uniprotId}.`
+  );
+}
+
 export async function fetchPdbFromRcsb(
   pdbId: string,
   chainId?: string,
@@ -373,9 +460,12 @@ export async function fetchPdbFromRcsb(
 
 interface RawHomologCandidate {
   pdbId: string;
+  /** RCSB's search relevance score (0–1, normalised to the top hit). NOT sequence identity. */
   score: number;
-  identity: number;
-  coverage: number;
+  /** Sequence identity (%) from the alignment's match context; null when the search did not return one. */
+  identity: number | null;
+  /** Aligned length as % of the query; null when not reported. */
+  coverage: number | null;
   title: string;
   organism: string;
   isHuman: boolean;
@@ -386,7 +476,8 @@ interface RawHomologCandidate {
 }
 
 async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawHomologCandidate[]> {
-  const cacheKey = `raw_homologs_${validatedUniprot}`;
+  // v2: entries cached before the verbose search stored the relevance score as "identity".
+  const cacheKey = `raw_homologs_v2_${validatedUniprot}`;
   const cached = pdbCache.get(cacheKey);
   if (cached) {
     try {
@@ -438,6 +529,13 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
               }
             },
             request_options: {
+              /**
+               * "verbose" is what returns each hit's `match_context` (sequence identity, aligned
+               * range). The default ("compact") returns identifiers and a relevance score only, so the
+               * old parser fell back to the SCORE as "identity" and to 80% of the query as "coverage":
+               * the inspector listed 9QN5 at "5% ID" under a search whose own identity cut-off is 22%.
+               */
+              results_verbosity: "verbose",
               results_content_type: ["experimental"],
               paginate: {
                 start: 0,
@@ -547,19 +645,18 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
         const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
         const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
 
-        let rawIdentity: number = info.score;
-        let alignedLen = Math.round(seqLen * 0.8);
+        // Only the alignment's own match context may supply identity, coverage or range; absent, they
+        // stay null rather than being filled from the relevance score or a guessed 80%.
         const mc = info.rawHit.services?.[0]?.nodes?.[0]?.match_context?.[0];
-        if (mc) {
-          if (typeof mc.sequence_identity === "number") rawIdentity = mc.sequence_identity;
-          if (typeof mc.alignment_length === "number") alignedLen = mc.alignment_length;
-        }
+        const rawIdentity: number | null = typeof mc?.sequence_identity === "number" ? mc.sequence_identity : null;
+        const alignedLen: number | null = typeof mc?.alignment_length === "number" ? mc.alignment_length : null;
 
-        const identityPercent = Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
-        const coveragePercent = Math.min(100, Math.round((alignedLen / seqLen) * 100));
+        const identityPercent = rawIdentity === null ? null : Math.min(100, Math.round(rawIdentity > 1 ? rawIdentity : rawIdentity * 100));
+        const coveragePercent = alignedLen === null ? null : Math.min(100, Math.round((alignedLen / seqLen) * 100));
 
-        const qFrom = typeof mc?.query_sequence_from === "number" ? mc.query_sequence_from : undefined;
-        const qTo = typeof mc?.query_sequence_to === "number" ? mc.query_sequence_to : undefined;
+        const pickNumber = (...values: unknown[]) => values.find((v): v is number => typeof v === "number");
+        const qFrom = pickNumber(mc?.query_beg, mc?.query_sequence_from);
+        const qTo = pickNumber(mc?.query_end, mc?.query_sequence_to);
 
         candidates.push({
           pdbId,
@@ -591,7 +688,7 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
 
 export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
   const validatedUniprot = validateUniProt(uniprotId);
-  const posCacheKey = `homologs_${validatedUniprot}_pos_${pos ?? "none"}`;
+  const posCacheKey = `homologs_v2_${validatedUniprot}_pos_${pos ?? "none"}`;
   const cachedData = pdbCache.get(posCacheKey);
   if (cachedData) {
     try {
@@ -616,20 +713,23 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
 
   try {
     const candidates = rawCandidates.map(c => {
+      // Unknown when the alignment range was not reported — never assumed true.
       const coversPos = (pos !== undefined && c.querySeqFrom !== undefined && c.querySeqTo !== undefined)
         ? (pos >= c.querySeqFrom && pos <= c.querySeqTo)
-        : true;
+        : undefined;
       return {
         ...c,
         coversPosition: coversPos
       };
     });
 
-    // Sort priority: 1. Covers variant position, 2. Identity descending, 3. Better resolution
+    // Sort priority: 1. Covers variant position, 2. Identity descending (unreported last), 3. Better resolution
+    const coverRank = (v: boolean | undefined) => (v === true ? 0 : v === undefined ? 1 : 2);
     candidates.sort((a, b) => {
-      if (a.coversPosition && !b.coversPosition) return -1;
-      if (!a.coversPosition && b.coversPosition) return 1;
-      if (b.identity !== a.identity) return b.identity - a.identity;
+      if (coverRank(a.coversPosition) !== coverRank(b.coversPosition)) return coverRank(a.coversPosition) - coverRank(b.coversPosition);
+      const idA = a.identity ?? -1;
+      const idB = b.identity ?? -1;
+      if (idB !== idA) return idB - idA;
       const resA = a.resolution ?? 999;
       const resB = b.resolution ?? 999;
       return resA - resB;
@@ -651,7 +751,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       const orgNorm = h.organism.toLowerCase().trim();
       const titleRoot = getTitleRoot(h.title);
 
-      if (h.identity >= 95) {
+      if (h.identity !== null && h.identity >= 95) {
         if (seenSelfOrganisms.has(orgNorm)) {
           continue;
         }
@@ -663,7 +763,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
       }
       const existingIdentities = seenOrganisms.get(orgNorm)!;
 
-      const isRedundantIdentity = existingIdentities.some(id => Math.abs(id - h.identity) < 5);
+      const isRedundantIdentity = h.identity !== null && existingIdentities.some(id => Math.abs(id - h.identity!) < 5);
       if (isRedundantIdentity) {
         continue;
       }
@@ -673,7 +773,7 @@ export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise
         continue;
       }
 
-      existingIdentities.push(h.identity);
+      if (h.identity !== null) existingIdentities.push(h.identity);
       seenTitleRoots.add(titleClusterKey);
       homologs.push(h);
 

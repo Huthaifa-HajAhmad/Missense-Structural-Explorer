@@ -76,7 +76,13 @@ export async function fetchEsm3StructureEval(
   mutResidue: string,
   wtPdbText?: string | null,
   biohubToken?: string | null,
-  sequenceOverride?: string | null
+  sequenceOverride?: string | null,
+  /**
+   * What `wtPdbText` is. Its site B-factor is reported as `confidence.plddt` only for an AlphaFold
+   * model; for an experimental entry it is a temperature factor, and the Perturbation tab was showing
+   * it as "input confidence". Omitted: treated as before (older callers pass AlphaFold text).
+   */
+  wtStructureSource?: "alphafold" | "experimental" | null
 ): Promise<ESM3StructureEvalResult | null> {
   const cacheKey = `${uniprotId}:${position}:${wtResidue}:${mutResidue}`;
   const cached = esm3StructureCache.get(cacheKey);
@@ -215,8 +221,10 @@ export async function fetchEsm3StructureEval(
         }
       }
     }
-    if (atomCount > 0) meanPlddt = totalAtomB / atomCount;
-    if (targetAtomCount > 0) targetPlddt = targetB / targetAtomCount;
+    if (wtStructureSource !== "experimental") {
+      if (atomCount > 0) meanPlddt = totalAtomB / atomCount;
+      if (targetAtomCount > 0) targetPlddt = targetB / targetAtomCount;
+    }
   }
 
   // If we could not retrieve real perturbation scores from the API, we return error to avoid fabricating data

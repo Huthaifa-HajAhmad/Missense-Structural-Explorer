@@ -71,10 +71,7 @@ export interface ViewInspectorProps {
   onSelectEvidenceTab?: (tab: string) => void;
   onSelectResidueIndex?: (idx: number) => void;
   metrics?: any;
-  comparePdbData?: string | null;
-  hasMutantModel?: boolean;
   active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
-  bFactorMetadata?: { source: string; details?: string } | null;
   /** P2Rank output backing the Residue Shifts inspector's cavity narrative. */
   computedPocket?: PocketResult | null;
   isPocketLoading?: boolean;
@@ -87,13 +84,16 @@ export interface ViewInspectorProps {
 const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> }> = {
   search: { title: "Variant Workspace", subtitle: "Query & History", Icon: SlidersHorizontal },
   evidence: { title: "Evidence Lineage", subtitle: "Genomic & Database Provenance", Icon: BarChart2 },
-  structure: { title: "Structure Inspector", subtitle: "Models, Homologs & Probes", Icon: Layers },
-  structure_alphafold: { title: "AlphaFold Inspector", subtitle: "Full-Length 3D Model", Icon: Layers },
-  structure_esmfold: { title: "ESMFold-2 Inspector", subtitle: "Transformer De Novo 3D Model", Icon: Layers },
-  /* Resolved by hand when claude/trusting-davinci-t85u0y merged, rather than by keeping one side.
-     Each side renames one of these two and leaves the other alone -- main renamed `energetics`,
-     this branch renamed `landscape` -- so each rename is kept. Taking either side wholesale would
-     have silently reverted the other's, and a union would have produced duplicate keys. */
+  /*
+   * Named for the view, not for a model: "AlphaFold Inspector · Full-Length 3D Model" stayed on screen
+   * over a FoldX variant built on a crystal template, and "ESMFold-2 Inspector" over structures the
+   * ESM Atlas's ESMFold v1 had folded. The rail itself names what is on the canvas.
+   */
+  structure: { title: "3D structure", subtitle: "Coordinates, comparison & provenance", Icon: Layers },
+  structure_alphafold: { title: "3D structure · AlphaFold2 view", subtitle: "AlphaFold model, FoldX variant", Icon: Layers },
+  structure_esmfold: { title: "3D structure · ESMFold view", subtitle: "De novo wild type and variant", Icon: Layers },
+  /* Main renamed `energetics` and `landscape`; the 3D branch renamed the three structure entries.
+     Each side's renames are kept. */
   energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached", Icon: Activity },
   landscape: { title: "Landscape", subtitle: "Selection, display and sources", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
@@ -169,10 +169,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
   onSelectEvidenceTab,
   onSelectResidueIndex,
   metrics,
-  comparePdbData,
-  hasMutantModel,
   active3dModelTab = "alphafold2",
-  bFactorMetadata,
   computedPocket = null,
   isPocketLoading = false,
   pocketError = null,
@@ -189,8 +186,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
    * the main column and consumed here, the same way ReportInspector reads reportSections.
    */
   const activePerturbationModel = useVariantAnalysisStore(s => s.activePerturbationModel);
-  const isEsmFolding = useVariantAnalysisStore(s => s.isEsmFolding);
-  const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
   const saprotEngine = useSettings().settings.saprotEngine;
   /**
    * The tab reads its geometry from the biophysics slice, while this panel receives
@@ -435,25 +430,8 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       <div ref={bodyRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
         {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
           <StructureInspector
-            analysisResult={analysisResult}
-            viewMode={viewMode}
-            setViewMode={setViewMode}
-            isFolding={isFolding}
-            foldingProgress={foldingProgress}
-            foldingStatus={foldingStatus}
-            foldingDdG={foldingDdG}
-            homologs={homologs}
-            isHomologsLoading={isHomologsLoading}
-            customPdbUrl={customPdbUrl}
+            family={activeView === "structure_esmfold" ? "esmfold" : "alphafold"}
             setCustomPdbUrl={setCustomPdbUrl}
-            active3dModelTab={active3dModelTab}
-            metrics={metrics}
-            comparePdbData={comparePdbData}
-            hasMutantModel={hasMutantModel}
-            bFactorMetadata={bFactorMetadata}
-            esmFoldingError={esmFoldingError}
-            isEsmFolding={isEsmFolding}
-            onSwitchToAlphaFold={() => onViewChange("structure_alphafold")}
           />
         )}
 

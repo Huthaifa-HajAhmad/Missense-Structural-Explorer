@@ -5,12 +5,16 @@ import {
   JAPANFOLD_ESMFOLD2_MAX_AA,
   deNovoFoldingLimitExceededMessage,
 } from "../shared/foldingLimits";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
+
+type DeNovoEngines = { wildType: string | null; variant: string | null } | null;
 
 interface EsmFoldCacheEntry {
   wtPdb: string;
   mutPdb: string;
   alignedPdb: string;
   metrics: StructuralMetrics | null;
+  engines: DeNovoEngines;
 }
 
 const esmFoldGlobalCache: Record<string, EsmFoldCacheEntry> = {};
@@ -32,6 +36,10 @@ export interface StructuralFoldingSink {
   setEsmFoldingError?: (error: string | null) => void;
   setActive3dModelTab?: (tab: "alphafold2" | "esm3") => void;
   resetEsmFoldState?: () => void;
+  /** Which engine folded each structure; null when the server did not say. */
+  setEsmFoldEngines?: (engines: DeNovoEngines) => void;
+  /** The server returned ONE structure, so there is no variant model. */
+  setEsmFoldSingleStructure?: (single: boolean) => void;
 }
 
 export function useStructuralFolding(sink?: StructuralFoldingSink) {
@@ -88,6 +96,8 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
       setEsmFoldMetrics(cached.metrics);
       setIsEsmFolding(false);
       setEsmFoldingError(null);
+      sink?.setEsmFoldEngines?.(cached.engines);
+      sink?.setEsmFoldSingleStructure?.(false);
       sink?.setEsmFoldWtPdb?.(cached.wtPdb);
       sink?.setEsmFoldMutPdb?.(cached.mutPdb);
       sink?.setEsmFoldAlignedPdb?.(cached.alignedPdb);
@@ -122,21 +132,33 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
         mutSeq
       });
 
+      const engines: DeNovoEngines = foldData.engines
+        ? { wildType: foldData.engines.wildType ?? null, variant: foldData.engines.variant ?? null }
+        : null;
+      sink?.setEsmFoldEngines?.(engines);
+
       if (!foldData.wtPdb || !foldData.mutPdb) {
         if (foldData.pdb) {
+          /**
+           * ONE structure: the wild type only. It used to be copied into the variant and aligned
+           * slots too, which enabled "Mutant" and "Superposition" over two identical copies and
+           * reported a zero change the substitution never had a chance to make.
+           */
           setEsmFoldWtPdb(foldData.pdb);
-          setEsmFoldMutPdb(foldData.pdb);
-          setEsmFoldAlignedPdb(foldData.pdb);
+          setEsmFoldMutPdb(null);
+          setEsmFoldAlignedPdb(null);
           setEsmFoldMetrics(null);
+          sink?.setEsmFoldSingleStructure?.(true);
           sink?.setEsmFoldWtPdb?.(foldData.pdb);
-          sink?.setEsmFoldMutPdb?.(foldData.pdb);
-          sink?.setEsmFoldAlignedPdb?.(foldData.pdb);
+          sink?.setEsmFoldMutPdb?.(null);
+          sink?.setEsmFoldAlignedPdb?.(null);
           sink?.setEsmFoldMetrics?.(null);
           return;
         }
         throw new Error("ESMFold endpoint did not return valid WT and mutant PDB structures.");
       }
 
+      sink?.setEsmFoldSingleStructure?.(false);
       setEsmFoldWtPdb(foldData.wtPdb);
       setEsmFoldMutPdb(foldData.mutPdb);
 
@@ -147,7 +169,8 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
         pdb1: foldData.wtPdb,
         pdb2: foldData.mutPdb,
         targetIndex: position,
-        alignmentScope: "local"
+        // The scope the toolbar shows, so the first superposition matches the toggle's state.
+        alignmentScope: useVariantAnalysisStore.getState().esmAlignmentScope ?? "local"
       });
 
       if (alignData.alignedPdb) {
@@ -161,7 +184,8 @@ export function useStructuralFolding(sink?: StructuralFoldingSink) {
           wtPdb: foldData.wtPdb,
           mutPdb: foldData.mutPdb,
           alignedPdb: alignData.alignedPdb,
-          metrics: alignData.metrics
+          metrics: alignData.metrics,
+          engines
         };
       } else {
         throw new Error("Alignment service did not return aligned structure.");

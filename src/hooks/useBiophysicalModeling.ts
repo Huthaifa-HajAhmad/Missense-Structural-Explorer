@@ -497,55 +497,14 @@ export function useBiophysicalModeling(
     }
   }, [apiClient]);
 
-  useEffect(() => {
-    if (foldingStatus === "success" && mutantPdb && pdbText && foldedResidueIndex) {
-      let isAborted = false;
-      const runDiff = async () => {
-        try {
-          const [diffData, alignData] = await Promise.all([
-            apiClient.getStructuralDiff({
-              wtPdb: pdbText,
-              mutPdb: mutantPdb,
-              pos: foldedResidueIndex,
-              chain: "A"
-            }),
-            apiClient.structuralAlign({
-              pdb1: pdbText,
-              pdb2: mutantPdb,
-              targetIndex: foldedResidueIndex,
-              alignmentScope: "global"
-            })
-          ]);
-          if (isAborted) return;
-          setStructuralDiff(diffData);
-          /**
-           * Mirror the diff into the store alongside the other diff-derived state. Without
-           * this the store's `structuralDiff` was never written by any producer, so the
-           * Perturbation inspector's collision and Cα-displacement rows read a permanently
-           * null field while `setFoldxMetrics` on the next lines was already mirrored.
-           */
-          useVariantAnalysisStore.getState().setStructuralDiff(diffData);
-          if (alignData.alignedPdb) {
-            setCompareMutantPdb(alignData.alignedPdb);
-            useVariantAnalysisStore.getState().setCompareMutantPdb(alignData.alignedPdb);
-            useVariantAnalysisStore.getState().setFoldxMetrics(alignData.metrics);
-          }
-        } catch (err) {
-          console.error("[Structural Diff Error]:", err);
-        }
-      };
-      runDiff();
-      return () => {
-        isAborted = true;
-      };
-    } else {
-      setStructuralDiff(null);
-      setCompareMutantPdb(null);
-      useVariantAnalysisStore.getState().setCompareMutantPdb(null);
-      useVariantAnalysisStore.getState().setFoldxMetrics(null);
-      useVariantAnalysisStore.getState().setStructuralDiff(null);
-    }
-  }, [foldingStatus, mutantPdb, pdbText, foldedResidueIndex, apiClient]);
+  /*
+   * The primary variant's diff/superposition effect lived here and never ran: it watched this hook's
+   * LOCAL `foldingStatus`/`mutantPdb` (the pipeline writes the store's) and a `pdbText` argument no
+   * caller passes. Its only live branch was the "else", which cleared the store's `foldxMetrics`,
+   * `compareMutantPdb` and `structuralDiff` whenever `apiClient` changed identity. With it dead, the
+   * 3D superposition fell back to the RAW FoldX variant. The job now belongs to `useFoldxSuperposition`,
+   * which pairs the variant with the template FoldX actually used.
+   */
 
   useEffect(() => {
     if (compareFoldingStatus === "success" && compareMutantPdb && pdbText && compareFoldedResidueIndex) {

@@ -54,6 +54,8 @@ export interface PipelineBiophysicalSink {
   setFoldingError: (err: string | null) => void;
   setFoldingStatus: (status: string | null) => void;
   setMutantPdb: (pdb: string | null) => void;
+  /** FoldX's paired wild type from the same run. Optional, so existing sinks and test doubles compile. */
+  setFoldxWtPdb?: (pdb: string | null) => void;
   setFoldedResidueIndex: (index: number | null) => void;
   setFoldingDdG: (ddG: number | null) => void;
   setFoldingEnergetics: React.Dispatch<React.SetStateAction<any>>;
@@ -64,13 +66,13 @@ export interface PipelineBiophysicalSink {
   setThermompnnJobId: (id: string | null) => void;
   setThermompnnStatus: (status: "pending" | "unavailable" | "done" | "error" | null) => void;
   setThermompnnError: (err: string | null) => void;
-  setStructureProvenance?: (provenance: StructureProvenance | null) => void;
   lastFetchedFoldRef: React.MutableRefObject<string>;
 }
 
 export interface PipelineStructureSink {
   setPdbText: (pdb: string | null) => void;
-  setStructureProvenance?: (provenance: StructureProvenance | null) => void;
+  /** Where `pdbText` came from. FoldX's template is not this; it travels on the run's energetics. */
+  setPdbTextProvenance?: (provenance: StructureProvenance | null) => void;
   setComputedPocket: (pocket: any) => void;
   setIsPocketLoading: (loading: boolean) => void;
   setPocketError: (err: string | null) => void;

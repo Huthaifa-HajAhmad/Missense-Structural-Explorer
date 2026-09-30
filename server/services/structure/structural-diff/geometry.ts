@@ -136,6 +136,23 @@ export function svd3(A: Matrix3): { U: Matrix3; S: [number, number, number]; V: 
     V[0][2] = v2[0]; V[1][2] = v2[1]; V[2][2] = v2[2];
   }
 
+  /**
+   * Sorted descending, with U and V permuted to match. One-sided Jacobi leaves the singular values in
+   * whatever order the sweeps produce, but the Kabsch reflection fix (`W = diag(1, 1, d)`) flips the
+   * LAST column and is only the least-squares correction when that column carries the SMALLEST value.
+   */
+  const order = [0, 1, 2].sort((a, b) => S[b] - S[a]);
+  if (order[0] !== 0 || order[1] !== 1) {
+    const permute = (M: Matrix3): Matrix3 => [
+      [M[0][order[0]], M[0][order[1]], M[0][order[2]]],
+      [M[1][order[0]], M[1][order[1]], M[1][order[2]]],
+      [M[2][order[0]], M[2][order[1]], M[2][order[2]]]
+    ];
+    U = permute(U);
+    V = permute(V);
+    S = [S[order[0]], S[order[1]], S[order[2]]];
+  }
+
   return { U, S, V };
 }
 

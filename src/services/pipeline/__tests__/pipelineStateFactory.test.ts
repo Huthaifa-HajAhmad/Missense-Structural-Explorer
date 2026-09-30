@@ -101,7 +101,8 @@ describe("pipelineStateFactory", () => {
     expect(state.result.insights).toEqual({ shift: "Severe" });
     expect(state.result.predictorData).toBeNull();
     expect(state.result.conservationData).toBeNull();
-    expect(state.result.disruptionPredictor).toEqual({ level: "low", reason: "Default", plddt: 100 });
+    // Nothing was assessed, so nothing is claimed: no "low" call and no pLDDT of 100.
+    expect(state.result.disruptionPredictor).toEqual({ level: "unknown", reason: "Structural disruption has not been assessed.", plddt: null });
     expect(state.result.transcriptId).toBe("ENST00000335062");
   });
 

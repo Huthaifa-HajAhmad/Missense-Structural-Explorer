@@ -11,7 +11,6 @@ import AppViews from "./components/AppViews";
 import SettingsDrawer from "./components/settings/SettingsDrawer";
 import CommandPalette from "./components/CommandPalette";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
-import StructuralLegendModal from "./components/modals/StructuralLegendModal";
 import OnboardingModal, { hasCompletedOnboarding, type OnboardingPreset } from "./components/modals/OnboardingModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
 import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/VariantAnalysisContext";
@@ -28,9 +27,7 @@ export default function App() {
     isDark,
     toggleTheme,
     setIsSettingsOpen,
-    openSettingsTab,
-    showPolarContacts,
-    setShowPolarContacts
+    openSettingsTab
   } = useSettings();
 
   // Fine-grained Zustand selectors for the App shell to isolate root tree from rapid sub-state changes
@@ -47,10 +44,8 @@ export default function App() {
   const foldingPhase = useVariantAnalysisStore(s => s.foldingProgress?.phase ?? null);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus);
-  const foldingStatus = useVariantAnalysisStore(s => s.foldingStatus);
   const loadingStep = useVariantAnalysisStore(s => s.loadingStep);
   const notifications = useVariantAnalysisStore(s => s.notifications);
-  const viewMode = useVariantAnalysisStore(s => s.viewMode);
 
   const { removeNotification } = actions;
 
@@ -77,7 +72,6 @@ export default function App() {
   });
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
-  const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
@@ -319,18 +313,6 @@ export default function App() {
             isDark={isDark}
             selectedResidueIndex={selectedResidueIndex}
             gene={gene}
-          />
-
-          {/* Structural Legend & Controls Modal Popup */}
-          <StructuralLegendModal
-            isOpen={isLegendOpen}
-            onClose={() => setIsLegendOpen(false)}
-            isDark={isDark}
-            showPolarContacts={showPolarContacts}
-            setShowPolarContacts={setShowPolarContacts}
-            selectedResidueIndex={selectedResidueIndex}
-            viewMode={viewMode}
-            foldingStatus={foldingStatus as string | null}
           />
 
           {/* Floating Notifications Toast Container */}

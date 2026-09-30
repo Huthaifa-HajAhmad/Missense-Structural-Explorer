@@ -82,6 +82,8 @@ export interface CachedVariantBundle {
   analysisResult?: any | null;
   pdbText?: string | null;
   mutantPdb?: string | null;
+  /** FoldX's paired wild type. Held in memory only: a second structure per entry would crowd sessionStorage. */
+  foldxWtPdb?: string | null;
   foldedResidueIndex?: number | null;
   foldingDdG?: number | null;
   foldingEnergetics?: any | null;
@@ -239,6 +241,7 @@ export function setCachedVariant(
         if (storageCopy.mutantPdb && storageCopy.mutantPdb.length > 2 * 1024 * 1024) {
           delete storageCopy.mutantPdb;
         }
+        delete storageCopy.foldxWtPdb;
         sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(storageCopy));
       } else {
         sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
@@ -267,6 +270,7 @@ export function setCachedVariant(
     if (storageCopy.mutantPdb && storageCopy.mutantPdb.length > 2 * 1024 * 1024) {
       delete storageCopy.mutantPdb;
     }
+    delete storageCopy.foldxWtPdb;
     sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(storageCopy));
   } catch (_) {
     try {

@@ -286,10 +286,6 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
           }
         : undefined;
 
-      if (structureProvenance && sink.setStructureProvenance) {
-        sink.setStructureProvenance(structureProvenance);
-      }
-
       sink.setFoldingEnergetics((prev: any) => {
         const base = (prev && typeof prev === "object") ? prev : {};
         return {
@@ -314,6 +310,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       const effectiveFoldingStatus = isFoldxSuccess ? "success" : (data.status === "unavailable" ? "unavailable" : "failed");
 
       sink.setMutantPdb(data.pdb ?? null);
+      sink.setFoldxWtPdb?.(data.wtReferencePdb ?? null);
       sink.setFoldedResidueIndex(data.foldedResidueIndex ?? residueIndex);
       sink.setFoldingDdG(data.ddG ?? null);
       sink.setFoldingStatus(effectiveFoldingStatus);
@@ -383,6 +380,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       settleUnreachableRemoteEngines(lastRemoteState);
       setCachedVariant(cacheGeneKey, variant, uniprotId, {
         mutantPdb: data.pdb ?? null,
+        foldxWtPdb: data.wtReferencePdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
         foldingDdG: data.ddG ?? null,
         foldingEnergetics: data.energetics
@@ -532,6 +530,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               const effectiveFoldingStatus = isFoldxSuccess ? "success" : (resResult.status === "unavailable" ? "unavailable" : "failed");
 
               sink.setMutantPdb(resResult.pdb ?? null);
+              sink.setFoldxWtPdb?.(resResult.wtReferencePdb ?? null);
               sink.setFoldedResidueIndex(resResult.foldedResidueIndex ?? residueIndex);
               sink.setFoldingDdG(resResult.ddG ?? null);
               sink.setFoldingStatus(effectiveFoldingStatus);
@@ -561,6 +560,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
 
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
                 mutantPdb: resResult.pdb ?? null,
+                foldxWtPdb: resResult.wtReferencePdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,
                 foldingDdG: resResult.ddG ?? null,
                 foldingEnergetics: resResult.energetics

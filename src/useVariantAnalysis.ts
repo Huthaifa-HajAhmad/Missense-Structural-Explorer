@@ -4,6 +4,7 @@ import { VariantPreset } from "./types";
 import { useSettings } from "./context/SettingsContext";
 import { useApiClient } from "./apiClient";
 import { useBiophysicalModeling } from "./hooks/useBiophysicalModeling";
+import { useFoldxSuperposition } from "./hooks/useFoldxSuperposition";
 import { useStructuralFolding } from "./hooks/useStructuralFolding";
 import { useAnalysisPipeline } from "./hooks/useAnalysisPipeline";
 import { getVariantStyles } from "./shared/variantStyles";
@@ -41,6 +42,8 @@ export default function useVariantAnalysis() {
     apiClient,
     fetchWithAuth
   );
+  // Pairs the FoldX variant with its own template for the 3D superposition and its measurements.
+  useFoldxSuperposition(apiClient);
   const structuralFolding = useStructuralFolding({
     setEsmFoldWtPdb: useVariantAnalysisStore.getState().setEsmFoldWtPdb,
     setEsmFoldMutPdb: useVariantAnalysisStore.getState().setEsmFoldMutPdb,
@@ -50,7 +53,9 @@ export default function useVariantAnalysis() {
     setIsEsmFolding: useVariantAnalysisStore.getState().setIsEsmFolding,
     setEsmFoldingError: useVariantAnalysisStore.getState().setEsmFoldingError,
     setActive3dModelTab: useVariantAnalysisStore.getState().setActive3dModelTab,
-    resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState
+    resetEsmFoldState: useVariantAnalysisStore.getState().resetEsmFoldState,
+    setEsmFoldEngines: useVariantAnalysisStore.getState().setEsmFoldEngines,
+    setEsmFoldSingleStructure: useVariantAnalysisStore.getState().setEsmFoldSingleStructure
   });
   const pipeline = useAnalysisPipeline();
   /**
@@ -114,6 +119,7 @@ export default function useVariantAnalysis() {
             setFoldingError: currentStore.setFoldingError,
             setFoldingStatus: currentStore.setFoldingStatus,
             setMutantPdb: currentStore.setMutantPdb,
+            setFoldxWtPdb: currentStore.setFoldxWtPdb,
             setFoldedResidueIndex: currentStore.setFoldedResidueIndex,
             setFoldingDdG: currentStore.setFoldingDdG,
             setFoldingEnergetics: currentStore.setFoldingEnergetics,
@@ -124,12 +130,16 @@ export default function useVariantAnalysis() {
             setThermompnnJobId: currentStore.setThermompnnJobId,
             setThermompnnStatus: currentStore.setThermompnnStatus,
             setThermompnnError: currentStore.setThermompnnError,
-            setStructureProvenance: currentStore.setStructureProvenance,
             lastFetchedFoldRef: biophysical.lastFetchedFoldRef
           },
           structure: {
             setPdbText: currentStore.setPdbText,
-            setStructureProvenance: currentStore.setStructureProvenance,
+            /**
+             * The structure sink's provenance describes `pdbText`. It used to share one
+             * `structureProvenance` field with the FoldX run, and whichever ran last named the
+             * structure on the 3D toolbar; FoldX's template now lives only on its energetics.
+             */
+            setPdbTextProvenance: currentStore.setPdbTextProvenance,
             setComputedPocket: currentStore.setComputedPocket,
             setIsPocketLoading: currentStore.setIsPocketLoading,
             setPocketError: currentStore.setPocketError,
@@ -405,6 +415,7 @@ export default function useVariantAnalysis() {
     setPdbText: useVariantAnalysisStore.getState().setPdbText,
     setTriageOverride: useVariantAnalysisStore.getState().setTriageOverride,
     setMutantPdb: useVariantAnalysisStore.getState().setMutantPdb,
+    setFoldxWtPdb: useVariantAnalysisStore.getState().setFoldxWtPdb,
     setFoldedResidueIndex: useVariantAnalysisStore.getState().setFoldedResidueIndex,
     setIsFolding: useVariantAnalysisStore.getState().setIsFolding,
     setFoldingError: useVariantAnalysisStore.getState().setFoldingError,

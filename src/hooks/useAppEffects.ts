@@ -84,6 +84,7 @@ export function useAppEffects({
         }
         if (cached.mutantPdb) {
           store.setMutantPdb(cached.mutantPdb);
+          store.setFoldxWtPdb(cached.foldxWtPdb ?? null);
         }
         if (cached.foldingDdG != null) {
           store.setFoldingDdG(cached.foldingDdG);

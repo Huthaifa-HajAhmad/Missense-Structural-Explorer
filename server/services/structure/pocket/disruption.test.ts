@@ -27,6 +27,20 @@ describe("predictStructuralDisruption (Geometric & Secondary Structure Rules)", 
     expect(result.level).toBe("low");
   }, 15000);
 
+  it("reports an AlphaFold model's B column as pLDDT", async () => {
+    const result = await predictStructuralDisruption(mockHelixPdb, "A", 2, "V", "A", "alphafold");
+    expect(result.plddt).toBe(90);
+    expect(result.bFactorKind).toBe("plddt");
+  }, 15000);
+
+  it("never reports a crystal structure's temperature factor as pLDDT", async () => {
+    // NAE1 p.Asp116Gly: the inspector printed "pLDDT 94.5 (Very High)" for 1YOV's B-factor.
+    const result = await predictStructuralDisruption(mockHelixPdb, "A", 2, "V", "A", "experimental");
+    expect(result.plddt).toBeNull();
+    expect(result.bFactor).toBe(90);
+    expect(result.bFactorKind).toBe("temperature-factor");
+  }, 15000);
+
   it("returns unknown when target residue is not present in structure", async () => {
     const result = await predictStructuralDisruption(mockHelixPdb, "A", 99, "P", "A");
     expect(result.level).toBe("unknown");

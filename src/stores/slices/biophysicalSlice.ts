@@ -4,6 +4,19 @@ import type { PocketResult, EnergeticsData, StructuralDiffResult } from "../../t
 import type { StructureProvenance } from "../../shared/contracts";
 import type { FoldxProgress } from "../../shared/foldxPhase";
 
+export interface FoldxReferenceState {
+  state: "idle" | "loading" | "ready" | "unavailable";
+  reason: string | null;
+  provenance: StructureProvenance | null;
+  /**
+   * Which coordinates the variant is measured against: FoldX's own paired wild type from the same
+   * run, or the template re-fetched from the resolver (results cached before the pair was kept).
+   */
+  basis?: "foldx-paired" | "template" | null;
+}
+
+export const IDLE_FOLDX_REFERENCE: FoldxReferenceState = { state: "idle", reason: null, provenance: null, basis: null };
+
 export interface BiophysicalState {
   // Normalized Sub-State Models
   primaryBiophysics: VariantBiophysicsState;
@@ -11,7 +24,30 @@ export interface BiophysicalState {
 
   // Shared / Global Viewer State
   pdbText: string | null;
-  structureProvenance: StructureProvenance | null;
+  /**
+   * Where `pdbText` came from — the wild type the AlphaFold view draws.
+   *
+   * A single `structureProvenance` field used to be written by both the structure fetch and the
+   * FoldX run (with its template), last writer wins, so the toolbar labelled the AlphaFold model
+   * "RCSB PDB: 1YOV" once FoldX finished on 1YOV. That field is gone: this one describes `pdbText`,
+   * and FoldX's template lives on `foldingEnergetics.structureProvenance`.
+   */
+  pdbTextProvenance: StructureProvenance | null;
+  /**
+   * The coordinates FoldX built its variant on, fetched so the superposition pairs the variant with
+   * its OWN template. Overlaying it on the AlphaFold model instead measured AlphaFold-versus-crystal
+   * differences and reported them as the substitution's effect.
+   */
+  foldxReferencePdb: string | null;
+  foldxReference: FoldxReferenceState;
+  /**
+   * FoldX BuildModel's own wild type for the variant's run (`WT_wt_1_0.pdb`): the repaired template
+   * with its side chains repacked alongside the variant's. The superposition prefers it to a
+   * re-fetched template, whose differences from the variant include every change RepairPDB made.
+   */
+  foldxWtPdb: string | null;
+  /** The FoldX variant after superposition on `foldxReferencePdb`; its B column holds Cα displacement (Å). */
+  foldxAlignedPdb: string | null;
   compareMode: boolean;
   compareVariant: string;
   comparisonLayout: "split" | "overlay";
@@ -94,7 +130,10 @@ export interface BiophysicalActions {
 
   // Shared / Global Setters
   setPdbText: (pdbText: string | null) => void;
-  setStructureProvenance: (structureProvenance: StructureProvenance | null) => void;
+  setPdbTextProvenance: (pdbTextProvenance: StructureProvenance | null) => void;
+  setFoldxReference: (reference: FoldxReferenceState, referencePdb?: string | null) => void;
+  setFoldxWtPdb: (pdb: string | null) => void;
+  setFoldxAlignedPdb: (foldxAlignedPdb: string | null) => void;
   setCompareMode: (compareMode: boolean) => void;
   setCompareVariant: (compareVariant: string) => void;
   setComparisonLayout: (comparisonLayout: "split" | "overlay") => void;
@@ -149,7 +188,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
 
   // Shared
   pdbText: null,
-  structureProvenance: null,
+  pdbTextProvenance: null,
+  foldxReferencePdb: null,
+  foldxReference: IDLE_FOLDX_REFERENCE,
+  foldxWtPdb: null,
+  foldxAlignedPdb: null,
   compareMode: false,
   compareVariant: "p.Arg408Pro",
   comparisonLayout: "split",
@@ -251,6 +294,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
         primaryBiophysics: createInitialBiophysicsState(""),
         compareBiophysics: createInitialBiophysicsState("p.Arg408Pro"),
         mutantPdb: null,
+        foldxWtPdb: null,
         foldedResidueIndex: null,
         isFolding: false,
         foldingProgress: null,
@@ -305,6 +349,7 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
       return {
         primaryBiophysics: createInitialBiophysicsState(""),
         mutantPdb: null,
+        foldxWtPdb: null,
         foldedResidueIndex: null,
         isFolding: false,
         foldingProgress: null,
@@ -326,7 +371,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
 
   // Shared Setters
   setPdbText: (pdbText) => set({ pdbText }),
-  setStructureProvenance: (structureProvenance) => set({ structureProvenance }),
+  setPdbTextProvenance: (pdbTextProvenance) => set({ pdbTextProvenance }),
+  setFoldxReference: (foldxReference, referencePdb) =>
+    set(referencePdb === undefined ? { foldxReference } : { foldxReference, foldxReferencePdb: referencePdb }),
+  setFoldxWtPdb: (foldxWtPdb) => set({ foldxWtPdb }),
+  setFoldxAlignedPdb: (foldxAlignedPdb) => set({ foldxAlignedPdb }),
   setCompareMode: (compareMode) => set({ compareMode }),
   setCompareVariant: (compareVariant) => set((state) => ({
     compareVariant,
@@ -488,7 +537,11 @@ export const createBiophysicalSlice: StateCreator<BiophysicalSlice, [], [], Biop
     primaryBiophysics: createInitialBiophysicsState(""),
     compareBiophysics: createInitialBiophysicsState("p.Arg408Pro"),
     pdbText: null,
-    structureProvenance: null,
+    pdbTextProvenance: null,
+    foldxReferencePdb: null,
+    foldxReference: IDLE_FOLDX_REFERENCE,
+    foldxWtPdb: null,
+    foldxAlignedPdb: null,
     mutantPdb: null,
     foldedResidueIndex: null,
     isFolding: false,

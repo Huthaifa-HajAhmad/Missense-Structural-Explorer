@@ -4,17 +4,41 @@ import { Script } from "molstar/lib/mol-script/script";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { Color } from "molstar/lib/mol-util/color";
 import { isValidPdbUrl } from "./molstarThemes";
+import { PAIR_COLOURS, pdbIdFromUrl, type ColourPlan, type LoadedEntry, type ThemePlan } from "../../shared/structure3dEvidence";
+import type { StructureProvenance } from "../../shared/contracts";
+
+/**
+ * Loads the coordinates `AppViews` hands the canvas and draws them with the colour plan the 3D
+ * evidence model chose. This hook decides nothing about what a structure IS.
+ *
+ * It used to: `customPdbData` was assumed to be an AlphaFold model unless a PDB id happened to be in
+ * local state, so crystal temperature factors were drawn with pLDDT colours and cut by the pLDDT
+ * filter; and an ESMFold view with no fold loaded fetched the resolver's structure (a crystal entry)
+ * and drew it under the ESMFold label.
+ */
+
+export type PlddtFilter = "none" | "50" | "70";
 
 export interface UseMolstarStructureOptions {
   pluginRef: React.MutableRefObject<any>;
   pluginCreated: boolean;
   uniprotId?: string | null;
   gene?: string | null;
-  customPdbData?: string | null;
-  customPdbUrl?: string | null;
-  comparePdbData?: string | null;
-  residueIndex?: number | null;
-  compareResidueIndex?: number | null;
+  /** Coordinates for the primary structure. Null: load `customPdbUrl`, else (AlphaFold view only) fetch. */
+  primaryPdbData: string | null;
+  customPdbUrl: string | null;
+  /** The superposed variant (its B column holds Cα displacement). */
+  comparePdbData: string | null;
+  /** Fetch the AlphaFold DB model when no coordinates are supplied. False in the ESMFold view. */
+  allowFetch: boolean;
+  colour: ColourPlan;
+  plddtFilter: PlddtFilter;
+  /** 1 or 100; only set when the model says the primary B column holds pLDDT. */
+  plddtScale: 1 | 100 | null;
+  esm3Scores: number[] | null;
+  variantPosition: number | null;
+  /** A residue the reader clicked, when it is not the variant's. */
+  selectedResidue: number | null;
   showPolarContacts: boolean;
   show3DLabels: boolean;
   residueColorHex: number;
@@ -22,758 +46,77 @@ export interface UseMolstarStructureOptions {
   autoZoomOnSelect: boolean;
   cameraDuration: number;
   showPocket: boolean;
-  computedPocket: any;
-  pocketComponentRefRef: React.MutableRefObject<any[]>;
+  pocketResidueIndices: number[];
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
-  onPdbTextLoaded?: (pdbText: string) => void;
-  variant?: string | null;
-  esmFoldPdb?: string | null;
-  esm3Eval?: any;
-  active3dModelTab?: "alphafold2" | "esmfold2" | "esm3";
-  viewMode?: "wildtype" | "mutant" | "superimposed";
+  /** The hook fetched the AlphaFold model itself: publish its text and where it came from. */
+  onPdbTextLoaded?: (pdbText: string, provenance: StructureProvenance) => void;
+  /** A PDB entry from the experimental list was fetched, or cleared (null). */
+  onEntryLoaded?: (entry: LoadedEntry | null) => void;
   setLoading: (loading: boolean) => void;
   setLoadError: (err: string | null) => void;
 }
 
-export function useMolstarStructure({
-  pluginRef,
-  pluginCreated,
-  uniprotId,
-  gene,
-  customPdbData,
-  customPdbUrl,
-  comparePdbData,
-  residueIndex,
-  compareResidueIndex,
-  showPolarContacts,
-  show3DLabels,
-  residueColorHex,
-  neonHighContrast,
-  autoZoomOnSelect,
-  cameraDuration,
-  showPocket,
-  computedPocket,
-  pocketComponentRefRef,
-  fetchWithAuth,
-  onPdbTextLoaded,
-  variant,
-  esmFoldPdb,
-  esm3Eval,
-  active3dModelTab = "alphafold2",
-  viewMode,
-  setLoading,
-  setLoadError
-}: UseMolstarStructureOptions) {
-  const structureRef = useRef<any>(null);
-  const structure2Ref = useRef<any>(null);
-  const componentRefRef = useRef<any>(null);
-  const componentRefRef2 = useRef<any>(null);
-  const isStructureLoadingRef = useRef(false);
-  const [structureReadyVersion, setStructureReadyVersion] = useState(0);
+function themeRef(plan: ThemePlan, esm3Scores: number[] | null): { color: string; colorParams?: any; typeParams?: any } {
+  switch (plan.theme) {
+    case "plddt":
+      return { color: "plddt-confidence", colorParams: { scale: plan.scale } };
+    case "bfactor-quartile":
+      return { color: "bfactor-quartile" };
+    case "displacement":
+      return { color: "backbone-displacement" };
+    case "esm3":
+      return { color: "esm3-shift", colorParams: { perturbationScores: esm3Scores ?? [] } };
+    case "uniform":
+      return {
+        color: "uniform",
+        colorParams: { value: Color(plan.color) },
+        ...(plan.alpha < 1 ? { typeParams: { alpha: plan.alpha } } : {}),
+      };
+  }
+}
 
-  const [plddtFilter, setPlddtFilter] = useState<"none" | "30" | "50" | "70">("none");
-  const [templateSource, setTemplateSource] = useState<"experimental" | "alphafold" | null>(null);
-  const [activePdbId, setActivePdbId] = useState<string | null>(null);
-  const [viewerStyle, setViewerStyle] = useState<"confidence" | "biomolecular" | "esm3-allosteric" | "displacement">("confidence");
-  const [pdbText, setPdbText] = useState<string | null>(null);
-  const [bFactorMetadata, setBFactorMetadata] = useState<{ source: "alphafold" | "experimental" | "unknown"; semantic: "plddt" | "temperature_factor"; inherited: boolean } | null>(null);
+function formatOf(text: string): "mmcif" | "pdb" {
+  return text.startsWith("data_") || text.includes("_atom_site") ? "mmcif" : "pdb";
+}
 
-  useEffect(() => {
-    if (viewMode === "superimposed" && comparePdbData) {
-      setViewerStyle("displacement");
-    } else if (viewMode === "wildtype" || viewMode === "mutant" || !comparePdbData) {
-      setViewerStyle((prev) => (prev === "displacement" ? "confidence" : prev));
-    }
-  }, [viewMode, comparePdbData]);
+function hasCoordinates(text: string | null | undefined): boolean {
+  return !!text && (text.includes("ATOM") || text.includes("HETATM") || text.includes("_atom_site"));
+}
 
-  // Determine B-factor metadata
-  useEffect(() => {
-    if (!pdbText) {
-      setBFactorMetadata(null);
-      return;
-    }
-    const upper = pdbText.toUpperCase();
-    const isAlphaFoldHeader =
-      upper.includes("ALPHAFOLD") ||
-      upper.includes("AF-") ||
-      upper.includes("COMPL_MODEL") ||
-      upper.includes("CREATOR OF MODEL: ALPHAFOLD") ||
-      upper.includes("MODEL FROM ALPHAFOLD");
+function residueExpression(index: number) {
+  return MS.struct.generator.atomGroups({
+    "residue-test": MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), index]),
+  });
+}
 
-    const lines = pdbText.split(/\r?\n/);
-    let maxB = 0;
-    let bCount = 0;
-    for (let i = 0; i < lines.length && i < 2000; i++) {
-      const line = lines[i];
-      if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
-        if (line.length >= 66) {
-          const bFactorStr = line.slice(60, 66).trim();
-          const bFactor = parseFloat(bFactorStr);
-          if (!isNaN(bFactor)) {
-            if (bFactor > maxB) maxB = bFactor;
-            bCount++;
-          }
-        }
-      }
-    }
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
-    if (isAlphaFoldHeader || (maxB > 50 && maxB <= 100)) {
-      setBFactorMetadata({ source: "alphafold", semantic: "plddt", inherited: true });
-    } else if (maxB > 0 && maxB <= 50) {
-      setBFactorMetadata({ source: "experimental", semantic: "temperature_factor", inherited: false });
-    } else {
-      setBFactorMetadata({ source: "unknown", semantic: "plddt", inherited: false });
-    }
-  }, [pdbText]);
+function stillInTree(plugin: any, ref: string | undefined): boolean {
+  return !!ref && !!plugin?.state?.data?.tree?.transforms?.has(ref);
+}
 
-  // Main structure loading effect
-  useEffect(() => {
-    if (!pluginCreated || !pluginRef.current) return;
-    const localPlugin = pluginRef.current;
-    let active = true;
-
-    async function loadStructure() {
-      isStructureLoadingRef.current = true;
-      setLoading(true);
-      setLoadError(null);
-      setPdbText(null);
-      setTemplateSource(null);
-
-      try {
-        await localPlugin.clear();
-        if (!active) {
-          isStructureLoadingRef.current = false;
-          return;
-        }
-        structureRef.current = null;
-        structure2Ref.current = null;
-        componentRefRef.current = null;
-        componentRefRef2.current = null;
-        pocketComponentRefRef.current = [];
-
-        let data: any = null;
-        let fetchedPdbText: string | null = null;
-        let currentSource: "alphafold" | "experimental" = "alphafold";
-
-        if (customPdbData) {
-          data = await localPlugin.builders.data.rawData({
-            data: customPdbData,
-            label: `${gene || 'Protein'} (${viewMode === 'mutant' ? 'Mutant' : 'Wild-Type'})`
-          });
-          fetchedPdbText = customPdbData;
-          currentSource = (customPdbUrl || activePdbId) ? "experimental" : "alphafold";
-          setTemplateSource(currentSource);
-          setActivePdbId(activePdbId || null);
-        } else if (customPdbUrl) {
-          if (!isValidPdbUrl(customPdbUrl)) {
-            throw new Error(`Invalid custom PDB URL (${customPdbUrl}). Only RCSB PDB, AlphaFold DB, or local API proxies are permitted.`);
-          }
-          const res = await fetchWithAuth(customPdbUrl);
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            const errMsg = errData?.error?.message || errData?.message || (typeof errData?.error === "string" ? errData.error : null) || `Failed to fetch structure from ${customPdbUrl} (status ${res.status})`;
-            throw new Error(errMsg);
-          }
-          const resData = await res.text();
-          if (!resData || (!resData.includes("ATOM") && !resData.includes("HETATM") && !resData.includes("_atom_site"))) {
-            throw new Error(`Invalid structure payload returned for ${customPdbUrl}.`);
-          }
-          fetchedPdbText = resData;
-          currentSource = "experimental";
-          setTemplateSource("experimental");
-          const labelName = customPdbUrl.split("/").pop()?.replace(".pdb", "").replace(".ent", "").toUpperCase() || "PDB";
-          setActivePdbId(labelName);
-          data = await localPlugin.builders.data.rawData({
-            data: resData,
-            label: `${gene || 'Homolog'} (${labelName})`
-          });
-        } else if (esmFoldPdb && (active3dModelTab === "esmfold2" || active3dModelTab === "esm3")) {
-          data = await localPlugin.builders.data.rawData({
-            data: esmFoldPdb,
-            label: `${gene || 'ESMFold'} (${variant || 'Structure'})`
-          });
-          fetchedPdbText = esmFoldPdb;
-          currentSource = "alphafold";
-          setTemplateSource("alphafold");
-          setActivePdbId(null);
-        } else if (uniprotId) {
-          let res: Response;
-          if (active3dModelTab === "alphafold2") {
-            // Guarantee fetching the authentic full-length AlphaFold model directly
-            const afRes = await fetchWithAuth(`/api/v1/alphafold-pdb/${encodeURIComponent(uniprotId)}`);
-            if (afRes.ok) {
-              res = afRes;
-            } else {
-              const match = variant ? variant.match(/\d+/) : null;
-              const posQuery = match ? `?pos=${match[0]}` : "";
-              res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`);
-            }
-          } else {
-            const match = variant ? variant.match(/\d+/) : null;
-            const posQuery = match ? `?pos=${match[0]}` : "";
-            res = await fetchWithAuth(`/api/v1/pdb/${encodeURIComponent(uniprotId)}${posQuery}`);
-          }
-
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            let msg = errData?.error?.message || errData?.message || (typeof errData?.error === "string" ? errData.error : null) || `Structure fetch failed (status ${res.status})`;
-            if (res.status === 404) {
-              msg = `No PDB structure found for UniProt ID ${uniprotId}.`;
-            }
-            throw new Error(msg);
-          }
-
-          const sourceHeader = res.headers.get("X-Template-Source");
-          const pdbHeader = res.headers.get("X-Template-PdbId");
-          if (sourceHeader === "experimental" || sourceHeader === "homolog") {
-            currentSource = "experimental";
-            setTemplateSource("experimental");
-            setActivePdbId(pdbHeader || null);
-          } else {
-            currentSource = "alphafold";
-            setTemplateSource("alphafold");
-            setActivePdbId(null);
-          }
-
-          const resData = await res.text();
-          if (!resData || resData.trim().length === 0) {
-            throw new Error(`Invalid structure payload returned for ${uniprotId}.`);
-          }
-
-          fetchedPdbText = resData;
-          if (onPdbTextLoaded) onPdbTextLoaded(resData);
-          data = await localPlugin.builders.data.rawData({
-            data: resData,
-            label: `${gene || 'Protein'} (${uniprotId})`
-          });
-        }
-
-        if (!active) return;
-        if (!data || (fetchedPdbText && !fetchedPdbText.includes("ATOM") && !fetchedPdbText.includes("HETATM") && !fetchedPdbText.includes("_atom_site"))) {
-          throw new Error(`Structure payload for ${gene || uniprotId || 'protein'} did not contain valid 3D coordinates.`);
-        }
-
-        if (fetchedPdbText) {
-          setPdbText(fetchedPdbText);
-        }
-
-        const format = (fetchedPdbText && (fetchedPdbText.startsWith("data_") || fetchedPdbText.includes("_atom_site"))) ? "mmcif" : "pdb";
-        const trajectory = await localPlugin.builders.structure.parseTrajectory(data, format);
-        if (!active || !trajectory) return;
-        const model = await localPlugin.builders.structure.createModel(trajectory);
-        if (!active || !model) return;
-        const structure = await localPlugin.builders.structure.createStructure(model);
-        if (!active || !structure) return;
-        structureRef.current = structure;
-
-        let targetStructure = structure;
-        const passingPlddtResidues = new Set<number>();
-        if (currentSource === "alphafold" && plddtFilter !== "none") {
-          const threshold = parseInt(plddtFilter, 10);
-          const expression = MS.struct.generator.atomGroups({
-            'atom-test': MS.core.rel.gre([
-              MS.struct.atomProperty.macromolecular.B_iso_or_equiv(),
-              threshold
-            ])
-          });
-          const filteredComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-            structure,
-            expression,
-            'filtered-structure',
-            { label: `pLDDT >= ${threshold}` }
-          );
-          if (!active) return;
-          if (filteredComponent) {
-            targetStructure = filteredComponent;
-          }
-
-          if (fetchedPdbText && format === "pdb") {
-            const lines = fetchedPdbText.split("\n");
-            for (const line of lines) {
-              if (line.startsWith("ATOM") || line.startsWith("HETATM")) {
-                if (line.length >= 66) {
-                  const bFactor = parseFloat(line.slice(60, 66).trim());
-                  if (!isNaN(bFactor) && bFactor >= threshold) {
-                    const resSeq = parseInt(line.slice(22, 26).trim(), 10);
-                    if (!isNaN(resSeq)) {
-                      passingPlddtResidues.add(resSeq);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        if (viewerStyle === "biomolecular") {
-          let reprTarget = targetStructure;
-          if (targetStructure === structure) {
-            const proteinComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'protein');
-            if (proteinComp) reprTarget = proteinComp;
-          }
-          await localPlugin.builders.structure.representation.addRepresentation(reprTarget, {
-            type: 'cartoon',
-            color: 'uniform',
-            colorParams: { value: Color(0x00bcd4) }
-          });
-          if (!active) return;
-          if (targetStructure === structure) {
-            const nucleicComp = await localPlugin.builders.structure.tryCreateComponentStatic(targetStructure, 'nucleic');
-            if (nucleicComp) {
-              await localPlugin.builders.structure.representation.addRepresentation(nucleicComp, {
-                type: 'cartoon',
-                color: 'uniform',
-                colorParams: { value: Color(0x888888) }
-              });
-              if (!active) return;
-            }
-          }
-        } else if (viewerStyle === "esm3-allosteric") {
-          await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
-            theme: {
-              globalName: 'esm3-allosteric',
-              globalColorParams: {
-                perturbationScores: esm3Eval?.perturbationScores || []
-              }
-            }
-          });
-          if (!active) return;
-        } else if (viewerStyle === "displacement") {
-          if (comparePdbData) {
-            await localPlugin.builders.structure.representation.addRepresentation(targetStructure, {
-              type: 'cartoon',
-              color: 'uniform',
-              colorParams: { value: Color(0x94a3b8) },
-              typeParams: { alpha: 0.35 }
-            });
-            if (!active) return;
-          } else {
-            await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
-              theme: { globalName: 'backbone-displacement' }
-            });
-            if (!active) return;
-          }
-        } else {
-          await localPlugin.builders.structure.representation.applyPreset(targetStructure, 'auto', {
-            theme: { globalName: currentSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
-          });
-          if (!active) return;
-        }
-
-        // Explicitly create Ion (Zinc, Magnesium, Calcium, Iron, etc.) and Ligand representations
-        try {
-          // 1. Metal ions (Zinc, Magnesium, Calcium, Iron, Manganese, Copper, etc.)
-          const metalIonExpr = MS.struct.generator.atomGroups({
-            'atom-test': MS.core.logic.or([
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'ZN']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'ZN']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'MG']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'MG']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'CA']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'CA']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'FE']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'FE']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'MN']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'MN']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'CU']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'CU']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'NA']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'NA']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'K']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'K'])
-            ])
-          });
-          const metalIonComp = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-            targetStructure,
-            metalIonExpr,
-            'metal-ions',
-            { label: 'Metal Ions (Zinc / Ions)' }
-          );
-          if (!active) return;
-          if (metalIonComp) {
-            await localPlugin.builders.structure.representation.addRepresentation(metalIonComp, {
-              type: 'spacefill',
-              color: 'element-symbol'
-            });
-            if (!active) return;
-          }
-
-          // 2. Non-water Ligands and Prosthetic Groups
-          const ligandExpr = MS.struct.generator.atomGroups({
-            'atom-test': MS.core.logic.and([
-              MS.struct.atomProperty.macromolecular.isHet(),
-              MS.core.logic.not([
-                MS.core.logic.or([
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'HOH']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'WAT']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'ZN']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'ZN']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'MG']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'MG']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_comp_id(), 'CA']),
-                  MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'CA'])
-                ])
-              ])
-            ])
-          });
-          const ligandComp = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-            targetStructure,
-            ligandExpr,
-            'ligands',
-            { label: 'Ligands & Prosthetic Groups' }
-          );
-          if (!active) return;
-          if (ligandComp) {
-            await localPlugin.builders.structure.representation.addRepresentation(ligandComp, {
-              type: 'ball-and-stick',
-              color: 'element-symbol'
-            });
-            if (!active) return;
-          }
-        } catch (ionErr) {
-          console.warn("[Mol* Ion/Ligand] Failed to add ion/ligand representation:", ionErr);
-        }
-
-        // Compare structure if present
-        if (comparePdbData) {
-          const data2 = await localPlugin.builders.data.rawData({
-            data: comparePdbData,
-            label: `${gene || 'Protein'} (Comparison Mutant)`
-          });
-          if (!active) return;
-          const trajectory2 = await localPlugin.builders.structure.parseTrajectory(data2, "pdb");
-          if (!active) return;
-          const model2 = await localPlugin.builders.structure.createModel(trajectory2);
-          if (!active) return;
-          const structure2 = await localPlugin.builders.structure.createStructure(model2);
-          if (!active) return;
-          structure2Ref.current = structure2;
-
-          let targetStructure2 = structure2;
-          if (currentSource === "alphafold" && plddtFilter !== "none" && passingPlddtResidues.size > 0) {
-            const threshold = parseInt(plddtFilter, 10);
-            const passingArray = Array.from(passingPlddtResidues);
-            const mutantFilterExpr = MS.struct.generator.atomGroups({
-              'residue-test': MS.core.set.has([
-                MS.core.type.set(passingArray),
-                MS.struct.atomProperty.macromolecular.auth_seq_id()
-              ])
-            });
-            const filteredComponent2 = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-              structure2,
-              mutantFilterExpr,
-              'filtered-mutant-structure',
-              { label: `Mutant pLDDT >= ${threshold}` }
-            );
-            if (!active) return;
-            if (filteredComponent2) {
-              targetStructure2 = filteredComponent2;
-            }
-          }
-
-          if (viewerStyle === "displacement") {
-            await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
-              theme: { globalName: 'backbone-displacement' }
-            });
-            if (!active) return;
-          } else {
-            await localPlugin.builders.structure.representation.applyPreset(targetStructure2, 'auto', {
-              theme: { globalName: currentSource === 'experimental' ? 'bfactor-mobility' : 'plddt-confidence' }
-            });
-            if (!active) return;
-          }
-        }
-
-        if (localPlugin.canvas3d?.camera) {
-          try {
-            localPlugin.canvas3d.camera.forceFull = true;
-            localPlugin.canvas3d.camera.setState({ clipFar: false });
-          } catch (e) {}
-        }
-
-        if (active) {
-          isStructureLoadingRef.current = false;
-          setLoading(false);
-          setStructureReadyVersion((v) => v + 1);
-        }
-      } catch (err: any) {
-        isStructureLoadingRef.current = false;
-        if (!active) return;
-        console.error("Structure rendering error:", err);
-        setLoadError(err.message || "Failed to render protein structure.");
-        setLoading(false);
-      }
-    }
-
-    loadStructure();
-    return () => {
-      active = false;
-      isStructureLoadingRef.current = false;
-    };
-  }, [
+export function useMolstarStructure(opts: UseMolstarStructureOptions) {
+  const {
+    pluginRef,
     pluginCreated,
     uniprotId,
     gene,
-    customPdbData,
+    primaryPdbData,
     customPdbUrl,
     comparePdbData,
+    allowFetch,
+    colour,
     plddtFilter,
-    viewerStyle,
-    esmFoldPdb,
-    active3dModelTab,
-    viewMode
-  ]);
-
-  // Residue focus & highlight effect
-  useEffect(() => {
-    if (!pluginCreated || !pluginRef.current || !structureRef.current) return;
-    if (isStructureLoadingRef.current) return;
-    const localPlugin = pluginRef.current;
-    const structure = structureRef.current;
-    const structure2 = structure2Ref.current;
-    let active = true;
-
-    async function applyResidueHighlight() {
-      try {
-        if (componentRefRef.current) {
-          try {
-            await localPlugin.managers.structure.hierarchy.remove([componentRefRef.current]);
-          } catch (e) {}
-          componentRefRef.current = null;
-        }
-        if (componentRefRef2.current) {
-          try {
-            await localPlugin.managers.structure.hierarchy.remove([componentRefRef2.current]);
-          } catch (e) {}
-          componentRefRef2.current = null;
-        }
-
-        if (pocketComponentRefRef.current.length > 0) {
-          try {
-            await localPlugin.managers.structure.hierarchy.remove(pocketComponentRefRef.current);
-          } catch (e) {}
-          pocketComponentRefRef.current = [];
-        }
-
-        // Verify structure ref is still present in Molstar state tree
-        if (!active || !structure.ref || !localPlugin?.state?.data?.tree?.transforms?.has(structure.ref)) {
-          return;
-        }
-
-        if (!residueIndex) {
-          localPlugin.managers.structure.selection.clear();
-          if (autoZoomOnSelect) {
-            try {
-              localPlugin.managers.camera.reset();
-            } catch (camErr) {}
-          }
-          return;
-        }
-
-        let lociList: any[] = [];
-        const expression = MS.struct.generator.atomGroups({
-          'residue-test': MS.core.rel.eq([
-            MS.struct.atomProperty.macromolecular.auth_seq_id(),
-            residueIndex
-          ])
-        });
-
-        if (!active || !structure.ref || !localPlugin?.state?.data?.tree?.transforms?.has(structure.ref)) return;
-
-        const residueComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-          structure,
-          expression,
-          'mutated-residue',
-          { label: `Mutated Residue ${residueIndex}` }
-        );
-
-        if (!active) return;
-
-        if (residueComponent) {
-          componentRefRef.current = residueComponent.ref;
-
-          await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
-            type: 'ball-and-stick',
-            color: 'uniform',
-            colorParams: { value: comparePdbData ? 0x00bcd4 : residueColorHex },
-            ...(neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : {})
-          });
-
-          if (!active) return;
-
-          if (neonHighContrast) {
-            // Translucent spacefill halo makes the mutated residue pop on
-            // low-contrast displays without hiding neighbors.
-            try {
-              await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
-                type: 'spacefill',
-                typeParams: { alpha: 0.35 },
-                color: 'uniform',
-                colorParams: { value: residueColorHex }
-              });
-            } catch (haloErr) {}
-          }
-
-          if (!active) return;
-
-          if (showPolarContacts) {
-            try {
-              await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
-                type: 'interactions',
-                color: 'uniform',
-                colorParams: { value: 0x38BDF8 }
-              });
-            } catch (intrErr) {}
-          }
-
-          if (!active) return;
-
-          if (show3DLabels) {
-            try {
-              await localPlugin.builders.structure.representation.addRepresentation(residueComponent, {
-                type: 'label',
-                typeParams: {
-                  level: 'residue',
-                  background: true,
-                  backgroundOpacity: neonHighContrast ? 1.0 : 0.9,
-                  backgroundColor: 0x090d16,
-                  borderWidth: 0.3,
-                  residueScale: 1.5,
-                  offsetX: 2.0,
-                  offsetY: 2.0,
-                  offsetZ: 1.5,
-                  tether: true,
-                  tetherLength: 1.8,
-                  tetherBaseWidth: 0.35,
-                  attachment: 'bottom-left'
-                }
-              });
-            } catch (labelErr) {}
-          }
-
-          try {
-            const selection = Script.getStructureSelection(expression, structure.obj.data);
-            const loci = StructureSelection.toLociWithSourceUnits(selection);
-            lociList.push(loci);
-          } catch (e) {}
-        }
-
-        if (
-          active &&
-          structure2 &&
-          structure2.ref &&
-          localPlugin?.state?.data?.tree?.transforms?.has(structure2.ref) &&
-          compareResidueIndex !== null &&
-          compareResidueIndex !== undefined
-        ) {
-          const expression2 = MS.struct.generator.atomGroups({
-            'residue-test': MS.core.rel.eq([
-              MS.struct.atomProperty.macromolecular.auth_seq_id(),
-              compareResidueIndex
-            ])
-          });
-
-          const residueComponent2 = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-            structure2,
-            expression2,
-            'compare-mutated-residue',
-            { label: `Compare Residue ${compareResidueIndex}` }
-          );
-
-          if (!active) return;
-
-          if (residueComponent2) {
-            componentRefRef2.current = residueComponent2.ref;
-            await localPlugin.builders.structure.representation.addRepresentation(residueComponent2, {
-              type: 'ball-and-stick',
-              color: 'uniform',
-              colorParams: { value: 0xEC4899 }
-            });
-            try {
-              const selection2 = Script.getStructureSelection(expression2, structure2.obj.data);
-              const loci2 = StructureSelection.toLociWithSourceUnits(selection2);
-              lociList.push(loci2);
-            } catch (e) {}
-          }
-        }
-
-        // Pocket highlights
-        if (active && showPocket && computedPocket && computedPocket.pocketResidues.length > 0) {
-          const refs: any[] = [];
-          for (const res of computedPocket.pocketResidues) {
-            if (!active || !structure.ref || !localPlugin?.state?.data?.tree?.transforms?.has(structure.ref)) break;
-            try {
-              const pExpression = MS.struct.generator.atomGroups({
-                'residue-test': MS.core.rel.eq([
-                  MS.struct.atomProperty.macromolecular.auth_seq_id(),
-                  res.index
-                ])
-              });
-
-              const pocketResComponent = await localPlugin.builders.structure.tryCreateComponentFromExpression(
-                structure,
-                pExpression,
-                `pocket-res-${res.index}`,
-                { label: `Pocket ${res.name}` }
-              );
-
-              if (pocketResComponent) {
-                refs.push(pocketResComponent.ref);
-                await localPlugin.builders.structure.representation.addRepresentation(pocketResComponent, {
-                  type: 'ball-and-stick',
-                  color: 'uniform',
-                  colorParams: { value: 0xEAB308 }
-                });
-              }
-            } catch (pErr) {}
-          }
-          if (active) {
-            pocketComponentRefRef.current = refs;
-          }
-        }
-
-        if (!active) return;
-
-        if (localPlugin.canvas3d?.camera) {
-          try {
-            localPlugin.canvas3d.camera.forceFull = true;
-            localPlugin.canvas3d.camera.setState({ clipFar: false });
-          } catch (e) {}
-        }
-
-        if (lociList.length > 0 && autoZoomOnSelect) {
-          localPlugin.managers.structure.selection.clear();
-          for (const loci of lociList) {
-            localPlugin.managers.structure.selection.fromLoci('add', loci);
-          }
-          localPlugin.managers.camera.focusLoci(lociList, { durationMs: cameraDuration });
-        }
-      } catch (err: any) {
-        const msg = err?.message || "";
-        if (
-          msg.includes("must be present in the tree") ||
-          msg.includes("is not present in the tree") ||
-          msg.includes("Cannot read properties of undefined")
-        ) {
-          console.warn("[Molstar Highlight Warning] Highlight cancelled due to structure state change:", msg);
-        } else {
-          console.error("Residue focus error:", err);
-        }
-      }
-    }
-
-    applyResidueHighlight();
-    return () => {
-      active = false;
-    };
-  }, [
-    pluginCreated,
-    structureReadyVersion,
-    comparePdbData,
-    residueIndex,
-    compareResidueIndex,
+    plddtScale,
+    esm3Scores,
+    variantPosition,
+    selectedResidue,
     showPolarContacts,
     show3DLabels,
     residueColorHex,
@@ -781,19 +124,348 @@ export function useMolstarStructure({
     autoZoomOnSelect,
     cameraDuration,
     showPocket,
-    computedPocket
-  ]);
+    pocketResidueIndices,
+    fetchWithAuth,
+    onPdbTextLoaded,
+    onEntryLoaded,
+    setLoading,
+    setLoadError,
+  } = opts;
 
-  return {
-    structureRef,
-    structure2Ref,
-    componentRefRef,
-    componentRefRef2,
-    plddtFilter, setPlddtFilter,
-    templateSource, setTemplateSource,
-    activePdbId, setActivePdbId,
-    viewerStyle, setViewerStyle,
-    pdbText, setPdbText,
-    bFactorMetadata
+  const structureRef = useRef<any>(null);
+  const structure2Ref = useRef<any>(null);
+  const highlightRefs = useRef<string[]>([]);
+  const isLoadingRef = useRef(false);
+  const [readyVersion, setReadyVersion] = useState(0);
+
+  // Callbacks change identity every render; the load effect reads them through refs.
+  const onPdbTextLoadedRef = useRef(onPdbTextLoaded);
+  onPdbTextLoadedRef.current = onPdbTextLoaded;
+  const onEntryLoadedRef = useRef(onEntryLoaded);
+  onEntryLoadedRef.current = onEntryLoaded;
+
+  const colourKey = JSON.stringify(colour);
+  const scoresKey = esm3Scores ? esm3Scores.length : 0;
+  const filterCut = plddtScale && plddtFilter !== "none" ? Number(plddtFilter) / (plddtScale === 1 ? 100 : 1) : null;
+
+  /* ── Load and draw ───────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!pluginCreated || !pluginRef.current) return;
+    const plugin = pluginRef.current;
+    let active = true;
+
+    async function load() {
+      isLoadingRef.current = true;
+      setLoading(true);
+      setLoadError(null);
+      try {
+        await plugin.clear();
+        if (!active) return;
+        structureRef.current = null;
+        structure2Ref.current = null;
+        highlightRefs.current = [];
+
+        let text: string | null = primaryPdbData;
+        const entryId = customPdbUrl ? pdbIdFromUrl(customPdbUrl) : null;
+        const label = entryId ? `${gene || "Protein"} · ${entryId}` : `${gene || "Protein"}`;
+        if (!text && customPdbUrl) {
+          if (!isValidPdbUrl(customPdbUrl)) throw new Error(`Refused to load ${customPdbUrl}: only RCSB, AlphaFold DB or this server may be used.`);
+          const res = await fetchWithAuth(customPdbUrl);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body?.error?.message || body?.message || `Could not load ${entryId ? `PDB ${entryId}` : customPdbUrl} (HTTP ${res.status}).`);
+          }
+          const entryText = await res.text();
+          if (!active) return;
+          if (!hasCoordinates(entryText)) throw new Error("The structure file contained no atomic coordinates.");
+          const reasonHeader = res.headers.get("X-Entry-Reason");
+          const mappingHeader = res.headers.get("X-Entry-Mapping");
+          const entry: LoadedEntry = {
+            url: customPdbUrl,
+            text: entryText,
+            numbering: res.headers.get("X-Entry-Numbering") === "uniprot" ? "uniprot" : "author",
+            chainId: res.headers.get("X-Entry-Chain") || null,
+            mapping: mappingHeader === "sifts" || mappingHeader === "needleman_wunsch" ? mappingHeader : null,
+            reason: reasonHeader ? safeDecode(reasonHeader) : null,
+          };
+          // As with the AlphaFold fetch: published, and drawn from the store's echo, where the
+          // model has scanned its B column and read its numbering.
+          if (onEntryLoadedRef.current) {
+            onEntryLoadedRef.current(entry);
+            return;
+          }
+          text = entryText;
+        } else if (!text && allowFetch && uniprotId) {
+          const res = await fetchWithAuth(`/api/v1/alphafold-pdb/${encodeURIComponent(uniprotId)}`);
+          if (!res.ok) {
+            throw new Error(res.status === 404 ? `AlphaFold DB has no model for ${uniprotId}.` : `Could not load the AlphaFold model (HTTP ${res.status}).`);
+          }
+          text = await res.text();
+          if (!active) return;
+          if (!hasCoordinates(text)) throw new Error("The structure file contained no atomic coordinates.");
+          // Publish, and let the store's echo draw it: only then is the provenance, and so the
+          // pLDDT colouring and filter, known. Drawing here would paint it plain and race the echo.
+          if (onPdbTextLoadedRef.current) {
+            onPdbTextLoadedRef.current(text, {
+              source: "alphafold",
+              afdbVersion: res.headers.get("X-Template-AfdbVersion") || undefined,
+            });
+            return;
+          }
+        }
+
+        if (!text) {
+          // Nothing to draw here (an ESMFold view still folding, or with no fold): an empty canvas,
+          // never a stand-in structure under the wrong name.
+          isLoadingRef.current = false;
+          setLoading(false);
+          return;
+        }
+        if (!hasCoordinates(text)) throw new Error("The structure file contained no atomic coordinates.");
+
+        const data = await plugin.builders.data.rawData({ data: text, label });
+        const trajectory = await plugin.builders.structure.parseTrajectory(data, formatOf(text));
+        if (!active || !trajectory) return;
+        const model = await plugin.builders.structure.createModel(trajectory);
+        if (!active || !model) return;
+        const structure = await plugin.builders.structure.createStructure(model);
+        if (!active || !structure) return;
+        structureRef.current = structure;
+
+        // pLDDT filter: only ever built when the model said this B column holds pLDDT.
+        let polymerTarget: any = null;
+        if (filterCut !== null) {
+          polymerTarget = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structure,
+            MS.struct.generator.atomGroups({
+              "entity-test": MS.core.rel.eq([MS.ammp("entityType"), "polymer"]),
+              "atom-test": MS.core.rel.gre([MS.struct.atomProperty.macromolecular.B_iso_or_equiv(), filterCut]),
+            }),
+            "plddt-filtered",
+            { label: `pLDDT ≥ ${plddtFilter}` }
+          );
+        }
+        if (!polymerTarget) polymerTarget = await plugin.builders.structure.tryCreateComponentStatic(structure, "polymer");
+        if (!active) return;
+        if (polymerTarget) {
+          await plugin.builders.structure.representation.addRepresentation(polymerTarget, { type: "cartoon", ...themeRef(colour.primary, esm3Scores) });
+        }
+        const ligand = await plugin.builders.structure.tryCreateComponentStatic(structure, "ligand");
+        if (ligand) await plugin.builders.structure.representation.addRepresentation(ligand, { type: "ball-and-stick", color: "element-symbol" });
+        const ion = await plugin.builders.structure.tryCreateComponentStatic(structure, "ion");
+        if (ion) await plugin.builders.structure.representation.addRepresentation(ion, { type: "ball-and-stick", color: "element-symbol" });
+        if (!active) return;
+
+        if (comparePdbData && colour.secondary) {
+          const data2 = await plugin.builders.data.rawData({ data: comparePdbData, label: `${gene || "Protein"} · variant (superposed)` });
+          const trajectory2 = await plugin.builders.structure.parseTrajectory(data2, formatOf(comparePdbData));
+          if (!active || !trajectory2) return;
+          const model2 = await plugin.builders.structure.createModel(trajectory2);
+          if (!active || !model2) return;
+          const structure2 = await plugin.builders.structure.createStructure(model2);
+          if (!active || !structure2) return;
+          structure2Ref.current = structure2;
+          const polymer2 = colour.secondaryCartoon ? await plugin.builders.structure.tryCreateComponentStatic(structure2, "polymer") : null;
+          if (polymer2) {
+            await plugin.builders.structure.representation.addRepresentation(polymer2, { type: "cartoon", ...themeRef(colour.secondary, esm3Scores) });
+          }
+        }
+
+        try {
+          plugin.canvas3d?.camera && (plugin.canvas3d.camera.forceFull = true);
+          plugin.canvas3d?.camera?.setState({ clipFar: false });
+        } catch { /* camera props are best-effort */ }
+
+        if (active) {
+          isLoadingRef.current = false;
+          setLoading(false);
+          setReadyVersion(v => v + 1);
+        }
+      } catch (err: any) {
+        isLoadingRef.current = false;
+        if (!active) return;
+        console.error("[3D] Structure load failed:", err);
+        setLoadError(err?.message || "The structure could not be drawn.");
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      active = false;
+      isLoadingRef.current = false;
+    };
+    // `colourKey`/`scoresKey` stand in for the plan and the scores, which change identity per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, allowFetch, colourKey, filterCut, scoresKey]);
+
+  useEffect(() => {
+    if (!customPdbUrl) onEntryLoadedRef.current?.(null);
+  }, [customPdbUrl]);
+
+  /* ── Site, environment, pocket and camera ─────────────────────────────── */
+  useEffect(() => {
+    if (!pluginCreated || !pluginRef.current || !structureRef.current || isLoadingRef.current) return;
+    const plugin = pluginRef.current;
+    const structure = structureRef.current;
+    const structure2 = structure2Ref.current;
+    let active = true;
+
+    async function highlight() {
+      try {
+        // Delete the previous highlight components (and their representations) from the state tree.
+        // The old code handed bare ref strings to `hierarchy.remove`, which expects component objects,
+        // inside a catch-all — so earlier highlights could pile up.
+        const stale = highlightRefs.current.filter(ref => stillInTree(plugin, ref));
+        highlightRefs.current = [];
+        if (stale.length) {
+          const update = plugin.build();
+          for (const ref of stale) update.delete(ref);
+          try { await update.commit(); } catch { /* removed with the structure */ }
+        }
+        if (!active || !stillInTree(plugin, structure.ref)) return;
+        const refs: string[] = [];
+        const loci: any[] = [];
+        const superposed = !!structure2 && stillInTree(plugin, structure2.ref);
+
+        if (variantPosition) {
+          const site = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residueExpression(variantPosition), "variant-site", { label: `Variant site ${variantPosition}` });
+          if (!active) return;
+          if (site) {
+            refs.push(site.ref);
+            await plugin.builders.structure.representation.addRepresentation(site, {
+              type: "ball-and-stick",
+              color: "uniform",
+              colorParams: { value: superposed ? Color(PAIR_COLOURS.template) : residueColorHex },
+              // Thinner in a superposition, so the variant residue drawn over it stays visible where
+              // the two coincide (a glycine is backbone only).
+              ...(superposed ? { typeParams: { sizeFactor: 0.16 } } : neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : {}),
+            });
+            if (neonHighContrast) {
+              await plugin.builders.structure.representation.addRepresentation(site, { type: "spacefill", typeParams: { alpha: 0.35 }, color: "uniform", colorParams: { value: residueColorHex } });
+            }
+            if (show3DLabels) {
+              await plugin.builders.structure.representation.addRepresentation(site, {
+                type: "label",
+                typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.4, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "bottom-left" },
+              });
+            }
+            try { loci.push(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(variantPosition), structure.obj.data))); } catch { /* focus is optional */ }
+          }
+
+          // The site's surroundings: whole residues within 5 Å, thin sticks, and (if enabled) the
+          // non-covalent contacts Mol* finds among them. An interactions representation on the single
+          // site residue — what this used to draw — has no partners to show.
+          if (showPolarContacts) {
+            // The neighbours only (the site residue keeps its own colour), with grey carbons so the
+            // variant site stays the one coloured residue; contacts are drawn over site + neighbours.
+            const surroundings = MS.struct.modifier.includeSurroundings({ 0: residueExpression(variantPosition), radius: 5, "as-whole-residues": true });
+            const env = await plugin.builders.structure.tryCreateComponentFromExpression(
+              structure,
+              MS.struct.modifier.exceptBy({ 0: surroundings, by: residueExpression(variantPosition) }),
+              "site-environment",
+              { label: `Within 5 Å of ${variantPosition}` }
+            );
+            const contacts = await plugin.builders.structure.tryCreateComponentFromExpression(structure, surroundings, "site-contacts", { label: `Contacts around ${variantPosition}` });
+            if (!active) return;
+            if (env) {
+              refs.push(env.ref);
+              await plugin.builders.structure.representation.addRepresentation(env, {
+                type: "ball-and-stick",
+                color: "element-symbol",
+                colorParams: { carbonColor: { name: "uniform", params: { value: Color(PAIR_COLOURS.template) } } },
+                typeParams: { sizeFactor: 0.14 },
+              });
+            }
+            if (contacts) {
+              refs.push(contacts.ref);
+              await plugin.builders.structure.representation.addRepresentation(contacts, { type: "interactions" });
+            }
+          }
+
+          if (superposed) {
+            const site2 = await plugin.builders.structure.tryCreateComponentFromExpression(structure2, residueExpression(variantPosition), "variant-site-superposed", { label: `Variant residue ${variantPosition}` });
+            if (!active) return;
+            if (site2) {
+              refs.push(site2.ref);
+              await plugin.builders.structure.representation.addRepresentation(site2, {
+                type: "ball-and-stick",
+                color: "uniform",
+                colorParams: { value: Color(PAIR_COLOURS.variant) },
+                typeParams: { sizeFactor: 0.3 },
+              });
+              try { loci.push(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(variantPosition), structure2.obj.data))); } catch { /* optional */ }
+            }
+          }
+        }
+
+        // A clicked residue is shown as a selection — never relabelled as the mutated residue.
+        if (selectedResidue && selectedResidue !== variantPosition) {
+          const picked = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residueExpression(selectedResidue), "selected-residue", { label: `Selected residue ${selectedResidue}` });
+          if (!active) return;
+          if (picked) {
+            refs.push(picked.ref);
+            await plugin.builders.structure.representation.addRepresentation(picked, { type: "ball-and-stick", color: "element-symbol" });
+            try { loci.unshift(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(selectedResidue), structure.obj.data))); } catch { /* optional */ }
+          }
+        }
+
+        if (showPocket && pocketResidueIndices.length > 0) {
+          const pocket = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structure,
+            MS.struct.generator.atomGroups({
+              "residue-test": MS.core.set.has([MS.core.type.set(pocketResidueIndices), MS.struct.atomProperty.macromolecular.auth_seq_id()]),
+            }),
+            "pocket-lining",
+            { label: "Predicted pocket lining" }
+          );
+          if (!active) return;
+          if (pocket) {
+            refs.push(pocket.ref);
+            await plugin.builders.structure.representation.addRepresentation(pocket, { type: "ball-and-stick", color: "uniform", colorParams: { value: Color(0xb08a2e) } });
+            await plugin.builders.structure.representation.addRepresentation(pocket, { type: "molecular-surface", color: "uniform", colorParams: { value: Color(0xb08a2e) }, typeParams: { alpha: 0.18 } });
+          }
+        }
+
+        if (!active) {
+          return;
+        }
+        highlightRefs.current = refs;
+        if (loci.length > 0 && autoZoomOnSelect) {
+          plugin.managers.structure.selection.clear();
+          plugin.managers.camera.focusLoci(loci[0], { durationMs: cameraDuration, extraRadius: 6 });
+        } else if (!variantPosition && autoZoomOnSelect) {
+          try { plugin.managers.camera.reset(); } catch { /* optional */ }
+        }
+      } catch (err: any) {
+        const msg = err?.message || "";
+        if (/present in the tree|Cannot read properties of undefined/.test(msg)) {
+          console.warn("[3D] Highlight cancelled by a structure change:", msg);
+        } else {
+          console.error("[3D] Highlight failed:", err);
+        }
+      }
+    }
+
+    highlight();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pluginCreated, readyVersion, variantPosition, selectedResidue, showPolarContacts, show3DLabels, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+
+  /** Frames one residue without changing any selection. */
+  const focusResidue = (index: number) => {
+    const plugin = pluginRef.current;
+    const struct = structureRef.current;
+    if (!plugin || !struct) return;
+    try {
+      const loci = StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(index), struct.obj.data));
+      plugin.managers.camera.focusLoci(loci, { durationMs: 700, extraRadius: 8 });
+    } catch (e) {
+      console.warn("[3D] Could not focus residue", index, e);
+    }
   };
+
+  return { structureRef, structure2Ref, focusResidue };
 }

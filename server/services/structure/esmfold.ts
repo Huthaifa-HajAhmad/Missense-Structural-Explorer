@@ -9,16 +9,31 @@ import {
   esmAtlasFallbackExceededMessage,
 } from "../../../src/shared/foldingLimits.ts";
 
-export const esmfoldCache = new LRUCache<string, string>({
+/**
+ * Which engine answered. The three tiers are three different models — ESMFold2-Fast (JapanFold),
+ * ESMFold2-Fast (EvolutionaryScale Forge, via the sidecar) and ESMFold v1 (the public ESM Atlas, which
+ * also writes pLDDT on a 0–1 scale) — and the route used to return bare PDB text, so the viewer named
+ * every structure "ESMFold-2 (Lin et al. 2023)" whichever one ran. The ids are the ones
+ * `src/shared/structure3dEvidence.ts` describes.
+ */
+export type DeNovoEngineId = "japanfold-esmfold2-fast" | "forge-esmfold2-fast" | "esm-atlas-esmfold";
+
+export interface FoldedStructure {
+  pdb: string;
+  engine: DeNovoEngineId;
+}
+
+export const esmfoldCache = new LRUCache<string, FoldedStructure>({
   max: 100,
   maxSize: 100 * 1024 * 1024, // 100MB limit
-  sizeCalculation: (value) => value.length
+  sizeCalculation: (value) => value.pdb.length + value.engine.length
 });
 
-export async function foldSequence(
+/** Folds a sequence and names the engine that produced the coordinates. */
+export async function foldSequenceWithProvenance(
   sequence: string,
   biohubToken?: string | null
-): Promise<string> {
+): Promise<FoldedStructure> {
   const seqHash = crypto.createHash("sha256").update(sequence).digest("hex");
   const cacheKey = `esmfold:seq:${seqHash}`;
   const cached = esmfoldCache.get(cacheKey);
@@ -26,16 +41,24 @@ export async function foldSequence(
     console.log(`[ESMFold] Cache hit for sequence hash ${seqHash}`);
     return cached;
   }
-  
-  const pdbText = await foldSequenceInternal(sequence, biohubToken);
-  esmfoldCache.set(cacheKey, pdbText);
-  return pdbText;
+
+  const folded = await foldSequenceInternal(sequence, biohubToken);
+  esmfoldCache.set(cacheKey, folded);
+  return folded;
+}
+
+/** PDB text only, for callers that do not report provenance (the stability pipeline's engine). */
+export async function foldSequence(
+  sequence: string,
+  biohubToken?: string | null
+): Promise<string> {
+  return (await foldSequenceWithProvenance(sequence, biohubToken)).pdb;
 }
 
 async function foldSequenceInternal(
   sequence: string,
   biohubToken?: string | null
-): Promise<string> {
+): Promise<FoldedStructure> {
   const seqLen = sequence.length;
 
   // Fail fast immediately if sequence exceeds max Tier-1 limit (JAPANFOLD_ESMFOLD2_MAX_AA) and no Biohub token exists
@@ -48,7 +71,7 @@ async function foldSequenceInternal(
     const jfPdb = await queryEsmfold2(sequence);
     if (jfPdb && jfPdb.includes("ATOM")) {
       console.log(`[ESMFold] Successfully folded ${seqLen} aa sequence via Tier-1 JapanFold ESMFold-2`);
-      return jfPdb;
+      return { pdb: jfPdb, engine: "japanfold-esmfold2-fast" };
     }
   } catch (jfErr: any) {
     console.warn(`[ESMFold] Tier-1 JapanFold call failed: ${jfErr.message}. Proceeding to local sidecar fallback...`);
@@ -74,7 +97,7 @@ async function foldSequenceInternal(
       if (response.ok) {
         const data = await response.json() as any;
         if (data && data.status === "success" && data.pdb) {
-          return data.pdb;
+          return { pdb: data.pdb, engine: "forge-esmfold2-fast" };
         }
       } else {
         const errText = await response.text();
@@ -101,7 +124,7 @@ async function foldSequenceInternal(
     if (atlasRes.ok) {
       const pdbText = await atlasRes.text();
       if (pdbText && pdbText.includes("ATOM")) {
-        return pdbText;
+        return { pdb: pdbText, engine: "esm-atlas-esmfold" };
       }
     }
     if (atlasRes.status === 413 || atlasRes.status === 422 || sequence.length > ESM_ATLAS_PUBLIC_MAX_AA) {

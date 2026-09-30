@@ -153,4 +153,5 @@ the environment requires it).
 | Population data | Done (reference) |
 | In-silico predictors | Done (reference); `doc/PREDICTORS_TAB_REVIEW.md` |
 | AlphaGenome | Rail in progress elsewhere; still shows `acmgStrength` PP3/BP4 tiers derived from an uncalibrated rank — must become the percentile |
-| RNA splicing, Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions, Score thresholds, 3D structure | Not yet audited with this skill |
+| 3D structure (viewer + inspector) | Done; `doc/STRUCTURE_3D_REVIEW.md`. Model `shared/structure3dEvidence.ts`, `s3d-` CSS |
+| RNA splicing, Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions, Score thresholds | Not yet audited with this skill |

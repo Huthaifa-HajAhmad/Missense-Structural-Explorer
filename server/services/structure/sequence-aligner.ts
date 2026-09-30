@@ -255,8 +255,73 @@ export function alignNeedlemanWunsch(
   };
 }
 
+const SIFTS_TTL_MS = 60 * 60 * 1000;
+const SIFTS_MAX_ENTRIES = 200;
+const siftsEntryCache = new Map<string, { at: number; entry: any | null }>();
+
+/**
+ * PDBe's UniProt mapping for one entry (`/mappings/uniprot/<pdb>`), memoised for an hour.
+ *
+ * Resolving one entry asks for its chains and then each chain's mapping; without the memo that was
+ * one network round trip per chain for the same document. A failed request is not memoised.
+ */
+async function fetchSiftsEntry(pdbId: string): Promise<any | null | undefined> {
+  const key = pdbId.toLowerCase();
+  const hit = siftsEntryCache.get(key);
+  if (hit && Date.now() - hit.at < SIFTS_TTL_MS) return hit.entry;
+  try {
+    const res = await fetchWithRetry(`https://www.ebi.ac.uk/pdbe/api/mappings/uniprot/${key}`, { timeout: 3000 });
+    if (res.status === 404) {
+      siftsEntryCache.set(key, { at: Date.now(), entry: null });
+      return null;
+    }
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as any;
+    const entry = data?.[key] ?? null;
+    if (siftsEntryCache.size >= SIFTS_MAX_ENTRIES) {
+      const oldest = siftsEntryCache.keys().next().value;
+      if (oldest) siftsEntryCache.delete(oldest);
+    }
+    siftsEntryCache.set(key, { at: Date.now(), entry });
+    return entry;
+  } catch (err: any) {
+    console.warn(`[SIFTS Warning] SIFTS query failed for ${pdbId}:`, err?.message);
+    return undefined;
+  }
+}
+
+/**
+ * The chains of an entry that PDBe maps to this UniProt accession, with the UniProt range each
+ * covers. `[]` when PDBe knows the entry and maps no chain to the accession (an ortholog's entry
+ * is mapped to its own accession); null when the mapping could not be fetched.
+ */
+export async function querySiftsChains(
+  pdbId: string,
+  uniprotAccession: string
+): Promise<Array<{ chainId: string; unpStart: number; unpEnd: number }> | null> {
+  if (!pdbId || !/^[0-9][a-z0-9]{3}$/i.test(pdbId)) return null;
+  const entry = await fetchSiftsEntry(pdbId);
+  if (entry === undefined) return null;
+  const mappings = entry?.UniProt?.[uniprotAccession]?.mappings;
+  if (!Array.isArray(mappings)) return [];
+  const byChain = new Map<string, { chainId: string; unpStart: number; unpEnd: number }>();
+  for (const m of mappings) {
+    const chainId = typeof m?.chain_id === "string" ? m.chain_id.trim().toUpperCase() : "";
+    if (!chainId || typeof m.unp_start !== "number" || typeof m.unp_end !== "number") continue;
+    const seen = byChain.get(chainId);
+    byChain.set(chainId, seen
+      ? { chainId, unpStart: Math.min(seen.unpStart, m.unp_start), unpEnd: Math.max(seen.unpEnd, m.unp_end) }
+      : { chainId, unpStart: m.unp_start, unpEnd: m.unp_end });
+  }
+  return [...byChain.values()];
+}
+
 /**
  * Tier 1: Queries PDBe SIFTS API for authoritative residue-by-residue mappings.
+ *
+ * Only the requested accession's mapping is used. This used to fall back to the entry's FIRST
+ * UniProt mapping when the accession was absent — for an ortholog's entry, or a complex's partner
+ * chain, a mapping onto another protein's numbering, then accepted on a one-residue identity check.
  */
 export async function querySiftsMapping(
   pdbId: string,
@@ -266,15 +331,11 @@ export async function querySiftsMapping(
   if (!pdbId || !/^[0-9][a-z0-9]{3}$/i.test(pdbId) || pdbId.toUpperCase() === "1XYZ") {
     return null;
   }
-  const url = `https://www.ebi.ac.uk/pdbe/api/mappings/uniprot/${pdbId.toLowerCase()}`;
   try {
-    const res = await fetchWithRetry(url, { timeout: 3000 });
-    if (!res.ok) return null;
-    const data = await res.json() as any;
-    const pdbEntry = data[pdbId.toLowerCase()];
+    const pdbEntry = await fetchSiftsEntry(pdbId);
     if (!pdbEntry || !pdbEntry.UniProt) return null;
 
-    const unpEntry = pdbEntry.UniProt[uniprotAccession] || Object.values(pdbEntry.UniProt)[0] as any;
+    const unpEntry = pdbEntry.UniProt[uniprotAccession] as any;
     if (!unpEntry || !Array.isArray(unpEntry.mappings)) return null;
 
     const targetChain = chainId.trim().toUpperCase();

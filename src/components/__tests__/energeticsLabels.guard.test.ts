@@ -91,6 +91,14 @@ const GUARDED_SURFACES = [
   "src/components/inspector/ResidueShiftInspector.tsx",
   "src/shared/residueShiftEvidence.ts",
   "src/shared/residueContextEvidence.ts",
+  /**
+   * 3D structure: the old inspector printed "N/A" for four absent comparison numbers and "0.0°" for a
+   * missing χ1, and the viewer's pocket panel "Server Calculation Error". The model and the two
+   * viewer surfaces that print states take their words from engineStatus.
+   */
+  "src/shared/structure3dEvidence.ts",
+  "src/components/molstar/StructureStatusOverlay.tsx",
+  "src/components/molstar/StructurePocketPanel.tsx",
 ] as const;
 
 /**

@@ -86,7 +86,7 @@ The ACMG rule suggester uses standard Richards et al. 2015 rules, with the follo
 When utilizing ESM representation and folding models, the following computational boundaries apply:
 
 * **Sequence Length Truncation Guard**: The local VESM-150M sidecar enforces a strict sequence length guard of 1022 residues to prevent GPU out-of-memory states. Longer sequences are automatically truncated, and mutations falling outside the 1022-residue boundary will fail to analyze.
-* **ESMFold residue constraints**: Remote ESMFold2 folding is capped at 768 residues. For keyless folding, the public ESM Atlas API is queried as a fallback, which is limited to sequences $\le 400$ residues.
+* **De novo folding constraints** (`src/shared/foldingLimits.ts`): Tier-1 JapanFold ESMFold2-Fast folds up to 1,024 residues; with a Biohub token the EvolutionaryScale Forge ESMFold2-Fast is tried next; the keyless public ESM Atlas fallback (ESMFold v1, which writes pLDDT on a 0–1 scale) accepts at most 400. The stability pipeline's own ESMFold step stops at 768. The server reports which engine folded each structure, and the 3D view warns when the wild type and the variant came from different engines.
 * **API Token Credentials**: Advanced remote ESM3 and ESMC models require a valid Biohub Platform API key. If the token is missing, expired, or rate-limited, the application gracefully degrades to local VESM-150M embeddings and sequence constraints.
 
 ---

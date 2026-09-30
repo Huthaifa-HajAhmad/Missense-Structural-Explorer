@@ -160,4 +160,13 @@ describe("method citations", () => {
       expect((METRIC_EXPLANATIONS as Record<string, { paperUrl: string }>)[id].paperUrl).toBe(url);
     }
   });
+
+  it("describes the neighbour side-chain RMSD as the app measures it, with no unsourced band", () => {
+    const rmsd = METRIC_EXPLANATIONS.rmsd;
+    // It was "the mutated sidechain" with "RMSD > 1.5 Å indicates substantial repacking", credited to
+    // Guerois 2002, which defines neither the measure nor the threshold.
+    expect(rmsd.description).toMatch(/within ±5 of the site/);
+    expect(rmsd.description).toMatch(/paired wild type/);
+    expect(`${rmsd.description} ${rmsd.interpretation}`).not.toMatch(/1\.5 Å/);
+  });
 });
