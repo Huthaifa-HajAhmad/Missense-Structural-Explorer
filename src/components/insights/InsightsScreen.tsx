@@ -96,8 +96,14 @@ export function InsightsScreen({ evidence: ev, narrative, onOpenTab, onOpenRepor
         </div>
         {gap && (
           <div className="ins-gap">
-            <p className="ins-p"><span className="ins-strong">What would move it.</span> To reach <span className="ins-strong">{gap.target.toLowerCase()}</span> the engine needs one of these on top of what it has ({gap.have}):</p>
-            <ul>{gap.options.map(o => <li key={o}>{o}</li>)}</ul>
+            {gap.options.length > 0 ? (
+              <>
+                <p className="ins-p"><span className="ins-strong">What would move it.</span> To reach <span className="ins-strong">{gap.target.toLowerCase()}</span> the engine needs one of these on top of what it has ({gap.have}):</p>
+                <ul>{gap.options.map(o => <li key={o}>{o}</li>)}</ul>
+              </>
+            ) : (
+              <p className="ins-p"><span className="ins-strong">What would move it.</span> {gap.sentence}</p>
+            )}
             <p className="ins-p ins-dim" style={{ marginTop: 6 }}>Worked out by running the engine&apos;s own combining rule on each addition.</p>
           </div>
         )}

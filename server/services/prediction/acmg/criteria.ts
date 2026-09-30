@@ -11,10 +11,17 @@ import type { UniprotFeaturesResult } from "../../external-api/uniprot.ts";
 import { isNullVariant, isInFrameIndel, isIndelInRepeatRegion } from "./syntax.ts";
 import type { ACMGItem } from "./classifier.ts";
 import { assessPm1, featureCoversResidue } from "../../../../src/shared/functionalSites.ts";
+import { classifyClinvar } from "../../../../src/shared/clinvarClassification.ts";
 
 export interface ACMGEvidenceInput {
   gene: string;
   variant: string;
+  /**
+   * The residue number on the canonical protein, as the caller's parsed context holds it. PVS1's
+   * C-terminal test and PM1 prefer it to re-reading digits out of `variant`, which has no shape
+   * guarantee; absent, the first digit run in `variant` is used as before.
+   */
+  residueIndex?: number | null;
   clinvar?: Partial<ClinVarData> | ClinVarData | null;
   predictorData?: Partial<PredictorData> | PredictorData | null;
   conservationData?: Partial<ConservationData> | ConservationData | null;
@@ -56,6 +63,7 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   const {
     gene,
     variant,
+    residueIndex = null,
     clinvar = null,
     predictorData = null,
     conservationData = null,
@@ -72,9 +80,17 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   } = input;
   const criteria: ACMGItem[] = [];
 
-  const clinvarClass = (clinvar?.classification || "").toLowerCase();
-  const isClinVarPathogenic = clinvarClass.includes("pathogenic");
-  const isClinVarBenign = clinvarClass.includes("benign");
+  const residuePos = (): number | null => {
+    if (typeof residueIndex === "number" && Number.isInteger(residueIndex) && residueIndex > 0) return residueIndex;
+    const m = variant.match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  };
+
+  // `classifyClinvar`, not a substring test: "Conflicting interpretations of pathogenicity" contains
+  // "pathogenic" and must not open the conservative-weighting gate.
+  const clinvarCls = classifyClinvar(clinvar?.classification);
+  const isClinVarPathogenic = clinvarCls === "plp";
+  const isClinVarBenign = clinvarCls === "blb";
 
   const skipPathogenicComp = acmgWeighting === "strict-structural" || (acmgWeighting === "conservative" && !isClinVarPathogenic);
   const skipBenignComp = acmgWeighting === "strict-structural" || (acmgWeighting === "conservative" && !isClinVarBenign);
@@ -86,8 +102,7 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
   const isLofGene = isLofIntolerant;
   
   if (isNullVariant(variant) && !isInFrameIndel(variant) && isLofGene && !skipPathogenicComp) {
-    const mutMatch = variant.match(/(\d+)/);
-    const pos = mutMatch ? parseInt(mutMatch[1], 10) : null;
+    const pos = residuePos();
     const seqLen = sequence ? sequence.length : null;
 
     let nmdPredicted = true;
@@ -390,11 +405,18 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
    * reads too. It replaced a test that took any UniProt active/binding/metal/disulfide annotation at the
    * residue, whatever its evidence, read a disulfide bond as covering every residue between its two
    * cysteines, and never applied the PP3 + PM1 ≤ Strong cap.
+   *
+   * The cap is wired but DORMANT in this engine, by design: PP3 is emitted at Supporting strength only
+   * (see the vote block above: the predictors are not calibrated per-criterion here), so `pp3Code` is
+   * always bare `PP3` (1 point) and 1 + PM1's 2 = 3 never exceeds Strong (4). It would bind only if the
+   * engine began emitting `PP3_Moderate`/`PP3_Strong` from the calibrated reference tool, which is an
+   * owner decision (doc/INDEPENDENT_AUDIT_RESPONSE.md, D2). `assessPm1` itself is covered for every
+   * strength in `functionalSites.test.ts`, and `acmg.test.ts` pins this dormancy so turning the
+   * calibrated strength on cannot silently bypass the cap.
    */
   if (uniprotFeatures?.features && !skipPathogenicComp) {
-    const posMatch = variant.match(/\d+/);
-    const pos = posMatch ? parseInt(posMatch[0], 10) : NaN;
-    if (!isNaN(pos)) {
+    const pos = residuePos();
+    if (pos !== null) {
       const pp3Code = criteria.find((c) => c.code.startsWith("PP3"))?.code ?? null;
       const pm1 = assessPm1(uniprotFeatures.features as any[], pos, { pp3Code });
       if (pm1.status === "met") {

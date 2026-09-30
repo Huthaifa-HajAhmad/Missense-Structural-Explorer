@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { discoverJavaHome, _resetJavaHomeCache, checkP2RankCapability, pocketCache, findBindingPocket } from "./pocket.ts";
+import { discoverJavaHome, _resetJavaHomeCache, checkP2RankCapability, pocketCache, findBindingPocket, selectP2RankProfile } from "./pocket.ts";
 
 describe("Pocket Service - Java & Fallback Resilience", () => {
   const originalEnv = process.env;
@@ -76,5 +76,27 @@ describe("Pocket Service - Java & Fallback Resilience", () => {
     } finally {
       fs.rmSync(jobDir, { recursive: true, force: true });
     }
+  });
+  describe("selectP2RankProfile", () => {
+    const xray = "HEADER    HYDROLASE\nEXPDTA    X-RAY DIFFRACTION\nATOM      1  N   ALA A   1      0.0 0.0 0.0\n";
+    const nmr = "EXPDTA    SOLUTION NMR\nATOM      1  N   ALA A   1      0.0 0.0 0.0\n";
+    const predicted = "TITLE     ALPHAFOLD MONOMER V2.0 PREDICTION\nATOM      1  N   ALA A   1      0.0 0.0 0.0\n";
+
+    it("uses P2Rank's default profile only for a file that declares X-ray diffraction", () => {
+      delete process.env.P2RANK_CONFIG_PROFILE;
+      expect(selectP2RankProfile(xray)).toBe("default");
+    });
+
+    it("keeps the alphafold profile for predicted models, NMR, and files that say nothing", () => {
+      delete process.env.P2RANK_CONFIG_PROFILE;
+      expect(selectP2RankProfile(predicted)).toBe("alphafold");
+      expect(selectP2RankProfile(nmr)).toBe("alphafold");
+      expect(selectP2RankProfile("ATOM      1  N   ALA A   1      0.0 0.0 0.0\n")).toBe("alphafold");
+    });
+
+    it("lets P2RANK_CONFIG_PROFILE override the choice", () => {
+      process.env.P2RANK_CONFIG_PROFILE = "conservation_hmm";
+      expect(selectP2RankProfile(xray)).toBe("conservation_hmm");
+    });
   });
 });

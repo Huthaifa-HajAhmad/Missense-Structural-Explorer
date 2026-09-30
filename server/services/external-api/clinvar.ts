@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CLINVAR_AA_MAP } from "../../../src/shared/aminoAcids.ts";
+import { classifyClinvar } from "../../../src/shared/clinvarClassification.ts";
 import { LRUCache } from "lru-cache";
 import { clinvarCache, getCachedOrFetch } from "../infra/cache.ts";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
@@ -216,8 +217,8 @@ export async function fetchClinVarData(
   let hasOtherPathogenicVariantSameAA = false;
   for (let i = 0; i < matchingEntries.length; i++) {
     if (i === matchedIdx) continue;
-    const otherClass = (matchingEntries[i].entry.germline_classification?.description || "").toLowerCase();
-    if (otherClass.includes("pathogenic") || otherClass.includes("likely pathogenic")) {
+    // PS1 needs an established P/LP record; "Conflicting … pathogenicity" is not one.
+    if (classifyClinvar(matchingEntries[i].entry.germline_classification?.description) === "plp") {
       const otherC = getCodingNotation(matchingEntries[i].cleanTitle);
       if (!matchedC || !otherC || matchedC !== otherC) {
         hasOtherPathogenicVariantSameAA = true;

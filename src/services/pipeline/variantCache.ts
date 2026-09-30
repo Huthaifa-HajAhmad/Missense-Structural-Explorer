@@ -52,8 +52,13 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * scores PM2 on a fresh run, reached by clicking the same variant in Recents. `isBuildDegradedResult`
  * now refuses to SERVE such a bundle (and `hasCompleteAnalysis` refuses to short-circuit on it); this
  * bump also drops the ones already stored whose build signal is missing or predates the lift record.
+ *
+ * v4.2: a stored bundle replays the verdict the engine computed at the time. The combining rule for
+ * PVS1 + supporting evidence (Richards 2015 Table 5 (i)(c)/(d)), the ClinVar "Conflicting" reading
+ * (PS1 and the conservative-weighting gate) and the narrative prompt (schema v4) all changed, so a
+ * bundle stored under the old rules would keep showing a verdict the current engine no longer gives.
  */
-export const CACHE_VERSION = "v4.1";
+export const CACHE_VERSION = "v4.2";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

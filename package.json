@@ -6,7 +6,7 @@
   "packageManager": "npm@10.8.2",
   "scripts": {
     "dev": "tsx server.ts",
-    "build:client": "vite build",
+    "build:client": "node scripts/with-local-tmp.mjs node_modules/vite/bin/vite.js build",
     "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "build:workers": "esbuild server/workers/structural-diff-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/structural-diff-worker.cjs && esbuild server/workers/analysis-db-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/analysis-db-worker.cjs",
     "build:protos": "node -e \"require('fs').cpSync('server/services/alphagenome/protos','dist/alphagenome/protos',{recursive:true})\"",

@@ -34,6 +34,10 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 * **Goal**: Highlights alternative machine learning models, visualization upgrades, and technical roadmap items.
 * **Key Topics**: FoldX PositionScan, Rosetta cartesian_ddg, Boltz-2 diffusion, and 2D Δ-distance matrices.
 
+### 8. [Independent Audit Response](./INDEPENDENT_AUDIT_RESPONSE.md)
+* **Goal**: Records how each finding of the 2026-09-30 independent audit was verified, fixed, refuted with evidence, or left as an owner decision.
+* **Key Topics**: Richards 2015 combining rules, ClinVar "Conflicting" handling, citation integrity, PM2 strength decision.
+
 ---
 
 ## 🛠️ Infrastructure Overview

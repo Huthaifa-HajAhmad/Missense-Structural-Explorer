@@ -651,6 +651,7 @@ export async function fetchCoreVariantData(
   const ruleBasedInsights = computeRuleBasedACMG({
     gene,
     variant,
+    residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
     clinvar: clinvarRes,
     predictorData: predictorRes,
     conservationData: conservationRes,

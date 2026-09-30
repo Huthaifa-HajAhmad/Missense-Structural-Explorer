@@ -132,4 +132,30 @@ describe("fetchClinVarData", () => {
 
     fetchSpy.mockRestore();
   });
+  describe("PS1 support (another record with the same amino-acid change)", () => {
+    const entry = (cdna: string, description: string) => ({
+      title: `NM_000277.3(PAH):${cdna} (p.Arg408Trp)`,
+      germline_classification: { description, last_evaluated: "2023-01-01", review_status: "criteria provided, single submitter", trait_set: [] },
+      allele_freq_set: [],
+    });
+    const run = async (otherDescription: string) => {
+      const fetchSpy = vi.spyOn(global, "fetch");
+      fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => ({ esearchresult: { idlist: ["1", "2"] } }) } as any);
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: { uids: ["1", "2"], "1": entry("c.1222C>T", "Uncertain significance"), "2": entry("c.1224C>T", otherDescription) } }),
+      } as any);
+      return fetchClinVarData("PAH", "p.Arg408Trp");
+    };
+
+    it("a Conflicting record is not an established pathogenic one", async () => {
+      const res = await run("Conflicting interpretations of pathogenicity");
+      expect(res.hasOtherPathogenicVariantSameAA).toBe(false);
+    });
+
+    it("a Pathogenic / Likely pathogenic record at a different nucleotide change is", async () => {
+      const res = await run("Pathogenic/Likely pathogenic");
+      expect(res.hasOtherPathogenicVariantSameAA).toBe(true);
+    });
+  });
 });

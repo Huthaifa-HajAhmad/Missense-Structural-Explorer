@@ -187,7 +187,7 @@ export function ConnectionsSection() {
           placeholder="Enter HF_TOKEN…"
           value={settings.hfToken || ""}
           onChange={(value) => updateSetting("hfToken", value)}
-          description="Enables GPN-Star phylogeny LM, SaProt 650M structure-aware scoring, and ESM-2 via Hugging Face inference."
+          description="Enables GPN-Star phylogeny LM, SaProt structure-aware scoring, and ESM-2 via Hugging Face inference."
           action={{
             label: "Test connection",
             busyLabel: "Testing…",

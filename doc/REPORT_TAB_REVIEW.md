@@ -62,7 +62,8 @@ and builds no verdict logic of its own. It adds no science and no combined score
 ## PM2 strength: decision record
 
 Question: the engine weights `PM2` as Moderate. ClinGen SVI's 2020 recommendation, as I recall it, is to apply PM2 at Supporting.
-I could not open clinicalgenome.org or PubMed from the build environment, so **the recommendation is unverified here**.
+I could not open clinicalgenome.org or PubMed from the build environment, so the recommendation was unverified at the time.
+**Verified 2026-09-30** (ClinGen SVI Recommendation for PM2, Version 1.0, approved September 2020): PM2 is reduced from Moderate to Supporting. The engine change is still deliberately not made; see `INDEPENDENT_AUDIT_RESPONSE.md`, decision D1.
 
 What I could check is what a change would do. I ran the engine's own `classifyVariant` on every combination of the other eleven
 codes it can emit (2,048), once with PM2 at Moderate and once with a Supporting-weight code in its place. **110 of the 2,048

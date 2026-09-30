@@ -9,7 +9,7 @@
  *   4. RaSP Human Proteome SQLite Database
  *   5. ThermoMPNN (ProteinMPNN Neural Backbone)
  *   6. StabilityOracle (PyTorch 3D SiameseGraphormer)
- *   7. SaProt 650M AF2 (Structure-Aware Protein LM)
+ *   7. SaProt (Structure-Aware Protein LM) — unsized: the 650M or 35M checkpoint may serve
  *   8. JapanFold Sovereign AI Cloud Fallback
  */
 
@@ -274,7 +274,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
       },
       {
         id: "saprot",
-        name: "SaProt 650M AF2 (Structure-Aware Protein LM)",
+        name: "SaProt (Structure-Aware Protein LM)",
         category: "language_model",
         status: sidecarReachable ? (sidecarModelStatus.saprot === "ready" ? "ready" : "standby") : "standby",
         details: {

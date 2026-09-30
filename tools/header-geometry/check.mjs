@@ -14,6 +14,7 @@
  * reflow behaviour cannot be asserted in the vitest suite at all.
  */
 import { spawnSync } from "node:child_process";
+import { localTmpEnv } from "../../scripts/with-local-tmp.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -48,7 +49,8 @@ function findBrowser() {
 }
 
 function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: false });
+  // localTmpEnv: esbuild's temp-file delete fails on Windows in the default temp directory.
+  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", shell: false, env: localTmpEnv() });
   if (result.error) {
     console.error(`geometry-check: failed to run ${command}: ${result.error.message}`);
     process.exit(2);

@@ -912,6 +912,10 @@ export const alphagenomeAviSchema = z.object({
   topModality: z.string().nullable().optional(),
   topFeatureImportance: z.number().nullable().optional(),
   featureAttributions: z.record(z.string(), z.number()).nullable().optional(),
+  /**
+   * An app-defined banding of the AVI Phred rank, NOT a ClinGen-calibrated ACMG strength (none exists
+   * for the AVI). The engine never counts it; the name is kept only because payloads persist it.
+   */
   acmgStrength: z.enum([
     "PP3_Strong",
     "PP3_Moderate",
@@ -1436,7 +1440,7 @@ export const analyzeVariantResponseSchema = z.object({
       interpro: z.object({ id: z.string(), name: z.string() }).nullable(),
       locations: z.array(z.object({ start: z.number(), end: z.number() }))
     })).optional(),
-    domainMatchesStatus: z.enum(["ok", "error"]).optional(),
+    domainMatchesStatus: z.enum(["ok", "error", "unsupported"]).optional(),
     uniparcId: z.string().nullable().optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
@@ -2123,7 +2127,7 @@ export interface UniprotFeaturesData {
   secondaryStructure?: SecondaryStructureElement[];
   /** InterPro member-database matches from UniParc; `domainMatchesStatus` says whether they were read. */
   domainMatches?: DomainMatch[];
-  domainMatchesStatus?: "ok" | "error";
+  domainMatchesStatus?: "ok" | "error" | "unsupported";
   uniparcId?: string | null;
 }
 

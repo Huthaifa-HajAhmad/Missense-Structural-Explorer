@@ -778,9 +778,9 @@ Please use this database grounding to inform your pathogenicity assessment and A
       : predictorData.amClass;
     predictorEvidence = `
 [PREDICTIVE BIOINFORMATICS SCORES]:
-- AlphaMissense Pathogenicity Score: ${predictorData.amPathogenicity ?? "N/A"}
-- AlphaMissense Predicted Class: ${amClass ?? "N/A"}
-- CADD PHRED Score: ${predictorData.caddPhred ?? "N/A"}
+- AlphaMissense Pathogenicity Score: ${predictorData.amPathogenicity ?? "not measured"}
+- AlphaMissense Predicted Class: ${amClass ?? "not measured"}
+- CADD PHRED Score: ${predictorData.caddPhred ?? "not measured"}
 `;
   } else {
     predictorEvidence = `
@@ -794,9 +794,9 @@ Please use this database grounding to inform your pathogenicity assessment and A
   if (conservationData && conservationData.available) {
     conservationEvidence = `
 [EVOLUTIONARY CONSERVATION SCORES]:
-- REVEL Score: ${conservationData.revel ?? "N/A"}
-- GERP++ Score: ${conservationData.gerp ?? "N/A"}
-- phyloP Vertebrate Score: ${conservationData.phylop ?? "N/A"}
+- REVEL Score: ${conservationData.revel ?? "not measured"}
+- GERP++ Score: ${conservationData.gerp ?? "not measured"}
+- phyloP Vertebrate Score: ${conservationData.phylop ?? "not measured"}
 `;
   } else {
     conservationEvidence = `
@@ -872,7 +872,7 @@ Explain how this substitution disrupts the structural integrity of the protein:
 1. Does it clash sterically (especially if mutating to a bulkier residue like Trp, Phe)?
 2. Does it break crucial hydrogen-bonding networks, salt bridges (e.g., loss of Arg/Lys positive charge), or hydrophobic packaging?
 3. How might it affect local secondary structure (e.g., Proline/Glycine mutations disrupting alpha-helices)?
-Provide specific molecular hypotheses based on peptide chain coordinates.
+Provide biochemical hypotheses based on the substitution's chemistry, its residue position, and the conservation and predictor scores given above. You are not given 3D coordinates, distances or B-factors, so do not state or infer any.
 
 ### 🏥 Clinical and Pathogenicity Interpretation
 Synthesize the evidence to discuss the clinical plausibility of pathogenicity (ACMG classification of disease causation). Do not confuse this with structural stability changes (ΔΔG). Discuss any associated clinical syndromes. DO NOT assign a final diagnostic classification label.

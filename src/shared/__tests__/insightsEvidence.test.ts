@@ -131,6 +131,16 @@ describe("computeTierGap uses the engine's own combining rule", () => {
     expect(computeTierGap([{ code: "PVS1", reason: "" }, { code: "PS3", reason: "" }])).toBeNull();
   });
 
+  it("says the evidence conflicts instead of printing an empty list", () => {
+    // 6 Supporting pathogenic with BS1 + BP4: adding pathogenic criteria can never leave the conflict.
+    const codes = ["PP3", "PP2", "PP1", "PP4", "PP5", "PP3", "BS1", "BP4"].map(code => ({ code, reason: "" }));
+    const gap = computeTierGap(codes);
+    expect(gap).not.toBeNull();
+    expect(gap!.options).toEqual([]);
+    expect(gap!.sentence).not.toMatch(/: \.$/);
+    expect(gap!.sentence).toContain("conflicts");
+  });
+
   it("leans benign when the counted evidence does", () => {
     const gap = computeTierGap([{ code: "BP4", reason: "" }])!;
     expect(gap.side).toBe("benign");

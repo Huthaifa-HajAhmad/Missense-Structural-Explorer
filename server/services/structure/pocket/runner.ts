@@ -77,6 +77,24 @@ export function readPocketDescriptorVolume(outputDir: string, pocketId: number):
   }
 }
 
+/**
+ * The P2Rank `-c` profile for this structure.
+ *
+ * P2Rank's README: the default profile uses B-factor as a feature and is meant for X-ray structures;
+ * predicted models (AlphaFold, ESMFold), NMR ensembles and cryo-EM must use `alphafold`, and
+ * probabilities are calibrated per profile. Nothing upstream says what kind of structure a
+ * client-supplied `pdbText` is, so the file's own `EXPDTA` record decides: only an explicit X-ray
+ * declaration selects the default profile, and anything else (no record, a predicted model, NMR,
+ * EM) keeps `alphafold`. `P2RANK_CONFIG_PROFILE` overrides both.
+ */
+export function selectP2RankProfile(pdbText: string): string {
+  const override = process.env.P2RANK_CONFIG_PROFILE?.trim();
+  if (override) return override;
+  const methods = pdbText.match(/^EXPDTA\s+(.+)$/gm) ?? [];
+  const isXray = methods.length > 0 && methods.every(line => /X-RAY\s+DIFFRACTION/i.test(line));
+  return isXray ? "default" : "alphafold";
+}
+
 export async function findBindingPocket(
   pdbText: string,
   targetIndex: number,
@@ -86,7 +104,7 @@ export async function findBindingPocket(
   options?: { l1Cache?: LRUCache<string, any> }
 ): Promise<PocketInfoResult> {
   const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
-  const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}`;
+  const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}_${selectP2RankProfile(pdbText)}`;
   const cache = options?.l1Cache ?? pocketCache;
   const cached = cache.get(cacheKey);
   if (cached) {
@@ -253,14 +271,15 @@ export async function findBindingPocketInternal(
      * must use `-c alphafold`, and that probabilities are calibrated per profile
      * and must not be compared across them. This app's pipeline feeds predicted
      * models (pLDDT in the B-factor column), so `alphafold` is the correct
-     * default here; `P2RANK_CONFIG_PROFILE` overrides it for experimental input.
+     * default here. The default profile is used only when the file itself declares X-ray
+     * diffraction (`selectP2RankProfile`); `P2RANK_CONFIG_PROFILE` overrides both.
      *
      * `-export_pocket_descriptors 1` makes P2Rank write a second CSV containing
      * real per-pocket geometry, including volume. Without it the predictions CSV
      * has no volume column at all, which is why the volume used to be a surface
      * point count multiplied by ten.
      */
-    const p2rankProfile = process.env.P2RANK_CONFIG_PROFILE?.trim() || "alphafold";
+    const p2rankProfile = selectP2RankProfile(pdbText);
     pocketProfile = p2rankProfile;
     let execArgs = [
       "predict",
