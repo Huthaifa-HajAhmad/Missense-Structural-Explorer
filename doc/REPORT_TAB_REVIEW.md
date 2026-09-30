@@ -59,6 +59,21 @@ and builds no verdict logic of its own. It adds no science and no combined score
 - Screenshots and layout were checked in light, dark and about 800px in Chromium; the printed and saved-HTML output was not
   viewed in other browsers.
 
+## PM2 strength: decision record
+
+Question: the engine weights `PM2` as Moderate. ClinGen SVI's 2020 recommendation, as I recall it, is to apply PM2 at Supporting.
+I could not open clinicalgenome.org or PubMed from the build environment, so **the recommendation is unverified here**.
+
+What I could check is what a change would do. I ran the engine's own `classifyVariant` on every combination of the other eleven
+codes it can emit (2,048), once with PM2 at Moderate and once with a Supporting-weight code in its place. **110 of the 2,048
+combinations change tier, all toward less pathogenic** (for example PVS1+PM2: Likely pathogenic to Uncertain; PM1+PM4+PM2: Likely
+pathogenic to Uncertain; PVS1+PM1+PM2: Pathogenic to Likely pathogenic). A variant that only has PM2 and PP3 (the NAE1 case) does not change.
+
+Decision: **no change to the engine in this work.** The Report prints the engine's strength as it is, so the document is honest about
+what was counted. To close it, someone opens the SVI PM2 recommendation (ClinGen, 2020), and if it says Supporting the engine change
+is small: emit `PM2` at Supporting weight in `criteria.ts`/`classifier.ts` and update the affected tests; it needs its own PR because it
+re-tiers about 5% of the code combinations.
+
 ## Sources
 
 - Richards S, et al. 2015. ACMG/AMP variant interpretation standards. Genet Med 17:405-424. doi:10.1038/gim.2015.30
