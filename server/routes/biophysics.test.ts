@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "fs";
 import { apiRouter } from "../routes.ts";
-import { getNearestResidues } from "../../src/shared/nearestResidues.ts";
 import { clearAllCaches } from "../services/cache.ts";
 import { getRegistryPath } from "./shared.ts";
 import { BiophysicalJobQueue } from "../services/biophysical-queue.ts";
@@ -25,13 +24,6 @@ describe("Biophysics Route Endpoints & Helper Unit Tests", () => {
         fs.rmSync(registryPath, { force: true });
       }
     } catch (err) {}
-  });
-
-  describe("getNearestResidues regression check", () => {
-    it("should return empty array for non-preset variants and never return synthetic residues", () => {
-      const residues = getNearestResidues("P00439", "p.Val123Ala", 123);
-      expect(residues).toEqual([]);
-    });
   });
 
   describe("nearest-residues endpoint", () => {

@@ -1,6 +1,10 @@
 import {
   biophysicalAnalysisResponseSchema,
-  BiophysicalAnalysisResponse
+  BiophysicalAnalysisResponse,
+  landscapeOverviewResponseSchema,
+  type LandscapeMeta,
+  type LandscapeOverview,
+  type LandscapeResidueItem
 } from "../shared/contracts";
 import { CLIENT_STREAM_IDLE_BUDGET_MS } from "../shared/timeouts";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
@@ -203,10 +207,11 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
       return biophysicalAnalysisResponseSchema.parse(finalPayload);
     },
 
+    /** `landscapeWindow` loads a named residue range instead of the default ±25 around the variant. */
     async getLandscapeData(
-      params: { gene: string; uniprotId: string; variant: string },
+      params: { gene: string; uniprotId: string; variant: string; landscapeWindow?: { start: number; end: number } },
       signal?: AbortSignal
-    ): Promise<{ landscapeData: any[] }> {
+    ): Promise<{ landscapeData: LandscapeResidueItem[]; landscapeMeta?: LandscapeMeta | null }> {
       const res = await fetchWithAuth("/api/v1/analyze-variant/landscape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -219,6 +224,24 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         throw new Error(errorMsg);
       }
       return await res.json();
+    },
+
+    /** Whole-protein residue summaries plus ClinVar / gnomAD / regional-constraint context. */
+    async getLandscapeOverview(
+      params: { gene: string; uniprotId: string; variant: string },
+      signal?: AbortSignal
+    ): Promise<LandscapeOverview> {
+      const res = await fetchWithAuth("/api/v1/analyze-variant/landscape-overview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+        timeout: 130000,
+        signal
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res, "Failed to get the landscape overview"));
+      }
+      return landscapeOverviewResponseSchema.parse(await res.json());
     },
 
     async getStructuralAssessments(

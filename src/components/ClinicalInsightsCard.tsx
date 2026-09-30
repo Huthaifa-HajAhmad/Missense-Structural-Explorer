@@ -94,7 +94,7 @@ function SafeResponsiveContainer({ children }: { children: React.ReactElement })
     </div>
   );
 }
-import { VARIANT_PRESETS, getNearestResidues } from "../data";
+import { VARIANT_PRESETS } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
 import type { MasterView } from "./MasterSidebar";
 import { resolveResidueShiftModel } from "../lib/residueShiftModel";

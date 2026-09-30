@@ -1,8 +1,9 @@
 import React from "react";
 
 /**
- * Shared 1D density track used by both landscape heatmaps, so the nucleotide and residue
- * panels read as one instrument: same gutter, height, stroke, guide style and gap semantics.
+ * Profile track for the AlphaGenome exon panel, kept generic so a residue panel can reuse it and read as
+ * one instrument: same gutter, height, stroke, guide style and gap semantics. It draws a line per
+ * series: a profile of per-position values, not a density.
  */
 
 export const DENSITY_TRACK_HEIGHT = 64;
@@ -28,6 +29,7 @@ export type DensityGuide = {
   color: string;
   label: string;
 };
+
 
 /**
  * Print a threshold exactly as it is compared in code. A guide labelled "AM 0.56" over a
@@ -92,6 +94,8 @@ export interface DensityTrackProps {
   emptyNotice?: string;
 }
 
+const TRACK_LABEL = "Profile";
+
 export function DensityTrack({
   series,
   guides = [],
@@ -114,7 +118,7 @@ export function DensityTrack({
       <div className="flex items-center pl-2 mb-1" style={{ height: DENSITY_COLLAPSED_HEIGHT }}>
         <div className={`${DENSITY_GUTTER_CLASS} text-[9px]`}>
           <span className="font-semibold uppercase tracking-wider text-cs-text-secondary">
-            1D Density
+            {TRACK_LABEL}
           </span>
         </div>
         <div
@@ -148,13 +152,13 @@ export function DensityTrack({
     <div className="flex items-center pl-2 mb-1">
       <div className={`${DENSITY_GUTTER_CLASS} flex flex-col justify-center`}>
         <span className="text-[9px] font-semibold uppercase tracking-wider text-cs-text-secondary">
-          1D Density
+          {TRACK_LABEL}
         </span>
-        <span className="text-[8px] font-mono normal-case tracking-normal text-cs-text-muted">
+        <span className="text-[9px] font-mono normal-case tracking-normal text-cs-text-muted">
           {unitLabel}
         </span>
         {modeLabel && (
-          <span className="text-[8px] font-mono normal-case tracking-normal text-cs-text-muted">
+          <span className="text-[9px] font-mono normal-case tracking-normal text-cs-text-muted">
             {modeLabel}
           </span>
         )}

@@ -547,7 +547,12 @@ export async function fetchAlphaGenomeRegionSaturation(
         return {
           pos: p.pos,
           ref: p.ref,
-          isExonic: Boolean(p.isExonic ?? (exonStart && exonEnd ? p.pos >= exonStart && p.pos <= exonEnd : true)),
+          // Provider's word first, then the exon bounds; with neither, a codon index is the only evidence
+          // a base is coding. Defaulting to `true` labelled splice-flank bases exonic.
+          isExonic: Boolean(
+            p.isExonic ??
+              (exonStart && exonEnd ? p.pos >= exonStart && p.pos <= exonEnd : typeof p.codonIndex === "number")
+          ),
           codonIndex: typeof p.codonIndex === "number" ? p.codonIndex : null,
           codonPosition: typeof p.codonPosition === "number" ? p.codonPosition : null,
           variants: variantsMap,
