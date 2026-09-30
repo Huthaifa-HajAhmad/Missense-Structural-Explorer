@@ -76,6 +76,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const addNotification = useVariantAnalysisStore(s => s.addNotification);
   const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
   const [copied, setCopied] = useState(false);
+  const [docxBusy, setDocxBusy] = useState(false);
 
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
   const isNarrativeBusy = propIsNarrativeLoading ?? storeIsNarrativeLoading;
@@ -131,6 +132,20 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const exportDocJson = () =>
     downloadBlob(`${stem}_report_document.json`, "application/json", JSON.stringify(renderReportJson(stamped()), null, 2));
   const exportPdf = () => printReport(stamped());
+  const exportDocx = async () => {
+    setDocxBusy(true);
+    try {
+      // Loaded on first use, so the Word library is not part of the app's initial bundle.
+      const { buildReportDocx } = await import("../report/exportDocx");
+      const blob = await buildReportDocx(stamped());
+      downloadBlob(`${stem}_evidence_report.docx`, blob.type, blob);
+    } catch (err) {
+      console.error("[Report] Word export failed:", err);
+      addNotification("error", "Could not build the Word file.");
+    } finally {
+      setDocxBusy(false);
+    }
+  };
   const copyText = async () => {
     try {
       await navigator.clipboard.writeText(renderReportText(stamped()));
@@ -206,10 +221,11 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         <h3 className="eyebrow" id="rpt-rail-export"><Download className="w-3.5 h-3.5" aria-hidden="true" />Export</h3>
         <ExportRow name="Web page (.html)" note="One file, opens anywhere, keeps the figures" action="Download" onClick={exportHtml} primary />
         <ExportRow name="PDF" note="Opens the print dialog; choose Save as PDF" action="Open" onClick={exportPdf} />
+        <ExportRow name="Word (.docx)" note="Editable headings, tables and page numbers" action={docxBusy ? "Building" : "Download"} onClick={exportDocx} disabled={docxBusy} />
         <ExportRow name="Copy as text" note="Plain text for a record or an email" action={copied ? "Copied" : "Copy"} onClick={copyText} />
         <ExportRow name="Document (.json)" note="This report as data, with your edits marked" action="Download" onClick={exportDocJson} />
         <ExportRow name="Evidence bundle (.json)" note="Full data and provenance, for reproducing" action="Download" onClick={exportBundle} />
-        <p className="rpt-p rpt-dim">Left-out blocks are hidden from every format. Word and PowerPoint are not built yet.</p>
+        <p className="rpt-p rpt-dim">Left-out blocks are hidden from every format. PowerPoint is not built yet.</p>
       </section>
 
       <section className="rail-section" aria-labelledby="rpt-rail-doc">

@@ -45,9 +45,9 @@ describe("ReportInspector", () => {
     expect(s.stability).toBe(false);
   });
 
-  it("does not offer a Word or PowerPoint button that does nothing", () => {
+  it("does not offer a PowerPoint button before it exists", () => {
     mount();
-    expect(screen.queryByRole("button", { name: /Word|PowerPoint/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /PowerPoint/ })).toBeNull();
   });
 
   it("names the input fields and warns against patient identifiers", () => {
