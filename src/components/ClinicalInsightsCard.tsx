@@ -6,7 +6,7 @@ import { toCanonicalDdg } from "../shared/engineStatus";
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
 import { formatAlleleFrequency } from "../shared/frequencyEvidence";
 // One ACMG criteria list and one provenance vocabulary for every surface that renders criteria.
-import { ACMG_SOURCE_LABEL, acmgCriteriaView } from "../shared/acmgCriteriaView";
+import { ACMG_SOURCE_LABEL, acmgCriteriaView, partitionCriteria } from "../shared/acmgCriteriaView";
 // The condensed clinical summary this view shows in place of the full narrative, plus the shared
 // "is this narrative AI-authored or rule-based" verdict — the payload carries both kinds of text.
 import { summariseNarrative } from "../shared/narrativeSummary";
@@ -488,15 +488,10 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         variant: variant,
         uniprotId: uniprotId || analysisState.result.metadata?.uniprotId || "",
         timestamp: new Date().toISOString(),
-        appVersion: "1.0.0",
-        models: {
-          foldx: "FoldX BuildModel 5.0",
-          dynamut2: "DynaMut2 Consensus",
-          ddmut: "DDMut Deep Learning",
-          rasp: "RaSP Precomputed",
-          thermompnn: "ThermoMPNN Neural Stability",
-          alphamissense: "AlphaMissense (via EVE/REVEL/AM)"
-        }
+        // Model and version strings were literals here ("DynaMut2 Consensus", "RaSP Precomputed",
+        // appVersion "1.0.0") that named engines whether or not they served the run. Only what the
+        // payload records is exported.
+        narrativeModel: (analysisState.result.insights as { model?: string } | undefined)?.model ?? null
       },
       inputParameters: {
         gene,
@@ -965,7 +960,12 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                       {/* Unified ACMG Consensus Verdict Badge */}
                       {(() => {
                         const verdict = analysisState.result.insights?.acmgVerdict || analysisState.result.ruleBasedInsights?.acmgVerdict || "Variant of Uncertain Significance (VUS)";
-                        const criteria = analysisState.result.insights?.acmgCriteria || analysisState.result.ruleBasedInsights?.acmgCriteria || [];
+                        // Engine codes only: the tier is computed from these, and the merged list also holds model
+                        // proposals the verdict never used.
+                        const criteria = partitionCriteria(acmgCriteriaView(
+                          analysisState.result.insights?.acmgCriteria,
+                          analysisState.result.ruleBasedInsights?.acmgCriteria
+                        )).engine;
                         const codesMet = criteria.map(c => c.code).join(", ");
                         
                         const isPath = verdict.includes("Pathogenic");

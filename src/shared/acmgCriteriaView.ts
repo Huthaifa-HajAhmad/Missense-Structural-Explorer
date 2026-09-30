@@ -52,9 +52,54 @@ export interface AcmgCriteriaView {
  * stayed invisible: a reader comparing the panes had to assume the words meant the same thing.
  */
 export const ACMG_SOURCE_LABEL: Record<AcmgCriteriaSource, string> = {
-  database_verified: "Database-verified",
-  ai_suggested: "AI-inferred",
+  // "Database-verified" claimed a check nothing performs: the engine computes the code from retrieved
+  // values, it does not verify it against a database. Named for what it is.
+  database_verified: "Rule engine",
+  ai_suggested: "Model-proposed",
 };
+
+/**
+ * The ACMG codes the rule engine evaluates (`server/services/prediction/acmg/criteria.ts`).
+ *
+ * A model proposal for one of these is dropped from every count and list: the engine already ruled on
+ * the code, from data the model was never given. For NAE1 p.Asp116Gly the model proposed PM2 while the
+ * prompt held no allele frequency (it said so itself: "counts not provided in the prompt"), and the
+ * merge kept the proposal because the engine had not FIRED PM2 — so a guess overrode "not met".
+ * Keep this list equal to the codes `evaluateAcmgCriteria` can emit; a test reads the source to check.
+ */
+export const ENGINE_OWNED_CODES: ReadonlySet<string> = new Set([
+  "PVS1", "PS1", "PM1", "PM2", "PM4", "PP2", "PP3", "BA1", "BS1", "BS2", "BP3", "BP4",
+]);
+
+/** "PP3_Moderate" → "PP3". Strength suffixes do not change which rule owns a code. */
+export function baseAcmgCode(code: string): string {
+  return code.split("_")[0].toUpperCase();
+}
+
+export function isEngineOwnedCode(code: string): boolean {
+  return ENGINE_OWNED_CODES.has(baseAcmgCode(code));
+}
+
+export interface PartitionedCriteria {
+  /** Codes the rule engine computed. The only ones that count toward the tier. */
+  engine: AcmgCriteriaView[];
+  /** Model proposals for codes the engine cannot evaluate. Shown, never counted. */
+  proposals: AcmgCriteriaView[];
+  /** Model proposals for engine-owned codes, dropped. Reported as a count, not shown as evidence. */
+  droppedEngineOwned: AcmgCriteriaView[];
+}
+
+export function partitionCriteria(criteria: ReadonlyArray<AcmgCriteriaView>): PartitionedCriteria {
+  const engine: AcmgCriteriaView[] = [];
+  const proposals: AcmgCriteriaView[] = [];
+  const droppedEngineOwned: AcmgCriteriaView[] = [];
+  for (const c of criteria) {
+    if (c.source === "database_verified") engine.push(c);
+    else if (isEngineOwnedCode(c.code)) droppedEngineOwned.push(c);
+    else proposals.push(c);
+  }
+  return { engine, proposals, droppedEngineOwned };
+}
 
 /** `undefined` for an item whose source the payload did not record — never guessed. */
 export function normaliseCriteriaSource(source: string | undefined | null): AcmgCriteriaSource | undefined {

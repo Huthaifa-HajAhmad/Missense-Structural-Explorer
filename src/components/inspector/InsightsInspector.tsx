@@ -2,7 +2,7 @@ import React from "react";
 import { Sparkles, Bot, ShieldAlert, CheckCircle2, XCircle, RotateCcw, FileText } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../../context/VariantAnalysisContext";
-import { ACMG_SOURCE_LABEL, acmgCriteriaView } from "../../shared/acmgCriteriaView";
+import { ACMG_SOURCE_LABEL, acmgCriteriaView, partitionCriteria } from "../../shared/acmgCriteriaView";
 import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
 
 interface InsightsInspectorProps {
@@ -56,7 +56,7 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({
             ACMG Criteria Audit Trace
           </span>
           <span className="text-[10px] font-mono font-bold text-cs-text-accent">
-            {uniqueCriteria.length} Met
+            {partitionCriteria(uniqueCriteria).engine.length} Met
           </span>
         </div>
 

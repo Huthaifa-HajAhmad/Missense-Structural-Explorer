@@ -66,7 +66,7 @@ describe("acmgCriteriaView", () => {
     const pp3 = view.find(c => c.code === "PP3");
 
     expect(pp3?.source).toBe("database_verified");
-    expect(ACMG_SOURCE_LABEL[pp3!.source]).toBe("Database-verified");
+    expect(ACMG_SOURCE_LABEL[pp3!.source]).toBe("Rule engine");
     expect(ACMG_SOURCE_LABEL[pp3!.source]).not.toBe(ACMG_SOURCE_LABEL.ai_suggested);
   });
 
@@ -156,5 +156,29 @@ describe("acmgCriteriaView", () => {
   it("counts each provenance for the rail's header", () => {
     const counts = countBySource(acmgCriteriaView(MERGED_INSIGHTS, RAW_RULE_BASED));
     expect(counts).toEqual({ total: 4, database: 3, ai: 1 });
+  });
+});
+
+describe("partitionCriteria: engine-owned codes", () => {
+  it("drops a model proposal for a code the engine owns and keeps one it cannot compute", async () => {
+    const { partitionCriteria, isEngineOwnedCode } = await import("../acmgCriteriaView");
+    const view = acmgCriteriaView([
+      { code: "PP3", reason: "3/6 predictors", source: "database_verified" },
+      { code: "PM2", reason: "counts not provided in the prompt", source: "ai_suggested" },
+      { code: "PS3", reason: "assay described in a cited abstract", source: "ai_suggested" },
+    ]);
+    const { engine, proposals, droppedEngineOwned } = partitionCriteria(view);
+    expect(engine.map(c => c.code)).toEqual(["PP3"]);
+    expect(proposals.map(c => c.code)).toEqual(["PS3"]);
+    expect(droppedEngineOwned.map(c => c.code)).toEqual(["PM2"]);
+    expect(isEngineOwnedCode("PP3_Moderate")).toBe(true);
+  });
+
+  it("owns exactly the codes the engine can emit", async () => {
+    const fs = await import("node:fs");
+    const { ENGINE_OWNED_CODES } = await import("../acmgCriteriaView");
+    const src = fs.readFileSync("server/services/prediction/acmg/criteria.ts", "utf8");
+    const emitted = new Set([...src.matchAll(/code:\s*"([A-Z]{2,3}\d)/g)].map(m => m[1]));
+    for (const code of emitted) expect(ENGINE_OWNED_CODES.has(code), code).toBe(true);
   });
 });

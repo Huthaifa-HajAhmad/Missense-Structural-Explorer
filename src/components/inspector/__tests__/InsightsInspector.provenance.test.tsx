@@ -156,20 +156,21 @@ describe("Insights rail — ACMG criteria provenance", () => {
     // "DATABASE-VERIFIED" chip the card beside it printed for the same code.
     expect(screen.queryByText(/AI Inferred/i)).not.toBeInTheDocument();
     // Two of the three came from the rule engine; only PS3 is the model's.
-    expect(screen.getAllByText("Database-verified")).toHaveLength(2);
-    expect(screen.getAllByText("AI-inferred")).toHaveLength(1);
+    expect(screen.getAllByText("Rule engine")).toHaveLength(2);
+    expect(screen.getAllByText("Model-proposed")).toHaveLength(1);
   });
 
-  it("still labels a model-proposed code as AI-inferred", () => {
+  it("still labels a model-proposed code as model-proposed", () => {
     renderRail();
-    expect(screen.getByText("AI-inferred")).toBeInTheDocument();
+    expect(screen.getByText("Model-proposed")).toBeInTheDocument();
   });
 
   it("counts every criterion it renders, including the ones past a former scroll cut-off", () => {
     renderRail();
 
-    // The header said "3 Met" while the max-height container showed two cards and hid the third.
-    expect(screen.getByText("3 Met")).toBeInTheDocument();
+    // The header once said "3 Met" while a scroll container hid one card. It now counts engine codes
+    // only (two here); the model's PS3 is listed but not counted toward the tier.
+    expect(screen.getByText("2 Met")).toBeInTheDocument();
     for (const code of ["PP3", "PP2", "PS3"]) {
       expect(screen.getByText(code)).toBeInTheDocument();
     }
@@ -186,7 +187,7 @@ describe("Insights rail — ACMG criteria provenance", () => {
     });
 
     expect(screen.getByText("PM2")).toBeInTheDocument();
-    expect(screen.getByText("Database-verified")).toBeInTheDocument();
-    expect(screen.queryByText("AI-inferred")).not.toBeInTheDocument();
+    expect(screen.getByText("Rule engine")).toBeInTheDocument();
+    expect(screen.queryByText("Model-proposed")).not.toBeInTheDocument();
   });
 });
