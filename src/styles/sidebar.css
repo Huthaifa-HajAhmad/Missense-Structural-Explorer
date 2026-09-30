@@ -253,12 +253,17 @@
   to { opacity: 1; }
 }
 
-/* Rows with a description are two lines: the icon rides on the label's 20px line, locked to the
-   title it belongs to. The trailing markers used to ride there too — and on a two-line row a
-   6px dot at the label line floats ~9px above the row's middle, which read as off centre. A
-   trailing status belongs to the ROW, so it centres on the full block instead (single-line rows
-   were already centred; this changes nothing for them). */
-.ms-nav-btn > .ms-nav-icon { margin-top: 2px; }
+/* Everything in a row centres on the ROW, not on the title.
+   Rows with a description are two lines, and anything riding the label's 20px line floats ~9px
+   above the row's middle — first the status dot, now the icon, both read as off centre next to a
+   two-line block. Standard list anatomy centres the trailing status AND the leading icon on the
+   full block, with the label + description stack beside them. Single-line rows were already
+   effectively centred, so nothing moves there — including the collapsed rail, every footer row
+   and the Search row. */
+.ms-nav-btn > .ms-nav-icon {
+  margin-top: 0;
+  align-self: center;
+}
 /* [data-status] out-specifies the per-state rules below, so the complete state's 1px margin
    shorthand can never re-nudge the dot off centre. */
 .ms-nav-btn > .ms-step[data-status],
