@@ -24,6 +24,11 @@ export interface RuleBasedInsights {
  * point scale either (there, benign Supporting is −1, not −2), so never sum them into a score.
  *   PVS1 = 8   PS = 4   PM = 2   PP = 1
  *   BA1  = -8  BS = -4  BP = -2
+ *
+ * PM2 is weighed as Supporting (PP = 1), not Moderate: the ClinGen SVI recommendation for PM2
+ * (version 1.0, September 2020) reduces absence from population databases to PM2_Supporting. The
+ * code stays "PM2" on the wire; its strength is what the engine weighs it at, and every surface
+ * reads that strength from `codeWeight`.
  */
 export const WEIGHT = {
   PVS1: 8, PS: 4, PM: 2, PP: 1,
@@ -32,8 +37,12 @@ export const WEIGHT = {
 
 export type WeightKey = keyof typeof WEIGHT;
 
+/** The one PM-family code applied below its Richards 2015 strength (ClinGen SVI PM2 recommendation, 2020). */
+const isSupportingPm = (code: string) => code === "PM2" || code === "PM2_Supporting";
+
 export function codeWeight(code: string): number {
   if (code === "PVS1") return WEIGHT.PVS1;
+  if (isSupportingPm(code)) return WEIGHT.PP;
   if (code === "PVS1_Strong" || code === "PP3_Strong") return WEIGHT.PS;
   if (code === "PVS1_Moderate" || code === "PP3_Moderate") return WEIGHT.PM;
   if (code.startsWith("PS")) return WEIGHT.PS;
@@ -58,8 +67,8 @@ export function classifyVariant(criteria: ACMGItem[]): string {
 
   const nPVS = pathogenic.filter(c => c.code === "PVS1").length;
   const nPS = pathogenic.filter(c => c.code.startsWith("PS") || c.code === "PVS1_Strong" || c.code === "PP3_Strong").length;
-  const nPM = pathogenic.filter(c => c.code.startsWith("PM") || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate").length;
-  const nPP = pathogenic.filter(c => c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate").length;
+  const nPM = pathogenic.filter(c => (c.code.startsWith("PM") && !isSupportingPm(c.code)) || c.code === "PVS1_Moderate" || c.code === "PP3_Moderate").length;
+  const nPP = pathogenic.filter(c => isSupportingPm(c.code) || (c.code.startsWith("PP") && c.code !== "PP3_Strong" && c.code !== "PP3_Moderate")).length;
   const nBS = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Moderate").length;
   const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Moderate").length;
 
@@ -73,11 +82,12 @@ export function classifyVariant(criteria: ACMGItem[]): string {
     (nPS >= 1 && nPM >= 1 && nPP >= 4);
 
   // ---- Likely Pathogenic ----
-  // PVS1 + 1 PM is the only PVS1 route here: PVS1 + ≥2 PP is Pathogenic above, and PVS1 + 1 PP meets
-  // no Table 5 row, so it stays VUS.
+  // PVS1 + 1 PM is Richards LP (i). PVS1 + 1 PP is the ClinGen SVI PM2 recommendation's added combination
+  // (1 Very strong + 1 Supporting = Likely pathogenic, Sept 2020); without it, lowering PM2 to Supporting
+  // would demote every null variant whose only other evidence is rarity. PVS1 + ≥2 PP is Pathogenic above.
   const isLikelyPathogenic =
     !isPathogenic && (
-      (nPVS >= 1 && nPM >= 1) ||
+      (nPVS >= 1 && (nPM >= 1 || nPP >= 1)) ||
       (nPS >= 1 && nPM >= 1 && nPM <= 2) ||
       (nPS >= 1 && nPP >= 2) ||
       nPM >= 3 ||

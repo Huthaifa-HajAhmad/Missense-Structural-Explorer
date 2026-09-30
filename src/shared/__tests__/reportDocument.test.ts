@@ -96,7 +96,8 @@ describe("classification", () => {
   });
 
   it("says what a bare PM code weighs in the tier instead of leaving the strength blank", () => {
-    expect(strengthWord("PM2")).toBe("Moderate");
+    expect(strengthWord("PM2")).toBe("Supporting"); // ClinGen SVI 2020 PM2_Supporting
+    expect(strengthWord("PM1")).toBe("Moderate");
     expect(strengthWord("PP3")).toBe("Supporting");
     expect(strengthWord("BP4")).toBe("Supporting");
     expect(strengthWord("BA1")).toBe("Stand-alone");
