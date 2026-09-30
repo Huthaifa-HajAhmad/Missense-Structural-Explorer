@@ -57,8 +57,11 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * PVS1 + supporting evidence (Richards 2015 Table 5 (i)(c)/(d)), the ClinVar "Conflicting" reading
  * (PS1 and the conservative-weighting gate) and the narrative prompt (schema v4) all changed, so a
  * bundle stored under the old rules would keep showing a verdict the current engine no longer gives.
+ *
+ * v4.3: PM2 is weighed at Supporting (ClinGen SVI 2020) and PVS1 + 1 Supporting is Likely pathogenic,
+ * which re-tiers stored verdicts the same way.
  */
-export const CACHE_VERSION = "v4.2";
+export const CACHE_VERSION = "v4.3";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 

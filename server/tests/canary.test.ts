@@ -16,6 +16,10 @@ interface CanaryVariantBenchmark {
 }
 
 /**
+ * Verdicts: these three were "Pathogenic" while PM2 weighed Moderate (PS + 2 PM + 2 PP). PM2 is now
+ * Supporting (ClinGen SVI 2020), so the same evidence is PS + 1 PM + 3 PP, which meets no Pathogenic
+ * row in Richards Table 5 and is Likely Pathogenic. The criteria are unchanged; only the tier is.
+ *
  * The PM1 sites below carry `ECO:0000269` (experimental) because PM1 now counts only experimentally
  * evidenced sites (`src/shared/functionalSites.ts`); an untagged site models "no evidence cited".
  */
@@ -23,7 +27,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "PAH",
     variant: "p.Arg408Trp",
-    expectedVerdict: "Pathogenic",
+    expectedVerdict: "Likely Pathogenic",
     expectedCriteria: ["PS1", "PM1", "PM2", "PP2", "PP3"],
     mockData: {
       clinvar: {
@@ -48,7 +52,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "TP53",
     variant: "p.Arg273His",
-    expectedVerdict: "Pathogenic",
+    expectedVerdict: "Likely Pathogenic",
     expectedCriteria: ["PS1", "PM1", "PM2", "PP2", "PP3"],
     mockData: {
       clinvar: {
@@ -73,7 +77,7 @@ const GOLDEN_BENCHMARK_SET: CanaryVariantBenchmark[] = [
   {
     gene: "BRCA1",
     variant: "p.Cys61Gly",
-    expectedVerdict: "Pathogenic",
+    expectedVerdict: "Likely Pathogenic",
     expectedCriteria: ["PS1", "PM1", "PM2", "PP2", "PP3"],
     mockData: {
       clinvar: {

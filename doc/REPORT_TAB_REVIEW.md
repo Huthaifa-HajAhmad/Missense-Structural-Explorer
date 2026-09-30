@@ -70,10 +70,28 @@ codes it can emit (2,048), once with PM2 at Moderate and once with a Supporting-
 combinations change tier, all toward less pathogenic** (for example PVS1+PM2: Likely pathogenic to Uncertain; PM1+PM4+PM2: Likely
 pathogenic to Uncertain; PVS1+PM1+PM2: Pathogenic to Likely pathogenic). A variant that only has PM2 and PP3 (the NAE1 case) does not change.
 
-Decision: **no change to the engine in this work.** The Report prints the engine's strength as it is, so the document is honest about
+**Decision reversed 2026-09-30: PM2 is now applied at Supporting** (see the "Resolution" block below).
+
+Original decision (kept for the record): **no change to the engine in this work.** The Report prints the engine's strength as it is, so the document is honest about
 what was counted. To close it, someone opens the SVI PM2 recommendation (ClinGen, 2020), and if it says Supporting the engine change
 is small: emit `PM2` at Supporting weight in `criteria.ts`/`classifier.ts` and update the affected tests; it needs its own PR because it
 re-tiers about 5% of the code combinations.
+
+### Resolution (2026-09-30)
+
+The SVI recommendation was verified (Version 1.0, approved September 2020: PM2 is reduced from Moderate to Supporting) and adopted, together with
+the combination that recommendation adds: 1 Very strong + 1 Supporting = Likely pathogenic. Without that rule, lowering PM2 would demote every null
+variant whose only other evidence is rarity.
+
+- `codeWeight("PM2")` is Supporting; the code stays `PM2` on the wire. Every surface reads the strength from `codeWeight`, so the Insights lane, the Report
+  table and the criteria list print "Supporting". The PM2 reason text says so.
+- Re-tiering, measured with the engine's own `classifyVariant` over every subset of the 13 criteria codes it can emit (8,192 sets; the 110-of-2,048 figure
+  above was taken under the earlier PVS1 combining rule and is superseded): **220 change tier.** 188 involve PM2 and move toward less pathogenic
+  (e.g. PS1 + PM2: Likely pathogenic to Uncertain; PM1 + PM2 + PM4: Likely pathogenic to Uncertain). 32 move toward more pathogenic through the new PVS1 + Supporting
+  rule (e.g. PVS1 + PP3: Uncertain to Likely pathogenic). NAE1 (PM2 + PP3) is unchanged.
+- The three golden canary variants (PS1 + PM1 + PM2 + PP2 + PP3) are now Likely pathogenic, not Pathogenic: the same evidence is 1 Strong + 1 Moderate + 3 Supporting.
+- Stored client bundles are discarded (`CACHE_VERSION` v4.3) so no surface replays a verdict from the old weights.
+- No Richards-Moderate toggle was added. It would make the same evidence carry two tiers depending on a setting that is not recorded in the report.
 
 ## Sources
 

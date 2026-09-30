@@ -227,7 +227,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
         <details className="rail-notes">
           <summary>Method notes</summary>
           <ul>
-            <li>ClinGen SVI (2020) recommends PM2 at <em>Supporting</em> strength; this engine records it as PM2 (moderate).</li>
+            <li>PM2 is applied at <em>Supporting</em> strength, as the ClinGen SVI (2020) recommends; Richards 2015 had it Moderate. Absence from a database is weak evidence on its own.</li>
             <li>BS1 uses a fixed {(FREQ.tooCommonForDisorder * 100).toFixed(0)}% cut-point, not a disorder-specific maximum credible allele frequency.</li>
             <li>The rule reads gnomAD&apos;s raw grouped-maximum AF, not the filtering allele frequency (FAF95) ClinGen recommends for BA1/BS1.</li>
             <li>A gnomAD &ldquo;no record&rdquo; is not checked against site coverage; a poorly covered site can also return no record.</li>

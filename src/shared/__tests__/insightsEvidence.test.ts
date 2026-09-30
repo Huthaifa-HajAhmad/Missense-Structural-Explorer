@@ -98,6 +98,8 @@ describe("consolidated fields a report can reuse", () => {
     expect(pp3.strength).toBe("Supporting");
     // The model's PM2 never turns the engine's row into "met".
     expect(ev.criteria.find(c => c.code === "PM2")!.state).not.toBe("met");
+    // PM2 is weighed at Supporting (ClinGen SVI 2020); the row must say what the engine weighs.
+    expect(ev.criteria.find(c => c.code === "PM2")!.strength).toBe("Supporting");
     expect(ev.criteria.filter(c => c.state === "met").map(c => c.code)).toEqual(["PP3"]);
   });
 

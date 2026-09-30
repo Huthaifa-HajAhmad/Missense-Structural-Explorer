@@ -374,7 +374,7 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         if (!skipPathogenicComp) {
           criteria.push({
             code: "PM2",
-            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% threshold for ${inheritanceModeText} inheritance)${fallbackSuffix}.`,
+            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% threshold for ${inheritanceModeText} inheritance)${fallbackSuffix}. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).`,
           });
         }
       }
