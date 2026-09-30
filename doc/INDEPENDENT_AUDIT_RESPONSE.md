@@ -67,7 +67,11 @@ always returned VUS for it and still does. The ClinGen SVI PM2 recommendation *p
 PVS1 + 1 Supporting Likely Pathogenic. That rule is part of decision D1 below, not of a Richards-faithful
 engine, so it was not introduced silently.
 
-## Decisions that remain with the owner
+## Decisions (resolved in the follow-up PR)
+
+Both were closed in `feat/pm2-supporting-and-svi-pvs1-rule`: **D1 adopted** (PM2 at Supporting plus the SVI PVS1 + Supporting rule; measured effect and
+canary changes in `REPORT_TAB_REVIEW.md`, "Resolution") and **D2 decided as "keep"** (the engine continues to emit bare Supporting PP3, so the PP3 + PM1
+cap stays dormant; the dormancy is pinned by a test). The original text of each decision follows.
 
 **D1 — PM2 strength (audit HIGH-A1; `REPORT_TAB_REVIEW.md` decision record).** *Verified now*: ClinGen SVI
 Recommendation for PM2, Version 1.0 (approved September 2020), reduces PM2 from Moderate to **Supporting**

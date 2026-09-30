@@ -75,7 +75,7 @@ The analysis container processes inputs in real time:
 Provides automated screening for several variant rules based on the ACMG guideline schemas:
 * **PM1 (Hotspot Domain)**: Flags if the residue sits in critical binding domains or mutational hotspots.
 * **PP3 (In Silico Validation)**: Automatically aggregates multi-tool scoring.
-* **PM2 (Population Rarity)**: Assesses frequency thresholds.
+* **PM2 (Population Rarity)**: Assesses frequency thresholds. Applied at Supporting strength (ClinGen SVI 2020), not Richards 2015 Moderate.
 * Every code is accompanied by a concise, biophysically sound clinical justification.
 
 ---

@@ -518,7 +518,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     ["BA1", "clinical", "population"], ["BS1", "clinical", "population"], ["BS2", "clinical", "population"],
     ["BP3", null, null], ["BP4", "predictors", "computational"],
   ];
-  const DEFAULT_STRENGTH: Record<string, string> = { PVS1: "Very strong", PS1: "Strong", PM1: "Moderate", PM2: "Moderate", PM4: "Moderate", PP2: "Supporting", PP3: "Supporting", BA1: "Stand-alone", BS1: "Strong", BS2: "Strong", BP3: "Supporting", BP4: "Supporting" };
+  const DEFAULT_STRENGTH: Record<string, string> = { PVS1: "Very strong", PS1: "Strong", PM1: "Moderate", PM2: "Supporting", PM4: "Moderate", PP2: "Supporting", PP3: "Supporting", BA1: "Stand-alone", BS1: "Strong", BS2: "Strong", BP3: "Supporting", BP4: "Supporting" };
   const criteria: CriterionRow[] = OWNERS.map(([base, tab, laneKey]) => {
     const met = engineCodes.find(c => baseAcmgCode(c.code) === base);
     if (met) return { code: met.code, strength: strengthOf(met.code), state: "met" as const, reason: met.reason, tab };
