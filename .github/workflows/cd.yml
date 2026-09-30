@@ -21,6 +21,16 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Hard ceiling on the whole job. Cutting the confirmation window (see DEPLOY_CONFIRM_SECONDS
+    # below) leaves roughly 20 s of real work, but the cost that actually hurt sat OUTSIDE that
+    # window: in run 36710716430 the SSH step spent 40 min 31 s between drone-ssh printing its
+    # version banner (11:47:45) and the first line of the remote script (12:28:16) — the VM was too
+    # busy to finish an SSH session — and the step still reported success 43 min later. The action's
+    # `timeout` input only bounds the initial dial, not the handshake after it, so nothing here
+    # stopped it. 6 min leaves room for a slow-but-alive VM (a 180 s workflow_dispatch window plus
+    # setup is ~4 min) while refusing to bill an hour for a VM that is not answering. A red run at
+    # this limit means "the deploy was never dispatched", which is what the runs list should show.
+    timeout-minutes: 6
     if: >-
       github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -34,11 +44,21 @@ jobs:
       # something: a push that lands while CI is still running is not deployed by this run.
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       # How long the runner waits for the VM to report a verdict before it stops watching.
-      # Measured 2026-09-29: a deploy against a warm Docker layer cache finishes in ~110s, so the
-      # common case still completes INSIDE this window and is verified end to end. Only the cold
-      # builds — observed at 13 and 21 minutes — run past it, and those are exactly the runs the
-      # runner must not be billed for. Tune here, not in the step.
-      DEPLOY_CONFIRM_SECONDS: "180"
+      #
+      # Shortened 2026-09-30 from a flat "180". Measured on the five most recent CD runs: the SSH
+      # step took 186/187/197/207/237 s and NOT ONE of them reported DEPLOY_OK inside the window.
+      # Every run sat out the full 180 s and left through the "still building" branch below, so the
+      # window was buying zero verification while costing ~180 s of billed runner time per deploy
+      # (~600 of the 1,800-minute month at 202 deploys — a third of the budget spent asleep).
+      #
+      # A warm-cache deploy really does finish in ~110 s, but the runner no longer watches the build,
+      # so waiting here is not what makes a deploy safe: `depends_on: condition: service_healthy`
+      # plus Docker's build-before-replace is. What the window is still good for is failing FAST on
+      # an error that happens on the VM immediately — invalid compose file, no docker daemon, the
+      # superseded-revision guard tripping — and all of those surface in seconds, never minutes.
+      # So a push deploy waits 30 s, while a manual workflow_dispatch keeps the long window: there a
+      # human pressed the button and asked for the verdict. Tune here, not in the step.
+      DEPLOY_CONFIRM_SECONDS: ${{ github.event_name == 'workflow_dispatch' && '180' || '30' }}
     steps:
       - name: Require deploy credentials
         # A skipped deploy is indistinguishable from a successful one in the runs list, which is
