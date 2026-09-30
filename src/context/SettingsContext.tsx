@@ -72,12 +72,21 @@ function readTransientCredentials(): Partial<TransientCredentials> {
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
 
+  /**
+   * First run lands on LIGHT.
+   *
+   * Dark used to be the default, so a first-time visitor on the deployed workspace was dropped
+   * into dark mode unasked — and since the choice is written to `theme` on first render (below),
+   * that first impression then persisted as if the reader had chosen it. Only the fallback
+   * changes: a stored `theme` still wins, including an explicit `system` that follows the OS.
+   * Nobody loses a preference they made; only the unasked-for guess does.
+   */
   const [theme, setTheme] = useState<ThemeMode>(() => {
     try {
       const saved = localStorage.getItem(THEME_STORAGE_KEY);
-      return saved === "light" || saved === "dark" || saved === "system" ? saved : "dark";
+      return saved === "light" || saved === "dark" || saved === "system" ? saved : "light";
     } catch {
-      return "dark";
+      return "light";
     }
   });
 
