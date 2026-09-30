@@ -191,3 +191,14 @@ describe("energeticsEvidence — RaSP coverage and source come from the installe
     expect(legacy.readings.find(r => r.key === "rasp")!.note).toBeNull();
   });
 });
+
+describe("energeticsEvidence — marks follow the display unit", () => {
+  it("converts marks and axis ends to kJ/mol instead of leaving kcal beside kJ values", async () => {
+    const { markText, DDG_AXIS } = await import("../energeticsEvidence");
+    expect(markText(1.5)).toBe("+1.5");
+    expect(markText(-3)).toBe("−3");
+    expect(markText(1.5, "kJ/mol")).toBe("+6.3");
+    expect(markText(DDG_AXIS.max, "kJ/mol")).toBe("+20.9");
+    expect(markText(DDG_AXIS.min, "kJ/mol")).toBe("−12.6");
+  });
+});

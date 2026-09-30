@@ -36,6 +36,7 @@ import {
   describeProvenance,
   formatDdg,
   getEngine,
+  KJ_PER_KCAL,
   summarizeCoverage,
   ENGINE_STATE_LABELS,
   MIN_ENGINES_FOR_CONSENSUS,
@@ -247,6 +248,17 @@ export function signedDdg(v: number | null, unit: EnergyUnit = "kcal/mol"): stri
   if (v === null) return "—";
   const text = formatDdg(v, unit);
   return v > 0 ? `+${text}` : text.replace(/^-/, "−");
+}
+
+/**
+ * A mark or axis end in the DISPLAY unit. Marks are stored in canonical kcal/mol; the table showed
+ * "local mark +1.5" and a "−3 … +5 kcal/mol" axis beside values already converted to kJ/mol, so a user
+ * on kJ read three different scales as one.
+ */
+export function markText(kcal: number, unit: EnergyUnit = "kcal/mol", signed = true): string {
+  const v = unit === "kJ/mol" ? kcal * KJ_PER_KCAL : kcal;
+  const text = Number.isInteger(v) ? String(v) : unit === "kJ/mol" ? v.toFixed(1) : String(v);
+  return signed && v > 0 ? `+${text}` : text.replace(/^-/, "−");
 }
 
 /** A list read aloud: "A", "A and B", "A, B and C". */

@@ -3,7 +3,8 @@ import React from "react";
 import { render, screen, within, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import EnergeticsView from "../EnergeticsView";
-import { energeticsAgreementText } from "../../shared/energeticsEvidence";
+import { energeticsAgreementText, buildEnergeticsEvidence } from "../../shared/energeticsEvidence";
+import { DdgRuler } from "../energetics/DdgRuler";
 import { SettingsProvider } from "../../context/SettingsContext";
 
 /**
@@ -238,7 +239,7 @@ describe("EnergeticsView — a fully populated run", () => {
     renderView(settled);
     const rulers = screen.getAllByRole("img");
     expect(rulers).toHaveLength(6);
-    expect(rulers[0].getAttribute("aria-label")).toContain("on a -3 to +5 kcal/mol axis");
+    expect(rulers[0].getAttribute("aria-label")).toContain("on a −3 to +5 kcal/mol axis");
     expect(rulers[0].getAttribute("aria-label")).toContain("local destabilizing mark +1.5");
   });
 
@@ -415,3 +416,16 @@ describe("EnergeticsView — FoldX progress banner", () => {
   });
 });
 
+
+describe("DdgRuler — one unit per row", () => {
+  it("labels the axis and the mark in kJ/mol when the value is shown in kJ/mol", () => {
+    const foldx = buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.0, foldxMean: 2.0 }, foldingStatus: "success" }).readings[0];
+    const { container } = render(<DdgRuler reading={foldx} unit="kJ/mol" />);
+    const label = screen.getByRole("img").getAttribute("aria-label")!;
+    expect(label).toContain("+8.37 kJ/mol");
+    expect(label).toContain("−12.6 to +20.9 kJ/mol axis");
+    expect(label).toContain("local destabilizing mark +6.3");
+    expect(label).not.toContain("kcal");
+    expect(container.querySelector(".nrg-ruler__axis")!.textContent).toBe("−12.60+20.9");
+  });
+});

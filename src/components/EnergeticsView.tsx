@@ -13,6 +13,8 @@ import {
   buildEnergeticsEvidence,
   energeticsSummary,
   groupEnergeticsReadings,
+  markText,
+  DDG_AXIS,
   signedDdg,
   type EnergeticsEvidence,
   type EnergeticsReading,
@@ -339,7 +341,7 @@ function ReadingRow({
             <span className="ev-tier" data-tone={reading.callTone}>
               {reading.callLabel ?? "—"}
             </span>
-            {reading.counted && <span className="nrg-call__sub">local mark +{reading.strongMark}</span>}
+            {reading.counted && <span className="nrg-call__sub">local mark {markText(reading.strongMark, unit)}</span>}
           </>
         ) : (
           <span className="ev-tier" data-tone={running ? "neutral" : reading.outcome.tone === "danger" ? "danger" : reading.outcome.tone === "warn" ? "warning" : "muted"}>
@@ -539,7 +541,7 @@ const EnergeticsView = memo(function EnergeticsView({
                 <tr>
                   <th scope="col">Engine</th>
                   <th scope="col" className="nrg-num">ΔΔG</th>
-                  <th scope="col" title="Canonical ΔΔG on a shared −3 to +5 kcal/mol axis, with the engine's own local marks dashed">
+                  <th scope="col" title={`Canonical ΔΔG on a shared ${markText(DDG_AXIS.min, unit)} to ${markText(DDG_AXIS.max, unit)} ${unit} axis, with the engine's own local marks dashed`}>
                     Position on ΔΔG axis
                   </th>
                   <th scope="col" className="nrg-status">Call</th>
