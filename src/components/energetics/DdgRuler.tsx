@@ -1,5 +1,5 @@
 import React from "react";
-import { DDG_AXIS, signedDdg, type EnergeticsReading } from "../../shared/energeticsEvidence";
+import { DDG_AXIS, markText, signedDdg, type EnergeticsReading } from "../../shared/energeticsEvidence";
 import type { EnergyUnit } from "../../shared/engineStatus";
 
 /**
@@ -23,8 +23,8 @@ export function DdgRuler({ reading, unit = "kcal/mol" }: { reading: EnergeticsRe
   const v = reading.ddg;
   const offScale = v !== null && (v < DDG_AXIS.min || v > DDG_AXIS.max);
   const describe = [
-    `${reading.name} ${signedDdg(v, unit)} on a ${DDG_AXIS.min} to +${DDG_AXIS.max} kcal/mol axis`,
-    `local destabilizing mark +${reading.strongMark}`,
+    `${reading.name} ${signedDdg(v, unit)} on a ${markText(DDG_AXIS.min, unit)} to ${markText(DDG_AXIS.max, unit)} ${unit} axis`,
+    `local destabilizing mark ${markText(reading.strongMark, unit)}`,
     reading.callLabel ? reading.callLabel.toLowerCase() : null,
     offScale ? "beyond the drawn window" : null,
   ]
@@ -47,7 +47,7 @@ export function DdgRuler({ reading, unit = "kcal/mol" }: { reading: EnergeticsRe
             data-side={m.side}
             data-weak={m.value !== reading.strongMark && m.side === "destabilizing" ? true : undefined}
             style={{ left: `${pct(m.value)}%` }}
-            title={m.label}
+            title={`${markText(m.value, unit)} ${m.side === "stabilizing" ? "stabilizing" : m.value === reading.strongMark ? "destabilizing" : "moderately destabilizing"} (local)`}
           />
         ))}
         {v !== null && (
@@ -60,9 +60,9 @@ export function DdgRuler({ reading, unit = "kcal/mol" }: { reading: EnergeticsRe
         )}
       </div>
       <div className="nrg-ruler__axis" aria-hidden="true">
-        <span style={{ left: 0 }}>{DDG_AXIS.min}</span>
+        <span style={{ left: 0 }}>{markText(DDG_AXIS.min, unit)}</span>
         <span style={{ left: `${pct(0)}%`, transform: "translateX(-50%)" }}>0</span>
-        <span style={{ right: 0 }}>+{DDG_AXIS.max}</span>
+        <span style={{ right: 0 }}>{markText(DDG_AXIS.max, unit)}</span>
       </div>
     </div>
   );

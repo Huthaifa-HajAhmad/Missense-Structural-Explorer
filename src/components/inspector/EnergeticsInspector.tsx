@@ -9,6 +9,7 @@ import {
   absenceText,
   buildEnergeticsEvidence,
   listNames,
+  markText,
   signedDdg,
 } from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
@@ -187,7 +188,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           {evidence.readings.map(r => (
             <li key={r.key} className="nrg-cut" data-active={r.callTone === "danger" || undefined}>
               <span className="nrg-cut__name">{r.name}</span>
-              <span className="nrg-cut__rule">≥ +{r.strongMark}</span>
+              <span className="nrg-cut__rule">≥ {markText(r.strongMark, unit)}</span>
               <span className="nrg-cut__here">
                 {r.ddg !== null
                   ? `${signedDdg(r.ddg, unit)}${r.callTone === "danger" ? " · this variant is past it" : ""}${!r.counted ? " · not counted" : ""}`
@@ -199,8 +200,8 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           ))}
         </ul>
         <p className="nrg-step__sub">
-          FoldX publishes no threshold; +1.5 and +0.5 kcal/mol are this app&apos;s marks. The ±1.0 mark for the learned
-          engines is local too. None is a clinical cut-point.
+          FoldX publishes no threshold; {markText(1.5, unit)} and {markText(0.5, unit)} {unit} are this app&apos;s marks. The{" "}
+          {markText(1, unit)} mark for the learned engines is local too. None is a clinical cut-point.
         </p>
       </section>
 
