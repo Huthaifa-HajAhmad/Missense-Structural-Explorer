@@ -290,6 +290,8 @@ export interface EntryForVariant {
   numbering: "uniprot" | "author";
   chainId: string | null;
   mapping: "sifts" | "needleman_wunsch" | null;
+  /** Residues of the chain with no UniProt position (tags, linkers, insertions), left out; null when not renumbered. */
+  unmappedResidues: number | null;
   /** Why the entry keeps its own numbering, when it does. */
   reason: string | null;
 }
@@ -319,7 +321,7 @@ const MAX_ENTRY_CHAINS_TRIED = 12;
  * The entries list offers any RCSB hit for the protein, and an entry loaded whole keeps its
  * authors' numbering and every chain: the site highlight then landed on whatever residue carried
  * the variant's number. Here the chain PDBe maps to the accession (or, failing that, any protein
- * chain that aligns at ≥85% identity) is renumbered to UniProt, through the same deterministic
+ * chain that aligns at ≥85% identity) is renumbered to UniProt residue by residue, through the same deterministic
  * resolver FoldX's templates pass, and only when the wild-type residue sits at the variant's
  * position. Otherwise the whole entry is returned in its own numbering, with the reason.
  */
@@ -331,7 +333,7 @@ export async function fetchEntryForVariant(
 ): Promise<EntryForVariant | null> {
   const full = await fetchFullPdbEntry(pdbId);
   if (!full) return null;
-  const author = (reason: string): EntryForVariant => ({ pdbText: full, numbering: "author", chainId: null, mapping: null, reason });
+  const author = (reason: string): EntryForVariant => ({ pdbText: full, numbering: "author", chainId: null, mapping: null, unmappedResidues: null, reason });
 
   let sequence: string | null = null;
   try {
@@ -361,7 +363,7 @@ export async function fetchEntryForVariant(
       expectedWt1: wt1,
     });
     if (resolved.valid && resolved.pdbText && resolved.source !== "alphafold_fallback") {
-      return { pdbText: resolved.pdbText, numbering: "uniprot", chainId, mapping: resolved.source, reason: null };
+      return { pdbText: resolved.pdbText, numbering: "uniprot", chainId, mapping: resolved.source, unmappedResidues: resolved.unmappedResidues ?? 0, reason: null };
     }
   }
   return author(

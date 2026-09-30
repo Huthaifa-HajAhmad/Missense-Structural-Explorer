@@ -109,6 +109,8 @@ export interface LoadedEntryMeta {
   numbering: "uniprot" | "author";
   chainId: string | null;
   mapping: "sifts" | "needleman_wunsch" | null;
+  /** Residues with no UniProt position (tags, linkers, insertions) the server left out. */
+  unmappedResidues?: number | null;
   reason: string | null;
 }
 
@@ -1191,7 +1193,9 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       body: !entry
         ? "Loading the entry. The variant model and the superposition still refer to FoldX's template."
         : entry.numbering === "uniprot" && entry.chainId
-          ? `Chain ${entry.chainId} is shown, renumbered to UniProt through ${entry.mapping === "sifts" ? "PDBe's SIFTS mapping" : "a sequence alignment"}; other chains are left out. The variant model and the superposition still refer to FoldX's template.`
+          ? `Chain ${entry.chainId} is shown, renumbered to UniProt residue by residue through ${entry.mapping === "sifts" ? "PDBe's SIFTS mapping" : "a sequence alignment"}; other chains are left out${
+              entry.unmappedResidues ? `, and so ${entry.unmappedResidues === 1 ? "is 1 residue" : `are ${entry.unmappedResidues} residues`} with no UniProt position (tags, linkers or insertions)` : ""
+            }. The variant model and the superposition still refer to FoldX's template.`
           : `The entry keeps its own residue numbering and all of its chains${entry.reason ? `: ${sentenceTail(entry.reason)}` : ""}. The variant model and the superposition still refer to FoldX's template.`,
     });
   }

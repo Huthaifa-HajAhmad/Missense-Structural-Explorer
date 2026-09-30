@@ -75,6 +75,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         res.setHeader("X-Entry-Numbering", entry.numbering);
         if (entry.chainId) res.setHeader("X-Entry-Chain", entry.chainId);
         if (entry.mapping) res.setHeader("X-Entry-Mapping", entry.mapping);
+        if (entry.unmappedResidues) res.setHeader("X-Entry-Unmapped", String(entry.unmappedResidues));
         if (entry.reason) res.setHeader("X-Entry-Reason", encodeURIComponent(entry.reason));
         res.send(entry.pdbText);
       } catch (err: any) {

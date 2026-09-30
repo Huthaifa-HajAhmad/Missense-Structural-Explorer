@@ -80,7 +80,6 @@ describe("useAnalysisPipeline Hook Integration", () => {
       addToHistory: vi.fn(),
       resetViewerState: vi.fn(),
       clearDynaMutPoll: vi.fn(),
-      clearDynaMutComparePoll: vi.fn(),
       setIsFolding: vi.fn(),
       setFoldingProgress: vi.fn(),
       setFoldingError: vi.fn(),
@@ -219,8 +218,7 @@ describe("useAnalysisPipeline Hook Integration", () => {
       setComputedResiduesCache: vi.fn(),
       setDisruptionPredictor: vi.fn(),
       resetViewerState: vi.fn(),
-      clearDynaMutPoll: vi.fn(),
-      clearDynaMutComparePoll: vi.fn()
+      clearDynaMutPoll: vi.fn()
     };
 
     await act(async () => {

@@ -68,11 +68,8 @@ export default function useVariantAnalysis() {
 
   const resetViewerState = useCallback(() => {
     biophysical.clearDynaMutPoll();
-    biophysical.clearDynaMutComparePoll();
     biophysical.clearDdmutPoll();
-    biophysical.clearDdmutComparePoll();
     biophysical.clearThermoMpnnPoll();
-    biophysical.clearThermoMpnnComparePoll();
     structuralFolding.resetEsmFoldState();
     useVariantAnalysisStore.getState().resetViewerState();
   }, [biophysical, structuralFolding]);
@@ -157,11 +154,8 @@ export default function useVariantAnalysis() {
              * and could write a previous variant's result into the current one.
              */
             clearDynaMutPoll: biophysical.clearDynaMutPoll,
-            clearDynaMutComparePoll: biophysical.clearDynaMutComparePoll,
-            clearDdmutPoll: (biophysical as any).clearDdmutPoll,
-            clearDdmutComparePoll: (biophysical as any).clearDdmutComparePoll,
-            clearThermoMpnnPoll: (biophysical as any).clearThermoMpnnPoll,
-            clearThermoMpnnComparePoll: (biophysical as any).clearThermoMpnnComparePoll
+            clearDdmutPoll: biophysical.clearDdmutPoll,
+            clearThermoMpnnPoll: biophysical.clearThermoMpnnPoll
           }
         }
       });
@@ -176,11 +170,8 @@ export default function useVariantAnalysis() {
         abortAllPendingRequests: () =>
           pipeline.abortAllPendingRequests(
             biophysical.clearDynaMutPoll,
-            biophysical.clearDynaMutComparePoll,
-            (biophysical as any).clearDdmutPoll,
-            (biophysical as any).clearDdmutComparePoll,
-            (biophysical as any).clearThermoMpnnPoll,
-            (biophysical as any).clearThermoMpnnComparePoll
+            biophysical.clearDdmutPoll,
+            biophysical.clearThermoMpnnPoll
           ),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
@@ -197,11 +188,8 @@ export default function useVariantAnalysis() {
         abortAllPendingRequests: () =>
           pipeline.abortAllPendingRequests(
             biophysical.clearDynaMutPoll,
-            biophysical.clearDynaMutComparePoll,
-            (biophysical as any).clearDdmutPoll,
-            (biophysical as any).clearDdmutComparePoll,
-            (biophysical as any).clearThermoMpnnPoll,
-            (biophysical as any).clearThermoMpnnComparePoll
+            biophysical.clearDdmutPoll,
+            biophysical.clearThermoMpnnPoll
           ),
         resetViewerState,
         executeAnalysis: (g, v, u, signal) => executeAnalysisWrapper(g, v, u, signal),
@@ -422,32 +410,14 @@ export default function useVariantAnalysis() {
     setFoldingStatus: useVariantAnalysisStore.getState().setFoldingStatus,
     setFoldingDdG: useVariantAnalysisStore.getState().setFoldingDdG,
     setFoldingEnergetics: useVariantAnalysisStore.getState().setFoldingEnergetics,
-    setCompareMode: useVariantAnalysisStore.getState().setCompareMode,
-    setCompareVariant: useVariantAnalysisStore.getState().setCompareVariant,
-    setCompareMutantPdb: useVariantAnalysisStore.getState().setCompareMutantPdb,
-    setCompareFoldedResidueIndex: useVariantAnalysisStore.getState().setCompareFoldedResidueIndex,
-    setIsFoldingCompare: useVariantAnalysisStore.getState().setIsFoldingCompare,
-    setFoldingCompareError: useVariantAnalysisStore.getState().setFoldingCompareError,
-    setCompareFoldingStatus: useVariantAnalysisStore.getState().setCompareFoldingStatus,
-    setCompareFoldingDdG: useVariantAnalysisStore.getState().setCompareFoldingDdG,
-    setCompareFoldingEnergetics: useVariantAnalysisStore.getState().setCompareFoldingEnergetics,
-    setComparisonLayout: useVariantAnalysisStore.getState().setComparisonLayout,
     setDynamut2Status: useVariantAnalysisStore.getState().setDynamut2Status,
-    setCompareDynamut2Status: useVariantAnalysisStore.getState().setCompareDynamut2Status,
     setDdmutStatus: useVariantAnalysisStore.getState().setDdmutStatus,
-    setCompareDdmutStatus: useVariantAnalysisStore.getState().setCompareDdmutStatus,
     setThermompnnStatus: useVariantAnalysisStore.getState().setThermompnnStatus,
-    setCompareThermompnnStatus: useVariantAnalysisStore.getState().setCompareThermompnnStatus,
     setThermompnnError: useVariantAnalysisStore.getState().setThermompnnError,
-    setCompareThermompnnError: useVariantAnalysisStore.getState().setCompareThermompnnError,
     setDynamut2JobId: useVariantAnalysisStore.getState().setDynamut2JobId,
-    setCompareDynamut2JobId: useVariantAnalysisStore.getState().setCompareDynamut2JobId,
     setDdmutJobId: useVariantAnalysisStore.getState().setDdmutJobId,
-    setCompareDdmutJobId: useVariantAnalysisStore.getState().setCompareDdmutJobId,
     setThermompnnJobId: useVariantAnalysisStore.getState().setThermompnnJobId,
-    setCompareThermompnnJobId: useVariantAnalysisStore.getState().setCompareThermompnnJobId,
     setStructuralDiff: useVariantAnalysisStore.getState().setStructuralDiff,
-    setCompareStructuralDiff: useVariantAnalysisStore.getState().setCompareStructuralDiff,
     setComputedPocket: useVariantAnalysisStore.getState().setComputedPocket,
     setIsPocketLoading: useVariantAnalysisStore.getState().setIsPocketLoading,
     setPocketError: useVariantAnalysisStore.getState().setPocketError

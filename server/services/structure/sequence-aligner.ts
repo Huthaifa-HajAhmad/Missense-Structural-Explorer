@@ -51,7 +51,20 @@ export interface PdbChainExtraction {
 }
 
 /**
- * Extracts unique amino acid residues and 1-letter sequence from PDB ATOM lines for a target chain.
+ * Modified amino acids that crystallographers deposit as HETATM inside the polymer, with the residue
+ * they stand for. Without them a selenomethionine (MSE) chain aligns with a gap at every Met, and its
+ * MSE residues keep the authors' numbering while the rest of the chain is renumbered around them.
+ */
+export const MODIFIED_RESIDUE_PARENT: Record<string, string> = {
+  MSE: "M", SEP: "S", TPO: "T", PTR: "Y", CSO: "C", CSD: "C", CME: "C", OCS: "C",
+  KCX: "K", MLY: "K", M3L: "K", ALY: "K", HYP: "P", NEP: "H",
+};
+
+const WATER_RESIDUES = new Set(["HOH", "WAT", "DOD", "H2O"]);
+
+/**
+ * Extracts unique amino acid residues and 1-letter sequence from PDB ATOM lines for a target chain,
+ * with the modified residues of `MODIFIED_RESIDUE_PARENT` read as their parent amino acid.
  */
 export function extractPdbChainSequence(pdbText: string, chainId: string): PdbChainExtraction {
   const lines = pdbText.split("\n");
@@ -60,7 +73,8 @@ export function extractPdbChainSequence(pdbText: string, chainId: string): PdbCh
   let lastKey = "";
 
   for (const line of lines) {
-    if (line.startsWith("ATOM")) {
+    const polymerHet = line.startsWith("HETATM") && !!MODIFIED_RESIDUE_PARENT[line.substring(17, 20).trim().toUpperCase()];
+    if (line.startsWith("ATOM") || polymerHet) {
       const lineChain = line.length > 21 ? line.charAt(21).toUpperCase() : "";
       if (lineChain === targetChain) {
         const resSeqStr = line.substring(22, 26).trim();
@@ -73,7 +87,7 @@ export function extractPdbChainSequence(pdbText: string, chainId: string): PdbCh
         if (key !== lastKey) {
           lastKey = key;
           const formatted3 = resName3.charAt(0).toUpperCase() + resName3.slice(1).toLowerCase();
-          const resName1 = AMINO_ACID_3_TO_1[formatted3] || (resName3.length === 1 ? resName3 : "X");
+          const resName1 = AMINO_ACID_3_TO_1[formatted3] || MODIFIED_RESIDUE_PARENT[resName3] || (resName3.length === 1 ? resName3 : "X");
           residues.push({ resSeq, insCode, resName3, resName1 });
         }
       }
@@ -386,8 +400,15 @@ export interface CoordinateResolutionResult {
   source: "sifts" | "needleman_wunsch" | "alphafold_fallback";
   pdbText: string | null;
   mappedResSeq: number | null;
+  /** Polymer residues with no UniProt position (tags, linkers, insertions), left out of `pdbText`. */
+  unmappedResidues?: number;
   reason?: string;
 }
+
+/** The largest residue number the PDB format's four columns can hold. */
+const MAX_PDB_RESSEQ = 9999;
+
+const residueKey = (resSeq: number, insCode: string) => `${resSeq}|${insCode}`;
 
 /**
  * 3-Tier Coordinate Alignment Resolution:
@@ -438,15 +459,20 @@ export async function resolvePdbCoordinatesDeterministically(params: {
     );
 
     if (targetRes && targetRes.resName1.toUpperCase() === expectedWt1.toUpperCase()) {
-      // Valid SIFTS mapping verified!
-      const shift = targetPos - mapped.resSeq;
-      const shiftedPdb = rewritePdbCoordinates(rawPdbText, chainUpper, (seq) => seq + shift);
-      return {
-        valid: true,
-        source: "sifts",
-        pdbText: shiftedPdb,
-        mappedResSeq: targetPos
-      };
+      // Valid SIFTS mapping verified. Every residue takes its own UniProt number from the map, so a
+      // mapping with several segments is numbered right on each of them, not only on the site's.
+      const toUniprot = new Map<string, number>();
+      for (const [unpPos, r] of siftsMap) toUniprot.set(residueKey(r.resSeq, r.insCode), unpPos);
+      const renumbered = renumberChainToUniprot(rawPdbText, chainUpper, toUniprot);
+      if (renumbered) {
+        return {
+          valid: true,
+          source: "sifts",
+          pdbText: renumbered.pdbText,
+          mappedResSeq: targetPos,
+          unmappedResidues: renumbered.unmappedResidues
+        };
+      }
     }
   }
 
@@ -471,15 +497,22 @@ export async function resolvePdbCoordinatesDeterministically(params: {
     matchedPdbRes.resName1.toUpperCase() === expectedWt1.toUpperCase() &&
     domainIdentity >= 0.85
   ) {
-    // Valid Needleman-Wunsch alignment verified!
-    const shift = targetPos - matchedPdbRes.resSeq;
-    const shiftedPdb = rewritePdbCoordinates(rawPdbText, chainUpper, (seq) => seq + shift);
-    return {
-      valid: true,
-      source: "needleman_wunsch",
-      pdbText: shiftedPdb,
-      mappedResSeq: targetPos
-    };
+    // Valid Needleman-Wunsch alignment verified. Each aligned residue takes its own UniProt number.
+    const toUniprot = new Map<string, number>();
+    alignment.pdbIndexToUniprotPosMap.forEach((unpPos, idx) => {
+      const r = pdbExtraction.residues[idx];
+      if (r) toUniprot.set(residueKey(r.resSeq, r.insCode), unpPos);
+    });
+    const renumbered = renumberChainToUniprot(rawPdbText, chainUpper, toUniprot);
+    if (renumbered) {
+      return {
+        valid: true,
+        source: "needleman_wunsch",
+        pdbText: renumbered.pdbText,
+        mappedResSeq: targetPos,
+        unmappedResidues: renumbered.unmappedResidues
+      };
+    }
   }
 
   // Tier 3: Validation Failed -> Reject and signal AlphaFold fallback
@@ -493,37 +526,97 @@ export async function resolvePdbCoordinatesDeterministically(params: {
   };
 }
 
-/**
- * Rewires ATOM and TER record residue sequence numbers in a PDB file.
- */
-export function rewritePdbCoordinates(
-  pdbText: string,
-  targetChain: string,
-  seqMapper: (resSeq: number) => number
-): string {
-  const lines = pdbText.split("\n");
-  const filteredLines: string[] = [];
-  const chain = targetChain.trim().toUpperCase();
+/** `line` with residue number `resSeq` and no insertion code (columns 23–27). */
+function withResidueNumber(line: string, resSeq: number): string {
+  const padded = line.length < 27 ? line.padEnd(27) : line;
+  return padded.substring(0, 22) + String(resSeq).padStart(4, " ") + " " + padded.substring(27);
+}
 
+/**
+ * Rewrites one chain into UniProt numbering, residue by residue, and drops every other chain.
+ *
+ * It replaced a single shift taken at the variant's position, which numbered a chain correctly only
+ * on the site's own segment: past an insertion, a deletion or an engineered linker, every residue
+ * carried a neighbour's UniProt number, and contacts, pockets and highlights there landed on the
+ * wrong residues. A tag's residues also took UniProt numbers they do not have.
+ *
+ * - A polymer residue in `toUniprot` (keyed `resSeq|insCode`) takes its UniProt number.
+ * - A polymer residue with no UniProt position (tag, linker, insertion) is left out, as a residue
+ *   missing from the density would be; the count is returned. It is never given an invented number,
+ *   and insertion codes are avoided because FoldX reads templates through this path.
+ * - Waters are left out. A ligand or ion keeps its own number unless a mapped residue now carries
+ *   it, in which case it moves to the first free number from 9000.
+ *
+ * Null when a UniProt number does not fit the PDB format's four columns.
+ */
+export function renumberChainToUniprot(
+  pdbText: string,
+  chainId: string,
+  toUniprot: Map<string, number>
+): { pdbText: string; unmappedResidues: number } | null {
+  const chain = chainId.trim().toUpperCase();
+  for (const unpPos of toUniprot.values()) {
+    if (unpPos > MAX_PDB_RESSEQ) return null;
+  }
+  const lines = pdbText.split("\n");
+  const inChain = (line: string) => (line.length > 21 ? line.charAt(21).toUpperCase() : "") === chain;
+  const keyOf = (line: string) =>
+    residueKey(parseInt(line.substring(22, 26).trim(), 10), line.length > 26 ? line.charAt(26).trim() : "");
+
+  const mappedNumbers = new Set<number>(toUniprot.values());
+  const isLigand = (line: string, resName: string) =>
+    line.startsWith("HETATM") && !WATER_RESIDUES.has(resName) && !MODIFIED_RESIDUE_PARENT[resName] && !toUniprot.has(keyOf(line));
+  // Numbers taken once the chain is renumbered: the mapped residues, and the ligands that keep theirs.
+  const taken = new Set<number>(mappedNumbers);
   for (const line of lines) {
-    if (line.startsWith("ATOM") || line.startsWith("HETATM") || line.startsWith("TER")) {
-      const lineChain = line.length > 21 ? line.charAt(21).toUpperCase() : "";
-      if (lineChain === chain && line.length >= 26) {
-        const resSeq = parseInt(line.substring(22, 26).trim(), 10);
-        if (!isNaN(resSeq)) {
-          const newResSeq = seqMapper(resSeq);
-          const newResSeqStr = String(newResSeq).padStart(4, " ");
-          filteredLines.push(line.substring(0, 22) + newResSeqStr + line.substring(26));
-          continue;
-        }
-      }
-      if (lineChain === chain) {
-        filteredLines.push(line);
-      }
-    } else if (!line.startsWith("CONECT")) {
-      filteredLines.push(line);
-    }
+    if (!line.startsWith("HETATM") || !inChain(line)) continue;
+    const resSeq = parseInt(line.substring(22, 26).trim(), 10);
+    if (!Number.isNaN(resSeq) && isLigand(line, line.substring(17, 20).trim().toUpperCase())) taken.add(resSeq);
   }
 
-  return filteredLines.join("\n");
+  const unmapped = new Set<string>();
+  const movedLigands = new Map<string, number>();
+  let nextLigandNumber = 9000;
+  const out: string[] = [];
+  for (const line of lines) {
+    const isAtom = line.startsWith("ATOM");
+    const isHet = line.startsWith("HETATM");
+    const isTer = line.startsWith("TER");
+    if (line.startsWith("CONECT")) continue;
+    if (!isAtom && !isHet && !isTer) {
+      out.push(line);
+      continue;
+    }
+    if (!inChain(line)) continue;
+    const resSeq = parseInt(line.substring(22, 26).trim(), 10);
+    if (Number.isNaN(resSeq)) continue;
+    const key = keyOf(line);
+    const unpPos = toUniprot.get(key);
+    if (unpPos !== undefined) {
+      out.push(withResidueNumber(line, unpPos));
+      continue;
+    }
+    if (isTer) continue;
+    const resName = line.substring(17, 20).trim().toUpperCase();
+    if (isAtom || MODIFIED_RESIDUE_PARENT[resName]) {
+      unmapped.add(key);
+      continue;
+    }
+    if (WATER_RESIDUES.has(resName)) continue;
+    if (!mappedNumbers.has(resSeq)) {
+      out.push(line);
+      continue;
+    }
+    let moved = movedLigands.get(key);
+    if (moved === undefined) {
+      while (taken.has(nextLigandNumber)) nextLigandNumber++;
+      if (nextLigandNumber > MAX_PDB_RESSEQ) continue;
+      moved = nextLigandNumber;
+      taken.add(moved);
+      movedLigands.set(key, moved);
+    }
+    out.push(withResidueNumber(line, moved));
+  }
+
+  return { pdbText: out.join("\n"), unmappedResidues: unmapped.size };
 }

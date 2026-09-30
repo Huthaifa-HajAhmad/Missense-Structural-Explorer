@@ -351,7 +351,7 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
         wildType: {
           provenance: { source: "alphafold", afdbVersion: "v6" },
           customPdbUrl: "/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D",
-          entry: { numbering: "uniprot", chainId: "B", mapping: "sifts", reason: null },
+          entry: { numbering: "uniprot", chainId: "B", mapping: "sifts", unmappedResidues: 6, reason: null },
           scan: scanBFactors(CRYSTAL_TEXT),
           site: readResidueAt(CRYSTAL_TEXT, 116),
         },
@@ -361,7 +361,8 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.canvas.primary?.numbering).toBe("uniprot");
     expect(m.canvas.primary?.kind).toMatch(/in UniProt numbering \(PDBe SIFTS\)/);
     expect(m.site.check.state).toBe("match");
-    expect(m.notices.find(n => n.key === "entry")?.body).toMatch(/^Chain B is shown, renumbered to UniProt through PDBe's SIFTS mapping/);
+    expect(m.notices.find(n => n.key === "entry")?.body).toMatch(/^Chain B is shown, renumbered to UniProt residue by residue through PDBe's SIFTS mapping/);
+    expect(m.notices.find(n => n.key === "entry")?.body).toContain("and so are 6 residues with no UniProt position (tags, linkers or insertions)");
     const row = m.experimental.rows.find(r => r.pdbId === "9QN5")!;
     expect(row.loaded).toBe(true);
     expect(row.url).toBe("/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D");

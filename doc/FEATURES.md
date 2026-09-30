@@ -25,6 +25,7 @@ Two views share one canvas, toolbar, colour key and inspector trace, all rendere
   kept fall back to the template, fetched and checked against the one FoldX reported, and say that
   RepairPDB's side-chain moves then count as differences. Experimental entries from RCSB's sequence
   search can be loaded as the wild type: the chain PDBe maps to the protein, renumbered to UniProt
+  residue by residue (residues with no UniProt position, such as tags, are left out and counted)
   when the wild-type residue is verified at the variant's position; otherwise the whole entry in its
   own numbering, with the reason, and the view checks the residue at the variant position.
 * **ESMFold view**: wild type and variant folded concurrently, as two separate single-sequence predictions. The

@@ -129,9 +129,14 @@ follow-ups changed:
 | R11 | Low | `pocket.test.ts` passed a Windows path as a job directory, which becomes a file in the working tree on Linux. | — | Fixed on `main` in parallel (a real temp directory, removed afterwards); that version was kept in the merge. |
 | R12 | Low | The glossary entry for the side-chain RMSD called it "the mutated sidechain" and gave "> 1.5 Å = substantial repacking", credited to Guerois 2002, which defines neither. | `src/components/evidence/MetricExplanations.ts`. | Describes the neighbour window, the local fit and the reference (paired wild type or pre-repair template), with no band; cites FoldX for the models. |
 
-Not changed: the dormant compare-variant code (≈320 lines in `useBiophysicalModeling` and
-`biophysicalSlice`) — nothing sets `compareMode` or `compareVariant`, and no compare fold can start.
-It is outside the 3D view and is queued as its own task.
+Not changed in round 2: the dormant compare-variant code — removed in round 3 below.
+
+## Round 3 — the remaining follow-ups (30 September 2026)
+
+| # | Sev. | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| R13 | Medium | Chains were renumbered to UniProt by one shift, taken at the variant's position. Past an insertion, a deletion or an engineered linker every residue carried a neighbour's UniProt number, so contacts, pockets and highlights there landed on the wrong residues; a tag's residues took UniProt numbers they do not have. The same path builds FoldX's experimental templates. | `sequence-aligner.ts` (`rewritePdbCoordinates` with `seq + shift`). | `renumberChainToUniprot` numbers each residue from the tier that validated it (the SIFTS residue map, or the Needleman–Wunsch alignment). Residues with no UniProt position (tags, linkers, insertions) are left out — as missing density would be — rather than given invented or insertion-coded numbers, which FoldX reads poorly; waters are dropped; a ligand keeps its number unless a mapped residue now carries it (then 9000 up). Modified residues deposited as HETATM (MSE, SEP, TPO, …) are read as their parent amino acid, so a selenomethionine chain no longer aligns with a gap at every Met. The rail says how many residues were left out. *Disclosed:* FoldX templates with a tag, an insertion or a second segment now differ from before, so their ΔΔG can change; the FoldX cache is keyed on the template text, so no stale result is served. No ACMG criterion reads FoldX or structure. |
+| R14 | Low | The compare-variant feature had state, setters, three remote-engine pollers, job timers and a diff effect, but nothing ever set `compareMode` or `compareVariant`, and no compare fold could start. `compareFoldAbortRef` was aborted on every reset and never assigned. | `useBiophysicalModeling.ts`, `biophysicalSlice.ts`, `useVariantAnalysis.ts`, `usePipelineAbortController.ts`, pipeline sinks. | Removed (≈660 lines). `setVariantBiophysics` and `resetBiophysics` lose their `isCompare` flag; the primary variant's behaviour is unchanged. |
 
 ## Verification
 
@@ -139,7 +144,9 @@ It is outside the 3D view and is queued as its own task.
   `vite build` succeeds.
 - Full `vitest run` after round 2: **217 files, 2,730 tests passed, 5 skipped, 0 failed** (after round
   1: 215 files, 2,710; before round 1: 213 files, 2,662). After merging `main` (the Energetics and
-  Landscape rebuilds): 222 files, 2,792 passed, 5 skipped, 0 failed. Round 2 added
+  Landscape rebuilds): 222 files, 2,792 passed, 5 skipped, 0 failed. After round 3: 222 files,
+  2,797 passed, 5 skipped, 0 failed (new renumbering tests for both tiers, tags, an insertion, MSE,
+  ligands and waters; the compare-only store assertions removed). Round 2 added
   `server/services/structure/entry-for-variant.test.ts` (SIFTS, alignment fallback, reason), route
   tests for the entry headers and a malformed request, the paired wild type in the FoldX runner test,
   the applied-fit report in the aligner test, the side-chain RMSD null case, model tests for the pair
@@ -153,14 +160,14 @@ It is outside the 3D view and is queued as its own task.
 
 ## Follow-ups not done
 
-1. **Reuse the WT fold across variants of one protein** in the ESMFold view (the server caches by
-   sequence hash; the client still asks for the pair each time).
-2. **Multi-segment SIFTS mappings.** The resolver renumbers a chain by one shift, taken at the variant's
-   position; an entry whose mapping has an insertion relative to UniProt is numbered correctly only on
-   the site's segment. A per-residue renumbering from the SIFTS residue list would fix it.
-3. The RCSB verbose field names (`query_beg`/`query_end`) still could not be checked: the sandbox's
+1. The RCSB verbose field names (`query_beg`/`query_end`) still could not be checked: the sandbox's
    egress proxy blocks `search.rcsb.org` and its documentation hosts. The parser accepts the older
    names too and prints "range not reported" when neither is present. Confirm on a live run.
+Closed without a change: reusing the wild-type fold across variants of one protein. The server
+already keeps folds by sequence hash (`esmfoldCache`, and the JapanFold client's own cache), and since
+round 2 it folds the pair concurrently, so a second variant of the same protein waits only for its
+own fold.
+
 ## Sources
 
 - Jumper J. et al. 2021, Nature — AlphaFold2, pLDDT. doi:10.1038/s41586-021-03819-2
