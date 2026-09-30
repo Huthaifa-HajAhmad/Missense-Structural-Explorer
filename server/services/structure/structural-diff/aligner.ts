@@ -23,7 +23,7 @@ import {
 
 export interface StructuralDiffResult {
   rmsd: number;
-  localRmsd: number;
+  localRmsd: number | null;
   windowDisplacements: { resSeq: number; resName: string; displacement: number }[];
   clashes: {
     wtClashCount: number;
@@ -276,6 +276,9 @@ export async function alignMutantToWt(
       alignMut = localIndices.map(i => matchedMut[i]);
     }
   }
+  // The fit actually applied: a local request with too few pairs falls back to the whole chain,
+  // and the metrics must say so rather than echo the request.
+  const appliedScope: "local" | "global" = alignWt === matchedWt ? "global" : "local";
 
   const nAlign = alignWt.length;
   let centroidWt = { x: 0, y: 0, z: 0 };
@@ -475,7 +478,7 @@ export async function alignMutantToWt(
     globalRmsd: parseFloat(globalRmsd.toFixed(4)),
     localWindowRmsd: parseFloat(localWindowRmsd.toFixed(4)),
     windowRadius: LOCAL_STRUCTURAL_WINDOW,
-    alignmentScope,
+    alignmentScope: appliedScope,
     displacements,
     lostContacts: lostContactsArr.length,
     gainedContacts: gainedContactsArr.length,

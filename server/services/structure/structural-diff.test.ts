@@ -161,6 +161,14 @@ describe("Structural Diff Engine Unit Tests (C-5)", () => {
       expect(result.displacements.length).toBeGreaterThan(0);
     });
 
+    it("reports a whole-chain fit when a local fit has too few Cα pairs", async () => {
+      // Three residues: below the four pairs a local fit needs, so the whole chain is fitted.
+      const wt = dummyWtPdb.split("\n").slice(0, 8).join("\n");
+      const mut = dummyMutPdbChainB.split("\n").slice(0, 8).join("\n");
+      const result = await alignMutantToWt(wt, mut, 2, "A", "local");
+      expect(result.alignmentScope).toBe("global");
+    });
+
     it("should support global alignment scope without crashing", async () => {
       const result = await alignMutantToWt(dummyWtPdb, dummyMutPdbChainB, 2, "A", "global");
       expect(result.alignmentScope).toBe("global");

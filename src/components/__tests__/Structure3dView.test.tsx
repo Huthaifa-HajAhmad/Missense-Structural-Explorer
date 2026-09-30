@@ -39,10 +39,8 @@ function seed(overrides: Record<string, unknown> = {}) {
     gene: "NAE1",
     pdbText: AF,
     pdbTextProvenance: { source: "alphafold", afdbVersion: "v6" },
-    // The FoldX run's template; the legacy field it also overwrote no longer names the canvas.
-    structureProvenance: { source: "experimental", pdbId: "1YOV", chainId: "A" },
     customPdbUrl: null,
-    customPdbText: null,
+    customPdbEntry: null,
     viewMode: "wildtype",
     structureRepresentation: "confidence",
     selectedResidueIndex: 116,

@@ -109,6 +109,8 @@ export const energeticsDataSchema = z.object({
   electrostatics: nullableFiniteNumber.optional(),
   stericClashWarning: z.boolean().optional(),
   localSidechainRmsd: nullableFiniteNumber.optional(),
+  /** What `localSidechainRmsd` was measured against: FoldX's paired wild type, or the input template. */
+  localSidechainRmsdReference: z.enum(["foldx-paired", "template"]).nullable().optional(),
   foldxRepairFailed: z.boolean().optional(),
   foldxBinaryMissing: z.boolean().optional(),
   /**
@@ -1184,6 +1186,11 @@ export type ConservationData = z.infer<typeof conservationDataSchema>;
 // ============================================================================
 export const generateMutantResponseSchema = z.object({
   pdb: z.string().nullable().optional(),
+  /**
+   * FoldX BuildModel's paired wild type (`WT_wt_1_0.pdb`): the repaired template with its side
+   * chains repacked in the same run. The variant's own reference; absent on older cached results.
+   */
+  wtReferencePdb: z.string().nullable().optional(),
   ddG: nullableFiniteNumber,
   status: z.string(),
   error: z.string().nullable().optional(),

@@ -19,6 +19,7 @@ import {
   fetchAlphafoldPdb,
   getResolvedAlphafoldVersion,
   fetchFullPdbEntry,
+  fetchEntryForVariant,
 } from "../services/external.ts";
 import { resolveStructure } from "../services/structure-resolver.ts";
 import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
@@ -44,6 +45,45 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     const pdbId = rawPdbId.toUpperCase();
+
+    // With the variant's accession, position and wild-type residue: the matching chain, renumbered
+    // to UniProt when that can be verified. The headers say which numbering the text is in.
+    const q = (req.query ?? {}) as Record<string, unknown>;
+    if (q.uniprot !== undefined || q.pos !== undefined || q.wt !== undefined) {
+      let uniprotId: string;
+      try {
+        uniprotId = validateUniProt(String(q.uniprot ?? ""));
+      } catch (err: any) {
+        sendError(res, 400, "BAD_REQUEST", err.message);
+        return;
+      }
+      const pos = Number.parseInt(String(q.pos ?? ""), 10);
+      const wt1 = String(q.wt ?? "").toUpperCase();
+      if (!Number.isFinite(pos) || pos < 1 || !/^[ACDEFGHIKLMNPQRSTVWY]$/.test(wt1)) {
+        sendError(res, 400, "BAD_REQUEST", "pos must be a positive residue number and wt a one-letter amino acid.");
+        return;
+      }
+      try {
+        const entry = await fetchEntryForVariant(pdbId, uniprotId, pos, wt1);
+        if (!entry) {
+          sendError(res, 404, "NOT_FOUND", `Could not retrieve PDB structure for ${pdbId} from RCSB.`);
+          return;
+        }
+        res.setHeader("Content-Type", "text/plain");
+        res.setHeader("X-Template-Source", "experimental");
+        res.setHeader("X-Template-PdbId", pdbId);
+        res.setHeader("X-Entry-Numbering", entry.numbering);
+        if (entry.chainId) res.setHeader("X-Entry-Chain", entry.chainId);
+        if (entry.mapping) res.setHeader("X-Entry-Mapping", entry.mapping);
+        if (entry.reason) res.setHeader("X-Entry-Reason", encodeURIComponent(entry.reason));
+        res.send(entry.pdbText);
+      } catch (err: any) {
+        console.error(`[PDB Entry Route] Error resolving ${pdbId} for ${uniprotId}:`, err);
+        sendError(res, 500, "INTERNAL_SERVER_ERROR", err.message || `Failed retrieving PDB entry ${pdbId}`);
+      }
+      return;
+    }
+
     try {
       const pdbText = await fetchFullPdbEntry(pdbId);
       if (!pdbText) {
@@ -53,6 +93,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       res.setHeader("Content-Type", "text/plain");
       res.setHeader("X-Template-Source", "experimental");
       res.setHeader("X-Template-PdbId", pdbId);
+      res.setHeader("X-Entry-Numbering", "author");
       res.send(pdbText);
     } catch (err: any) {
       console.error(`[PDB Entry Route] Error fetching ${pdbId}:`, err);
@@ -313,9 +354,13 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       }
 
       if (mutatedSequence && mutatedSequence !== wtSequence) {
-        console.log(`[ESMFold] Folding both WT and Mutant sequences`);
-        const wt = await foldSequenceWithProvenance(wtSequence, token);
-        const mut = await foldSequenceWithProvenance(mutatedSequence, token);
+        console.log(`[ESMFold] Folding the WT and mutant sequences concurrently`);
+        // Two independent predictions, so there is nothing to wait for between them: folding them one
+        // after the other doubled the wait for a fresh pair (the wild type is often a cache hit).
+        const [wt, mut] = await Promise.all([
+          foldSequenceWithProvenance(wtSequence, token),
+          foldSequenceWithProvenance(mutatedSequence, token),
+        ]);
         // Each structure names its engine: a Tier-1 outage between the two folds can hand the
         // variant to a different model than the wild type, and the viewer must be able to say so.
         res.json({ wtPdb: wt.pdb, mutPdb: mut.pdb, chain: "A", status: "success", engines: { wildType: wt.engine, variant: mut.engine } });

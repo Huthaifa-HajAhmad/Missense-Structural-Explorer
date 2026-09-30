@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { discoverJavaHome, _resetJavaHomeCache, checkP2RankCapability, pocketCache, findBindingPocket } from "./pocket.ts";
+import os from "os";
+import path from "path";
 
 describe("Pocket Service - Java & Fallback Resilience", () => {
   const originalEnv = process.env;
@@ -61,7 +63,9 @@ describe("Pocket Service - Java & Fallback Resilience", () => {
 
   it("should not cache transient unavailable states in pocketCache", async () => {
     // Calling findBindingPocket with empty text returns unavailable without caching
-    const res = await findBindingPocket("", 1, "C:\\Fake\\JobDir");
+    // A job directory under the OS temp dir: a Windows literal became a file named "C:\Fake\JobDir"
+    // in the working tree on Linux.
+    const res = await findBindingPocket("", 1, path.join(os.tmpdir(), "pocket-test-unused-job"));
     expect(res.status).toBe("unavailable");
     expect(pocketCache.size).toBe(0);
   });

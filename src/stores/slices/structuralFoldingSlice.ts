@@ -1,5 +1,6 @@
 import { StateCreator } from "zustand";
 import { StructuralMetrics } from "../../types";
+import type { LoadedEntry } from "../../shared/structure3dEvidence";
 
 export interface StructuralFoldingState {
   esmFoldWtPdb: string | null;
@@ -19,11 +20,11 @@ export interface StructuralFoldingState {
   /** The 3D colouring the reader picked; the evidence model falls back when it does not apply. */
   structureRepresentation: "confidence" | "plain" | "pair" | "displacement" | "esm3";
   /**
-   * Text of the PDB entry the reader loaded from the experimental list (`customPdbUrl`), once the
-   * viewer has fetched it — so the model can check which residue that entry carries at the variant's
-   * position. Such entries keep their own numbering.
+   * The PDB entry the reader loaded from the experimental list, once the viewer has fetched it: the
+   * canvas draws it from here, and the model reads its numbering and the residue at the variant's
+   * position. Keyed by the URL it came from, so a text never outlives the selection it belongs to.
    */
-  customPdbText: string | null;
+  customPdbEntry: LoadedEntry | null;
 }
 
 export interface StructuralFoldingActions {
@@ -39,7 +40,7 @@ export interface StructuralFoldingActions {
   setEsmFoldSingleStructure: (single: boolean) => void;
   setEsmAlignmentScope: (scope: "local" | "global") => void;
   setStructureRepresentation: (representation: StructuralFoldingState["structureRepresentation"]) => void;
-  setCustomPdbText: (text: string | null) => void;
+  setCustomPdbEntry: (entry: LoadedEntry | null) => void;
   resetEsmFoldState: () => void;
 }
 
@@ -63,7 +64,7 @@ export const createStructuralFoldingSlice: StateCreator<
   esmFoldSingleStructure: false,
   esmAlignmentScope: "local",
   structureRepresentation: "confidence",
-  customPdbText: null,
+  customPdbEntry: null,
 
   setEsmFoldWtPdb: (esmFoldWtPdb) => set({ esmFoldWtPdb }),
   setEsmFoldMutPdb: (esmFoldMutPdb) => set({ esmFoldMutPdb }),
@@ -77,7 +78,7 @@ export const createStructuralFoldingSlice: StateCreator<
   setEsmFoldSingleStructure: (esmFoldSingleStructure) => set({ esmFoldSingleStructure }),
   setEsmAlignmentScope: (esmAlignmentScope) => set({ esmAlignmentScope }),
   setStructureRepresentation: (structureRepresentation) => set({ structureRepresentation }),
-  setCustomPdbText: (customPdbText) => set({ customPdbText }),
+  setCustomPdbEntry: (customPdbEntry) => set({ customPdbEntry }),
 
   resetEsmFoldState: () => set({
     esmFoldWtPdb: null,

@@ -78,12 +78,18 @@ export function calculateClashes(atoms: PdbAtom[]): number {
 }
 
 
-export function calculateLocalSidechainRmsd(wtAtoms: PdbAtom[], mutAtoms: PdbAtom[], pos: number, chain: string): number {
+/**
+ * Neighbour side-chain RMSD (Å) after a local backbone fit, or null when it cannot be measured.
+ *
+ * Null, never 0.0: an empty window, too few backbone pairs to fit, no matched side-chain atom or a
+ * failed fit all used to return 0.0, which every caller then showed as a measured "0.00 Å".
+ */
+export function calculateLocalSidechainRmsd(wtAtoms: PdbAtom[], mutAtoms: PdbAtom[], pos: number, chain: string): number | null {
   const wtWindowAtoms = wtAtoms.filter(a => Math.abs(a.resSeq - pos) <= LOCAL_STRUCTURAL_WINDOW && a.chain === chain);
   const mutWindowAtoms = mutAtoms.filter(a => Math.abs(a.resSeq - pos) <= LOCAL_STRUCTURAL_WINDOW && a.chain === chain);
 
   if (wtWindowAtoms.length === 0 || mutWindowAtoms.length === 0) {
-    return 0.0;
+    return null;
   }
 
   const wtBackbone: { x: number; y: number; z: number }[] = [];
@@ -101,7 +107,7 @@ export function calculateLocalSidechainRmsd(wtAtoms: PdbAtom[], mutAtoms: PdbAto
     }
   }
 
-  if (wtBackbone.length < 3) return 0.0;
+  if (wtBackbone.length < 3) return null;
 
   try {
     const { R, centroidRef, centroidTarget } = getKabschTransform(wtBackbone, mutBackbone);
@@ -129,10 +135,10 @@ export function calculateLocalSidechainRmsd(wtAtoms: PdbAtom[], mutAtoms: PdbAto
       }
     }
 
-    if (count === 0) return 0.0;
+    if (count === 0) return null;
     return parseFloat(Math.sqrt(sumSqDist / count).toFixed(4));
   } catch (e) {
-    return 0.0;
+    return null;
   }
 }
 

@@ -4,7 +4,7 @@ import { Script } from "molstar/lib/mol-script/script";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { Color } from "molstar/lib/mol-util/color";
 import { isValidPdbUrl } from "./molstarThemes";
-import { PAIR_COLOURS, type ColourPlan, type ThemePlan } from "../../shared/structure3dEvidence";
+import { PAIR_COLOURS, pdbIdFromUrl, type ColourPlan, type LoadedEntry, type ThemePlan } from "../../shared/structure3dEvidence";
 import type { StructureProvenance } from "../../shared/contracts";
 
 /**
@@ -50,8 +50,8 @@ export interface UseMolstarStructureOptions {
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
   /** The hook fetched the AlphaFold model itself: publish its text and where it came from. */
   onPdbTextLoaded?: (pdbText: string, provenance: StructureProvenance) => void;
-  /** A PDB entry from the experimental list was fetched (text), or cleared (null). */
-  onEntryLoaded?: (pdbText: string | null) => void;
+  /** A PDB entry from the experimental list was fetched, or cleared (null). */
+  onEntryLoaded?: (entry: LoadedEntry | null) => void;
   setLoading: (loading: boolean) => void;
   setLoadError: (err: string | null) => void;
 }
@@ -87,6 +87,14 @@ function residueExpression(index: number) {
   return MS.struct.generator.atomGroups({
     "residue-test": MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), index]),
   });
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function stillInTree(plugin: any, ref: string | undefined): boolean {
@@ -128,8 +136,6 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const structure2Ref = useRef<any>(null);
   const highlightRefs = useRef<string[]>([]);
   const isLoadingRef = useRef(false);
-  /** The text last drawn as primary, so a store echo of the same text does not reload the canvas. */
-  const fetchedTextRef = useRef<string | null>(null);
   const [readyVersion, setReadyVersion] = useState(0);
 
   // Callbacks change identity every render; the load effect reads them through refs.
@@ -149,11 +155,6 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     let active = true;
 
     async function load() {
-      // The hook just fetched this text and published it; the store echoes it back as primary data.
-      if (primaryPdbData && primaryPdbData === fetchedTextRef.current && structureRef.current && stillInTree(plugin, structureRef.current.ref)) {
-        fetchedTextRef.current = null;
-        return;
-      }
       isLoadingRef.current = true;
       setLoading(true);
       setLoadError(null);
@@ -165,18 +166,35 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         highlightRefs.current = [];
 
         let text: string | null = primaryPdbData;
-        let label = `${gene || "Protein"}`;
+        const entryId = customPdbUrl ? pdbIdFromUrl(customPdbUrl) : null;
+        const label = entryId ? `${gene || "Protein"} · ${entryId}` : `${gene || "Protein"}`;
         if (!text && customPdbUrl) {
           if (!isValidPdbUrl(customPdbUrl)) throw new Error(`Refused to load ${customPdbUrl}: only RCSB, AlphaFold DB or this server may be used.`);
           const res = await fetchWithAuth(customPdbUrl);
           if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            throw new Error(body?.error?.message || body?.message || `Could not load ${customPdbUrl} (HTTP ${res.status}).`);
+            throw new Error(body?.error?.message || body?.message || `Could not load ${entryId ? `PDB ${entryId}` : customPdbUrl} (HTTP ${res.status}).`);
           }
-          text = await res.text();
+          const entryText = await res.text();
           if (!active) return;
-          onEntryLoadedRef.current?.(text);
-          label = `${gene || "Protein"} · ${customPdbUrl.split("/").pop()?.toUpperCase()}`;
+          if (!hasCoordinates(entryText)) throw new Error("The structure file contained no atomic coordinates.");
+          const reasonHeader = res.headers.get("X-Entry-Reason");
+          const mappingHeader = res.headers.get("X-Entry-Mapping");
+          const entry: LoadedEntry = {
+            url: customPdbUrl,
+            text: entryText,
+            numbering: res.headers.get("X-Entry-Numbering") === "uniprot" ? "uniprot" : "author",
+            chainId: res.headers.get("X-Entry-Chain") || null,
+            mapping: mappingHeader === "sifts" || mappingHeader === "needleman_wunsch" ? mappingHeader : null,
+            reason: reasonHeader ? safeDecode(reasonHeader) : null,
+          };
+          // As with the AlphaFold fetch: published, and drawn from the store's echo, where the
+          // model has scanned its B column and read its numbering.
+          if (onEntryLoadedRef.current) {
+            onEntryLoadedRef.current(entry);
+            return;
+          }
+          text = entryText;
         } else if (!text && allowFetch && uniprotId) {
           const res = await fetchWithAuth(`/api/v1/alphafold-pdb/${encodeURIComponent(uniprotId)}`);
           if (!res.ok) {
@@ -184,11 +202,16 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           }
           text = await res.text();
           if (!active) return;
-          fetchedTextRef.current = text;
-          onPdbTextLoadedRef.current?.(text, {
-            source: "alphafold",
-            afdbVersion: res.headers.get("X-Template-AfdbVersion") || undefined,
-          });
+          if (!hasCoordinates(text)) throw new Error("The structure file contained no atomic coordinates.");
+          // Publish, and let the store's echo draw it: only then is the provenance, and so the
+          // pLDDT colouring and filter, known. Drawing here would paint it plain and race the echo.
+          if (onPdbTextLoadedRef.current) {
+            onPdbTextLoadedRef.current(text, {
+              source: "alphafold",
+              afdbVersion: res.headers.get("X-Template-AfdbVersion") || undefined,
+            });
+            return;
+          }
         }
 
         if (!text) {

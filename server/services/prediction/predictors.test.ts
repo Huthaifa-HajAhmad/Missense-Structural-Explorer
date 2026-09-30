@@ -114,11 +114,24 @@ describe("MissenseResolve® Correctness & Predictors Tests", () => {
     });
 
     it("should compute 0.0 RMSD for perfectly aligned identical sidechains", () => {
+      // N, CA and C give the fit its three backbone pairs; the CB and CG are what it measures.
+      const atoms: PdbAtom[] = [
+        { resSeq: 10, resName: "ARG", name: "N", chain: "A", x: -1.2, y: 0.4, z: 0.1 },
+        { resSeq: 10, resName: "ARG", name: "CA", chain: "A", x: 0.0, y: 0.0, z: 0.0 },
+        { resSeq: 10, resName: "ARG", name: "C", chain: "A", x: 0.6, y: -1.3, z: 0.2 },
+        { resSeq: 10, resName: "ARG", name: "CB", chain: "A", x: 1.0, y: 1.0, z: 1.0 },
+        { resSeq: 10, resName: "ARG", name: "CG", chain: "A", x: 2.0, y: 1.5, z: 1.0 },
+      ];
+      const rmsd = calculateLocalSidechainRmsd(atoms, atoms.map(a => ({ ...a })), 10, "A");
+      expect(rmsd).not.toBeNull();
+      expect(rmsd!).toBeCloseTo(0.0);
+    });
+
+    it("returns null, not 0.0, when there is no backbone to fit", () => {
       const atom1: PdbAtom = { resSeq: 10, resName: "ARG", name: "CB", chain: "A", x: 1.0, y: 1.0, z: 1.0 };
-      const atom2: PdbAtom = { resSeq: 10, resName: "ARG", name: "CG", chain: "A", x: 2.0, y: 1.5, z: 1.0 };
       const atom3: PdbAtom = { resSeq: 10, resName: "ARG", name: "CA", chain: "A", x: 0.0, y: 0.0, z: 0.0 };
-      const rmsd = calculateLocalSidechainRmsd([atom1, atom2, atom3], [atom1, atom2, atom3], 10, "A");
-      expect(rmsd).toBeCloseTo(0.0);
+      expect(calculateLocalSidechainRmsd([atom1, atom3], [atom1, atom3], 10, "A")).toBeNull();
+      expect(calculateLocalSidechainRmsd([], [atom1], 10, "A")).toBeNull();
     });
 
     it("should accurately count steric clashes when atoms are below threshold", () => {

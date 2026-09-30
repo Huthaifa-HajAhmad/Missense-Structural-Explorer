@@ -65,6 +65,14 @@ describe("buildPerturbationEvidence — NAE1 p.Asp116Gly", () => {
     expect(ca.availability.label).toBe("Not measured");
   });
 
+  it("names what the neighbour side-chain RMSD was measured against", () => {
+    const paired = build({ foldingEnergetics: { ...NAE1_ENERGETICS, localSidechainRmsd: 0.41, localSidechainRmsdReference: "foldx-paired" } });
+    expect(paired.physical.readings.find(r => r.key === "neighbour-rmsd")!.note).toBe("Against FoldX's paired wild type from the same run");
+    // Results cached before the pair was kept were measured against the input template.
+    const older = build({ foldingEnergetics: { ...NAE1_ENERGETICS, localSidechainRmsd: 0.41 } });
+    expect(older.physical.readings.find(r => r.key === "neighbour-rmsd")!.note).toMatch(/before RepairPDB/);
+  });
+
   it("keeps absent contact counts absent instead of printing 0", () => {
     const contacts = build().physical.readings.find(r => r.key === "contacts")!;
     expect(contacts.value).toBeNull();

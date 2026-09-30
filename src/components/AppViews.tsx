@@ -110,6 +110,7 @@ export function AppViews({
   const storePdbText = useVariantAnalysisStore(s => s.pdbText);
   const storeActive3dModelTab = useVariantAnalysisStore(s => s.active3dModelTab);
   const storeCustomPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
+  const customPdbEntry = useVariantAnalysisStore(s => s.customPdbEntry);
   const storeFoldxReferencePdb = useVariantAnalysisStore(s => s.foldxReferencePdb);
   const storeFoldxAlignedPdb = useVariantAnalysisStore(s => s.foldxAlignedPdb);
   const storeEsmFoldAlignedPdb = useVariantAnalysisStore(s => s.esmFoldAlignedPdb);
@@ -205,8 +206,10 @@ export function AppViews({
     }
     if (mode === "mutant") return { primary: mutantPdb || null, compare: null };
     if (mode === "superimposed") return { primary: storeFoldxReferencePdb, compare: storeFoldxAlignedPdb };
-    return { primary: customPdbUrl ? null : pdbText || null, compare: null };
-  }, [isEsm, structureModel.viewMode, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, mutantPdb, storeFoldxReferencePdb, storeFoldxAlignedPdb, customPdbUrl, pdbText]);
+    // A loaded entry is drawn once fetched for the URL now selected; until then the viewer fetches it.
+    if (customPdbUrl) return { primary: customPdbEntry && customPdbEntry.url === customPdbUrl ? customPdbEntry.text : null, compare: null };
+    return { primary: pdbText || null, compare: null };
+  }, [isEsm, structureModel.viewMode, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, mutantPdb, storeFoldxReferencePdb, storeFoldxAlignedPdb, customPdbUrl, customPdbEntry, pdbText]);
 
   const alignmentRequestIdRef = useRef(0);
 

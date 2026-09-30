@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { IDLE_FOLDX_REFERENCE, type FoldxReferenceState } from "../stores/slices/biophysicalSlice";
-import { identifyAlphaFoldHeader, readResidueAt } from "../shared/coordinateText";
+import { identifyAlphaFoldHeader, isSitePair, readResidueAt } from "../shared/coordinateText";
 import type { StructureProvenance } from "../shared/contracts";
 
 /**
@@ -15,18 +15,25 @@ import type { StructureProvenance } from "../shared/contracts";
  * its effect was dead, so the viewer overlaid the raw, unaligned variant). Every RMSD, contact and
  * surface difference then described AlphaFold-versus-crystal, not the substitution.
  *
- * The reference is fetched from the same resolver FoldX used and checked against the template FoldX
- * reported (entry and chain). If they differ — the resolver's memo expired and chose another tier —
- * the pair is declared unavailable with that reason rather than built on the wrong structure.
+ * The reference is FoldX's own paired wild type when the run returned one (`WT_wt_1_0.pdb`: the
+ * repaired template, repacked in the same run as the variant). Against the raw template, every
+ * side-chain change RepairPDB made anywhere in the chain would be read as the substitution's.
+ *
+ * Results cached before the pair was kept fall back to the template, fetched from the same resolver
+ * FoldX used and checked against the template FoldX reported (entry and chain). If they differ — the
+ * resolver's memo expired and chose another tier — the pair is declared unavailable with that reason
+ * rather than built on the wrong structure.
  */
 
-type Reference = { pdb: string; provenance: StructureProvenance } | { reason: string };
+type Reference =
+  | { pdb: string; provenance: StructureProvenance; basis: "foldx-paired" | "template" }
+  | { reason: string };
 
 function sameId(a: string | null | undefined, b: string | null | undefined): boolean {
   return (a ?? "").trim().toUpperCase() === (b ?? "").trim().toUpperCase();
 }
 
-async function resolveReference(args: {
+async function fetchTemplate(args: {
   apiClient: any;
   template: StructureProvenance;
   uniprotId: string | null;
@@ -40,11 +47,11 @@ async function resolveReference(args: {
   if (template.source === "alphafold") {
     const textIsAlphaFold = pdbTextProvenance?.source === "alphafold" || (!pdbTextProvenance && !!identifyAlphaFoldHeader(pdbText));
     if (pdbText && textIsAlphaFold) {
-      return { pdb: pdbText, provenance: pdbTextProvenance ?? { source: "alphafold" } };
+      return { pdb: pdbText, provenance: pdbTextProvenance ?? { source: "alphafold" }, basis: "template" };
     }
     if (!uniprotId) return { reason: "The UniProt accession is not known, so the AlphaFold template cannot be fetched." };
     const fetched = await apiClient.getAlphaFoldPdbWithProvenance(uniprotId, signal);
-    return { pdb: fetched.pdbText, provenance: fetched.provenance ?? { source: "alphafold" } };
+    return { pdb: fetched.pdbText, provenance: fetched.provenance ?? { source: "alphafold" }, basis: "template" };
   }
 
   if (template.source === "experimental" || template.source === "homolog") {
@@ -56,11 +63,11 @@ async function resolveReference(args: {
       const gotName = got?.pdbId ? `PDB ${got.pdbId.toUpperCase()}${got.chainId ? ` chain ${got.chainId}` : ""}` : got?.source === "alphafold" ? "the AlphaFold model" : "a different structure";
       return { reason: `The server now resolves ${gotName} for this position, not ${want} that FoldX used, so the pair cannot be rebuilt.` };
     }
-    return { pdb: fetched.pdbText, provenance: got };
+    return { pdb: fetched.pdbText, provenance: got, basis: "template" };
   }
 
   if (template.source === "client-provided" && pdbText) {
-    return { pdb: pdbText, provenance: template };
+    return { pdb: pdbText, provenance: template, basis: "template" };
   }
 
   return { reason: "FoldX did not report which structure it built on." };
@@ -79,8 +86,15 @@ export function useFoldxSuperposition(apiClient: any): void {
   const templateSource = useVariantAnalysisStore(s => s.foldingEnergetics?.structureProvenance?.source ?? null);
   const templatePdbId = useVariantAnalysisStore(s => s.foldingEnergetics?.structureProvenance?.pdbId ?? null);
   const templateChain = useVariantAnalysisStore(s => s.foldingEnergetics?.structureProvenance?.chainId ?? null);
-  const pdbText = useVariantAnalysisStore(s => s.pdbText);
-  const pdbTextSource = useVariantAnalysisStore(s => s.pdbTextProvenance?.source ?? null);
+  const foldxWtPdb = useVariantAnalysisStore(s => s.foldxWtPdb);
+  /**
+   * The canvas text matters only when it can BE the template (an AlphaFold or client-provided run).
+   * For a crystal template, depending on it re-fetched and re-superposed the pair whenever the
+   * viewer loaded its AlphaFold model — a flicker through "loading" with nothing changed.
+   */
+  const templateUsesCanvasText = templateSource === "alphafold" || templateSource === "client-provided";
+  const pdbText = useVariantAnalysisStore(s => (templateUsesCanvasText ? s.pdbText : null));
+  const pdbTextSource = useVariantAnalysisStore(s => (templateUsesCanvasText ? s.pdbTextProvenance?.source ?? null : null));
   const uniprotId = useVariantAnalysisStore(s => s.uniprotId || s.analysisState?.result?.metadata?.uniprotId || null);
   const residueIndex = useVariantAnalysisStore(s => s.analysisState?.result?.metadata?.residueIndex ?? null);
 
@@ -110,21 +124,25 @@ export function useFoldxSuperposition(apiClient: any): void {
 
     const controller = new AbortController();
     let cancelled = false;
-    store.setFoldxReference({ state: "loading", reason: null, provenance: template }, null);
+    store.setFoldxReference({ state: "loading", reason: null, provenance: template, basis: null }, null);
     store.setFoldxAlignedPdb(null);
 
     (async () => {
       try {
         const apiClient = apiClientRef.current;
-        const reference = await resolveReference({
-          apiClient,
-          template,
-          uniprotId,
-          position,
-          pdbText: store.pdbText,
-          pdbTextProvenance: store.pdbTextProvenance,
-          signal: controller.signal,
-        });
+        // FoldX's own wild type, when the run kept it and it really is this variant's pair.
+        const paired = foldxWtPdb && isSitePair(foldxWtPdb, mutantPdb, position, template.chainId) ? foldxWtPdb : null;
+        const reference: Reference = paired
+          ? { pdb: paired, provenance: template, basis: "foldx-paired" }
+          : await fetchTemplate({
+              apiClient,
+              template,
+              uniprotId,
+              position,
+              pdbText: store.pdbText,
+              pdbTextProvenance: store.pdbTextProvenance,
+              signal: controller.signal,
+            });
         if (cancelled) return;
         if ("reason" in reference) {
           settle({ state: "unavailable", reason: reference.reason, provenance: template });
@@ -139,7 +157,7 @@ export function useFoldxSuperposition(apiClient: any): void {
           apiClient.structuralAlign({ pdb1: reference.pdb, pdb2: mutantPdb, targetIndex: position, alignmentScope: "global" }, controller.signal),
         ]);
         if (cancelled) return;
-        store.setFoldxReference({ state: "ready", reason: null, provenance: reference.provenance }, reference.pdb);
+        store.setFoldxReference({ state: "ready", reason: null, provenance: reference.provenance, basis: reference.basis }, reference.pdb);
         store.setFoldxAlignedPdb(align.alignedPdb ?? null);
         store.setFoldxMetrics(align.metrics ?? null);
         /**
@@ -165,6 +183,7 @@ export function useFoldxSuperposition(apiClient: any): void {
   }, [
     foldingStatus,
     mutantPdb,
+    foldxWtPdb,
     foldedResidueIndex,
     residueIndex,
     templateSource,

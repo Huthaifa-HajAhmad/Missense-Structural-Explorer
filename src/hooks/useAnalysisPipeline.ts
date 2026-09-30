@@ -77,6 +77,7 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setFoldingError: flat.setFoldingError || (() => {}),
         setFoldingStatus: flat.setFoldingStatus || (() => {}),
         setMutantPdb: flat.setMutantPdb || (() => {}),
+        setFoldxWtPdb: flat.setFoldxWtPdb,
         setFoldedResidueIndex: flat.setFoldedResidueIndex || (() => {}),
         setFoldingDdG: flat.setFoldingDdG || (() => {}),
         setFoldingEnergetics: flat.setFoldingEnergetics || (() => {}),
@@ -87,13 +88,12 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setThermompnnJobId: flat.setThermompnnJobId || (() => {}),
         setThermompnnStatus: flat.setThermompnnStatus || (() => {}),
         setThermompnnError: flat.setThermompnnError || (() => {}),
-        setStructureProvenance: flat.setStructureProvenance || (() => {}),
         lastFetchedFoldRef: flat.lastFetchedFoldRef || { current: "" }
       },
       structure: {
         setPdbText: flat.setPdbText || (() => {}),
         // Provenance of `pdbText` — kept apart from FoldX's template (see `pdbTextProvenance`).
-        setStructureProvenance: flat.setPdbTextProvenance || flat.setStructureProvenance || (() => {}),
+        setPdbTextProvenance: flat.setPdbTextProvenance || (() => {}),
         setComputedPocket: flat.setComputedPocket || (() => {}),
         setIsPocketLoading: flat.setIsPocketLoading || (() => {}),
         setPocketError: flat.setPocketError || (() => {}),

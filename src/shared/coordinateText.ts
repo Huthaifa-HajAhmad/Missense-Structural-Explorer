@@ -124,6 +124,48 @@ export function readResidueAt(
  * matched any file whose text contained those three characters. `null` means "not identified",
  * never "not AlphaFold".
  */
+/**
+ * Whether two structures are a wild-type/variant pair at `position`: the same chain, the same
+ * residues in the same order, differing only at that position. It catches a paired wild type
+ * left over from another variant's run before it is measured against this one.
+ */
+export function isSitePair(
+  wildTypeText: string | null | undefined,
+  variantText: string | null | undefined,
+  position: number,
+  chain?: string | null
+): boolean {
+  const residues = (text: string | null | undefined) => {
+    const out: string[] = [];
+    if (!text) return out;
+    const wantChain = chain ? chain.toUpperCase() : null;
+    for (const line of text.split(/\r?\n/)) {
+      if (line.startsWith("ENDMDL")) break;
+      // ATOM only: a calcium ion is a HETATM named "CA" too.
+      if (!line.startsWith("ATOM  ") || atomName(line) !== "CA") continue;
+      const lineChain = line.slice(21, 22).trim().toUpperCase();
+      if (wantChain && lineChain !== wantChain) continue;
+      out.push(`${lineChain}:${resSeq(line)}:${line.slice(17, 20).trim().toUpperCase()}`);
+    }
+    return out;
+  };
+  const wt = residues(wildTypeText);
+  const mt = residues(variantText);
+  if (wt.length === 0 || wt.length !== mt.length) return false;
+  let siteSeen = false;
+  for (let i = 0; i < wt.length; i++) {
+    const [wChain, wSeq, wName] = wt[i].split(":");
+    const [mChain, mSeq, mName] = mt[i].split(":");
+    if (wChain !== mChain || wSeq !== mSeq) return false;
+    if (Number(wSeq) === position) {
+      siteSeen = true;
+      continue;
+    }
+    if (wName !== mName) return false;
+  }
+  return siteSeen;
+}
+
 export function identifyAlphaFoldHeader(pdbText: string | null | undefined): { version: string | null } | null {
   if (!pdbText) return null;
   const head = pdbText.slice(0, 8000).split(/\r?\n/);

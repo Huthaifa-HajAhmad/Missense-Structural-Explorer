@@ -32,9 +32,11 @@ const SEC = 1000;
 /**
  * Worst-case wall clock for ONE `/api/v1/esmfold` request.
  *
- * The route folds wild-type and mutant SEQUENTIALLY, and a single fold may try all three tiers before
- * throwing. Every term is read from CONFIG rather than restated, so a provider budget that grows
- * without the client budget growing with it fails here.
+ * The route now folds wild type and mutant concurrently, so one request's wall clock is one fold's
+ * worst case, where a single fold may try all three tiers before throwing. The bound below still
+ * allows for two folds in sequence: the client budget must not become too short the day the route
+ * goes back to folding them one after the other. Every term is read from CONFIG rather than
+ * restated, so a provider budget that grows without the client budget growing with it fails here.
  */
 const WORST_CASE_PER_FOLD_MS =
   CONFIG.timeouts.japanfoldFoldingMs + CONFIG.timeouts.esmfoldSidecarMs + CONFIG.timeouts.esmAtlasMs;

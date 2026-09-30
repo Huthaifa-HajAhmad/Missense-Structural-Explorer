@@ -321,17 +321,16 @@ export async function executeFullAnalysisWorkflow({
       }
       if (cached.mutantPdb) {
         biophysicalSink.setMutantPdb(cached.mutantPdb);
+        // Always written with the variant, so a previous variant's paired wild type cannot linger.
+        biophysicalSink.setFoldxWtPdb?.(cached.foldxWtPdb ?? null);
       }
       if (cached.foldedResidueIndex != null) biophysicalSink.setFoldedResidueIndex(cached.foldedResidueIndex);
       if (cached.foldingDdG != null) biophysicalSink.setFoldingDdG(cached.foldingDdG);
       if (cached.foldingEnergetics) {
+        // FoldX's template travels inside the energetics. It is not written to the structure sink:
+        // that sink describes `pdbText`, and restoring the template there is how a cached run
+        // labelled the AlphaFold model with the crystal entry FoldX had used.
         biophysicalSink.setFoldingEnergetics(cached.foldingEnergetics);
-        if (cached.foldingEnergetics.structureProvenance) {
-          // FoldX's TEMPLATE. It is not written to the structure sink: that sink describes `pdbText`,
-          // and restoring the template there is how a cached run labelled the AlphaFold model with
-          // the crystal entry FoldX had used.
-          biophysicalSink.setStructureProvenance?.(cached.foldingEnergetics.structureProvenance);
-        }
       }
       if (cached.foldingStatus) biophysicalSink.setFoldingStatus(cached.foldingStatus as any);
       /**
@@ -463,8 +462,8 @@ export async function executeFullAnalysisWorkflow({
               const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
               const provenance = pdb?.provenance || (typeof pdb === "string" ? (pdb as any).provenance : null);
               structureSink.setPdbText(pdbString);
-              if (provenance && structureSink.setStructureProvenance) {
-                structureSink.setStructureProvenance(provenance);
+              if (provenance && structureSink.setPdbTextProvenance) {
+                structureSink.setPdbTextProvenance(provenance);
               }
               if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
                 fetchPocketData(
@@ -733,8 +732,8 @@ export async function executeFullAnalysisWorkflow({
         const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
         const provenance = pdb?.provenance || (typeof pdb === "string" ? (pdb as any).provenance : null);
         structureSink.setPdbText(pdbString);
-        if (provenance && structureSink.setStructureProvenance) {
-          structureSink.setStructureProvenance(provenance);
+        if (provenance && structureSink.setPdbTextProvenance) {
+          structureSink.setPdbTextProvenance(provenance);
         }
         if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
           fetchPocketData(

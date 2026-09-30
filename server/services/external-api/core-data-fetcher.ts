@@ -286,6 +286,7 @@ export async function fetchCoreVariantData(
   }));
 
   let disruptionHasError = false;
+  let disruptionNotAssessed = false;
   const disruptionPromise = timeTask("disruptionPredictor", pdbMappingPromise.then(async (pdbMap) => {
     try {
       let wtPdbText: string | null = null;
@@ -312,7 +313,15 @@ export async function fetchCoreVariantData(
       console.warn("[Triage Parallel Run Warning] Failed to predict structural disruption:", err);
       disruptionHasError = true;
     }
-    return { level: "low" as const, reason: "Fallback: PDB structure mapping not resolved", plddt: null };
+    // Not assessed is not "low": no structure was read, so no disruption call can be made.
+    disruptionNotAssessed = true;
+    return {
+      level: "unknown" as const,
+      reason: disruptionHasError
+        ? "Structural disruption was not assessed: the structure step failed."
+        : "Structural disruption was not assessed: no structure could be resolved for this position.",
+      plddt: null,
+    };
   }));
 
   const fastClinvarPromise = Promise.race([clinvarPromise, coreTimeout]);
@@ -374,7 +383,7 @@ export async function fetchCoreVariantData(
         : !raw || (raw as StringInteraction[]).length === 0 ? "not_found"
         : "ok",
     disruptionPredictor: (raw: unknown): ServiceFetchStatus =>
-      raw === TIMEOUT_FLAG ? "timeout" : disruptionHasError ? "error" : "ok",
+      raw === TIMEOUT_FLAG ? "timeout" : disruptionHasError ? "error" : disruptionNotAssessed ? "not_found" : "ok",
     esm2: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout" : esm2HasError ? "error" : raw ? "ok" : "not_found",
     pdbMapping: (raw: unknown): ServiceFetchStatus =>

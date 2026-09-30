@@ -19,7 +19,7 @@ const makeSink = () => ({
   setThermompnnJobId: vi.fn(),
   setThermompnnStatus: vi.fn(),
   setThermompnnError: vi.fn(),
-  setStructureProvenance: vi.fn()
+  setFoldxWtPdb: vi.fn()
 });
 
 /**
@@ -674,7 +674,7 @@ describe("foldxService", () => {
     expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
   });
 
-  it("normalizes canonical provenance and dispatches to sink.setStructureProvenance", async () => {
+  it("normalizes canonical provenance onto the run's energetics, and nowhere else", async () => {
     const mockFetchWithAuth = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -708,7 +708,10 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    expect(sink.setStructureProvenance).toHaveBeenCalledWith(
+    const updater = sink.setFoldingEnergetics.mock.calls[0][0];
+    const prev = {};
+    const updated = typeof updater === "function" ? updater(prev) : updater;
+    expect(updated.structureProvenance).toEqual(
       expect.objectContaining({
         source: "experimental",
         pdbId: "6N7E",
@@ -719,18 +722,36 @@ describe("foldxService", () => {
         foldxVersion: "5.0"
       })
     );
+    // FoldX's template names no other structure: the store field it once overwrote is gone.
+    expect(sink.setStructureProvenance).toBeUndefined();
+  });
 
-    const updater = sink.setFoldingEnergetics.mock.calls[0][0];
-    const prev = {};
-    const updated = typeof updater === "function" ? updater(prev) : updater;
-    expect(updated.structureProvenance).toEqual(
-      expect.objectContaining({
-        source: "experimental",
-        pdbId: "6N7E",
-        chainId: "A",
-        resolution: 3.5
+  it("passes FoldX's paired wild type to the sink with the variant", async () => {
+    const mockFetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM 1 N MUTANT",
+        wtReferencePdb: "ATOM 1 N PAIRED WT",
+        foldedResidueIndex: 489,
+        ddG: 1.25,
+        energetics: { totalEnergy: 12.0 },
+        provenance: { source: "experimental", pdbId: "6N7E", chainId: "A" }
       })
-    );
+    });
+    const sink: any = makeSink();
+    await executeFoldxPipeline({
+      uniprotId: "Q9H8M5",
+      variant: "p.Ser489Cys",
+      residueIndex: 489,
+      fetchWithAuth: mockFetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+    expect(sink.setMutantPdb).toHaveBeenCalledWith("ATOM 1 N MUTANT");
+    expect(sink.setFoldxWtPdb).toHaveBeenCalledWith("ATOM 1 N PAIRED WT");
   });
 
   it("normalizes legacy prefixed keys and string resolutions safely", async () => {
@@ -766,7 +787,9 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    expect(sink.setStructureProvenance).toHaveBeenCalledWith(
+    const updater = sink.setFoldingEnergetics.mock.calls[0][0];
+    const updated = typeof updater === "function" ? updater({}) : updater;
+    expect(updated.structureProvenance).toEqual(
       expect.objectContaining({
         source: "experimental",
         pdbId: "6n7e",

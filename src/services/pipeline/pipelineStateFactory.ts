@@ -3,6 +3,14 @@ import { PDB_SOURCE_ALPHAFOLD } from "../../shared/contracts";
 import type { GenomeAssembly } from "../../shared/variantNotation";
 
 /**
+ * The structure step's result before it has run, or when a result carries none.
+ *
+ * This was `{ level: "low", reason: "Default", plddt: 100 }`: a placeholder that read as a measured
+ * low-disruption call at pLDDT 100, which the Energetics inspector and the clinical card display.
+ */
+export const DISRUPTION_NOT_ASSESSED = { level: "unknown" as const, reason: "Structural disruption has not been assessed.", plddt: null };
+
+/**
  * The build decision a refusal was taken under, carried into the error state.
  *
  * Without it the UI can only say "read as GRCh38", which presents a DEFAULTED build as an established
@@ -185,7 +193,7 @@ export function createPlaceholderAnalysisState(params: PipelineStateBaseParams) 
       conservationData: null,
       landscapeData: null,
       stringInteractions: null,
-      disruptionPredictor: { level: "low" as const, reason: "Default", plddt: 100 },
+      disruptionPredictor: { ...DISRUPTION_NOT_ASSESSED },
       uniprotFeatures: null,
       gnomadConstraint: null,
       transcriptId: transcriptMeta?.transcriptId,
@@ -234,7 +242,7 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       conservationData: resResult.conservationData || null,
       landscapeData: null,
       stringInteractions: resResult.stringInteractions || null,
-      disruptionPredictor: resResult.disruptionPredictor || { level: "low" as const, reason: "Default", plddt: 100 },
+      disruptionPredictor: resResult.disruptionPredictor || { ...DISRUPTION_NOT_ASSESSED },
       uniprotFeatures: resResult.uniprotFeatures,
       gnomadConstraint: resResult.gnomadConstraint,
       transcriptId: transcriptMeta?.transcriptId ?? resResult.predictorData?.transcriptId,
@@ -396,7 +404,7 @@ export function createDemoFallbackAnalysisState(
       conservationData: null,
       landscapeData: null,
       stringInteractions: null,
-      disruptionPredictor: { level: "low" as const, reason: "Default", plddt: 100 },
+      disruptionPredictor: { ...DISRUPTION_NOT_ASSESSED },
       uniprotFeatures: null,
       gnomadConstraint: null,
       transcriptId: transcriptMeta?.transcriptId,

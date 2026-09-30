@@ -100,6 +100,24 @@ export interface CoordinateIdentity {
   numbering: "uniprot" | "entry" | "unknown";
 }
 
+/**
+ * How a PDB entry from the experimental list was loaded. The server returns the chain that maps to
+ * the protein, renumbered to UniProt when the wild-type residue is verified at the variant's
+ * position; otherwise the whole entry in its authors' numbering, with the reason.
+ */
+export interface LoadedEntryMeta {
+  numbering: "uniprot" | "author";
+  chainId: string | null;
+  mapping: "sifts" | "needleman_wunsch" | null;
+  reason: string | null;
+}
+
+export interface LoadedEntry extends LoadedEntryMeta {
+  /** The URL it was loaded from; an entry whose URL is no longer selected is stale. */
+  url: string;
+  text: string;
+}
+
 export interface StructuralMetricsLike {
   localWindowRmsd?: number | null;
   globalRmsd?: number | null;
@@ -154,6 +172,8 @@ export interface Structure3dInput {
     headerSaysAlphaFold?: { version: string | null } | null;
     /** A PDB entry the reader loaded from the experimental list. */
     customPdbUrl: string | null;
+    /** How that entry was loaded, once it has been (null while it loads). */
+    entry?: LoadedEntryMeta | null;
     scan: BFactorScan | null;
     site: ResidueAt | null;
   };
@@ -170,7 +190,13 @@ export interface Structure3dInput {
     repairSkipped: boolean;
     repairSkippedReason: string | null;
     repairFailed: boolean;
-    reference: { state: ReferenceState; reason: string | null; provenance: CoordinateProvenance | null };
+    reference: {
+      state: ReferenceState;
+      reason: string | null;
+      provenance: CoordinateProvenance | null;
+      /** FoldX's own paired wild type from the same run, or the template re-fetched (older results). */
+      basis?: "foldx-paired" | "template" | null;
+    };
     aligned: boolean;
     referenceSite: ResidueAt | null;
   };
@@ -394,14 +420,20 @@ function fmt(value: number | null | undefined, digits: number): string | null {
   return value === null || value === undefined || !Number.isFinite(value) ? null : value.toFixed(digits);
 }
 
+/** A sentence continued after a colon: lower-cased first word (not an acronym), no final stop. */
+function sentenceTail(text: string): string {
+  const trimmed = text.trim().replace(/\.$/, "");
+  return /^[A-Z][a-z]/.test(trimmed) ? trimmed.charAt(0).toLowerCase() + trimmed.slice(1) : trimmed;
+}
+
 function signed(value: number, digits: number): string {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
 }
 
-/** The PDB id the reader loaded, from `/api/v1/pdb/entry/<id>` or an RCSB download URL. */
+/** The PDB id the reader loaded, from `/api/v1/pdb/entry/<id>[?…]` or an RCSB download URL. */
 export function pdbIdFromUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  const last = url.split("/").pop() ?? "";
+  const last = url.split(/[?#]/)[0].split("/").pop() ?? "";
   const id = last.replace(/\.(pdb|ent|cif)$/i, "");
   return /^[0-9A-Za-z]{4}$/.test(id) ? id.toUpperCase() : null;
 }
@@ -525,18 +557,34 @@ export function identifyFromProvenance(
   };
 }
 
-function identifyLoadedEntry(url: string, homologs: HomologLike[]): CoordinateIdentity {
+function identifyLoadedEntry(url: string, homologs: HomologLike[], entry: LoadedEntryMeta | null): CoordinateIdentity {
   const id = pdbIdFromUrl(url);
   const hit = id ? homologs.find(h => upper(h.pdbId) === id) : undefined;
+  const renumbered = entry?.numbering === "uniprot" && !!entry.chainId;
   return {
     origin: "pdb-entry",
     role: "wild type",
-    name: id ? `PDB ${id}` : "PDB entry",
-    kind: "Experimental entry loaded from the list, all chains",
+    name: id ? `PDB ${id}${renumbered ? ` chain ${entry!.chainId}` : ""}` : "PDB entry",
+    kind: renumbered
+      ? `Experimental entry, the chain mapped to this protein, in UniProt numbering (${entry!.mapping === "sifts" ? "PDBe SIFTS" : "sequence alignment"})`
+      : "Experimental entry, all chains, in its own numbering",
     detail: methodLine({ method: hit?.method ?? null, resolution: hit?.resolution ?? null }),
     href: id ? `https://www.rcsb.org/structure/${id}` : null,
     channel: temperatureChannel(),
-    numbering: "entry",
+    numbering: renumbered ? "uniprot" : "entry",
+  };
+}
+
+/** BuildModel's paired wild type: the template after RepairPDB, repacked in the variant's own run. */
+function identifyFoldxPairedWildType(template: CoordinateIdentity, runs: number | null): CoordinateIdentity {
+  const variantLike = identifyFoldxVariant(template, null);
+  return {
+    ...variantLike,
+    origin: "foldx-variant",
+    role: "template",
+    name: `FoldX wild type on ${template.name}`,
+    kind: "FoldX BuildModel's paired wild type: the repaired template, repacked in the same run as the variant",
+    detail: runs ? `Paired with the first of ${runs} BuildModel runs` : null,
   };
 }
 
@@ -598,7 +646,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     deNovo.scan?.max === null || deNovo.scan?.max === undefined ? null : deNovo.scan.max <= 1 ? 1 : 100;
   const canvasWildType: CoordinateIdentity | null = isAf
     ? input.wildType.customPdbUrl
-      ? identifyLoadedEntry(input.wildType.customPdbUrl, input.homologs)
+      ? identifyLoadedEntry(input.wildType.customPdbUrl, input.homologs, input.wildType.entry ?? null)
       : identifyFromProvenance(input.wildType.provenance, variant.uniprotId, "wild type", input.wildType.headerSaysAlphaFold)
     : deNovo.wildTypeLoaded
       ? identifyDeNovo("wild type", deNovo.engines?.wildType ?? null, deNovoScale)
@@ -690,8 +738,13 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   let primary: CoordinateIdentity | null = canvasWildType;
   let secondary: CoordinateIdentity | null = null;
   if (effectiveMode === "mutant") primary = variantModel;
+  const pairedByFoldx = isAf && foldx.reference.state === "ready" && foldx.reference.basis === "foldx-paired";
   if (effectiveMode === "superimposed") {
-    primary = template ? { ...template, role: "template" } : canvasWildType;
+    primary = template
+      ? pairedByFoldx
+        ? identifyFoldxPairedWildType(template, foldx.runs)
+        : { ...template, role: "template" }
+      : canvasWildType;
     secondary = variantModel
       ? {
           ...variantModel,
@@ -884,7 +937,11 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
 
   /* ── Comparison ───────────────────────────────────────────────────────── */
   const scope: AlignmentScope = isAf ? "global" : input.alignmentScope;
-  const fitLabel = scope === "global" ? "whole chain" : `±${LOCAL_ALIGNMENT_FIT_WINDOW} residues around ${position ?? "the site"}`;
+  // The readings and the drawn pair describe the fit the aligner applied, which trails the
+  // toggle while a new fit runs (and is whole-chain when a local fit had too few pairs).
+  const measuredScope: AlignmentScope = isAf ? "global" : metrics?.alignmentScope ?? scope;
+  const fitWords = (s: AlignmentScope) => (s === "global" ? "whole chain" : `±${LOCAL_ALIGNMENT_FIT_WINDOW} residues around ${position ?? "the site"}`);
+  const fitLabel = fitWords(scope);
   let comparison: Comparison;
   if (isAf) {
     const canvasWildTypeIsNotTemplate = !!foldxTemplate && !templateIsCanvasWildType;
@@ -913,7 +970,9 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     } else {
       comparison = {
         state: "ready",
-        headline: `Variant against its own template, ${foldxTemplate!.name}`,
+        headline: pairedByFoldx
+          ? `Variant against FoldX's own wild type on ${foldxTemplate!.name}`
+          : `Variant against its own template, ${foldxTemplate!.name}`,
         reason: null,
         template: foldxTemplate,
         variant: foldxVariant,
@@ -932,7 +991,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
             template: canvasWildType,
             variant: deNovoVariant,
             rigidBackbone: false,
-            fit: fitLabel,
+            fit: fitWords(measuredScope),
             canvasWildTypeIsNotTemplate: false,
           }
         : {
@@ -959,7 +1018,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       state: local ? "measured" : "not-measured",
       caveat: comparison.rigidBackbone
         ? "Zero by construction: FoldX keeps the template backbone."
-        : scope === "local"
+        : measuredScope === "local"
           ? `Measured inside the ±${LOCAL_ALIGNMENT_FIT_WINDOW} fitted window, so small by construction.`
           : null,
     });
@@ -967,7 +1026,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     readings.push({
       key: "global-rmsd",
       label: "Whole-chain Cα RMSD",
-      note: scope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
+      note: measuredScope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
       value: global ? `${global} Å` : null,
       state: global ? "measured" : "not-measured",
       caveat: !comparison.rigidBackbone
@@ -983,6 +1042,12 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       state: shift ? "measured" : "not-measured",
       caveat: null,
     });
+    // Older results carry no paired wild type: the variant is then read against the template as
+    // fetched, before RepairPDB, and the repair's own side-chain moves count as differences.
+    const unrepaired =
+      isAf && foldx.reference.basis === "template"
+        ? "Read against the template before RepairPDB, so part of this can be the repair's side-chain changes rather than the substitution's."
+        : null;
     const noChi = (code: string | null) => code === "G" || code === "A";
     const chiNA = noChi(mt1) || noChi(wt1);
     const dev = fmt(metrics.chi1Deviation, 0);
@@ -992,7 +1057,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       note: "side-chain rotamer",
       value: chiNA ? null : dev ? `${dev}°` : null,
       state: chiNA ? "not-applicable" : dev ? "measured" : "not-measured",
-      caveat: chiNA ? `${noChi(mt1) ? toThree(mt1) : toThree(wt1)} has no χ1, so there is no angle to compare.` : null,
+      caveat: chiNA ? `${noChi(mt1) ? toThree(mt1) : toThree(wt1)} has no χ1, so there is no angle to compare.` : dev ? unrepaired : null,
     });
     const wtS = fmt(metrics.wtSasa, 0);
     const mtS = fmt(metrics.mutSasa, 0);
@@ -1016,7 +1081,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       note: "N/O/S pairs ≤ 3.5 Å, no angle test — a proxy for hydrogen bonds",
       value: polar,
       state: polar ? "measured" : "not-measured",
-      caveat: null,
+      caveat: polar ? unrepaired : null,
     });
     const contacts = countPair(metrics.lostContacts, metrics.gainedContacts);
     readings.push({
@@ -1025,7 +1090,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       note: "heavy atoms ≤ 4.0 Å, neighbours ±1 excluded",
       value: contacts,
       state: contacts ? "measured" : "not-measured",
-      caveat: null,
+      caveat: contacts ? unrepaired : null,
     });
   }
 
@@ -1095,7 +1160,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       key: "template",
       tone: "info",
       title: "The variant is not built on the wild type shown",
-      body: `FoldX built the variant on ${foldxTemplate.name}${input.wildType.customPdbUrl ? "" : `, not on ${canvasWildType?.name ?? "the AlphaFold model"}`}. The superposition and its measurements pair the variant with that template, so they describe the substitution rather than the difference between two structures.`,
+      body: `FoldX built the variant on ${foldxTemplate.name}${input.wildType.customPdbUrl ? "" : `, not on ${canvasWildType?.name ?? "the AlphaFold model"}`}. The superposition and its measurements pair the variant with ${pairedByFoldx ? "FoldX's own wild type on that template" : "that template"}, so they describe the substitution rather than the difference between two structures.`,
     });
   }
   if (check.state === "mismatch") {
@@ -1118,11 +1183,16 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     });
   }
   if (input.wildType.customPdbUrl && isAf) {
+    const entry = input.wildType.entry ?? null;
     notices.push({
       key: "entry",
       tone: "info",
       title: "Showing a PDB entry you loaded",
-      body: "The entry keeps its own residue numbering and all of its chains. The variant model and the superposition still refer to FoldX's template.",
+      body: !entry
+        ? "Loading the entry. The variant model and the superposition still refer to FoldX's template."
+        : entry.numbering === "uniprot" && entry.chainId
+          ? `Chain ${entry.chainId} is shown, renumbered to UniProt through ${entry.mapping === "sifts" ? "PDBe's SIFTS mapping" : "a sequence alignment"}; other chains are left out. The variant model and the superposition still refer to FoldX's template.`
+          : `The entry keeps its own residue numbering and all of its chains${entry.reason ? `: ${sentenceTail(entry.reason)}` : ""}. The variant model and the superposition still refer to FoldX's template.`,
     });
   }
 
@@ -1199,12 +1269,14 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     sub:
       comparison.state === "ready"
         ? comparison.rigidBackbone
-          ? `${comparison.template?.name ?? "Template"} + FoldX variant. The backbone is fixed, so only side chains can differ.`
+          ? pairedByFoldx
+            ? `FoldX's own wild type and variant on ${comparison.template?.name ?? "the template"}, from one run. The backbone is fixed, so only side chains can differ.`
+            : `${comparison.template?.name ?? "Template"} as fetched + FoldX variant. The backbone is fixed, so only side chains can differ; the template was not repaired, so RepairPDB's side-chain changes count as differences too.`
           : "Wild-type and variant predictions."
         : comparison.reason,
     state: comparison.state === "ready" ? "done" : comparison.state === "unavailable" && (isAf ? foldx.status === "success" : deNovo.variantLoaded) ? "warn" : "idle",
     warn: comparison.canvasWildTypeIsNotTemplate && comparison.state === "ready"
-      ? `Paired with FoldX's template, not with ${canvasWildType?.name ?? "the wild type on the canvas"}.`
+      ? `Paired with ${pairedByFoldx ? "FoldX's own wild type" : "FoldX's template"}, not with ${canvasWildType?.name ?? "the wild type on the canvas"}.`
       : null,
   });
   trace.push({
@@ -1226,6 +1298,12 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
 
   /* ── Experimental structures ──────────────────────────────────────────── */
   const loadedId = pdbIdFromUrl(input.wildType.customPdbUrl);
+  // With the variant's accession, position and residue, the server returns the mapped chain in
+  // UniProt numbering; without them, the whole entry in its own.
+  const entryUrl = (id: string) =>
+    variant.uniprotId && position !== null && wt1
+      ? `/api/v1/pdb/entry/${id}?uniprot=${encodeURIComponent(variant.uniprotId)}&pos=${position}&wt=${wt1}`
+      : `/api/v1/pdb/entry/${id}`;
   const rows: ExperimentalRow[] = input.homologs.map(h => {
     const hasRange = typeof h.querySeqFrom === "number" && typeof h.querySeqTo === "number";
     const covers: ExperimentalRow["coversSite"] =
@@ -1240,7 +1318,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       range: hasRange ? `${h.querySeqFrom}–${h.querySeqTo}` : null,
       coversSite: covers,
       loaded: loadedId === h.pdbId.toUpperCase(),
-      url: `/api/v1/pdb/entry/${h.pdbId.toUpperCase()}`,
+      url: entryUrl(h.pdbId.toUpperCase()),
     };
   });
   const bestCandidates = rows
@@ -1329,7 +1407,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       rows,
       loading: input.homologsLoading,
       best,
-      note: "Identity and aligned range come from RCSB's sequence search; an entry is loaded whole, with its own numbering.",
+      note: "Identity and aligned range come from RCSB's sequence search. Show loads the chain mapped to this protein in UniProt numbering, or the whole entry in its own numbering when that mapping cannot be verified at the site.",
     },
     engineRecord: STRUCTURE_ENGINE_RECORD,
   };

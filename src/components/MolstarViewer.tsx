@@ -138,7 +138,7 @@ export default function MolstarViewer({
       actions.setPdbText(text);
       useVariantAnalysisStore.getState().setPdbTextProvenance(provenance);
     },
-    onEntryLoaded: text => useVariantAnalysisStore.getState().setCustomPdbText(text),
+    onEntryLoaded: entry => useVariantAnalysisStore.getState().setCustomPdbEntry(entry),
     setLoading: plugin.setLoading,
     setLoadError: plugin.setLoadError,
   });

@@ -109,6 +109,21 @@ export type FoldxPhaseReporter = (phase: "repairing" | "modelling" | "finalizing
 
 const inFlightFoldx = new Map<string, Promise<any>>();
 
+/**
+ * BuildModel writes a paired wild type beside every variant it builds: `WT_wt_1_0.pdb` for
+ * `wt_1_0.pdb` (FoldX 5.x), `WT_wt_1.pdb` for `wt_1.pdb` (FoldX 4.x). The pair shares the run, so
+ * run 0's wild type is read for run 0's variant. Null when FoldX wrote none.
+ */
+async function readPairedWildType(variantPath: string): Promise<string | null> {
+  const pairedPath = path.join(path.dirname(variantPath), `WT_${path.basename(variantPath)}`);
+  try {
+    return fs.existsSync(pairedPath) ? await fs.promises.readFile(pairedPath, "utf8") : null;
+  } catch (err: any) {
+    console.warn(`[Biophysical Modeling] Could not read FoldX's paired wild type ${pairedPath}:`, err?.message);
+    return null;
+  }
+}
+
 export async function generateMutantPdb(
   wtPdb: string,
   validatedMutation: string,
@@ -121,7 +136,7 @@ export async function generateMutantPdb(
    * that cannot persist a phase (a benchmark, a script) simply omits it.
    */
   onPhase?: FoldxPhaseReporter
-): Promise<{ pdb: string; ddG: number | null; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
+): Promise<{ pdb: string; wtReferencePdb?: string | null; ddG: number | null; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   if (signal?.aborted) {
     throw new Error("Aborted");
   }
@@ -182,7 +197,7 @@ export async function generateMutantPdbInternal(
   signal?: AbortSignal,
   options?: FoldxOptions,
   onPhase?: FoldxPhaseReporter
-): Promise<{ pdb: string; ddG: number | null; sd?: number; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
+): Promise<{ pdb: string; wtReferencePdb?: string | null; ddG: number | null; sd?: number; status: "success"; foldedResidueIndex: number; resolvedChain?: string; energetics?: any }> {
   // Waiting for a concurrency slot is part of the job's wall-clock cost, so it is budgeted here
   // and counted against the queue's whole-job cap (see CONFIG.timeouts).
   await biophysicalSemaphore.acquire(CONFIG.timeouts.foldxSemaphoreWaitMs, signal);
@@ -312,6 +327,8 @@ export async function generateMutantPdbInternal(
 
   let foldxSuccess = false;
   let mutantPdbContent = "";
+  /** BuildModel's paired wild type for the same run (`WT_wt_1_0.pdb`), or null when FoldX wrote none. */
+  let wtReferencePdbContent: string | null = null;
   let overallDdG: number | null = null;
   let overallSd: number = 0;
   let status: "success" = "success";
@@ -467,6 +484,7 @@ export async function generateMutantPdbInternal(
 
     if (fs.existsSync(foldxOutPdb)) {
       mutantPdbContent = await fs.promises.readFile(foldxOutPdb, "utf8");
+      wtReferencePdbContent = await readPairedWildType(foldxOutPdb);
       foldxSuccess = true;
       console.log(`[Biophysical Modeling] Successfully loaded FoldX mutant structure (${mutantPdbContent.length} bytes).`);
 
@@ -509,6 +527,7 @@ export async function generateMutantPdbInternal(
         }
         if (fs.existsSync(foldxOutPdb2)) {
           mutantPdbContent = await fs.promises.readFile(foldxOutPdb2, "utf8");
+          wtReferencePdbContent = await readPairedWildType(foldxOutPdb2);
           foldxSuccess = true;
           console.log(`[Biophysical Modeling] BuildModel succeeded on second attempt with original PDB (${mutantPdbContent.length} bytes).`);
 
@@ -554,15 +573,27 @@ export async function generateMutantPdbInternal(
     } catch (injectErr: any) {
       console.error(`[Biophysical Modeling] Failed to inject B-factors:`, injectErr.message);
     }
+    if (wtReferencePdbContent) {
+      try {
+        wtReferencePdbContent = injectBFactorsFromWtPdb(wtPdb, wtReferencePdbContent);
+      } catch (injectErr: any) {
+        console.error(`[Biophysical Modeling] Failed to inject B-factors into the paired wild type:`, injectErr.message);
+      }
+    }
 
     // Calculate local sidechain RMSD (BIO-8)
     // Null until measured: a failed RMSD used to reach the tab as a measured 0.00 Å.
+    //
+    // Measured against BuildModel's paired wild type when FoldX wrote one: against the input
+    // template it also counted every side chain RepairPDB moved in the window, which is the repair,
+    // not the substitution.
     let localSidechainRmsd: number | null = null;
+    const localSidechainRmsdReference: "foldx-paired" | "template" = wtReferencePdbContent ? "foldx-paired" : "template";
     try {
-      const wtAtoms = parseAtomsFromPdb(wtPdb);
+      const wtAtoms = parseAtomsFromPdb(wtReferencePdbContent ?? wtPdb);
       const mutAtoms = parseAtomsFromPdb(mutantPdbContent);
       localSidechainRmsd = calculateLocalSidechainRmsd(wtAtoms, mutAtoms, pos, resolvedChain);
-      console.log(`[Biophysical Modeling] Calculated local sidechain RMSD: ${localSidechainRmsd} Å`);
+      console.log(`[Biophysical Modeling] Calculated local sidechain RMSD against the ${localSidechainRmsdReference === "foldx-paired" ? "paired wild type" : "input template"}: ${localSidechainRmsd} Å`);
     } catch (rmsdErr: any) {
       console.error(`[Biophysical Modeling] Failed to calculate local sidechain RMSD:`, rmsdErr?.message);
     }
@@ -584,6 +615,7 @@ export async function generateMutantPdbInternal(
       } : {}),
       seed: options?.seed,
       localSidechainRmsd,
+      ...(localSidechainRmsd !== null ? { localSidechainRmsdReference } : {}),
       foldxRepairFailed,
       foldxRepairSkipped,
       // Named only when repair was skipped, so the UI can say WHY rather than only that it was.
@@ -600,6 +632,12 @@ export async function generateMutantPdbInternal(
 
       return { 
         pdb: mutantPdbContent, 
+        /**
+         * The wild type FoldX built in the same run: the repaired template with its own side chains
+         * repacked by the same procedure. It is the reference the variant's contact, χ1 and surface
+         * differences are meant against; the raw template also carries every change RepairPDB made.
+         */
+        wtReferencePdb: wtReferencePdbContent,
         ddG: overallDdG, 
         sd: overallSd, 
         status, 

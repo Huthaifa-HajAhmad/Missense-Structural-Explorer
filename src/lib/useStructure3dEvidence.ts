@@ -39,7 +39,14 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const pdbText = useVariantAnalysisStore(s => s.pdbText);
   const pdbTextProvenance = useVariantAnalysisStore(s => s.pdbTextProvenance);
   const customPdbUrl = useVariantAnalysisStore(s => s.customPdbUrl);
-  const customPdbText = useVariantAnalysisStore(s => s.customPdbText);
+  const customPdbEntryRaw = useVariantAnalysisStore(s => s.customPdbEntry);
+  // Only the entry fetched for the URL now selected; a previous selection's text is stale.
+  const customPdbEntry = customPdbUrl && customPdbEntryRaw?.url === customPdbUrl ? customPdbEntryRaw : null;
+  const customPdbText = customPdbEntry?.text ?? null;
+  const entryMeta = useMemo(
+    () => (customPdbEntry ? { numbering: customPdbEntry.numbering, chainId: customPdbEntry.chainId, mapping: customPdbEntry.mapping, reason: customPdbEntry.reason } : null),
+    [customPdbEntry]
+  );
   const homologs = useVariantAnalysisStore(s => s.homologs);
   const homologsLoading = useVariantAnalysisStore(s => s.isHomologsLoading);
 
@@ -107,6 +114,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
         provenance: pdbTextProvenance,
         headerSaysAlphaFold,
         customPdbUrl,
+        entry: entryMeta,
         scan: wildTypeScan,
         site: wildTypeSite,
       },
@@ -164,7 +172,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
     return buildStructure3dEvidence(input);
   }, [
     family, viewMode, representation, esmAlignmentScope, selectedResidueIndex, metadata, uniprotFromSearch, gene,
-    disruption, esm3Eval, pdbTextProvenance, headerSaysAlphaFold, customPdbUrl, wildTypeScan, wildTypeSite,
+    disruption, esm3Eval, pdbTextProvenance, headerSaysAlphaFold, customPdbUrl, entryMeta, wildTypeScan, wildTypeSite,
     isFolding, foldingProgress, foldingStatus, foldingError, foldingDdG, foldingEnergetics, foldxReference,
     foldxAlignedPdb, foldxReferencePdb, referenceSite, isEsmFolding, esmFoldingError, esmFoldWtPdb, esmFoldMutPdb,
     esmFoldSingleStructure, esmFoldEngines, deNovoScan, esmFoldAlignedPdb, deNovoSite, foldxMetrics, esmFoldMetrics,

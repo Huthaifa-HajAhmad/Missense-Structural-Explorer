@@ -752,6 +752,7 @@ export function enrichBiophysicalResult(
   const electrostatics = foldxRawResult?.energetics?.electrostatics ?? null;
   const stericClashWarning = foldxRawResult?.energetics?.stericClashWarning ?? false;
   const localSidechainRmsd = foldxRawResult?.energetics?.localSidechainRmsd ?? null;
+  const localSidechainRmsdReference = foldxRawResult?.energetics?.localSidechainRmsdReference ?? null;
   const foldxRawDdGs = foldxRawResult?.energetics?.rawDdGs ?? null;
   const foldxSeed = foldxRawResult?.energetics?.seed ?? null;
   const rasp = foldxRawResult?.energetics?.rasp ?? null;
@@ -797,6 +798,8 @@ export function enrichBiophysicalResult(
 
   return {
     pdb: finalPdb,
+    // FoldX's paired wild type from the same BuildModel run; null for results cached before it was kept.
+    wtReferencePdb: typeof foldxRawResult?.wtReferencePdb === "string" ? foldxRawResult.wtReferencePdb : null,
     ddG: finalDdG,
     foldxDdG: foldxMean,
     thermompnnDdG: thermompnnVal,
@@ -826,6 +829,8 @@ export function enrichBiophysicalResult(
       electrostatics,
       stericClashWarning,
       localSidechainRmsd,
+      // What the RMSD was measured against; absent on results cached before the paired wild type.
+      ...(localSidechainRmsdReference ? { localSidechainRmsdReference } : {}),
       rawDdGs: foldxRawDdGs,
       seed: foldxSeed,
       foldxRepairFailed,

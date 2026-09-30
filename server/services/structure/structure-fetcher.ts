@@ -284,6 +284,93 @@ export async function fetchFullPdbEntry(pdbId: string): Promise<string | null> {
   });
 }
 
+/** A PDB entry as the 3D view loads it: the chain that maps to the protein, in UniProt numbering if verified. */
+export interface EntryForVariant {
+  pdbText: string;
+  numbering: "uniprot" | "author";
+  chainId: string | null;
+  mapping: "sifts" | "needleman_wunsch" | null;
+  /** Why the entry keeps its own numbering, when it does. */
+  reason: string | null;
+}
+
+/** Protein chains in ATOM records, largest first, so a partner or peptide chain is tried last. */
+function proteinChainsBySize(pdbText: string): string[] {
+  const residues = new Map<string, Set<string>>();
+  for (const line of pdbText.split("\n")) {
+    if (line.startsWith("ENDMDL")) break;
+    if (!line.startsWith("ATOM  ") || line.length < 27) continue;
+    const chain = line.charAt(21).toUpperCase();
+    if (!chain.trim()) continue;
+    if (!residues.has(chain)) residues.set(chain, new Set());
+    residues.get(chain)!.add(line.substring(22, 27));
+  }
+  return [...residues.entries()]
+    .filter(([, set]) => set.size >= 20)
+    .sort((a, b) => b[1].size - a[1].size)
+    .map(([chain]) => chain);
+}
+
+const MAX_ENTRY_CHAINS_TRIED = 12;
+
+/**
+ * Loads a PDB entry for the 3D view in the variant's own numbering.
+ *
+ * The entries list offers any RCSB hit for the protein, and an entry loaded whole keeps its
+ * authors' numbering and every chain: the site highlight then landed on whatever residue carried
+ * the variant's number. Here the chain PDBe maps to the accession (or, failing that, any protein
+ * chain that aligns at ≥85% identity) is renumbered to UniProt, through the same deterministic
+ * resolver FoldX's templates pass, and only when the wild-type residue sits at the variant's
+ * position. Otherwise the whole entry is returned in its own numbering, with the reason.
+ */
+export async function fetchEntryForVariant(
+  pdbId: string,
+  uniprotId: string,
+  pos: number,
+  wt1: string
+): Promise<EntryForVariant | null> {
+  const full = await fetchFullPdbEntry(pdbId);
+  if (!full) return null;
+  const author = (reason: string): EntryForVariant => ({ pdbText: full, numbering: "author", chainId: null, mapping: null, reason });
+
+  let sequence: string | null = null;
+  try {
+    sequence = await fetchUniprotSequence(uniprotId);
+  } catch (_) {}
+  if (!sequence) return author(`The UniProt sequence of ${uniprotId} could not be fetched to match the entry's numbering.`);
+
+  const { querySiftsChains, resolvePdbCoordinatesDeterministically } = await import("./sequence-aligner.ts");
+  const sifts = await querySiftsChains(pdbId, uniprotId);
+  const inEntry = proteinChainsBySize(full);
+  // PDBe's chains for this accession first, those covering the site before the rest; then, for an
+  // ortholog or an unmapped entry, every protein chain, which the alignment tier must still accept.
+  const mapped = (sifts ?? [])
+    .filter(c => inEntry.includes(c.chainId))
+    .sort((a, b) => Number(pos >= b.unpStart && pos <= b.unpEnd) - Number(pos >= a.unpStart && pos <= a.unpEnd))
+    .map(c => c.chainId);
+  const candidates = [...new Set([...mapped, ...inEntry])].slice(0, MAX_ENTRY_CHAINS_TRIED);
+
+  for (const chainId of candidates) {
+    const resolved = await resolvePdbCoordinatesDeterministically({
+      pdbId,
+      chainId,
+      rawPdbText: full,
+      uniprotAccession: uniprotId,
+      uniprotSequence: sequence,
+      targetPos: pos,
+      expectedWt1: wt1,
+    });
+    if (resolved.valid && resolved.pdbText && resolved.source !== "alphafold_fallback") {
+      return { pdbText: resolved.pdbText, numbering: "uniprot", chainId, mapping: resolved.source, reason: null };
+    }
+  }
+  return author(
+    candidates.length === 0
+      ? `${pdbId.toUpperCase()} has no protein chain to match to ${uniprotId}.`
+      : `No chain of ${pdbId.toUpperCase()} carries ${wt1}${pos} under a verified mapping to ${uniprotId}.`
+  );
+}
+
 export async function fetchPdbFromRcsb(
   pdbId: string,
   chainId?: string,

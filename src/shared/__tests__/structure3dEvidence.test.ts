@@ -6,7 +6,7 @@ import {
   STRUCTURE_ENGINE_RECORD,
   type Structure3dInput,
 } from "../structure3dEvidence";
-import { scanBFactors, readResidueAt, identifyAlphaFoldHeader, plddtScale } from "../coordinateText";
+import { scanBFactors, readResidueAt, identifyAlphaFoldHeader, plddtScale, isSitePair } from "../coordinateText";
 import { LOCAL_STRUCTURAL_WINDOW, LOCAL_ALIGNMENT_FIT_WINDOW, THRESHOLDS } from "../thresholds";
 import { LEGACY_ENGINE_LABELS } from "../engineStatus";
 
@@ -154,6 +154,18 @@ describe("coordinateText", () => {
     expect(identifyAlphaFoldHeader(atom(1, "CA", "ALA", "A", 1, 70) + " AF-")).toBeNull();
   });
 
+  it("accepts a wild-type/variant pair only when they differ at the site alone", () => {
+    const wt = [atom(1, "CA", "SER", "A", 115, 40), atom(2, "CA", "ASP", "A", 116, 50), atom(3, "CA", "GLY", "A", 117, 60)].join("\n");
+    const variant = wt.replace("ASP A 116", "GLY A 116");
+    expect(isSitePair(wt, variant, 116, "A")).toBe(true);
+    // Another variant's run: the substitution sits elsewhere.
+    expect(isSitePair(wt, wt.replace("SER A 115", "ALA A 115"), 116, "A")).toBe(false);
+    // A different construct: one residue fewer.
+    expect(isSitePair(wt, variant.split("\n").slice(0, 2).join("\n"), 116, "A")).toBe(false);
+    // A calcium ion is not a residue.
+    expect(isSitePair(wt + "\nHETATM    9 CA    CA A 301       0.000   0.000   0.000  1.00 20.00          CA", variant, 116, "A")).toBe(true);
+  });
+
   it("reads a 0–1 pLDDT scale (ESM Atlas) apart from 0–100", () => {
     expect(plddtScale(scanBFactors(ATLAS_TEXT))).toBe(1);
     expect(plddtScale(scanBFactors(AF_TEXT))).toBe(100);
@@ -254,6 +266,25 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.alignment.scopeToggle).toBe(false);
   });
 
+  it("names FoldX's own paired wild type when the run returned it, and caveats nothing about repair", () => {
+    const foldx = { ...readyFoldx(), reference: { ...readyFoldx().reference, basis: "foldx-paired" as const } };
+    const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx, metrics: NAE1_METRICS }));
+    expect(m.canvas.primary?.name).toBe("FoldX wild type on PDB 1YOV chain A");
+    expect(m.canvas.primary?.channel.inherited).toBe(true);
+    expect(m.comparison.headline).toBe("Variant against FoldX's own wild type on PDB 1YOV chain A");
+    expect(m.trace[2].sub).toMatch(/from one run/);
+    expect(m.readings.find(r => r.key === "contacts")?.caveat).toBeNull();
+  });
+
+  it("warns that an older result's pair counts RepairPDB's side-chain changes", () => {
+    const foldx = { ...readyFoldx(), reference: { ...readyFoldx().reference, basis: "template" as const } };
+    const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx, metrics: NAE1_METRICS }));
+    expect(m.canvas.primary?.name).toBe("PDB 1YOV chain A");
+    expect(m.trace[2].sub).toMatch(/not repaired/);
+    expect(m.readings.find(r => r.key === "contacts")?.caveat).toMatch(/before RepairPDB/);
+    expect(m.readings.find(r => r.key === "polar")?.caveat).toMatch(/before RepairPDB/);
+  });
+
   it("states χ1 as not applicable for a glycine instead of printing 0.0°", () => {
     const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx: readyFoldx(), metrics: NAE1_METRICS }));
     const chi = m.readings.find(r => r.key === "chi1")!;
@@ -313,6 +344,47 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.site.check.state).toBe("mismatch");
     expect(m.notices.map(n => n.key)).toEqual(expect.arrayContaining(["numbering", "entry"]));
   });
+
+  it("names the chain of an entry the server renumbered to UniProt, and asks for it in the variant's numbering", () => {
+    const m = buildStructure3dEvidence(
+      baseInput({
+        wildType: {
+          provenance: { source: "alphafold", afdbVersion: "v6" },
+          customPdbUrl: "/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D",
+          entry: { numbering: "uniprot", chainId: "B", mapping: "sifts", reason: null },
+          scan: scanBFactors(CRYSTAL_TEXT),
+          site: readResidueAt(CRYSTAL_TEXT, 116),
+        },
+      })
+    );
+    expect(m.canvas.primary?.name).toBe("PDB 9QN5 chain B");
+    expect(m.canvas.primary?.numbering).toBe("uniprot");
+    expect(m.canvas.primary?.kind).toMatch(/in UniProt numbering \(PDBe SIFTS\)/);
+    expect(m.site.check.state).toBe("match");
+    expect(m.notices.find(n => n.key === "entry")?.body).toMatch(/^Chain B is shown, renumbered to UniProt through PDBe's SIFTS mapping/);
+    const row = m.experimental.rows.find(r => r.pdbId === "9QN5")!;
+    expect(row.loaded).toBe(true);
+    expect(row.url).toBe("/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D");
+  });
+
+  it("says why an entry kept its own numbering", () => {
+    const m = buildStructure3dEvidence(
+      baseInput({
+        wildType: {
+          provenance: { source: "alphafold", afdbVersion: "v6" },
+          customPdbUrl: "/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D",
+          entry: { numbering: "author", chainId: null, mapping: null, reason: "No chain of 9QN5 carries D116 under a verified mapping to Q13564." },
+          scan: scanBFactors(CRYSTAL_TEXT),
+          site: readResidueAt(CRYSTAL_TEXT, 116),
+        },
+      })
+    );
+    expect(m.canvas.primary?.name).toBe("PDB 9QN5");
+    expect(m.canvas.primary?.numbering).toBe("entry");
+    expect(m.notices.find(n => n.key === "entry")?.body).toBe(
+      "The entry keeps its own residue numbering and all of its chains: no chain of 9QN5 carries D116 under a verified mapping to Q13564. The variant model and the superposition still refer to FoldX's template."
+    );
+  });
 });
 
 describe("structure3dEvidence — ESMFold view", () => {
@@ -368,6 +440,21 @@ describe("structure3dEvidence — ESMFold view", () => {
     expect(m.readings.find(r => r.key === "global-rmsd")?.note).toMatch(/not a whole-chain fit/);
     expect(m.representations.find(r => r.id === "displacement")?.available).toBe(true);
   });
+
+  it("describes the readings by the fit that was measured, not the toggle's pending choice", () => {
+    const input = deNovoInput({ wildType: "esm-atlas-esmfold", variant: "esm-atlas-esmfold" });
+    // The toggle says local; the metrics on screen are still the whole-chain fit's.
+    const m = buildStructure3dEvidence({
+      ...input,
+      viewMode: "superimposed",
+      alignmentScope: "local",
+      metrics: { localWindowRmsd: 1.2, globalRmsd: 6.1, alignmentScope: "global" },
+    });
+    expect(m.alignment.scope).toBe("local");
+    expect(m.comparison.fit).toBe("whole chain");
+    expect(m.readings.find(r => r.key === "global-rmsd")?.note).toBe("after a whole-chain fit");
+    expect(m.readings.find(r => r.key === "local-rmsd")?.caveat).toBeNull();
+  });
 });
 
 describe("ESM3 embedding shift", () => {
@@ -398,6 +485,7 @@ describe("vocabulary", () => {
 
   it("extracts the PDB id the reader loaded", () => {
     expect(pdbIdFromUrl("/api/v1/pdb/entry/1yov")).toBe("1YOV");
+    expect(pdbIdFromUrl("/api/v1/pdb/entry/9QN5?uniprot=Q13564&pos=116&wt=D")).toBe("9QN5");
     expect(pdbIdFromUrl("https://files.rcsb.org/download/9QN5.pdb")).toBe("9QN5");
     expect(pdbIdFromUrl(null)).toBeNull();
   });

@@ -11,7 +11,9 @@ homolog search, the disruption step's pLDDT). Done with the `evidence-tab-refact
 None was needed from the owner. No ACMG criterion reads the 3D view (`server/services/prediction/acmg/
 criteria.ts` has no structure input), so nothing here changes a classification. One fix moves a number
 outside the tab and is disclosed below: the Energetics consensus no longer down-weights FoldX,
-ThermoMPNN and StabilityOracle on a crystal structure's temperature factor (S5).
+ThermoMPNN and StabilityOracle on a crystal structure's temperature factor (S5). Round 2 adds one
+more (R6): the SIFTS tier no longer maps a chain through another protein's UniProt entry, so a FoldX
+template accepted that way now resolves differently and its ΔΔG can change. Neither reaches ACMG.
 
 ## What the screenshots showed, and why
 
@@ -107,36 +109,59 @@ range only when reported; load/unload) → method notes and sources with DOIs.
 | Experimental list | 1YOV "100% ID", 9QN5 "5% ID · In Range" | Identity and range from RCSB's alignment, "not reported" where absent |
 | ESMFold view | "ESMFold-2 … (Lin et al. 2023)", pLDDT 94.5 / 1YOV | Engine named per structure; citation matches the engine; site read from the de novo model |
 
+## Round 2 — review of round 1, and the follow-ups (30 September 2026)
+
+Round 1 was re-read from the start before its follow-ups were built. What that found, and what the
+follow-ups changed:
+
+| # | Sev. | Finding | Evidence | Fix |
+|---|---|---|---|---|
+| R1 | Medium | When the viewer fetched the AlphaFold model itself (a cold start), it drew it before its provenance was known — plain colours — and then skipped the store's echo because the text was unchanged. The canvas stayed plain while the legend said pLDDT. | `useMolstarStructure` compared only the text to decide to skip. | The hook publishes the fetched text and draws from the store's echo, when the colouring is known. The same path now serves loaded PDB entries. Rendered: the cold-start model is in AFDB bands. |
+| R2 | Medium | The FoldX pair was the variant against the template *before RepairPDB*. RepairPDB moves side chains across the chain, so χ1, polar-contact and contact changes counted the repair as the substitution. | `useFoldxSuperposition` fetched the resolver's template. | BuildModel's paired wild type (`WT_wt_1_0.pdb` / `WT_wt_1.pdb`, same run, same repair) is returned by `/generate-mutant` as `wtReferencePdb`, with the template's B-factors, and the pair is measured against it. A check that the two differ at the site alone guards against a stale pair. Results cached before this still use the template and say so on each affected reading. |
+| R3 | Medium | Perturbation tab "Neighbour side-chain RMSD" had the same repair confound, and `calculateLocalSidechainRmsd` returned 0.0 when it could not measure (empty window, fewer than three backbone pairs, a failed fit) — shown as a measured 0.00 Å. Its unit test passed only through that failure path. | `structural-diff/contacts.ts`, `foldx/runner.ts`. | Null when not measured; measured against the paired wild type; the row names its reference (`localSidechainRmsdReference`). Test fixed to fit a real backbone. |
+| R4 | Medium | A local fit with fewer than four Cα pairs silently fitted the whole chain, but the metrics echoed "local"; and the readings were labelled by the scope toggle, which runs ahead of the metrics while a new fit computes (and stays wrong if it fails). | `aligner.ts`; `structure3dEvidence.ts`. | The aligner reports the fit it applied; readings and the drawn pair's fit label follow the metrics. |
+| R5 | Medium | A loaded PDB entry was highlighted by author number (round 1 only warned on a mismatch). | `/pdb/entry/:id`. | With the variant's accession, position and residue, `/pdb/entry/:id?uniprot=&pos=&wt=` returns the chain PDBe maps to the protein renumbered to UniProt, through the resolver FoldX templates already pass (SIFTS, else Needleman–Wunsch at ≥85% identity), only when the wild-type residue is at the position. Otherwise the whole entry in its own numbering, with the reason. Headers carry the numbering; the rail names the chain or the reason. |
+| R6 | Medium | The SIFTS tier fell back to the entry's *first* UniProt mapping when the requested accession was absent (an ortholog's entry, a complex partner's chain), then accepted it on a one-residue identity check. This path also validates FoldX templates. | `sequence-aligner.ts querySiftsMapping`. | The requested accession only; orthologs go to the alignment tier. SIFTS documents are memoised for an hour, so one entry is fetched once. *Disclosed:* a template accepted through the wrong mapping would now resolve differently, so a FoldX ΔΔG can change for such a variant. No ACMG criterion reads FoldX or structure (`acmg/criteria.ts`). |
+| R7 | Medium | The disruption step reported "low" disruption, status "ok", when no structure was resolved or it failed; the client's placeholder result was `{ level: "low", plddt: 100 }` before a result existed and in demo data. The Energetics inspector's low-confidence-template warning reads that pLDDT, so the placeholder suppressed it; the clinical card passes it into its facts. | `core-data-fetcher.ts`, `pipelineStateFactory.ts`. | `level: "unknown"`, `plddt: null`, a reason, and status `not_found` (or `error`). |
+| R8 | Low | The FoldX pairing re-fetched and re-superposed whenever the canvas text changed, even for a crystal template it cannot be — a flicker through "loading" on every cold start. | `useFoldxSuperposition` dependencies. | Depends on the canvas text only for an AlphaFold or client-provided template. |
+| R9 | Low | `/esmfold` folded the wild type and the variant one after the other. | `routes/structure.ts`. | Concurrent (`Promise.all`); the budget test still covers the sequential worst case, so a revert cannot shorten the client's patience below it. |
+| R10 | Low | The store's `structureProvenance` had no reader left and two writers. | `biophysicalSlice.ts`, sinks. | Removed. The structure sink's setter is named for what it sets (`setPdbTextProvenance`); FoldX's template lives only on its energetics. |
+| R11 | Low | `pocket.test.ts` passed a Windows path as a job directory, which becomes a file in the working tree on Linux. | — | `os.tmpdir()`. |
+
+Not changed: the dormant compare-variant code (≈320 lines in `useBiophysicalModeling` and
+`biophysicalSlice`) — nothing sets `compareMode` or `compareVariant`, and no compare fold can start.
+It is outside the 3D view and is queued as its own task.
+
 ## Verification
 
 - `npx tsc --noEmit` clean; `npm run lint` (boundaries, focus indicators, verify parity, tsc) clean;
   `vite build` succeeds.
-- Full `vitest run`: **215 files, 2,710 tests passed, 5 skipped, 0 failed** (baseline 213 files,
-  2,662 passed). New: `src/shared/__tests__/structure3dEvidence.test.ts` (26),
-  `src/components/__tests__/Structure3dView.test.tsx` (9), disruption source (2), homolog match
-  context (1 new, 1 rewritten), SVD ordering (1). `StructureInspectorFoldingLimits.test.tsx` ported to
-  the store-driven rail with every invariant kept. The new 3D surfaces are in the legacy-label guard.
-- Rendered with a harness in Chromium (SwiftShader WebGL): WT, variant, superposition, pocket, ESM3,
-  ESMFold (success, mixed engines, failure, folding), light, dark and 900 px. The harness used PDB 2OCJ
+- Full `vitest run` after round 2: **217 files, 2,730 tests passed, 5 skipped, 0 failed** (after round
+  1: 215 files, 2,710; before round 1: 213 files, 2,662). Round 2 added
+  `server/services/structure/entry-for-variant.test.ts` (SIFTS, alignment fallback, reason), route
+  tests for the entry headers and a malformed request, the paired wild type in the FoldX runner test,
+  the applied-fit report in the aligner test, the side-chain RMSD null case, model tests for the pair
+  basis, the measured fit, renumbered and author-numbered entries, the site-pair check, and the
+  Perturbation row's reference note.
+- Rendered with a harness in Chromium (SwiftShader WebGL): WT, variant, superposition (paired and
+  older-template bases), pocket, ESM3, ESMFold (success, mixed engines, failure, folding), light, dark,
+  900 px; and, with the two structure routes intercepted, a cold-start AlphaFold fetch and a loaded
+  entry in UniProt and in author numbering. Each route was fetched once. The harness used PDB 2OCJ
   chain A as stand-in geometry (no network to RCSB/AFDB in the sandbox) with the NAE1 metadata.
 
 ## Follow-ups not done
 
-1. **FoldX's own WT reference.** BuildModel writes `WT_wt_1_0.pdb`, the repacked wild type paired with
-   the variant. The superposition uses the resolver's template before RepairPDB, so side chains FoldX
-   repaired can differ away from the site. Returning the WT reference from `/generate-mutant` would
-   remove that.
-2. **Entry numbering.** A loaded PDB entry is highlighted by author number; the match context's
-   `subject_beg`/`query_beg` (or SIFTS) could map the variant position properly.
-3. **Fold WT and variant concurrently**, and reuse the WT fold across variants of one protein.
-4. **Legacy `structureProvenance`** still exists for FoldX consumers; migrate them to
-   `foldingEnergetics.structureProvenance` and drop the field.
-5. **The dormant compare-variant feature** (`compareMutantPdb`, compare folding states in
-   `useBiophysicalModeling`) has no UI; finish or remove it.
-6. `disruption.ts` returns `level: "low"` with reason "Fallback: PDB structure mapping not resolved"
-   on failure — an absence reported as a level.
-7. The RCSB verbose field names (`query_beg`/`query_end`) could not be checked against the live API
-   from the sandbox; the parser also accepts the older names. Confirm on a live run.
+1. **Reuse the WT fold across variants of one protein** in the ESMFold view (the server caches by
+   sequence hash; the client still asks for the pair each time).
+2. **Multi-segment SIFTS mappings.** The resolver renumbers a chain by one shift, taken at the variant's
+   position; an entry whose mapping has an insertion relative to UniProt is numbered correctly only on
+   the site's segment. A per-residue renumbering from the SIFTS residue list would fix it.
+3. The RCSB verbose field names (`query_beg`/`query_end`) still could not be checked: the sandbox's
+   egress proxy blocks `search.rcsb.org` and its documentation hosts. The parser accepts the older
+   names too and prints "range not reported" when neither is present. Confirm on a live run.
+4. The Energetics glossary describes "Sidechain RMSD" as the mutated side chain's deviation with a
+   1.5 Å threshold; the measure excludes the site beyond Cβ and the threshold has no source. Outside
+   this view; queued.
 
 ## Sources
 

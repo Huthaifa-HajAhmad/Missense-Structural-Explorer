@@ -32,8 +32,11 @@ vi.mock("child_process", () => ({
     } else if (command === "BuildModel") {
       const base = path.basename(pdbArg, ".pdb");
       const mutant = fs.readFileSync(path.join(cwd, pdbArg), "utf8") + "\nREMARK  99 MUTANT\n";
+      // FoldX writes its own B column; zeroed here so the test sees the template's values restored.
+      const pairedWildType = fs.readFileSync(path.join(cwd, pdbArg), "utf8").replace(/ 87\.39/g, "  0.00") + "\nREMARK  99 PAIRED WT\n";
       for (let run = 0; run < 5; run++) {
         fs.writeFileSync(path.join(cwd, `${base}_1_${run}.pdb`), mutant);
+        fs.writeFileSync(path.join(cwd, `WT_${base}_1_${run}.pdb`), pairedWildType);
       }
       fs.writeFileSync(path.join(cwd, "Dif_wt.fxout"), makeDifFxout());
     }
@@ -233,6 +236,10 @@ describe("FoldX runner — repair reuse and phase reporting", () => {
     const result = await runFoldx(pdb, phases);
 
     expect(phases).toEqual(["repairing", "modelling", "finalizing"]);
+    // BuildModel's paired wild type travels with the variant, with the template's B-factors on it.
+    expect(result.wtReferencePdb).toContain("PAIRED WT");
+    expect(result.wtReferencePdb).toContain(" 87.39");
+    expect(result.pdb).not.toContain("PAIRED WT");
     expect(result.energetics.foldxRepairFailed).toBe(false);
     expect(result.energetics.foldxRepairSkipped).toBe(false);
     // A fresh repair is NOT reported as a reuse.

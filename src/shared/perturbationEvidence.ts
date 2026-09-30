@@ -429,7 +429,7 @@ function buildPhysical(fe: any, diff: any, metrics: any, isFolding: boolean): Pe
     {
       key: "neighbour-rmsd",
       name: "Neighbour side-chain RMSD",
-      description: `Side-chain heavy atoms of residues within ±${LOCAL_STRUCTURAL_WINDOW} of the site after local backbone superposition — how far FoldX repacked the neighbours.`,
+      description: `Side-chain heavy atoms of residues within ±${LOCAL_STRUCTURAL_WINDOW} of the site after local backbone superposition — how differently the neighbours pack in the variant model.`,
       value: nRmsd,
       text: nRmsd !== null ? nRmsd.toFixed(2) : "—",
       unit: "Å",
@@ -437,7 +437,13 @@ function buildPhysical(fe: any, diff: any, metrics: any, isFolding: boolean): Pe
       marks: [],
       markKind: "none",
       call: null,
-      note: null,
+      // The run's own wild type isolates the substitution; the input template also carries RepairPDB's moves.
+      note:
+        nRmsd === null
+          ? null
+          : fe?.localSidechainRmsdReference === "foldx-paired"
+            ? "Against FoldX's paired wild type from the same run"
+            : "Against the template before RepairPDB, so the repair's side-chain moves are included",
       availability: nRmsd !== null ? computed() : pending ?? absent("Not measured for this model.")
     },
     {

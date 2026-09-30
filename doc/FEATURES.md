@@ -20,10 +20,14 @@ Two views share one canvas, toolbar, colour key and inspector trace, all rendere
 ### 2.1. What is on the canvas
 * **AlphaFold2 view**: the AlphaFold DB model as wild type; the FoldX variant (BuildModel on the
   template the stability run resolved — often an experimental PDB chain, not the AlphaFold model);
-  and a superposition that pairs the variant with **its own template**, fetched and checked against
-  the template FoldX reported. Experimental entries from RCSB's sequence search can be loaded as the
-  wild type; they keep their own numbering, and the view checks the residue at the variant position.
-* **ESMFold view**: wild type and variant folded as two separate single-sequence predictions. The
+  and a superposition that pairs the variant with **FoldX's own wild type** from the same BuildModel
+  run (the repaired template, repacked alongside the variant). Results cached before that pair was
+  kept fall back to the template, fetched and checked against the one FoldX reported, and say that
+  RepairPDB's side-chain moves then count as differences. Experimental entries from RCSB's sequence
+  search can be loaded as the wild type: the chain PDBe maps to the protein, renumbered to UniProt
+  when the wild-type residue is verified at the variant's position; otherwise the whole entry in its
+  own numbering, with the reason, and the view checks the residue at the variant position.
+* **ESMFold view**: wild type and variant folded concurrently, as two separate single-sequence predictions. The
   server names the engine that answered for each (ESMFold2-Fast via JapanFold or EvolutionaryScale
   Forge, or ESMFold v1 via the public ESM Atlas), and the view warns when the two differ.
 * The toolbar names the structure, the variant site (click to frame it) and any residue you

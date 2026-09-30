@@ -119,6 +119,7 @@ export default function useVariantAnalysis() {
             setFoldingError: currentStore.setFoldingError,
             setFoldingStatus: currentStore.setFoldingStatus,
             setMutantPdb: currentStore.setMutantPdb,
+            setFoldxWtPdb: currentStore.setFoldxWtPdb,
             setFoldedResidueIndex: currentStore.setFoldedResidueIndex,
             setFoldingDdG: currentStore.setFoldingDdG,
             setFoldingEnergetics: currentStore.setFoldingEnergetics,
@@ -129,17 +130,16 @@ export default function useVariantAnalysis() {
             setThermompnnJobId: currentStore.setThermompnnJobId,
             setThermompnnStatus: currentStore.setThermompnnStatus,
             setThermompnnError: currentStore.setThermompnnError,
-            setStructureProvenance: currentStore.setStructureProvenance,
             lastFetchedFoldRef: biophysical.lastFetchedFoldRef
           },
           structure: {
             setPdbText: currentStore.setPdbText,
             /**
-             * The structure sink's provenance describes `pdbText`, so it goes to `pdbTextProvenance`.
-             * It used to share `structureProvenance` with the FoldX sink above, and whichever ran
-             * last named the structure on the 3D toolbar.
+             * The structure sink's provenance describes `pdbText`. It used to share one
+             * `structureProvenance` field with the FoldX run, and whichever ran last named the
+             * structure on the 3D toolbar; FoldX's template now lives only on its energetics.
              */
-            setStructureProvenance: currentStore.setPdbTextProvenance,
+            setPdbTextProvenance: currentStore.setPdbTextProvenance,
             setComputedPocket: currentStore.setComputedPocket,
             setIsPocketLoading: currentStore.setIsPocketLoading,
             setPocketError: currentStore.setPocketError,
@@ -415,6 +415,7 @@ export default function useVariantAnalysis() {
     setPdbText: useVariantAnalysisStore.getState().setPdbText,
     setTriageOverride: useVariantAnalysisStore.getState().setTriageOverride,
     setMutantPdb: useVariantAnalysisStore.getState().setMutantPdb,
+    setFoldxWtPdb: useVariantAnalysisStore.getState().setFoldxWtPdb,
     setFoldedResidueIndex: useVariantAnalysisStore.getState().setFoldedResidueIndex,
     setIsFolding: useVariantAnalysisStore.getState().setIsFolding,
     setFoldingError: useVariantAnalysisStore.getState().setFoldingError,
