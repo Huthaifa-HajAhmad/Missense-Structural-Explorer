@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useVariantAnalysisStore } from "../useVariantAnalysisStore";
-import { generateStructuredEhrReport } from "../../components/report/reportStatus";
+import { DEFAULT_REPORT_SECTIONS } from "../slices/uiSlice";
+import { buildReportDocument } from "../../shared/reportDocument";
+import { reportInputFromRun } from "../../shared/reportInput";
+import { renderReportText } from "../../shared/reportRender";
 
 /**
  * The two "Copy Report" buttons must emit the same document, and neither may paste a database status
- * into the verdict slot.
+ * into the classification slot. Both now render the Report document (`buildReportDocument`), so the
+ * author's included blocks and edits apply to the pasted text as they do to every export.
  *
  * The Insights view's handler built its own three-line text:
  *
@@ -74,99 +78,77 @@ async function copyReport(result: any, gene = "CNNM2", variant = "p.Ser489Cys") 
 
 describe("handleCopyReport", () => {
   beforeEach(() => {
-    useVariantAnalysisStore.getState().setReportSections({
-      summary: true, acmg: true, structure: true, energetics: true, literature: false,
-    });
+    const s = useVariantAnalysisStore.getState();
+    s.setReportSections({ ...DEFAULT_REPORT_SECTIONS });
+    s.loadReportDraft(null);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("puts the rule engine's verdict in the verdict slot, never the ClinVar sentinel", async () => {
+  it("puts the rule engine's tier in the classification slot, never the ClinVar sentinel", async () => {
     const text = await copyReport(baseResult());
 
-    const headline = text.split("\n").find(line => line.startsWith("Headline Verdict:"));
-    expect(headline).toContain("Variant of Uncertain Significance (VUS)");
-    // The defect: this line read `Headline Verdict:   Not found in ClinVar`.
-    expect(headline).not.toContain("Not found in ClinVar");
+    const line = text.split("\n").find(l => l.startsWith("Classification:"));
+    expect(line).toContain("Variant of Uncertain Significance (VUS)");
+    // The defect: the verdict slot read `Not found in ClinVar`.
+    expect(text).not.toMatch(/Classification:[^\n]*Not found in ClinVar/);
   });
 
-  it("emits the same document as the Report view's own builder", async () => {
-    // Both buttons call `generateStructuredEhrReport`. The store supplies live energetics, so the
-    // comparison uses the same (absent) energetics the fixtures carry.
+  it("emits the same document as the Report screen's own builder", async () => {
     const result = baseResult();
     const text = await copyReport(result);
 
-    const store = useVariantAnalysisStore.getState();
-    const expected = generateStructuredEhrReport({
-      gene: "CNNM2",
-      variant: "p.Ser489Cys",
-      reportedVariant: "p.Ser489Cys",
-      modelledVariant: "p.Ser489Cys",
-      uniprotId: "Q9H4Z3",
-      reportedTranscriptId: null,
-      basisNote: undefined,
-      headlineVerdict: "Variant of Uncertain Significance (VUS)",
-      plausibility: result.insights.plausibility,
-      acmgCriteria: [{ code: "PP3", reason: "4/10 predictors agree.", source: "database_verified" }],
-      energetics: null,
-      foldingDdG: null,
-      result,
-      narrative: result.analysis,
-      evidenceSummary: (store as any).evidenceSummary ?? undefined,
-      sections: undefined,
-    } as any);
-
-    // The shared builder is the source of truth; assert the parts a reader files rather than the whole
-    // string, which also carries a generated date.
-    for (const marker of ["CLINICAL GENOMICS & BIOPHYSICAL ASSESSMENT REPORT", "ACMG / AMP EVIDENCE CRITERIA", "Headline Verdict:"]) {
-      expect(text).toContain(marker);
-      expect(expected).toContain(marker);
-    }
-    expect(text).toMatch(/\[PP3\] 4\/10 predictors agree\./);
-    expect(text).toMatch(/CLINICAL NARRATIVE & SYNTHESIS/);
+    const st = useVariantAnalysisStore.getState();
+    const expected = renderReportText(
+      buildReportDocument(
+        reportInputFromRun({
+          result,
+          gene: "CNNM2",
+          variant: "p.Ser489Cys",
+          uniprotId: "Q9H4Z3",
+          foldingEnergetics: null,
+          foldingDdG: null,
+          foldingStatus: null,
+          isLoading: false,
+          draft: { sections: st.reportSections, edits: st.reportEdits, meta: st.reportMeta, citations: st.reportCitations },
+          generatedAt: null,
+        })
+      )
+    );
+    // The copy is stamped with its export time and the Document ID follows the text, so compare the body.
+    const body = (t: string) => t.split("\n").filter(l => !l.startsWith("Generated ") && !l.startsWith("Document ID")).join("\n");
+    expect(body(text)).toBe(body(expected));
+    expect(text).toMatch(/PP3/);
+    expect(text).toContain("Research use.");
   });
 
-  it("carries the provenance that the old three-line text omitted", async () => {
-    const text = await copyReport(baseResult());
-
-    // Verdict + plausibility + criteria reasons + prevalence of the numbered basis.
-    expect(text).toContain("Plausibility:");
-    expect(text).toContain("Canonical UniProt:  Q9H4Z3");
-    expect(text).toMatch(/Evidence Completeness: \d+ of \d+ sources retrieved\./);
-    // The source tag on the criterion now travels with it, which is what makes the two buttons agree.
-    expect(text).toContain("(Rule engine)");
-  });
-
-  it("honours the report's own section toggles", async () => {
-    const store = useVariantAnalysisStore.getState();
-    store.setReportSections({ summary: false, acmg: false, structure: true, energetics: false, literature: false });
+  it("honours the report's own block toggles", async () => {
+    useVariantAnalysisStore.getState().setReportSections({ ...DEFAULT_REPORT_SECTIONS, summary: false, computational: false });
 
     const text = await copyReport(baseResult());
 
-    // A section switched off in the Report inspector must not reappear in the pasted document.
-    expect(text).not.toContain("CLINICAL NARRATIVE & SYNTHESIS");
-    expect(text).not.toContain("ACMG / AMP EVIDENCE CRITERIA");
+    expect(text).not.toContain("WRITTEN SUMMARY");
+    expect(text).not.toContain("plausibly uncertain");
+    expect(text).toContain("Not included by the author:");
+  });
+
+  it("carries the author's edits and marks them", async () => {
+    useVariantAnalysisStore.getState().setReportEdit("notes", "Discuss at MDT.", "");
+
+    const text = await copyReport(baseResult());
+
+    expect(text).toContain("Discuss at MDT.");
   });
 
   it("does not assert a reference transcript it could not resolve", async () => {
-    /*
-     * The builder's `reportedTranscriptId` used to fall back to the literal "MANE Select", so a filed
-     * report declared a specific reference-sequence designation whenever no transcript had resolved —
-     * in the one header block a reader uses to check the right transcript was analysed.
-     */
-    const text = await copyReport(
-      baseResult({ metadata: { gene: "CNNM2", variant: "p.Ser489Cys", uniprotId: "Q9H4Z3" } }),
-      "CNNM2",
-      "p.Ser489Cys"
-    );
+    const text = await copyReport(baseResult());
 
-    expect(text).not.toMatch(/Transcript:\s+MANE Select/);
+    expect(text).not.toMatch(/MANE Select/);
   });
 
   it("does not paste undefined or NaN into a clinical document", async () => {
-    // The builder is the only text producer now, and it must not interpolate a missing value.
     const text = await copyReport(baseResult({ ruleBasedInsights: undefined, insights: {} }));
 
     expect(text).not.toMatch(/\bundefined\b/);

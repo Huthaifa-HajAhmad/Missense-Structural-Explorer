@@ -8,9 +8,11 @@ import {
   ChevronUp, 
   AlertCircle,
   Copy,
-  CheckCircle2
+  CheckCircle2,
+  Pin
 } from "lucide-react";
 import { useApiClient } from "../apiClient";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { describeConnectionFailure } from "../shared/fetch-retry";
 
 interface LiteratureViewProps {
@@ -46,6 +48,10 @@ export default function LiteratureView({
 }: LiteratureViewProps) {
   const { apiClient } = useApiClient();
   const [citations, setCitations] = useState<Citation[]>([]);
+  const reportCitations = useVariantAnalysisStore(st => st.reportCitations);
+  const pinReportCitation = useVariantAnalysisStore(st => st.pinReportCitation);
+  const unpinReportCitation = useVariantAnalysisStore(st => st.unpinReportCitation);
+  const pinnedIds = useMemo(() => new Set(reportCitations.map(c => c.id)), [reportCitations]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [internalQuery, setInternalQuery] = useState(searchQuery);
@@ -427,6 +433,26 @@ export default function LiteratureView({
                             {isPmid ? "Copy PMID" : "Copy ID"}
                           </>
                         )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          pinnedIds.has(citation.id)
+                            ? unpinReportCitation(citation.id)
+                            : pinReportCitation({
+                                id: citation.id,
+                                title: citation.title,
+                                authors: citation.authors,
+                                journal: citation.journal,
+                                year: citation.year,
+                                url: hasUsableUrl ? articleHref : null,
+                              })
+                        }
+                        aria-pressed={pinnedIds.has(citation.id)}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-cs-text-muted hover:text-cs-text-primary"
+                      >
+                        <Pin className="w-3 h-3" />
+                        {pinnedIds.has(citation.id) ? "In the report" : "Add to report"}
                       </button>
                     </div>
                   </div>

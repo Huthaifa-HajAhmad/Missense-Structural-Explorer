@@ -1,5 +1,7 @@
 import { StateCreator } from "zustand";
 import type { PerturbationModelId } from "../../shared/perturbationModels";
+import { defaultReportSections, sectionsForPreset, type BlockKey, type ReportCitation, type ReportEdit, type ReportPresetId } from "../../shared/reportDocument";
+import type { ReportDraft } from "../../shared/reportInput";
 
 export interface NotificationItem {
   id: string;
@@ -8,21 +10,20 @@ export interface NotificationItem {
 }
 
 /**
- * Report body sections the clinician can include or exclude.
+ * Report blocks the author can include, exclude and edit.
  *
- * This lives in the store (rather than in either pane) because the filter control is in the
- * Report inspector and the content it filters is in the main Report view. Previously each
- * side kept private state, so the "Section Filters" toggles filtered nothing at all.
+ * This lives in the store (rather than in either pane) because the controls are in the Report rail and
+ * the content they change is in the main Report view. The keys are the document model's
+ * (`shared/reportDocument.ts`); `summary` keeps the name the Insights card already uses to switch the
+ * written summary back on.
  */
-export type ReportSectionKey = "summary" | "acmg" | "structure" | "energetics" | "literature";
+export type ReportSectionKey = BlockKey;
 
-export const DEFAULT_REPORT_SECTIONS: Record<ReportSectionKey, boolean> = {
-  summary: true,
-  acmg: true,
-  structure: true,
-  energetics: true,
-  literature: true,
-};
+export const DEFAULT_REPORT_SECTIONS: Record<ReportSectionKey, boolean> = defaultReportSections();
+
+export interface ReportMeta { title: string; preparedBy: string; caseRef: string }
+
+export const DEFAULT_REPORT_META: ReportMeta = { title: "", preparedBy: "", caseRef: "" };
 
 export interface UiState {
   viewMode: "wildtype" | "mutant" | "superimposed";
@@ -30,6 +31,11 @@ export interface UiState {
   isLegendOpen: boolean;
   notifications: NotificationItem[];
   reportSections: Record<ReportSectionKey, boolean>;
+  /** The author's own text per block. Only prose can be edited; scores, facts and the verdict cannot. */
+  reportEdits: Partial<Record<ReportSectionKey, ReportEdit>>;
+  reportMeta: ReportMeta;
+  /** Papers pinned from the Literature tab; the report cites only these. */
+  reportCitations: ReportCitation[];
   /**
    * Which protein-language model card is selected on the Structural Perturbation tab.
    *
@@ -52,6 +58,14 @@ export interface UiActions {
   removeNotification: (id: string) => void;
   toggleReportSection: (key: ReportSectionKey) => void;
   setReportSections: (sections: Record<ReportSectionKey, boolean>) => void;
+  applyReportPreset: (preset: ReportPresetId) => void;
+  setReportEdit: (key: ReportSectionKey, text: string, base: string) => void;
+  clearReportEdit: (key: ReportSectionKey) => void;
+  setReportMeta: (patch: Partial<ReportMeta>) => void;
+  pinReportCitation: (citation: ReportCitation) => void;
+  unpinReportCitation: (id: string) => void;
+  /** Replace the whole draft (sections, edits, meta, citations), e.g. when the variant changes. */
+  loadReportDraft: (draft: ReportDraft | null) => void;
   setActivePerturbationModel: (model: PerturbationModelId) => void;
 }
 
@@ -65,6 +79,9 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   isLegendOpen: false,
   notifications: [],
   reportSections: { ...DEFAULT_REPORT_SECTIONS },
+  reportEdits: {},
+  reportMeta: { ...DEFAULT_REPORT_META },
+  reportCitations: [],
   activePerturbationModel: "saprot",
 
   setViewMode: (viewMode) => set({ viewMode }),
@@ -75,6 +92,34 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
     reportSections: { ...state.reportSections, [key]: !state.reportSections[key] }
   })),
   setReportSections: (reportSections) => set({ reportSections }),
+  applyReportPreset: (preset) => set({ reportSections: sectionsForPreset(preset) }),
+  setReportEdit: (key, text, base) =>
+    set((state) => {
+      const next = { ...state.reportEdits };
+      // An empty edit is no edit: clearing the text restores the drafted text.
+      if (text.trim().length === 0) delete next[key];
+      else next[key] = { text, base };
+      return { reportEdits: next };
+    }),
+  clearReportEdit: (key) =>
+    set((state) => {
+      const next = { ...state.reportEdits };
+      delete next[key];
+      return { reportEdits: next };
+    }),
+  setReportMeta: (patch) => set((state) => ({ reportMeta: { ...state.reportMeta, ...patch } })),
+  pinReportCitation: (citation) =>
+    set((state) =>
+      state.reportCitations.some((c) => c.id === citation.id) ? {} : { reportCitations: [...state.reportCitations, citation] }
+    ),
+  unpinReportCitation: (id) => set((state) => ({ reportCitations: state.reportCitations.filter((c) => c.id !== id) })),
+  loadReportDraft: (draft) =>
+    set({
+      reportSections: draft ? { ...DEFAULT_REPORT_SECTIONS, ...draft.sections } : { ...DEFAULT_REPORT_SECTIONS },
+      reportEdits: draft ? { ...draft.edits } : {},
+      reportMeta: draft ? { ...DEFAULT_REPORT_META, ...draft.meta } : { ...DEFAULT_REPORT_META },
+      reportCitations: draft ? [...draft.citations] : [],
+    }),
   setNotifications: (updater) => set((state) => ({
     notifications: typeof updater === "function" ? updater(state.notifications) : updater
   })),

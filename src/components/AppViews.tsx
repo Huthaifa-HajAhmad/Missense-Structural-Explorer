@@ -17,6 +17,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useNarrativeResynthesis } from "../hooks/useNarrativeResynthesis";
 import { lazyWithRetry } from "../lib/utils";
 import { useStructure3dEvidence } from "../lib/useStructure3dEvidence";
+import { useReportDraftPersistence } from "./report/useReportDocument";
 
 const MolstarViewerLazy = lazyWithRetry(() => import("./MolstarViewer"), "MolstarViewer");
 
@@ -126,6 +127,8 @@ export function AppViews({
   const variant = state?.variant ?? storeVariant;
   const uniprotId = state?.uniprotId ?? storeUniprotId;
   const selectedResidueIndex = state?.selectedResidueIndex ?? storeSelectedResidueIndex;
+  // The author's Report draft follows the variant, so papers pinned on the Literature tab are kept.
+  useReportDraftPersistence(gene, uniprotId, variant);
   const foldedResidueIndex = state?.foldedResidueIndex ?? storeFoldedResidueIndex;
   const hoveredResidueIndex = state?.hoveredResidueIndex ?? storeHoveredResidueIndex;
   const viewMode = state?.viewMode ?? storeViewMode;
@@ -570,7 +573,11 @@ export function AppViews({
                   isDark={isDark} 
                   isNarrativeLoading={isNarrativeLoading}
                   onNavigateToView={setMasterView}
-                  fullPage 
+                  onOpenEvidenceTab={(tab) => {
+                    setActiveEvidenceTab(tab);
+                    setMasterView("evidence");
+                  }}
+                  fullPage
                 />
               </ErrorBoundary>
             )}
