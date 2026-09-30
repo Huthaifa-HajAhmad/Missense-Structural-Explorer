@@ -6,7 +6,10 @@ import {
   searchGeneLiterature,
   literatureCacheKey,
   isLiteratureCacheStale,
-  getLiteratureHitCount
+  getLiteratureHitCount,
+  getLastLiteratureSync,
+  formatQueryForEuropePmc,
+  EUROPE_PMC_PAGE_SIZE
 } from "../../services/literature-rag.ts";
 
 export function registerLiteratureRoutes(apiRouter: Router): void {
@@ -91,7 +94,20 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
         citations,
         hitCount,
         returnedCount: Array.isArray(citations) ? citations.length : 0,
-        query: degraded ? null : (customQuery ?? null)
+        query: degraded ? null : (customQuery ?? null),
+        /*
+         * Provenance the Literature tab prints instead of guessing at.
+         *
+         * `europePmcQuery` is the string this request sent (or, when `degraded`, tried to send): the
+         * tab and its rail used to show a client-built default that was never the query that ran.
+         * `degraded` says the rows are the gene's cached set because Europe PMC did not answer, which the
+         * client could previously only infer from a null hit count. `fetchedAt` is when the query's own
+         * sweep last completed, so a cached list is dated rather than presented as live.
+         */
+        europePmcQuery: formatQueryForEuropePmc(customQuery, gene),
+        degraded,
+        fetchedAt: degraded ? null : getLastLiteratureSync(cacheKey),
+        pageSize: EUROPE_PMC_PAGE_SIZE
       });
     } catch (err: any) {
       console.error(`[Route Error] Failed to fetch literature for ${cleanGene}:`, err.message);

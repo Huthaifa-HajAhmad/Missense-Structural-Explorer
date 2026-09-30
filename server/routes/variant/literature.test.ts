@@ -14,7 +14,9 @@ vi.mock("../../services/literature-rag.ts", async (importOriginal) => {
     syncLiteratureForGene: vi.fn(),
     searchGeneLiterature: vi.fn(),
     isLiteratureCacheStale: vi.fn(),
-    getLiteratureHitCount: vi.fn()
+    getLiteratureHitCount: vi.fn(),
+    // Mocked so reading a sync time never opens the real shared database.
+    getLastLiteratureSync: vi.fn()
   };
 });
 
@@ -23,7 +25,8 @@ import {
   syncLiteratureForGene,
   searchGeneLiterature,
   isLiteratureCacheStale,
-  getLiteratureHitCount
+  getLiteratureHitCount,
+  getLastLiteratureSync
 } from "../../services/literature-rag.ts";
 
 function getLiteratureHandler(): any {
@@ -67,6 +70,7 @@ describe("GET /literature/:gene orchestration", () => {
     vi.clearAllMocks();
     vi.mocked(isLiteratureCacheStale).mockReturnValue(false);
     vi.mocked(getLiteratureHitCount).mockReturnValue(1204);
+    vi.mocked(getLastLiteratureSync).mockReturnValue(1_700_000_000_000);
     vi.mocked(getGeneCitations).mockResolvedValue([citation]);
     vi.mocked(syncLiteratureForGene).mockResolvedValue(1);
     vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [], degraded: false });
@@ -156,5 +160,35 @@ describe("GET /literature/:gene orchestration", () => {
     }
     expect(getGeneCitations).not.toHaveBeenCalled();
     expect(searchGeneLiterature).not.toHaveBeenCalled();
+  });
+  describe("provenance the Literature tab prints", () => {
+    it("names the Europe PMC query the default list actually ran, not a client-built one", async () => {
+      const { req, res } = makeHarness({}, "NAE1");
+      await getLiteratureHandler()(req, res);
+
+      // The tab and rail used to show `(NAE1[Gene]) AND ("missense"…)`; the list came from this.
+      expect(res.body.europePmcQuery).toBe('NAE1 AND (mutation OR variant OR functional OR "pathogenic")');
+      expect(res.body.degraded).toBe(false);
+      expect(res.body.pageSize).toBe(25);
+      expect(res.body.fetchedAt).toBe(1_700_000_000_000);
+    });
+
+    it("reports the gene-scoped form of a custom query, as sent", async () => {
+      vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [citation], degraded: false });
+      const { req, res } = makeHarness({ query: 'cancer[All Fields]' }, "TP53");
+      await getLiteratureHandler()(req, res);
+
+      expect(res.body.europePmcQuery).toBe("(cancer) AND TP53");
+    });
+
+    it("marks a degraded fallback explicitly and withholds its sync time", async () => {
+      vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [citation], degraded: true });
+      const { req, res } = makeHarness({ query: "tp53 and custom" });
+      await getLiteratureHandler()(req, res);
+
+      expect(res.body.degraded).toBe(true);
+      expect(res.body.fetchedAt).toBeNull();
+      expect(getLastLiteratureSync).not.toHaveBeenCalled();
+    });
   });
 });

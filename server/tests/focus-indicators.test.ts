@@ -141,7 +141,10 @@ describe("the real repository", () => {
   it("actually scans the source tree", () => {
     const result = auditFocusIndicators(sources);
     expect(sources.size).toBeGreaterThan(50);
-    expect(result.suppressions).toBeGreaterThanOrEqual(9);
+    // A floor that proves the scanner is reading the tree, not a target. It was 9 until the Literature
+    // screen was rebuilt: its three `focus:outline-none` suppressions went with the old markup, and every
+    // control there now draws the clay ring instead. Fewer suppressions is the direction this guard wants.
+    expect(result.suppressions).toBeGreaterThanOrEqual(6);
   });
 
   it("uses exemptions, and they are LOAD-BEARING", () => {
