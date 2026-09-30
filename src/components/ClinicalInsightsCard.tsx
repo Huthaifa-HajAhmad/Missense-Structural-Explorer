@@ -285,6 +285,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
         ? { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing }
         : null,
       isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
+      narrativeDegraded: isFallbackNarrative(result.analysis, result.isFallback, result.fallbackReason),
     });
   }, [analysisState.result, analysisState.isLoading, isBiophysicalLoading, foldingEnergetics, foldingDdG, disruptionPredictor?.plddt]);
 

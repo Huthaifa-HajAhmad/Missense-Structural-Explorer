@@ -79,6 +79,44 @@ describe("buildInsightsEvidence", () => {
   });
 });
 
+describe("consolidated fields a report can reuse", () => {
+  const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: null });
+
+  it("words the finding once", () => {
+    expect(ev.finding.headline).toBe("Not enough evidence either way yet.");
+    expect(ev.finding.rest).toBe(
+      "The engine counted 1 criterion: PP3. The model proposed PS3, which the engine cannot compute, so it is not counted."
+    );
+  });
+
+  it("lists every engine-owned code with its strength and state", () => {
+    expect(ev.criteria.map(c => c.code)).toEqual(
+      ["PVS1", "PS1", "PM1", "PM2", "PM4", "PP2", "PP3", "BA1", "BS1", "BS2", "BP3", "BP4"]
+    );
+    const pp3 = ev.criteria.find(c => c.code === "PP3")!;
+    expect(pp3.state).toBe("met");
+    expect(pp3.strength).toBe("Supporting");
+    // The model's PM2 never turns the engine's row into "met".
+    expect(ev.criteria.find(c => c.code === "PM2")!.state).not.toBe("met");
+    expect(ev.criteria.filter(c => c.state === "met").map(c => c.code)).toEqual(["PP3"]);
+  });
+
+  it("gives the tier gap as one sentence", () => {
+    expect(ev.gap!.sentence).toContain("To reach likely pathogenic");
+    expect(ev.gap!.sentence).toContain("1 Strong + 1 Moderate");
+  });
+
+  it("states what the model was and was not shown", () => {
+    expect(ev.narrative.sent).toContain("CADD");
+    expect(ev.narrative.notSent).toContain("gnomAD frequency");
+  });
+
+  it("does not call a degraded run's prose the model's", () => {
+    const degraded = buildInsightsEvidence({ result: nae1({ analysis: "text" }), functionInput, stability: null, narrativeDegraded: true });
+    expect(degraded.narrative.authorship).not.toBe("ai");
+  });
+});
+
 describe("computeTierGap uses the engine's own combining rule", () => {
   it("one Supporting is 4 additions from Likely pathogenic at the fewest", () => {
     const gap = computeTierGap([{ code: "PP3", reason: "" }])!;
