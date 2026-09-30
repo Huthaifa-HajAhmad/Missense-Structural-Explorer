@@ -179,6 +179,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           if (!active) return;
           if (!hasCoordinates(entryText)) throw new Error("The structure file contained no atomic coordinates.");
           const reasonHeader = res.headers.get("X-Entry-Reason");
+          const unmappedHeader = Number.parseInt(res.headers.get("X-Entry-Unmapped") ?? "", 10);
           const mappingHeader = res.headers.get("X-Entry-Mapping");
           const entry: LoadedEntry = {
             url: customPdbUrl,
@@ -186,6 +187,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
             numbering: res.headers.get("X-Entry-Numbering") === "uniprot" ? "uniprot" : "author",
             chainId: res.headers.get("X-Entry-Chain") || null,
             mapping: mappingHeader === "sifts" || mappingHeader === "needleman_wunsch" ? mappingHeader : null,
+            unmappedResidues: Number.isFinite(unmappedHeader) && unmappedHeader > 0 ? unmappedHeader : null,
             reason: reasonHeader ? safeDecode(reasonHeader) : null,
           };
           // As with the AlphaFold fetch: published, and drawn from the store's echo, where the

@@ -82,11 +82,8 @@ export interface PipelineStructureSink {
   setDisruptionPredictor: React.Dispatch<React.SetStateAction<DisruptionPredictorResult | null>> | ((val: DisruptionPredictorResult | null) => void);
   resetViewerState: () => void;
   clearDynaMutPoll: () => void;
-  clearDynaMutComparePoll: () => void;
   clearDdmutPoll?: () => void;
-  clearDdmutComparePoll?: () => void;
   clearThermoMpnnPoll?: () => void;
-  clearThermoMpnnComparePoll?: () => void;
 }
 
 export interface PipelineStateSinks {

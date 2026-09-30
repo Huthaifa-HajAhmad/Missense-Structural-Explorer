@@ -19,20 +19,20 @@ describe("useVariantAnalysisStore State Normalization", () => {
     } catch (_) {}
   });
 
-  it("initializes with normalized primaryBiophysics and compareBiophysics models", () => {
-    const state = useVariantAnalysisStore.getState();
+  it("initializes with a normalized primaryBiophysics model and no compare-variant state", () => {
+    const state = useVariantAnalysisStore.getState() as any;
     expect(state.primaryBiophysics).toBeDefined();
     expect(state.primaryBiophysics.isFolding).toBe(false);
     expect(state.primaryBiophysics.mutantPdb).toBeNull();
-    expect(state.compareBiophysics).toBeDefined();
-    expect(state.compareBiophysics.variant).toBe("p.Arg408Pro");
+    // The compare-variant feature had no UI and was removed; nothing should resurrect its state.
+    expect(Object.keys(state).filter(k => /^compare|Compare/.test(k))).toEqual([]);
   });
 
   it("updates both sub-model and flat properties atomically via setVariantBiophysics", () => {
     const actions = useVariantAnalysisActions();
     
     // Primary variant atomic update
-    actions.setVariantBiophysics(false, {
+    actions.setVariantBiophysics({
       mutantPdb: "ATOM 1 CA ALA A 1",
       foldedResidueIndex: 42,
       isFolding: true,
@@ -57,28 +57,6 @@ describe("useVariantAnalysisStore State Normalization", () => {
     expect(state.foldingStatus).toBe("folding_in_progress");
     expect(state.foldingDdG).toBe(2.15);
     expect(state.dynamut2Status).toBe("complete");
-
-    // Comparison variant atomic update
-    actions.setVariantBiophysics(true, {
-      variant: "p.Gly12Asp",
-      mutantPdb: "ATOM 2 CA ASP A 12",
-      foldedResidueIndex: 12,
-      isFolding: false,
-      foldingStatus: "completed",
-      foldingDdG: -1.2
-    });
-
-    state = useVariantAnalysisStore.getState();
-    expect(state.compareBiophysics.variant).toBe("p.Gly12Asp");
-    expect(state.compareBiophysics.mutantPdb).toBe("ATOM 2 CA ASP A 12");
-    expect(state.compareBiophysics.foldedResidueIndex).toBe(12);
-    expect(state.compareBiophysics.foldingDdG).toBe(-1.2);
-
-    // Verify flat backward-compatible compare mirrors
-    expect(state.compareVariant).toBe("p.Gly12Asp");
-    expect(state.compareMutantPdb).toBe("ATOM 2 CA ASP A 12");
-    expect(state.compareFoldedResidueIndex).toBe(12);
-    expect(state.compareFoldingDdG).toBe(-1.2);
   });
 
   it("synchronizes legacy flat setters into the normalized sub-model", () => {
@@ -88,35 +66,24 @@ describe("useVariantAnalysisStore State Normalization", () => {
     actions.setIsFolding(true);
     actions.setFoldingDdG(3.45);
 
-    let state = useVariantAnalysisStore.getState();
+    const state = useVariantAnalysisStore.getState();
     expect(state.mutantPdb).toBe("ATOM LEGACY WT");
     expect(state.primaryBiophysics.mutantPdb).toBe("ATOM LEGACY WT");
     expect(state.primaryBiophysics.isFolding).toBe(true);
     expect(state.primaryBiophysics.foldingDdG).toBe(3.45);
-
-    actions.setCompareMutantPdb("ATOM LEGACY COMP");
-    actions.setIsFoldingCompare(true);
-    actions.setCompareFoldingDdG(-0.85);
-
-    state = useVariantAnalysisStore.getState();
-    expect(state.compareMutantPdb).toBe("ATOM LEGACY COMP");
-    expect(state.compareBiophysics.mutantPdb).toBe("ATOM LEGACY COMP");
-    expect(state.compareBiophysics.isFolding).toBe(true);
-    expect(state.compareBiophysics.foldingDdG).toBe(-0.85);
   });
 
   it("resets biophysical sub-models and flat properties on resetBiophysics", () => {
     const actions = useVariantAnalysisActions();
 
-    actions.setVariantBiophysics(false, { mutantPdb: "PDB1", foldingDdG: 1.0 });
-    actions.setVariantBiophysics(true, { mutantPdb: "PDB2", foldingDdG: -1.0 });
+    actions.setVariantBiophysics({ mutantPdb: "PDB1", foldingDdG: 1.0 });
 
-    actions.resetBiophysics(); // resets both
+    actions.resetBiophysics();
     const state = useVariantAnalysisStore.getState();
     expect(state.mutantPdb).toBeNull();
+    expect(state.foldingDdG).toBeNull();
     expect(state.primaryBiophysics.mutantPdb).toBeNull();
-    expect(state.compareMutantPdb).toBeNull();
-    expect(state.compareBiophysics.mutantPdb).toBeNull();
+    expect(state.primaryBiophysics.foldingDdG).toBeNull();
   });
 
   it("updates pipeline loading states in batch via setLoadingStates", () => {
@@ -180,7 +147,6 @@ describe("useVariantAnalysisStore State Normalization", () => {
 
     // Stale update from earlier variant calculation (e.g. p.Arg408Trp)
     actions.setVariantBiophysics(
-      false,
       { mutantPdb: "STALE PDB", foldingDdG: 9.9 },
       "p.Arg408Trp"
     );
@@ -191,7 +157,6 @@ describe("useVariantAnalysisStore State Normalization", () => {
 
     // Matching update for current variant
     actions.setVariantBiophysics(
-      false,
       { mutantPdb: "VALID PDB", foldingDdG: 1.5 },
       "p.Val600Glu"
     );

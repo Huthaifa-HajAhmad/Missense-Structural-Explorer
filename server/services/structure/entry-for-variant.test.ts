@@ -76,6 +76,7 @@ describe("fetchEntryForVariant", () => {
     expect(entry?.numbering).toBe("uniprot");
     expect(entry?.chainId).toBe("B");
     expect(entry?.mapping).toBe("sifts");
+    expect(entry?.unmappedResidues).toBe(0);
     expect(residueAt(entry!.pdbText, 10)).toEqual(["LYSB"]);
     // The partner chain is not drawn as if it were the protein.
     expect(entry!.pdbText).not.toMatch(/GLY A/);

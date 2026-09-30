@@ -103,11 +103,8 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
         setDisruptionPredictor: flat.setDisruptionPredictor || (() => {}),
         resetViewerState: flat.resetViewerState || (() => {}),
         clearDynaMutPoll: flat.clearDynaMutPoll || (() => {}),
-        clearDynaMutComparePoll: flat.clearDynaMutComparePoll || (() => {}),
         clearDdmutPoll: flat.clearDdmutPoll || (() => {}),
-        clearDdmutComparePoll: flat.clearDdmutComparePoll || (() => {}),
-        clearThermoMpnnPoll: flat.clearThermoMpnnPoll || (() => {}),
-        clearThermoMpnnComparePoll: flat.clearThermoMpnnComparePoll || (() => {})
+        clearThermoMpnnPoll: flat.clearThermoMpnnPoll || (() => {})
       }
     }
   };
@@ -129,7 +126,6 @@ export function useAnalysisPipeline() {
   const {
     analysisAbortRef,
     mutantFoldAbortRef,
-    compareFoldAbortRef,
     activeRequestIdRef,
     abortAllPendingRequests
   } = usePipelineAbortController();
@@ -259,11 +255,8 @@ export function useAnalysisPipeline() {
 
     abortAllPendingRequests(
       structureSink.clearDynaMutPoll,
-      structureSink.clearDynaMutComparePoll,
       structureSink.clearDdmutPoll,
-      structureSink.clearDdmutComparePoll,
-      structureSink.clearThermoMpnnPoll,
-      structureSink.clearThermoMpnnComparePoll
+      structureSink.clearThermoMpnnPoll
     );
 
     /**
@@ -365,7 +358,6 @@ export function useAnalysisPipeline() {
   return {
     analysisAbortRef,
     mutantFoldAbortRef,
-    compareFoldAbortRef,
     pendingResiduesRef,
     activeRequestIdRef,
     homologs,

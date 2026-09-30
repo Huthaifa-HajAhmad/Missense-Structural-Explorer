@@ -44,7 +44,16 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const customPdbEntry = customPdbUrl && customPdbEntryRaw?.url === customPdbUrl ? customPdbEntryRaw : null;
   const customPdbText = customPdbEntry?.text ?? null;
   const entryMeta = useMemo(
-    () => (customPdbEntry ? { numbering: customPdbEntry.numbering, chainId: customPdbEntry.chainId, mapping: customPdbEntry.mapping, reason: customPdbEntry.reason } : null),
+    () =>
+      customPdbEntry
+        ? {
+            numbering: customPdbEntry.numbering,
+            chainId: customPdbEntry.chainId,
+            mapping: customPdbEntry.mapping,
+            unmappedResidues: customPdbEntry.unmappedResidues ?? null,
+            reason: customPdbEntry.reason,
+          }
+        : null,
     [customPdbEntry]
   );
   const homologs = useVariantAnalysisStore(s => s.homologs);

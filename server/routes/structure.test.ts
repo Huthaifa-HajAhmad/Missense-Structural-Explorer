@@ -137,7 +137,7 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
     it("returns the mapped chain in UniProt numbering, and says so in its headers", async () => {
       const chainPdb = "ATOM      1  CA  ASP B 116      12.120  15.340  -5.210  1.00 25.00           C\n";
       const spy = vi.spyOn(externalServices, "fetchEntryForVariant").mockResolvedValue({
-        pdbText: chainPdb, numbering: "uniprot", chainId: "B", mapping: "sifts", reason: null,
+        pdbText: chainPdb, numbering: "uniprot", chainId: "B", mapping: "sifts", unmappedResidues: 6, reason: null,
       });
       const headers: Record<string, string> = {};
       let sentBody = "";
@@ -151,19 +151,21 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       expect(headers["X-Entry-Numbering"]).toBe("uniprot");
       expect(headers["X-Entry-Chain"]).toBe("B");
       expect(headers["X-Entry-Mapping"]).toBe("sifts");
+      expect(headers["X-Entry-Unmapped"]).toBe("6");
       expect(headers["X-Entry-Reason"]).toBeUndefined();
       expect(sentBody).toBe(chainPdb);
     });
 
     it("sends the reason, URI-encoded, when the entry keeps its own numbering", async () => {
       vi.spyOn(externalServices, "fetchEntryForVariant").mockResolvedValue({
-        pdbText: "ATOM\n", numbering: "author", chainId: null, mapping: null, reason: "No chain of 9QN5 carries D116 under a verified mapping to Q13564.",
+        pdbText: "ATOM\n", numbering: "author", chainId: null, mapping: null, unmappedResidues: null, reason: "No chain of 9QN5 carries D116 under a verified mapping to Q13564.",
       });
       const headers: Record<string, string> = {};
       const req: any = { params: { pdbId: "9QN5" }, query: { uniprot: "Q13564", pos: "116", wt: "D" } };
       const res: any = { setHeader(name: string, value: string) { headers[name] = value; return this; }, send() { return this; } };
       await handler(req, res, () => {});
       expect(headers["X-Entry-Numbering"]).toBe("author");
+      expect(headers["X-Entry-Unmapped"]).toBeUndefined();
       expect(decodeURIComponent(headers["X-Entry-Reason"])).toBe("No chain of 9QN5 carries D116 under a verified mapping to Q13564.");
     });
 
