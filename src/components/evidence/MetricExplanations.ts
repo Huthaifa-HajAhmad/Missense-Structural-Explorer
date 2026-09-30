@@ -168,12 +168,12 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperUrl: "https://doi.org/10.1002/humu.23158"
   },
   rmsd: {
-    name: "Sidechain RMSD",
+    name: "Neighbour side-chain RMSD",
     category: "Structural Packing Deviation",
-    description: "Root-Mean-Square Deviation (RMSD) of the mutated sidechain relative to the wildtype conformation. It reflects the degree of local packing adjustments and steric displacement needed to accommodate the mutant residue.",
-    interpretation: "Values in Angstroms (Å). RMSD > 1.5 Å indicates substantial conformational repacking or steric displacements, signaling local structural rearrangement.",
-    paperTitle: "Guerois et al. J Mol Biol (2002)",
-    paperUrl: "https://doi.org/10.1006/jmbi.2002.5729"
+    description: "This app's own measurement on FoldX's models: the RMSD of side-chain heavy atoms of the residues within ±5 of the site, after a local N/CA/C backbone fit, between the wild type and the variant. The site's own side chain beyond Cβ is left out, since its atoms differ by definition. It is measured against FoldX's paired wild type from the same BuildModel run when the run returned one, otherwise against the template before RepairPDB, which also counts the repair's moves.",
+    interpretation: "Values in Å; shown as not measured, never 0, when the window has too few atoms to fit. No published threshold applies to this measure, so it is reported as a number without a band. FoldX repacks side chains on a fixed backbone, so it describes local packing in the model, not motion in the protein.",
+    paperTitle: "Schymkowitz et al. Nucleic Acids Res (2005)",
+    paperUrl: "https://doi.org/10.1093/nar/gki387"
   },
   vdw: {
     name: "VdW Clash Delta",

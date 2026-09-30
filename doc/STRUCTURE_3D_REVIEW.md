@@ -126,7 +126,8 @@ follow-ups changed:
 | R8 | Low | The FoldX pairing re-fetched and re-superposed whenever the canvas text changed, even for a crystal template it cannot be — a flicker through "loading" on every cold start. | `useFoldxSuperposition` dependencies. | Depends on the canvas text only for an AlphaFold or client-provided template. |
 | R9 | Low | `/esmfold` folded the wild type and the variant one after the other. | `routes/structure.ts`. | Concurrent (`Promise.all`); the budget test still covers the sequential worst case, so a revert cannot shorten the client's patience below it. |
 | R10 | Low | The store's `structureProvenance` had no reader left and two writers. | `biophysicalSlice.ts`, sinks. | Removed. The structure sink's setter is named for what it sets (`setPdbTextProvenance`); FoldX's template lives only on its energetics. |
-| R11 | Low | `pocket.test.ts` passed a Windows path as a job directory, which becomes a file in the working tree on Linux. | — | `os.tmpdir()`. |
+| R11 | Low | `pocket.test.ts` passed a Windows path as a job directory, which becomes a file in the working tree on Linux. | — | Fixed on `main` in parallel (a real temp directory, removed afterwards); that version was kept in the merge. |
+| R12 | Low | The glossary entry for the side-chain RMSD called it "the mutated sidechain" and gave "> 1.5 Å = substantial repacking", credited to Guerois 2002, which defines neither. | `src/components/evidence/MetricExplanations.ts`. | Describes the neighbour window, the local fit and the reference (paired wild type or pre-repair template), with no band; cites FoldX for the models. |
 
 Not changed: the dormant compare-variant code (≈320 lines in `useBiophysicalModeling` and
 `biophysicalSlice`) — nothing sets `compareMode` or `compareVariant`, and no compare fold can start.
@@ -137,7 +138,8 @@ It is outside the 3D view and is queued as its own task.
 - `npx tsc --noEmit` clean; `npm run lint` (boundaries, focus indicators, verify parity, tsc) clean;
   `vite build` succeeds.
 - Full `vitest run` after round 2: **217 files, 2,730 tests passed, 5 skipped, 0 failed** (after round
-  1: 215 files, 2,710; before round 1: 213 files, 2,662). Round 2 added
+  1: 215 files, 2,710; before round 1: 213 files, 2,662). After merging `main` (the Energetics and
+  Landscape rebuilds): 222 files, 2,792 passed, 5 skipped, 0 failed. Round 2 added
   `server/services/structure/entry-for-variant.test.ts` (SIFTS, alignment fallback, reason), route
   tests for the entry headers and a malformed request, the paired wild type in the FoldX runner test,
   the applied-fit report in the aligner test, the side-chain RMSD null case, model tests for the pair
@@ -159,10 +161,6 @@ It is outside the 3D view and is queued as its own task.
 3. The RCSB verbose field names (`query_beg`/`query_end`) still could not be checked: the sandbox's
    egress proxy blocks `search.rcsb.org` and its documentation hosts. The parser accepts the older
    names too and prints "range not reported" when neither is present. Confirm on a live run.
-4. The Energetics glossary describes "Sidechain RMSD" as the mutated side chain's deviation with a
-   1.5 Å threshold; the measure excludes the site beyond Cβ and the threshold has no source. Outside
-   this view; queued.
-
 ## Sources
 
 - Jumper J. et al. 2021, Nature — AlphaFold2, pLDDT. doi:10.1038/s41586-021-03819-2
