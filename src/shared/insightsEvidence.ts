@@ -34,7 +34,9 @@ import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildFrequencyEvidence } from "./frequencyEvidence.ts";
 import { buildSplicingEvidence } from "./splicingEvidence.ts";
 import { buildFunctionEvidence, type FunctionEvidenceInput } from "./functionEvidence.ts";
-import { THRESHOLDS } from "./thresholds.ts";
+import { THRESHOLDS, formatEvidenceCode } from "./thresholds.ts";
+import { deriveNarrativeAuthorship, type NarrativeAuthorship } from "./narrativeAuthorship.ts";
+import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
 
 export type LaneKey =
   | "computational"
@@ -84,6 +86,11 @@ export interface InsightsEvidenceInput {
   /** The stability consensus the Energetics tab shows, from `computeStabilityConsensus`. */
   stability: StabilityInput | null;
   isLoading?: boolean;
+  /**
+   * The narrative is the pipeline's degraded rule-based report (`isFallbackNarrative`, a client service
+   * this module may not import). A degraded run can never be AI-authored, whatever the payload says.
+   */
+  narrativeDegraded?: boolean;
 }
 
 export const TIERS = ["Benign", "Likely benign", "Uncertain", "Likely pathogenic", "Pathogenic"] as const;
@@ -105,9 +112,31 @@ export interface TierGap {
   have: string;
   /** Up to three smallest additions that reach the target tier, in words. */
   options: string[];
+  /** The whole sentence a surface prints, so the tab and a report cannot word it differently. */
+  sentence: string;
 }
 
 export interface Contrast { text: string }
+
+export type CriterionState = "met" | "not met" | "withheld" | "not recorded";
+
+/** One criterion the engine owns, with what happened to it. Plain strings, so a report can print it. */
+export interface CriterionRow {
+  code: string;
+  /** Strength in this engine's own weighting (PM2 is recorded as Moderate here; ClinGen SVI 2020 says Supporting). */
+  strength: string;
+  state: CriterionState;
+  reason: string;
+  /** The evidence tab that owns the criterion, or null. */
+  tab: EvidenceTabId | null;
+}
+
+export interface NarrativeFacts {
+  authorship: NarrativeAuthorship;
+  model: string | null;
+  sent: readonly string[];
+  notSent: readonly string[];
+}
 
 export interface NeededRow { code: string; title: string; text: string; tab: EvidenceTabId | null }
 
@@ -124,6 +153,11 @@ export interface InsightsEvidence {
   engineCodes: AcmgCriteriaView[];
   proposals: AcmgCriteriaView[];
   droppedEngineOwned: AcmgCriteriaView[];
+  /** The verdict card's headline and its supporting sentence, worded once. */
+  finding: { headline: string; rest: string };
+  /** Every engine-owned criterion with its state; model proposals are never in this list. */
+  criteria: CriterionRow[];
+  narrative: NarrativeFacts;
   lanes: Lane[];
   gap: TierGap | null;
   agree: Contrast[];
@@ -206,11 +240,13 @@ export function computeTierGap(codes: ReadonlyArray<{ code: string; reason: stri
     .filter((f, _i, all) => !all.some(o => o !== f && o.total < f.total && subsetOf(o.text, f.text)));
   const options = [...new Set(minimal.map(m => m.text))].slice(0, 3);
 
+  const have = describeStrengths(countByStrength(codes, side), side);
   return {
     side,
     target,
-    have: describeStrengths(countByStrength(codes, side), side),
+    have,
     options,
+    sentence: `To reach ${target.toLowerCase()} the engine needs one of these on top of what it has (${have}): ${options.join("; ")}.`,
   };
 }
 
@@ -469,6 +505,55 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     needed.unshift({ code: "PM2", title: "Population rarity", text: "No frequency was counted for this run. Check gnomAD directly, then re-run.", tab: "clinical" });
   }
 
+  // Criteria table ─ every code the engine owns, with what became of it.
+  const laneOf = (key: LaneKey) => lanes.find(l => l.key === key)!;
+  const strengthOf = (code: string) => {
+    const w = codeWeight(code);
+    const word = w > 0 ? STRENGTH_WORD[Math.abs(w)] : BENIGN_STRENGTH_WORD[Math.abs(w)];
+    return word ?? "Not weighted";
+  };
+  const OWNERS: Array<[string, EvidenceTabId | null, LaneKey | null]> = [
+    ["PVS1", null, null], ["PS1", null, null], ["PM1", "function", "function"], ["PM2", "clinical", "population"],
+    ["PM4", null, null], ["PP2", null, null], ["PP3", "predictors", "computational"],
+    ["BA1", "clinical", "population"], ["BS1", "clinical", "population"], ["BS2", "clinical", "population"],
+    ["BP3", null, null], ["BP4", "predictors", "computational"],
+  ];
+  const DEFAULT_STRENGTH: Record<string, string> = { PVS1: "Very strong", PS1: "Strong", PM1: "Moderate", PM2: "Moderate", PM4: "Moderate", PP2: "Supporting", PP3: "Supporting", BA1: "Stand-alone", BS1: "Strong", BS2: "Strong", BP3: "Supporting", BP4: "Supporting" };
+  const criteria: CriterionRow[] = OWNERS.map(([base, tab, laneKey]) => {
+    const met = engineCodes.find(c => baseAcmgCode(c.code) === base);
+    if (met) return { code: met.code, strength: strengthOf(met.code), state: "met" as const, reason: met.reason, tab };
+    const lane = laneKey ? laneOf(laneKey) : null;
+    const withheld = base === "PM2" && (fe.criterion.code === "withheld" || fe.applied.suppressed)
+      || base === "PM1" && fn.verdict !== "met" && fn.verdict !== "not-met" && fn.verdict !== "not-assessed"
+      || (base === "PP3" || base === "BP4") && lane?.unconfirmed && ((base === "PP3") === (lane.lean === "pathogenic"));
+    if (withheld) return { code: base, strength: DEFAULT_STRENGTH[base], state: "withheld" as const, reason: lane?.lead ?? "Supported but not recorded by the engine.", tab };
+    const notMetReason = hasRecord
+      ? (lane && lane.state === "read" ? lane.lead : "The engine recorded no criterion for this code.")
+      : "The variant has not been classified.";
+    return { code: base, strength: DEFAULT_STRENGTH[base], state: (hasRecord ? "not met" : "not recorded") as CriterionState, reason: notMetReason, tab };
+  });
+
+  const finding = {
+    headline: tierIndex >= 3 ? "The counted evidence points to disease-causing."
+      : tierIndex <= 1 ? "The counted evidence points to harmless."
+      : engineCodes.length ? "Not enough evidence either way yet." : "Nothing has been counted yet.",
+    rest: !engineCodes.length
+      ? "The rule engine recorded no criterion for this variant."
+      : `The engine counted ${engineCodes.length} ${engineCodes.length === 1 ? "criterion" : "criteria"}: ${engineCodes.map(c => formatEvidenceCode(c.code)).join(", ")}.`
+        + (proposals.length ? ` The model proposed ${proposals.map(p => p.code).join(", ")}, which the engine cannot compute, so ${proposals.length === 1 ? "it is" : "they are"} not counted.` : ""),
+  };
+
+  const narrative: NarrativeFacts = {
+    authorship: deriveNarrativeAuthorship({
+      analysis: result.analysis,
+      isDegraded: Boolean(input.narrativeDegraded),
+      declaredSource: (result.insights as { source?: string } | undefined)?.source,
+    }),
+    model: (result.insights as { model?: string } | undefined)?.model ?? null,
+    sent: NARRATIVE_PROMPT_EVIDENCE.sent,
+    notSent: NARRATIVE_PROMPT_EVIDENCE.notSent,
+  };
+
   return {
     ready: hasRecord,
     pending: isLoading,
@@ -480,6 +565,9 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     engineCodes,
     proposals,
     droppedEngineOwned,
+    finding,
+    criteria,
+    narrative,
     lanes,
     gap: hasRecord ? computeTierGap(engineCodes.map(c => ({ code: c.code, reason: c.reason }))) : null,
     agree: agree.slice(0, 3),

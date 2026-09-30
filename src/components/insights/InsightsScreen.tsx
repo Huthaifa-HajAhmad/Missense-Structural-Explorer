@@ -25,22 +25,6 @@ const LEN: Record<1 | 2 | 3, string> = { 1: "14%", 2: "26%", 3: "38%" };
 
 const sideOf = (i: number): "pathogenic" | "benign" | undefined => (i >= 3 ? "pathogenic" : i <= 1 ? "benign" : undefined);
 
-function headline(ev: InsightsEvidence): string {
-  if (ev.tierIndex >= 3) return "The counted evidence points to disease-causing.";
-  if (ev.tierIndex <= 1) return "The counted evidence points to harmless.";
-  return ev.engineCodes.length ? "Not enough evidence either way yet." : "Nothing has been counted yet.";
-}
-
-function findingRest(ev: InsightsEvidence): string {
-  if (!ev.engineCodes.length) return "The rule engine recorded no criterion for this variant.";
-  const list = ev.engineCodes.map(c => formatEvidenceCode(c.code)).join(", ");
-  const counted = `The engine counted ${ev.engineCodes.length} ${ev.engineCodes.length === 1 ? "criterion" : "criteria"}: ${list}.`;
-  const extra = ev.proposals.length
-    ? ` The model proposed ${ev.proposals.map(p => p.code).join(", ")}, which the engine cannot compute and which are not counted.`
-    : "";
-  return counted + extra;
-}
-
 function CodeChip({ code, tone }: { code: string; tone: "danger" | "good" | "muted" }) {
   return <span className="ev-tier chip-code" data-tone={tone}>{formatEvidenceCode(code)}</span>;
 }
@@ -100,7 +84,7 @@ export function InsightsScreen({ evidence: ev, narrative, onOpenTab, onOpenRepor
         <div className="ins-hero__body">
           <span><span className="ev-tier ev-tier--lg" data-tone={tone}>Rule-engine classification</span></span>
           <p className="ins-hero__figure">{ev.verdictText ?? "Not classified"}</p>
-          <p className="ins-hero__finding"><strong>{headline(ev)}</strong> {findingRest(ev)}</p>
+          <p className="ins-hero__finding"><strong>{ev.finding.headline}</strong> {ev.finding.rest}</p>
         </div>
         <div className="ins-tiers">
           <span className="ins-label">ACMG five-tier scale</span>

@@ -36,6 +36,15 @@ The AUC calibration chips in the review screenshot were already removed from `ma
 
 Rail: how the case was built, the live in-silico vote, narrative method, directions, sources.
 
+## Model exports for the Report
+
+`buildInsightsEvidence` also returns what a report needs, so the Report cannot word the same facts differently:
+`finding` (headline and supporting sentence), `criteria` (every engine-owned code with its strength and state:
+met, not met, withheld, or not recorded, and the tab that owns it), `narrative` (authorship, model, what the prompt
+did and did not carry) and `gap.sentence` (the tier gap as one sentence). Pass `narrativeDegraded` so a rule-based
+run's prose is not called the model's. The engine still emits bare codes (`PM2`, not `PM2_Moderate`), so strengths
+come from the shared defaults; a server-side strength field remains a follow-up.
+
 ## Decisions taken
 
 Model proposals for engine-owned codes are hidden (recommended option; the owner did not answer the card before "go").
