@@ -142,44 +142,22 @@ describe("method citations", () => {
     ).toEqual([]);
   });
 
-  it("keeps the Energetics tab's copy of the table in agreement on every citation", () => {
-    // The failure this prevents is real and has already happened once: a correction applied
-    // to the shared table while the tab's clone kept the old DOI, so two surfaces opened on
-    // the same method cited different journals. BOTH halves are compared — URL and journal —
-    // and an entry that simply lost its citation is a failure, not something to skip over.
-    const shared = readDeclaredCitations(SHARED_TABLE);
+  it("has exactly one method table: the Energetics tab keeps no copy of its own", () => {
+    // The tab used to declare a second table, and the two drifted: DDMut on a 2022 DOI, ThermoMPNN on
+    // a vendor page and StabilityOracle on this repository, in the copy the Energetics info buttons
+    // opened. The tab now opens the shared table, so the stronger invariant is that no copy exists.
     const clone = readDeclaredCitations(CLONE_TABLE);
+    expect([...clone.keys()], "EnergeticsView declares its own citations again").toEqual([]);
+  });
 
-    // Both must have been scanned, or the comparison below would pass on zero entries — the
-    // way a source scanner "passes" when it was pointed at nothing.
-    expect(shared.size, "no citations found in the shared table").toBeGreaterThan(5);
-    expect(clone.size, "no citations found in the Energetics clone").toBeGreaterThan(5);
-
-    const problems: string[] = [];
-    for (const [id, cited] of clone) {
-      if (!cited.url || !cited.title) {
-        problems.push(`  ${id}: the clone's citation is incomplete (${JSON.stringify(cited)})`);
-        continue;
-      }
-      const original = shared.get(id);
-      if (!original) {
-        problems.push(`  ${id}: the clone cites a method the shared table does not describe`);
-        continue;
-      }
-      if (original.url !== cited.url) {
-        problems.push(`  ${id}: URL — shared "${original.url}" vs clone "${cited.url}"`);
-      }
-      if (original.title !== cited.title) {
-        problems.push(`  ${id}: journal — shared "${original.title}" vs clone "${cited.title}"`);
-      }
+  it("cites the stability engines to their methods papers", () => {
+    const expected: Record<string, string> = {
+      ddmut: "https://doi.org/10.1093/nar/gkad472",
+      thermompnn: "https://doi.org/10.1073/pnas.2314853121",
+      stabilityoracle: "https://doi.org/10.1038/s41467-024-49780-2",
+    };
+    for (const [id, url] of Object.entries(expected)) {
+      expect((METRIC_EXPLANATIONS as Record<string, { paperUrl: string }>)[id].paperUrl).toBe(url);
     }
-
-    expect(
-      problems,
-      problems.length
-        ? `The two method tables disagree on a citation:\n${problems.join("\n")}\n` +
-          `Cite one source. Correct BOTH copies.`
-        : ""
-    ).toEqual([]);
   });
 });

@@ -338,8 +338,13 @@ describe("generateStructuredEhrReport", () => {
     expect(reportText).toContain("[PM2] Absent from controls (Source: gnomad)");
     expect(reportText).toContain("[PP3] Multiple computational evidence supports (Source: database_verified)");
     expect(reportText).toContain("FoldX ΔΔG:          +1.85 kcal/mol");
-    expect(reportText).toContain("Consensus Verdict:  Destabilizing (P = 88%), 95% CI: [+1.20 kcal/mol, +2.50 kcal/mol]");
-    expect(reportText).toContain("DynaMut2 ΔΔG:       +1.40 kcal/mol");
+    // The old line printed an uncalibrated "P = 88%" and probability bounds as "95% CI" in kcal/mol.
+    // The export now states engine agreement in words, as the Energetics tab does.
+    expect(reportText).not.toContain("95% CI");
+    expect(reportText).not.toMatch(/P = \d+%/);
+    expect(reportText).toContain("Engine agreement: The engines disagree: FoldX (+1.85 kcal/mol) is past the destabilizing mark; one other is not.");
+    // DynaMut2 reports negative = destabilizing, so a native +1.40 is stabilizing: canonical −1.40.
+    expect(reportText).toContain("DynaMut2 ΔΔG:       -1.40 kcal/mol");
     expect(reportText).toContain("Wild-type Ser489 participates in key hydrogen bonds.");
     expect(reportText).toContain("Evidence Completeness: 6 of 7 sources retrieved.");
   });

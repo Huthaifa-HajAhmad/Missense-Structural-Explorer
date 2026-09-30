@@ -93,7 +93,7 @@ describe("consensus verdict is a closed set", () => {
   });
 
   it("accepts the fragments surfaces legitimately use", () => {
-    for (const fragment of ["High", "Moderate", "Elevated", "Insufficient", "Misfolding Risk", "Low"]) {
+    for (const fragment of ["Engines Disagree", "Engines Agree", "Single-Engine Estimate", "Insufficient", "Moderately", "No Destabilization"]) {
       expect(isConsensusVerdictFragment(fragment), fragment).toBe(true);
     }
   });
@@ -121,7 +121,7 @@ describe("consensus verdict is a closed set", () => {
   });
 
   it("still accepts the capitalised fragment that a verdict really contains", () => {
-    // `consensusVerdict.includes("Destabilizing")` is a legitimate inspection of the high verdict.
+    // `consensusVerdict.includes("Destabilizing")` is a legitimate inspection of the agreeing verdict.
     expect(isConsensusVerdictFragment("Destabilizing")).toBe(true);
   });
 });
@@ -287,10 +287,11 @@ describe("no surface compares the verdict to an impossible literal", () => {
     const MUST_NOT_FLAG = [
       `consensusVerdict !== ""`,
       `consensusVerdict.includes("Insufficient")`,
-      `consensusVerdict.includes("High")`,
-      // F15-1: the false positives a review produced from the repo's own tone logic.
-      `const tone = calConsensus.consensusVerdict === "High" ? "text-danger" : "text-muted";`,
-      `switch (calConsensus.consensusVerdict) {\n  case "High":\n    return "danger";\n}`,
+      `consensusVerdict.includes("Disagree")`,
+      // F15-1: the false positives a review produced from the repo's own tone logic (fragments of the
+      // current verdict set; "High" was a fragment of the retired "… Misfolding Risk" set).
+      `const tone = calConsensus.consensusVerdict === "Engines Disagree" ? "text-danger" : "text-muted";`,
+      `switch (calConsensus.consensusVerdict) {\n  case "Engines Disagree":\n    return "danger";\n}`,
       `derivedVerdict: "x",\n  X.includes("DynaMut2") ? "partial" : "complete"`,
       `<span title={calConsensus.consensusVerdict} className="text-red-500">x</span>`,
     ];

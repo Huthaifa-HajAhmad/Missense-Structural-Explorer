@@ -159,7 +159,7 @@ export function getWorkflowStageStatus(
       case "landscape":
         return {
           status: currentStep >= 3 ? "progress" : "pending",
-          desc: currentStep >= 3 ? "Mapping spatial mutation density..." : "Awaiting landscape model execution..."
+          desc: currentStep >= 3 ? "Loading residue scores..." : "Awaiting landscape model execution..."
         };
       case "energetics":
         return {
@@ -300,7 +300,7 @@ export function getWorkflowStageStatus(
         if (isBiophysicalLoading) {
           return {
             status: "progress",
-            desc: "Mapping spatial mutation density..."
+            desc: "Loading residue scores..."
           };
         }
         return {
@@ -310,7 +310,7 @@ export function getWorkflowStageStatus(
       }
       return {
         status: "complete",
-        desc: `${count} residue positions mapped & scored`
+        desc: `${count} residues loaded`
       };
     }
 

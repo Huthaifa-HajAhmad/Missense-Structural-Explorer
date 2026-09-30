@@ -175,6 +175,9 @@ describe("attribution registry", () => {
       "github.com": "repository and documentation links",
       "biosig.lab.uq.edu.au": "citation links for DynaMut2 and DDMut",
       "zenodo.org": "citation link for the RaSP dataset",
+      // Named in the RaSP builder's docs as where an operator downloads the proteome predictions by
+      // hand (doc/RASP_DATA.md). The server never contacts it.
+      "sid.erda.dk": "manual download location for the RaSP proteome data, not an outbound call",
       "consurf.tau.ac.il": "the ConSurf project page; the API host is disclosed separately",
       "europepmc.org": "article links; the search API is www.ebi.ac.uk",
       "ncbi.nlm.nih.gov": "article links; the API is eutils.ncbi.nlm.nih.gov",

@@ -142,8 +142,9 @@ describe("Variant Analysis Route Handlers", () => {
 
       vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
       vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR".repeat(20));
-      const landscapeSpy = vi.spyOn(externalServices, "fetchLandscapeData").mockResolvedValue({
-        variants: []
+      const landscapeSpy = vi.spyOn(externalServices, "fetchLandscape").mockResolvedValue({
+        positions: [],
+        meta: { source: "none" }
       } as any);
 
       let responseBody: any = null;
@@ -159,8 +160,29 @@ describe("Variant Analysis Route Handlers", () => {
       };
 
       await handler(req, res, () => {});
-      expect(landscapeSpy).toHaveBeenCalledWith("PAH", 1, 26);
+      expect(landscapeSpy).toHaveBeenCalledWith("PAH", 1, 26, "P00439");
       expect(responseBody.landscapeData).toBeDefined();
+      expect(responseBody.landscapeMeta).toEqual({ source: "none" });
+    });
+
+    it("reads a caller-named window and ignores an oversized one", async () => {
+      const route: any = apiRouter.stack.find(
+        (layer: any) => layer.route && layer.route.path === "/analyze-variant/landscape"
+      );
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR".repeat(20));
+      const landscapeSpy = vi.spyOn(externalServices, "fetchLandscape").mockResolvedValue({
+        positions: [],
+        meta: { source: "none" }
+      } as any);
+      const res: any = { status() { return this; }, json() { return this; } };
+
+      await handler({ body: { gene: "PAH", variant: "p.Met1Val", landscapeWindow: { start: 60, end: 90 } }, headers: {} }, res, () => {});
+      expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 60, 90, "P00439");
+
+      await handler({ body: { gene: "PAH", variant: "p.Met1Val", landscapeWindow: { start: 1, end: 500 } }, headers: {} }, res, () => {});
+      expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 1, 26, "P00439");
     });
   });
 

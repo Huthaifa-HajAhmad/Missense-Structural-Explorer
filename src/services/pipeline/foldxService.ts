@@ -6,6 +6,7 @@ import {
   CLIENT_FOLDX_POLL_REQUEST_MS,
   CLIENT_FOLDX_QUEUE_BUDGET_MS,
   CLIENT_FOLDX_SUBMIT_BUDGET_MS,
+  CLIENT_REMOTE_SUBMISSION_WAIT_MS,
 } from "../../shared/timeouts";
 import { readJsonWithTimeout } from "../../shared/httpBody";
 import { toFoldxMutation } from "./notationService";
@@ -321,6 +322,54 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       if (data.energetics) {
         resolvedProvenance = applyEnergetics(data.energetics, data.provenance);
       }
+      /**
+       * A cache hit answers before the remote submissions have returned their job ids, so the server
+       * hands back a token to collect them. Without this the engines below were settled to "No
+       * result" on every revisit although their jobs had been submitted (see
+       * `pendingRemoteSubmissions` in server/routes/biophysics/generation.ts).
+       *
+       * FoldX is already painted; its spinner is released first so only the waiting engines show
+       * "Running" while the ids are collected.
+       */
+      const token = typeof (data as any).remoteSubmissionToken === "string" ? (data as any).remoteSubmissionToken : null;
+      if (token) {
+        sink.setIsFolding(false);
+        try {
+          const subRes = await fetchWithAuth(`/api/v1/remote-submissions/${encodeURIComponent(token)}`, {
+            method: "GET",
+            headers: { "Accept": "application/json" },
+            signal,
+            timeout: CLIENT_REMOTE_SUBMISSION_WAIT_MS
+          });
+          if (signal.aborted || getActiveRequestId() !== requestId) return;
+          const sub = subRes.ok ? await readJsonWithTimeout(subRes, CLIENT_FOLDX_POLL_REQUEST_MS) : null;
+          if (signal.aborted || getActiveRequestId() !== requestId) return;
+          if (sub?.settled) {
+            if (sub.dynamut2JobId) sink.setDynamut2JobId(sub.dynamut2JobId);
+            if (sub.dynamut2Status) sink.setDynamut2Status(sub.dynamut2Status);
+            if (sub.ddmutJobId) sink.setDdmutJobId(sub.ddmutJobId);
+            if (sub.ddmutStatus) sink.setDdmutStatus(sub.ddmutStatus);
+            if (sub.thermompnnJobId) sink.setThermompnnJobId(sub.thermompnnJobId);
+            if (sub.thermompnnStatus) sink.setThermompnnStatus(sub.thermompnnStatus);
+            if (sub.thermompnnError) sink.setThermompnnError(sub.thermompnnError);
+            if (typeof sub.thermompnnVal === "number") {
+              sink.setFoldingEnergetics((prev: any) => ({ ...(prev ?? {}), thermompnn: sub.thermompnnVal }));
+            }
+            lastRemoteState = {
+              dynamut2Status: sub.dynamut2Status ?? lastRemoteState.dynamut2Status ?? null,
+              dynamut2JobId: sub.dynamut2JobId ?? lastRemoteState.dynamut2JobId ?? null,
+              ddmutStatus: sub.ddmutStatus ?? lastRemoteState.ddmutStatus ?? null,
+              ddmutJobId: sub.ddmutJobId ?? lastRemoteState.ddmutJobId ?? null,
+              thermompnnStatus: sub.thermompnnStatus ?? lastRemoteState.thermompnnStatus ?? null,
+              thermompnnJobId: sub.thermompnnJobId ?? lastRemoteState.thermompnnJobId ?? null,
+            };
+          }
+        } catch (subErr: any) {
+          if (signal.aborted || getActiveRequestId() !== requestId) return;
+          console.warn("[FoldxService] Could not collect remote job ids:", subErr?.message ?? subErr);
+        }
+      }
+
       // The run is over: nobody will resolve an engine that is still pending without an id.
       //
       // Settled from the MERGED view rather than from this response. `data` alone cannot see an id the

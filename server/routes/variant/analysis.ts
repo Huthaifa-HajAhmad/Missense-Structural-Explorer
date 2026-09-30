@@ -1,13 +1,26 @@
 import { type Router } from "express";
 import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
-import { fetchLandscapeData } from "../../services/external.ts";
+import { fetchLandscape } from "../../services/external.ts";
+import { fetchLandscapeContext } from "../../services/prediction/landscape-context.ts";
 import { validateAndParseVariantRequest } from "./variant-parser.ts";
 import {
   runCoreAnalysis,
   runStructuralAnalysis,
 } from "../../services/analysis-orchestrator.ts";
 import { PrewarmManager } from "../../services/prewarm-manager.ts";
+
+const MAX_LANDSCAPE_WINDOW = 121;
+
+/** A caller-named landscape window, or null when absent or malformed (the default then applies). */
+export function parseLandscapeWindow(raw: unknown): { start: number; end: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const start = Number((raw as any).start);
+  const end = Number((raw as any).end);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) return null;
+  if (end - start + 1 > MAX_LANDSCAPE_WINDOW) return null;
+  return { start, end };
+}
 
 export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any): void {
   // 1. Core Endpoint
@@ -137,14 +150,49 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     });
 
     try {
-      const startPos = pos !== undefined && pos !== null ? Math.max(1, pos - 25) : undefined;
-      const endPos = pos !== undefined && pos !== null ? pos + 25 : undefined;
+      /*
+       * Default window: ±25 residues around the variant. A caller may instead name a window
+       * (`landscapeWindow: { start, end }`, at most MAX_LANDSCAPE_WINDOW residues) so the tab can
+       * load scores where the reader navigates, e.g. a domain far from the variant.
+       */
+      const requested = parseLandscapeWindow((req.body as any)?.landscapeWindow);
+      const startPos = requested ? requested.start : pos !== undefined && pos !== null ? Math.max(1, pos - 25) : undefined;
+      const endPos = requested ? requested.end : pos !== undefined && pos !== null ? pos + 25 : undefined;
 
-      const landscapeData = await fetchLandscapeData(gene, startPos, endPos);
-      res.json({ landscapeData });
+      const { positions, meta } = await fetchLandscape(gene, startPos, endPos, context.uniprotId);
+      res.json({ landscapeData: positions, landscapeMeta: meta });
     } catch (error: any) {
       console.error("Landscape endpoint failure:", error);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching landscape data.");
+    }
+  });
+
+  // 2b. Landscape overview: whole-protein residue summaries plus gene-wide ClinVar, gnomAD and
+  // regional-constraint context. Kept apart from the ±25 window so the focus grid never waits on it.
+  apiRouter.post("/analyze-variant/landscape-overview", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
+    const context = await validateAndParseVariantRequest(req, res);
+    if (!context) return;
+
+    await AuditLogger.logVariantQuery("ANALYZE_VARIANT_LANDSCAPE_OVERVIEW", {
+      gene: context.gene,
+      variant: context.variant,
+      pos: context.pos,
+      requestId: (req.headers["x-request-id"] as string) || undefined,
+    });
+
+    try {
+      const [landscape, geneContext] = await Promise.all([
+        fetchLandscape(context.gene, undefined, undefined, context.uniprotId),
+        fetchLandscapeContext(context.gene)
+      ]);
+      res.json({
+        positions: landscape.positions.map(({ substitutions: _omit, ...rest }) => rest),
+        meta: landscape.meta,
+        context: geneContext
+      });
+    } catch (error: any) {
+      console.error("Landscape overview failure:", error);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching the landscape overview.");
     }
   });
 

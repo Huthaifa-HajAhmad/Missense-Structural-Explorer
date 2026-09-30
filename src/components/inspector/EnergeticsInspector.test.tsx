@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import EnergeticsInspector from "./EnergeticsInspector";
 import { SettingsProvider } from "../../context/SettingsContext";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
 /**
- * The inspector's first tests — 368 changed lines that had none.
+ * The Energetics rail (Evidence Lineage), rebuilt on `shared/energeticsEvidence.ts`.
+ *
+ * Earlier history of this file, kept because the invariants still hold:
  *
  * Plan item 7, plus the cross-surface half of UI-F1. Two things are pinned here, both of which a
  * review found unasserted:
@@ -47,95 +49,125 @@ function renderInspector(overrides: Record<string, unknown> = {}) {
   );
 }
 
-describe("EnergeticsInspector — the diagnostics it renders", () => {
-  it("renders the low-confidence card even when no engine is missing", () => {
+const NAE1 = {
+  foldx: 2.62,
+  foldxMean: 2.62,
+  foldxSd: 0,
+  foldxRepairSkipped: true,
+  foldxRepairSkippedReason: "large-structure",
+  dynamut2: null,
+  ddmut: null,
+  rasp: null,
+  raspReason: "Residue position is not present in the pre-computed database",
+  thermompnn: -0.36,
+  stabilityoracle: -0.06,
+  structureProvenance: {
+    source: "experimental",
+    pdbId: "1YOV",
+    chainId: "A",
+    resolution: 2.8,
+    foldxRuns: 5,
+    raspDatasetSnapshot: "2023-Zenodo-6835877",
+    vesmModel: "VESM_150M_v1",
+  },
+};
+
+describe("EnergeticsInspector — the rule trace", () => {
+  it("traces structure → engines → marks → summary → engine record for the reference run", () => {
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done" });
+    const trace = screen.getByTestId("energetics-rule-trace");
+    const steps = trace.querySelectorAll("li");
+    expect(steps).toHaveLength(5);
+    expect(steps[0]).toHaveTextContent("Experimental structure · 1YOV:A · 2.8 Å");
+    expect(steps[0]).toHaveTextContent("FoldX template: not repaired (large structure)");
+    expect(steps[0].getAttribute("data-state")).toBe("warn");
+    expect(steps[1]).toHaveTextContent("3 of 6 engines");
+    expect(steps[1]).toHaveTextContent("No value: DynaMut2, DDMut and RaSP");
+    expect(steps[2]).toHaveTextContent("1 destabilizing · 0 moderate · 2 not destabilizing");
+    expect(steps[3]).toHaveTextContent("Engines disagree · median −0.06 kcal/mol");
+    expect(steps[3].getAttribute("data-state")).toBe("warn");
+    expect(steps[4]).toHaveTextContent("Not an ACMG input");
+  });
+
+  it("lists each engine's local mark beside this variant's value", () => {
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done" });
+    const marks = screen.getByTestId("energetics-marks");
+    const foldx = within(marks).getByText("FoldX").closest("li")!;
+    expect(foldx).toHaveTextContent("≥ +1.5");
+    expect(foldx).toHaveTextContent("+2.62 kcal/mol · this variant is past it");
+    expect(foldx.getAttribute("data-active")).toBe("true");
+    expect(marks.closest("section")).toHaveTextContent("FoldX publishes no threshold");
+  });
+
+  it("states no probability and no hard-coded physical constants", () => {
+    const { container } = renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done" });
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/298\.15|ProTherm|conformal|P: \d/);
+    expect(text).toContain("No calibrated probability is shown");
+  });
+
+  it("names a dataset or model only when the engine that uses it returned a value", () => {
+    const { container } = renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done" });
+    const text = container.textContent ?? "";
+    // The server stamps both on every run; neither produced a number here.
+    expect(text).not.toContain("VESM_150M_v1");
+    expect(text).not.toContain("2023-Zenodo-6835877");
+    expect(text).toContain("FoldX runs");
+  });
+});
+
+describe("EnergeticsInspector — engines without a value", () => {
+  it("gives each missing engine its state and reason, with raw detail behind a disclosure", () => {
+    renderInspector({
+      foldingEnergetics: NAE1,
+      foldingStatus: "success",
+      thermompnnStatus: "done",
+      ddmutStatus: "unavailable",
+    });
+    const missing = screen.getByTestId("energetics-missing");
+    expect(within(missing).getByText("DDMut").closest("li")).toHaveTextContent("Provider busy");
+    const rasp = within(missing).getByText("RaSP").closest("li")!;
+    expect(rasp).toHaveTextContent("Not covered");
+    expect(rasp.querySelector("details")).toHaveTextContent("Residue position is not present in the pre-computed database");
+  });
+
+  it("carries the low-confidence warning even when every engine returned a value", () => {
     /**
-     * The card used to sit INSIDE the `diagnostics.length > 0` gate, so on a run where every engine
-     * returned a value — the good case — a low-pLDDT template produced an empty array and the warning
-     * vanished: the more complete the run, the less the panel said about its own reliability.
-     *
-     * ALL SIX engines must carry a value for this test to be about that. A first version left
-     * ThermoMPNN and StabilityOracle absent, so `diagnostics` held two entries and the card rendered
-     * under the fixed gate AND the reverted one — the named defect could not fail it.
+     * The warning used to sit inside the diagnostics gate, so on a complete run it vanished: the more
+     * complete the run, the less the panel said about its own reliability.
      */
     renderInspector({
-      disruptionPredictor: { plddt: 40 },
       foldingEnergetics: {
-        foldx: 2.0,
-        foldxMean: 2.0,
-        dynamut2: -1.0,
-        ddmut: -1.0,
-        rasp: 1.5,
-        thermompnn: 1.1,
-        stabilityoracle: 1.3,
+        foldx: 1.2,
+        foldxMean: 1.2,
+        dynamut2: -0.4,
+        ddmut: -0.3,
+        rasp: 0.9,
+        thermompnn: 0.8,
+        stabilityoracle: 0.7,
       },
-      foldingStatus: "success",
       dynamut2Status: "done",
       ddmutStatus: "done",
       thermompnnStatus: "done",
+      disruptionPredictor: { plddt: 55 },
     });
-
-    expect(screen.getByText(/Low-confidence template/)).toBeInTheDocument();
-    // This is the assertion that makes the test about the GATE: with no engine missing, only
-    // `|| isLowConfidence` can be keeping the section on screen.
-    expect(screen.queryByText(/What Is Missing, And Why/)).toBeInTheDocument();
-    expect(screen.queryByText(/— No result/)).toBeNull();
+    expect(screen.queryByTestId("energetics-missing")).toBeNull();
+    expect(screen.getByTestId("energetics-rule-trace")).toHaveTextContent("AlphaFold pLDDT 55.0 at this residue");
   });
 
-  it("gives that card's text a readable colour, not the warning tone", () => {
-    renderInspector({ disruptionPredictor: { plddt: 40 }, foldingStatus: "success" });
-
-    const heading = screen.getByText(/Low-confidence template/).closest("div");
-    expect(heading).not.toBeNull();
-    // The measured regression was text-cs-text-warning on the soft surface = 3.03:1.
-    expect(heading!.className).not.toContain("text-cs-text-warning");
-    expect(heading!.className).toContain("text-cs-text-primary");
-
-    /**
-     * F16: those two assertions pass on a class list carrying the good token AND a low-contrast one —
-     * `text-cs-text-primary text-cs-text-muted` — because which colour actually renders then depends on
-     * CSS order, not on this test. Requiring EXACTLY ONE text-colour token closes that: it fails both
-     * for the wrong token and for a second one added alongside.
-     */
-    const colourTokens = heading!.className.match(/(?<![:\w-])text-cs-text-[a-z-]+/g) ?? [];
-    expect(
-      colourTokens,
-      "exactly one text colour may apply, or CSS order decides which one renders"
-    ).toEqual(["text-cs-text-primary"]);
-  });
-
-  it("calls an excluded value Not counted, matching the main column", () => {
+  it("calls an excluded value 'not counted', matching the main column", () => {
     renderInspector({
       foldingEnergetics: { foldx: 3.0, foldxMean: 3.0, foldxRepairFailed: true },
       foldingStatus: "success",
     });
-
-    // The telemetry row must not say "Computed" for a value the view is discarding.
-    expect(screen.queryByText("Computed")).toBeNull();
-    expect(screen.getAllByText("Not counted").length).toBeGreaterThan(0);
-    // ...and the reason must be rendered, not merely carried on the outcome.
-    expect(screen.getByText(/excluded from the consensus/)).toBeInTheDocument();
+    expect(screen.getByTestId("energetics-rule-trace")).toHaveTextContent("Shown, not counted: FoldX");
+    expect(within(screen.getByTestId("energetics-marks")).getByText("FoldX").closest("li")).toHaveTextContent("not counted");
   });
 
-  it("does not call a counted value Not counted", () => {
-    // The negative, so the badge cannot be applied unconditionally.
-    renderInspector({
-      foldingEnergetics: { foldx: 3.0, foldxMean: 3.0, dynamut2: -1.0, ddmut: -1.5 },
-      foldingStatus: "success",
-      dynamut2Status: "done",
-      ddmutStatus: "done",
-    });
-
-    expect(screen.queryByText("Not counted")).toBeNull();
-  });
-
-  it("renders the stability telemetry section as an accessible focus target with canonical ID", () => {
-    const { container } = renderInspector();
-    const telemetrySection = container.querySelector(`#${INSPECTOR_SECTIONS.stabilityTelemetry}`);
-    expect(telemetrySection).not.toBeNull();
-    expect(telemetrySection?.getAttribute("tabIndex")).toBe("-1");
-    expect(telemetrySection?.getAttribute("role")).toBe("region");
-    expect(telemetrySection?.getAttribute("aria-label")).toBe("Stability Engine Telemetry");
+  it("keeps the canonical focus target the view links to", () => {
+    renderInspector();
+    const target = document.getElementById(INSPECTOR_SECTIONS.stabilityTelemetry);
+    expect(target).not.toBeNull();
+    expect(target!.getAttribute("tabindex")).toBe("-1");
   });
 });
-

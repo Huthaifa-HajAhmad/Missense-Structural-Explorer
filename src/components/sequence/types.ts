@@ -1,23 +1,19 @@
-export interface HoveredResidueInfo {
-  symbol: string;
+export interface TargetMutation {
+  wt: string;
   pos: number;
-  type: "wild" | "mutant" | "normal";
+  mut: string;
 }
-export interface SequenceRowGridProps {
-  wildWindow: string[];
-  relativeStartIndex: number;
-  mutationIndex: number;
-  residueIndex: number | null;
-  hoveredResidueIndex?: number | null;
-  mutation: { wt: string; pos: number; mut: string };
-  landscapeMap: Map<number, any>;
-  metricMode: "mean" | "max";
-  getResidueBaseColor: (res: string) => string;
-  getGerpScore: (pos: number) => number | null;
-  getPhyloPScore: (pos: number) => number | null;
-  getRevelScore: (pos: number) => number | null;
-  getAmScore: (pos: number) => number | null;
-  onResidueClick?: (index: number) => void;
-  hoveredResidue: HoveredResidueInfo | null;
-  setHoveredResidue: (res: HoveredResidueInfo | null) => void;
+
+/** The queried variant's own scores, drawn apart from the residue summaries. */
+export interface VariantScores {
+  revel: number | null;
+  am: number | null;
+  gerp: number | null;
+  phylop: number | null;
+}
+
+export interface DomainSpan {
+  name: string;
+  start: number;
+  end: number;
 }

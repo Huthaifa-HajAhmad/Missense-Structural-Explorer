@@ -27,6 +27,11 @@ function initDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS variant_scores (
       gene TEXT NOT NULL,
+      chr TEXT,
+      pos_genomic INTEGER,
+      transcript TEXT,
+      aaref TEXT,
+      aaalt TEXT,
       pos INTEGER NOT NULL,
       ref TEXT,
       alt TEXT,
@@ -53,6 +58,17 @@ function initDb() {
     );
   `);
 
+  // A database built before these columns existed keeps its old table under IF NOT EXISTS, and every
+  // insert below would then fail on an unknown column; add whatever is missing.
+  const existing = new Set((db.prepare('PRAGMA table_info(variant_scores)').all() as Array<{ name: string }>).map(c => c.name));
+  for (const [col, type] of [['chr', 'TEXT'], ['pos_genomic', 'INTEGER'], ['transcript', 'TEXT'], ['aaref', 'TEXT'], ['aaalt', 'TEXT']]) {
+    if (!existing.has(col)) db.exec(`ALTER TABLE variant_scores ADD COLUMN ${col} ${type};`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS build_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `);
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_gene_pos ON variant_scores (gene, pos);
     CREATE INDEX IF NOT EXISTS idx_pos_ref_alt ON variant_scores (pos, ref, alt);
@@ -77,6 +93,38 @@ function parseIntInt(val: string): number | null {
   return isNaN(parsed) ? null : parsed;
 }
 
+/**
+ * Index of the transcript whose residue number and per-transcript scores a row is stored under.
+ *
+ * dbNSFP lists every transcript an SNV touches, in its own order, with `aapos`, `REVEL_score`,
+ * `AlphaMissense_score` and `Ensembl_transcriptid` aligned by position in those `;` lists. Taking
+ * the first entry (the old behaviour) stored an arbitrary isoform's residue number, so the
+ * landscape pooled different residues under one number. Preference: MANE Select, then the VEP
+ * canonical flag, then the first entry.
+ */
+export function chooseTranscriptIndex(mane: string, vepCanonical: string, transcriptCount: number): { index: number; basis: 'mane' | 'ensembl-canonical' | 'first-listed' | 'single' } {
+  const maneList = mane ? mane.split(';') : [];
+  const canonList = vepCanonical ? vepCanonical.split(';') : [];
+  if (maneList.length === transcriptCount) {
+    const i = maneList.findIndex(v => /^MANE/i.test(v.trim()) || v.trim().toUpperCase() === 'YES');
+    if (i >= 0) return { index: i, basis: 'mane' };
+  }
+  if (canonList.length === transcriptCount) {
+    const i = canonList.findIndex(v => v.trim().toUpperCase() === 'YES');
+    if (i >= 0) return { index: i, basis: 'ensembl-canonical' };
+  }
+  // One transcript leaves nothing to choose; it must not count as an arbitrary pick.
+  return { index: 0, basis: transcriptCount <= 1 ? 'single' : 'first-listed' };
+}
+
+/** The `i`-th entry of a `;` list, or the single value when the field is not per-transcript. */
+function pick(val: string, i: number, count: number): string {
+  if (!val) return '';
+  const parts = val.split(';');
+  if (parts.length === count) return parts[i].trim();
+  return parts[0].trim();
+}
+
 async function ingestFile(db: DatabaseSync, filepath: string) {
   console.log(`[Ingest] Processing file: ${filepath}`);
   const fileStream = fs.createReadStream(filepath);
@@ -88,13 +136,13 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
   // Prepare insert statement
   const insertStmt = db.prepare(`
     INSERT INTO variant_scores (
-      gene, pos, ref, alt, aa_change,
+      gene, chr, pos_genomic, transcript, aaref, aaalt, pos, ref, alt, aa_change,
       revel, alphamissense, gerp, phylop, bayesdel,
       metarnn, clinpred, dann, eigen, esm1b, cadd,
       gnomad_ac, gnomad_an, gnomad_hom,
       aou_ac, aou_an, aou_het, aou_hom
     ) VALUES (
-      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?,
@@ -103,6 +151,7 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
   `);
 
   let count = 0;
+  const policyCounts = { 'mane': 0, 'ensembl-canonical': 0, 'first-listed': 0, 'single': 0 };
   db.exec('BEGIN TRANSACTION;');
 
   for await (const line of rl) {
@@ -125,18 +174,30 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
     };
 
     // Extract gene name and position (required)
-    const gene = getVal(['geneName', 'genename', 'gene_name']);
-    const posVal = parseIntInt(getVal(['aaPos', 'aapos', 'pos(1-based)', 'aa_pos']));
-    
-    if (!gene || posVal === null) continue;
+    const txList = getVal(['Ensembl_transcriptid', 'ensembl_transcriptid']);
+    const txCount = txList ? txList.split(';').length : 1;
+    const choice = chooseTranscriptIndex(getVal(['MANE', 'MANE_Select', 'mane']), getVal(['VEP_canonical', 'vep_canonical']), txCount);
+    policyCounts[choice.basis] += 1;
+    const at = (cols: string[]) => pick(getVal(cols), choice.index, txCount);
+
+    const gene = at(['genename', 'geneName', 'gene_name']);
+    // Residue number only. `pos(1-based)` is the GENOMIC coordinate and must never stand in for it.
+    const posVal = parseIntInt(at(['aapos', 'aaPos', 'aa_pos']));
+
+    if (!gene || posVal === null || posVal <= 0) continue;
+    const transcript = txList ? pick(txList, choice.index, txCount) || null : null;
+    const chr = getVal(['#chr', 'chr']) || null;
+    const posGenomic = parseIntInt(getVal(['pos(1-based)', 'hg38_pos(1-based)']));
+    const aaref = getVal(['aaref']) || null;
+    const aaalt = getVal(['aaalt']) || null;
 
     const ref = getVal(['ref']) || null;
     const alt = getVal(['alt']) || null;
-    const aa_change = getVal(['aachange', 'aa_change', 'HGVSp', 'hgvsp']) || null;
+    const aa_change = at(['aachange', 'aa_change', 'HGVSp', 'hgvsp', 'HGVSp_VEP']) || null;
 
     // Scores
-    const revel = parseFloater(getVal(['REVEL_score', 'revel', 'REVEL']));
-    const alphamissense = parseFloater(getVal(['AlphaMissense_score', 'alphamissense', 'AlphaMissense']));
+    const revel = parseFloater(at(['REVEL_score', 'revel', 'REVEL']));
+    const alphamissense = parseFloater(at(['AlphaMissense_score', 'alphamissense', 'AlphaMissense']));
     const gerp = parseFloater(getVal(['GERP++_RS', 'gerp++', 'GERP_RS']));
     const phylop = parseFloater(getVal(['phyloP100way_vertebrate', 'phylop100way']));
     const bayesdel = parseFloater(getVal(['BayesDel_noAF_score', 'bayesdel_noaf']));
@@ -168,7 +229,7 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
     const aou_hom = parseIntInt(getVal(['AoU_hom', 'AoU_hom_count', 'aou_hom'])) || null;
 
     insertStmt.run(
-      gene, posVal, ref, alt, aa_change,
+      gene, chr, posGenomic, transcript, aaref, aaalt, posVal, ref, alt, aa_change,
       revel, alphamissense, gerp, phylop, bayesdel,
       metarnn, clinpred, dann, eigen, esm1b, cadd,
       gnomad_ac, gnomad_an, gnomad_hom,
@@ -183,7 +244,8 @@ async function ingestFile(db: DatabaseSync, filepath: string) {
   }
 
   db.exec('COMMIT;');
-  console.log(`[Ingest] Completed ingesting ${count} records from ${filepath}`);
+  console.log(`[Ingest] Completed ingesting ${count} records from ${filepath} (transcript: ${JSON.stringify(policyCounts)})`);
+  return policyCounts;
 }
 
 async function main() {
@@ -194,13 +256,25 @@ async function main() {
   }
 
   const db = initDb();
+  const totals = { 'mane': 0, 'ensembl-canonical': 0, 'first-listed': 0, 'single': 0 };
   for (const file of args) {
     if (fs.existsSync(file)) {
-      await ingestFile(db, file);
+      const counts = await ingestFile(db, file);
+      for (const k of Object.keys(totals) as Array<keyof typeof totals>) totals[k] += counts[k];
     } else {
       console.warn(`File not found: ${file}`);
     }
   }
+  // Provenance the landscape reports: the version (from DBNSFP_VERSION, e.g. "5.1a") and the
+  // transcript policy that held for the rows (mixed → "unknown").
+  const setMeta = db.prepare('INSERT OR REPLACE INTO build_meta (key, value) VALUES (?, ?)');
+  if (process.env.DBNSFP_VERSION) setMeta.run('dbnsfp_version', process.env.DBNSFP_VERSION);
+  // Named only when every multi-transcript row was placed by that flag; a mix of MANE and canonical
+  // rows is reported as the weaker of the two, and any arbitrary pick makes it unknown.
+  const policy = totals['first-listed'] > 0 ? 'unknown'
+    : totals['ensembl-canonical'] > 0 ? 'ensembl-canonical'
+    : totals['mane'] > 0 ? 'mane' : 'unknown';
+  setMeta.run('transcript_policy', policy);
   console.log('[Ingest] SQLite Ingestion complete.');
 }
 

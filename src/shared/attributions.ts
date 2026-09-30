@@ -495,11 +495,11 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "DDMut",
     provider: "Zhou et al., University of Melbourne",
     kind: "service",
-    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; a third independent estimator for the stability consensus.",
+    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; one of the engines counted in the Energetics agreement (not independent of the others: same template, overlapping training data).",
     url: "https://biosig.lab.uq.edu.au/ddmut/",
     release: null,
     citation:
-      "Zhou, Y., et al. (2022). DDMut: predicting effects of mutations on protein stability using deep learning. Nucleic Acids Research 50, W267–W273. https://doi.org/10.1093/nar/gkac394",
+      "Zhou, Y., Pan, Q., Pires, D. E. V., Rodrigues, C. H. M., & Ascher, D. B. (2023). DDMut: predicting effects of mutations on protein stability using deep learning. Nucleic Acids Research 51, W122–W128. https://doi.org/10.1093/nar/gkad472",
     usedBy: ["server/services/stability/ddmut-ppi.ts", "server/services/stability/energy-models.ts"]
   },
   {
@@ -507,7 +507,7 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "StabilityOracle",
     provider: "Diaz et al. (Nature Communications)",
     kind: "model",
-    role: "Structure-based graph-transformer ΔΔG estimate, run as a local service so its output can be pooled with the other engines' by the calibrated stacking head.",
+    role: "Structure-based graph-transformer ΔΔG estimate, run as a local service and counted beside the other engines in the Energetics agreement.",
     url: "https://doi.org/10.1038/s41467-024-49780-2",
     release: null,
     citation:
@@ -519,13 +519,13 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "RaSP — Rapid Stability Prediction",
     provider: "Lindorff-Larsen laboratory, University of Copenhagen",
     kind: "model",
-    role: "ΔΔG from ESM-IF1 structural embeddings with a pre-trained MLP head, looked up from a precomputed table ingested into SQLite, so the estimate is instant and identical across runs. Positive-native: a larger value means destabilization.",
+    role: "ΔΔG from a self-supervised 3D convolutional network with a supervised head trained to reproduce Rosetta cartesian_ddg, looked up from the authors' published predictions ingested into SQLite: their experimental-structure table (1,345 proteins) by default, plus their AlphaFold human-proteome predictions (23,391 proteins) when a deployment ingests them (`npm run migrate:rasp -- --proteome <dir>`). Positive-native: a larger value means destabilization.",
     url: "https://doi.org/10.7554/eLife.82593",
     release: "Precomputed lookup table built from the authors' published dataset",
     citation:
       "Blaabjerg, L. M., et al. (2023). Rapid protein stability prediction using deep learning representations. eLife 12, e82593. https://doi.org/10.7554/eLife.82593",
     licence:
-      "The lookup table is built from the authors' published Zenodo dataset (see scripts/build-rasp-sqlite.ts). Cite the dataset as well as the paper when redistributing the table itself.",
+      "The lookup table is built from the authors' published datasets — Zenodo 10.5281/zenodo.6835877 and, optionally, the proteome predictions at sid.erda.dk/sharelink/fFPJWflLeE (see scripts/build-rasp-sqlite.ts). Cite the dataset as well as the paper when redistributing the table itself.",
     usedBy: ["scripts/build-rasp-sqlite.ts", "server/services/stability/energy-models.ts"]
   },
   {

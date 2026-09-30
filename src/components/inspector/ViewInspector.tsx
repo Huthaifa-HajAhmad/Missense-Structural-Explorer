@@ -92,8 +92,10 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   structure: { title: "3D structure", subtitle: "Coordinates, comparison & provenance", Icon: Layers },
   structure_alphafold: { title: "3D structure · AlphaFold2 view", subtitle: "AlphaFold model, FoldX variant", Icon: Layers },
   structure_esmfold: { title: "3D structure · ESMFold view", subtitle: "De novo wild type and variant", Icon: Layers },
-  energetics: { title: "Stability Telemetry", subtitle: "Engines & Thermodynamic Baseline", Icon: Activity },
-  landscape: { title: "Landscape Controls", subtitle: "Intolerance & Domain Minimap", Icon: Map },
+  /* Main renamed `energetics` and `landscape`; the 3D branch renamed the three structure entries.
+     Each side's renames are kept. */
+  energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached", Icon: Activity },
+  landscape: { title: "Landscape", subtitle: "Selection, display and sources", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
   report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },
   literature: { title: "Literature Tools", subtitle: "Query Provenance & Citation Export", Icon: BookOpen },

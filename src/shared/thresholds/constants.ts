@@ -489,7 +489,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
     "AlphaMissense (Cheng 2023). ClinGen PP3/BP4 bands (Bergquist 2025): PP3 supporting ≥ 0.792, moderate ≥ 0.906, strong ≥ 0.990; " +
     "BP4 supporting ≤ 0.169, moderate ≤ 0.099. The authors' own classes (likely benign < 0.34, likely pathogenic > 0.564) are not a calibration.",
   foldxDdG:
-    "FoldX BuildModel ΔΔG (Schymkowitz 2005). Destabilizing > 1.5 kcal/mol (strong). " +
+    "FoldX BuildModel ΔΔG (Schymkowitz 2005). FoldX publishes no threshold; local marks: ≥ +1.5 kcal/mol destabilizing, ≥ +0.5 moderately destabilizing. " +
     "NOTE: Destabilization ≠ Pathogenicity. GOF/neomorphic/gain-of-interaction variants " +
     "may be pathogenic without destabilization.",
   gerp:
@@ -497,9 +497,9 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   phylop:
     "phyloP (Pollard 2010). Conservation, not pathogenicity. ClinGen bands (Pejaver 2022): PP3 supporting ≥ 7.367, moderate ≥ 9.741; BP4 supporting ≤ 1.879, moderate ≤ 0.021.",
   dynamut2:
-    "DynaMut2 (Rodrigues 2021). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
+    "DynaMut2 (Rodrigues et al. Protein Sci 2021). Local mark: native ΔΔG ≤ −1.0 kcal/mol read as destabilizing (DynaMut2's sign is negative = destabilizing). No published clinical cut-point.",
   ddmut:
-    "DDMut (BioSig 2022). Destabilizing ΔΔG ≤ -1.0 kcal/mol.",
+    "DDMut (Zhou et al. Nucleic Acids Res 2023). Local mark: native ΔΔG ≤ −1.0 kcal/mol read as destabilizing (DDMut's sign is negative = destabilizing). No published clinical cut-point.",
   thermompnn:
     "ThermoMPNN (Dieckhaus et al. PNAS 2024). Local mark: ΔΔG ≥ +1.0 kcal/mol read as destabilising (canonical sign, positive = destabilising). No published clinical cut-point.",
   bayesdel:

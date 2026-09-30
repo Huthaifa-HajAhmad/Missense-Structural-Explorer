@@ -20,6 +20,8 @@ import { describeConnectionFailure } from "../../shared/fetch-retry";
 import type { EvidenceSource } from "./reportStatus";
 import type { EnergeticsData } from "../../shared/contracts";
 import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
+import { energeticsAgreementText } from "../../shared/energeticsEvidence";
+import { toCanonicalDdg } from "../../shared/engineStatus";
 
 // ---------------------------------------------------------------------------
 // Section shell
@@ -342,13 +344,14 @@ const ENERGETIC_ENGINES: Array<{
     id: "dynamut2",
     label: "DynaMut2 ΔΔG",
     note: "Normal mode & distance network consensus",
-    getValue: (e, _, r) => e?.dynamut2 ?? r?.dynamut2,
+    // Canonical sign: DynaMut2 reports negative = destabilizing, and this block's legend says positive.
+    getValue: (e, _, r) => toCanonicalDdg("dynamut2", e?.dynamut2 ?? r?.dynamut2),
   },
   {
     id: "ddmut",
     label: "DDMut ΔΔG",
     note: "Deep learning & graph-based stability",
-    getValue: (e, _, r) => e?.ddmut ?? r?.ddmut,
+    getValue: (e, _, r) => toCanonicalDdg("ddmut", e?.ddmut ?? r?.ddmut),
   },
   {
     id: "thermompnn",
@@ -376,7 +379,8 @@ export const EnergeticsSummary: React.FC<EnergeticsProps> = ({ energetics, foldi
     val: eng.getValue(energetics, foldingDdG, result),
   })).filter((eng) => typeof eng.val === "number" && Number.isFinite(eng.val));
 
-  const hasConsensus = Boolean(energetics?.consensusVerdict);
+  const agreementText = energeticsAgreementText(energetics as Record<string, any> | null | undefined);
+  const hasConsensus = Boolean(agreementText);
 
   if (!available.length && !hasConsensus) {
     return (
@@ -412,39 +416,23 @@ export const EnergeticsSummary: React.FC<EnergeticsProps> = ({ energetics, foldi
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Calibrated Thermodynamic Consensus Header */}
-      {hasConsensus && (
+      {/*
+        Engine agreement, in words. This block printed a "Calibrated Thermodynamic Consensus" with
+        "P = 24%" and a "95% CI" whose bounds were probabilities formatted as kcal/mol. The curves
+        behind P were never fitted to data (tools/train_stacker.py), so the report now states what the
+        Energetics tab states: how many engines pass their own mark, and their median.
+      */}
+      {agreementText && (
         <div
-          className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border"
-          style={{
-            background: "color-mix(in srgb, var(--cs-accent-clay) 8%, transparent)",
-            borderColor: "color-mix(in srgb, var(--cs-accent-clay) 25%, transparent)",
-          }}
+          className="p-3 rounded-xl border"
+          style={{ background: "var(--cs-surface-2)", borderColor: "var(--cs-border)" }}
         >
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-wider font-bold block" style={{ color: "var(--cs-accent-clay)" }}>
-              Calibrated Thermodynamic Consensus
-            </span>
-            <span className="text-xs font-semibold" style={{ color: "var(--cs-text-primary)" }}>
-              {energetics?.consensusVerdict}
-            </span>
-            {typeof energetics?.consensusProbability === "number" && Number.isFinite(energetics.consensusProbability) && (
-              <span className="text-[11px] ml-2 font-mono" style={{ color: "var(--cs-text-muted)" }}>
-                (P = {((energetics.consensusProbability as number) * 100).toFixed(0)}%)
-              </span>
-            )}
-          </div>
-          {typeof energetics?.consensusConfMin === "number" &&
-            typeof energetics?.consensusConfMax === "number" &&
-            Number.isFinite(energetics.consensusConfMin) &&
-            Number.isFinite(energetics.consensusConfMax) && (
-              <span
-                className="text-[11px] font-mono font-medium px-2 py-1 rounded-md bg-cs-surface border border-cs-border-subtle"
-                style={{ color: "var(--cs-text-secondary)" }}
-              >
-                95% CI: [{formatDeltaG(energetics.consensusConfMin)}, {formatDeltaG(energetics.consensusConfMax)}]
-              </span>
-            )}
+          <span className="text-[10px] font-mono uppercase tracking-wider font-bold block" style={{ color: "var(--cs-text-muted)" }}>
+            Stability engines · not an ACMG input
+          </span>
+          <span className="text-xs" style={{ color: "var(--cs-text-primary)" }}>
+            {agreementText}
+          </span>
         </div>
       )}
 

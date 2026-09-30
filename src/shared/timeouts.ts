@@ -70,6 +70,14 @@ export const CLIENT_FOLDX_POLL_BUDGET_MS = 1_000_000; // 1000 s
 export const CLIENT_FOLDX_POLL_REQUEST_MS = 30_000; // 30 s
 
 /**
+ * Client ceiling for collecting remote job ids after a FoldX cache hit.
+ *
+ * Just above the server's own hold (`REMOTE_SUBMISSION_WAIT_MS`, 75 s) so the server's
+ * `settled: false` answer arrives before the client gives up on the request.
+ */
+export const CLIENT_REMOTE_SUBMISSION_WAIT_MS = 80_000; // 80 s
+
+/**
  * Minimum interval between automatic biophysics retries for the same variant.
  *
  * The backfill gate used to be permanently true (see `workflowOrchestrator`), so every visit

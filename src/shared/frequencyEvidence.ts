@@ -390,7 +390,7 @@ export const LOCAL_GNOMAD_DATASET = "gnomad_r4_local";
  * is stated, and no minor is asserted.
  *
  * The local dbNSFP ingest is named rather than passed through: it reports ONE combined frequency
- * with `exomeAC`/`exomeAN` set to zero (`prediction/landscape.ts:132-141`), so attributing its
+ * (`server/services/prediction/local-population.ts`), so attributing its
  * value to the exome cohort is wrong.
  */
 export function gnomadReleaseLabel(dataset: string | null | undefined): string {
@@ -800,8 +800,8 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   };
 
   /**
-   * The local dbNSFP ingest reports ONE combined frequency with `exomeAC`/`exomeAN` at zero
-   * (`prediction/landscape.ts:132-141`), so it is one reading, not a genome reading and an exome
+   * The local dbNSFP ingest reports ONE combined frequency
+   * (`server/services/prediction/local-population.ts`), so it is one reading, not a genome reading and an exome
    * reading. Splitting it into two rows would print the same number twice and attribute a combined
    * figure to the exome cohort.
    */

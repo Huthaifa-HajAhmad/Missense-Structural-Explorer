@@ -2,7 +2,27 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { EnergeticsData, StructuralDiffResult, PocketResult, UserSettings } from "../types";
 import { buildEnergeticsQueryString } from "../useVariantAnalysis";
 import { useDevConsole } from "../context/DevConsoleContext";
-import { computeConsensusVerdict } from "../shared/thresholds";
+import { computeStabilityConsensus } from "../shared/thresholds";
+
+/**
+ * Merged energetics with the stability consensus recomputed from the merged values.
+ *
+ * The remote poll routes return only the engine's own prediction, so keeping the previous verdict
+ * (`data.consensusVerdict ?? prev.consensusVerdict`) froze it at the moment FoldX committed — before
+ * DynaMut2/DDMut arrived — and the stored verdict the export and manifest fall back to disagreed with
+ * the screen. It also carried the retired probability fields forward; they are dropped here.
+ */
+function withStabilityConsensus<T extends Record<string, any>>(merged: T): T {
+  const c = computeStabilityConsensus(merged);
+  const { consensusProbability: _p, consensusConfMin: _lo, consensusConfMax: _hi, ...rest } = merged as any;
+  return {
+    ...rest,
+    consensusVerdict: c.consensusVerdict,
+    consensusEnginesCounted: c.enginesCounted,
+    consensusEnginesDestabilizing: c.enginesDestabilizing,
+    consensusMedianDdg: c.medianDdg,
+  } as T;
+}
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { useJobPoller } from "./useJobPoller";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
@@ -257,13 +277,9 @@ export function useBiophysicalModeling(
       });
     },
     onSuccess: data => {
-      setFoldingEnergetics((prev: any) => ({
+      setFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         dynamut2: data.prediction,
-        consensusVerdict: data.consensusVerdict ?? prev?.consensusVerdict,
-        consensusProbability: data.consensusProbability ?? prev?.consensusProbability,
-        consensusConfMin: data.consensusConfMin ?? prev?.consensusConfMin,
-        consensusConfMax: data.consensusConfMax ?? prev?.consensusConfMax,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DynaMut2") : []
       }));
     },
@@ -303,13 +319,9 @@ export function useBiophysicalModeling(
       });
     },
     onSuccess: data => {
-      setCompareFoldingEnergetics((prev: any) => ({
+      setCompareFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         dynamut2: data.prediction,
-        consensusVerdict: data.consensusVerdict ?? prev?.consensusVerdict,
-        consensusProbability: data.consensusProbability ?? prev?.consensusProbability,
-        consensusConfMin: data.consensusConfMin ?? prev?.consensusConfMin,
-        consensusConfMax: data.consensusConfMax ?? prev?.consensusConfMax,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DynaMut2") : []
       }));
     },
@@ -349,13 +361,9 @@ export function useBiophysicalModeling(
       });
     },
     onSuccess: data => {
-      setFoldingEnergetics((prev: any) => ({
+      setFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         ddmut: data.prediction,
-        consensusVerdict: data.consensusVerdict ?? prev?.consensusVerdict,
-        consensusProbability: data.consensusProbability ?? prev?.consensusProbability,
-        consensusConfMin: data.consensusConfMin ?? prev?.consensusConfMin,
-        consensusConfMax: data.consensusConfMax ?? prev?.consensusConfMax,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DDMut") : []
       }));
     },
@@ -395,13 +403,9 @@ export function useBiophysicalModeling(
       });
     },
     onSuccess: data => {
-      setCompareFoldingEnergetics((prev: any) => ({
+      setCompareFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         ddmut: data.prediction,
-        consensusVerdict: data.consensusVerdict ?? prev?.consensusVerdict,
-        consensusProbability: data.consensusProbability ?? prev?.consensusProbability,
-        consensusConfMin: data.consensusConfMin ?? prev?.consensusConfMin,
-        consensusConfMax: data.consensusConfMax ?? prev?.consensusConfMax,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DDMut") : []
       }));
     },

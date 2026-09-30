@@ -2,6 +2,13 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
 import * as self from './dbnsfp_local.ts';
+import {
+  normalizeAminoAcid,
+  parseAminoAcidChange,
+  toFiniteOrNull,
+  type SnvCandidate,
+  type TranscriptBasis
+} from "./landscape-aggregate.ts";
 
 const DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
 
@@ -203,106 +210,94 @@ export async function queryLocalDbnsfpVariant(
   return null;
 }
 
-function getMedian(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+/**
+ * The local build's provenance, written by `tools/ingest_dbnsfp.ts` into a `build_meta` table
+ * (`dbnsfp_version`, `transcript_policy`). Builds made before that table existed report null.
+ */
+function readBuildMeta(key: string): string | null {
+  const db = self.getDbInstance();
+  if (!db) return null;
+  try {
+    const row = db.prepare("SELECT value FROM build_meta WHERE key = ?").get(key) as { value?: string } | undefined;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function readLocalDbnsfpVersion(): string | null {
+  const v = readBuildMeta("dbnsfp_version");
+  return v ? `dbNSFP ${v} (local)` : null;
+}
+
+export interface LocalLandscapeRows {
+  candidates: SnvCandidate[];
+  maxPos: number;
+  transcript: string | null;
+  transcriptBasis: TranscriptBasis;
 }
 
 /**
- * Fetch all variant positions in range and compute landscape statistics
+ * Raw SNV rows for a gene window, shaped for `aggregateLandscape`. Each row already carries ONE
+ * transcript's residue number and scores (the ingest picks the MANE / canonical transcript), so
+ * every candidate has a single reading. Rows are keyed by genomic SNV where the build stores the
+ * coordinate, so a duplicated row is counted once.
  */
-export async function queryLocalDbnsfpLandscape(
+export async function queryLocalDbnsfpLandscapeRows(
   gene: string,
   startPos?: number,
   endPos?: number
-): Promise<any[] | null> {
+): Promise<LocalLandscapeRows | null> {
   await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
   if (!db) return null;
 
+  const g = gene.trim().toUpperCase();
   try {
-    let sPos: number;
-    let ePos: number;
-
-    if (startPos === undefined || endPos === undefined) {
-      const boundaryStmt = db.prepare(`
-        SELECT MIN(pos) as min_pos, MAX(pos) as max_pos
-        FROM variant_scores
-        WHERE gene = ?
-      `);
-      const boundary = (boundaryStmt.get as any)(gene.trim().toUpperCase());
-      if (!boundary || boundary.min_pos === null) {
-        return [];
-      }
+    let sPos = startPos;
+    let ePos = endPos;
+    if (sPos === undefined || ePos === undefined) {
+      const boundary = (db.prepare("SELECT MIN(pos) as min_pos, MAX(pos) as max_pos FROM variant_scores WHERE gene = ?").get as any)(g);
+      if (!boundary || boundary.min_pos === null) return null;
       sPos = boundary.min_pos;
       ePos = boundary.max_pos;
-    } else {
-      sPos = startPos;
-      ePos = endPos;
     }
+    const rows = (db.prepare("SELECT * FROM variant_scores WHERE gene = ? AND pos BETWEEN ? AND ?").all as any)(g, sPos, ePos) as any[];
+    if (rows.length === 0) return null;
 
-    const stmt = db.prepare(`
-      SELECT pos, revel, alphamissense, gerp, phylop
-      FROM variant_scores
-      WHERE gene = ? AND pos BETWEEN ? AND ?
-    `);
-    const rows = (stmt.all as any)(gene.trim().toUpperCase(), sPos, ePos) as any[];
-
-    // Group scores by position
-    const landscapeMap = new Map<number, {
-      revelScores: number[];
-      amScores: number[];
-      gerpScores: number[];
-      phylopScores: number[];
-    }>();
-
-    for (let pos = sPos; pos <= ePos; pos++) {
-      landscapeMap.set(pos, { revelScores: [], amScores: [], gerpScores: [], phylopScores: [] });
-    }
-
-    rows.forEach(row => {
-      const d = landscapeMap.get(row.pos);
-      if (d) {
-        if (row.revel !== null && row.revel !== undefined) d.revelScores.push(row.revel);
-        if (row.alphamissense !== null && row.alphamissense !== undefined) d.amScores.push(row.alphamissense);
-        if (row.gerp !== null && row.gerp !== undefined) d.gerpScores.push(row.gerp);
-        if (row.phylop !== null && row.phylop !== undefined) d.phylopScores.push(row.phylop);
-      }
+    const candidates: SnvCandidate[] = rows.map((row) => {
+      const parsed = parseAminoAcidChange(row.aa_change);
+      const nucleotideKey = row.chr && row.pos_genomic ? `chr${String(row.chr).replace(/^chr/i, "")}:${row.pos_genomic}` : null;
+      const aaref = normalizeAminoAcid(row.aaref) ?? parsed.ref;
+      const aaalt = normalizeAminoAcid(row.aaalt) ?? parsed.alt;
+      return {
+        variantKey: nucleotideKey
+          ? `${nucleotideKey}:${row.ref ?? "?"}>${row.alt ?? "?"}`
+          : `${row.pos}:${row.ref ?? "?"}>${row.alt ?? "?"}:${aaref ?? "?"}${aaalt ?? "?"}`,
+        nucleotideKey,
+        aaref,
+        aaalt,
+        gerp: toFiniteOrNull(row.gerp),
+        phylop: toFiniteOrNull(row.phylop),
+        readings: [{
+          transcript: row.transcript ?? null,
+          pos: row.pos,
+          revel: toFiniteOrNull(row.revel),
+          am: toFiniteOrNull(row.alphamissense),
+          isMane: false,
+          isCanonical: false
+        }]
+      };
     });
 
-    const result: any[] = [];
-    for (let pos = sPos; pos <= ePos; pos++) {
-      const d = landscapeMap.get(pos)!;
-      const revelCount = d.revelScores.length;
-      const amCount = d.amScores.length;
-
-      result.push({
-        residx: pos,
-        revelMean: revelCount > 0 ? d.revelScores.reduce((a, b) => a + b, 0) / revelCount : null,
-        revelMedian: getMedian(d.revelScores),
-        revelMin: revelCount > 0 ? Math.min(...d.revelScores) : null,
-        revelMax: revelCount > 0 ? Math.max(...d.revelScores) : null,
-        revelCount,
-        amMean: amCount > 0 ? d.amScores.reduce((a, b) => a + b, 0) / amCount : null,
-        amMedian: getMedian(d.amScores),
-        amMin: amCount > 0 ? Math.min(...d.amScores) : null,
-        amMax: amCount > 0 ? Math.max(...d.amScores) : null,
-        amCount,
-        gerp: d.gerpScores.length > 0 ? d.gerpScores.reduce((a, b) => a + b, 0) / d.gerpScores.length : null,
-        phylop: d.phylopScores.length > 0 ? d.phylopScores.reduce((a, b) => a + b, 0) / d.phylopScores.length : null
-      });
-    }
-
-    const nonNullCount = result.filter(r => r.revelMean !== null || r.amMean !== null || r.gerp !== null).length;
-    const totalExpected = (ePos - sPos + 1);
-    if (sPos === ePos || nonNullCount === 0 || (totalExpected > 1 && nonNullCount < totalExpected * 0.2)) {
-      console.log(`[Local dbNSFP Landscape] Insufficient local window coverage (${nonNullCount}/${totalExpected}), falling back to remote API.`);
-      return null;
-    }
-
-    return result;
+    const policy = readBuildMeta("transcript_policy");
+    const transcripts = new Set(rows.map((r) => r.transcript).filter(Boolean));
+    return {
+      candidates,
+      maxPos: ePos as number,
+      transcript: transcripts.size === 1 ? ([...transcripts][0] as string) : null,
+      transcriptBasis: policy === "mane" || policy === "ensembl-canonical" ? policy : "unknown"
+    };
   } catch (err: any) {
     console.warn(`[Local dbNSFP Error] landscape query failed:`, err.message);
   }

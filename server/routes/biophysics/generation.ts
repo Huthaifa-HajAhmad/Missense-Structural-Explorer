@@ -23,6 +23,7 @@ import {
   writeMutantToCache,
   parseResiduesFromPdbMaybeAsync,
   runRaspLocal,
+  getRaspCoverage,
   submitThermoMpnnJob,
   getFoldxCacheKey,
   cleanPdbForFoldX,
@@ -65,9 +66,72 @@ export const inFlightRemoteSubmissions = new Map<string, InFlightSubmissions>();
 export function clearInFlightRemoteSubmissions(): void {
   inFlightRemoteSubmissions.clear();
   activeFoldxJobs.clear();
+  pendingRemoteSubmissions.clear();
+}
+
+/**
+ * Remote submissions still resolving when a CACHE-HIT response was sent, keyed by an opaque token.
+ *
+ * WHY: a FoldX cache hit answers synchronously, after giving the BioSig and ThermoMPNN submissions
+ * 1.5 s to return a job id. A BioSig submission uploads the whole structure (DDMut is also staggered
+ * 350 ms and followed through a redirect), so it almost never finishes in that window. The response
+ * therefore said `pending` with no job id, the ids arrived on the server a few seconds later with no
+ * queue job to carry them, and the client — which can poll only with an id — settled both engines
+ * to "No result". That is why DDMut and DynaMut2 read "No result" on every revisit even after their
+ * endpoints were fixed. The token lets the client ask once, with a bounded wait, for the ids.
+ */
+export interface RemoteSubmissionOutcome {
+  dynamut2JobId: string | null;
+  dynamut2Status: string | null;
+  ddmutJobId: string | null;
+  ddmutStatus: string | null;
+  thermompnnJobId: string | null;
+  thermompnnStatus: string | null;
+  thermompnnError: string | null;
+  thermompnnVal: number | null;
+}
+export const pendingRemoteSubmissions = new Map<string, { promise: Promise<RemoteSubmissionOutcome>; expiresAt: number }>();
+/** Longest the long-poll holds a request open: past the 30 s submission timeout plus one retry. */
+export const REMOTE_SUBMISSION_WAIT_MS = 75_000;
+const REMOTE_SUBMISSION_TTL_MS = 10 * 60_000;
+
+function pruneRemoteSubmissions(now = Date.now()): void {
+  for (const [token, entry] of pendingRemoteSubmissions) {
+    if (entry.expiresAt <= now) pendingRemoteSubmissions.delete(token);
+  }
 }
 
 export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any): void {
+
+  /**
+   * The job ids of remote engines submitted during a FoldX cache hit (see `pendingRemoteSubmissions`).
+   * Holds the request open until every submission has settled or REMOTE_SUBMISSION_WAIT_MS passes;
+   * `settled: false` means the wait ran out, which the client reports as no result.
+   */
+  apiRouter.get("/remote-submissions/:token", async (req, res) => {
+    const token = req.params.token;
+    if (!token || !/^[0-9a-f-]{36}$/i.test(token)) {
+      sendError(res, 400, "BAD_REQUEST", "Invalid remote submission token.");
+      return;
+    }
+    pruneRemoteSubmissions();
+    const entry = pendingRemoteSubmissions.get(token);
+    if (!entry) {
+      sendError(res, 404, "NOT_FOUND", "Unknown or expired remote submission token.");
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<null>(resolve => {
+      timer = setTimeout(() => resolve(null), REMOTE_SUBMISSION_WAIT_MS);
+    });
+    const outcome = await Promise.race([entry.promise, timedOut]);
+    if (timer) clearTimeout(timer);
+    if (!outcome) {
+      res.json({ settled: false });
+      return;
+    }
+    res.json({ settled: true, ...outcome });
+  });
 
   apiRouter.post("/analyze-variant-biophysical", jsonParserPdb, async (req, res) => {
     try {
@@ -419,8 +483,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   resolution: resolvedStructure?.provenance.resolution ?? null,
                   method: resolvedStructure?.provenance.method ?? null,
                   identity: resolvedStructure?.provenance.identity ?? null,
-                  raspDatasetSnapshot: "2023-Zenodo-6835877",
-                  vesmModel: "VESM_150M_v1",
                   timestamp: new Date().toISOString()
                 },
                 remoteJobs: {
@@ -696,6 +758,31 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             }
           }
 
+          /**
+           * RaSP on a cache hit.
+           *
+           * RaSP is looked up by the queue worker AFTER FoldX has written its cache entry, so the cached
+           * record always carries `rasp: null` and no `raspReason`. This path used to serve that record
+           * as-is: RaSP was never consulted on any revisit, and the client — seeing no value and no
+           * reason — reported "Not covered", a statement about the protein that nothing had checked.
+           * It is one indexed SQLite read, so it is done here on every hit that lacks a score.
+           */
+          if (cachedFoldx.energetics && typeof cachedFoldx.energetics.rasp !== "number" && uniprotId) {
+            try {
+              const raspRes = await runRaspLocal("", "", resolvedChainUpper, posNum, wtLetter, mutLetter, uniprotId);
+              if (raspRes) {
+                cachedFoldx.energetics.rasp = raspRes.score;
+                cachedFoldx.energetics.raspReason = raspRes.reason;
+                cachedFoldx.energetics.raspSource = raspRes.source;
+                cachedFoldx.energetics.raspCoverage = getRaspCoverage() ?? undefined;
+                // Persist only a real score: a miss may be a store fault that a rebuild will fix.
+                if (typeof raspRes.score === "number") writeMutantToCache(foldxCacheKey, cachedFoldx);
+              }
+            } catch (raspErr: any) {
+              console.warn("[RaSP Cache-Hit Lookup Warning]:", raspErr.message);
+            }
+          }
+
           let finalDynamut2Val = typeof existingDynamut2 === "number" ? existingDynamut2 : null;
           let finalDdmutVal = typeof existingDdmut === "number" ? existingDdmut : null;
 
@@ -718,12 +805,37 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             resolution: resolvedStructure?.provenance.resolution ?? null,
             method: resolvedStructure?.provenance.method ?? null,
             identity: resolvedStructure?.provenance.identity ?? null,
-            raspDatasetSnapshot: "2023-Zenodo-6835877",
-            vesmModel: "VESM_150M_v1",
             timestamp: new Date().toISOString()
           }, posNum);
 
-          res.json(enriched);
+          /**
+           * Engines whose submission has not returned an id yet: hand the client a token to collect
+           * it, rather than a bare `pending` it has no way to poll (see `pendingRemoteSubmissions`).
+           */
+          const unresolved =
+            (dynamut2Status === "pending" && !dynamut2JobId) ||
+            (ddmutStatus === "pending" && !ddmutJobId) ||
+            (thermompnnStatus === "pending" && !thermompnnJobId && finalThermompnnVal === null);
+          let remoteSubmissionToken: string | null = null;
+          if (unresolved) {
+            remoteSubmissionToken = crypto.randomUUID();
+            pruneRemoteSubmissions();
+            pendingRemoteSubmissions.set(remoteSubmissionToken, {
+              promise: Promise.allSettled([d2Promise, ddmutPromise, tmPromise]).then(() => ({
+                dynamut2JobId,
+                dynamut2Status,
+                ddmutJobId,
+                ddmutStatus,
+                thermompnnJobId,
+                thermompnnStatus,
+                thermompnnError,
+                thermompnnVal,
+              })),
+              expiresAt: Date.now() + REMOTE_SUBMISSION_TTL_MS,
+            });
+          }
+
+          res.json(remoteSubmissionToken ? { ...enriched, remoteSubmissionToken } : enriched);
           return;
         }
 

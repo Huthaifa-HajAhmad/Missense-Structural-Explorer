@@ -13,6 +13,8 @@ import type { EnergeticsData } from "../../shared/contracts";
 // One definition of "is there a frequency", shared with the Population Frequencies screen and the
 // ACMG classifier's own input.
 import { buildFrequencyEvidence } from "../../shared/frequencyEvidence";
+import { energeticsAgreementText } from "../../shared/energeticsEvidence";
+import { toCanonicalDdg } from "../../shared/engineStatus";
 
 export type AiStatusState = "live" | "degraded" | "unconfigured" | "idle";
 
@@ -448,23 +450,16 @@ export function generateStructuredEhrReport(params: GenerateStructuredEhrReportP
       "BIOPHYSICAL STABILITY & FREE-ENERGY ESTIMATES",
       "-------------------------------------------------------",
       `FoldX ΔΔG:          ${formatDeltaG(energetics?.foldx ?? energetics?.foldxMean ?? foldingDdG ?? result?.foldingDdG)}`,
-      (energetics?.consensusVerdict || result?.consensusVerdict)
-        ? `Consensus Verdict:  ${energetics?.consensusVerdict ?? result?.consensusVerdict}${
-            typeof (energetics?.consensusProbability ?? result?.consensusProbability) === "number"
-              ? ` (P = ${(((energetics?.consensusProbability ?? result?.consensusProbability) as number) * 100).toFixed(0)}%)`
-              : ""
-          }${
-            typeof (energetics?.consensusConfMin ?? result?.consensusConfMin) === "number" &&
-            typeof (energetics?.consensusConfMax ?? result?.consensusConfMax) === "number"
-              ? `, 95% CI: [${formatDeltaG(energetics?.consensusConfMin ?? result?.consensusConfMin)}, ${formatDeltaG(energetics?.consensusConfMax ?? result?.consensusConfMax)}]`
-              : ""
-          }`
+      // Engine agreement in words; the old line printed an uncalibrated "P" and a "95% CI" in kcal/mol.
+      energeticsAgreementText(energetics ?? null)
+        ? `Engine agreement: ${energeticsAgreementText(energetics ?? null)} (not an ACMG input)`
         : null,
       (energetics?.dynamut2 ?? result?.dynamut2) != null
-        ? `DynaMut2 ΔΔG:       ${formatDeltaG(energetics?.dynamut2 ?? result?.dynamut2)}`
+        // Canonical sign (positive = destabilizing); DynaMut2 and DDMut report the opposite natively.
+        ? `DynaMut2 ΔΔG:       ${formatDeltaG(toCanonicalDdg("dynamut2", energetics?.dynamut2 ?? result?.dynamut2))}`
         : null,
       (energetics?.ddmut ?? result?.ddmut) != null
-        ? `DDMut ΔΔG:          ${formatDeltaG(energetics?.ddmut ?? result?.ddmut)}`
+        ? `DDMut ΔΔG:          ${formatDeltaG(toCanonicalDdg("ddmut", energetics?.ddmut ?? result?.ddmut))}`
         : null,
       (energetics?.thermompnn ?? result?.thermompnn) != null
         ? `ThermoMPNN ΔΔG:     ${formatDeltaG(energetics?.thermompnn ?? result?.thermompnn)}`

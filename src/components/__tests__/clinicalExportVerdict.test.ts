@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deriveConsensus, buildExportVerdictContext } from "../ClinicalInsightsCard";
-import { computeCalibratedConsensus } from "../../shared/thresholds/consensus";
+import { buildEnergeticsEvidence } from "../../shared/energeticsEvidence";
 import { generateProvenanceManifest } from "../../shared/provenance";
 
 /**
@@ -85,10 +85,10 @@ describe("deriveConsensus — the export path's verdict", () => {
     // `foldingEnergetics = null` with a FoldX ΔΔG: the badge shows a single-tool estimate. Omitting
     // the fallback made the export say "Insufficient Biophysical Data" for the same run.
     const derived = deriveConsensus({ result: resultWith(), foldingEnergetics: null, foldingDdG: 3.5 });
-    expect(derived?.consensusVerdict).toBe("Elevated Misfolding Risk (Single-Tool Estimate)");
+    expect(derived?.consensusVerdict).toBe("Destabilizing (Single-Engine Estimate)");
   });
 
-  it("matches the badge's construction exactly, input for input", () => {
+  it("matches the Energetics tab's reading exactly, input for input", () => {
     /**
      * The equivalence this function exists to provide, asserted rather than assumed — which is what
      * the previous version did ("the same inputs the badge uses") without ever being diffed against
@@ -106,23 +106,8 @@ describe("deriveConsensus — the export path's verdict", () => {
       const result: any = resultWith();
       const foldingDdG = (fe as any).foldx ?? null;
 
-      // Verbatim from `EnergeticsView`'s `energetics` memo and its `calConsensus` call.
-      const badge = computeCalibratedConsensus(
-        {
-          foldx: fe.foldx ?? foldingDdG ?? null,
-          foldxMean: (fe as any).foldxMean ?? foldingDdG ?? null,
-          dynamut2: (fe as any).dynamut2 ?? null,
-          ddmut: (fe as any).ddmut ?? null,
-          rasp: (fe as any).rasp ?? null,
-          thermompnn: (fe as any).thermompnn ?? null,
-          stabilityoracle: (fe as any).stabilityoracle ?? null,
-          foldxRepairFailed: (fe as any).foldxRepairFailed ?? false,
-          foldxBinaryMissing: (fe as any).foldxBinaryMissing ?? false,
-        },
-        result.uniprotFeatures?.features,
-        result.metadata?.residueIndex ?? 0,
-        null
-      );
+      // What the Energetics tab renders: the same model, fed the same props.
+      const badge = buildEnergeticsEvidence({ foldingDdG, foldingEnergetics: fe }).agreement;
 
       const derived = deriveConsensus({
         result,
@@ -131,10 +116,10 @@ describe("deriveConsensus — the export path's verdict", () => {
         plddt: null,
       });
 
-      expect(derived?.consensusVerdict, JSON.stringify(fe)).toBe(badge.consensusVerdict);
-      expect(derived?.consensusProbability).toBe(badge.consensusProbability);
-      expect(derived?.consensusConfMin).toBe(badge.consensusConfMin);
-      expect(derived?.consensusConfMax).toBe(badge.consensusConfMax);
+      expect(derived?.consensusVerdict, JSON.stringify(fe)).toBe(badge.verdict);
+      expect(derived?.enginesCounted).toBe(badge.nCounted);
+      expect(derived?.enginesDestabilizing).toBe(badge.destabilizing.length);
+      expect(derived?.medianDdg).toBe(badge.median);
     }
   });
 

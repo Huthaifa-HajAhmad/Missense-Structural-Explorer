@@ -1,7 +1,7 @@
 import { LRUCache } from "lru-cache";
 import type { GnomadVariantFrequency, GnomadGeneConstraint } from "../external-api/gnomad.ts";
 import type { UniprotFeaturesResult } from "../external-api/uniprot.ts";
-import type { LandscapePositionData } from "../prediction/landscape.ts";
+import type { LandscapeResult } from "../prediction/landscape.ts";
 import { AnalysisDatabase } from "./analysis-db.ts";
 
 export interface CachedFetchOptions<T> {
@@ -61,7 +61,7 @@ export class CacheRegistry {
   public readonly gnomadFreqCache: LRUCache<string, GnomadVariantFrequency>;
   public readonly gnomadConstraintCache: LRUCache<string, GnomadGeneConstraint>;
   public readonly uniprotFeaturesCache: LRUCache<string, UniprotFeaturesResult>;
-  public readonly landscapeCache: LRUCache<string, LandscapePositionData[]>;
+  public readonly landscapeCache: LRUCache<string, LandscapeResult>;
   public readonly narrativeCache: LRUCache<string, any>;
 
   private readonly inFlightPromises = new Map<string, Promise<any>>();
@@ -139,7 +139,7 @@ export class CacheRegistry {
       ttl: 1000 * 60 * 60 * 24 * 3
     });
 
-    this.landscapeCache = new LRUCache<string, LandscapePositionData[]>({
+    this.landscapeCache = new LRUCache<string, LandscapeResult>({
       max: 100,
       ttl: 1000 * 60 * 60 * 24
     });

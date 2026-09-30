@@ -48,13 +48,16 @@ describe("verifyRaspIndex", () => {
     expect(verdict.reason).toContain("35000");
   });
 
-  it("rejects an index built by a different schema version", () => {
-    const verdict = verifyRaspIndex(
-      { rows: 10, proteins: 2 },
-      { ...agreeingMeta(10, 2), schemaVersion: RASP_INDEX_SCHEMA_VERSION - 1 }
-    );
+  it("rejects an index built by a schema this build cannot read", () => {
+    const verdict = verifyRaspIndex({ rows: 10, proteins: 2 }, { ...agreeingMeta(10, 2), schemaVersion: 1 });
     expect(verdict.usable).toBe(false);
-    expect(verdict.reason).toMatch(/schema v1 .* expects v2/);
+    expect(verdict.reason).toMatch(/schema v1 .* reads v2 or v3/);
+  });
+
+  it("still reads a v2 (experimental-only) index, so an upgrade does not switch RaSP off", () => {
+    expect(RASP_INDEX_SCHEMA_VERSION).toBe(3);
+    const verdict = verifyRaspIndex({ rows: 10, proteins: 2 }, { ...agreeingMeta(10, 2), schemaVersion: 2 });
+    expect(verdict.usable).toBe(true);
   });
 
   it("rejects an empty index", () => {

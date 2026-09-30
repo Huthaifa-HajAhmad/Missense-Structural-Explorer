@@ -243,3 +243,107 @@ describe("buildRaspSqliteDatabase", () => {
     expect(fs.existsSync(dbPath)).toBe(false);
   });
 });
+
+/**
+ * Proteome-wide PRISM ingestion.
+ *
+ * The fixture follows the file the authors' `rasp_to_prism` writes through PrismData.PrismParser:
+ * `# `-prefixed metadata (sequence included), a blank `#` line, then a whitespace table
+ * `variant score_ml_fermi score_ml`. Positions in these files follow the full-length AlphaFold model,
+ * i.e. UniProt numbering — except in `AF-<acc>-F2…` fragments, which are skipped rather than offset.
+ */
+function prism(seq: string, rows: string[], uniprot = "Unknown") {
+  return [
+    "# --------------------",
+    "# version: 1",
+    "# protein:",
+    "#     name: Unknown",
+    "#     organism: Unknown",
+    `#     uniprot: ${uniprot}`,
+    `#     sequence: ${seq}`,
+    "#     pdb: AF",
+    "#     chain: A",
+    "# columns:",
+    "#     score_ml_fermi: Normalized RaSP model ddG predictions (range [0;1])",
+    "#     score_ml: Cavity model ddG predictions",
+    "# --------------------",
+    "#",
+    "#",
+    "variant score_ml_fermi score_ml",
+    ...rows,
+  ].join("\n") + "\n";
+}
+
+describe("parsePrismRaspFile", () => {
+  it("reads score_ml (kcal/mol), not the [0,1] fermi transform, and the accession from the AF name", async () => {
+    const { parsePrismRaspFile } = await import("../../server/services/stability/build-rasp-sqlite.ts");
+    const parsed = parsePrismRaspFile(
+      prism("MRAG", ["M1A 0.12 0.33", "R2W 0.81 2.40", "A3= 0.05 0.00"]),
+      "/x/prism_rasp_AF-P00439-F1-model_v2.txt"
+    );
+    expect(parsed.uniprotId).toBe("P00439");
+    expect(parsed.fragment).toBe(1);
+    expect(parsed.rows).toEqual([
+      { wt: "M", pos: 1, mut: "A", score: 0.33 },
+      { wt: "R", pos: 2, mut: "W", score: 2.4 },
+    ]);
+    expect(parsed.skipped).toBe(1); // the synonymous row
+  });
+
+  it("drops a row whose wild type disagrees with the file's own sequence", async () => {
+    const { parsePrismRaspFile } = await import("../../server/services/stability/build-rasp-sqlite.ts");
+    const parsed = parsePrismRaspFile(prism("MRAG", ["G2A 0.5 1.0", "R2A 0.5 1.1"]), "AF-P01112-F1.txt");
+    expect(parsed.rows.map(r => r.score)).toEqual([1.1]);
+    expect(parsed.skipped).toBe(1);
+  });
+
+  it("falls back to the metadata accession and reports the fragment number", async () => {
+    const { parsePrismRaspFile } = await import("../../server/services/stability/build-rasp-sqlite.ts");
+    expect(parsePrismRaspFile(prism("MA", ["M1A 0.1 0.2"], "Q13564"), "pred.txt").uniprotId).toBe("Q13564");
+    expect(parsePrismRaspFile(prism("MA", ["M1A 0.1 0.2"]), "AF-Q8WZ42-F7-model_v2.txt").fragment).toBe(7);
+    expect(parsePrismRaspFile(prism("MA", ["M1A 0.1 0.2"]), "pred.txt").uniprotId).toBeNull();
+  });
+});
+
+describe("buildRaspSqliteDatabase with a proteome directory", () => {
+  it("ingests PRISM files beside the CSV, tags each row's source, and records per-source counts", async () => {
+    writeCsv(["P00439,A,1pdb,A,R2W,1.45,Pathogenic,0.0001"]);
+    const proteome = path.join(workDir, "proteome", "P0", "04", "39");
+    fs.mkdirSync(proteome, { recursive: true });
+    fs.writeFileSync(path.join(proteome, "prism_rasp_AF-P00439-F1-model_v2.txt"), prism("MRAG", ["R2W 0.81 2.40"]));
+    fs.writeFileSync(path.join(proteome, "prism_rasp_AF-Q13564-F1-model_v2.txt"), prism("MDG", ["D2G 0.2 0.6"]));
+    fs.writeFileSync(path.join(proteome, "prism_rasp_AF-Q8WZ42-F2-model_v2.txt"), prism("MA", ["M1A 0.1 0.2"]));
+    fs.writeFileSync(path.join(proteome, "README.md"), "not a prism file\n");
+
+    const result = await buildRaspSqliteDatabase(csvPath, dbPath, { proteomeDir: path.join(workDir, "proteome") });
+
+    expect(result.rows).toBe(3);
+    expect(result.proteins).toBe(2);
+    expect(result.sources).toEqual({ experimental: 1, alphafold: 2 });
+    expect(result.proteomeSkips).toEqual({ "AlphaFold fragment beyond F1": 1, "not a PRISM file": 1 });
+
+    const db = new DatabaseSync(dbPath, { open: true });
+    try {
+      const meta = db.prepare("SELECT schema_version, sources FROM rasp_index_meta").get() as any;
+      expect(meta.schema_version).toBe(3);
+      expect(JSON.parse(meta.sources)).toEqual({ experimental: 1, alphafold: 2 });
+      const bySource = db
+        .prepare("SELECT source, rasp_score FROM rasp_variants WHERE uniprot_id = 'P00439' ORDER BY source")
+        .all() as any[];
+      expect(bySource).toEqual([
+        { source: "alphafold", rasp_score: 2.4 },
+        { source: "experimental", rasp_score: 1.45 },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("builds from the proteome alone when no CSV is present", async () => {
+    const proteome = path.join(workDir, "proteome");
+    fs.mkdirSync(proteome, { recursive: true });
+    fs.writeFileSync(path.join(proteome, "AF-Q13564-F1.txt"), prism("MDG", ["D2G 0.2 0.6"]));
+    const result = await buildRaspSqliteDatabase(csvPath, dbPath, { proteomeDir: proteome });
+    expect(result.sources).toEqual({ alphafold: 1 });
+  });
+});
