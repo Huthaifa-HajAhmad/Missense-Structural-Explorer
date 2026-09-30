@@ -12,7 +12,10 @@ import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
  * (GRCh37 canonical transcript), and the payload says so.
  */
 
-export type ClinvarClass = "plp" | "blb" | "other";
+import { classifyClinvar, type ClinvarClass } from "../../../src/shared/clinvarClassification.ts";
+
+export { classifyClinvar };
+export type { ClinvarClass };
 
 export interface ContextClinvar {
   pos: number;
@@ -65,16 +68,6 @@ export function missenseResidue(hgvsp: unknown): number | null {
   if (!m) return null;
   if (!AA3[m[1]] || !AA3[m[3]] || m[1] === m[3]) return null;
   return parseInt(m[2], 10);
-}
-
-export function classifyClinvar(significance: unknown): ClinvarClass {
-  const s = String(significance ?? "").toLowerCase();
-  if (s.includes("conflicting")) return "other";
-  const path = s.includes("pathogenic");
-  const benign = s.includes("benign");
-  if (path && !benign) return "plp";
-  if (benign && !path) return "blb";
-  return "other";
 }
 
 async function gnomadQuery(query: string, gene: string): Promise<any> {

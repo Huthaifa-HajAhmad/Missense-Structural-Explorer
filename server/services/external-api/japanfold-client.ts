@@ -6,14 +6,12 @@
  * - ESMFold-2: De novo 3D coordinate generation (up to 1,024 residues)
  * - SaProt: Structure-aware language modeling with 3Di token conditioning
  * - Boltz-2 / OpenFold3: Quaternary multimer complex modeling
- * - OpenBind-0: Interface binding affinity shifts (ΔΔG_bind)
  */
 
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { CONFIG } from "../../config.ts";
 import { anySignal } from "../../utils/signals.ts";
-import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 
 export interface JapanFoldZeroShotResult {
   status: "success" | "failed";
@@ -36,14 +34,6 @@ export interface JapanFoldMultimerResult {
   ipTm: number | null;
   pTm: number | null;
   interfaceContacts: Array<{ resA: number; resB: number; distance: number }>;
-  provenance: string;
-}
-
-export interface JapanFoldBindingResult {
-  status: "success" | "failed";
-  ddgBind: number;
-  unit: "kcal/mol" | "kJ/mol";
-  classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL";
   provenance: string;
 }
 
@@ -349,72 +339,6 @@ export async function queryBoltz2Multimer(
     }
   } catch (err: any) {
     console.warn(`[JapanFold Client] Boltz-2 invocation error: ${err.message}`);
-  }
-
-  return null;
-}
-
-/**
- * Tier-1: Query JapanFold OpenBind-0 for interface binding affinity shifts (ΔΔG_bind).
- */
-export async function queryOpenBind(
-  wtPdb: string,
-  mutPdb: string,
-  chainA: string,
-  chainB: string,
-  signal?: AbortSignal
-): Promise<JapanFoldBindingResult | null> {
-  const wtHash = crypto.createHash("sha256").update(wtPdb).digest("hex").slice(0, 16);
-  const mutHash = crypto.createHash("sha256").update(mutPdb).digest("hex").slice(0, 16);
-  const cacheKey = `japanfold:openbind:${wtHash}:${mutHash}:${chainA}:${chainB}`;
-  const cached = japanFoldCache.get(cacheKey);
-  if (cached) return cached;
-
-  const timeoutMs = CONFIG.timeouts.japanfoldZeroShotMs || 3500;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const effectiveSignal = anySignal([signal, timeoutSignal]);
-
-  try {
-    const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        model: "openbind-0",
-        wtPdb,
-        mutPdb,
-        chainA,
-        chainB
-      }),
-      signal: effectiveSignal
-    });
-
-    if (!response.ok) {
-      console.warn(`[JapanFold Client] OpenBind-0 query failed with HTTP ${response.status}`);
-      return null;
-    }
-
-    const data = (await response.json()) as any;
-    if (data && Number.isFinite(data.ddgBind)) {
-      const ddg = data.ddgBind;
-      // Cut-points come from THRESHOLDS.openBind, which the PPI tab also reads to
-      // colour the value. As two hand-written copies, changing one alone made the
-      // chip's word disagree with the value beside it.
-      const classification: "INTERFACE_DISRUPTIVE" | "ALLOSTERIC_PERTURBATION" | "SURFACE_NEUTRAL" =
-        data.classification || (ddg >= THRESHOLDS.openBind.disruptive ? "INTERFACE_DISRUPTIVE" : ddg >= THRESHOLDS.openBind.allosteric ? "ALLOSTERIC_PERTURBATION" : "SURFACE_NEUTRAL");
-
-      const result: JapanFoldBindingResult = {
-        status: "success",
-        ddgBind: ddg,
-        unit: data.unit || "kcal/mol",
-        classification,
-        provenance: "JapanFold OpenBind-0 (Tier 1)"
-      };
-      japanFoldCache.set(cacheKey, result);
-      return result;
-    }
-  } catch (err: any) {
-    console.warn(`[JapanFold Client] OpenBind-0 invocation error: ${err.message}`);
   }
 
   return null;

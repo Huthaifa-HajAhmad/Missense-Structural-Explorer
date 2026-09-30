@@ -58,7 +58,7 @@
  * forgotten in the other. `server/routes/variant/narrative.ts` interpolates this constant rather than
  * a literal, and `narrativeCacheKey.test.ts` fails if a literal reappears.
  */
-export const NARRATIVE_PROMPT_SCHEMA_VERSION = 3;
+export const NARRATIVE_PROMPT_SCHEMA_VERSION = 4;
 
 /** The narrative call's provider parameters. The server reads these; the UI only reports them. */
 export const NARRATIVE_SYNTHESIS = {
@@ -95,9 +95,10 @@ export function describeSampling(temperature: number): string {
  *
  * The prompt (`performGeminiAnalysis`) carries ClinVar, AlphaMissense, CADD, REVEL, GERP, phyloP and the
  * top STRING partners. It carries no allele frequency, gene constraint, functional domain, stability,
- * splicing or structure reading — yet asks the model for "specific molecular hypotheses based on
- * peptide chain coordinates" and lets it propose criteria. `narrativeSynthesis.test.ts` reads the prompt
- * source and fails if a block named here disappears or a "not sent" source appears in it.
+ * splicing or structure reading, and lets it propose criteria. The prompt used to ask for "molecular
+ * hypotheses based on peptide chain coordinates" while sending none; it now asks for biochemical
+ * hypotheses and tells the model it has no coordinates (schema v4). `narrativeSynthesis.test.ts` reads
+ * the prompt source and fails if a block named here disappears or a "not sent" source appears in it.
  */
 export const NARRATIVE_PROMPT_EVIDENCE = {
   sent: ["ClinVar", "AlphaMissense", "CADD", "REVEL", "GERP++", "phyloP", "STRING partners"],

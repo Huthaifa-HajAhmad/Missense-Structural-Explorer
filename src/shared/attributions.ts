@@ -354,7 +354,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     url: "https://huggingface.co/datasets/songlab/gpn-msa-hg38-scores",
     release: "hg38 score tracks (GRCh38 only)",
     citation:
-      "Benegas, G., et al. (2025). Phylogeny-aware genomic language models predict variant effects across vertebrate genomes. bioRxiv. https://doi.org/10.1101/2024.11.08.622668",
+      "Ye, C., Benegas, G., et al. (2025). Predicting functional constraints across evolutionary timescales with phylogeny-informed genomic language models. bioRxiv. https://doi.org/10.1101/2025.09.21.677619",
     usedBy: ["server/services/external-api/gpn.ts", "src/shared/thresholds/evaluators.ts"]
   },
   {
@@ -399,10 +399,10 @@ const MODEL_SOURCES: AttributionEntry[] = [
     provider: "Li et al. (Genome Medicine)",
     kind: "model",
     role: "Recurrent ensemble over 28 deep-learning, conservation and structural features, used as a supporting computational signal.",
-    url: "https://doi.org/10.1186/s13073-022-01069-0",
+    url: "https://doi.org/10.1186/s13073-022-01120-z",
     release: null,
     citation:
-      "Li, C., et al. (2022). MetaRNN: differentiating rare pathogenic and rare benign missense SNVs and InDels using deep learning. Genome Medicine 14, 115. https://doi.org/10.1186/s13073-022-01069-0",
+      "Li, C., et al. (2022). MetaRNN: differentiating rare pathogenic and rare benign missense SNVs and InDels using deep learning. Genome Medicine 14, 115. https://doi.org/10.1186/s13073-022-01120-z",
     usedBy: ["src/shared/thresholds/evaluators.ts"]
   },
   {
@@ -411,10 +411,10 @@ const MODEL_SOURCES: AttributionEntry[] = [
     provider: "Alirezaie et al. (American Journal of Human Genetics)",
     kind: "model",
     role: "Gradient-boosted classifier trained directly on ClinVar pathogenic versus benign labels, with allele frequency as a feature.",
-    url: "https://doi.org/10.1016/j.ajhg.2018.07.028",
+    url: "https://doi.org/10.1016/j.ajhg.2018.08.005",
     release: null,
     citation:
-      "Alirezaie, N., Kernohan, K. D., Hartley, T., Majewski, J., & Hocking, T. D. (2018). ClinPred: prediction tool to identify disease-relevant nonsynonymous single-nucleotide variants. American Journal of Human Genetics 103, 474–483. https://doi.org/10.1016/j.ajhg.2018.07.028",
+      "Alirezaie, N., Kernohan, K. D., Hartley, T., Majewski, J., & Hocking, T. D. (2018). ClinPred: prediction tool to identify disease-relevant nonsynonymous single-nucleotide variants. American Journal of Human Genetics 103, 474–483. https://doi.org/10.1016/j.ajhg.2018.08.005",
     usedBy: ["src/shared/thresholds/evaluators.ts"]
   },
   {
@@ -447,10 +447,10 @@ const MODEL_SOURCES: AttributionEntry[] = [
     provider: "Feng (Human Mutation)",
     kind: "model",
     role: "Bayesian meta-predictor. The no-allele-frequency variant is used deliberately, so population frequency is never counted twice inside one verdict.",
-    url: "https://doi.org/10.1002/humu.24155",
+    url: "https://doi.org/10.1002/humu.23158",
     release: null,
     citation:
-      "Feng, B.-J. (2021). Calibration of human variant deleteriousness prediction methods and BayesDel. Human Mutation 42, 725–736. https://doi.org/10.1002/humu.24155",
+      "Feng, B.-J. (2017). PERCH: a unified framework for disease gene prioritization (introduces BayesDel). Human Mutation 38, 243–251. https://doi.org/10.1002/humu.23158",
     usedBy: ["src/shared/thresholds/evaluators.ts"]
   }
 ];

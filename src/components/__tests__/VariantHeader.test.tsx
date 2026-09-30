@@ -208,14 +208,15 @@ describe("VariantHeader Component Tests", () => {
 
     // Verdicts
     expect(screen.getByText("Constrained")).toBeInTheDocument();
-    expect(screen.getByText("Moderate constraint")).toBeInTheDocument();
+    expect(screen.getByText("LoF tolerant")).toBeInTheDocument(); // 0.71 ≥ 0.6, gnomAD's suggested cut
     expect(screen.getByText("Subgenic constrained")).toBeInTheDocument();
 
     // Reference ranges are rendered as threshold ticks on the tracks
     expect(screen.getByText("2.0")).toBeInTheDocument();
     expect(screen.getByText("3.09")).toBeInTheDocument();
     expect(screen.getByText("0.35")).toBeInTheDocument();
-    expect(screen.getAllByText("1.0").length).toBe(2); // LOEUF tolerance + RMC baseline
+    expect(screen.getByText("0.6")).toBeInTheDocument(); // LOEUF constraint cut
+    expect(screen.getByText("1.0")).toBeInTheDocument(); // RMC baseline
 
     // Three threshold tracks, each with a marker for the observed value
     expect(container.querySelectorAll(".vh-scale").length).toBe(3);
@@ -251,7 +252,7 @@ describe("VariantHeader Component Tests", () => {
       screen.getByText(/Reference: tolerant below 2\.0, constrained from 2\.0, severe intolerance at or above 3\.09/)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Reference: strong loss-of-function intolerance below 0\.35, moderate constraint below 1\.0/)
+      screen.getByText(/Reference: strong loss-of-function intolerance below 0\.35, constrained below 0\.60/)
     ).toBeInTheDocument();
     expect(screen.getByText(/Reference: unconstrained at O\/E ≈ 1\.0\./)).toBeInTheDocument();
 

@@ -13,7 +13,13 @@ import {
 import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 
 /**
- * Maps calibrated continuous AVI Phred scores to ClinGen SVI Bayesian pathogenicity tiers.
+ * Bands the AVI Phred rank with the app's own cut-points (`THRESHOLDS.alphagenome`), named like ACMG
+ * strengths for wire compatibility only.
+ *
+ * This is NOT a ClinGen SVI calibration: none exists for the AVI, and AlphaMissense is one of its own
+ * features. The rule engine never reads it (`evaluateAlphaGenomeAvi` is informational and votes for
+ * nothing), and no surface may present it as PP3/BP4 evidence. Treat the string as a display band of
+ * the rank; the field keeps its name because it is part of the persisted payload contract.
  * Strictly guards against negative numbers (sentinels or calculation errors).
  */
 export function calculateAlphaGenomeAcmgStrength(

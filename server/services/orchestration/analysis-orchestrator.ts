@@ -281,6 +281,7 @@ async function runStream(
   const preliminaryVerdict = computeRuleBasedACMG({
     gene,
     variant,
+    residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
     clinvar: clinvarRes,
     predictorData: predictorRes,
     acmgWeighting: context.acmgWeighting,
@@ -379,6 +380,7 @@ export async function runStructuralAnalysis(
   const ruleBasedInsights = computeRuleBasedACMG({
     gene,
     variant,
+    residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
     clinvar: coreData.clinvar,
     predictorData: coreData.predictorData,
     conservationData: coreData.conservationData,

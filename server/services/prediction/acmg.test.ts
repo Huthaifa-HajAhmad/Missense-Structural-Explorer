@@ -188,7 +188,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     expect(resStrictStructural.acmgCriteria.some(c => c.code === "PP2")).toBe(false);
   });
 
-  it("should respect ClinGen-calibrated AlphaMissense thresholds (pathogenic >= 0.983, benign <= 0.063)", () => {
+  it("should respect ClinGen-calibrated AlphaMissense thresholds (Bergquist 2025: pathogenic >= 0.792, benign <= 0.169)", () => {
     const resPath = countPredictorConcordance(null, null, 0.985, null);
     expect(resPath.signals.am).toBe("pathogenic");
 
@@ -448,7 +448,9 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     ).toBe(true);
   });
 
-  it("should classify 1 Very Strong (PVS1) + 2 Supporting (PP) as Likely Pathogenic", () => {
+  // Richards 2015 Table 5, Pathogenic (i)(d): PVS1 + >=2 Supporting. This test used to expect "Likely
+  // Pathogenic", which was the engine's combining-rule defect written down as a requirement.
+  it("should classify 1 Very Strong (PVS1) + 2 Supporting (PP) as Pathogenic", () => {
     const input = {
       gene: "BRCA1",
       variant: "p.Tyr100Ter",
@@ -463,7 +465,7 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     const res = computeRuleBasedACMG(input);
     expect(res.acmgCriteria.some(c => c.code === "PVS1")).toBe(true);
     expect(res.acmgCriteria.filter(c => c.code.startsWith("PP")).length).toBeGreaterThanOrEqual(2);
-    expect(res.acmgVerdict).toBe("Likely Pathogenic");
+    expect(res.acmgVerdict).toBe("Pathogenic");
   });
 
   it("should correctly parse leading coordinate for multi-residue in-frame indel", () => {
@@ -532,5 +534,61 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     });
     expect(res.acmgCriteria.some(c => c.code === "BP4_Moderate")).toBe(false);
     expect(res.acmgCriteria.some(c => c.code === "BP4")).toBe(true);
+  });
+  describe("ClinVar 'Conflicting' is not a pathogenic or benign call", () => {
+    const base = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      predictorData: { available: true, amPathogenicity: 0.99, amClass: "likely_pathogenic", caddPhred: 35 },
+      conservationData: { available: true, revel: 0.97, bayesdel: 0.6 },
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+    } as const;
+
+    it.each([
+      "Conflicting interpretations of pathogenicity",
+      "Conflicting classifications of pathogenicity",
+    ])("%s does not open the conservative-weighting gate", classification => {
+      const conflicting = computeRuleBasedACMG({ ...base, clinvar: { classification, uid: "1" }, acmgWeighting: "conservative" } as any);
+      // Conservative mode drops computational criteria unless ClinVar corroborates them. A conflicting
+      // record does not corroborate, but a substring test on "pathogenic" said it did.
+      expect(conflicting.acmgCriteria.some(x => x.code === "PP3")).toBe(false);
+    });
+
+    it("a real Pathogenic record still corroborates the computational criteria", () => {
+      const corroborated = computeRuleBasedACMG({ ...base, clinvar: { classification: "Pathogenic", uid: "1" }, acmgWeighting: "conservative" } as any);
+      expect(corroborated.acmgCriteria.some(x => x.code === "PP3")).toBe(true);
+    });
+  });
+
+  describe("PP3 + PM1 <= Strong cap is dormant while the engine emits PP3 at Supporting only", () => {
+    const evidence = [{ code: "ECO:0000269", source: "PubMed", id: "12345" }];
+    const input = {
+      gene: "PAH",
+      variant: "p.Arg408Trp",
+      clinvar: null,
+      predictorData: { available: true, amPathogenicity: 0.99, amClass: "likely_pathogenic", caddPhred: 35 },
+      // REVEL 0.95 is PP3_Strong on the calibrated table, but the engine's vote is bare PP3.
+      conservationData: { available: true, revel: 0.95, bayesdel: 0.6 },
+      gnomadConstraint: null,
+      gnomadFrequency: null,
+      uniprotFeatures: { features: [{ type: "Active site", description: "Proton acceptor", start: 408, end: 408, evidence }] },
+    };
+
+    it("emits PP3 at Supporting strength and lets PM1 stand (1 + 2 = 3 <= 4)", () => {
+      const res = computeRuleBasedACMG(input as any);
+      const codes = res.acmgCriteria.map(x => x.code);
+      expect(codes).toContain("PP3");
+      expect(codes).not.toContain("PP3_Strong");
+      expect(codes).toContain("PM1");
+    });
+
+    it("uses the explicit residue index over digits in the variant string", () => {
+      // The site is at 408. A notation whose first digit run is something else must not move PM1.
+      const res = computeRuleBasedACMG({ ...input, variant: "NM_000277.3:p.Arg408Trp", residueIndex: 408 } as any);
+      expect(res.acmgCriteria.map(x => x.code)).toContain("PM1");
+      const wrong = computeRuleBasedACMG({ ...input, variant: "NM_000277.3:p.Arg408Trp", residueIndex: 99 } as any);
+      expect(wrong.acmgCriteria.map(x => x.code)).not.toContain("PM1");
+    });
   });
 });

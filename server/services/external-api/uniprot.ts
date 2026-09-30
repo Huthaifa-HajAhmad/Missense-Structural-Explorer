@@ -702,7 +702,12 @@ export interface UniprotFeaturesResult {
   lastAnnotationUpdate?: string | null;
   secondaryStructure?: SecondaryStructureElement[];
   domainMatches?: DomainMatch[];
-  domainMatchesStatus?: "ok" | "error";
+  /**
+   * `ok`: UniParc answered. `error`: it did not (a gap in this run, never cached). `unsupported`: the
+   * accession is an isoform (`P04637-2`), which UniParc has no entry for and whose matches would be
+   * canonical-sequence coordinates anyway; InterPro was not read, and that is stable, so it caches.
+   */
+  domainMatchesStatus?: "ok" | "error" | "unsupported";
   uniparcId?: string | null;
 }
 
@@ -828,13 +833,18 @@ export async function fetchUniprotFeatures(
     shouldCache: (data) => data !== null && data !== undefined && data.domainMatchesStatus !== "error",
     fetcher: async () => {
       try {
-        const uniparc = fetchUniparcDomainMatches(key, options).then(
-          (value) => ({ ok: true as const, value }),
-          (err) => {
-            console.warn(`[UniParc] Domain matches for ${key} unavailable:`, err?.message ?? err);
-            return { ok: false as const };
-          }
-        );
+        // UniParc answers for a canonical accession only (an isoform id is a 404), and its InterPro
+        // locations are on the canonical sequence, so they would mis-locate domains on an isoform.
+        const isIsoformAccession = /-\d+$/.test(key);
+        const uniparc = isIsoformAccession
+          ? Promise.resolve({ ok: false as const, unsupported: true as const })
+          : fetchUniparcDomainMatches(key, options).then(
+              (value) => ({ ok: true as const, value }),
+              (err) => {
+                console.warn(`[UniParc] Domain matches for ${key} unavailable:`, err?.message ?? err);
+                return { ok: false as const, unsupported: false as const };
+              }
+            );
         const resp = await fetchWithRetry(
           `https://rest.uniprot.org/uniprotkb/${key}.json`,
           {
@@ -996,7 +1006,7 @@ export async function fetchUniprotFeatures(
           lastAnnotationUpdate,
           secondaryStructure,
           domainMatches: uniparcResult.ok ? uniparcResult.value.matches : [],
-          domainMatchesStatus: uniparcResult.ok ? "ok" : "error",
+          domainMatchesStatus: uniparcResult.ok ? "ok" : uniparcResult.unsupported ? "unsupported" : "error",
           uniparcId: uniparcResult.ok ? uniparcResult.value.uniparcId : null,
         };
         return result;

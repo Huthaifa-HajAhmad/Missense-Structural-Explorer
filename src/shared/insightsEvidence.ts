@@ -241,13 +241,13 @@ export function computeTierGap(codes: ReadonlyArray<{ code: string; reason: stri
   const options = [...new Set(minimal.map(m => m.text))].slice(0, 3);
 
   const have = describeStrengths(countByStrength(codes, side), side);
-  return {
-    side,
-    target,
-    have,
-    options,
-    sentence: `To reach ${target.toLowerCase()} the engine needs one of these on top of what it has (${have}): ${options.join("; ")}.`,
-  };
+  // Conflicting evidence: the combining rules return VUS whenever both sides reach a tier, so no
+  // addition on this side can reach the target while the other side's criteria stand. Say so rather
+  // than print an empty list.
+  const sentence = options.length
+    ? `To reach ${target.toLowerCase()} the engine needs one of these on top of what it has (${have}): ${options.join("; ")}.`
+    : `The counted evidence conflicts (${have} on the ${side} side, and criteria on the other side also count), so adding ${side} criteria alone cannot reach ${target.toLowerCase()}; the conflict has to be resolved first.`;
+  return { side, target, have, options, sentence };
 }
 
 function subsetOf(a: string, b: string): boolean {

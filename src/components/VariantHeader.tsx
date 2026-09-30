@@ -2,6 +2,7 @@ import React, { useMemo, useCallback, useState } from "react";
 import { AnalysisResult } from "../types";
 import { parseVariantCoordinate } from "../shared/variantCoordinate";
 import { variantNumberingView } from "../shared/numbering";
+import { THRESHOLDS } from "../shared/thresholds";
 import { ExternalLink, Copy, Check, Dna, MapPin, FlaskConical, Scissors } from "lucide-react";
 
 interface VariantHeaderProps {
@@ -184,20 +185,23 @@ function buildMissenseZMetric(
 }
 
 function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
+  // One source for the cut-points: the Score thresholds tab and this header must not disagree.
+  const strong = THRESHOLDS.loeuf.pathogenicStrong;
+  const constrained = THRESHOLDS.loeuf.pathogenicSupporting;
   const domains = {
     domain: LOEUF_DOMAIN,
     bands: [
-      { from: 0, to: 0.35, tone: "path" as VhTone },
-      { from: 0.35, to: 1.0, tone: "warn" as VhTone },
-      { from: 1.0, to: 1.5, tone: "good" as VhTone },
+      { from: 0, to: strong, tone: "path" as VhTone },
+      { from: strong, to: constrained, tone: "warn" as VhTone },
+      { from: constrained, to: LOEUF_DOMAIN[1], tone: "good" as VhTone },
     ],
     ticks: [
-      { at: 0.35, label: "0.35" },
-      { at: 1.0, label: "1.0" },
+      { at: strong, label: String(strong) },
+      { at: constrained, label: constrained.toFixed(1) },
     ],
   };
   const refRange =
-    "Reference: strong loss-of-function intolerance below 0.35, moderate constraint below 1.0, tolerant at or above 1.0.";
+    `Reference: strong loss-of-function intolerance below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut, the same one the Score thresholds tab uses), tolerant at or above ${constrained.toFixed(2)}.`;
 
   const v = typeof loeuf === "number" ? loeuf : null;
 
@@ -217,11 +221,11 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
 
   const value = v.toFixed(2);
   const tier =
-    v < 0.35
+    v < strong
       ? { tone: "path" as VhTone, verdict: "Strong LoF intolerance", why: "below the decile-1 intolerance threshold" }
-      : v < 1.0
-        ? { tone: "warn" as VhTone, verdict: "Moderate constraint", why: "below the tolerant reference range" }
-        : { tone: "good" as VhTone, verdict: "LoF tolerant", why: "within the tolerant reference range" };
+      : v < constrained
+        ? { tone: "warn" as VhTone, verdict: "LoF constrained", why: `below gnomAD's suggested constraint cut of ${constrained.toFixed(2)}` }
+        : { tone: "good" as VhTone, verdict: "LoF tolerant", why: "at or above gnomAD's suggested constraint cut" };
 
   return {
     key: "loeuf",

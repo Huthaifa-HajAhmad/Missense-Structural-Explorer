@@ -4,7 +4,6 @@ import {
   queryEsmfold2,
   querySaProt,
   queryBoltz2Multimer,
-  queryOpenBind,
   clearJapanFoldCache
 } from "./japanfold-client.ts";
 
@@ -164,29 +163,6 @@ describe("JapanFold API Client", () => {
       expect(result).not.toBeNull();
       expect(result?.ipTm).toBeNull();
       expect(result?.pTm).toBeNull();
-    });
-  });
-
-  describe("queryOpenBind", () => {
-    it("returns binding affinity change (ddG_bind)", async () => {
-      const mockResponse = {
-        status: "success",
-        ddgBind: 2.45,
-        unit: "kcal/mol",
-        classification: "INTERFACE_DISRUPTIVE"
-      };
-
-      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => mockResponse
-      } as any);
-
-      const result = await queryOpenBind("ATOM... WT", "ATOM... MUT", "A", "B");
-      expect(result).not.toBeNull();
-      expect(result?.ddgBind).toBe(2.45);
-      expect(result?.classification).toBe("INTERFACE_DISRUPTIVE");
-      expect(result?.provenance).toBe("JapanFold OpenBind-0 (Tier 1)");
     });
   });
 });

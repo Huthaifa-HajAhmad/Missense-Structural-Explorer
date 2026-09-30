@@ -63,18 +63,21 @@ export function classifyVariant(criteria: ACMGItem[]): string {
   const nBS = benign.filter(c => c.code.startsWith("BS") || c.code === "BP4_Moderate").length;
   const nBP = benign.filter(c => c.code.startsWith("BP") && c.code !== "BP4_Moderate").length;
 
-  // ---- Pathogenic ----
+  // ---- Pathogenic (Richards 2015 Table 5) ----
+  // (i) PVS1 AND one of: ≥1 PS, ≥2 PM, 1 PM + 1 PP, ≥2 PP.
   const isPathogenic =
-    (nPVS >= 1 && (nPS >= 1 || nPM >= 2 || (nPM >= 1 && nPP >= 2) || nPP >= 4)) ||
+    (nPVS >= 1 && (nPS >= 1 || nPM >= 2 || (nPM >= 1 && nPP >= 1) || nPP >= 2)) ||
     nPS >= 2 ||
     (nPS >= 1 && nPM >= 3) ||
     (nPS >= 1 && nPM >= 2 && nPP >= 2) ||
     (nPS >= 1 && nPM >= 1 && nPP >= 4);
 
   // ---- Likely Pathogenic ----
+  // PVS1 + 1 PM is the only PVS1 route here: PVS1 + ≥2 PP is Pathogenic above, and PVS1 + 1 PP meets
+  // no Table 5 row, so it stays VUS.
   const isLikelyPathogenic =
     !isPathogenic && (
-      (nPVS >= 1 && (nPM >= 1 || nPP >= 2)) ||
+      (nPVS >= 1 && nPM >= 1) ||
       (nPS >= 1 && nPM >= 1 && nPM <= 2) ||
       (nPS >= 1 && nPP >= 2) ||
       nPM >= 3 ||

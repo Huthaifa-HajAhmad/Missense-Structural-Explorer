@@ -40,9 +40,9 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
       "Does not directly compute biophysical free energy changes (ΔΔG)."
     ],
     provider: "Song Lab @ UC Berkeley / Hugging Face",
-    paperTitle: "Benegas et al. bioRxiv (2025)",
-    paperUrl: "https://doi.org/10.1101/2024.11.08.622668",
-    citation: "Benegas, G., et al. (2025). Phylogeny-aware genomic language models predict variant effects across vertebrate genomes. bioRxiv."
+    paperTitle: "Ye et al. bioRxiv (2025)",
+    paperUrl: "https://doi.org/10.1101/2025.09.21.677619",
+    citation: "Ye, C., Benegas, G., et al. (2025). Predicting functional constraints across evolutionary timescales with phylogeny-informed genomic language models. bioRxiv."
   },
   vesm: {
     name: "VESM",
@@ -221,7 +221,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     description: "MetaRNN integrates 28 deep learning, evolutionary conservation, and structural features using recurrent neural networks (RNN) to model positional inter-dependencies across amino acid sequences.",
     interpretation: "Scores range from 0 to 1; the authors call ≥ 0.5 deleterious. This cut is not ClinGen-calibrated. MetaRNN takes gnomAD allele frequency as a feature and is trained on ClinVar, so its vote overlaps with PM2/BS1 and is partly circular for variants already in ClinVar.",
     paperTitle: "Li et al. Genome Med (2022)",
-    paperUrl: "https://doi.org/10.1186/s13073-022-01069-0"
+    paperUrl: "https://doi.org/10.1186/s13073-022-01120-z"
   },
   clinpred: {
     name: "ClinPred",
@@ -229,7 +229,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     description: "ClinPred uses a gradient boosted decision tree classifier trained specifically on ClinVar confirmed pathogenic vs benign variants, incorporating allele frequency alongside multiple in-silico predictors.",
     interpretation: "Scores range from 0 to 1; the authors call ≥ 0.5 pathogenic. This cut is not ClinGen-calibrated. ClinPred uses gnomAD allele frequency as a feature and is trained on ClinVar, so its vote overlaps with PM2/BS1 and is partly circular for variants already in ClinVar.",
     paperTitle: "Alirezaie et al. Am J Hum Genet (2018)",
-    paperUrl: "https://doi.org/10.1016/j.ajhg.2018.07.028"
+    paperUrl: "https://doi.org/10.1016/j.ajhg.2018.08.005"
   },
   eigen: {
     name: "Eigen / Eigen-PC",

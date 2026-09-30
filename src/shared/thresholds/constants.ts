@@ -178,10 +178,8 @@ export const THRESHOLDS = {
     /** ΔΔG ≥ 1.0 kcal/mol: predicted destabilization */
     destabilizing: 1.0,
   },
-  bayesdel: {
-    pathogenic: 0.133,
-    benign: -0.0404,
-  },
+  // `bayesdel` (0.133 / -0.0404) was removed: nothing read it and neither number is a ClinGen cut. BayesDel's
+  // PP3/BP4 bands (Pejaver 2022 Table 2, noAF) are in `calibration.ts`.
   // `esm` (-5.0 / -2.0) and `esm1b` (-7.5 / -5.0) were removed: nothing read them, the -5.0/-2.0 pair
   // was published for no model, and -7.5 is Brandes 2023's own operating point. ESM1b's PP3/BP4
   // bands are in `calibration.ts` (Bergquist 2025); every other ESM-family LLR is uncalibrated.
@@ -337,22 +335,6 @@ export const THRESHOLDS = {
     medium: 0.4,
     /** ≥ 0.150 — low confidence. Below this STRING assigns no band. */
     low: 0.15,
-  },
-
-  /**
-   * OpenBind-0 interface binding-affinity cut-points (ΔΔG_bind, kcal/mol).
-   *
-   * The server uses these two numbers to fall back to a classification when the
-   * model returns none (`japanfold-client.ts`), and the PPI tab used the same two
-   * numbers again to colour the value. Two hand-written copies of one classifier:
-   * changing either alone makes the chip's word disagree with the value beside it.
-   * Declared here so both read one pair.
-   */
-  openBind: {
-    /** ΔΔG ≥ 1.5 — complex docking is disrupted. */
-    disruptive: 1.5,
-    /** ΔΔG ≥ 0.5 — allosteric perturbation of the interface. */
-    allosteric: 0.5,
   },
 
   /**
