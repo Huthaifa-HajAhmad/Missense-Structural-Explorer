@@ -453,7 +453,11 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                   })}
                 </nav>
 
-                <div className="hidden md:flex mt-auto items-center gap-1.5 px-5 py-4 border-t border-cs-border-subtle text-[11.5px] text-cs-text-muted">
+                {/* Both footer bands share one 60px floor (nav note: 2 wrapped lines + py-2;
+                    actions: 36px button + py-3), so the two bottom borders meet level across the
+                    drawer. min-h, not h: a third wrapped line on a narrow nav grows the band
+                    instead of clipping it. */}
+                <div className="hidden md:flex mt-auto items-center gap-1.5 px-5 py-2 min-h-[60px] border-t border-cs-border-subtle text-[11.5px] text-cs-text-muted">
                   <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   Changes save automatically to this browser.
                 </div>
@@ -553,7 +557,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                   </div>
                 </div>
 
-                <footer className="settings-main-footer shrink-0 flex items-center justify-between gap-3 px-4 md:px-8 py-3 border-t border-cs-border-subtle">
+                <footer className="settings-main-footer shrink-0 flex items-center justify-between gap-3 px-4 md:px-8 py-3 min-h-[60px] border-t border-cs-border-subtle">
                   <button
                     type="button"
                     onClick={handleResetClick}

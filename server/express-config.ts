@@ -10,6 +10,7 @@ import { createServer as createViteServer } from "vite";
 import { requestLogger, validateContentType } from "./middleware.ts";
 import { apiRouter } from "./routes.ts";
 import { sendError } from "./utils.ts";
+import { setSpaShellHeaders, setStaticShellHeaders } from "./spa-shell-cache.ts";
 import { CONFIG, validateStartupEnvironment } from "./config.ts";
 
 export { validateStartupEnvironment };
@@ -123,7 +124,7 @@ export async function createExpressApp(): Promise<express.Express> {
       immutable: true,
       maxAge: "1y"
     }));
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { setHeaders: setStaticShellHeaders }));
 
     // Never return index.html for missing /assets/* or /api/* endpoints
     app.all("/assets/*", (_req, res) => {
@@ -141,9 +142,11 @@ export async function createExpressApp(): Promise<express.Express> {
         if (nonce) {
           html = html.replace(/<script/g, `<script nonce="${nonce}"`);
         }
+        setSpaShellHeaders(res);
         res.type("html").send(html);
       } catch (err: any) {
         console.error("[SPA Fallback Warning] Failed to inject CSP nonce into index.html:", err.message);
+        setSpaShellHeaders(res);
         res.sendFile(path.join(distPath, "index.html"));
       }
     });
