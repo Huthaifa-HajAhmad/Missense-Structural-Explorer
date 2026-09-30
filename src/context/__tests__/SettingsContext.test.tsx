@@ -118,6 +118,25 @@ describe("SettingsContext (settings revamp)", () => {
     expect(persisted.hfToken).toBeUndefined();
   });
 
+  it("lands on light for a first-time visitor, even when the OS prefers dark", () => {
+    // The OS is mocked dark in this suite's beforeEach: first-run must still be light, because
+    // a first impression gets persisted to `theme` on first render and would outlive the visit.
+    expect(localStorage.getItem("theme")).toBeNull();
+    let ctx!: ReturnType<typeof useSettings>;
+    renderProbe((c) => (ctx = c));
+    expect(ctx.theme).toBe("light");
+    expect(ctx.isDark).toBe(false);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+
+  it("keep a stored theme — an explicit choice always wins over the first-run default", () => {
+    localStorage.setItem("theme", "dark");
+    let ctx!: ReturnType<typeof useSettings>;
+    renderProbe((c) => (ctx = c));
+    expect(ctx.theme).toBe("dark");
+    expect(ctx.isDark).toBe(true);
+  });
+
   it("resolves theme=system against the OS color scheme", () => {
     mockMatchMedia((query) => query.includes("prefers-color-scheme") && query.includes("dark"));
     localStorage.setItem("theme", "system");
