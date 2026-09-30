@@ -3,8 +3,8 @@
  * the consolidator, or the Report would show a stability lane the Insights tab would not.
  */
 import { describe, expect, it } from "vitest";
-import { stabilityInputFor, insightsEvidenceFor } from "../insightsSnapshot";
-import { deriveConsensus } from "../../components/ClinicalInsightsCard";
+import { stabilityInputFor, insightsEvidenceFor } from "../../shared/insightsSnapshot";
+import { deriveConsensus } from "../ClinicalInsightsCard";
 
 const result: any = { metadata: { gene: "NAE1", variant: "p.Asp116Gly" }, ruleBasedInsights: { acmgVerdict: "Variant of Uncertain Significance (VUS)", acmgCriteria: [] } };
 
