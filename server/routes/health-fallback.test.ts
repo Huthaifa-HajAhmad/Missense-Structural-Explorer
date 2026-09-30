@@ -244,7 +244,9 @@ describe("currentFallbackVerdict", () => {
  *
  * The helper tests above never exercise the wiring, so re-introducing `await
  * checkVariantValidatorHealth()` inside the handler kept every existing test green. This mounts
- * the real router and asserts the endpoint's latency with a probe that never settles.
+ * the real router and pins the claim by ORDERING — the handler has to answer while a probe that
+ * never settles is still pending — rather than by a wall-clock budget, which flaked twice on a
+ * loaded CI runner and, now that CI gates deployment, costs a production deploy each time it does.
  */
 describe("GET /api/v1/diagnostics — coverage reporting does not block the endpoint", () => {
   let server: Server;
@@ -278,25 +280,58 @@ describe("GET /api/v1/diagnostics — coverage reporting does not block the endp
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("answers promptly with a hanging probe, and omits the verdict rather than inventing one", async () => {
-    const startedAt = Date.now();
+  it("answers without waiting for the probe, and omits the verdict rather than inventing one", async () => {
+    /**
+     * Decoupling is pinned by ORDERING here, not by a latency budget.
+     *
+     * This assertion used to be `elapsed < FALLBACK_PROBE_HARD_CAP_MS / 5` (5000ms). That bound has
+     * now flaked twice on a loaded CI runner — 2068ms against the 2000ms literal it began as, then
+     * 5716ms against 5000ms — while the behaviour it guards was correct both times; and because a red
+     * CI now SKIPS deployment, a false red here costs a production deploy. It cannot be tuned into
+     * safety. The job is telling "waited for a probe that takes ~25s" apart from "the runner was
+     * busy", and any margin wide enough to absorb the second stops catching the first.
+     *
+     * So the probe is a promise this test owns and never settles. A handler that awaits it — the
+     * regression this case exists for — cannot answer at all: the fetch below would hang until
+     * vitest's 20s test timeout. That timeout is deliberately below the probe's own 25s hard cap, so
+     * an implementation that rides the cap out reds as well. The answer arriving, with no probe result
+     * produced and no abort yet fired, is the whole property, and no clock is consulted.
+     */
+    let release!: (v: ProbeResult) => void;
+    let settled = false;
+    probeSpy.mockReturnValue(
+      new Promise<ProbeResult>((resolve) => {
+        release = resolve;
+      }).then((v) => {
+        settled = true;
+        return v;
+      })
+    );
+
     const res = await fetch(`${baseUrl}/api/v1/diagnostics`);
-    const elapsed = Date.now() - startedAt;
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("ok");
-    /**
-     * "Promptly" means the request path is DECOUPLED from the probe, so the bound is derived from
-     * the probe's own hard cap: waiting for it would take ~25s, answering must take a fraction of
-     * that. A literal 2000ms here flaked at 2068ms on a loaded CI runner while the behaviour it
-     * guards was correct — and a red CI now blocks deployment, so the margin has to be real.
-     */
-    expect(elapsed).toBeLessThan(FALLBACK_PROBE_HARD_CAP_MS / 5);
-    expect(json.serviceHealth.ensembl.fallback).toBeUndefined();
+    // Nothing had produced a probe result when this answer was built.
+    expect(settled).toBe(false);
     // The probe was still started — it simply was not waited on.
     expect(probeSpy).toHaveBeenCalledTimes(1);
-  });
+    // ...and its own hard deadline had not fired, so this is not the cap being ridden out.
+    expect((probeSpy.mock.calls[0][0] as AbortSignal).aborted).toBe(false);
+    expect(json.serviceHealth.ensembl.fallback).toBeUndefined();
+
+    // Release it, so the probe and the single-flight slot it holds do not outlive this case.
+    release(verdict());
+    await Promise.resolve();
+    await Promise.resolve();
+    /**
+     * Derived, not the suite default: this case must be able to FAIL before the probe's own hard cap
+     * could have fired, otherwise an implementation that simply waited that cap out would pass here
+     * instead of reddening. Expressing the watchdog as `cap - 5s` keeps the two bounds ordered by
+     * construction rather than by everyone remembering the relationship.
+     */
+  }, FALLBACK_PROBE_HARD_CAP_MS - 5_000);
 
   it("does not probe at all when the primary is healthy", async () => {
     healthSpy.mockResolvedValue({ ensembl: health() });
