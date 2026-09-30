@@ -77,6 +77,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
   const [copied, setCopied] = useState(false);
   const [docxBusy, setDocxBusy] = useState(false);
+  const [pptxBusy, setPptxBusy] = useState(false);
 
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
   const isNarrativeBusy = propIsNarrativeLoading ?? storeIsNarrativeLoading;
@@ -132,6 +133,20 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const exportDocJson = () =>
     downloadBlob(`${stem}_report_document.json`, "application/json", JSON.stringify(renderReportJson(stamped()), null, 2));
   const exportPdf = () => printReport(stamped());
+  const exportPptx = async () => {
+    setPptxBusy(true);
+    try {
+      // Loaded on first use, so the PowerPoint library is not part of the app's initial bundle.
+      const { buildReportPptx } = await import("../report/exportPptx");
+      const blob = await buildReportPptx(stamped());
+      downloadBlob(`${stem}_evidence_summary.pptx`, blob.type, blob);
+    } catch (err) {
+      console.error("[Report] PowerPoint export failed:", err);
+      addNotification("error", "Could not build the PowerPoint file.");
+    } finally {
+      setPptxBusy(false);
+    }
+  };
   const exportDocx = async () => {
     setDocxBusy(true);
     try {
@@ -222,10 +237,11 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         <ExportRow name="Web page (.html)" note="One file, opens anywhere, keeps the figures" action="Download" onClick={exportHtml} primary />
         <ExportRow name="PDF" note="Opens the print dialog; choose Save as PDF" action="Open" onClick={exportPdf} />
         <ExportRow name="Word (.docx)" note="Editable headings, tables and page numbers" action={docxBusy ? "Building" : "Download"} onClick={exportDocx} disabled={docxBusy} />
+        <ExportRow name="PowerPoint (.pptx)" note="Editable summary deck, full text in the notes" action={pptxBusy ? "Building" : "Download"} onClick={exportPptx} disabled={pptxBusy} />
         <ExportRow name="Copy as text" note="Plain text for a record or an email" action={copied ? "Copied" : "Copy"} onClick={copyText} />
         <ExportRow name="Document (.json)" note="This report as data, with your edits marked" action="Download" onClick={exportDocJson} />
         <ExportRow name="Evidence bundle (.json)" note="Full data and provenance, for reproducing" action="Download" onClick={exportBundle} />
-        <p className="rpt-p rpt-dim">Left-out blocks are hidden from every format. PowerPoint is not built yet.</p>
+        <p className="rpt-p rpt-dim">Left-out blocks are hidden from every format.</p>
       </section>
 
       <section className="rail-section" aria-labelledby="rpt-rail-doc">
