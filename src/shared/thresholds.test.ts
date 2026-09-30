@@ -12,11 +12,10 @@ import {
   evaluateAlphaGenomeAvi,
   countPredictorConcordance,
   computeConsensusVerdict,
-  computeCalibratedConsensus,
-  normalizeDestabilizationMagnitude,
+  computeStabilityConsensus,
   THRESHOLDS
 } from "./thresholds.ts";
-import { getResidueContext, getCalibration } from "./uncertainty";
+import { classifyRawDdg, toCanonicalDdg } from "./engineStatus.ts";
 
 describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
   describe("Individual Predictors Evaluation", () => {
@@ -218,272 +217,107 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
     });
   });
 
-  describe("Consensus Biophysical Stability Verdicts", () => {
-    it("should compute Low Misfolding Risk when no tool is destabilizing", () => {
-      const res = computeConsensusVerdict({
-        foldxMean: 0.2,
-        dynamut2: 0.1,
-        ddmut: 0.3
-      });
-      expect(res).toBe("Low Misfolding Risk (Neutral Stability)");
+  /**
+   * The stability consensus is an agreement count on each engine's own local mark. It replaced a
+   * "Low / Moderate / High Misfolding Risk" threshold on a probability from hand-typed curves
+   * (`thresholds/consensus.ts`). The inputs of the old tests are kept; the verdicts now say what the
+   * engines did.
+   */
+  describe("Stability consensus verdicts", () => {
+    it("reports no destabilization when no engine passes its mark", () => {
+      expect(computeConsensusVerdict({ foldxMean: 0.2, dynamut2: 0.1, ddmut: 0.3 })).toBe("No Destabilization Predicted");
     });
 
-    it("should compute Moderate Misfolding Risk when exactly 1 tool is destabilizing", () => {
-      const res = computeConsensusVerdict({
-        foldxMean: 2.1, // Destabilizing (>= 1.5)
-        dynamut2: 0.5,
-        ddmut: 0.2
-      });
-      expect(res).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+    it("reports disagreement when one engine passes its mark and the others do not", () => {
+      expect(computeConsensusVerdict({ foldxMean: 2.1, dynamut2: 0.5, ddmut: 0.2 })).toBe("Engines Disagree");
     });
 
-    it("should compute High Misfolding Risk when 2 or more tools are destabilizing", () => {
-      const res = computeConsensusVerdict({
-        foldxMean: 2.1, // Destabilizing (>= 1.5)
-        dynamut2: -1.5, // Destabilizing (<= -1.0)
-        ddmut: 0.2
-      });
-      expect(res).toBe("High Misfolding Risk (Destabilizing Consensus)");
+    it("reads DynaMut2's native negative sign as destabilizing", () => {
+      // FoldX +2.1 and DynaMut2 −1.5 (native; canonical +1.5) both pass; DDMut +0.2 native is −0.2.
+      expect(computeConsensusVerdict({ foldxMean: 2.1, dynamut2: -1.5, ddmut: 0.2 })).toBe("Engines Disagree");
+      expect(computeConsensusVerdict({ foldxMean: 2.1, dynamut2: -1.5 })).toBe("Destabilizing (Engines Agree)");
     });
 
-    it("should correctly evaluate positive RaSP scores as destabilizing", () => {
-      const res = computeConsensusVerdict({
-        rasp: 1.5, // Destabilizing (>= 1.0) on the new positive sign convention
-        thermompnn: 0.2
-      });
-      expect(res).toBe("Moderate Misfolding Risk (Conflicting Stability)");
-
-      const resSingle = computeConsensusVerdict({
-        rasp: 1.5
-      });
-      expect(resSingle).toBe("Elevated Misfolding Risk (Single-Tool Estimate)");
-
-      const resHigh = computeConsensusVerdict({
-        rasp: 1.2, // Destabilizing
-        thermompnn: 1.8 // Destabilizing (>= 1.0)
-      });
-      expect(resHigh).toBe("High Misfolding Risk (Destabilizing Consensus)");
+    it("reads positive RaSP as destabilizing, and names a single engine as one", () => {
+      expect(computeConsensusVerdict({ rasp: 1.5, thermompnn: 0.2 })).toBe("Engines Disagree");
+      expect(computeConsensusVerdict({ rasp: 1.5 })).toBe("Destabilizing (Single-Engine Estimate)");
+      expect(computeConsensusVerdict({ rasp: 1.2, thermompnn: 1.8 })).toBe("Destabilizing (Engines Agree)");
     });
 
-    it("should exclude FoldX from consensus if foldxRepairFailed is true", () => {
-      const res = computeConsensusVerdict({
-        foldxMean: 2.5, // Destabilizing
-        rasp: 0.1,      // Neutral
-        foldxRepairFailed: true
-      });
-      expect(res).toBe("Low Misfolding Risk (Single-Tool Estimate)");
-
-      const resTwoTools = computeConsensusVerdict({
-        foldxMean: 2.5, // Destabilizing
-        rasp: 1.2,      // Destabilizing
-        thermompnn: 0.1,
-        foldxRepairFailed: true
-      });
-      expect(resTwoTools).toBe("Moderate Misfolding Risk (Conflicting Stability)");
+    it("does not call engines that all sit in the moderate band a disagreement", () => {
+      expect(computeConsensusVerdict({ foldxMean: 1.0, rasp: 0.7 })).toBe("Moderately Destabilizing (Engines Agree)");
     });
 
-    it("should exclude FoldX from consensus if foldxBinaryMissing is true", () => {
-      const res = computeConsensusVerdict({
-        foldxMean: 3.0,
-        rasp: 0.1,
-        foldxBinaryMissing: true
-      });
-      expect(res).toBe("Low Misfolding Risk (Single-Tool Estimate)");
+    it("excludes FoldX after a failed repair or with no binary", () => {
+      expect(computeConsensusVerdict({ foldxMean: 2.5, rasp: 0.1, foldxRepairFailed: true })).toBe(
+        "No Destabilization (Single-Engine Estimate)"
+      );
+      expect(computeConsensusVerdict({ foldxMean: 2.5, rasp: 1.2, thermompnn: 0.1, foldxRepairFailed: true })).toBe(
+        "Engines Disagree"
+      );
+      expect(computeConsensusVerdict({ foldxMean: 3.0, rasp: 0.1, foldxBinaryMissing: true })).toBe(
+        "No Destabilization (Single-Engine Estimate)"
+      );
     });
 
-    it("should resolve consensus using confidence weights under conflicting conditions (D2)", () => {
-      // 1. Two weak tools (DynaMut2 + DDMut) are destabilizing: total destab weight = 2.0. Total available weight = 6.7.
-      // ratio = 2.0 / 6.7 = 29.8% (< 44%) -> Moderate Misfolding Risk (Conflicting Stability)
-      const resWeak = computeConsensusVerdict({
-        foldxMean: 0.1,
-        dynamut2: -1.5, // Destab
-        ddmut: -1.5,    // Destab
-        rasp: 0.1,
-        thermompnn: 0.1
-      });
-      expect(resWeak).toBe("Moderate Misfolding Risk (Conflicting Stability)");
-
-      // 2. High-accuracy tools (ThermoMPNN + RaSP) are destabilizing: total destab weight = 3.5. Total available = 6.7.
-      // ratio = 3.5 / 6.7 = 52.2% (>= 44%) -> High Misfolding Risk (Destabilizing Consensus)
-      const resStrong = computeConsensusVerdict({
-        foldxMean: 0.1,
-        dynamut2: 0.1,
-        ddmut: 0.1,
-        rasp: 1.2,       // Destab
-        thermompnn: 1.5  // Destab
-      });
-      expect(resStrong).toBe("High Misfolding Risk (Destabilizing Consensus)");
-
-      // 3. ThermoMPNN (weight 2.0) + DDMut (weight 1.0) are destabilizing: total destab weight = 3.0. Total available = 6.7.
-      // Under calibrated stacker, 3 stable vs 2 destabilizing is a conflict: Moderate Misfolding Risk (Conflicting Stability)
-      const resThermoAndWeak = computeConsensusVerdict({
-        foldxMean: 0.1,
-        dynamut2: 0.1,
-        ddmut: -1.5,     // Destab
-        rasp: 0.1,
-        thermompnn: 1.5  // Destab
-      });
-      expect(resThermoAndWeak).toBe("Moderate Misfolding Risk (Conflicting Stability)");
-
-      // 4. StabilityOracle (weight 1.8) is destabilizing: total weight = 1.8. Single tool fallback limit logic:
-      const resStabilityOracle = computeConsensusVerdict({
-        stabilityoracle: 2.0
-      });
-      expect(resStabilityOracle).toBe("Elevated Misfolding Risk (Single-Tool Estimate)");
+    it("gives every engine one vote: no hidden weights", () => {
+      // The old test here asserted that ThermoMPNN + RaSP outweighed DynaMut2 + DDMut by hand-typed
+      // weights (2.0 + 1.5 vs 1.0 + 1.0). Both pairs now read the same.
+      const weak = computeStabilityConsensus({ foldxMean: 0.1, dynamut2: -1.5, ddmut: -1.5, rasp: 0.1, thermompnn: 0.1 });
+      const strong = computeStabilityConsensus({ foldxMean: 0.1, dynamut2: 0.1, ddmut: 0.1, rasp: 1.2, thermompnn: 1.5 });
+      expect(weak.consensusVerdict).toBe("Engines Disagree");
+      expect(strong.consensusVerdict).toBe("Engines Disagree");
+      expect(weak.enginesDestabilizing).toBe(2);
+      expect(strong.enginesDestabilizing).toBe(2);
+      expect(computeConsensusVerdict({ stabilityoracle: 2.0 })).toBe("Destabilizing (Single-Engine Estimate)");
     });
   });
 
-  describe("normalizeDestabilizationMagnitude (P3-2, H-4)", () => {
-    it("should handle null, undefined, and NaN inputs by returning null magnitude", () => {
-      expect(normalizeDestabilizationMagnitude("foldx", null)).toEqual({ magnitude: null, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("dynamut2", null)).toEqual({ magnitude: null, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("ddmut", null)).toEqual({ magnitude: null, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("rasp", null)).toEqual({ magnitude: null, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("thermompnn", null)).toEqual({ magnitude: null, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("foldx", NaN)).toEqual({ magnitude: null, isDestabilizing: false });
-    });
-
-    it("should correctly normalize FoldX where positive indicates destabilization", () => {
-      // FoldX threshold is >= 1.5
-      expect(normalizeDestabilizationMagnitude("foldx", 2.0)).toEqual({ magnitude: 2.0, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("foldx", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("foldx", 1.4)).toEqual({ magnitude: 1.4, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("foldx", -0.5)).toEqual({ magnitude: -0.5, isDestabilizing: false });
-    });
-
-    it("should correctly normalize DynaMut2 where negative indicates destabilization (and magnitude is sign-inverted)", () => {
-      // DynaMut2 threshold is <= -1.0
-      expect(normalizeDestabilizationMagnitude("dynamut2", -1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("dynamut2", -1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("dynamut2", -0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("dynamut2", 0.5)).toEqual({ magnitude: -0.5, isDestabilizing: false });
-    });
-
-    it("should correctly normalize DDMut where negative indicates destabilization (and magnitude is sign-inverted)", () => {
-      // DDMut threshold is <= -1.0
-      expect(normalizeDestabilizationMagnitude("ddmut", -1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("ddmut", -1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("ddmut", -0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
-      expect(normalizeDestabilizationMagnitude("ddmut", 0.5)).toEqual({ magnitude: -0.5, isDestabilizing: false });
-    });
-
-    it("should correctly normalize RaSP where positive indicates destabilization", () => {
-      // RaSP threshold is >= 1.0
-      expect(normalizeDestabilizationMagnitude("rasp", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("rasp", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("rasp", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
-    });
-
-    it("should correctly normalize ThermoMPNN where positive indicates destabilization", () => {
-      // ThermoMPNN threshold is >= 1.0
-      expect(normalizeDestabilizationMagnitude("thermompnn", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("thermompnn", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("thermompnn", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
-    });
-
-    it("should correctly normalize StabilityOracle where positive indicates destabilization", () => {
-      // StabilityOracle threshold is >= 1.0
-      expect(normalizeDestabilizationMagnitude("stabilityoracle", 1.5)).toEqual({ magnitude: 1.5, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("stabilityoracle", 1.0)).toEqual({ magnitude: 1.0, isDestabilizing: true });
-      expect(normalizeDestabilizationMagnitude("stabilityoracle", 0.5)).toEqual({ magnitude: 0.5, isDestabilizing: false });
-    });
-
-    it("should verify component and thresholds.ts share one RaSP convention", () => {
-      expect(THRESHOLDS.rasp).toBeDefined();
-      expect(THRESHOLDS.rasp.destabilizing).toBe(1.0);
-      expect(normalizeDestabilizationMagnitude("rasp", THRESHOLDS.rasp.destabilizing).isDestabilizing).toBe(true);
-    });
-  });
-
-  describe("computeCalibratedConsensus (No Heuristics & Empty Data Handling)", () => {
-    it("should return Insufficient Biophysical Data when energetics is null", () => {
-      const result = computeCalibratedConsensus(null);
-      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
-      expect(result.consensusProbability).toBeNull();
-      expect(result.consensusConfMin).toBeNull();
-      expect(result.consensusConfMax).toBeNull();
-    });
-
-    it("should return Insufficient Biophysical Data when all predictors are null", () => {
-      const result = computeCalibratedConsensus({
-        foldxMean: null,
-        foldx: null,
-        stabilityoracle: null,
-        dynamut2: null,
-        ddmut: null,
-        rasp: null,
-        thermompnn: null
-      });
-      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
-      expect(result.consensusProbability).toBeNull();
-      expect(result.consensusConfMin).toBeNull();
-      expect(result.consensusConfMax).toBeNull();
-    });
-
-    it("should exclude FoldX when foldxRepairFailed is true and report Insufficient Data if no others present", () => {
-      const result = computeCalibratedConsensus({
-        foldxMean: 3.5,
-        foldxRepairFailed: true
-      });
-      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
-      expect(result.consensusProbability).toBeNull();
-    });
-
-    it("should exclude FoldX when foldxBinaryMissing is true and report Insufficient Data if no others present", () => {
-      const result = computeCalibratedConsensus({
-        foldxMean: 3.5,
-        foldxBinaryMissing: true
-      });
-      expect(result.consensusVerdict).toBe("Insufficient Biophysical Data");
-      expect(result.consensusProbability).toBeNull();
-    });
-
-    it("should compute calibrated consensus when at least one valid predictor exists", () => {
-      const result = computeCalibratedConsensus({
-        foldxMean: 3.0,
-        foldxRepairFailed: false,
-        foldxBinaryMissing: false
-      });
-      expect(result.consensusVerdict).not.toBe("Insufficient Biophysical Data");
-      expect(result.consensusProbability).not.toBeNull();
-      expect(typeof result.consensusProbability).toBe("number");
-      expect(result.consensusProbability).toBeGreaterThan(0);
-    });
-
-    it("should dampen structure-dependent predictor weights when pLDDT is low (SCI-004)", () => {
-      // FoldX says destabilizing (3.0 kcal/mol), RaSP says neutral (0.0 kcal/mol)
-      // When pLDDT >= 70, FoldX weight is 1.2, RaSP weight is 1.0
-      const normalResult = computeCalibratedConsensus({
-        foldxMean: 3.0,
-        rasp: 0.0
-      }, undefined, undefined, 85);
-
-      // When pLDDT < 50 (e.g. 40), FoldX weight is damped by 0.1, while RaSP dominates
-      const dampedResult = computeCalibratedConsensus({
-        foldxMean: 3.0,
-        rasp: 0.0
-      }, undefined, undefined, 40);
-
-      expect(normalResult.consensusProbability).not.toBeNull();
-      expect(dampedResult.consensusProbability).not.toBeNull();
-      expect(dampedResult.consensusProbability!).toBeLessThan(normalResult.consensusProbability!);
-    });
-  });
-
-  describe("Structural Context Uncertainty (Zero-Heuristics SCI-005)", () => {
-    it("should return unknown context when features are absent or empty", () => {
-      expect(getResidueContext(undefined, 100)).toBe("unknown");
-      expect(getResidueContext([], 100)).toBe("unknown");
-      expect(getResidueContext(undefined, 0)).toBe("unknown");
-    });
-
-    it("should provide neutral calibration (weightMultiplier: 1.0) for unknown context across all tools", () => {
-      const tools = ["revel", "alphaMissense", "cadd", "popEVE", "foldx", "stabilityoracle", "thermompnn", "dynamut2", "ddmut", "rasp"];
-      for (const tool of tools) {
-        const cal = getCalibration(tool, "unknown");
-        expect(cal.weightMultiplier).toBe(1.0);
-        expect(cal.auc).toBe(0.80);
+  describe("One sign convention (engineStatus is the only normalizer)", () => {
+    it("returns null, never 0, for missing input", () => {
+      for (const id of ["foldx", "dynamut2", "ddmut", "rasp", "thermompnn", "stabilityoracle"] as const) {
+        expect(toCanonicalDdg(id, null)).toBeNull();
+        expect(toCanonicalDdg(id, NaN)).toBeNull();
       }
+    });
+
+    it("negates only the negative-native engines, and judges each on its own mark", () => {
+      expect(toCanonicalDdg("foldx", 2.0)).toBe(2.0);
+      expect(toCanonicalDdg("dynamut2", -1.5)).toBe(1.5);
+      expect(toCanonicalDdg("ddmut", -1.5)).toBe(1.5);
+      expect(toCanonicalDdg("rasp", 1.5)).toBe(1.5);
+      expect(classifyRawDdg("foldx", 1.5)?.id).toBe("high");
+      expect(classifyRawDdg("foldx", 1.4)?.id).toBe("moderate");
+      expect(classifyRawDdg("dynamut2", -1.0)?.id).toBe("high");
+      // Native +0.5 is canonical −0.5: at the local stabilizing mark.
+      expect(classifyRawDdg("dynamut2", 0.5)?.id).toBe("stabilizing");
+      expect(classifyRawDdg("dynamut2", 0.3)?.id).toBe("neutral");
+      expect(classifyRawDdg("rasp", THRESHOLDS.rasp.destabilizing)?.id).toBe("high");
+      expect(classifyRawDdg("thermompnn", 1.0)?.id).toBe("high");
+      expect(classifyRawDdg("stabilityoracle", 0.5)?.id).toBe("moderate");
+    });
+  });
+
+  describe("computeStabilityConsensus — empty data", () => {
+    it("returns Insufficient Biophysical Data for null or all-null input", () => {
+      for (const input of [null, { foldxMean: null, foldx: null, dynamut2: null, ddmut: null, rasp: null, thermompnn: null, stabilityoracle: null }]) {
+        const r = computeStabilityConsensus(input);
+        expect(r.consensusVerdict).toBe("Insufficient Biophysical Data");
+        expect(r.enginesCounted).toBe(0);
+        expect(r.medianDdg).toBeNull();
+      }
+    });
+
+    it("reports Insufficient when the only value is an excluded FoldX", () => {
+      expect(computeStabilityConsensus({ foldxMean: 3.5, foldxRepairFailed: true }).consensusVerdict).toBe("Insufficient Biophysical Data");
+      expect(computeStabilityConsensus({ foldxMean: 3.5, foldxBinaryMissing: true }).consensusVerdict).toBe("Insufficient Biophysical Data");
+    });
+
+    it("carries no probability field at all", () => {
+      const r = computeStabilityConsensus({ foldxMean: 3.0 }) as unknown as Record<string, unknown>;
+      expect(r).not.toHaveProperty("consensusProbability");
+      expect(r).not.toHaveProperty("consensusConfMin");
+      expect(r.medianDdg).toBe(3.0);
     });
   });
 });

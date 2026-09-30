@@ -64,7 +64,11 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     const state = useVariantAnalysisStore.getState();
     expect(state.dynamut2Status).toBe("done");
     expect(state.foldingEnergetics?.dynamut2).toBe(-0.387);
-    expect(state.foldingEnergetics?.consensusVerdict).toBe("Low Misfolding Risk");
+    // The verdict is RECOMPUTED from the merged values, not copied from the poll response (the route
+    // no longer sends one, and a copied verdict froze at the FoldX commit). DynaMut2's native −0.387 is
+    // canonical +0.387: below its moderate mark, and the only engine with a value.
+    expect(state.foldingEnergetics?.consensusVerdict).toBe("No Destabilization (Single-Engine Estimate)");
+    expect(state.foldingEnergetics?.consensusEnginesCounted).toBe(1);
   });
 
   it("automatically initiates DDMut polling when Zustand store receives job ID and status", async () => {

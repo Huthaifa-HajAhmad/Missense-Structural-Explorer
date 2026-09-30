@@ -36,8 +36,21 @@ import { buildRaspSqliteDatabase } from "../server/services/stability/build-rasp
 const invokedDirectly =
   Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1] as string).href;
 
+/**
+ * `--proteome <dir>` (or RASP_PROTEOME_DIR) adds the authors' proteome-wide PRISM predictions —
+ * download `rasp_preds_alphafold_UP000005640_9606_HUMAN_v2.zip` from https://sid.erda.dk/sharelink/fFPJWflLeE
+ * and unzip it. Without it the index holds the experimental-structure CSV only (~1,345 proteins).
+ *
+ *   npm run migrate:rasp -- --proteome data/rasp_preds_alphafold_UP000005640_9606_HUMAN_v2
+ */
+function proteomeArg(argv: string[]): string | null {
+  const i = argv.indexOf("--proteome");
+  if (i >= 0 && argv[i + 1]) return argv[i + 1];
+  return process.env.RASP_PROTEOME_DIR?.trim() || null;
+}
+
 if (invokedDirectly) {
-  buildRaspSqliteDatabase().catch(err => {
+  buildRaspSqliteDatabase(undefined, undefined, { proteomeDir: proteomeArg(process.argv.slice(2)) }).catch(err => {
     console.error("[RaSP SQLite] Fatal:", err);
     process.exit(1);
   });
