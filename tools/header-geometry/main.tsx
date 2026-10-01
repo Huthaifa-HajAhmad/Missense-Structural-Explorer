@@ -6,6 +6,8 @@ import "@fontsource-variable/lora";
 import "@fontsource-variable/lora/wght-italic.css";
 import "../../src/index.css";
 import VariantHeader from "../../src/components/VariantHeader";
+import { VariantIdentity } from "../../src/components/header/VariantIdentity";
+import { buildVariantHeaderModel } from "../../src/components/header/variantHeaderModel";
 import type { AnalysisResult } from "../../src/types";
 
 /**
@@ -84,10 +86,23 @@ const CASES: Array<{ id: string; width: number; gene: string; variant: string; u
 ];
 
 /** The one-line form the header collapses to on scroll. */
-const COMPACT_CASES = [
-  { id: "maco1-compact-wide", width: 1000 },
-  { id: "maco1-compact-mid", width: 700 },
-  { id: "maco1-compact-narrow", width: 375 },
+/** MACO1 again, with the GRCh38 lookup fallen back to hg19: the run-state slot must fit too. */
+const maco1Fallback = {
+  ...maco1,
+  coordinateLift: { status: "not-needed", fromAssembly: "GRCh38", toAssembly: "GRCh38" },
+  predictorData: {
+    gnomadVariantId: "1-25810749-G-A",
+    gnomadVariantAssembly: "GRCh37",
+    locusResolution: { route: "fallback", canonicalBy: null, retryable: true, steps: [] },
+  },
+} as unknown as AnalysisResult;
+
+/** The top-bar identity at the widths its zone takes as the bar narrows. */
+const IDENTITY_CASES: Array<{ id: string; width: number; expect: string[] }> = [
+  { id: "identity-900", width: 900, expect: ["transcript", "coordinate", "uniprot"] },
+  { id: "identity-700", width: 700, expect: ["transcript", "coordinate"] },
+  { id: "identity-500", width: 500, expect: ["transcript"] },
+  { id: "identity-380", width: 380, expect: [] },
 ];
 
 const px = (n: number): number => Math.round(n * 10) / 10;
@@ -139,6 +154,8 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
   const spills: string[] = [];
   header.querySelectorAll<HTMLElement>("*").forEach((el) => {
     if (el.classList.contains("vh-sr-only") || el.classList.contains("vh-icon-btn")) return;
+    // A row that scrolls sideways by design (the strip's chips at narrow widths) is not a spill.
+    if (getComputedStyle(el).overflowX === "auto") return;
     const overflow = el.scrollWidth - el.clientWidth;
     if (overflow > 1) {
       const hitAreaOnly = overflow <= 4 && el.querySelector(".vh-icon-btn") !== null;
@@ -207,29 +224,37 @@ function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   return checks;
 }
 
-/** The compact form is one line: nothing in it may wrap below the identity. */
-function checkCompact(host: HTMLElement, id: string): GeometryCheck {
-  const header = host.querySelector(".variant-header");
-  const identity = host.querySelector(".variant-header-identity");
-  if (!header || !identity) return { name: `${id}: compact is one line`, pass: false, detail: "missing header" };
-  const h = rect(header).height;
-  return {
-    name: `${id}: compact is one line`,
-    pass: h <= 48,
-    detail: `header ${px(h)}px tall`,
-  };
+/** The strip is one line by construction: 38px, whatever the width. */
+function checkStripOneLine(host: HTMLElement, id: string): GeometryCheck {
+  const strip = host.querySelector(".variant-header");
+  if (!strip) return { name: `${id}: strip is one line`, pass: false, detail: "no strip" };
+  const h = rect(strip).height;
+  return { name: `${id}: strip is one line`, pass: h <= 40, detail: `strip ${px(h)}px tall` };
 }
 
-function checkWrapped(host: HTMLElement, id: string, expectWrapped: boolean): GeometryCheck {
-  const identity = host.querySelector(".variant-header-top");
-  const rail = host.querySelector(".vh-rail");
-  if (!identity || !rail) return { name: `${id}: wrap state`, pass: false, detail: "missing identity or rail" };
-  const wrapped = rect(rail).top >= rect(identity).bottom - 1;
-  return {
-    name: `${id}: group ${expectWrapped ? "wraps under" : "sits beside"} the identity`,
-    pass: wrapped === expectWrapped,
-    detail: `rail top ${px(rect(rail).top)}, identity bottom ${px(rect(identity).bottom)}`,
-  };
+/** The identity drops identifiers in a fixed order as its zone narrows, and never wraps. */
+function checkIdentity(host: HTMLElement, id: string, expected: string[]): GeometryCheck[] {
+  const vid = host.querySelector(".vid");
+  if (!vid) return [{ name: `${id}: identity renders`, pass: false, detail: "no .vid" }];
+  const visible = ["transcript", "coordinate", "uniprot"].filter((k) => {
+    const el = vid.querySelector(`.vid-chip--${k}`);
+    return el !== null && getComputedStyle(el).display !== "none";
+  });
+  const title = vid.querySelector(".vid-title");
+  const oneLine = rect(vid).height <= (title ? rect(title).height + 4 : 30);
+  return [
+    {
+      name: `${id}: shows ${expected.join(", ") || "the title only"}`,
+      pass: visible.join(",") === expected.join(","),
+      detail: `visible: ${visible.join(", ") || "none"}`,
+    },
+    { name: `${id}: identity is one line`, pass: oneLine, detail: `${px(rect(vid).height)}px tall` },
+    {
+      name: `${id}: identity does not overflow its zone`,
+      pass: (vid as HTMLElement).scrollWidth - (vid as HTMLElement).clientWidth <= 1 || visible.length === 0,
+      detail: `${(vid as HTMLElement).scrollWidth} vs ${(vid as HTMLElement).clientWidth}`,
+    },
+  ];
 }
 
 // ── Contrast ──
@@ -296,8 +321,9 @@ function checkContrast(host: HTMLElement, id: string, pageBackgroundHex: string)
   const page = parseColor(pageBackgroundHex);
   if (!page) return [];
   const selectors = [
-    ".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict",
+    ".vh-metric-label", ".vh-axis-label", ".vh-metric-value", ".vh-verdict",
     ".vh-rail-source", ".vh-rail-axis",
+    ".vcs-chip-label", ".vcs-chip-value", ".vcs-chip-verdict", ".vcs-source", ".vcs-details",
   ];
   const checks: GeometryCheck[] = [];
   selectors.forEach((selector) => {
@@ -319,45 +345,55 @@ function App(): React.ReactElement {
   const [report, setReport] = React.useState<GeometryReport | null>(null);
 
   React.useEffect(() => {
-    const checks: GeometryCheck[] = [];
-    const heights: Record<string, number> = {};
+    // Open every Details panel: the full tracks are what the row/marker/numeral checks measure.
+    document.querySelectorAll<HTMLButtonElement>(".vcs-details").forEach((b) => b.click());
+    const timer = window.setTimeout(() => {
+      const checks: GeometryCheck[] = [];
+      const heights: Record<string, number> = {};
 
-    CASES.forEach((c) => {
-      const host = document.getElementById(`host-${c.id}`);
-      if (!host) return;
-      checks.push(...checkCase(host, c.id, c.width));
-      const header = host.querySelector(".variant-header");
-      if (header) heights[c.id] = px(rect(header).height);
-      checks.push(checkWrapped(host, c.id, c.width < 909));
-      checks.push(...checkRailCaption(host, c.id));
-    });
-
-    COMPACT_CASES.forEach((c) => {
-      const host = document.getElementById(`host-${c.id}`);
-      if (!host) return;
-      checks.push(checkCompact(host, c.id));
-      const spills: string[] = [];
-      host.querySelectorAll<HTMLElement>(".vh-compact-metric, .vh-compact-tier").forEach((el) => {
-        if (el.scrollWidth - el.clientWidth > 1) spills.push(el.className);
+      CASES.forEach((c) => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (!host) return;
+        checks.push(...checkCase(host, c.id, c.width));
+        checks.push(...checkRailCaption(host, c.id));
+        checks.push(checkStripOneLine(host, c.id));
+        const strip = host.querySelector(".variant-header");
+        if (strip) heights[c.id] = px(rect(strip).height);
       });
-      checks.push({ name: `${c.id}: compact cells do not clip`, pass: spills.length === 0, detail: spills.join(" ") || "none" });
-    });
 
-    // Contrast in both themes, composited from the real computed colours.
-    const lightHost = document.getElementById("host-maco1-wide");
-    const darkHost = document.getElementById("host-maco1-dark");
-    if (lightHost) checks.push(...checkContrast(lightHost, "light", "#F9F8F6"));
-    if (darkHost) checks.push(...checkContrast(darkHost, "dark", "#191816"));
+      const fallbackHost = document.getElementById("host-fallback");
+      if (fallbackHost) {
+        checks.push(checkStripOneLine(fallbackHost, "fallback-1000"));
+        const state = fallbackHost.querySelector(".vcs-runstate");
+        checks.push({
+          name: "fallback-1000: run state is shown and fits",
+          pass: Boolean(state) && (state as HTMLElement).scrollWidth - (state as HTMLElement).clientWidth <= 1,
+          detail: state ? `${(state as HTMLElement).scrollWidth} vs ${(state as HTMLElement).clientWidth}` : "missing",
+        });
+      }
 
-    const result: GeometryReport = { ok: checks.every((c) => c.pass), checks, heights };
-    setReport(result);
+      IDENTITY_CASES.forEach((c) => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (host) checks.push(...checkIdentity(host, c.id, c.expect));
+      });
 
-    const sink = document.getElementById("geometry-result");
-    if (sink) {
+      const lightHost = document.getElementById("host-maco1-wide");
+      const darkHost = document.getElementById("host-maco1-dark");
+      if (lightHost) checks.push(...checkContrast(lightHost, "light", "#F9F8F6"));
+      if (darkHost) checks.push(...checkContrast(darkHost, "dark", "#191816"));
+
+      const result: GeometryReport = { ok: checks.every((c) => c.pass), checks, heights };
+      setReport(result);
+      const sink = document.getElementById("geometry-result");
       // base64 so --dump-dom cannot mangle the JSON through HTML escaping
-      sink.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
-    }
+      if (sink) sink.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+    }, 150);
+    return () => window.clearTimeout(timer);
   }, []);
+
+  const strip = (gene: string, variant: string, uniprot: string, result: AnalysisResult) => (
+    <VariantHeader gene={gene} variant={variant} uniprotId={uniprot} analysisResult={result} />
+  );
 
   return (
     <div>
@@ -368,30 +404,25 @@ function App(): React.ReactElement {
           </div>
         ))}
       </div>
+      {/* Each host reserves room under the strip for its open Details panel. */}
       {CASES.map((c) => (
-        <div key={c.id} style={{ width: c.width, marginBottom: 12 }}>
-          <div id={`host-${c.id}`}>
-            <VariantHeader
-              gene={c.gene}
-              variant={c.variant}
-              uniprotId={c.uniprot}
-              analysisResult={c.result}
-            />
-          </div>
+        <div key={c.id} style={{ width: c.width, marginBottom: c.width <= 600 ? 380 : 230 }}>
+          <div id={`host-${c.id}`}>{strip(c.gene, c.variant, c.uniprot, c.result)}</div>
         </div>
       ))}
-      {COMPACT_CASES.map((c) => (
-        <div key={c.id} style={{ width: c.width, marginBottom: 12 }}>
-          <div id={`host-${c.id}`}>
-            <VariantHeader gene="MACO1" variant="p.Glu433Lys" uniprotId="Q9NSG2" analysisResult={maco1} compact />
-          </div>
+      <div style={{ width: 1000, marginBottom: 230 }}>
+        <div id="host-fallback">{strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1Fallback)}</div>
+      </div>
+      {IDENTITY_CASES.map((c) => (
+        <div key={c.id} id={`host-${c.id}`} className="vid-zone" style={{ width: c.width, marginBottom: 12 }}>
+          <VariantIdentity
+            model={buildVariantHeaderModel({ gene: "BRAF", variant: "p.Val600Glu", uniprotId: "P15056", analysisResult: braf })}
+          />
         </div>
       ))}
-      {/* Same header on the dark theme, for the contrast assertions. */}
-      <div className="dark" style={{ width: 1000, background: "var(--cs-bg)" }}>
-        <div id="host-maco1-dark">
-          <VariantHeader gene="MACO1" variant="p.Glu433Lys" uniprotId="Q9NSG2" analysisResult={maco1} />
-        </div>
+      {/* Same strip on the dark theme, for the contrast assertions. */}
+      <div className="dark" style={{ width: 1000, background: "var(--cs-bg)", paddingBottom: 230 }}>
+        <div id="host-maco1-dark">{strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1)}</div>
       </div>
     </div>
   );

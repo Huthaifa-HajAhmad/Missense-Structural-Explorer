@@ -18,7 +18,6 @@ import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 import { useVariantUrlSync } from "./hooks/useVariantUrlSync";
 import { invalidateCachedVariant } from "./services/pipeline/variantCache";
-import { useCompactOnScroll } from "./hooks/useCompactOnScroll";
 
 export default function App() {
   const { actions } = useVariantAnalysis();
@@ -102,12 +101,10 @@ export default function App() {
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
-  /* The variant header collapses to one line once the page scrolls, and opens again on any page change. */
-  const appMainRef = useRef<HTMLDivElement>(null);
-  const isVariantHeaderCompact = useCompactOnScroll(
-    appMainRef,
-    `${masterView}|${activeEvidenceTab}|${gene ?? ""}|${variant ?? ""}`
-  );
+  /* The variant chrome — identity in the top bar, context strip under it — appears on every
+     analysis view. Not on Search (the page's own form names the variant) or About (app-level chrome,
+     where a leftover variant would read as if the guide were about it). */
+  const showVariantChrome = Boolean(gene) && masterView !== "search" && masterView !== "about";
 
   /* First visit: offer the tour once the shell has settled. Only on Search — a shared link that
      opens straight into a result view should show that result, not be pulled away from it. */
@@ -255,7 +252,7 @@ export default function App() {
         />
 
         {/* ── App Main Viewport ── */}
-        <div ref={appMainRef} className="app-main flex flex-col flex-1 relative overflow-hidden">
+        <div className="app-main flex flex-col flex-1 relative overflow-hidden">
 
           {/* ── Slim Header Bar with integrated alerts + global chrome actions ── */}
           <HeaderBar
@@ -272,18 +269,16 @@ export default function App() {
             onToggleTheme={toggleTheme}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenOnboarding={openTour}
+            variant={showVariantChrome ? { gene, variant, uniprotId, analysisResult: analysisState.result } : null}
           />
 
-          {/* ── Global Variant Header — hidden on the Search workspace and the
-              About view: About is app-level chrome, and a leftover variant banner
-              above it would read as if the guide were about that variant. ── */}
-          {gene && masterView !== "search" && masterView !== "about" && (
+          {/* ── Variant context strip: gene constraint, notes and the run's state ── */}
+          {showVariantChrome && (
             <VariantHeader
               gene={gene}
               variant={variant}
               uniprotId={uniprotId}
               analysisResult={analysisState.result}
-              compact={isVariantHeaderCompact}
             />
           )}
 

@@ -168,42 +168,21 @@
 }
 
 /* ============================================================
-   GLOBAL VARIANT HEADER
-   Two bare columns of type on one surface: the variant identity on the left
-   (gene and HGVS at one optical size, then the lineage identifiers as a plain
-   meta line) and the gnomAD v2 GENE constraint on the right, under a caption
-   that says so. The header is chrome, not content, so nothing in it is boxed,
-   and nothing in it is a filled pill except the transcript tier and the splice
-   alert: filled pills are the page's grammar for ACMG codes.
-   Each metric is one line — label, value, reference track, verdict — and every
-   track runs the same way, tolerant on the left and constrained on the right
-   (LOEUF and O/E fall as constraint rises, so their axes are reversed). The
-   threshold numbers sit on the track under the ticks they name.
-   Layout is container-query driven: the sidebar is user-resizable, so the group
-   must reflow on its own inline size rather than the viewport's.
+   VARIANT CHROME
+   Two pieces since the header redesign (option B):
+     · the IDENTITY, in the top bar (`.vid`, header/VariantIdentity.tsx): gene,
+       HGVS, transcript, coordinate, UniProt — the page's title on analysis views;
+     · the CONTEXT strip, one 38px line under it (`.variant-header`,
+       VariantHeader.tsx): gene-constraint chips with micro-tracks, a Details
+       disclosure holding the full tracks, notes, and the fixed run-state slot.
+   56 + 38 = 94px of chrome, down from 176px, so the compact-on-scroll mode the
+   tall header needed is gone. Nothing is boxed and nothing is a filled pill
+   except the transcript tier, the splice alert and the run state: filled pills
+   are the page's grammar for ACMG codes. Every track reads tolerant on the left
+   and constrained on the right (LOEUF and O/E axes are reversed).
    ============================================================ */
-.variant-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--cs-surface);
-  border-bottom: 1px solid var(--cs-border);
-  padding: 8px 20px 9px;
-  display: flex;
-  flex-direction: row;
-  /* Wrap, rather than a container query switching flex-direction: a container
-     query cannot restyle its own query container, so the header must reflow itself.
-     Line breaking uses the flex-basis sum, so the group drops under the identity when
-     the content box falls below 285 + 600 + 24 = 909px (an element width of ~949px,
-     i.e. a ~1169px viewport at the default sidebar). */
-  flex-wrap: wrap;
-  /* Centre both columns on one optical midline. flex-start pinned the rail
-     group to the top edge, which read as the metrics floating high. */
-  align-items: center;
-  gap: 8px 24px;
-  flex-shrink: 0;
-  container-type: inline-size;
-
+.variant-header,
+.vid-zone {
   /* Constraint tone palette. Scoped to the header so it maps 1:1 onto the
      gnomAD severity bands without adding new globals to the design system.
      The -fg values clear WCAG AA on --cs-surface-2, which the raw
@@ -225,7 +204,24 @@
   --vh-band-path: rgba(220, 38, 38, 0.22);
 }
 
-.dark .variant-header {
+.variant-header {
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px;
+  background: var(--cs-surface);
+  border-bottom: 1px solid var(--cs-border);
+  white-space: nowrap;
+  /* The strip reflows on its own width — the sidebar and the inspector are both resizable. */
+  container-type: inline-size;
+}
+
+.dark .variant-header,
+.dark .vid-zone {
   --vh-good-fg: #4ADE80;
   --vh-warn-fg: #FBBF24;
   --vh-path-fg: #F87171;
@@ -248,52 +244,6 @@
   --vh-band-path: rgba(248, 113, 113, 0.30);
 }
 
-/* ── Left column · the variant's identity, with its lineage identifiers under it ──
-   A compact, vertically-centred block: gene row directly above the identifier
-   meta line, one unit. The header centres this block against the metric group,
-   so the gene is brought down to sit with its identifiers instead of floating
-   at the top while they pinned to the bottom. */
-.variant-header-top {
-  flex: 1 1 285px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.variant-header-identity {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-/* Gene and HGVS share one optical size. The HGVS used to be 13px grey mono under a 22px serif
-   gene and read like a subscript, though it is the subject of every page below it. Lora's
-   x-height runs small, so 20px serif and 18px sans sit level. */
-.variant-header-gene {
-  font-family: var(--cs-font-serif);
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--cs-text-primary);
-  line-height: 1.15;
-  letter-spacing: -0.01em;
-}
-
-.variant-header-hgvs {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--cs-font-sans);
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--cs-text-primary);
-  line-height: 1.2;
-  letter-spacing: -0.005em;
-  font-variant-numeric: tabular-nums;
-}
-
 .variant-header-numbering-basis {
   align-self: flex-start;
   padding: 2px 6px;
@@ -303,19 +253,6 @@
   font-weight: 500;
   color: var(--vh-clay-fg);
   background: var(--vh-clay-soft);
-}
-
-.vh-identifiers {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  /* Icons delimit the entries, so gaps can carry the separation: no separators
-     means a wrapped line never opens with stray punctuation. */
-  gap: 4px 14px;
-  min-width: 0;
-  /* Same 4px vertical inset as the metric rows, so the meta line sits on the
-     group's row rhythm rather than between rhythms. */
-  padding: 4px 0;
 }
 
 /* ── Identifier meta entry ──
@@ -333,13 +270,6 @@
 
 .vh-chip-icon {
   flex-shrink: 0;
-  color: var(--vh-muted-fg);
-}
-
-.vh-chip-key {
-  font-family: var(--cs-font-sans);
-  font-size: 11.5px;
-  font-weight: 500;
   color: var(--vh-muted-fg);
 }
 
@@ -424,40 +354,47 @@
    The button keeps its box (no layout shift) and :focus-within reveals it, so
    keyboard users still see where they are. Touch keeps them always visible. */
 @media (hover: hover) and (pointer: fine) {
-  .variant-header .vh-icon-btn { opacity: 0; }
+  .variant-header .vh-icon-btn,
+  .vid .vh-icon-btn { opacity: 0; }
   .vh-chip:hover .vh-icon-btn,
   .vh-chip:focus-within .vh-icon-btn,
-  .variant-header-hgvs:hover .vh-icon-btn,
-  .variant-header-hgvs:focus-within .vh-icon-btn { opacity: 0.7; }
+  .vid-chip:hover .vh-icon-btn,
+  .vid-chip:focus-within .vh-icon-btn,
+  .vid-hgvs:hover .vh-icon-btn,
+  .vid-hgvs:focus-within .vh-icon-btn { opacity: 0.7; }
   .variant-header .vh-icon-btn:hover,
-  .variant-header .vh-icon-btn:focus-visible { opacity: 1; }
+  .variant-header .vh-icon-btn:focus-visible,
+  .vid .vh-icon-btn:hover,
+  .vid .vh-icon-btn:focus-visible { opacity: 1; }
 }
 
-/* ── Right column · the constraint group ──
-   Bare rows etched into the header surface, not a card: the old box (border,
-   radius, tinted spine, filled rows) made instrumentation read as page content.
-   A hairline pseudo-element parked inside the flex gap divides the two columns
-   without touching the flex-basis wrap arithmetic (285 + 600 + 24 = 909). */
+/* ── Details panel ──
+   The full tracks, disclosed from the strip. Anchored under the strip's left
+   edge, above the page; a disclosure, not a dialog (Escape or an outside click
+   closes it and returns focus to "Details"). */
+.vcs-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 12px;
+  width: min(680px, calc(100% - 24px));
+  padding: 12px 4px 10px;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
+  box-shadow: 0 12px 28px rgba(25, 24, 22, 0.14), 0 2px 6px rgba(25, 24, 22, 0.06);
+  white-space: normal;
+}
+.dark .vcs-panel { box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5); }
 .vh-rail {
-  position: relative;
-  flex: 1 1 600px;
-  max-width: 700px;
-  min-width: 0;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
-.vh-rail::before {
-  content: "";
-  position: absolute;
-  left: -13px; /* centred in the 24px flex gap */
-  top: 4px;
-  bottom: 4px;
-  width: 1px;
-  background: var(--cs-border-subtle);
-}
-/* In the wrapped state the group sits under the identity: no column to divide. */
-@container (max-width: 908px) {
-  .vh-rail::before { display: none; }
+.vcs-panel-note {
+  margin: 8px 14px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--vh-muted-fg);
 }
 
 /* ── Rail caption ──
@@ -689,65 +626,223 @@
 }
 
 
-/* ── Compact form ──
-   Once the page scrolls, the header gives back ~70px: one line holding the
-   identity, the transcript tier and the three values. The tracks and verdicts
-   stay one scroll-to-top away; each value keeps its tone and its tooltip. */
-.variant-header[data-compact="true"] {
-  flex-wrap: nowrap;
-  gap: 16px;
-  padding-top: 7px;
-  padding-bottom: 7px;
-  overflow: hidden;
-}
-.variant-header[data-compact="true"] .variant-header-gene { font-size: 16px; }
-.variant-header[data-compact="true"] .variant-header-hgvs { font-size: 14px; }
-.variant-header[data-compact="true"] .variant-header-identity { flex-shrink: 0; }
-
-.vh-compact-tier {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.vh-compact-tier[data-tone="good"]  { color: var(--vh-good-fg); }
-.vh-compact-tier[data-tone="warn"]  { color: var(--vh-warn-fg); }
-.vh-compact-tier[data-tone="clay"]  { color: var(--vh-clay-fg); }
-.vh-compact-tier[data-tone="muted"] { color: var(--vh-muted-fg); }
-
-.vh-compact-metrics {
+/* ── Identity (top bar) ──
+   Gene and HGVS lead; the identifiers follow on the same line and drop in a
+   fixed order as the zone narrows — UniProt, then the coordinate, then the
+   transcript — rather than wrapping: the bar is one line by construction, and
+   the full set lives in the Population rail's Variant lineage. */
+.vid-zone { container-type: inline-size; }
+.vid {
   display: flex;
-  align-items: baseline;
-  gap: 18px;
-  margin: 0;
-  padding: 0 0 0 16px;
-  border-left: 1px solid var(--cs-border-subtle);
-  list-style: none;
+  align-items: center;
+  gap: 14px;
   min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
 }
-.vh-compact-metric {
+.vid-title {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
-  white-space: nowrap;
+  gap: 8px;
+  flex-shrink: 0;
 }
-.vh-compact-label {
-  font-size: 11.5px;
+.vid-gene {
+  font-family: var(--cs-font-serif);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--cs-text-primary);
+}
+.vid-hgvs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--cs-font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+}
+.vid-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   color: var(--cs-text-secondary);
 }
-.vh-compact-value {
+.vid-key {
+  font-family: var(--cs-font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--vh-muted-fg);
+}
+.vid-value {
+  font-family: var(--cs-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+}
+.vid-tag {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.vid-tag[data-tone="good"]  { background: var(--vh-good-soft);  color: var(--vh-good-fg); }
+.vid-tag[data-tone="warn"]  { background: var(--vh-warn-soft);  color: var(--vh-warn-fg); }
+.vid-tag[data-tone="clay"]  { background: var(--vh-clay-soft);  color: var(--vh-clay-fg); }
+.vid-tag[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
+@container (max-width: 720px) { .vid-chip--uniprot { display: none; } }
+@container (max-width: 560px) { .vid-chip--coordinate { display: none; } }
+@container (max-width: 400px) { .vid-chip--transcript { display: none; } }
+
+/* ── Context strip ── */
+.vcs-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+}
+.vcs-source { font-weight: 400; color: var(--vh-muted-fg); }
+
+.vcs-chips {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Chips separated by a hairline, so three readings never run into one sentence. */
+.vcs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+.vcs-chip:first-child { padding-left: 0; }
+.vcs-chip + .vcs-chip { border-left: 1px solid var(--cs-border-subtle); }
+.vcs-chip-label { color: var(--vh-muted-fg); }
+.vcs-chip-value {
   font-family: var(--cs-font-mono);
   font-size: 12.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.vh-compact-value[data-tone="good"]  { color: var(--vh-good-fg); }
-.vh-compact-value[data-tone="warn"]  { color: var(--vh-warn-fg); }
-.vh-compact-value[data-tone="path"]  { color: var(--vh-path-fg); }
-.vh-compact-value[data-tone="muted"] { color: var(--vh-muted-fg); }
+.vcs-chip-verdict { font-weight: 600; }
+.vcs-chip-value[data-tone="good"],  .vcs-chip-verdict[data-tone="good"]  { color: var(--vh-good-fg); }
+.vcs-chip-value[data-tone="warn"],  .vcs-chip-verdict[data-tone="warn"]  { color: var(--vh-warn-fg); }
+.vcs-chip-value[data-tone="path"],  .vcs-chip-verdict[data-tone="path"]  { color: var(--vh-path-fg); }
+.vcs-chip-value[data-tone="muted"], .vcs-chip-verdict[data-tone="muted"] { color: var(--vh-muted-fg); }
+
+/* Micro-track: the full track's axis, direction and bands, at chip size. */
+.vcs-mini {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 4px;
+  border-radius: var(--cs-radius-pill);
+  background: var(--vh-track);
+  flex-shrink: 0;
+}
+.vcs-mini-band { position: absolute; top: 0; bottom: 0; }
+.vcs-mini-band:first-child { border-radius: var(--cs-radius-pill) 0 0 var(--cs-radius-pill); }
+.vcs-mini-band:last-of-type { border-radius: 0 var(--cs-radius-pill) var(--cs-radius-pill) 0; }
+.vcs-mini-band[data-tone="good"] { background: var(--vh-band-good); }
+.vcs-mini-band[data-tone="warn"] { background: var(--vh-band-warn); }
+.vcs-mini-band[data-tone="path"] { background: var(--vh-band-path); }
+.vcs-mini[data-empty="true"] .vcs-mini-band { opacity: 0.45; }
+.vcs-mini-dot {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cs-surface);
+  transform: translate(-50%, -50%);
+}
+.vcs-mini-dot[data-tone="good"]  { background: var(--vh-good-fg); }
+.vcs-mini-dot[data-tone="warn"]  { background: var(--vh-warn-fg); }
+.vcs-mini-dot[data-tone="path"]  { background: var(--vh-path-fg); }
+.vcs-mini-dot[data-tone="muted"] { background: var(--vh-muted-fg); }
+
+.vcs-details {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--cs-radius-input);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  /* The AA-tuned clay, not the raw accent (3.9:1 at 12px). */
+  color: var(--vh-clay-fg);
+  cursor: pointer;
+}
+.vcs-details:hover { background: var(--vh-clay-soft); }
+.vcs-details:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.vcs-details svg { transition: transform 150ms ease; }
+.vcs-details svg[data-open] { transform: rotate(180deg); }
+
+/* Notes and the run state sit at the strip's end. */
+.vcs-notes {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.vcs-runstate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-bg-warning);
+  color: var(--cs-text-warning-on-soft);
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 0;
+}
+.vcs-runstate-label { overflow: hidden; text-overflow: ellipsis; }
+.vcs-runstate-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.vcs-runstate-action:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.vcs-runstate-action:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+/* Narrow strip: drop verdict words, then micro-tracks and the source, then the
+   title. Labels never drop — a bare number is not a reading — so when three
+   labelled chips still do not fit, the chip row scrolls sideways instead. */
+@container (max-width: 980px) { .vcs-chip-verdict { display: none; } }
+@container (max-width: 760px) { .vcs-mini, .vcs-source { display: none; } }
 @container (max-width: 560px) {
-  .vh-compact-metrics, .vh-compact-tier { display: none; }
+  .vcs-title { display: none; }
+  .vcs-chip { padding: 0 10px; }
+  .vcs-chips { overflow-x: auto; scrollbar-width: none; }
+  .vcs-chips::-webkit-scrollbar { display: none; }
 }
 
 /* VIEW INSPECTOR & PROVENANCE PANEL
