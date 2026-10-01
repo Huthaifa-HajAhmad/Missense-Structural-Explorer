@@ -51,6 +51,10 @@ export async function generateClinicalNarrative(
         stringInteractions: bpResult?.stringInteractions || null,
         gnomadConstraint: bpResult?.gnomadConstraint || null,
         gnomadFrequency: bpResult?.gnomadFrequency || null,
+        // Both were missing, so the report described every All of Us row as "no entry" even when the
+        // tab on the same screen showed a frequency.
+        aouFrequency: bpResult?.aouFrequency || null,
+        aouLookup: bpResult?.aouLookup ?? null,
         uniprotFeatures: bpResult?.uniprotFeatures || null,
         sequence: bpResult?.metadata?.sequence || null,
         /*

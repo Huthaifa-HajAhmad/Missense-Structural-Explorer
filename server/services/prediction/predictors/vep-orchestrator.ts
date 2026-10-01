@@ -7,6 +7,8 @@ import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
+import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38 } from "./locus-resolver.ts";
+import type { LocusResolution, LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
 import {
   type GenomeAssembly,
@@ -205,7 +207,29 @@ async function fetchPredictorsViaCoordinate(
   }
 }
 
-export async function fetchPredictorsFallback(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
+/**
+ * A failure another attempt could change: an outage, a timeout, a dropped connection or an open
+ * circuit breaker — as opposed to Ensembl stating something about the notation itself (a 400 such as
+ * "Could not uniquely determine nucleotide change"), which a retry will only repeat.
+ */
+export function isTransientLookupFailure(message: string): boolean {
+  return /\b(5\d\d|429)\b|timed? ?out|timeout|abort|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|fetch failed|network|circuit|unavailable/i.test(message);
+}
+
+/**
+ * The fallback branch: MyVariant.info / dbNSFP scores and locus, then recovery of the GRCh38 locus.
+ *
+ * @param prior  what the ladder already attempted, carried into the payload's `locusResolution` so the
+ *               trail names every rung, and whether any of those failures was transient.
+ */
+export async function fetchPredictorsFallback(
+  gene: string,
+  variant: string,
+  uniprotId?: string,
+  prior: { steps: LocusResolutionStep[]; transient: boolean } = { steps: [], transient: false }
+): Promise<PredictorData> {
+  const steps: LocusResolutionStep[] = [...prior.steps];
+  let transient = prior.transient;
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   
@@ -230,6 +254,8 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
   let amClass: string | null = null;
   let caddPhred: number | null = null;
   let gnomadVariantId: string | null = null;
+  /** dbNSFP's own GRCh38 position for the matched record — the independent recovery route. */
+  let dbnsfpGrch38: DbnsfpGrch38 | null = null;
 
   // 1. Check local dbNSFP first if available
   if (pos !== null) {
@@ -247,8 +273,11 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
     } catch (_) {}
   }
 
-  // 2. Query MyVariant.info for AlphaMissense & CADD
-  if (amPathogenicity === null || caddPhred === null) {
+  // 2. Query MyVariant.info for AlphaMissense & CADD — and ALWAYS for the locus.
+  //    The local ingest can supply both scores, and this branch used to be skipped then, leaving the
+  //    run with no genomic locus at all: every coordinate-keyed source (gnomAD r4 first) then refused
+  //    a coordinate that was never looked up, and the refusal read as a build problem.
+  {
     try {
       const cleanVarLower = cleanVar.toLowerCase();
       const mutMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
@@ -257,7 +286,7 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
       const queryStr = pos !== null
         ? `dbnsfp.genename:${normGene} AND (dbnsfp.hgvsp:"p.${cleanVar}" OR dbnsfp.aa.pos:${pos})`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd.phred,cadd_phred,dbnsfp.hgvsp,dbnsfp.aa.pos&limit=50`;
+      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd.phred,cadd_phred,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.hg38,dbnsfp.chrom,dbnsfp.ref,dbnsfp.alt&limit=50`;
       const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000 }, 1);
       if (res.ok) {
         const data = await res.json() as any;
@@ -302,7 +331,10 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
                 if (m) {
                   const locusId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
                   matchedLoci.add(locusId);
-                  if (gnomadVariantId === null) gnomadVariantId = locusId;
+                  if (gnomadVariantId === null) {
+                    gnomadVariantId = locusId;
+                    dbnsfpGrch38 = readDbnsfpGrch38(hit);
+                  }
                 }
               }
             }
@@ -310,34 +342,51 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
           if (matchedLoci.size > 1) {
             console.warn(`[VEP Fallback] ${matchedLoci.size} distinct MyVariant loci match ${normGene} ${cleanVar} by notation; refusing the coordinate as ambiguous.`);
             gnomadVariantId = null;
+            dbnsfpGrch38 = null;
+            steps.push({ step: "myvariant", outcome: "failed", detail: `${matchedLoci.size} distinct loci match this notation; refused as ambiguous` });
+          } else if (gnomadVariantId) {
+            steps.push({ step: "myvariant", outcome: "ok", detail: `dbNSFP record at GRCh37 ${gnomadVariantId}` });
+          } else {
+            steps.push({ step: "myvariant", outcome: "failed", detail: "no dbNSFP record matched this gene and substitution" });
           }
+        } else {
+          steps.push({ step: "myvariant", outcome: "failed", detail: "MyVariant.info answered with no hits" });
         }
+      } else {
+        transient = true;
+        steps.push({ step: "myvariant", outcome: "failed", detail: `MyVariant.info answered HTTP ${res.status}` });
       }
-    } catch (_) {}
+    } catch (err: any) {
+      transient = true;
+      steps.push({ step: "myvariant", outcome: "failed", detail: `MyVariant.info unreachable (${String(err?.message ?? err).slice(0, 80)})` });
+    }
   }
 
   /**
-   * Lift the hg19 `_id` onto the canonical build (unmapping defect F-3, at its producer).
+   * Recover the GRCh38 locus for the hg19 `_id` (unmapping defect F-3, at its producer).
    *
-   * The MyVariant `_id` is GRCh37, and its query service has no assembly parameter at all. The
-   * coordinate used to be returned tagged GRCh37 and left there — honest, but terminal: every
-   * GRCh38-only source (splice geometry, AlphaGenome, PopEVE, GPN-Star, gnomAD r4) then refused
-   * the variant for two weeks at a time. Lifting HERE, once, with the three-fold verification
-   * the liftover module performs, gives every downstream consumer the canonical-build locus of
-   * the SAME variant. A failed lift keeps the GRCh37 tag: refusal then reads "not assessed",
-   * which is true, and is never coerced.
+   * The MyVariant `_id` is GRCh37 and its query service has no assembly parameter. A GRCh37 locus is
+   * honest but terminal: every GRCh38-only source refuses it. `recoverCanonicalLocus` tries the
+   * verified Ensembl lift and then dbNSFP's own GRCh38 position checked against the UCSC reference —
+   * two routes on two different hosts, because the Ensembl one shares the breaker with the very VEP
+   * queries whose failure brought the run here. A locus neither route can verify stays GRCh37, tagged.
    */
-  let gnomadVariantAssembly: GenomeAssembly | null = gnomadVariantId ? "GRCh37" : null;
+  let gnomadVariantAssembly: GenomeAssembly | null = null;
+  let canonicalBy: LocusResolution["canonicalBy"] = null;
   if (gnomadVariantId) {
-    const parsed = parseGenomicCoordinateString(gnomadVariantId);
-    if (parsed) {
-      const lifted = await liftCoordinateToCanonical({ ...parsed, assembly: "GRCh37" }).catch(() => null);
-      if (lifted) {
-        gnomadVariantId = `${lifted.chrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`;
-        gnomadVariantAssembly = "GRCh38";
-      }
-    }
+    const recovered = await recoverCanonicalLocus(gnomadVariantId, dbnsfpGrch38);
+    gnomadVariantId = recovered.id;
+    gnomadVariantAssembly = recovered.assembly;
+    canonicalBy = recovered.canonicalBy;
+    steps.push(...recovered.steps);
+    transient ||= recovered.retryable;
   }
+  const locusResolution: LocusResolution = {
+    route: "fallback",
+    canonicalBy,
+    retryable: canonicalBy === null && transient,
+    steps: steps.slice(-12),
+  };
 
   const hasAnyData = amPathogenicity !== null || caddPhred !== null || Boolean(transcriptId);
   return {
@@ -347,6 +396,7 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
     caddPhred,
     gnomadVariantId,
     gnomadVariantAssembly,
+    locusResolution,
     transcriptId,
     maneRefSeqId,
     canonicalEnsemblId,
@@ -403,6 +453,19 @@ export async function fetchPredictorData(
         } catch (_) {}
       }
 
+      /** The locus trail for this run, carried onto whichever branch answers. */
+      const steps: LocusResolutionStep[] = [];
+      let transient = false;
+      const withTrail = (data: PredictorData, route: LocusResolution["route"]): PredictorData => ({
+        ...data,
+        locusResolution: {
+          route,
+          canonicalBy: data.gnomadVariantAssembly === "GRCh38" ? "vep" : null,
+          retryable: false,
+          steps: steps.slice(-12),
+        },
+      });
+
       // ── Coordinate-first: one unambiguous query beats a ladder of lossy ones ──
       if (coord) {
         // What the coordinate must PROVE it is (review H-2): the requested substitution,
@@ -423,9 +486,15 @@ export async function fetchPredictorData(
         const lifted = await liftCoordinateToCanonical(coord, { deadlineAt: coordDeadline }).catch(() => null);
         if (lifted) {
           const viaCoordinate = await fetchPredictorsViaCoordinate(lifted, canonicalEnsemblId, expect, coordDeadline);
-          if (viaCoordinate) return viaCoordinate;
+          if (viaCoordinate) {
+            steps.push({ step: "vep-coordinate", outcome: "ok", detail: `region ${lifted.chrom}:${lifted.pos}` });
+            return withTrail(viaCoordinate, "vep-coordinate");
+          }
+          steps.push({ step: "vep-coordinate", outcome: "failed", detail: "the region query did not answer or did not bind to this gene and substitution" });
           // A coordinate that cannot prove it is this variant's locus falls through to the
           // ladder; it is never coerced, and the ladder's own fallback keeps the honest build tag.
+        } else {
+          steps.push({ step: "vep-coordinate", outcome: "skipped", detail: "the submitted coordinate could not be placed on GRCh38" });
         }
       }
 
@@ -490,14 +559,20 @@ export async function fetchPredictorData(
       try {
         if (parsedData && parsedData.length > 0 && parsedData[0].transcript_consequences) {
           const resVal = buildPredictorFromVep(parsedData, "GRCh38", "Ensembl VEP API", canonicalEnsemblId, normGene);
-          if (resVal) return resVal;
+          if (resVal) {
+            steps.push({ step: "vep-hgvs", outcome: "ok" });
+            return withTrail(resVal, "vep-hgvs");
+          }
         }
       } catch (err: any) {
         console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);
       }
 
-      console.log(`[VEP Fallback] Ensembl VEP unavailable or incomplete for ${normGene} ${cleanVar}; falling back to MyVariant & UniProt`);
-      return await fetchPredictorsFallback(gene, variant, uniprotId);
+      const ladderFailure = errorMsg || "no transcript consequence for this notation";
+      transient ||= isTransientLookupFailure(ladderFailure);
+      steps.push({ step: "vep-hgvs", outcome: "failed", detail: ladderFailure.slice(0, 200) });
+      console.log(`[VEP Fallback] Ensembl VEP unavailable or incomplete for ${normGene} ${cleanVar} (${ladderFailure.slice(0, 120)}); falling back to MyVariant & UniProt`);
+      return await fetchPredictorsFallback(gene, variant, uniprotId, { steps, transient });
     }
   });
 }

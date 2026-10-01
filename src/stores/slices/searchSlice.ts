@@ -69,6 +69,12 @@ export interface SearchState {
   numberingBasis: "canonical" | null;
   copied: boolean;
   history: SearchHistoryItem[];
+  /**
+   * Incremented to ask the shell to re-run the current variant. The pipeline lives in the
+   * `useVariantAnalysis` hook App owns, so a surface deep in the tree (the Population card, the
+   * header's run-state slot) requests the re-run here and App performs it.
+   */
+  rerunNonce: number;
 }
 
 export interface SearchActions {
@@ -94,10 +100,12 @@ export interface SearchActions {
   setNumberingBasis: (basis: "canonical" | null) => void;
   setCopied: (copied: boolean) => void;
   setHistory: (history: SearchHistoryItem[] | ((prev: SearchHistoryItem[]) => SearchHistoryItem[])) => void;
-  addToHistory: (item: { gene: string; variant: string; uniprotId: string }, maxItems?: number, saveHistory?: boolean) => void;
+  addToHistory: (item: SearchHistoryItem, maxItems?: number, saveHistory?: boolean) => void;
+  /** Ask the shell to re-run the variant on screen (see `rerunNonce`). */
+  requestRerun: () => void;
   clearHistory: () => void;
   handleSelectHistoryItem: (
-    item: { gene: string; variant: string; uniprotId: string },
+    item: SearchHistoryItem,
     options?: {
       abortAllPendingRequests?: () => void;
       resetViewerState?: () => void;
@@ -181,6 +189,7 @@ export const createSearchSlice: StateCreator<
   numberingBasis: null,
   copied: false,
   history: loadInitialHistory(),
+  rerunNonce: 0,
 
   setGene: (gene) => set({ gene }),
   setVariant: (variant) => set((state: any) => ({
@@ -239,6 +248,8 @@ export const createSearchSlice: StateCreator<
     });
   },
 
+  requestRerun: () => set((state) => ({ rerunNonce: state.rerunNonce + 1 })),
+
   clearHistory: () => {
     try {
       localStorage.removeItem("variant_search_history");
@@ -272,7 +283,8 @@ export const createSearchSlice: StateCreator<
     });
 
     if (options?.executeAnalysis) {
-      options.executeAnalysis(item.gene, item.variant, item.uniprotId);
+      // Replay the submission as it was made (see `SearchHistoryItem.query`).
+      options.executeAnalysis(item.gene, item.query ?? item.variant, item.uniprotId);
     }
   },
 

@@ -256,6 +256,8 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
       ...resultProvenance(transcriptMeta, resResult),
       gnomadFrequency: resResult.gnomadFrequency || null,
       aouFrequency: resResult.aouFrequency || null,
+      // Carried so an empty All of Us row can name which absence it is (`aouAbsenceReason`).
+      aouLookup: resResult.aouLookup ?? null,
       esm2: resResult.esm2 || null,
       esm3Eval: { loading: true },
       esmcEval: { loading: true },

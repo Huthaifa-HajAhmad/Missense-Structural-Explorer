@@ -1,5 +1,5 @@
 import type { AlphaGenomeAviData } from "../contracts.ts";
-import { resolveEvidenceAvailability, refusalReasonFor } from "../evidenceAvailability.ts";
+import { resolveSourceAvailability } from "../evidenceAvailability.ts";
 import {
   type PredictorSignal,
   evaluateCadd,
@@ -64,7 +64,7 @@ export function countPredictorConcordance(
      * reason it was skipped instead of being silently omitted. Optional: absent means no refusal was
      * recorded, which the resolver treats as "not a coverage problem", never as a credential one.
      */
-    assemblyRefusals?: Array<{ source: string; reason: string }> | null;
+    assemblyRefusals?: Array<{ source: string; reason: string; retryable?: boolean }> | null;
     /** Whether a credential is known to be configured. `undefined` = the caller does not know. */
     alphagenomeConfigured?: boolean;
   }
@@ -213,10 +213,11 @@ export function countPredictorConcordance(
        * The vote is unaffected either way: `unavailable` signals are excluded from the counts.
        */
       const skipReason = tool.key === "alphagenome"
-        ? resolveEvidenceAvailability({
+        ? resolveSourceAvailability({
             value: extra?.alphagenome?.aviPhred ?? null,
             status: extra?.alphagenome?.status ?? null,
-            refusal: refusalReasonFor(extra?.assemblyRefusals, "alphagenome"),
+            refusals: extra?.assemblyRefusals,
+            source: "alphagenome",
             message: extra?.alphagenome?.message ?? null,
             configured: extra?.alphagenomeConfigured,
           })

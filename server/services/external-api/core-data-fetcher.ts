@@ -19,7 +19,7 @@ import {
 } from "./gnomad.ts";
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
-import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, AouLookup } from "../../../src/shared/contracts.ts";
 import {
   parseGenomicCoordinateString,
   predictorCoordinateFromContext,
@@ -219,9 +219,17 @@ export async function fetchCoreVariantData(
     return null;
   }));
 
-  const localFreqsPromise = timeTask("localFreqs", (isLocalDbnsfpAvailable() && pos !== null)
-    ? fetchLocalPopulationFrequencies(gene, pos, variant).catch((err: any) => {
+  /**
+   * What the local All of Us lookup established, recorded as it happens so the payload can say WHICH
+   * absence an empty row is (`aouLookup`). The lookup itself still resolves to null on every failure,
+   * exactly as before — only the reason is new.
+   */
+  const localTableInstalled = isLocalDbnsfpAvailable() && pos !== null;
+  let localTableFailed = false;
+  const localFreqsPromise = timeTask("localFreqs", localTableInstalled
+    ? fetchLocalPopulationFrequencies(gene, pos!, variant).catch((err: any) => {
         console.warn("[Local dbNSFP Freq Warning] Error querying local frequencies:", err);
+        localTableFailed = true;
         return null;
       })
     : Promise.resolve(null));
@@ -625,6 +633,19 @@ export async function fetchCoreVariantData(
   } else if (conservationRes?.aouFrequency) {
     aouFrequency = normalizeAouFrequency(conservationRes.aouFrequency);
   }
+  const localAou = localFreqsRes?.aou ? normalizeAouFrequency(localFreqsRes.aou) : null;
+  const aouLookup: AouLookup = {
+    localTable: !localTableInstalled
+      ? "not-installed"
+      : rawLocalFreqs === TIMEOUT_FLAG
+        ? "timed-out"
+        : localTableFailed
+          ? "failed"
+          : localAou
+            ? "found"
+            : "absent",
+    remoteDbnsfp: conservationRes?.aouFrequency && normalizeAouFrequency(conservationRes.aouFrequency) ? "found" : "not-reported",
+  };
 
   let resolvedPdbId: string | null = null;
   // "AlphaFold" is the default because it is what the structural models fall back to; the id
@@ -719,6 +740,7 @@ export async function fetchCoreVariantData(
     uniprotFeatures: uniprotFeaturesRes,
     ruleBasedInsights,
     aouFrequency,
+    aouLookup,
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,

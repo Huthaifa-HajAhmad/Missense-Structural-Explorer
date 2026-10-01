@@ -296,11 +296,21 @@ export function refusalReasonFor(
  */
 export function resolveSourceAvailability(
   input: Omit<EvidenceAvailabilityInput, "refusal"> & {
-    refusals: ReadonlyArray<{ source: string; reason: string }> | null | undefined;
+    refusals: ReadonlyArray<{ source: string; reason: string; retryable?: boolean }> | null | undefined;
     source: AssemblyRefusalSource;
   },
 ): EvidenceAvailability {
   const { refusals, source, ...rest } = input;
+  /**
+   * A refusal caused by a FALLBACK locus (the GRCh38 lookup failed on this run) is a provider fault
+   * with a remedy, not a coverage fact: it resolves to `upstream-error` with a retry action. Routing it
+   * through `refusal` would make it "Not covered — nothing anyone can do", which is the false claim
+   * `src/shared/locusResolution.ts` exists to end.
+   */
+  const record = refusals?.find(r => r.source === source);
+  if (record?.retryable) {
+    return resolveEvidenceAvailability({ ...rest, status: "unavailable", message: humaniseRefusal(source, record.reason) });
+  }
   return resolveEvidenceAvailability({ ...rest, refusal: refusalReasonFor(refusals, source) });
 }
 

@@ -18,6 +18,7 @@ import { fetchCoreVariantData } from "../external-api/core-data-fetcher.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
 import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
+import { isRetryableFallbackLocus } from "../../../src/shared/locusResolution.ts";
 import { CONFIG } from "../../config.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData, StructuralAnalysisData };
@@ -62,6 +63,17 @@ function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T,
 
 function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
+  /**
+   * A FALLBACK locus (the GRCh38 lookup failed on that run) is never a finished analysis.
+   *
+   * Serving it re-served the failure: every coordinate-keyed source refused its hg19 locus, and the
+   * population evidence stayed withheld on every later view and every Recents click, though a fresh run
+   * finds the GRCh38 locus (NAE1 p.Asp116Gly). The predictor cache already refuses to persist this state
+   * (`vep-orchestrator.ts`, `shouldCache`) and the client bundle cache now declines it
+   * (`isBuildDegradedResult`); this is the third cache in the same chain, held to the same rule. The
+   * record itself is kept — the structural route reads `_internal` from it.
+   */
+  if (isRetryableFallbackLocus(payload)) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
     if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {

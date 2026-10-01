@@ -13,6 +13,7 @@ import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
 import { fetchSpliceAiBroad, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiScoreRecord } from "../../external-api/spliceai_broad.ts";
 import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, describeAssemblyRefusal, ASSEMBLY_REFUSAL_SOURCES } from "../../../../src/shared/assembly.ts";
+import { fallbackLocusSentence } from "../../../../src/shared/locusResolution.ts";
 import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
 
@@ -771,7 +772,7 @@ export async function fetchConservationDataProgressive(
       let gpnStarResult: EvolutionaryScaleResult | null = null;
       let alphagenomeResult: AlphaGenomeAviData | null = null;
       let liveSpliceAi: SpliceAiScoreRecord | null = null;
-      const assemblyRefusals: Array<{ source: string; reason: string }> = [];
+      const assemblyRefusals: Array<{ source: string; reason: string; retryable?: boolean }> = [];
 
       const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
       if (parsedCoord) {
@@ -808,6 +809,14 @@ export async function fetchConservationDataProgressive(
          * transcript exists, or for AlphaGenome when none is configured, states a sufficient
          * cause that is not the operative one and misdirects whoever reads it.
          */
+        /**
+         * A FALLBACK locus (the GRCh38 lookup failed on this run) is not the user's build choice, and
+         * must not be worded or classified as one: the refusal says the lookup failed and carries
+         * `retryable`, so surfaces offer a re-run instead of "Not covered — nothing anyone can do".
+         */
+        const trail = pred?.locusResolution ?? null;
+        const fallbackLocus = trail?.route === "fallback" && trail.canonicalBy === null;
+
         for (const src of ASSEMBLY_REFUSAL_SOURCES) {
           const reachable = src === "splice-proximity"
             ? Boolean(pred?.canonicalEnsemblId || pred?.transcriptId)
@@ -815,7 +824,13 @@ export async function fetchConservationDataProgressive(
             ? Boolean(alphagenomeApiKey || alphagenomeApiUrl)
             : true;
           if (!reachable) continue;
-          if (coordinateAssembly === null) {
+          if (fallbackLocus && (coordinateAssembly === null || !sourceSupportsAssembly(src, coordinateAssembly))) {
+            assemblyRefusals.push({
+              source: src,
+              reason: fallbackLocusSentence(src, coordinateAssembly, { retryable: trail!.retryable }),
+              retryable: trail!.retryable,
+            });
+          } else if (coordinateAssembly === null) {
             assemblyRefusals.push({
               source: src,
               reason: `${src} was not scored: the coordinate's genome build was not declared.`
@@ -884,7 +899,7 @@ export async function fetchConservationDataProgressive(
       }
       return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult, liveSpliceAi, assemblyRefusals };
     })
-    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null, liveSpliceAi: null, assemblyRefusals: null as Array<{ source: string; reason: string }> | null }));
+    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null, liveSpliceAi: null, assemblyRefusals: null as Array<{ source: string; reason: string; retryable?: boolean }> | null }));
 
   // 3. Immediately kick off base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant)
   const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
