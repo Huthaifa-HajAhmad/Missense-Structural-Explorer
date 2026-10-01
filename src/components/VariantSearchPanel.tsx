@@ -1535,10 +1535,17 @@ function VariantSearchPanel({
                           <div className="flex flex-col min-w-0 flex-1 pt-[3px] pb-2">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-[12.5px] font-medium text-cs-text-primary truncate">{title}</span>
-                              {/* Pending before any run says nothing; the state word appears once it does. */}
-                              {hasRun && !(info.rawStatus === "pending") ? (
+                              {/* The state word ends flush at the panel edge, and ONE trailing slot
+                                  serves both the word and the go-affordance: the word is the resting
+                                  state, and hovering or keyboard-focusing a clickable row cross-fades
+                                  it into the arrow at the same spot. The arrow used to trail OUTSIDE
+                                  this column — opacity-0 yet space-occupying — which shoved every
+                                  status word ~26px off the edge whenever a result made the rows
+                                  clickable, and let the words jump as clickability turned over.
+                                  Pending before any run says nothing; the word appears once it does. */}
+                              {hasRun && (
                                 <span
-                                  className={`text-[11px] shrink-0 ${
+                                  className={`relative shrink-0 flex items-center justify-end min-h-[18px] text-[11px] ${
                                     isRunning
                                       ? "text-cs-text-accent"
                                       : isDone
@@ -1548,18 +1555,24 @@ function VariantSearchPanel({
                                       : "text-cs-text-muted"
                                   }`}
                                 >
-                                  {info.status}
+                                  <span
+                                    className={`transition-opacity duration-150 ${
+                                      isClickable ? "group-hover:opacity-0 group-focus-visible:opacity-0" : ""
+                                    }`}
+                                  >
+                                    {info.status}
+                                  </span>
+                                  {isClickable && (
+                                    <ArrowRight
+                                      className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cs-text-muted opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150"
+                                      aria-hidden="true"
+                                    />
+                                  )}
                                 </span>
-                              ) : hasRun ? (
-                                <span className="text-[11px] text-cs-text-muted shrink-0">{info.status}</span>
-                              ) : null}
+                              )}
                             </div>
                             <span className="text-[11px] leading-snug text-cs-text-muted line-clamp-2">{info.desc}</span>
                           </div>
-
-                          {isClickable && (
-                            <ArrowRight className="w-3.5 h-3.5 mt-1.5 shrink-0 text-cs-text-muted opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150" aria-hidden="true" />
-                          )}
                         </div>
                       </li>
                     );
