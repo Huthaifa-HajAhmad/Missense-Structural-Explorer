@@ -199,13 +199,14 @@ export function HeaderBar({
           </button>
         )}
 
+        {/* A wordless in-flight cue. Everything that can say it already does — the pipeline rail,
+            the stage rows, the submit button — so a labelled "Computing" here repeated them for a
+            third surface. The bare spinner survives as quiet chrome for a reader whose eyes are
+            away from the workspace, and it is decorative: the rail's aria-live step line carries
+            the announcement. */}
         {isBiophysicalLoading && (
-          <span
-            className="inline-flex items-center gap-1.5 h-7 px-2 text-[12px] text-cs-text-secondary shrink-0"
-            role="status"
-          >
-            <span className="cs-spinner cs-spinner-sm" aria-hidden="true" />
-            <span className="hidden xl:inline">Computing…</span>
+          <span className="inline-flex items-center h-7 px-2 shrink-0" aria-hidden="true">
+            <span className="cs-spinner cs-spinner-sm" />
           </span>
         )}
         {isOffline && (

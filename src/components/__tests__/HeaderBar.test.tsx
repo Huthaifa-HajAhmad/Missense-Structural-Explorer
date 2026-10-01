@@ -32,6 +32,7 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.queryByText("Evidence")).not.toBeInTheDocument();
     expect(screen.queryByText("Computing…")).not.toBeInTheDocument();
     expect(screen.queryByText("Offline")).not.toBeInTheDocument();
+    expect(document.querySelector(".cs-spinner")).toBeNull();
   });
 
   it("should display breadcrumb title when not on search view", () => {
@@ -39,9 +40,10 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.getByText("Evidence")).toBeInTheDocument();
   });
 
-  it("should render computing status when isBiophysicalLoading is true", () => {
+  it("keeps a wordless in-flight cue while the biophysics run and nothing labelled", () => {
     render(<HeaderBar {...base} isBiophysicalLoading={true} />);
-    expect(screen.getByText(/Computing/i)).toBeInTheDocument();
+    expect(document.querySelector(".cs-spinner")).not.toBeNull();
+    expect(screen.queryByText(/Computing/i)).not.toBeInTheDocument();
   });
 
   it("should display offline label when isOffline is true", () => {
