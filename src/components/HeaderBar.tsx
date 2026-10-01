@@ -10,6 +10,8 @@ import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
 import { commandPaletteHint } from "../shared/platform";
 import { isShareable, withVariantParams } from "../shared/shareLink";
 import { CHROME_DIVIDER, CHROME_ICON_BUTTON } from "./ui/chrome";
+import { VariantIdentity } from "./header/VariantIdentity";
+import { useVariantHeaderModel, type VariantHeaderInput } from "./header/variantHeaderModel";
 
 interface HeaderBarProps {
   masterView: MasterView;
@@ -30,6 +32,12 @@ interface HeaderBarProps {
   onOpenSettings?: () => void;
   /** Opens the high-level onboarding walkthrough and API keys guide */
   onOpenOnboarding?: () => void;
+  /**
+   * The variant on screen, when the view is an analysis view. The bar then TITLES itself with the
+   * variant's identity instead of a breadcrumb: on those views the variant is the subject of the page,
+   * the sidebar already says where you are, and the page's H1 names the page.
+   */
+  variant?: VariantHeaderInput | null;
 }
 
 /**
@@ -70,7 +78,8 @@ export function HeaderBar({
   isDark: isDarkProp,
   onToggleTheme,
   onOpenSettings,
-  onOpenOnboarding
+  onOpenOnboarding,
+  variant: variantChrome = null,
 }: HeaderBarProps) {
   let hasConfiguredGeminiKey = true;
   let openSettingsTab = (_tab?: SettingsTabId | LegacySettingsTabId) => {};
@@ -111,6 +120,11 @@ export function HeaderBar({
   };
 
   const crumbs = viewCrumbs(masterView, activeEvidenceTab);
+  // Built unconditionally (hooks), rendered only when a variant is on screen.
+  const variantModel = useVariantHeaderModel(
+    variantChrome ?? { gene: "", variant: "", uniprotId: "", analysisResult: null }
+  );
+  const showIdentity = Boolean(variantChrome?.gene);
   /* One source for the chord label — the palette footer prints the same string. */
   const paletteHint = commandPaletteHint();
   const errorText = error?.replace(/^Error:\s*/i, "") ?? "";
@@ -118,8 +132,12 @@ export function HeaderBar({
 
   return (
     <header className="app-header" id="main-header">
-      {/* ── Left: where you are ── */}
-      <div className="flex items-center gap-2 min-w-0 flex-1 basis-0">
+      {/* ── Left: the variant on analysis views, otherwise where you are ──
+          With a variant the zone takes twice the share of the free width and becomes a size
+          container, so its identifiers can drop in order as the bar narrows (`.vid` rules). */}
+      <div
+        className={`flex items-center gap-2 min-w-0 basis-0 ${showIdentity ? "flex-[2_1_0%] vid-zone" : "flex-1"}`}
+      >
         {showNavToggle && (
           <button
             type="button"
@@ -133,7 +151,8 @@ export function HeaderBar({
         )}
         {/* Hidden on Search: the page's own H1 names it, and the header repeating it was the third
             copy of the same word on one screen. */}
-        {masterView !== "search" && crumbs.length > 0 && (
+        {showIdentity && <VariantIdentity model={variantModel} />}
+        {!showIdentity && masterView !== "search" && crumbs.length > 0 && (
           <nav aria-label="Breadcrumb" className="min-w-0">
             <ol className="flex items-center gap-1.5 min-w-0 text-[13px]">
               {crumbs.map((crumb, i) => {
@@ -161,13 +180,13 @@ export function HeaderBar({
       <button
         type="button"
         onClick={onOpenPalette}
-        className="group hidden md:flex items-center gap-2 h-8 w-[clamp(200px,32vw,420px)] min-w-0 shrink pl-2.5 pr-1.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted hover:border-cs-border hover:text-cs-text-secondary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+        className={`group hidden md:flex items-center gap-2 h-8 ${showIdentity ? "w-[clamp(180px,20vw,300px)]" : "w-[clamp(200px,32vw,420px)]"} min-w-0 shrink pl-2.5 pr-1.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted hover:border-cs-border hover:text-cs-text-secondary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]`}
         title={`Open command palette (${paletteHint})`}
         aria-label={`Open command palette (${paletteHint})`}
         aria-keyshortcuts={paletteHint === "⌘K" ? "Meta+K" : "Control+K"}
       >
         <Search className="w-3.5 h-3.5 shrink-0" />
-        <span className="flex-1 text-left text-[12.5px] truncate">Search views or run a variant…</span>
+        <span className="flex-1 text-left text-[12.5px] truncate">{showIdentity ? "Search or run…" : "Search views or run a variant…"}</span>
         <kbd className="cs-kbd">
           {paletteHint}
         </kbd>
