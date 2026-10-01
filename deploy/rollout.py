@@ -31,7 +31,9 @@ class Docker:
         js = ("fetch('http://127.0.0.1:3000/internal/deployment" + suffix + "',"
               "{method:'" + ("POST" if action else "GET") + "',signal:AbortSignal.timeout(5000)})"
               ".then(async r=>{if(!r.ok)throw Error('control HTTP '+r.status);"
-              "console.log(JSON.stringify(await r.json()))}).catch(e=>{console.error(e.message);process.exit(1)})")
+              "let status;try{status=await r.json()}catch{throw Error("
+              "'control response is not JSON; legacy app may require documented bootstrap')}"
+              "console.log(JSON.stringify(status))}).catch(e=>{console.error(e.message);process.exit(1)})")
         return json.loads(self.run("exec", name, "node", "-e", js, capture=True, timeout=10))
 
     def proxy_target(self):
@@ -147,7 +149,14 @@ class Rollout:
         self.record("preflight")
         try:
             self.old = self.docker.proxy_target()
-            status = self.docker.control(self.old)
+            try:
+                status = self.docker.control(self.old)
+            except (subprocess.SubprocessError, ValueError) as error:
+                raise RuntimeError(
+                    "Serving lifecycle control could not be verified; production unchanged. "
+                    "If this is the legacy app, complete the one-time idle maintenance bootstrap "
+                    "in deploy/ROLLOUT.md before retrying CD; otherwise inspect control connectivity."
+                ) from error
             if status.get("protocol") != 1 or status.get("backend") != "sqlite" or status.get("paused") is not False:
                 raise RuntimeError("Serving generation lacks an active SQLite handover protocol; complete the documented bootstrap first")
             command = self.docker.inspect(PROXY)["Config"]["Cmd"]

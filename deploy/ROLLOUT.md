@@ -40,6 +40,32 @@ Caddy using the updated Compose command (`--resume`) and load the updated Caddyf
 all updates must use the handover driver; do not use `docker compose up --build` on the active app.
 The bootstrap is an operator action, not a hidden fallback in automatic deployment.
 
+An initial CD run against the legacy app is expected to stop in `refused` before building or
+replacing a container. That app may return the SPA's HTML for the unknown control endpoint.
+This does not mean the deployed app is unhealthy; compare the public health/version endpoints
+and complete bootstrap before retrying. A retry alone cannot add the missing protocol.
+
+Bootstrap checklist for the operator (do not execute while analyses are running):
+
+1. Arrange the maintenance window and stop new analysis submissions. Confirm with users that
+   running analyses have finished; the legacy version cannot supply trustworthy drain counters.
+2. Hold the same host deployment lock across preparation and replacement. Record the current
+   app image ID and proxy configuration; take a consistent SQLite backup using SQLite's backup
+   API rather than copying a live database file. Preserve the existing licensed assets.
+3. Build the CI-validated target image before replacing the serving container. Set `BUILD_COMMIT`
+   to its exact checked-out SHA and `BUILD_TIME` to the UTC build time. Do not proceed on build failure.
+4. With the idle condition still confirmed, replace only the baseline app using the updated
+   Compose definition. Verify loopback control reports protocol 1, SQLite, `paused: false`, the
+   expected commit, and `ready: true` with `?probe=true` before ending maintenance.
+5. Recreate only Caddy with the updated `--resume` command, preserving its named data/config
+   volumes. Explicitly reload the updated Caddyfile: `--resume` can otherwise retain the old
+   autosaved configuration. Validate the configuration before reloading.
+6. Verify the public health and revision endpoints, then complete an analysis. If readiness
+   fails, keep maintenance open and restore the recorded baseline image/proxy configuration;
+   do not enable a second worker. Resume normal submissions only after these checks pass.
+7. Run subsequent updates through the handover driver. A CD retry at the already-serving
+   revision should finish as an idempotent success once the app protocol and proxy are bootstrapped.
+
 Caddy uses its autosaved configuration on restart, retaining the selected generation. The
 default Caddyfile is only the bootstrap configuration. The driver reads the live Caddy admin
 configuration rather than trusting a stale journal or assuming which slot serves traffic.

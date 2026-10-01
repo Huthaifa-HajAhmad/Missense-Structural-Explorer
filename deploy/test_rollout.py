@@ -2,6 +2,8 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import shutil
+from unittest.mock import patch
 import tempfile
 import unittest
 
@@ -151,6 +153,29 @@ class RolloutTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "bootstrap"):
             self.driver().execute()
         self.assertEqual(self.docker.events, [])
+
+    def test_unavailable_legacy_control_explains_bootstrap_without_mutation(self):
+        with patch.object(self.docker, "control", side_effect=subprocess.CalledProcessError(1, "control")):
+            with self.assertRaisesRegex(RuntimeError, "one-time idle maintenance bootstrap"):
+                self.driver().execute()
+        self.assertEqual(self.docker.events, [])
+        self.assertEqual(self.docker.target, OLD)
+        self.assertFalse(self.docker.states[OLD]["paused"])
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the container control probe")
+    def test_legacy_html_probe_has_safe_actionable_diagnostic(self):
+        docker = rollout.Docker()
+        def run(*args, **kwargs):
+            js = "globalThis.fetch=async()=>new Response('<!doctype html>legacy sentinel',{status:200});" + args[-1]
+            result = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("legacy app may require documented bootstrap", result.stderr)
+            self.assertNotIn("sentinel", result.stderr)
+            self.assertNotIn("Unexpected token", result.stderr)
+            raise subprocess.CalledProcessError(result.returncode, "control")
+        docker.run = run
+        with self.assertRaises(subprocess.CalledProcessError):
+            docker.control(OLD)
 
     def test_same_revision_is_an_idempotent_noop(self):
         self.docker.states[OLD]["commit"] = COMMIT
