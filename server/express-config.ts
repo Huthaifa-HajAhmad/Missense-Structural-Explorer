@@ -12,6 +12,7 @@ import { apiRouter } from "./routes.ts";
 import { sendError } from "./utils.ts";
 import { createSpaShellHandler, setStaticShellHeaders } from "./spa-shell-cache.ts";
 import { CONFIG, validateStartupEnvironment } from "./config.ts";
+import { installDeploymentControl } from "./deployment-control.ts";
 
 export { validateStartupEnvironment };
 
@@ -23,6 +24,7 @@ export async function createExpressApp(): Promise<express.Express> {
   validateStartupEnvironment();
 
   const app = express();
+  installDeploymentControl(app);
 
   // Set trust proxy for reverse proxies (GCP LB or Caddy)
   app.set("trust proxy", 1);

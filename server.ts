@@ -24,6 +24,7 @@ import { createExpressApp } from "./server/express-config.ts";
 import { registerGracefulShutdown } from "./server/graceful-shutdown.ts";
 import { activeBackgroundTasks } from "./server/routes.ts";
 import { CONFIG } from "./server/config.ts";
+import { initialDeploymentPaused } from "./server/deployment-role.ts";
 
 /**
  * Initializes audit log directory and purges stale logs (>30 days old).
@@ -36,7 +37,7 @@ async function initAuditLogs(): Promise<void> {
     if (!fs.existsSync(logFile)) {
       await fs.promises.writeFile(logFile, "", "utf8");
     }
-    const purged = await AuditLogger.purgeExpiredLogs(CONFIG.limits.maxAuditLogAgeDays);
+    const purged = initialDeploymentPaused() ? 0 : await AuditLogger.purgeExpiredLogs(CONFIG.limits.maxAuditLogAgeDays);
     if (purged > 0) {
       console.log(`[Startup] Purged ${purged} expired audit log entries (> ${CONFIG.limits.maxAuditLogAgeDays} days old).`);
     }
