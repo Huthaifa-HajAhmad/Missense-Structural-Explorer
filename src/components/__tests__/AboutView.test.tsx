@@ -117,7 +117,9 @@ describe("AboutView — attribution and acknowledgments", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /copy reference/i }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/copy failed/i);
+    // Two live regions exist (the credit toolbar and the citation block); the failure belongs to
+    // the citation block, and is asserted there.
+    expect(await screen.findByText(/copy failed — select the text above/i)).toBeTruthy();
   });
 
   it("survives a browser with no clipboard API at all", async () => {
@@ -135,7 +137,9 @@ describe("AboutView — attribution and acknowledgments", () => {
 
     // No unhandled rejection, and the reader is told rather than shown a button that
     // silently did nothing.
-    expect(await screen.findByRole("status")).toHaveTextContent(/copy failed/i);
+    // Two live regions exist (the credit toolbar and the citation block); the failure belongs to
+    // the citation block, and is asserted there.
+    expect(await screen.findByText(/copy failed — select the text above/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /copy bibtex/i })).toBeTruthy();
   });
 
@@ -165,6 +169,60 @@ describe("AboutView — attribution and acknowledgments", () => {
         : revision.weights || id;
       expect(row!.textContent, `${revision.model} is missing its revision`).toContain(expected);
     }
+  });
+
+  it("filters the roll, keeps every group anchor alive, and says how many are shown", () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/filter sources/i), { target: { value: "foldx" } });
+
+    expect(document.getElementById("credit-foldx")).not.toBeNull();
+    expect(document.getElementById("credit-gnomad")).toBeNull();
+    // A group with no matches collapses but stays mounted, so its contents link still resolves.
+    for (const group of ATTRIBUTION_GROUPS) {
+      expect(document.getElementById(group.id), `${group.id} unmounted by the filter`).not.toBeNull();
+    }
+    expect(screen.getByText(/showing \d+ of \d+/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/filter sources/i), { target: { value: "zzz-no-such-source" } });
+    expect(screen.getByText(/no credited source matches/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
+    expect(document.getElementById("credit-gnomad")).not.toBeNull();
+  });
+
+  it("filters by kind with a pressed state a screen reader can read", () => {
+    renderPage();
+    const models = screen.getByRole("button", { name: /^model\s*\d+$/i });
+    fireEvent.click(models);
+    expect(models.getAttribute("aria-pressed")).toBe("true");
+    const shown = ATTRIBUTION_GROUPS.flatMap((group) => group.entries).filter(
+      (entry) => document.getElementById(`credit-${entry.id}`)
+    );
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.every((entry) => entry.kind === "model")).toBe(true);
+  });
+
+  it("flags the manifest releases its own credits say are not established", () => {
+    // The rail prints the manifest verbatim; without the flag it would state dbNSFP "4.4a" as
+    // fact beside a credit that says the release is unresolved.
+    renderPage();
+    for (const id of ["dbnsfp", "clinvar"]) {
+      const link = document.querySelector(`.about-kv-link[href="#credit-${id}"]`);
+      expect(link, `${id} manifest row is not flagged`).not.toBeNull();
+    }
+  });
+
+  it("keeps every element id unique", () => {
+    renderPage();
+    const ids = Array.from(document.querySelectorAll("[id]")).map((element) => element.id);
+    const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+    expect(dupes).toEqual([]);
+  });
+
+  it("opens a workspace view from the map when navigation is wired", () => {
+    const onNavigateToView = vi.fn();
+    render(<AboutView onNavigateToView={onNavigateToView} />);
+    fireEvent.click(screen.getByRole("button", { name: /energetics/i }));
+    expect(onNavigateToView).toHaveBeenCalledWith("energetics");
   });
 
   it("still routes to the data and cache management the guide promises", () => {

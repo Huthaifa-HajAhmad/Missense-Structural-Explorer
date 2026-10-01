@@ -45,6 +45,12 @@ export interface AttributionEntry {
    * establishes none — the page then says so explicitly.
    */
   release: string | null;
+  /**
+   * Why the release is what it is, when that needs saying — most often because the manifest
+   * declares a string the code does not establish. Rendered under the release, never inside it,
+   * so a version column never has to hold a paragraph.
+   */
+  releaseNote?: string;
   /** Full citation as it should appear in a report bibliography. `null` when none fits. */
   citation: string | null;
   /**
@@ -72,7 +78,7 @@ export interface AttributionGroup {
  * Group 1 — the evidence floor.
  *
  * Everything here answers "what is already known about this variant" before a model runs.
- * Two entries (`myvariant`, `genos`) exist only as fallbacks, and one (`string-db`) is
+ * Two entries (`myvariant`, `genos`) are supplementary routes, and one (`string-db`) is
  * recorded as deliberately unpinned: the client queries a live endpoint and never reads a
  * version, so the page must not print one.
  */
@@ -102,7 +108,8 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
      * from NCBI. It is repeated here only so the reader can see exactly what the workspace
      * claims for itself, and not because the value was observed.
      */
-    release: "Not established by this code. \"2024-latest\" is a hand-maintained cache-key string, not a version read from NCBI.",
+    release: null,
+    releaseNote: "The manifest's \"2024-latest\" is a hand-maintained cache-key string, not a version read back from NCBI.",
     citation:
       "Landrum, M. J., et al. (2020). ClinVar: improvements to accessing data. Nucleic Acids Research 48, D835–D844. https://doi.org/10.1093/nar/gkz972",
     usedBy: ["server/services/external-api/clinvar.ts"]
@@ -121,7 +128,8 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
      * name disagree and the code establishes neither. A reader told "4.4a" would have no way
      * to know that.
      */
-    release: "Not established by this code. The cache-key registry declares \"4.4a\"; the local ingest writes data/dbnsfp_v5.sqlite. The release held locally is unresolved — see doc/ARCHITECTURE.md.",
+    release: null,
+    releaseNote: "The manifest declares \"4.4a\", but the local ingest writes data/dbnsfp_v5.sqlite. Which release is held locally is unresolved — see doc/ARCHITECTURE.md §6.",
     citation:
       "Liu, H., et al. (2020). dbNSFP v4: a comprehensive database of transcript-specific functional predictions and annotations for human nonsynonymous and splice-site SNVs. Genome Medicine 12, 103. https://doi.org/10.1186/s13073-020-00803-9",
     licence:
@@ -193,12 +201,24 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     name: "RCSB Protein Data Bank",
     provider: "wwPDB (RCSB PDB)",
     kind: "dataset",
-    role: "Experimental structures, the best-structure mapping that prefers a real crystal or cryo-EM entry when one covers the residue, and the sequence homolog search behind the comparison structures.",
+    role: "Experimental coordinate files, entry metadata, and the sequence homolog search behind the comparison structures. Which entry best covers a residue is decided by PDBe's mapping (below), not here.",
     url: "https://www.rcsb.org/",
     release: null,
     citation:
       "Berman, H. M., et al. (2000). The Protein Data Bank. Nucleic Acids Research 28, 235–242. https://doi.org/10.1093/nar/28.1.235",
     usedBy: ["server/services/structure/structure-fetcher.ts", "server/services/structure/pocket/runner.ts"]
+  },
+  {
+    id: "pdbe",
+    name: "PDBe and SIFTS mappings",
+    provider: "Protein Data Bank in Europe (EMBL-EBI)",
+    kind: "service",
+    role: "The best-structure ranking that prefers an experimental entry when one covers the residue, the UniProt-to-PDB residue mappings an alignment is checked against, and the interface residues behind the protein-interactions panel.",
+    url: "https://www.ebi.ac.uk/pdbe/",
+    release: null,
+    citation:
+      "Armstrong, D. R., et al. (2020). PDBe: improved findability of macromolecular structure data in the PDB. Nucleic Acids Research 48, D335–D343. https://doi.org/10.1093/nar/gkz990",
+    usedBy: ["server/services/structure/structure-fetcher.ts", "server/services/structure/sequence-aligner.ts", "server/services/external-api/pdbe-interfaces.ts"]
   },
   {
     id: "string-db",
@@ -217,7 +237,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
   {
     id: "spliceai",
     name: "SpliceAI Lookup",
-    provider: "Broad Institute (Illumina)",
+    provider: "Broad Institute (lookup service); the SpliceAI model is Illumina's",
     kind: "dataset",
     role: "Donor and acceptor gain/loss delta scores (DS_AG, DS_AL, DS_DG, DS_DL) around a variant, plus the reference distance the junction geometry is measured against.",
     url: "https://spliceailookup.broadinstitute.org/",
@@ -225,6 +245,18 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     citation:
       "Jaganathan, K., et al. (2019). Predicting splicing from primary sequence with deep learning. Cell 176, 535–548. https://doi.org/10.1016/j.cell.2018.12.015",
     usedBy: ["server/services/external-api/spliceai_broad.ts", "server/services/prediction/predictors/conservation-orchestrator.ts"]
+  },
+  {
+    id: "ucsc",
+    name: "UCSC Genome Browser API",
+    provider: "UCSC Genomics Institute, University of California, Santa Cruz",
+    kind: "service",
+    role: "Exon boundaries from the hg38 gene-annotation tracks, read in a window around the variant so the splice geometry is measured against real junctions rather than inferred ones.",
+    url: "https://genome.ucsc.edu/goldenPath/help/api.html",
+    release: "hg38 annotation tracks, read live",
+    citation:
+      "Kent, W. J., et al. (2002). The human genome browser at UCSC. Genome Research 12, 996–1006. https://doi.org/10.1101/gr.229102",
+    usedBy: ["server/services/prediction/splice_resolver.ts"]
   },
   {
     id: "dbscsnv",
@@ -261,6 +293,18 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     citation:
       "Orenbuch, R., et al. (2025). Proteome-wide model for human disease genetics. Nature Genetics 57, 3165–3174. https://doi.org/10.1038/s41588-025-02400-1",
     usedBy: ["server/services/prediction/predictors/popeve-resolver.ts", "scripts/setup-popeve.sh"]
+  },
+  {
+    id: "genos",
+    name: "Genos",
+    provider: "Genos (query.genos.us)",
+    kind: "service",
+    role: "A supplementary, credentialed variant-annotation query, consulted beside the primary routes when a deployment configures an account. Calls are serialised through one rate-limited queue because the service throttles per account.",
+    url: "https://query.genos.us/",
+    release: null,
+    citation: null,
+    licence: "Requires a Genos account configured for this deployment (GENOS_EMAIL, GENOS_ACCESS_KEY); without one the route is skipped.",
+    usedBy: ["server/services/external-api/genos_web.ts", "server/services/external-api/core-data-fetcher.ts"]
   }
 ];
 /**
@@ -298,6 +342,30 @@ const MODEL_SOURCES: AttributionEntry[] = [
     usedBy: ["server/services/external-api/esmc.ts", "server/services/external-api/esm3_forge.ts", "server/services/structure/esmfold.ts"]
   },
   {
+    id: "esmfold",
+    name: "ESMFold",
+    provider: "Meta FAIR (Fundamental AI Research)",
+    kind: "model",
+    role: "De novo wild-type folding for the ESMFold view, from sequence alone. Served by JapanFold or EvolutionaryScale Forge when available, falling back to the keyless ESM Metagenomic Atlas endpoint; the engine that answered is recorded with the structure.",
+    url: "https://esmatlas.com/about",
+    release: "Engine recorded per structure — the workspace pins no revision",
+    citation:
+      "Lin, Z., et al. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. Science 379, 1123–1130. https://doi.org/10.1126/science.ade2574",
+    usedBy: ["server/services/structure/esmfold.ts"]
+  },
+  {
+    id: "boltz2",
+    name: "Boltz-2",
+    provider: "Boltz team (MIT Jameel Clinic) with Recursion",
+    kind: "model",
+    role: "Complex structure prediction: the variant complex on the Multimer tab and the wild-type complex that DDMut-PPI scores on the Protein interactions tab. Run on the JapanFold execution tier.",
+    url: "https://github.com/jwohlwend/boltz",
+    release: null,
+    citation:
+      "Passaro, S., Corso, G., Wohlwend, J., et al. (2025). Boltz-2: towards accurate and efficient binding affinity prediction. bioRxiv. https://doi.org/10.1101/2025.06.14.659707",
+    usedBy: ["server/services/external-api/japanfold-client.ts", "server/services/structure/multimer.ts"]
+  },
+  {
     id: "saprot",
     name: "SaProt 650M AF2",
     provider: "Westlake University",
@@ -318,7 +386,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     url: "https://github.com/ntranoslab/vesm",
     release: "ntranoslab/vesm · VESM_150M.pth (see the provenance rail)",
     citation:
-      "Dinh, T., et al. (2026). Compressing the collective knowledge of ESM into a single protein language model. Nature Methods. https://doi.org/10.1038/s41592-026-03050-9",
+      "Dinh, T., et al. (2026). Compressing the collective knowledge of ESM into a single protein language model. Nature Methods 23, 772–784. https://doi.org/10.1038/s41592-026-03050-9",
     usedBy: ["tools/model_server.py", "src/shared/perturbationModels.ts"]
   },
   {
@@ -342,7 +410,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     url: "https://deepmind.google.com/science/alphagenome/",
     release: "AlphaGenome Atlas (live service; the workspace pins no revision)",
     citation:
-      "Avsec, Ž., et al. (2025). Advancing regulatory variant effect prediction with AlphaGenome. Nature. https://doi.org/10.1038/s41586-025-10014-0",
+      "Avsec, Ž., et al. (2026). Advancing regulatory variant effect prediction with AlphaGenome. Nature 649, 1206–1218. https://doi.org/10.1038/s41586-025-10014-0",
     usedBy: ["server/services/external-api/alphagenome-bridge.ts", "src/shared/assembly.ts"]
   },
   {
@@ -366,7 +434,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     url: "https://evemodel.org/",
     release: null,
     citation:
-      "Frazer, J., et al. (2021). Disease variant prediction with deep generative models of evolutionary data. Nature 599, 91–99. https://doi.org/10.1038/s41586-021-04043-8",
+      "Frazer, J., et al. (2021). Disease variant prediction with deep generative models of evolutionary data. Nature 599, 91–95. https://doi.org/10.1038/s41586-021-04043-8",
     usedBy: ["server/services/prediction/predictors/popeve-resolver.ts"]
   },
   {
@@ -384,7 +452,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
   {
     id: "cadd",
     name: "CADD",
-    provider: "Kircher laboratory, University of Washington",
+    provider: "Kircher (Berlin Institute of Health) and Shendure (University of Washington) laboratories",
     kind: "model",
     role: "PHRED-scaled deleteriousness integrating conservation, epigenetic and functional annotations; reported as a supporting in-silico signal.",
     url: "https://cadd.gs.washington.edu/",
@@ -481,7 +549,7 @@ const ENGINE_SOURCES: AttributionEntry[] = [
   {
     id: "dynamut2",
     name: "DynaMut2",
-    provider: "Rodrigues, Pires & Ascher, University of Melbourne",
+    provider: "Ascher laboratory (Biosig), University of Queensland",
     kind: "service",
     role: "Second ΔΔG opinion, from normal-mode analysis of protein flexibility combined with a machine-learning regressor trained on experimental stability data.",
     url: "https://biosig.lab.uq.edu.au/dynamut2/",
@@ -492,14 +560,14 @@ const ENGINE_SOURCES: AttributionEntry[] = [
   },
   {
     id: "ddmut",
-    name: "DDMut",
-    provider: "Zhou et al., University of Melbourne",
+    name: "DDMut and DDMut-PPI",
+    provider: "Ascher laboratory (Biosig), University of Queensland",
     kind: "service",
-    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; one of the engines counted in the Energetics agreement (not independent of the others: same template, overlapping training data).",
+    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; one of the engines counted in the Energetics agreement (not independent of the others: same template, overlapping training data). DDMut-PPI scores the change in binding energy across the interface on the Protein interactions tab.",
     url: "https://biosig.lab.uq.edu.au/ddmut/",
     release: null,
     citation:
-      "Zhou, Y., Pan, Q., Pires, D. E. V., Rodrigues, C. H. M., & Ascher, D. B. (2023). DDMut: predicting effects of mutations on protein stability using deep learning. Nucleic Acids Research 51, W122–W128. https://doi.org/10.1093/nar/gkad472",
+      "Zhou, Y., Pan, Q., Pires, D. E. V., Rodrigues, C. H. M., & Ascher, D. B. (2023). DDMut: predicting effects of mutations on protein stability using deep learning. Nucleic Acids Research 51, W122–W128. https://doi.org/10.1093/nar/gkad472 · Zhou, Y., et al. (2024). DDMut-PPI: predicting effects of mutations on protein–protein interactions using graph-based deep learning. Nucleic Acids Research 52, W207–W214. https://doi.org/10.1093/nar/gkae412",
     usedBy: ["server/services/stability/ddmut-ppi.ts", "server/services/stability/energy-models.ts"]
   },
   {
@@ -527,6 +595,18 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     licence:
       "The lookup table is built from the authors' published datasets — Zenodo 10.5281/zenodo.6835877 and, optionally, the proteome predictions at sid.erda.dk/sharelink/fFPJWflLeE (see scripts/build-rasp-sqlite.ts). Cite the dataset as well as the paper when redistributing the table itself.",
     usedBy: ["scripts/build-rasp-sqlite.ts", "server/services/stability/energy-models.ts"]
+  },
+  {
+    id: "thermompnn",
+    name: "ThermoMPNN",
+    provider: "Kuhlman laboratory, University of North Carolina (served by Tamarind Bio)",
+    kind: "model",
+    role: "ΔΔG from a ProteinMPNN-based transfer-learning model, submitted as a job to Tamarind Bio and polled. Optional: it runs only when a Tamarind credential is configured.",
+    url: "https://github.com/Kuhlman-Lab/ThermoMPNN",
+    release: null,
+    citation:
+      "Dieckhaus, H., Brocidiacono, M., Randolph, N. Z., & Kuhlman, B. (2024). Transfer learning to leverage larger datasets for improved prediction of protein stability changes. PNAS 121, e2314853121. https://doi.org/10.1073/pnas.2314853121",
+    usedBy: ["server/services/stability/energy-models.ts", "server/services/stability/biophysics-bridge.ts"]
   },
   {
     id: "p2rank",
@@ -694,7 +774,7 @@ export const QUERY_TRANSMISSION = {
     { host: "eutils.ncbi.nlm.nih.gov", sent: "Gene symbol, variant term, publication id", note: "ClinVar and PubMed lookups." },
     { host: "rest.uniprot.org", sent: "Gene symbol or UniProt accession", note: "Returns the canonical sequence and the curated feature annotations." },
     { host: "gnomad.broadinstitute.org", sent: "Variant id (chromosome–position–ref–alt) and gene symbol", note: null },
-    { host: "api.genome.ucsc.edu", sent: "Gene symbol or genomic coordinate", note: "Genome sequence and annotation used to resolve the splice architecture." },
+    { host: "api.genome.ucsc.edu", sent: "Genomic window (hg38 chromosome, start, end) and an annotation track name", note: "Exon boundaries used to resolve the splice architecture." },
     { host: "consurfdb.tau.ac.il", sent: "PDB identifier and residue selection", note: "Conservation grading for the sequence track." },
     { host: "query.dbnsfp.org", sent: "Gene symbol and protein change", note: "Used only when the local dbNSFP ingest is absent; the columns are otherwise read from the local SQLite file." },
     { host: "alphafold.ebi.ac.uk · files.rcsb.org · search.rcsb.org · data.rcsb.org", sent: "UniProt accession or PDB id", note: "Structure retrieval only — no variant data." },
@@ -705,8 +785,9 @@ export const QUERY_TRANSMISSION = {
     { host: "huggingface.co · api.japanfold.aiand.com · forge.evolutionaryscale.ai · biohub.ai", sent: "Sequence, structure payloads, model weight downloads", note: "Structure-aware model execution. The Biohub / EvolutionaryScale tier is optional and falls back to the local VESM model. Server-side encode calls go to forge.evolutionaryscale.ai, falling back to biohub.ai." },
     { host: "api.esmatlas.com", sent: "Amino-acid sequence", note: "Keyless de novo folding fallback, used when no Biohub token is configured." },
     { host: "app.tamarind.bio", sent: "Structure coordinates and the mutation string", note: "ThermoMPNN job submission; requires a credential." },
+    { host: "biosig.lab.uq.edu.au", sent: "Structure coordinates (PDB upload) and the mutation string", note: "DynaMut2, DDMut and DDMut-PPI. The whole modelled structure leaves the machine, uploaded to a server in Australia." },
     { host: "deepmind.google.com", sent: "GRCh38 interval", note: "GRCh38 only — a GRCh37 coordinate is refused here rather than sent." },
-    { host: "www.ebi.ac.uk", sent: "Literature text query and gene symbol", note: "Europe PMC's RESTful search endpoint." },
+    { host: "www.ebi.ac.uk", sent: "Literature text query and gene symbol; UniProt accession", note: "Europe PMC's search endpoint, and the PDBe API for structure mappings and interface residues." },
     { host: "generativelanguage.googleapis.com", sent: "The assembled evidence bundle for this run, plus your optional directions field", note: "Directions are screened for identifiers before they are sent, and that screening is best-effort — never type patient data into that field." }
   ]
 } as const;
@@ -734,7 +815,7 @@ export const ATTRIBUTION_GROUPS: AttributionGroup[] = [
     id: "about-engines",
     title: "Structure, energetics and cavity engines",
     blurb:
-      "The biophysics: one empirical force field, four learned ΔΔG estimators, one structure-aware stability model and one cavity detector. Their agreement — and their disagreement — is what the consensus verdict is built from.",
+      "The biophysics: an empirical force field (FoldX), learned ΔΔG estimators (DynaMut2, DDMut, StabilityOracle, RaSP, ThermoMPNN) and a cavity detector (P2Rank). The estimators' agreement — and their disagreement — is what the consensus verdict is built from.",
     entries: ENGINE_SOURCES
   },
   {

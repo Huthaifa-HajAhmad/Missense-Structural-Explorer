@@ -619,7 +619,7 @@ export function AppViews({
                 name="About View"
                 onError={createErrorHandler("About View")}
               >
-                <AboutView onOpenOnboarding={onOpenOnboarding} />
+                <AboutView onOpenOnboarding={onOpenOnboarding} onNavigateToView={setMasterView} />
               </ErrorBoundary>
             )}
           </div>
