@@ -3,13 +3,15 @@ import { AnalysisResult } from "../types";
 import { parseVariantCoordinate } from "../shared/variantCoordinate";
 import { variantNumberingView } from "../shared/numbering";
 import { THRESHOLDS } from "../shared/thresholds";
-import { ExternalLink, Copy, Check, Dna, MapPin, FlaskConical, Scissors } from "lucide-react";
+import { ExternalLink, Copy, Check, Scissors } from "lucide-react";
 
 interface VariantHeaderProps {
   gene: string;
   variant: string;
   uniprotId: string;
   analysisResult: AnalysisResult | null;
+  /** One-line form, used once the page scrolls: identity plus the three values, nothing else. */
+  compact?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -50,6 +52,13 @@ interface VhMetric {
   tone: VhTone;
   verdict: string;
   domain: readonly [number, number];
+  /**
+   * Draw the axis high-to-low. Every track reads tolerant on the left and constrained on the
+   * right; LOEUF and O/E fall as constraint rises, so their axes run backwards. Without this the
+   * Missense Z row ran green-to-red and the LOEUF row under it red-to-green, and the reader had to
+   * flip the meaning of "right" between adjacent rows.
+   */
+  reversed: boolean;
   bands: VhBand[];
   ticks: VhTick[];
   /** Raw metric value plotted on the track, or null when unmeasured. */
@@ -67,9 +76,15 @@ function vhPct(value: number, [lo, hi]: readonly [number, number]): number {
   return ((value - lo) / (hi - lo)) * 100;
 }
 
+/** Position of a value on a metric's track, honouring the axis direction. */
+function vhPos(value: number, metric: Pick<VhMetric, "domain" | "reversed">): number {
+  const pct = vhPct(value, metric.domain);
+  return metric.reversed ? 100 - pct : pct;
+}
+
 /** Marker position, clamped so the dot never falls off either end of the track. */
-function vhMarkerPct(value: number, domain: readonly [number, number]): number {
-  return Math.max(2.5, Math.min(97.5, vhPct(value, domain)));
+function vhMarkerPct(value: number, metric: Pick<VhMetric, "domain" | "reversed">): number {
+  return Math.max(2.5, Math.min(97.5, vhPos(value, metric)));
 }
 
 const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
@@ -124,6 +139,7 @@ function buildMissenseZMetric(
 ): VhMetric {
   const domains = {
     domain: MISSENSE_Z_DOMAIN,
+    reversed: false,
     bands: [
       { from: 0, to: 2.0, tone: "good" as VhTone },
       { from: 2.0, to: 3.09, tone: "warn" as VhTone },
@@ -190,6 +206,7 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
   const constrained = THRESHOLDS.loeuf.pathogenicSupporting;
   const domains = {
     domain: LOEUF_DOMAIN,
+    reversed: true,
     bands: [
       { from: 0, to: strong, tone: "path" as VhTone },
       { from: strong, to: constrained, tone: "warn" as VhTone },
@@ -248,6 +265,7 @@ function buildRmcMetric(
   // carries only the neutral O/E = 1.0 baseline and the observed ratio.
   const domains = {
     domain: RMC_DOMAIN,
+    reversed: true,
     bands: [] as VhBand[],
     ticks: [{ at: 1.0, label: "1.0" }],
   };
@@ -398,8 +416,16 @@ function CopyBtn({ text, label }: { text: string; label: string }) {
  * beside it name those ticks in left-to-right order.
  */
 function ConstraintMetric({ metric }: { metric: VhMetric }) {
-  const { domain, bands, ticks, marker, tone } = metric;
-  const markerLeft = marker === null ? null : vhMarkerPct(marker, domain);
+  const { bands, ticks, marker, tone } = metric;
+  const markerLeft = marker === null ? null : vhMarkerPct(marker, metric);
+  // DOM order follows the drawn order, left to right, whichever way the axis runs.
+  const drawnBands = bands
+    .map((band) => {
+      const a = vhPos(band.from, metric);
+      const b = vhPos(band.to, metric);
+      return { band, left: Math.min(a, b), width: Math.abs(b - a) };
+    })
+    .sort((x, y) => x.left - y.left);
 
   return (
     <li className="vh-metric" title={metric.tooltip}>
@@ -410,24 +436,21 @@ function ConstraintMetric({ metric }: { metric: VhMetric }) {
 
       <span className="vh-scale" data-empty={marker === null ? "true" : undefined} aria-hidden="true">
         <span className="vh-scale-bar">
-          {bands.map((band) => (
+          {drawnBands.map(({ band, left, width }) => (
             <span
               key={`${band.from}-${band.to}`}
               className="vh-band"
               data-tone={band.tone}
-              style={{
-                left: `${vhPct(band.from, domain)}%`,
-                width: `${vhPct(band.to, domain) - vhPct(band.from, domain)}%`,
-              }}
+              style={{ left: `${left}%`, width: `${width}%` }}
             />
           ))}
         </span>
         {ticks.map((tick) => (
-          <span key={tick.at} className="vh-tick" style={{ left: `${vhPct(tick.at, domain)}%` }} />
+          <span key={tick.at} className="vh-tick" style={{ left: `${vhPos(tick.at, metric)}%` }} />
         ))}
         {markerLeft !== null && <span className="vh-marker" data-tone={tone} style={{ left: `${markerLeft}%` }} />}
         {ticks.map((tick) => (
-          <span key={`label-${tick.at}`} className="vh-axis-label" style={{ left: `${vhPct(tick.at, domain)}%` }}>
+          <span key={`label-${tick.at}`} className="vh-axis-label" style={{ left: `${vhPos(tick.at, metric)}%` }}>
             {tick.label}
           </span>
         ))}
@@ -446,7 +469,24 @@ function ConstraintMetric({ metric }: { metric: VhMetric }) {
 // Main component
 // ─────────────────────────────────────────────
 
-function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHeaderProps) {
+/** The one-line form's metric run: label and value only, the tone carried by the value. */
+function CompactMetrics({ metrics }: { metrics: VhMetric[] }) {
+  return (
+    <ul className="vh-compact-metrics" role="list" aria-label="Gene constraint, gnomAD v2">
+      {metrics.map((metric) => (
+        <li key={metric.key} className="vh-compact-metric" title={metric.tooltip}>
+          <span className="vh-compact-label">{metric.label}</span>
+          <span className="vh-compact-value" data-tone={metric.tone}>
+            {metric.value}
+          </span>
+          <span className="vh-sr-only">{metric.verdict}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function VariantHeader({ gene, variant, uniprotId, analysisResult, compact = false }: VariantHeaderProps) {
   const gnomad = analysisResult?.gnomadConstraint;
   const predictorData = analysisResult?.predictorData;
   const conservation = analysisResult?.conservationData;
@@ -483,7 +523,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
   // wrong-build id pasted into another tool scores a different locus.
   const genomicId = predictorData?.gnomadVariantId ?? null;
   const genomicAssembly = predictorData?.gnomadVariantAssembly ?? null;
-  const assemblyTag = genomicAssembly === "GRCh37" ? "hg19" : genomicAssembly === "GRCh38" ? "hg38" : null;
+  const assemblyKey = genomicAssembly === "GRCh37" || genomicAssembly === "GRCh38" ? genomicAssembly : null;
   const genomicTitle = `${genomicAssembly ?? "Build not reported"} genomic coordinates ${genomicId ?? ""}`.trim();
 
   // HGVS formatted variant notation
@@ -539,27 +579,46 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
     displayTranscriptId || genomicId || uniprotId || spliceProximity?.isNearSpliceSite
   );
 
+  const identity = (
+    <div className="variant-header-identity">
+      <span className="variant-header-gene">{gene}</span>
+      {headlineVariant && (
+        <span className="variant-header-hgvs">
+          {headlineVariant}
+          <CopyBtn text={headlineVariant} label="variant notation" />
+        </span>
+      )}
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div className="variant-header" data-compact="true" role="banner" aria-label="Active variant">
+        {identity}
+        {transcriptTier.label && (
+          <span className="vh-compact-tier" data-tone={transcriptTier.tone} title={transcriptTitle}>
+            {transcriptTier.label}
+          </span>
+        )}
+        {metrics.length > 0 && <CompactMetrics metrics={metrics} />}
+      </div>
+    );
+  }
+
   return (
     <div className="variant-header" role="banner" aria-label="Active variant">
       {/* ── Band 1 · the variant's identity ── */}
       <div className="variant-header-top">
-        <div className="variant-header-identity">
-          <span className="variant-header-gene">{gene}</span>
-          {headlineVariant && (
-            <span className="variant-header-hgvs">
-              {headlineVariant}
-              <CopyBtn text={headlineVariant} label="variant notation" />
-            </span>
-          )}
-        </div>
+        {identity}
 
-        {/* Lineage identifiers sit directly under the gene — the header centres
-            this whole block against the metric group, so nothing floats. */}
+        {/* Lineage identifiers sit directly under the gene as one plain meta line. Each entry
+            names itself in words ("GRCh38", "UniProt") rather than with an icon a reader has to
+            decode, and entries are separated by gap alone, so a wrapped line never opens with a
+            stray separator. */}
         {hasIdentifiers && (
           <div className="vh-identifiers" aria-label="Lineage and identifiers">
             {displayTranscriptId && (
               <span className="vh-chip" title={transcriptTitle}>
-                <Dna className="vh-chip-icon" size={12} strokeWidth={1.75} aria-hidden="true" />
                 <span className="vh-sr-only">Transcript </span>
                 <span className="vh-chip-value">{displayTranscriptId}</span>
                 {transcriptTier.label && (
@@ -573,18 +632,19 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
 
             {genomicId && (
               <span className="vh-chip" title={genomicTitle}>
-                <MapPin className="vh-chip-icon" size={12} strokeWidth={1.75} aria-hidden="true" />
                 <span className="vh-sr-only">{genomicAssembly ? `${genomicAssembly} coordinates ` : "Coordinates, build not reported, "}</span>
+                {/* The build named the way the field names it ("hg38" is UCSC shorthand). A build
+                    that was not reported gets no key at all rather than a guess. */}
+                {assemblyKey && <span className="vh-chip-key" aria-hidden="true">{assemblyKey}</span>}
                 <span className="vh-chip-value">{genomicId}</span>
-                {assemblyTag && <span className="vh-chip-key">{assemblyTag}</span>}
                 <CopyBtn text={genomicId} label="genomic coordinates" />
               </span>
             )}
 
             {uniprotId && (
               <span className="vh-chip" title={`UniProt protein accession ${uniprotId}`}>
-                <FlaskConical className="vh-chip-icon" size={12} strokeWidth={1.75} aria-hidden="true" />
                 <span className="vh-sr-only">UniProt accession </span>
+                <span className="vh-chip-key" aria-hidden="true">UniProt</span>
                 <span className="vh-chip-value">{uniprotId}</span>
                 <a
                   href={`https://www.uniprot.org/uniprotkb/${encodeURIComponent(uniprotId)}/entry`}
@@ -599,6 +659,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
               </span>
             )}
 
+            {/* The one alert on the line, so it is the one entry that keeps an icon. */}
             {spliceProximity?.isNearSpliceSite && (
               <span
                 className="vh-chip vh-chip--alert"
@@ -618,26 +679,13 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
           </div>
         )}
 
-        {/* Modelled-basis phrase: its own line under the identifiers, in the
-            header's soft verdict-fill grammar (clay = caution, not error) so the
-            remap reads as a stated fact, not inline noise beside the HGVS.
-            Inline style, like the rest of this header: the stylesheet it would
-            live in is edited concurrently. */}
+        {/* Modelled-basis phrase: its own line under the identifiers, in the header's soft clay
+            fill (caution, not error) so the remap reads as a stated fact, not inline noise. */}
         {numbering.remapped && (
           <span
             className="variant-header-numbering-basis"
             data-testid="modelled-basis"
             title={numbering.basisNote ?? undefined}
-            style={{
-              fontFamily: "var(--cs-font-mono)",
-              fontSize: "10px",
-              fontWeight: 500,
-              color: "var(--vh-clay-fg)",
-              background: "var(--vh-clay-soft)",
-              padding: "2px 6px",
-              borderRadius: "4px",
-              alignSelf: "flex-start",
-            }}
           >
             modelled as {numbering.modelled}
             {uniprotId ? ` on canonical ${uniprotId}` : ""}
@@ -645,12 +693,21 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
         )}
       </div>
 
-      {/* ── Band 2 · gnomAD v2 constraint list: one row per metric ──
-          No caption: the list's aria-label and each row's tooltip already carry
-          the gnomAD v2 / gene-constraint provenance, so a headline would only add
-          a fourth line to a three-row group. */}
+      {/* ── Band 2 · gnomAD v2 gene constraint: a scope caption, then one row per metric ──
+          The caption is not decoration. Without it a green "tolerant" printed beside the HGVS
+          reads as a call on the variant; these are facts about the gene. Its right-hand cell
+          sits over the track column and names the shared axis direction. */}
       {metrics.length > 0 && (
         <div className="vh-rail">
+          <div className="vh-rail-head">
+            <span className="vh-rail-title">
+              Gene constraint <span className="vh-rail-source">· gnomAD v2</span>
+            </span>
+            <span className="vh-rail-axis" aria-hidden="true">
+              <span>tolerant</span>
+              <span>constrained →</span>
+            </span>
+          </div>
           {/* role="list" is explicit because `list-style: none` drops list semantics in
               WebKit, so VoiceOver would otherwise not announce "list, 3 items". */}
           <ul

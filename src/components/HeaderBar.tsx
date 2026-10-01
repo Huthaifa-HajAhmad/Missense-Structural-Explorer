@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MasterView, MASTER_VIEW_ITEMS, isViewActive } from "./MasterSidebar";
 import {
-  AlertTriangle, KeyRound, X, Settings, Sun, Moon, PanelLeft, CircleHelp, Search, Link2, Check, WifiOff,
+  MasterView, MASTER_VIEW_ITEMS, EVIDENCE_SUB_ITEMS, STRUCTURE_SUB_ITEMS, isViewActive,
+} from "./MasterSidebar";
+import {
+  AlertTriangle, KeyRound, X, Settings, Sun, Moon, PanelLeft, CircleHelp, Search, Link2, Check, WifiOff, ChevronRight,
 } from "lucide-react";
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
@@ -13,6 +15,8 @@ interface HeaderBarProps {
   masterView: MasterView;
   isBiophysicalLoading: boolean;
   isOffline: boolean;
+  /** The Evidence sub-tab on screen, so the breadcrumb can name the page and not just the section. */
+  activeEvidenceTab?: string;
   /** Narrow-viewport drawer trigger (App gates it via matchMedia). */
   showNavToggle?: boolean;
   onToggleNavDrawer?: () => void;
@@ -29,18 +33,24 @@ interface HeaderBarProps {
 }
 
 /**
- * View titles, read from the sidebar's own registry so the header and the nav can never name the
- * same place differently (About and Console are registry rows now, so the old hand-written
- * "Developer Console" / "3D Structure" special cases — which had already drifted — are gone).
+ * The breadcrumb for the view on screen, read from the sidebar's own registries so the header and
+ * the nav can never name the same place differently. A single "Evidence" only repeated the sidebar's
+ * highlighted row; the sub-page ("Population data", "AlphaFold2") is the part the reader needs.
  */
-function viewTitle(view: MasterView): string {
-  return MASTER_VIEW_ITEMS.find(item => isViewActive(item.id, view))?.label ?? "";
+export function viewCrumbs(view: MasterView, evidenceTab?: string): string[] {
+  const section = MASTER_VIEW_ITEMS.find(item => isViewActive(item.id, view))?.label;
+  if (!section) return [];
+  const page =
+    view === "evidence"
+      ? EVIDENCE_SUB_ITEMS.find(item => item.id === evidenceTab)?.label
+      : STRUCTURE_SUB_ITEMS.find(item => item.id === view)?.label;
+  return page ? [section, page] : [section];
 }
 
 /* ──────────────────────────────────────────────────────────────────────────────────────────────
    Header layout — three zones on one 56px bar:
 
-     [nav] Title                 [ 🔍 Search or run a variant…   Ctrl K ]          notices · ⎘ ? ☾ ⚙
+     [nav] Section › Page        [ 🔍 Search or run a variant…   Ctrl K ]          notices · ⎘ ? ☾ ⚙
 
    Left says WHERE you are, centre is the one way IN (the palette, now labelled — the bare "Ctrl K"
    chip it replaces told nobody what it opened), right is state and global actions. Every icon
@@ -51,6 +61,7 @@ export function HeaderBar({
   masterView,
   isBiophysicalLoading,
   isOffline,
+  activeEvidenceTab,
   showNavToggle = false,
   onToggleNavDrawer,
   onOpenPalette,
@@ -99,7 +110,7 @@ export function HeaderBar({
     }
   };
 
-  const title = viewTitle(masterView);
+  const crumbs = viewCrumbs(masterView, activeEvidenceTab);
   /* One source for the chord label — the palette footer prints the same string. */
   const paletteHint = commandPaletteHint();
   const errorText = error?.replace(/^Error:\s*/i, "") ?? "";
@@ -122,10 +133,25 @@ export function HeaderBar({
         )}
         {/* Hidden on Search: the page's own H1 names it, and the header repeating it was the third
             copy of the same word on one screen. */}
-        {masterView !== "search" && title && (
-          <span className="text-[13px] font-medium text-cs-text-primary truncate" aria-current="page">
-            {title}
-          </span>
+        {masterView !== "search" && crumbs.length > 0 && (
+          <nav aria-label="Breadcrumb" className="min-w-0">
+            <ol className="flex items-center gap-1.5 min-w-0 text-[13px]">
+              {crumbs.map((crumb, i) => {
+                const isCurrent = i === crumbs.length - 1;
+                return (
+                  <li key={crumb} className={`flex items-center gap-1.5 min-w-0 ${isCurrent ? "" : "shrink-0"}`}>
+                    {i > 0 && <ChevronRight className="w-3.5 h-3.5 shrink-0 text-cs-text-muted" aria-hidden="true" />}
+                    <span
+                      className={isCurrent ? "font-medium text-cs-text-primary truncate" : "text-cs-text-muted"}
+                      aria-current={isCurrent ? "page" : undefined}
+                    >
+                      {crumb}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
         )}
       </div>
 

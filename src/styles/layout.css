@@ -170,15 +170,15 @@
 /* ============================================================
    GLOBAL VARIANT HEADER
    Two bare columns of type on one surface: the variant identity on the left
-   (gene, HGVS, then its lineage identifiers as a flat meta line) and the
-   gnomAD v2 constraint metrics on the right as etched rows. The header is
-   chrome, not content, so nothing in it is boxed: fills appear only on
-   verdicts (metric verdicts, transcript tier, splice alert), which keeps the
-   "needs attention" signal in exactly one visual grammar.
-   Inside the group each metric is one line — label, value, reference track,
-   verdict — with the threshold numbers sitting on the track under the ticks they
-   name. The track is where the old cards' "Normal: … / Severe: …" prose now
-   lives: reference bands, threshold ticks and a marker at the observed value.
+   (gene and HGVS at one optical size, then the lineage identifiers as a plain
+   meta line) and the gnomAD v2 GENE constraint on the right, under a caption
+   that says so. The header is chrome, not content, so nothing in it is boxed,
+   and nothing in it is a filled pill except the transcript tier and the splice
+   alert: filled pills are the page's grammar for ACMG codes.
+   Each metric is one line — label, value, reference track, verdict — and every
+   track runs the same way, tolerant on the left and constrained on the right
+   (LOEUF and O/E fall as constraint rises, so their axes are reversed). The
+   threshold numbers sit on the track under the ticks they name.
    Layout is container-query driven: the sidebar is user-resizable, so the group
    must reflow on its own inline size rather than the viewport's.
    ============================================================ */
@@ -269,9 +269,12 @@
   min-width: 0;
 }
 
+/* Gene and HGVS share one optical size. The HGVS used to be 13px grey mono under a 22px serif
+   gene and read like a subscript, though it is the subject of every page below it. Lora's
+   x-height runs small, so 20px serif and 18px sans sit level. */
 .variant-header-gene {
   font-family: var(--cs-font-serif);
-  font-size: var(--cs-text-display);
+  font-size: 20px;
   font-weight: 500;
   color: var(--cs-text-primary);
   line-height: 1.15;
@@ -282,12 +285,24 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-numeric);
+  font-family: var(--cs-font-sans);
+  font-size: 18px;
   font-weight: 600;
-  color: var(--cs-text-secondary);
-  line-height: 1.4;
+  color: var(--cs-text-primary);
+  line-height: 1.2;
+  letter-spacing: -0.005em;
   font-variant-numeric: tabular-nums;
+}
+
+.variant-header-numbering-basis {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--cs-font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--vh-clay-fg);
+  background: var(--vh-clay-soft);
 }
 
 .vh-identifiers {
@@ -304,9 +319,10 @@
 }
 
 /* ── Identifier meta entry ──
-   Flat type, not a pill: with the constraint group de-boxed, bordered chips
-   would be the only card-like objects left in the chrome. Each entry is
-   icon + mono value + optional verdict tag; provenance keys stay plain. */
+   Flat type, not a pill. Each entry is a plain-word key ("GRCh38", "UniProt")
+   + mono value + optional tier tag. Icons are gone except on the splice alert:
+   a pin for a coordinate and a flask for UniProt had to be decoded, and the
+   words they stood for fit in the same width. */
 .vh-chip {
   display: inline-flex;
   align-items: center;
@@ -321,11 +337,9 @@
 }
 
 .vh-chip-key {
-  font-family: var(--cs-font-mono);
-  font-size: 9.5px;
+  font-family: var(--cs-font-sans);
+  font-size: 11.5px;
   font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--vh-muted-fg);
 }
 
@@ -446,8 +460,39 @@
   .vh-rail::before { display: none; }
 }
 
-/* The rail is a bare list now — rows separated by the list's 1px gaps, no
-   caption line and no inset, so the group's rhythm is uniform top to bottom. */
+/* ── Rail caption ──
+   One line on the rows' own grid. The left cell scopes the rows ("Gene
+   constraint · gnomAD v2") so a verdict beside the HGVS cannot be read as a call
+   on the variant; the right cell sits over the track column and names the axis
+   direction every row now shares (tolerant left, constrained right). */
+.vh-rail-head {
+  display: grid;
+  grid-template-columns: var(--vh-cols);
+  grid-template-areas: "title title scale verdict";
+  align-items: end;
+  column-gap: 10px;
+  padding: 0 14px 3px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+.vh-rail-title {
+  grid-area: title;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+  white-space: nowrap;
+}
+.vh-rail-source {
+  font-weight: 400;
+  color: var(--vh-muted-fg);
+}
+.vh-rail-axis {
+  grid-area: scale;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--vh-muted-fg);
+  white-space: nowrap;
+}
 
 .vh-metrics {
   flex: 1 1 auto;
@@ -466,9 +511,10 @@
    column would size differently per row and the tracks would stop lining up
    down the group. Rows paint the header's own surface so the list's 1px gaps
    read as hairline rules between them, not as the walls of a box. */
+.vh-rail { --vh-cols: 92px 58px minmax(0, 1fr) 140px; }
 .vh-metric {
   display: grid;
-  grid-template-columns: 82px 58px minmax(0, 1fr) 140px;
+  grid-template-columns: var(--vh-cols);
   grid-template-areas: "label value scale verdict";
   align-items: center;
   column-gap: 10px;
@@ -477,14 +523,14 @@
   background: var(--cs-surface);
 }
 
+/* Sentence case at 11px. The 10px uppercase mono label had to be decoded
+   letter by letter; this is the one cell a reader scans down. */
 .vh-metric-label {
   grid-area: label;
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--vh-muted-fg);
+  font-family: var(--cs-font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--cs-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -579,27 +625,26 @@
   top: 18.5px;
   transform: translateX(-50%);
   font-family: var(--cs-font-mono);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.05;
   font-variant-numeric: tabular-nums;
-  color: var(--vh-muted-fg);
+  color: var(--cs-text-secondary);
   white-space: nowrap;
 }
 
+/* Coloured text, not a pill. Filled pills are the page's grammar for ACMG
+   codes (PM2, BS1); a gene-level description wearing the same shape read as one. */
 .vh-verdict {
   grid-area: verdict;
   justify-self: start;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.01em;
   white-space: nowrap;
 }
-.vh-verdict[data-tone="good"]  { background: var(--vh-good-soft);  color: var(--vh-good-fg); }
-.vh-verdict[data-tone="warn"]  { background: var(--vh-warn-soft);  color: var(--vh-warn-fg); }
-.vh-verdict[data-tone="path"]  { background: var(--vh-path-soft);  color: var(--vh-path-fg); }
-.vh-verdict[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
+.vh-verdict[data-tone="good"]  { color: var(--vh-good-fg); }
+.vh-verdict[data-tone="warn"]  { color: var(--vh-warn-fg); }
+.vh-verdict[data-tone="path"]  { color: var(--vh-path-fg); }
+.vh-verdict[data-tone="muted"] { color: var(--vh-muted-fg); }
 
 /* Full metric sentences for assistive tech — the visual track carries the same
    information, so it is hidden from the accessibility tree with aria-hidden. */
@@ -625,8 +670,15 @@
    Container queries measure the CONTENT box, so 600px here means an element width
    of ~640px (the header carries 20px of padding each side). */
 @container (max-width: 600px) {
+  /* The track spans the full row here, so the axis legend does too, on its own line. The
+     reversed LOEUF and O/E axes are unreadable without it. */
+  .vh-rail-head {
+    grid-template-columns: 1fr;
+    grid-template-areas: "title" "scale";
+    row-gap: 2px;
+  }
   .vh-metric {
-    grid-template-columns: 84px minmax(0, 1fr);
+    grid-template-columns: 92px minmax(0, 1fr);
     grid-template-areas:
       "label   value"
       "scale   scale"
@@ -636,6 +688,67 @@
   }
 }
 
+
+/* ── Compact form ──
+   Once the page scrolls, the header gives back ~70px: one line holding the
+   identity, the transcript tier and the three values. The tracks and verdicts
+   stay one scroll-to-top away; each value keeps its tone and its tooltip. */
+.variant-header[data-compact="true"] {
+  flex-wrap: nowrap;
+  gap: 16px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  overflow: hidden;
+}
+.variant-header[data-compact="true"] .variant-header-gene { font-size: 16px; }
+.variant-header[data-compact="true"] .variant-header-hgvs { font-size: 14px; }
+.variant-header[data-compact="true"] .variant-header-identity { flex-shrink: 0; }
+
+.vh-compact-tier {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vh-compact-tier[data-tone="good"]  { color: var(--vh-good-fg); }
+.vh-compact-tier[data-tone="warn"]  { color: var(--vh-warn-fg); }
+.vh-compact-tier[data-tone="clay"]  { color: var(--vh-clay-fg); }
+.vh-compact-tier[data-tone="muted"] { color: var(--vh-muted-fg); }
+
+.vh-compact-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  margin: 0;
+  padding: 0 0 0 16px;
+  border-left: 1px solid var(--cs-border-subtle);
+  list-style: none;
+  min-width: 0;
+  overflow: hidden;
+}
+.vh-compact-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.vh-compact-label {
+  font-size: 11.5px;
+  color: var(--cs-text-secondary);
+}
+.vh-compact-value {
+  font-family: var(--cs-font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.vh-compact-value[data-tone="good"]  { color: var(--vh-good-fg); }
+.vh-compact-value[data-tone="warn"]  { color: var(--vh-warn-fg); }
+.vh-compact-value[data-tone="path"]  { color: var(--vh-path-fg); }
+.vh-compact-value[data-tone="muted"] { color: var(--vh-muted-fg); }
+@container (max-width: 560px) {
+  .vh-compact-metrics, .vh-compact-tier { display: none; }
+}
 
 /* VIEW INSPECTOR & PROVENANCE PANEL
  *
