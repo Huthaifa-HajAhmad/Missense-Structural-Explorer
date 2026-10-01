@@ -236,16 +236,11 @@ const UNIPROT_ACCESSION_PATTERN = /^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A
 const NOTATION_EXAMPLE_GROUPS: Array<{
   target: "variant" | "genomic";
   label: string;
-  hint: string;
   values: string[];
 }> = [
   {
     target: "variant",
     label: "Variant notation",
-    hint:
-      "Protein-level substitutions, accession-qualified protein notations and transcript cDNA go in the " +
-      "Variant Notation field. cDNA can STATE its genome build — NM_004333.6(GRCh37):c.1799T>A — so an " +
-      "hg19 notation is read against hg19 rather than assumed to be GRCh38.",
     values: [
       ACCEPTED_NOTATION_EXAMPLES.protein,
       ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned,
@@ -258,7 +253,6 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
   {
     target: "genomic",
     label: "Genomic coords",
-    hint: "Coordinate notations go in the Genomic Coordinates field.",
     values: [
       ACCEPTED_NOTATION_EXAMPLES.genomicHgvs,
       ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated,
@@ -462,6 +456,24 @@ const BuildSelect: React.FC<{
   );
 };
 
+/**
+ * One breath per chip. The tooltip used to replay the group's full paragraph on EVERY chip of a
+ * group — hovering any example surfaced a multi-sentence treatise — so the tooltips now say only
+ * what the hovered form IS: which field it feeds is already carried by the chip's position
+ * (directly under that field) and its accessible label. The fallback covers a catalogue value
+ * this map has not met yet.
+ */
+const EXAMPLE_HINTS: Record<string, string> = {
+  [ACCEPTED_NOTATION_EXAMPLES.protein]: "Three-letter protein change",
+  [ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned]: "Protein change on a numbered accession",
+  [ACCEPTED_NOTATION_EXAMPLES.cdna]: "Transcript cDNA change",
+  [ACCEPTED_NOTATION_EXAMPLES.cdnaAssemblyAnnotated]: "cDNA naming its reference build",
+  [ACCEPTED_NOTATION_EXAMPLES.genomicHgvs]: "Genomic HGVS",
+  [ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated]: "Genomic HGVS naming the build",
+  [ACCEPTED_NOTATION_EXAMPLES.genomicAccession]: "Accession-qualified genomic coordinate",
+  [ACCEPTED_NOTATION_EXAMPLES.genomicDashed]: "Dashed chromosome-position form",
+};
+
 /** Example chips shown beneath a notation field. */
 const ExampleRow: React.FC<{
   group: (typeof NOTATION_EXAMPLE_GROUPS)[number];
@@ -474,7 +486,7 @@ const ExampleRow: React.FC<{
         key={value}
         type="button"
         onClick={() => onPick(group.target, value)}
-        title={`${group.hint} Fills "${value}" and clears the other notation field.`}
+        title={EXAMPLE_HINTS[value] ?? `${group.label} example`}
         aria-label={`Use example ${value} in the ${group.label} field`}
         className="px-1.5 h-5 rounded-[var(--cs-radius-badge)] font-mono text-[11px] leading-5 text-cs-text-secondary bg-cs-surface-2 hover:bg-cs-accent-clay/10 hover:text-cs-text-accent cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] max-w-full truncate"
       >
