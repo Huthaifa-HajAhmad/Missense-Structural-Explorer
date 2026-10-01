@@ -49,7 +49,8 @@ concurrency:
 #
 # The Python/uv setup is GONE (36s: Set up Python, Install uv, Cache uv, uv sync). Every gate here —
 # check-boundaries, tsc, vitest, vite/esbuild — is Node-only, and `tools/` is a runtime dependency of
-# the deployed VM, not of this workflow. It was also a failure mode: run 35455821450 died there.
+# the deployed VM. The deployment state-machine tests now use the runner's bundled Python standard
+# library, without uv, model dependencies, or a separate Python setup step.
 #
 # Coverage is not the cost worth attacking: 49s with coverage vs 48s without, measured locally. The
 # runner is simply slower than a dev machine, which is what sharding would address.
@@ -96,6 +97,9 @@ jobs:
 
       - name: Run tests and collect coverage
         run: npm run test:coverage
+
+      - name: Test deployment failure paths
+        run: npm run test:deployment
 
       # Was its own job, running in parallel with the tests. Both were already paying for their own
       # checkout, setup-node and `npm ci`; the build is 22s, so the parallelism bought wall-clock at

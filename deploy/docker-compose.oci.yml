@@ -3,14 +3,15 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.oci
-    image: missense-resolve:oci-latest
-    container_name: missense-resolve-app
+    image: ${APP_IMAGE:-missense-resolve:oci-latest}
+    container_name: ${APP_CONTAINER_NAME:-missense-resolve-app}
     restart: unless-stopped
     env_file:
       - .env.oci
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - DEPLOYMENT_STANDBY=${DEPLOYMENT_STANDBY:-false}
       - THERMOMPNN_PROVIDER=${THERMOMPNN_PROVIDER:-local}
       # Revision this image was built from, surfaced by GET /api/v1/version so "did my fix ship?"
       # is answerable from outside the host. Supplied by the deploy workflow; a hand-built image
@@ -40,7 +41,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 10g
+          memory: ${APP_MEMORY_LIMIT:-10g}
         reservations:
           memory: 2g
     networks:
@@ -50,6 +51,8 @@ services:
     image: caddy:alpine
     container_name: missense-resolve-caddy
     restart: unless-stopped
+    # Reloads are autosaved by Caddy; retain the selected generation after a proxy restart.
+    command: ["caddy", "run", "--resume", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     ports:
       - "80:80"
       - "443:443"

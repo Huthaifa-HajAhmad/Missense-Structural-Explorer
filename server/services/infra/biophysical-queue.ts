@@ -5,6 +5,7 @@ import os from "os";
 import { DatabaseSync } from "node:sqlite";
 import { Queue, Worker } from "bullmq";
 import { CONFIG } from "../../config.ts";
+import { initialDeploymentPaused } from "../../deployment-role.ts";
 
 export interface QueueJob {
   id: string;
@@ -18,7 +19,7 @@ export interface QueueJob {
   startedAt?: number | null;
 }
 
-class SQLiteQueue {
+export class SQLiteQueue {
   private db: DatabaseSync;
   private concurrency: number;
   private runningCount = 0;
@@ -28,12 +29,15 @@ class SQLiteQueue {
   private timer: NodeJS.Timeout | null = null;
   private reaperInterval: NodeJS.Timeout | null = null;
   private isShutdown = false;
+  private processingPaused: boolean;
 
   constructor(
     dbPath: string,
     concurrency: number,
-    processCallback: (type: string, data: any, signal?: AbortSignal, jobId?: string) => Promise<any>
+    processCallback: (type: string, data: any, signal?: AbortSignal, jobId?: string) => Promise<any>,
+    paused = false
   ) {
+    this.processingPaused = paused;
     this.concurrency = concurrency;
     this.processCallback = processCallback;
 
@@ -45,6 +49,7 @@ class SQLiteQueue {
     }
 
     this.db = new DatabaseSync(dbPath);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS biophysical_jobs (
         id TEXT PRIMARY KEY,
@@ -59,6 +64,13 @@ class SQLiteQueue {
       );
     `);
 
+    // A standby shares the database with the serving process. Its running jobs are still alive.
+    if (!paused) this.recoverInterruptedJobs();
+    this.scheduleNext();
+    if (!paused) this.startReaper();
+  }
+
+  private recoverInterruptedJobs() {
     // Reset any running jobs from a previous crash/restart back to queued status.
     //
     // The phase is cleared with it. A job re-queued by a restart has NOT been repaired or modelled,
@@ -85,11 +97,26 @@ class SQLiteQueue {
       WHERE status = 'running';
     `);
 
-    // Start scheduler polling loop
-    this.scheduleNext();
+  }
 
-    // Start stale job reaper
+  get activeCount(): number { return this.activeJobs.size; }
+  get paused(): boolean { return this.processingPaused; }
+
+  pauseProcessing(): void {
+    this.processingPaused = true;
+    if (this.timer) clearTimeout(this.timer);
+    if (this.reaperInterval) clearInterval(this.reaperInterval);
+    this.timer = null;
+    this.reaperInterval = null;
+  }
+
+  resumeProcessing(): void {
+    if (this.isShutdown) throw new Error("Cannot resume a closed queue");
+    if (!this.processingPaused) return;
+    // Ownership transfers only after the old process drains. Never reset another process's jobs.
+    this.processingPaused = false;
     this.startReaper();
+    this.scheduleNext();
   }
 
   async addJob(id: string, type: "foldx" | "p2rank", data: any): Promise<void> {
@@ -202,15 +229,16 @@ class SQLiteQueue {
     }
   }
 
-  private scheduleNext() {
-    if (this.isShutdown) return;
+  private scheduleNext(delayMs = 50) {
+    if (this.isShutdown || this.processingPaused) return;
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.processQueue(), 50);
+    this.timer = setTimeout(() => this.processQueue(), delayMs);
+    this.timer.unref();
   }
 
   private async processQueue() {
     while (this.runningCount < this.concurrency) {
-      if (this.isShutdown) return;
+      if (this.isShutdown || this.processingPaused) return;
 
       // Check system memory (backpressure protection)
       const freeMem = os.freemem();
@@ -230,6 +258,8 @@ class SQLiteQueue {
       `).get() as any;
 
       if (!row) {
+        // A standby may enqueue into the shared database without waking this process.
+        this.scheduleNext(1000);
         return;
       }
 
@@ -324,7 +354,7 @@ class SQLiteQueue {
   }
 
   private reapStaleJobs() {
-    if (this.isShutdown) return;
+    if (this.isShutdown || this.processingPaused) return;
     // The reaper must outlive the job cap, or it would kill jobs that are still legitimately
     // running. Both are now configurable and their ordering is asserted by
     // server/tests/foldx-timeout-budget.test.ts.
@@ -435,6 +465,9 @@ export class BiophysicalJobQueue {
   ) {
     this.concurrency = concurrency;
     this.redisUrl = process.env.REDIS_URL;
+    if (this.redisUrl && initialDeploymentPaused()) {
+      throw new Error("Standby deployments currently require the SQLite queue");
+    }
 
     if (this.redisUrl) {
       try {
@@ -494,7 +527,7 @@ export class BiophysicalJobQueue {
       const dbPath = process.env.NODE_ENV === "test"
         ? ":memory:"
         : (process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite"));
-      this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback);
+      this.sqliteQueue = new SQLiteQueue(dbPath, this.concurrency, processCallback, initialDeploymentPaused());
     }
   }
 
@@ -715,5 +748,23 @@ export class BiophysicalJobQueue {
     if (this.sqliteQueue) {
       this.sqliteQueue.shutdown();
     }
+  }
+
+  getDeploymentState(): { backend: "sqlite" | "redis"; paused: boolean; activeJobs: number } {
+    return {
+      backend: this.sqliteQueue ? "sqlite" : "redis",
+      paused: this.sqliteQueue?.paused ?? false,
+      activeJobs: this.sqliteQueue?.activeCount ?? 0,
+    };
+  }
+
+  pauseProcessing(): void {
+    if (!this.sqliteQueue) throw new Error("Deployment handover requires the SQLite queue");
+    this.sqliteQueue.pauseProcessing();
+  }
+
+  resumeProcessing(): void {
+    if (!this.sqliteQueue) throw new Error("Deployment handover requires the SQLite queue");
+    this.sqliteQueue.resumeProcessing();
   }
 }
