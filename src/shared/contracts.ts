@@ -3,6 +3,7 @@ import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
 import type { PredictorConcordance } from "./thresholds/concordance";
 import { CANONICAL_ASSEMBLY, statedAssemblyOf, type AssemblyTaggedCoordinate } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
+import { locusResolutionSchema, isFallbackLocus, isRetryableFallbackLocus, type LocusResolution } from "./locusResolution";
 
 /**
  * The FoldX phase vocabulary, as a schema.
@@ -378,12 +379,28 @@ export function isBuildDegradedResult(
   result:
     | {
         coordinateLift?: CoordinateLiftRecord | null;
-        predictorData?: { gnomadVariantAssembly?: GenomeAssembly | null } | null;
+        predictorData?: {
+          gnomadVariantAssembly?: GenomeAssembly | null;
+          gnomadVariantId?: string | null;
+          locusResolution?: LocusResolution | null;
+        } | null;
       }
     | null
     | undefined
 ): boolean {
   if (!result) return false;
+
+  /**
+   * A FALLBACK locus is degraded whatever the intake lift record says, and is checked first.
+   *
+   * A protein-notation run carries a `not-needed` lift record (the analysis route defaults the build
+   * to GRCh38), and that record used to short-circuit to "settled" below — so a run whose GRCh38
+   * lookup failed and fell back to an hg19 locus was cached as a finished analysis and restored on
+   * every later Recents click, withholding population evidence the variant does have (NAE1
+   * p.Asp116Gly). The intake record describes what the user SUBMITTED; this describes what the
+   * predictor FOUND, and only the second decides whether the evidence is complete.
+   */
+  if (isFallbackLocus(result)) return isRetryableFallbackLocus(result);
 
   const lift = result.coordinateLift;
   if (lift?.status === "unavailable") {
@@ -863,6 +880,20 @@ export type StructuralDiffResponse = z.infer<typeof structuralDiffResponseSchema
 // ============================================================================
 // 10. Predictor & Conservation Canonical Domain Contracts
 // ============================================================================
+/**
+ * What the All of Us lookup actually consulted, so an empty row can say which absence it is.
+ *
+ * Without it, "The local All of Us frequency table holds no entry" was printed for every empty row —
+ * including when no local table is installed in the deployment and when the lookup never finished.
+ *   - `localTable`: the local dbNSFP ingest (`server/services/prediction/local-population.ts`).
+ *   - `remoteDbnsfp`: whether the dbNSFP record reached through the conservation lookup carried counts.
+ */
+export const aouLookupSchema = z.object({
+  localTable: z.enum(["found", "absent", "not-installed", "failed", "timed-out"]),
+  remoteDbnsfp: z.enum(["found", "not-reported"]),
+});
+export type AouLookup = z.infer<typeof aouLookupSchema>;
+
 export const predictorDataSchema = z.object({
   available: z.boolean().optional(),
   amPathogenicity: z.number().nullable(),
@@ -885,6 +916,12 @@ export const predictorDataSchema = z.object({
    * slipped through. Consumers refuse a coordinate with an unknown or unsupported build.
    */
   gnomadVariantAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  /**
+   * How the locus above was established on this run: which route answered, how the GRCh38 locus
+   * was verified (or why it was not), and whether a re-run could change that. Optional — payloads
+   * written before it existed are read through `isFallbackLocus` (src/shared/locusResolution.ts).
+   */
+  locusResolution: locusResolutionSchema.nullable().optional(),
   proteinName: z.string().nullable().optional(),
   transcriptId: z.string().optional(),
   /**
@@ -1204,7 +1241,12 @@ export const conservationDataSchema = z.object({
    */
   assemblyRefusals: z.array(z.object({
     source: z.string(),
-    reason: z.string()
+    reason: z.string(),
+    /**
+     * True when the refusal is a consequence of a FALLBACK locus (the GRCh38 lookup failed on this
+     * run) rather than of a build the user chose. Surfaces read it as retryable, not "Not covered".
+     */
+    retryable: z.boolean().optional()
   })).nullable().optional(),
   source: z.string().optional()
 });
@@ -1506,6 +1548,7 @@ export const analyzeVariantResponseSchema = z.object({
     aouHet: z.number().nullable().optional(),
     aouHom: z.number().nullable().optional()
   }).nullable().optional(),
+  aouLookup: aouLookupSchema.nullable().optional(),
   esm2: z.object({
     llr: z.number().nullable(),
     verdict: z.string().nullable().optional()
@@ -2233,6 +2276,7 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadConstraint?: GnomadConstraintData | null;
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
+  aouLookup?: AouLookup | null;
   serviceStatus?: Record<string, string>;
   inSilicoConcordance?: PredictorConcordance | null;
 }

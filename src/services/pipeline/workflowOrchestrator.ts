@@ -169,6 +169,9 @@ export async function executeFullAnalysisWorkflow({
 
   let targetGene = targetGeneArg.trim();
   let targetVariant = targetVariantArg.trim();
+  /** The notation as submitted. Recorded in Recents only when resolution changed it. */
+  const submittedVariant = targetVariantArg.trim();
+  const historyQuery = () => (submittedVariant && submittedVariant !== targetVariant ? submittedVariant : undefined);
   let targetUniprot = (targetUniprotArg || "").trim();
   let transcriptMeta: any = null;
   let residueIndex: number | undefined;
@@ -435,7 +438,7 @@ export async function executeFullAnalysisWorkflow({
       );
 
       if (hasCompleteAnalysis && (!userDirections || !userDirections.trim())) {
-        searchSink.addToHistory(targetGene, targetVariant, targetUniprot);
+        searchSink.addToHistory(targetGene, targetVariant, targetUniprot, historyQuery());
         if (residueIndex != null) {
           searchSink.setSelectedResidueIndex(residueIndex);
         }
@@ -766,7 +769,7 @@ export async function executeFullAnalysisWorkflow({
         },
         apiClient,
         {
-          addToHistory: searchSink.addToHistory,
+          addToHistory: (g: string, v: string, u: string) => searchSink.addToHistory(g, v, u, historyQuery()),
           setSelectedResidueIndex: searchSink.setSelectedResidueIndex
         },
         analysisSink,

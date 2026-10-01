@@ -179,6 +179,22 @@ export function getCachedVariant(gene: string, variant: string): CachedVariantBu
   return null;
 }
 
+/**
+ * Drop one variant's bundle, so the next run of it is computed rather than restored.
+ *
+ * Used by an explicit "Re-run analysis": the reader is asking for a fresh answer because the stored
+ * one is incomplete (a provider timed out, or the locus lookup fell back), and restoring the bundle
+ * would hand the same incomplete answer straight back.
+ */
+export function invalidateCachedVariant(gene: string, variant: string): void {
+  if (!gene || !variant) return;
+  const key = getCacheKey(gene, variant);
+  memoryVariantCache.delete(key);
+  try {
+    sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
+  } catch (_) {}
+}
+
 export function setCachedVariant(
   gene: string,
   variant: string,

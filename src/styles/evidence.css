@@ -464,6 +464,12 @@
   background: var(--cs-bg-success);
   border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent);
 }
+/* Something about this run is incomplete and a re-run may change it (e.g. a fallback locus). */
+.ev-tier[data-tone="warn"] {
+  color: var(--cs-text-warning-on-soft);
+  background: var(--cs-bg-warning);
+  border-color: color-mix(in srgb, var(--cs-text-warning-on-soft) 25%, transparent);
+}
 .ev-tier[data-tone="high"] {
   color: var(--cs-text-teal-on-soft);
   background: var(--cs-bg-teal);

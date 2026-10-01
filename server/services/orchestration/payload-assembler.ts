@@ -2,7 +2,7 @@ import { generateAltVariants } from "../../routes/shared.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import type { PdbBestStructureMapping, ClinVarData, StringInteraction, GnomadVariantFrequency, GnomadGeneConstraint, UniprotFeaturesResult } from "../external.ts";
-import type { PredictorData, ConservationData, PdbSource } from "../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, PdbSource, AouLookup } from "../../../src/shared/contracts.ts";
 import type { DisruptionPrediction } from "../stability/biophysics.ts";
 import type { RuleBasedInsights } from "../prediction/acmg.ts";
 
@@ -44,6 +44,8 @@ export interface CoreAnalysisData {
   uniprotFeatures: UniprotFeaturesResult | null;
   gnomadFrequency: GnomadVariantFrequency | null;
   aouFrequency: ConservationData["aouFrequency"] | null;
+  /** What the All of Us lookup consulted, so an empty row can name its absence. Optional: older records lack it. */
+  aouLookup?: AouLookup | null;
   resolvedPdbId: string | null;
   resolvedPdbSource: PdbSource;
   ruleBasedInsights: RuleBasedInsights | null;
@@ -138,6 +140,7 @@ export function assembleCoreResponsePayload(
     uniprotFeatures: coreData.uniprotFeatures ?? null,
     gnomadFrequency: coreData.gnomadFrequency ?? null,
     aouFrequency: coreData.aouFrequency ?? null,
+    aouLookup: coreData.aouLookup ?? null,
     esm2: coreData.esm2 ?? null,
     esm3Eval: null,
     esmcEval: null,

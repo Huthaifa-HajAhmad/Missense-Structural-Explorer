@@ -29,7 +29,8 @@ export interface PipelineSearchSink {
   setCustomVariant: (variant: string) => void;
   setCustomUniprot: (uniprotId: string) => void;
   setSelectedResidueIndex: (index: number | null) => void;
-  addToHistory: (gene: string, variant: string, uniprotId: string) => void;
+  /** `query` is the notation as submitted, when it differs from the canonical `variant`. */
+  addToHistory: (gene: string, variant: string, uniprotId: string, query?: string) => void;
 }
 
 export interface PipelineAnalysisSink {

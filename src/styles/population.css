@@ -142,6 +142,26 @@
 .pop-callout > svg { margin-top: 3px; }
 .pop-callout[data-tone="warning"] { background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
 .pop-callout--banner { margin: 0; border-radius: 0; padding: 10px 20px; border-top: 1px solid var(--cs-border-subtle); }
+/* The one remedy the banner can offer: shown only when a re-run could change the answer. */
+.pop-callout__action {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--cs-radius-input);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.pop-callout__action:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.pop-callout__action:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 /* ── Frequency scale ────────────────────────────────────────── */
 .pop-scale { margin: 0; }

@@ -34,7 +34,7 @@ import {
   type GeminiFailureKind,
 } from "../../services/gemini.ts";
 import { computeRuleBasedACMG } from "../../services/acmg.ts";
-import { type AnalysisResult } from "../../../src/shared/contracts.ts";
+import { type AnalysisResult, aouLookupSchema } from "../../../src/shared/contracts.ts";
 import {
   type NarrativeFallbackReason,
   describeFallbackReason,
@@ -72,6 +72,7 @@ const analyzeVariantNarrativeSchema = z.object({
   uniprotFeatures: z.any().optional(),
   sequence: z.any().optional(),
   aouFrequency: z.any().optional(),
+  aouLookup: aouLookupSchema.nullable().optional(),
   /**
    * Per-source fetch outcomes. Validated here rather than read ad hoc off `req.body`, because the
    * frequency sentence below turns on it: without it a gnomAD timeout is indistinguishable from a
@@ -125,7 +126,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures, sequence, aouFrequency, serviceStatus } = req.body;
+      const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures, sequence, aouFrequency, aouLookup, serviceStatus } = req.body;
 
       const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
       if (!mutMatch) {
@@ -316,12 +317,15 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         const frequency = buildFrequencyEvidence({
           gnomadFrequency,
           aouFrequency: aouFrequency ?? null,
+          aouLookup: aouLookup ?? null,
           serviceStatus: serviceStatus ?? null,
           clinvar,
           assembly: predictorData?.gnomadVariantAssembly ?? null,
           pli: gnomadConstraint?.pli ?? null,
           engineCriteria: ruleInsights.acmgCriteria,
           acmgWeighting,
+          // The report must say "lookup failed, re-run", not "this coordinate is GRCh37", on a fallback run.
+          locus: { predictorData: predictorData ?? null },
         });
         const freqText = (() => {
           const criterion = frequency.criterion;

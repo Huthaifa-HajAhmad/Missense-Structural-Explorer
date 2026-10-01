@@ -17,6 +17,7 @@ import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/Vari
 import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 import { useVariantUrlSync } from "./hooks/useVariantUrlSync";
+import { invalidateCachedVariant } from "./services/pipeline/variantCache";
 import { useCompactOnScroll } from "./hooks/useCompactOnScroll";
 
 export default function App() {
@@ -49,6 +50,31 @@ export default function App() {
   const notifications = useVariantAnalysisStore(s => s.notifications);
 
   const { removeNotification } = actions;
+
+  /**
+   * Re-run requests. Any surface can ask (`requestRerun()` — the Population card, the header's
+   * run-state slot); App owns the pipeline, so it answers. The stored bundle is dropped first: the
+   * reader is asking because the stored answer is incomplete, and restoring it would be no re-run.
+   * The submission is replayed as it was made (`SearchHistoryItem.query`).
+   */
+  const rerunNonce = useVariantAnalysisStore(s => s.rerunNonce);
+  useEffect(() => {
+    if (rerunNonce === 0) return;
+    const { gene: g, variant: v, uniprotId: u, history, analysisState: st } = useVariantAnalysisStore.getState();
+    if (!g || !v) return;
+    const prior = history.find(h => h.gene === g && (h.variant === v || h.query === v));
+    for (const key of new Set([v, prior?.variant, st.result?.metadata?.variant].filter(Boolean) as string[])) {
+      invalidateCachedVariant(g, key);
+    }
+    actions.handleSelectHistoryItem({
+      gene: g,
+      variant: prior?.variant ?? v,
+      uniprotId: u,
+      ...(prior?.query ? { query: prior.query } : {}),
+    });
+    // Keyed on the request alone: re-running must not be re-triggered by the run it starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerunNonce]);
 
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");

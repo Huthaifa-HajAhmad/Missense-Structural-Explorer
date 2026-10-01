@@ -67,7 +67,7 @@ export function useVariantSearch() {
   }, [gene, variant, uniprotId]);
 
   const handleSelectHistoryItem = (
-    item: { gene: string; variant: string; uniprotId: string },
+    item: { gene: string; variant: string; uniprotId: string; query?: string },
     options: UseVariantSearchOptions
   ) => {
     options.abortAllPendingRequests();
@@ -90,7 +90,8 @@ export function useVariantSearch() {
       setSelectedResidueIndex(null);
     }
 
-    options.executeAnalysis(item.gene, item.variant, item.uniprotId);
+    // Same replay rule as the store's `handleSelectHistoryItem` (see `SearchHistoryItem.query`).
+    options.executeAnalysis(item.gene, item.query ?? item.variant, item.uniprotId);
   };
 
   const handleSelectPreset = (

@@ -31,7 +31,7 @@ import {
   type AcmgCriteriaView,
 } from "./acmgCriteriaView.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
-import { buildFrequencyEvidence } from "./frequencyEvidence.ts";
+import { buildFrequencyEvidence, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
 import { buildSplicingEvidence } from "./splicingEvidence.ts";
 import { buildFunctionEvidence, type FunctionEvidenceInput } from "./functionEvidence.ts";
 import { THRESHOLDS, formatEvidenceCode } from "./thresholds.ts";
@@ -317,18 +317,11 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   });
 
   // Population ─ the frequency tab's own criterion and what the engine recorded.
-  const fe = buildFrequencyEvidence({
-    gnomadFrequency: result.gnomadFrequency ?? null,
-    aouFrequency: result.aouFrequency ?? null,
-    serviceStatus: result.serviceStatus ?? result.metadata?.serviceStatus ?? null,
-    clinvar: result.clinvar
-      ? { classification: result.clinvar.classification, alleleFrequencies: result.clinvar.alleleFrequencies }
-      : null,
-    assembly: result.predictorData?.gnomadVariantAssembly ?? null,
-    pli: result.gnomadConstraint?.pli ?? null,
+  // Insights reads only the rule engine's criteria (not the narrative's), so that stays explicit.
+  const fe = buildFrequencyEvidence(frequencyEvidenceInputFromResult(result, {
     engineCriteria: result.ruleBasedInsights?.acmgCriteria ?? null,
     acmgWeighting: weighting,
-  });
+  }));
   const popCode = fe.applied.code;
   const popRead = fe.criterion.af !== null || fe.criterion.code === "PM2" || fe.criterion.code === "BS1" || fe.criterion.code === "BA1" || fe.criterion.code === "none";
   lanes.push({

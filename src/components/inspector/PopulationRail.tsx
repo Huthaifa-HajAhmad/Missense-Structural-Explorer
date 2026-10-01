@@ -5,13 +5,13 @@ import { THRESHOLDS } from "../../shared/thresholds";
 import {
   buildFrequencyEvidence,
   formatAlleleFrequency,
-  populationReading,
-} from "../../shared/frequencyEvidence";
+  populationReading, frequencyEvidenceInputFromResult } from "../../shared/frequencyEvidence";
 import { variantNumberingView } from "../../shared/numbering";
 import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import { clinvarAccessionNote, formatClinicalDate } from "../evidence/population/populationFormat";
 import { buildAssemblyLiftNote } from "./assemblyLiftNote";
+import { isFallbackLocus, isRetryableFallbackLocus } from "../../shared/locusResolution";
 
 /**
  * PopulationRail — the Evidence Lineage inspector for the Population Data tab.
@@ -66,16 +66,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
   const FREQ = THRESHOLDS.populationFrequency;
   const clinvar = analysisResult.clinvar;
 
-  const evidence = buildFrequencyEvidence({
-    gnomadFrequency: analysisResult.gnomadFrequency ?? null,
-    aouFrequency: analysisResult.aouFrequency ?? null,
-    serviceStatus: analysisResult.serviceStatus ?? analysisResult.metadata?.serviceStatus ?? null,
-    clinvar: clinvar ? { classification: clinvar.classification, alleleFrequencies: clinvar.alleleFrequencies } : null,
-    assembly: analysisResult.predictorData?.gnomadVariantAssembly ?? null,
-    pli: analysisResult.gnomadConstraint?.pli ?? null,
-    engineCriteria: analysisResult.ruleBasedInsights?.acmgCriteria ?? analysisResult.insights?.acmgCriteria ?? null,
-    acmgWeighting: analysisResult.metadata?.acmgWeighting ?? null,
-  });
+  const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(analysisResult));
   const { criterion, applied } = evidence;
   const reading = populationReading(evidence);
   const releaseRaw = evidence.observations.find(o => o.id.startsWith("gnomad"))?.dataset ?? null;
@@ -104,6 +95,19 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
    * renders exactly what this rail rendered before.
    */
   const assemblyLiftNote = buildAssemblyLiftNote(analysisResult);
+  /**
+   * A fallback locus outranks the lift note: the lift note describes a SUBMITTED coordinate, and a
+   * fallback run has none — its build is what the failed lookup left behind, which the reader must be
+   * told is not the variant's.
+   */
+  const fallbackLocus = isFallbackLocus(analysisResult);
+  const fallbackNote = fallbackLocus
+    ? `Fallback locus: the GRCh38 lookup did not complete on this run, so ${
+        genomicAssembly ? `only this ${ASSEMBLY_LABELS[genomicAssembly]} locus was found` : "no genomic locus was found"
+      } and the GRCh38-only sources were not queried. This is not the variant's build.${
+        isRetryableFallbackLocus(analysisResult) ? " Re-running the analysis may resolve it." : ""
+      }`
+    : null;
   const numbering = variantNumberingView({
     variant: analysisResult.metadata?.variant ?? "",
     uniprotId: analysisResult.metadata?.uniprotId ?? null,
@@ -258,6 +262,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           )}
           <Row label="Assembly">
             <span className="pop-mono">{genomicAssembly ? ASSEMBLY_LABELS[genomicAssembly] : "Build not reported"}</span>
+            {fallbackLocus && <span className="ev-tier chip-code" data-tone="warn">fallback</span>}
           </Row>
           <Row label="Transcript">
             <span className="pop-mono">{transcriptId || "Not resolved"}</span>
@@ -287,7 +292,11 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           * A paragraph below the `dl` rather than a row inside it: a note explaining the row above is
           * not itself a key/value pair, and `dl` admits no child that could hold one.
           */}
-        {assemblyLiftNote && (
+        {fallbackNote ? (
+          <p className="rail-step__warn" role="note" data-testid="fallback-locus-note">
+            {fallbackNote}
+          </p>
+        ) : assemblyLiftNote && (
           <p className="rail-step__sub" role="note" data-testid="assembly-lift-note">
             {assemblyLiftNote}
           </p>
