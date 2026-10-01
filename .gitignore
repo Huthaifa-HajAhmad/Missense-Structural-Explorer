@@ -103,3 +103,6 @@ impeccable-detect.*
 tools/graft/
 
 .empryo
+
+# brand-mark rasteriser profile
+tools/brand-mark/.browser-profile/
