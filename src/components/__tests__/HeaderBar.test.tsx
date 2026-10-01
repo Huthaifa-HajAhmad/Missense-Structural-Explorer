@@ -97,6 +97,22 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.queryByRole("button", { name: /quick search/i })).not.toBeInTheDocument();
   });
 
+  it("names the page, not just the section, as a breadcrumb", () => {
+    const { rerender } = render(<HeaderBar {...base} activeEvidenceTab="clinical" />);
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(crumb).toHaveTextContent("Evidence");
+    expect(screen.getByText("Population data")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Evidence")).not.toHaveAttribute("aria-current");
+
+    rerender(<HeaderBar {...base} masterView="structure_alphafold" />);
+    expect(screen.getByText("3D structure")).toBeInTheDocument();
+    expect(screen.getByText("AlphaFold2")).toHaveAttribute("aria-current", "page");
+
+    // A section with no sub-pages is a single, current crumb
+    rerender(<HeaderBar {...base} masterView="literature" />);
+    expect(screen.getByText("Literature")).toHaveAttribute("aria-current", "page");
+  });
+
   it("names the current view from the sidebar's registry and stays quiet on Search", () => {
     const { rerender } = render(<HeaderBar {...base} masterView="structure_esmfold" />);
     expect(screen.getByText("3D structure")).toBeInTheDocument();

@@ -83,6 +83,13 @@ const CASES: Array<{ id: string; width: number; gene: string; variant: string; u
   { id: "maco1-narrow", width: 375, gene: "MACO1", variant: "p.Glu433Lys", uniprot: "Q9NSG2", result: maco1 },
 ];
 
+/** The one-line form the header collapses to on scroll. */
+const COMPACT_CASES = [
+  { id: "maco1-compact-wide", width: 1000 },
+  { id: "maco1-compact-mid", width: 700 },
+  { id: "maco1-compact-narrow", width: 375 },
+];
+
 const px = (n: number): number => Math.round(n * 10) / 10;
 const rect = (el: Element): DOMRect => el.getBoundingClientRect();
 
@@ -171,19 +178,45 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
   return checks;
 }
 
-/** There is no caption line above the rows anymore: the bare list owns the
-   rail. This check keeps a future regression from re-introducing the strip. */
-function checkStackedStrip(host: HTMLElement, id: string): GeometryCheck {
+/** The scope caption is the rail's first child, and its axis legend spans exactly the track
+   column of the rows below it — the legend names that column's direction, so it must sit over it. */
+function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   const rail = host.querySelector(".vh-rail");
-  const stray = host.querySelector(".vh-rail-meta");
+  const head = host.querySelector(".vh-rail-head");
   const list = host.querySelector(".vh-metrics");
-  if (!rail || !list) {
-    return { name: `${id}: rail is a bare list`, pass: false, detail: "missing rail/list" };
+  if (!rail || !head || !list) {
+    return [{ name: `${id}: rail opens with its scope caption`, pass: false, detail: "missing rail/caption/list" }];
   }
+  const checks: GeometryCheck[] = [{
+    name: `${id}: rail opens with its scope caption`,
+    pass: rail.firstElementChild === head && head.nextElementSibling === list,
+    detail: "caption, then list",
+  }];
+  const axis = host.querySelector(".vh-rail-axis");
+  const scale = host.querySelector("li.vh-metric .vh-scale");
+  if (axis && scale && getComputedStyle(axis).display !== "none") {
+    const a = rect(axis);
+    const t = rect(scale);
+    const off = Math.max(Math.abs(a.left - t.left), Math.abs(a.right - t.right));
+    checks.push({
+      name: `${id}: axis legend spans the track column`,
+      pass: off <= 1,
+      detail: `max edge offset ${px(off)}px`,
+    });
+  }
+  return checks;
+}
+
+/** The compact form is one line: nothing in it may wrap below the identity. */
+function checkCompact(host: HTMLElement, id: string): GeometryCheck {
+  const header = host.querySelector(".variant-header");
+  const identity = host.querySelector(".variant-header-identity");
+  if (!header || !identity) return { name: `${id}: compact is one line`, pass: false, detail: "missing header" };
+  const h = rect(header).height;
   return {
-    name: `${id}: rail is a bare list`,
-    pass: stray === null && rail.firstElementChild === list,
-    detail: stray ? "stray .vh-rail-meta caption still rendered" : "list is the rail's only child",
+    name: `${id}: compact is one line`,
+    pass: h <= 48,
+    detail: `header ${px(h)}px tall`,
   };
 }
 
@@ -262,7 +295,10 @@ function effectiveBackground(el: Element, pageBackground: Rgb): Rgb {
 function checkContrast(host: HTMLElement, id: string, pageBackgroundHex: string): GeometryCheck[] {
   const page = parseColor(pageBackgroundHex);
   if (!page) return [];
-  const selectors = [".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict"];
+  const selectors = [
+    ".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict",
+    ".vh-rail-source", ".vh-rail-axis",
+  ];
   const checks: GeometryCheck[] = [];
   selectors.forEach((selector) => {
     const el = host.querySelector(selector);
@@ -293,7 +329,18 @@ function App(): React.ReactElement {
       const header = host.querySelector(".variant-header");
       if (header) heights[c.id] = px(rect(header).height);
       checks.push(checkWrapped(host, c.id, c.width < 909));
-      if (c.width <= 600) checks.push(checkStackedStrip(host, c.id));
+      checks.push(...checkRailCaption(host, c.id));
+    });
+
+    COMPACT_CASES.forEach((c) => {
+      const host = document.getElementById(`host-${c.id}`);
+      if (!host) return;
+      checks.push(checkCompact(host, c.id));
+      const spills: string[] = [];
+      host.querySelectorAll<HTMLElement>(".vh-compact-metric, .vh-compact-tier").forEach((el) => {
+        if (el.scrollWidth - el.clientWidth > 1) spills.push(el.className);
+      });
+      checks.push({ name: `${c.id}: compact cells do not clip`, pass: spills.length === 0, detail: spills.join(" ") || "none" });
     });
 
     // Contrast in both themes, composited from the real computed colours.
@@ -330,6 +377,13 @@ function App(): React.ReactElement {
               uniprotId={c.uniprot}
               analysisResult={c.result}
             />
+          </div>
+        </div>
+      ))}
+      {COMPACT_CASES.map((c) => (
+        <div key={c.id} style={{ width: c.width, marginBottom: 12 }}>
+          <div id={`host-${c.id}`}>
+            <VariantHeader gene="MACO1" variant="p.Glu433Lys" uniprotId="Q9NSG2" analysisResult={maco1} compact />
           </div>
         </div>
       ))}

@@ -17,6 +17,7 @@ import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/Vari
 import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 import { useVariantUrlSync } from "./hooks/useVariantUrlSync";
+import { useCompactOnScroll } from "./hooks/useCompactOnScroll";
 
 export default function App() {
   const { actions } = useVariantAnalysis();
@@ -74,6 +75,13 @@ export default function App() {
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+
+  /* The variant header collapses to one line once the page scrolls, and opens again on any page change. */
+  const appMainRef = useRef<HTMLDivElement>(null);
+  const isVariantHeaderCompact = useCompactOnScroll(
+    appMainRef,
+    `${masterView}|${activeEvidenceTab}|${gene ?? ""}|${variant ?? ""}`
+  );
 
   /* First visit: offer the tour once the shell has settled. Only on Search — a shared link that
      opens straight into a result view should show that result, not be pulled away from it. */
@@ -221,13 +229,14 @@ export default function App() {
         />
 
         {/* ── App Main Viewport ── */}
-        <div className="app-main flex flex-col flex-1 relative overflow-hidden">
+        <div ref={appMainRef} className="app-main flex flex-col flex-1 relative overflow-hidden">
 
           {/* ── Slim Header Bar with integrated alerts + global chrome actions ── */}
           <HeaderBar
             masterView={masterView}
             isBiophysicalLoading={isBiophysicalLoading}
             isOffline={isOffline}
+            activeEvidenceTab={activeEvidenceTab}
             showNavToggle={isNarrowViewport}
             onToggleNavDrawer={() => setIsNavDrawerOpen((open) => !open)}
             onOpenPalette={() => setIsPaletteOpen(true)}
@@ -248,6 +257,7 @@ export default function App() {
               variant={variant}
               uniprotId={uniprotId}
               analysisResult={analysisState.result}
+              compact={isVariantHeaderCompact}
             />
           )}
 

@@ -109,8 +109,9 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.getByText("MANE Select")).toBeInTheDocument();
     expect(screen.getByText("7-140753336-A-T")).toBeInTheDocument();
     expect(screen.getByText("P15056")).toBeInTheDocument();
-    // Assembly stays visible next to the coordinate, without a "GRCh38:" key label
-    expect(screen.getByText("hg38")).toBeInTheDocument();
+    // The build is named in the field's own terms ("GRCh38", not UCSC "hg38") in front of the coordinate
+    expect(screen.getByText("GRCh38")).toBeInTheDocument();
+    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
 
     // The keyword labels are now conveyed to assistive tech instead of printed
     expect(screen.getByText("Transcript")).toBeInTheDocument();
@@ -191,9 +192,11 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    // Source attribution lives on the list's accessible label and the row
-    // tooltips; there is no visible caption line above the rows.
+    // The rows are scoped as GENE constraint in a visible caption, so a verdict beside the HGVS
+    // cannot be read as a call on the variant.
     expect(screen.getByRole("list", { name: /gnomAD v2 population constraint/ })).toBeInTheDocument();
+    expect(container.querySelector(".vh-rail-title")).toHaveTextContent("Gene constraint · gnomAD v2");
+    expect(container.querySelector(".vh-rail-axis")).toHaveTextContent(/tolerant.*constrained/);
     expect(container.querySelector(".vh-rail-meta")).not.toBeInTheDocument();
 
     // Compact metric labels — the full names live in the tooltip/sr-only copy
@@ -598,8 +601,8 @@ describe("VariantHeader Component Tests", () => {
       <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={grch37 as AnalysisResult} />
     );
 
-    expect(screen.getByText("hg19")).toBeInTheDocument();
-    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
+    expect(screen.getByText("GRCh37")).toBeInTheDocument();
+    expect(screen.queryByText("GRCh38")).not.toBeInTheDocument();
     expect(screen.getByTitle(/GRCh37 genomic coordinates/)).toBeInTheDocument();
     expect(screen.getByText("GRCh37 coordinates")).toBeInTheDocument();
 
@@ -612,8 +615,8 @@ describe("VariantHeader Component Tests", () => {
       <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={unknownBuild as AnalysisResult} />
     );
 
-    expect(container.querySelector(".vh-chip-key")).toBeNull();
-    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^GRCh3[78]$/)).toBeNull();
+    expect(container).toBeTruthy();
     expect(screen.getByTitle(/Build not reported/)).toBeInTheDocument();
   });
 
@@ -689,9 +692,52 @@ describe("VariantHeader Component Tests", () => {
     };
 
     // The band ladder and the tier ladder are declared separately; this pins them together.
+    // Bands are listed in drawn order: every track reads tolerant on the left, constrained on the
+    // right, so LOEUF (which falls as constraint rises) runs on a reversed axis.
     expect(tonesOf("Missense Z")).toEqual(["good", "warn", "path"]);
-    expect(tonesOf("LOEUF")).toEqual(["path", "warn", "good"]);
+    expect(tonesOf("LOEUF")).toEqual(["good", "warn", "path"]);
     expect(tonesOf("Regional O/E")).toEqual([]);
+  });
+
+  it("draws every track in the same direction: constrained values sit right", () => {
+    const { container } = render(
+      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} />
+    );
+    const leftOf = (label: string, selector: string) => {
+      const row = Array.from(container.querySelectorAll("li.vh-metric")).find(
+        (li) => li.querySelector(".vh-metric-label")?.textContent === label
+      );
+      return Array.from(row?.querySelectorAll<HTMLElement>(selector) ?? []).map((el) => parseFloat(el.style.left));
+    };
+    // Missense Z ticks 2.0 then 3.09, left to right
+    const [z20, z309] = leftOf("Missense Z", ".vh-axis-label");
+    expect(z309).toBeGreaterThan(z20);
+    // LOEUF: the strong cut (0.35) sits RIGHT of the 0.6 cut on the reversed axis
+    const [l035, l06] = leftOf("LOEUF", ".vh-axis-label");
+    expect(l035).toBeGreaterThan(l06);
+    // RMC: O/E 0.85 sits right of the 1.0 baseline
+    const [rmcMarker] = leftOf("Regional O/E", ".vh-marker");
+    const [rmcBaseline] = leftOf("Regional O/E", ".vh-axis-label");
+    expect(rmcMarker).toBeGreaterThan(rmcBaseline);
+  });
+
+  it("collapses to one line in compact mode, keeping the values and their tones", () => {
+    const { container } = render(
+      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} compact />
+    );
+    expect(container.querySelector(".variant-header")).toHaveAttribute("data-compact", "true");
+    expect(screen.getByText("BRAF")).toBeInTheDocument();
+    expect(screen.getByText("p.Val600Glu")).toBeInTheDocument();
+    expect(screen.getByText("MANE Select")).toBeInTheDocument();
+    // The values stay; the tracks, identifiers and caption go
+    expect(screen.getByText("+2.04")).toBeInTheDocument();
+    expect(screen.getByText("0.71")).toBeInTheDocument();
+    expect(container.querySelector(".vh-scale")).toBeNull();
+    expect(container.querySelector(".vh-identifiers")).toBeNull();
+    expect(container.querySelector(".vh-rail-head")).toBeNull();
+    // Verdicts remain available to assistive tech
+    expect(screen.getByText("Constrained")).toHaveClass("vh-sr-only");
+    expect(screen.getByRole("list", { name: "Gene constraint, gnomAD v2" })).toBeInTheDocument();
   });
 
   it("should handle copy to clipboard interaction and update screen reader feedback", async () => {
