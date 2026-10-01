@@ -670,9 +670,14 @@
 @media (min-width: 640px) {
   .about-view { padding: 40px 28px 96px; }
 }
+/* The shell is sized to its ENSEMBLE — reading measure + gap + contents rail — not to the
+   viewport. The prose blocks cap at a humane 68-80 character measure; at the old 1180px shell the
+   rail hung off the far edge and every paragraph stopped ~400px short of it, a one-sided dead
+   hole. A snug shell keeps prose and rail adjacent and hands the leftover to symmetric page
+   margins, where it reads as an article page instead of a layout bug. */
 .about-shell {
   width: 100%;
-  max-width: 1180px;
+  max-width: 940px;
   min-width: 0;
 }
 
@@ -823,7 +828,7 @@
 }
 .about-section-blurb {
   margin: 8px 0 0;
-  max-width: 70ch;
+  max-width: 78ch;
   font-size: 13px;
   line-height: 1.65;
   color: var(--cs-text-muted);
@@ -831,7 +836,7 @@
 }
 .about-lede {
   margin: 12px 0 0;
-  max-width: 68ch;
+  max-width: 76ch;
   font-size: var(--cs-font-size-body);
   line-height: 1.7;
   color: var(--cs-text-secondary);
