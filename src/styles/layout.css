@@ -646,14 +646,15 @@
  */
 
 /* ── About view ──
-   Two columns: the reading column keeps a ~68ch measure, while a sticky rail carries the
+   Two columns: the reading column keeps a ~70ch measure, while a sticky rail carries the
    on-page contents, the pinned manifest and the actions. The page is deliberately long —
-   it is a credit roll — so the contents rail, the per-group counts and the "not pinned by
-   this workspace" state do the work that a logo wall would do with imagery.
+   it is a credit roll — so the filter bar, the per-group counts and the "not pinned by this
+   workspace" state do the work that a logo wall would do with imagery.
 
-   Every rule here names the properties it transitions, and the card radii are concentric:
-   the outer boxes use --cs-radius-panel (16px) and nothing is nested inside them, so no
-   inner radius has to be derived. */
+   Type scale: section titles (18px serif) sit clearly above body copy (14px), group titles
+   (15px serif) above credit names (13px), and nothing a reader must read is set below 11px.
+   Every rule names the properties it transitions. Outer boxes use --cs-radius-panel and
+   nothing boxed is nested inside them, so no inner radius has to be derived. */
 
 .about-view {
   width: 100%;
@@ -664,171 +665,485 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  scroll-behavior: smooth;
 }
 @media (min-width: 640px) {
-  .about-view { padding: 40px 24px 80px; }
+  .about-view { padding: 40px 28px 96px; }
 }
 .about-shell {
   width: 100%;
-  max-width: 1160px;
+  max-width: 1180px;
   min-width: 0;
 }
 
 /* ── Brand block ── */
 .about-hero {
   display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 28px;
+  margin-bottom: 36px;
+  border-bottom: 1px solid var(--cs-border-subtle);
+}
+.about-hero-main {
+  display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 32px;
+  min-width: 0;
 }
 .about-mark {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
   border-radius: var(--cs-radius-card);
   background: var(--cs-accent-clay);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .about-title {
   margin: 0;
   font-family: var(--cs-font-serif);
-  font-size: var(--cs-font-size-display);
+  font-size: 26px;
   font-weight: var(--cs-font-weight-display);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   line-height: 1.2;
   color: var(--cs-text-primary);
+  text-wrap: balance;
 }
-.about-version {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.about-tagline {
   margin: 4px 0 0;
-  font-size: var(--cs-font-size-caption);
+  font-size: var(--cs-font-size-body);
+  line-height: 1.5;
   color: var(--cs-text-muted);
 }
-.about-version-sep {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--cs-border);
+/* Four facts on one hairline-divided strip, not four cards: they are captions for the page,
+   and three of them are links to the section that substantiates them. */
+.about-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-card);
+  background: var(--cs-surface);
+  overflow: hidden;
 }
+@media (min-width: 720px) {
+  .about-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.about-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-left: 1px solid var(--cs-border-subtle);
+  border-top: 1px solid var(--cs-border-subtle);
+  margin: -1px 0 0 -1px;
+  color: inherit;
+  text-decoration: none;
+}
+.about-stat-label {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+}
+.about-stat-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.about-stat-value.font-mono { font-size: 13px; font-weight: 500; }
+.about-stat-link {
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-stat-link:hover { background-color: var(--cs-bg-subtle); }
+.about-stat-link:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: -2px;
+}
+.about-stat-warn .about-stat-value { color: var(--cs-text-warning-on-soft); }
+.about-stat-warn .about-stat-value svg { color: var(--cs-text-warning); }
 
 /* ── Section heads ── */
 .about-section {
-  margin-bottom: 48px;
-  /* An anchor target must clear the sticky app chrome, or clicking a contents link
+  margin-bottom: 56px;
+  /* An anchor target must clear the top of the scroll container, or clicking a contents link
      hides the heading it just navigated to. */
   scroll-margin-top: 24px;
 }
-.about-section-title {
+.about-section-last { margin-bottom: 0; }
+.about-eyebrow {
+  margin: 0 0 6px;
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-text-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-accent);
+}
+.about-section-title,
+.about-group-title {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 0;
   font-family: var(--cs-font-serif);
-  font-size: var(--cs-font-size-section-label);
   font-weight: 600;
   letter-spacing: -0.01em;
+  line-height: 1.3;
   color: var(--cs-text-primary);
+  text-wrap: balance;
 }
+.about-section-title { font-size: 18px; }
+.about-group-title { font-size: 15px; }
 .about-section-count {
   font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
-  font-weight: var(--cs-font-weight-micro);
+  font-size: var(--cs-font-size-badge);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  letter-spacing: 0;
   color: var(--cs-text-muted);
   background: var(--cs-surface-2);
   border: 1px solid var(--cs-border-subtle);
   border-radius: var(--cs-radius-pill);
-  padding: 1px 7px;
+  padding: 0 8px;
 }
 .about-section-blurb {
-  margin: 6px 0 0;
-  max-width: 68ch;
-  font-size: var(--cs-font-size-caption);
-  line-height: 1.6;
+  margin: 8px 0 0;
+  max-width: 70ch;
+  font-size: 13px;
+  line-height: 1.65;
   color: var(--cs-text-muted);
+  text-wrap: pretty;
 }
 .about-lede {
   margin: 12px 0 0;
   max-width: 68ch;
   font-size: var(--cs-font-size-body);
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--cs-text-secondary);
+  text-wrap: pretty;
 }
-.about-lede-tight { margin-top: 16px; }
 
-/* ── Workflow zones ── */
+/* ── Workspace map ──
+   One card, one row per sidebar zone: what the zone is for on the left, its views on the
+   right. Each view mirrors the sidebar row anatomy (icon · label · descriptor), so the map
+   reads as the navigation it describes. Rows rather than a 2×2 grid, because the zones hold
+   one to four views and a grid would leave the short ones stretched and mostly empty. */
 .about-zones {
   list-style: none;
-  margin: 8px 0 0;
+  margin: 16px 0 0;
   padding: 0;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-panel);
+  overflow: hidden;
 }
 .about-zone {
-  display: flex;
-  gap: 14px;
-  padding: 10px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "desc" "views";
+  column-gap: 24px;
+  min-width: 0;
+  padding: 16px 18px 12px;
   border-top: 1px solid var(--cs-border-subtle);
 }
 .about-zone:first-child { border-top: none; }
+@media (min-width: 760px) {
+  .about-zone {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr);
+    grid-template-areas: "head views" "desc views";
+    grid-template-rows: auto 1fr;
+  }
+}
+.about-zone-head {
+  grid-area: head;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
 .about-zone-index {
   font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-badge);
   font-variant-numeric: tabular-nums;
   color: var(--cs-accent-clay);
-  padding-top: 2px;
   flex-shrink: 0;
 }
 .about-zone-name {
   margin: 0;
-  font-size: var(--cs-font-size-badge);
+  font-size: 13px;
   font-weight: 600;
   color: var(--cs-text-primary);
 }
 .about-zone-desc {
-  margin: 2px 0 0;
-  max-width: 64ch;
+  grid-area: desc;
+  margin: 4px 0 0;
   font-size: var(--cs-font-size-caption);
-  line-height: 1.55;
+  line-height: 1.6;
+  color: var(--cs-text-muted);
+  text-wrap: pretty;
+}
+.about-zone-views {
+  grid-area: views;
+  list-style: none;
+  margin: 8px -6px 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 2px 8px;
+  align-content: start;
+}
+@media (min-width: 760px) {
+  .about-zone-views { margin-top: -4px; }
+}
+/* A view that opens onto sub-tabs takes the full row, so its tab list has room to read. */
+.about-zone-views > li:has(.about-view-tabs) { grid-column: 1 / -1; }
+.about-view-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  border-radius: var(--cs-radius-input);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: inherit;
+}
+.about-view-row-link {
+  cursor: pointer;
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-view-row-link:hover { background-color: var(--cs-bg-subtle); }
+.about-view-row-link:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 0;
+}
+.about-view-icon {
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  flex-shrink: 0;
+  color: var(--cs-text-muted);
+}
+.about-view-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--cs-text-primary);
+}
+.about-view-sub {
+  display: block;
+  font-size: var(--cs-font-size-caption);
+  line-height: 1.45;
+  color: var(--cs-text-muted);
+}
+.about-view-go {
+  width: 13px;
+  height: 13px;
+  margin: 2px 0 0 auto;
+  flex-shrink: 0;
+  color: var(--cs-text-muted);
+  opacity: 0;
+  transform: translate(-2px, 2px);
+  transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1), color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-view-row-link:hover .about-view-go,
+.about-view-row-link:focus-visible .about-view-go {
+  opacity: 1;
+  transform: translate(0, 0);
+  color: var(--cs-accent-clay);
+}
+.about-view-tabs {
+  margin: 0 6px 4px 31px;
+  font-size: var(--cs-font-size-badge);
+  line-height: 1.6;
   color: var(--cs-text-muted);
 }
 
-/* ── Credit groups and rows ──
-   A credit is a card with no inner boxes: the rows are hairline-separated, which keeps the
-   16px outer radius unambiguous (nothing nested means nothing to reconcile) and lets a
-   44-entry roll stay readable. */
+/* ── Credit filter bar ──
+   Sticky inside the attribution section only, so it follows the reader through the roll
+   and releases at the section's end instead of covering the transmission table. */
+.about-toolbar {
+  position: sticky;
+  top: -1px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0 0;
+  padding: 12px 0;
+  background: var(--cs-bg);
+  border-bottom: 1px solid var(--cs-border-subtle);
+}
+.about-toolbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.about-filter {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.about-filter-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--cs-text-muted);
+  pointer-events: none;
+}
+.about-filter-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 32px 0 32px;
+  font-size: 13px;
+  color: var(--cs-text-primary);
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  transition: border-color 150ms cubic-bezier(0.2, 0, 0, 1), box-shadow 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-filter-input::placeholder { color: var(--cs-text-muted); }
+.about-filter-input::-webkit-search-cancel-button { display: none; }
+.about-filter-input:focus {
+  outline: none;
+  border-color: var(--cs-accent-clay);
+  box-shadow: 0 0 0 3px rgba(196, 104, 73, 0.15);
+}
+.about-filter-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--cs-radius-badge);
+  background: transparent;
+  color: var(--cs-text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.about-filter-clear:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.about-kind-filter {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.about-kind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--cs-font-size-caption);
+  font-weight: 500;
+  color: var(--cs-text-secondary);
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-pill);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.about-kind-pill:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.about-kind-pill:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 1px;
+}
+/* Pressed is marked by fill AND weight, so the state survives a monochrome render. */
+.about-kind-pill[aria-pressed="true"] {
+  color: var(--cs-surface);
+  background: var(--cs-text-primary);
+  border-color: var(--cs-text-primary);
+  font-weight: 600;
+}
+.about-kind-pill-count {
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-badge);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.about-toolbar-status {
+  margin-left: auto;
+  font-size: var(--cs-font-size-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
+}
+.about-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--cs-text-secondary);
+  border: 1px dashed var(--cs-border);
+  border-radius: var(--cs-radius-card);
+}
+.about-empty p { margin: 0; }
+
+/* ── Credit groups and rows ── */
 .about-group {
-  margin-top: 40px;
+  margin-top: 24px;
   background: var(--cs-surface);
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-radius-panel);
-  padding: 18px 20px 4px;
-  scroll-margin-top: 24px;
+  padding: 20px 22px 6px;
+  scroll-margin-top: 120px;
+}
+.about-group-empty {
+  padding-bottom: 16px;
+  background: transparent;
+  border-style: dashed;
 }
 .about-group-blurb {
   margin: 6px 0 0;
   max-width: 72ch;
   font-size: var(--cs-font-size-caption);
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--cs-text-muted);
+  text-wrap: pretty;
 }
 .about-credits {
   list-style: none;
-  margin: 14px 0 0;
+  margin: 14px -22px 0;
   padding: 0;
 }
 .about-credit {
-  padding: 14px 0;
+  padding: 16px 22px;
   border-top: 1px solid var(--cs-border-subtle);
-  /* The row is the hit area for the link inside it, so the padding is part of the target
-     rather than whitespace between targets. */
+  scroll-margin-top: 120px;
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
-.about-credit:hover {
-  background-color: var(--cs-bg-subtle);
+.about-credit:hover { background-color: var(--cs-bg); }
+/* A deep link (#credit-…) lands on a row that says it was the target. */
+.about-credit:target {
+  background-color: var(--cs-bg);
+  box-shadow: inset 2px 0 0 var(--cs-accent-clay);
 }
 .about-credit-top {
   display: flex;
@@ -838,8 +1153,9 @@
 }
 .about-credit-name {
   margin: 0;
-  font-size: var(--cs-font-size-badge);
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.35;
   min-width: 0;
 }
 .about-credit-link {
@@ -857,21 +1173,22 @@
 .about-credit-arrow {
   width: 13px;
   height: 13px;
-  margin-left: 5px;
+  margin-left: 4px;
   display: inline-block;
   vertical-align: -1px;
   color: var(--cs-text-muted);
   transform: translate(0, 0);
   transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
-.about-credit:hover .about-credit-arrow {
+.about-credit-link:hover .about-credit-arrow,
+.about-credit-link:focus-visible .about-credit-arrow {
   transform: translate(2px, -2px);
   color: var(--cs-accent-clay);
 }
 .about-kind {
   font-family: var(--cs-font-mono);
   font-size: var(--cs-text-micro);
-  font-weight: var(--cs-font-weight-micro);
+  font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 1px 6px;
@@ -882,50 +1199,76 @@
   flex-shrink: 0;
 }
 /* The clay chip's soft tint has to change in dark mode, or a near-white chip sits on a dark
-   surface at 6% opacity's worth of contrast. Indigo and success already ship paired
-   tokens, which is why only this one rule needs an override. */
+   surface. Indigo and success already ship paired tokens. Software keeps the neutral chip. */
 .about-kind-dataset { color: #166534; border-color: rgba(22, 163, 74, 0.2); background: var(--cs-bg-success); }
 .about-kind-model { color: var(--cs-text-accent); border-color: rgba(196, 104, 73, 0.2); background: #FBF0EB; }
 .about-kind-service { color: var(--cs-text-indigo-on-soft); border-color: rgba(99, 102, 241, 0.2); background: var(--cs-bg-indigo); }
+.about-kind-software { color: var(--cs-text-secondary); }
 .dark .about-kind-dataset { color: #4ADE80; border-color: rgba(74, 222, 128, 0.25); }
 .dark .about-kind-model { color: #E08B66; border-color: rgba(224, 139, 102, 0.25); background: rgba(196, 104, 73, 0.14); }
 .dark .about-kind-service { color: #A5B4FC; border-color: rgba(165, 180, 252, 0.25); }
 .about-credit-host {
   font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-badge);
   color: var(--cs-text-muted);
   margin-left: auto;
   padding-left: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 46%;
+  max-width: 40%;
+}
+@media (max-width: 560px) {
+  .about-credit-host { display: none; }
 }
 .about-credit-role {
   margin: 6px 0 0;
   max-width: 74ch;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--cs-text-secondary);
+  text-wrap: pretty;
+}
+/* Provider and release as a two-column fact grid: the label column is fixed so the values
+   align down a group and the eye can scan releases without reading providers. */
+.about-credit-facts {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  max-width: 78ch;
+}
+.about-fact {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
   font-size: var(--cs-font-size-caption);
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--cs-text-secondary);
 }
-.about-credit-meta,
+.about-fact dd { margin: 0; min-width: 0; }
+.about-release-note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--cs-font-size-badge);
+  line-height: 1.55;
+  color: var(--cs-text-muted);
+}
 .about-credit-note,
 .about-credit-cite,
-.about-credit-used,
 .about-note-inline {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 8px 0 0;
+  gap: 8px;
+  margin: 10px 0 0;
   max-width: 78ch;
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-caption);
   line-height: 1.6;
   color: var(--cs-text-muted);
 }
 /* The icon is decorative and the label beside it carries the meaning, so the 3:1 non-text
-   bar applies rather than 4.5:1. It is kept at 0.85 rather than lower: at 0.75 it measured
-   3.27:1 (light) / 3.40:1 (dark), which clears 3:1 by a margin too thin to trust. */
+   bar applies rather than 4.5:1. Kept at 0.85: at 0.75 it measured 3.27:1 (light) / 3.40:1
+   (dark), which clears 3:1 by a margin too thin to trust. */
 .about-credit-icon {
   width: 12px;
   height: 12px;
@@ -934,28 +1277,22 @@
   color: var(--cs-text-muted);
   opacity: 0.85;
 }
+.about-credit-cite .about-credit-icon,
+.about-note-inline .about-credit-icon { align-self: flex-start; margin-top: 3px; }
 /*
  * No opacity here. This label is REAL TEXT ("Provider", "Release", "Cite"), so it owes the
- * 4.5:1 body-text ratio, and at opacity 0.8 it measured 3.61:1 on --cs-surface and 3.48:1 on
- * --cs-surface-2 in light mode. The uppercase, letter-spaced, medium-weight treatment already
- * separates it from the value beside it, so the dimming bought nothing and cost the ratio.
+ * 4.5:1 body-text ratio; the uppercase, letter-spaced treatment already separates it from
+ * the value beside it.
  */
 .about-meta-label {
   font-family: var(--cs-font-mono);
   font-size: var(--cs-text-micro);
-  font-weight: var(--cs-font-weight-micro);
+  font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--cs-text-muted);
 }
-.about-meta-sep {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--cs-border);
-  align-self: center;
-}
-.about-meta-value { color: var(--cs-text-secondary); }
+.about-meta-value { color: var(--cs-text-secondary); font-size: var(--cs-font-size-badge); }
 /* The unpinned state is information, not an apology: it says the code establishes no
    version, which is a different fact from "we forgot to record it". */
 .about-meta-unpinned {
@@ -963,89 +1300,157 @@
   color: var(--cs-text-muted);
 }
 .about-credit-note {
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-left: 2px solid var(--cs-accent-clay);
   background: var(--cs-surface-2);
   border-radius: 0 var(--cs-radius-badge) var(--cs-radius-badge) 0;
   color: var(--cs-text-secondary);
-  font-size: var(--cs-text-micro);
 }
-.about-credit-note .about-credit-icon { color: var(--cs-accent-clay); opacity: 1; }
-.about-credit-cite { color: var(--cs-text-muted); }
+.about-credit-note .about-credit-icon { color: var(--cs-accent-clay); opacity: 1; align-self: flex-start; margin-top: 3px; }
 .about-credit-cite-empty { font-style: italic; }
-.about-credit-used code {
+.about-inline-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cs-text-accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(196, 104, 73, 0.35);
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: text-decoration-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-inline-link:hover { text-decoration-color: currentColor; }
+.about-inline-link:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Call sites sit one click away: they are what makes a credit checkable, but a reader who
+   is not checking should not have to read fifty file paths to get past them. */
+.about-credit-used {
+  margin: 8px 0 0;
+  font-size: var(--cs-font-size-caption);
+  color: var(--cs-text-muted);
+}
+.about-credit-used summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 2px;
+  margin-left: -2px;
+  border-radius: var(--cs-radius-badge);
+  list-style: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.about-credit-used summary::-webkit-details-marker { display: none; }
+.about-credit-used summary:hover { background: var(--cs-surface-2); color: var(--cs-text-secondary); }
+.about-credit-used summary:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 1px;
+}
+.about-disclosure-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  transition: transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-credit-used[open] .about-disclosure-chevron { transform: rotate(90deg); }
+.about-used-count { font-variant-numeric: tabular-nums; }
+.about-used-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px 20px;
+  padding: 0;
+}
+.about-used-list code {
   font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-badge);
   color: var(--cs-text-secondary);
   background: var(--cs-surface-2);
   border: 1px solid var(--cs-border-subtle);
   border-radius: var(--cs-radius-badge);
-  padding: 1px 5px;
+  padding: 1px 6px;
   /* A path must never be the thing that widens a row and pushes the layout. */
   overflow-wrap: anywhere;
 }
 
 /* ── Query transmission ── */
 .about-hosts {
-  margin: 10px 0 0;
-  border-top: 1px solid var(--cs-border-subtle);
+  margin: 16px 0 0;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-panel);
+  overflow: hidden;
 }
 .about-host {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--cs-border-subtle);
+  gap: 6px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--cs-border-subtle);
 }
-@media (min-width: 700px) {
-  .about-host { grid-template-columns: minmax(200px, 34%) minmax(0, 1fr); gap: 16px; }
+.about-host:first-child { border-top: none; }
+@media (min-width: 760px) {
+  .about-host { grid-template-columns: minmax(220px, 38%) minmax(0, 1fr); gap: 20px; }
+}
+.about-host-names {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
 }
 .about-host-name {
-  margin: 0;
-  font-size: var(--cs-text-micro);
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-badge);
+  line-height: 1.5;
   color: var(--cs-text-primary);
+  background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-badge);
+  padding: 1px 6px;
   overflow-wrap: anywhere;
 }
 .about-host-body { margin: 0; min-width: 0; }
 .about-host-sent {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
   margin: 0;
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-caption);
   line-height: 1.6;
-  color: var(--cs-text-secondary);
+  color: var(--cs-text-primary);
 }
 .about-host-note {
   margin: 2px 0 0;
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-caption);
   line-height: 1.6;
   color: var(--cs-text-muted);
 }
 .about-note-inline { margin-top: 14px; }
 
-/* ── Citation block ──
-   Two flat boxes rather than a card with a nested pre: an 8px radius inside 16px padding
-   would not be concentric, and the BibTeX is copy-paste material that should read as
-   preformatted on its own. The measure is set once on the block rather than per child. */
-.about-cite-block { max-width: 72ch; }
+/* ── Citation block ── */
+.about-cite-block { max-width: 72ch; margin-top: 16px; }
 .about-cite-plain {
   margin: 0;
   padding: 2px 0 2px 14px;
   border-left: 2px solid var(--cs-accent-clay);
-  font-size: var(--cs-font-size-caption);
+  font-size: 13px;
   line-height: 1.65;
   color: var(--cs-text-secondary);
 }
 .about-cite-bibtex {
   margin: 14px 0 0;
   padding: 14px 16px;
-  background: var(--cs-surface-2);
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
   font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-badge);
   line-height: 1.7;
   color: var(--cs-text-secondary);
   white-space: pre-wrap;
@@ -1056,12 +1461,13 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 .about-copy-btn {
   transition: background-color 120ms ease, color 120ms ease, transform 100ms ease;
 }
 .about-copy-btn:active { transform: scale(0.96); }
+.about-copy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Both glyphs stay mounted and one is absolutely placed, so the swap is a cross-fade that
    can be interrupted mid-flight rather than a conditional mount. */
 .about-copy-icon {
@@ -1079,17 +1485,18 @@
 }
 .about-copy-glyph-live { color: var(--cs-text-success); }
 .about-copy-status {
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-caption);
   color: var(--cs-text-muted);
 }
 
 /* ── Research-use disclaimer ── */
 .about-disclaimer {
-  background: var(--cs-surface-2);
-  border: 1px solid var(--cs-border);
+  background: var(--cs-bg-warning);
+  border: 1px solid rgba(217, 119, 6, 0.25);
   border-radius: var(--cs-radius-panel);
-  padding: 16px 18px;
-  max-width: 68ch;
+  padding: 18px 20px;
+  max-width: 72ch;
+  scroll-margin-top: 24px;
 }
 .about-disclaimer-head {
   display: flex;
@@ -1100,17 +1507,19 @@
 }
 .about-disclaimer-title {
   margin: 0;
-  font-size: var(--cs-font-size-badge);
+  font-family: var(--cs-font-serif);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--cs-text-primary);
+  color: var(--cs-text-warning-on-soft);
 }
 .about-disclaimer-body {
   margin: 0 0 8px;
-  font-size: var(--cs-font-size-caption);
-  line-height: 1.65;
-  color: var(--cs-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--cs-text-warning-on-soft);
 }
 .about-disclaimer-body:last-child { margin-bottom: 0; }
+.dark .about-disclaimer-body { color: var(--cs-text-secondary); }
 
 /* ── Layout and rail ──
    The rail is sticky on wide screens only: below 1024px it stacks under the reading column,
@@ -1125,21 +1534,23 @@
 .about-rail {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
   min-width: 0;
 }
 @media (min-width: 1024px) {
   .about-layout {
-    grid-template-columns: minmax(0, 1fr) 272px;
+    grid-template-columns: minmax(0, 1fr) 264px;
     gap: 56px;
   }
   .about-rail {
     position: sticky;
-    top: 24px;
+    top: 0;
     /* A rail taller than the viewport must be scrollable, or the last group — the actions —
        is unreachable on a short window. */
-    max-height: calc(100vh - var(--cs-chrome-height) - 48px);
+    max-height: calc(100vh - var(--cs-chrome-height) - 40px);
     overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
   }
 }
 .about-rail-title {
@@ -1164,11 +1575,15 @@
   margin-left: -1px;
   padding: 4px 0 4px 12px;
   border-left: 2px solid transparent;
-  font-size: var(--cs-text-micro);
+  font-size: var(--cs-font-size-caption);
   line-height: 1.45;
   color: var(--cs-text-muted);
   text-decoration: none;
   transition: color 150ms cubic-bezier(0.2, 0, 0, 1), border-color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-toc-list li[data-level="2"] .about-toc-link {
+  padding-left: 24px;
+  font-size: var(--cs-font-size-badge);
 }
 .about-toc-link:hover { color: var(--cs-text-primary); }
 .about-toc-link:focus-visible {
@@ -1176,31 +1591,90 @@
   outline-offset: 1px;
 }
 /* The current entry is marked by weight AND colour AND the rule, so the cue survives a
-   monochrome render and a screen reader (aria-current, set on the anchor). */
+   monochrome render and a screen reader (aria-current, set on the anchor). The parent of the
+   current group keeps its colour so the reader knows which section the group belongs to. */
 .about-toc-link[aria-current="true"] {
   color: var(--cs-text-primary);
   font-weight: 600;
   border-left-color: var(--cs-accent-clay);
 }
-.about-toc-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0;
-  flex-shrink: 0;
-  align-self: center;
-  transition: opacity 150ms cubic-bezier(0.2, 0, 0, 1);
-}
-.about-toc-link[aria-current="true"] .about-toc-dot { opacity: 1; }
+.about-toc-link[data-within="true"] { color: var(--cs-text-primary); }
 .about-toc-label { min-width: 0; }
-.about-rail-section { min-width: 0; }
-.about-rail-section .about-section-title { font-size: var(--cs-font-size-badge); }
-.about-rail-hint {
-  margin: 6px 0 6px;
+.about-toc-count {
+  margin-left: auto;
+  font-family: var(--cs-font-mono);
   font-size: var(--cs-text-micro);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
+}
+.about-rail-section { min-width: 0; }
+.about-rail-hint {
+  margin: 0 0 6px;
+  font-size: var(--cs-font-size-badge);
   line-height: 1.55;
   color: var(--cs-text-muted);
+}
+.about-kv { display: flex; flex-direction: column; }
+.about-kv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--cs-border-subtle);
+}
+.about-kv-row:first-child { border-top: none; }
+.about-kv-label {
+  min-width: 0;
+  font-size: var(--cs-font-size-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--cs-text-primary);
+  overflow-wrap: anywhere;
+}
+/* The value cell is the point of the row: without it the rail lists model names with no
+   revision beside them, which is the opposite of provenance. Truncated values keep the full
+   string in their tooltip. */
+.about-kv-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 58%;
+  flex-shrink: 0;
+  font-family: var(--cs-font-mono);
+  font-size: var(--cs-font-size-badge);
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-muted);
+  text-align: right;
+}
+.about-kv-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.about-kv-link {
+  text-decoration: none;
+  border-radius: var(--cs-radius-badge);
+  transition: color 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.about-kv-link:hover { color: var(--cs-text-accent); }
+.about-kv-link:focus-visible {
+  outline: 2px solid rgba(196, 104, 73, 0.5);
+  outline-offset: 2px;
+}
+.about-kv-value-caveat { color: var(--cs-text-warning-on-soft); }
+.about-kv-flag {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--cs-text-warning);
+}
+.about-kv-flag-inline {
+  display: inline-block;
+  vertical-align: -2px;
 }
 .about-actions {
   display: flex;
@@ -1213,16 +1687,20 @@
 /* Motion is a confirmation here, never the only cue: every animated state on this page
    also changes colour, weight, text or a rule. */
 @media (prefers-reduced-motion: reduce) {
+  .about-view { scroll-behavior: auto; }
   .about-credit,
   .about-credit-link,
   .about-credit-arrow,
   .about-toc-link,
-  .about-toc-dot,
+  .about-stat-link,
+  .about-view-row-link,
+  .about-view-go,
+  .about-disclosure-chevron,
   .about-copy-btn {
     transition-duration: 1ms;
   }
   .about-copy-btn:active { transform: none; }
-  .about-credit:hover .about-credit-arrow { transform: none; }
+  .about-credit-link:hover .about-credit-arrow { transform: none; }
 }
 
 

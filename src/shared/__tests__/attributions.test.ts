@@ -173,7 +173,6 @@ describe("attribution registry", () => {
       "cdn.jsdelivr.net": "API-reference stylesheet/script for the docs page, not a data path",
       // Outbound only as a citation or repository link. Nothing is ever sent to them.
       "github.com": "repository and documentation links",
-      "biosig.lab.uq.edu.au": "citation links for DynaMut2 and DDMut",
       "zenodo.org": "citation link for the RaSP dataset",
       // Named in the RaSP builder's docs as where an operator downloads the proteome predictions by
       // hand (doc/RASP_DATA.md). The server never contacts it.
