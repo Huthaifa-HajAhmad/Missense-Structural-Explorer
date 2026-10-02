@@ -843,6 +843,10 @@
   /* Prioritise the remedy over a repeated state label on narrow screens. The full action and
      explanation remain accessible; the chip row yields space rather than clipping the button. */
   .vcs-notes:has([data-recovery-action="provide-allele"]) { flex-shrink: 0; }
+  /* The notes slot must FIT at the narrowest strip — only recovery chrome is allowed to hold width.
+     The splice chip's words ("Near splice site", the distance) are what carry its meaning, so the
+     icon and its 6px gap are what yield: together they are what tipped the slot past its box. */
+  .vh-chip--proximity .vh-chip-icon { display: none; }
   .vcs-runstate-action-label { display: none; }
   .vcs-runstate-action-short { display: inline; }
 }

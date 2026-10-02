@@ -20,12 +20,12 @@ interface VariantHeaderProps {
  * The variant's identity moved into the top bar (`header/VariantIdentity.tsx`); what stays here is
  * context that applies to every evidence page:
  *
- *   Gene constraint  [Missense Z +1.09 ━●━ tolerant] [LOEUF 0.94 ━●━ LoF tolerant] [Regional O/E —]  Details ▾   … notes · run state
+ *   Gene constraint  [Missense Z +1.09 ━●━ tolerant] [LOEUF 0.94 ━●━ Not LoF constrained] [Regional O/E —]  Details ▾   … notes · run state
  *
  * - Each metric is a chip with a micro-track: same axis, direction and bands as the full track.
  * - "Details" discloses the full tracks — cut-points, threshold numerals, reference text — in an
  *   anchored panel. A disclosure, not a modal: Escape or a click outside closes it and returns focus.
- * - The notes slot carries the splice alert and the numbering basis.
+ * - The notes slot carries splice PROXIMITY as context (not an alert) and the numbering basis.
  * - The RUN STATE slot is fixed at the strip's end, so a degraded run (a fallback locus, a gnomAD
  *   outage) can never look like a clean one, and offers the re-run when one could help.
  *
@@ -155,7 +155,7 @@ function Notes({ model, splicePlacement, onRerun, onProvideAllele }: { model: Va
     <div className="vcs-notes">
       {splicePlacement && (
         <span
-          className="vh-chip"
+          className="vh-chip vh-chip--proximity"
           data-testid="splice-proximity-chip"
           title={`${splicePlacement.long}. Distance from a splice junction is context, not evidence of a splicing effect — see RNA splicing.`}
         >

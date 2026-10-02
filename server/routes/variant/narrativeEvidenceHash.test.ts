@@ -129,7 +129,16 @@ describe("narrative cache key — the evidence contract", () => {
 
   it("hashes the key from the shared contract, so the client's revision describes the same evidence", async () => {
     const handler = getNarrativeHandler();
-    const body = { serviceStatus: { clinvar: "timeout" }, aouFrequency: { aouAC: 1, aouAN: 1000 } };
+    /*
+     * `aouLookup` is in the body deliberately: it is evidence the fallback prose reads, so the route
+     * must hash it exactly as the client does. Without it here this test passes while the two sides
+     * disagree — which is how it was first written.
+     */
+    const body = {
+      serviceStatus: { clinvar: "timeout" },
+      aouFrequency: { aouAC: 1, aouAN: 1000 },
+      aouLookup: { localTable: "found", remoteDbnsfp: "not-reported" },
+    };
 
     await handler(makeReq(body), makeRes(), () => {});
 

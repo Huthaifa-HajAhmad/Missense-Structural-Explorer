@@ -66,10 +66,13 @@ import {
  * records whether it was given the stability and language-model observations, so a narrative written
  * before an engine settled cannot be served as though it had seen it.
  *
- * Version 3 adds `aouLookup`. The All of Us absence sentence and its source label are built from that
- * record (`aouAbsenceReason`, `aouSourceLabel`), so it is evidence the prose reads rather than context:
- * without it in the contract, a narrative written where the lookup answered could be served to a run
- * where no local table is installed — the same defect version 1 closed for `serviceStatus`.
+ * Version 3 adds `aouLookup`. `buildFrequencyEvidence` reads that record for the All of Us absence
+ * sentence and its source label (`aouAbsenceReason`, `aouSourceLabel`), so it belongs with the evidence
+ * rather than beside it: the contract is the union of what the two narrative kinds read, and
+ * under-inclusion is the only dangerous direction. The AI path does not receive the field today, so no
+ * cached synthesis can yet differ from another that shares its revision — the rule is kept so that it
+ * cannot start to. Both sides must hash it (the client through `planNarrativeSynthesis`, the route
+ * through its own field list), or one run acquires two identities.
  */
 export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 3;
 

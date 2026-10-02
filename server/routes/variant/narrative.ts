@@ -179,6 +179,13 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         gnomadConstraint,
         gnomadFrequency,
         aouFrequency,
+        /*
+         * `aouLookup` is evidence the prose reads, not request context: `buildFrequencyEvidence`
+         * turns it into the All of Us absence sentence and source label. It must therefore be inside
+         * the hash on BOTH sides — the client hashes it through `planNarrativeSynthesis`, so a server
+         * that omitted it would key two different evidence sets to one revision.
+         */
+        aouLookup,
         uniprotFeatures,
         sequence,
         serviceStatus,

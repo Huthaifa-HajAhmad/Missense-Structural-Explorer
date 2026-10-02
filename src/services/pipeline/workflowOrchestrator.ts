@@ -475,8 +475,17 @@ export async function executeFullAnalysisWorkflow({
       );
       const needsNarrativeBackfill = mode === "automatic" && (isFallback || !cached.analysisResult?.analysis) && hasActiveGemini;
 
-      // If cached bundle contains a complete analysis and no custom user instructions were requested,
-      // and does not require a narrative backfill/upgrade, short-circuit downstream re-fetches.
+      /*
+       * If the cached bundle contains a complete analysis and does not require a narrative backfill or
+       * upgrade, short-circuit the downstream re-fetches.
+       *
+       * Custom user instructions are NOT tested here, and that is deliberate: `pipelineContext` carries
+       * `userDirections` into the cache read above (`getCachedVariant(targetGene, targetVariant,
+       * pipelineContext)`), and `variantCache` drops `analysisResult` when the context does not match.
+       * So a run whose directions changed cannot reach this branch at all — it misses the cache and
+       * performs a full run and synthesis — while a re-run of the SAME directions short-circuits
+       * instead of paying for a model call to reproduce a narrative it already has.
+       */
       const hasCompleteAnalysis = Boolean(
         cached.analysisResult &&
         hasReusableCoreEvidence(cached.analysisResult) &&

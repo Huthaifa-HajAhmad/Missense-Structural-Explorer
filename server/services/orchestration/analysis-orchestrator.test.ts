@@ -205,11 +205,16 @@ describe("Analysis Orchestrator Unit Tests", () => {
       : streamCoreAnalysis(context, () => {});
 
     it("recomputes an old canonical fallback instead of restoring its inferred allele", async () => {
-      const payload = freshCachedPayload({
+      /**
+       * STAMPED, like every other fixture in this block whose assertion is a REFUSAL. An unstamped row
+       * is refused for carrying no identity at all, which would make this pass without the policy rule
+       * under test ever firing. `stamp` defaults to `baseContext`, the context `run()` uses here.
+       */
+      const payload = stamp(freshCachedPayload({
         gnomadVariantId: "12-102836889-C-T", gnomadVariantAssembly: "GRCh38",
         source: "MyVariant.info & dbNSFP (VEP Fallback)",
         locusResolution: { route: "fallback", canonicalBy: "dbnsfp-grch38", retryable: false, steps: [] },
-      });
+      }));
       mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload, id: "old-canonical-fallback", updatedAt: new Date().toISOString() });
 
       const resolved = await run();
@@ -251,7 +256,9 @@ describe("Analysis Orchestrator Unit Tests", () => {
       { gnomadVariantId: null, locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "ambiguous-allele", policyVersion: LOCUS_POLICY_VERSION, steps: [] } },
       { ...coordinatePredictor, gnomadVariantId: "16-67946177-C-A" }
     ])("a supplied nucleotide allele escapes ambiguity or another ALT cached under the same protein", async (predictor) => {
-      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: freshCachedPayload(predictor), id: "protein-keyed-cache", updatedAt: new Date().toISOString() });
+      // STAMPED with the context the run uses, so the refusal comes from the allele/ambiguity rule
+      // rather than from an unverifiable row.
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(freshCachedPayload(predictor), alleleContext), id: "protein-keyed-cache", updatedAt: new Date().toISOString() });
       await run(alleleContext);
       const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
       expect(fetchCoreVariantData).toHaveBeenCalledOnce();
@@ -265,8 +272,14 @@ describe("Analysis Orchestrator Unit Tests", () => {
     });
 
     it("does not use a prior coordinate allele to resolve a new ambiguous protein-only input", async () => {
-      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: freshCachedPayload(coordinatePredictor), id: "old-explicit-allele", updatedAt: new Date().toISOString() });
-      await run({ ...alleleContext, genomicCoordinates: undefined });
+      /*
+       * The row is stamped with the PROTEIN-ONLY context the run uses, so it is verifiable. The refusal
+       * must then come from the ambiguity rule — the row DOES carry a usable allele, and it is exactly
+       * that allele the rule says may not be inferred for a new protein-only input.
+       */
+      const proteinOnlyContext: ParsedVariantContext = { ...alleleContext, genomicCoordinates: undefined };
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(freshCachedPayload(coordinatePredictor), proteinOnlyContext), id: "old-explicit-allele", updatedAt: new Date().toISOString() });
+      await run(proteinOnlyContext);
       const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
       expect(fetchCoreVariantData).toHaveBeenCalledOnce();
     });
