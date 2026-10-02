@@ -96,7 +96,7 @@ describe("run-state slot", () => {
     const state = screen.getByTestId("run-state");
     expect(state).toHaveAttribute("role", "status");
     expect(state).toHaveTextContent("hg19 fallback");
-    expect(state).toHaveAttribute("title", expect.stringMatching(/GRCh38 lookup did not complete/));
+    expect(state).toHaveAttribute("title", expect.stringMatching(/GRCh38 lookup .*did not complete/));
 
     const before = useVariantAnalysisStore.getState().rerunNonce;
     fireEvent.click(within(state).getByRole("button", { name: /Re-run/ }));

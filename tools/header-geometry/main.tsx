@@ -4,11 +4,14 @@ import "@fontsource-variable/source-sans-3";
 import "@fontsource-variable/source-code-pro";
 import "@fontsource-variable/lora";
 import "@fontsource-variable/lora/wght-italic.css";
-import "../../src/index.css";
+import "./preview.css";
+import { ClinicalTab } from "../../src/components/evidence/ClinicalTab";
+import { PopulationRail } from "../../src/components/inspector/PopulationRail";
 import VariantHeader from "../../src/components/VariantHeader";
 import { VariantIdentity } from "../../src/components/header/VariantIdentity";
 import { buildVariantHeaderModel } from "../../src/components/header/variantHeaderModel";
 import type { AnalysisResult } from "../../src/types";
+import { LOCUS_POLICY_VERSION } from "../../src/shared/locusResolution";
 
 /**
  * Geometry assertions for the global variant header.
@@ -96,6 +99,35 @@ const maco1Fallback = {
     locusResolution: { route: "fallback", canonicalBy: null, retryable: true, steps: [] },
   },
 } as unknown as AnalysisResult;
+
+/** SLC12A4 Q867H: an input requirement, not a provider outage or an inferred allele. */
+const ambiguousAllele = {
+  ...maco1,
+  metadata: { gene: "SLC12A4", variant: "Q867H", populationPolicyVersion: LOCUS_POLICY_VERSION },
+  transcriptId: "NM_005072.5",
+  serviceStatus: { gnomadFrequency: "unsupported-build" },
+  gnomadFrequency: null, aouFrequency: null, aouLookup: null,
+  ruleBasedInsights: { acmgCriteria: [] },
+  // Synthetic layout values, not a live constraint reading for the reference variant.
+  gnomadConstraint: { missense_z: 1.35, loeuf: 0.68, isPP2Constrained: false, hasRegionalData: false },
+  predictorData: {
+    gnomadVariantId: null,
+    gnomadVariantAssembly: null,
+    locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "ambiguous-allele", policyVersion: LOCUS_POLICY_VERSION, steps: [] },
+  },
+} as unknown as AnalysisResult;
+const RECOVERY_CASES = [
+  { id: "allele-large", width: 1440 },
+  { id: "allele-desktop", width: 1200 },
+  { id: "allele-wide", width: 1000 },
+  { id: "allele-mid", width: 820 },
+  { id: "allele-narrow", width: 375 },
+];
+const POPULATION_CASES = [
+  { id: "population-wide", width: 820, dark: false },
+  { id: "population-narrow", width: 375, dark: false },
+  { id: "population-dark", width: 375, dark: true },
+];
 
 /** The top-bar identity at the widths its zone takes as the bar narrows. */
 const IDENTITY_CASES: Array<{ id: string; width: number; expect: string[] }> = [
@@ -372,6 +404,54 @@ function App(): React.ReactElement {
         });
       }
 
+      RECOVERY_CASES.forEach(c => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (!host) return;
+        const state = host.querySelector<HTMLElement>(".vcs-runstate");
+        const action = state?.querySelector<HTMLButtonElement>("button");
+        checks.push({
+          name: `${c.id}: original-allele action is legible without a false retry`,
+          pass: Boolean(action) && action!.textContent?.includes("Provide nucleotide allele") === true &&
+            !state?.textContent?.includes("Re-run") && action!.scrollWidth <= action!.clientWidth + 1,
+          detail: action ? `${action.textContent}: ${action.scrollWidth} vs ${action.clientWidth}` : "missing action",
+        });
+        checks.push({
+          name: `${c.id}: recovery chrome has no horizontal spill`,
+          pass: Boolean(state) && state!.scrollWidth <= state!.clientWidth + 1,
+          detail: state ? `${state.scrollWidth} vs ${state.clientWidth}` : "missing state",
+        });
+        if (c.width >= 820) {
+          const chips = host.querySelector<HTMLElement>(".vcs-chips");
+          const details = host.querySelector<HTMLElement>(".vcs-details");
+          const right = chips ? chips.getBoundingClientRect().left + chips.scrollWidth : Infinity;
+          const left = details?.getBoundingClientRect().left ?? -Infinity;
+          checks.push({
+            name: `${c.id}: constraint readings do not overprint Details or recovery`,
+            pass: Boolean(chips && details) && right <= left + 1,
+            detail: `${right.toFixed(1)} vs ${left.toFixed(1)}`,
+          });
+        }
+      });
+
+      POPULATION_CASES.forEach(c => {
+        const host = document.getElementById(`host-${c.id}`);
+        const action = host?.querySelector<HTMLButtonElement>(".pop-callout__action");
+        const box = host?.getBoundingClientRect();
+        const buttonBox = action?.getBoundingClientRect();
+        checks.push({
+          name: `${c.id}: population card and lineage have no horizontal spill`,
+          pass: Boolean(host) && host!.scrollWidth <= host!.clientWidth + 1,
+          detail: host ? `${host.scrollWidth} vs ${host.clientWidth}` : "missing host",
+        });
+        checks.push({
+          name: `${c.id}: allele-entry action is inside the card and legible`,
+          pass: Boolean(action && box && buttonBox) && action!.scrollWidth <= action!.clientWidth + 1 &&
+            buttonBox!.left >= box!.left && buttonBox!.right <= box!.right + 1 &&
+            (c.width > 560 || buttonBox!.height >= 44),
+          detail: buttonBox ? `${buttonBox.width.toFixed(1)} x ${buttonBox.height.toFixed(1)}` : "missing action",
+        });
+      });
+
       IDENTITY_CASES.forEach((c) => {
         const host = document.getElementById(`host-${c.id}`);
         if (host) checks.push(...checkIdentity(host, c.id, c.expect));
@@ -392,7 +472,7 @@ function App(): React.ReactElement {
   }, []);
 
   const strip = (gene: string, variant: string, uniprot: string, result: AnalysisResult) => (
-    <VariantHeader gene={gene} variant={variant} uniprotId={uniprot} analysisResult={result} />
+    <VariantHeader gene={gene} variant={variant} uniprotId={uniprot} analysisResult={result} onProvideAllele={() => {}} />
   );
 
   return (
@@ -413,6 +493,17 @@ function App(): React.ReactElement {
       <div style={{ width: 1000, marginBottom: 230 }}>
         <div id="host-fallback">{strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1Fallback)}</div>
       </div>
+      {RECOVERY_CASES.map(c => (
+        <div key={c.id} style={{ width: c.width, marginBottom: 230 }}>
+          <div id={`host-${c.id}`}>{strip("SLC12A4", "p.Gln867His", "Q9UP95", ambiguousAllele)}</div>
+        </div>
+      ))}
+      {POPULATION_CASES.map(c => (
+        <div key={c.id} id={`host-${c.id}`} className={`${c.dark ? "dark " : ""}font-mono text-xs`} style={{ width: c.width, background: "var(--cs-bg)", marginBottom: 20 }}>
+          <ClinicalTab {...({ analysisState: { result: ambiguousAllele, isLoading: false }, onNavigateToView: () => {} } as any)} />
+          <PopulationRail analysisResult={ambiguousAllele} />
+        </div>
+      ))}
       {IDENTITY_CASES.map((c) => (
         <div key={c.id} id={`host-${c.id}`} className="vid-zone" style={{ width: c.width, marginBottom: 12 }}>
           <VariantIdentity

@@ -287,6 +287,11 @@ export default function App() {
               variant={variant}
               uniprotId={uniprotId}
               analysisResult={analysisState.result}
+              onProvideAllele={() => {
+                actions.setCustomGene(gene);
+                actions.setShowCustomInputs(true);
+                navigate("search");
+              }}
             />
           )}
 

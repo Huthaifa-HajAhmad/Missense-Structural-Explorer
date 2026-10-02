@@ -16,9 +16,10 @@ import {
 import { healCachedAnalysisIfPossible } from "./self-healer.ts";
 import { fetchCoreVariantData } from "../external-api/core-data-fetcher.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
-import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
+import { predictorCoordinateFromContext, isBuildDegradedResult } from "../../../src/shared/contracts.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
-import { isRetryableFallbackLocus } from "../../../src/shared/locusResolution.ts";
+import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
+import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
 import { CONFIG } from "../../config.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData, StructuralAnalysisData };
@@ -63,6 +64,19 @@ function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T,
 
 function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
+  // The persisted outer key is gene + protein + weighting, not nucleotide identity. A supplied
+  // allele must escape a prior definitive ambiguity (or a different ALT at the same position).
+  const requested = context ? predictorCoordinateFromContext(context) : null;
+  if (requested) {
+    const cached = verifiedPopulationCoordinate(payload.predictorData);
+    const chrom = (value: string) => value.replace(/^chr/i, "").toUpperCase();
+    if (!cached || cached.assembly !== requested.assembly || chrom(cached.chrom) !== chrom(requested.chrom) ||
+        cached.pos !== requested.pos || cached.ref !== requested.ref || cached.alt !== requested.alt) return true;
+  } else if (context && isIntrinsicallyAmbiguousProteinChange(context.variant, context.gene) &&
+      (payload.predictorData?.gnomadVariantId || payload.predictorData?.caddPhred != null)) {
+    // Conversely, a prior explicitly selected allele cannot disambiguate a new protein-only input.
+    return true;
+  }
   /**
    * A FALLBACK locus (the GRCh38 lookup failed on that run) is never a finished analysis.
    *
@@ -73,7 +87,12 @@ function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, reco
    * (`isBuildDegradedResult`); this is the third cache in the same chain, held to the same rule. The
    * record itself is kept — the structural route reads `_internal` from it.
    */
-  if (isRetryableFallbackLocus(payload)) return true;
+  // The same policy as client restores: reject transient null-locus results and migrate old
+  // fallback allele-identity policies, including apparently canonical database-inferred answers.
+  if (isBuildDegradedResult({
+    ...payload,
+    metadata: { ...payload.metadata, gene: context?.gene ?? payload.metadata?.gene, variant: context?.variant ?? payload.metadata?.variant }
+  })) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
     if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {

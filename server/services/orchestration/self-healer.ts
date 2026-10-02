@@ -1,6 +1,9 @@
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
 import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
+import { isUsablePredictorResult } from "../prediction/predictors/vep-orchestrator.ts";
+import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
+import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import type { ClinVarData } from "../external-api/clinvar.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { persistVariantAnalysisPayload } from "./payload-assembler.ts";
@@ -41,23 +44,38 @@ export function healCachedAnalysisIfPossible(
   }
 
   const status = payload.serviceStatus || {};
+  const requestedCoordinate = predictorCoordinateFromContext(context);
+  const intrinsicallyAmbiguous = !requestedCoordinate &&
+    isIntrinsicallyAmbiguousProteinChange(context.variant, context.gene);
+  const verifiedCoordinate = intrinsicallyAmbiguous ? null : verifiedPopulationCoordinate(payload.predictorData);
+  let didHeal = false;
+
+  // Healing is another producer, not an exception to allele binding. Remove unbound population
+  // values before an early return or recomputation; never infer an allele from a protein cache key.
+  if (!verifiedCoordinate) {
+    if (payload.gnomadFrequency != null || payload.aouFrequency != null || payload.conservationData?.aouFrequency != null) {
+      payload.gnomadFrequency = null;
+      payload.aouFrequency = null;
+      payload.aouLookup = null;
+      if (payload.conservationData) payload.conservationData.aouFrequency = null;
+      didHeal = true;
+    }
+  }
   const hasTimeouts = Object.values(status).includes("timeout");
   const missingSplice = !payload.conservationData?.spliceai;
 
-  if (!hasTimeouts && !missingSplice) {
+  if (!hasTimeouts && !missingSplice && !didHeal) {
     return payload;
   }
 
   const db = AnalysisDatabase.getInstance();
-  const gnomadVarId = payload.predictorData?.gnomadVariantId || "";
+  const gnomadVarId = verifiedCoordinate ? payload.predictorData.gnomadVariantId : "";
   const genosCache = db.getExternalCache<any>(
     buildGenosKey(context.gene, context.variant, gnomadVarId || undefined)
   );
   const clinvarCache = db.getExternalCache<ClinVarData>(
     buildClinvarKey(context.gene, context.variant, context.originalNotation)
   );
-
-  let didHeal = false;
 
   // 1. Genos & Conservation healing
   if (genosCache?.data) {
@@ -76,12 +94,9 @@ export function healCachedAnalysisIfPossible(
       popeve: g.popeve ?? payload.conservationData?.popeve ?? null,
       spliceai: g.spliceai ?? payload.conservationData?.spliceai ?? null,
       dbscsnv: g.dbscsnv ?? payload.conservationData?.dbscsnv ?? null,
-      aouFrequency: (g.aou_ac !== null && g.aou_ac !== undefined) ? {
-        aouAC: g.aou_ac,
-        aouAN: g.aou_an ?? null,
-        aouHet: g.aou_het ?? null,
-        aouHom: g.aou_hom ?? null
-      } : payload.conservationData?.aouFrequency ?? null
+      // Genos records carry no verified nucleotide identity, even when a cache key contains one.
+      // Keep existing exact-local AoU evidence only; never heal counts from this protein row.
+      aouFrequency: payload.conservationData?.aouFrequency ?? null
     };
     if (payload.serviceStatus) payload.serviceStatus.conservationData = "ok";
     didHeal = true;
@@ -142,7 +157,7 @@ export function healCachedAnalysisIfPossible(
       buildPredictorsKey(context.gene, context.variant, context.uniprotId,
         predictorCoordinateFromContext(context))
     );
-    if (predictorCache?.data) {
+    if (predictorCache?.data && isUsablePredictorResult(predictorCache.data, context.variant, requestedCoordinate, context.gene)) {
       payload.predictorData = predictorCache.data;
       if (payload.serviceStatus) payload.serviceStatus.predictorData = "ok";
       didHeal = true;

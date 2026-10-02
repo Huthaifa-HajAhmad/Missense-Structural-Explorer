@@ -4,6 +4,7 @@ import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds";
 import {
   buildFrequencyEvidence,
+  aouSourceLabel,
   formatAlleleFrequency,
   populationReading, frequencyEvidenceInputFromResult } from "../../shared/frequencyEvidence";
 import { variantNumberingView } from "../../shared/numbering";
@@ -11,7 +12,7 @@ import { ASSEMBLY_LABELS } from "../../shared/assembly";
 import { acmgCriteriaView } from "../../shared/acmgCriteriaView";
 import { clinvarAccessionNote, formatClinicalDate } from "../evidence/population/populationFormat";
 import { buildAssemblyLiftNote } from "./assemblyLiftNote";
-import { isFallbackLocus, isRetryableFallbackLocus } from "../../shared/locusResolution";
+import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "../../shared/locusResolution";
 
 /**
  * PopulationRail — the Evidence Lineage inspector for the Population Data tab.
@@ -102,12 +103,9 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
    */
   const fallbackLocus = isFallbackLocus(analysisResult);
   const fallbackNote = fallbackLocus
-    ? `Fallback locus: the GRCh38 lookup did not complete on this run, so ${
-        genomicAssembly ? `only this ${ASSEMBLY_LABELS[genomicAssembly]} locus was found` : "no genomic locus was found"
-      } and the GRCh38-only sources were not queried. This is not the variant's build.${
-        isRetryableFallbackLocus(analysisResult) ? " Re-running the analysis may resolve it." : ""
-      }`
+    ? fallbackCause(genomicAssembly, locusRecoveryAction(analysisResult) === "retry", locusFailureKind(analysisResult) ?? undefined)
     : null;
+  const aouSource = aouSourceLabel(analysisResult.aouLookup, analysisResult);
   const numbering = variantNumberingView({
     variant: analysisResult.metadata?.variant ?? "",
     uniprotId: analysisResult.metadata?.uniprotId ?? null,
@@ -347,8 +345,8 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           <Row label="gnomAD">
             {gnomadRelease ? <span className="pop-mono">{gnomadRelease}</span> : <span>release not reported</span>}
           </Row>
-          <Row label="All of Us">
-            <span>local frequency table</span>
+          <Row label="All of Us" testId="aou-source">
+            <span>{aouSource}</span>
           </Row>
           <Row label="NCBI ClinVar">
             <span className="pop-mono">E-utilities esearch/esummary</span>

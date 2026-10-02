@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
 import * as self from './dbnsfp_local.ts';
+import type { AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
 import {
   normalizeAminoAcid,
   parseAminoAcidChange,
@@ -173,7 +174,8 @@ export async function queryLocalDbnsfpVariant(
   pos: number,
   ref?: string | null,
   alt?: string | null,
-  aaChange?: string | null
+  aaChange?: string | null,
+  coordinate?: AssemblyTaggedCoordinate | null
 ): Promise<LocalDbnsfpRecord | null> {
   await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
@@ -186,7 +188,6 @@ export async function queryLocalDbnsfpVariant(
       stmt = db.prepare(`
         SELECT * FROM variant_scores
         WHERE gene = ? AND pos = ? AND ref = ? AND alt = ?
-        LIMIT 1
       `);
       rows = (stmt.all as any)(gene.trim().toUpperCase(), pos, ref.trim().toUpperCase(), alt.trim().toUpperCase());
     } else {
@@ -195,13 +196,22 @@ export async function queryLocalDbnsfpVariant(
         WHERE gene = ? AND pos = ?
       `);
       rows = (stmt.all as any)(gene.trim().toUpperCase(), pos);
-      if (aaChange && rows.length > 0) {
-        const found = rows.find(r => matchAminoAcidChange(aaChange, r.aa_change));
-        if (found) return found as LocalDbnsfpRecord;
-      }
     }
-
-    if (rows.length > 0) {
+    // A requested substitution that is absent must not inherit the first row's allele.
+    if (aaChange) rows = rows.filter(r => matchAminoAcidChange(aaChange, r.aa_change));
+    if (coordinate) {
+      if (coordinate.assembly !== "GRCh38") return null;
+      const chrom = coordinate.chrom.replace(/^chr/i, "").toUpperCase();
+      rows = rows.filter(r => String(r.chr ?? "").replace(/^chr/i, "").toUpperCase() === chrom &&
+        r.pos_genomic === coordinate.pos && String(r.ref ?? "").toUpperCase() === coordinate.ref.toUpperCase() &&
+        String(r.alt ?? "").toUpperCase() === coordinate.alt.toUpperCase());
+    }
+    // Duplicate transcript rows at one known allele are harmless; distinct alleles (including
+    // same-position/different ALT) and multiple rows lacking allele provenance are not unique.
+    const identities = new Set(rows.map(r => r.chr && r.pos_genomic && r.ref && r.alt
+      ? `${String(r.chr).replace(/^chr/i, "").toUpperCase()}:${r.pos_genomic}:${String(r.ref).toUpperCase()}>${String(r.alt).toUpperCase()}`
+      : null));
+    if (rows.length === 1 || (rows.length > 1 && identities.size === 1 && !identities.has(null))) {
       return rows[0] as LocalDbnsfpRecord;
     }
   } catch (err: any) {

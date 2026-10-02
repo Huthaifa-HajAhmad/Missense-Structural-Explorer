@@ -31,6 +31,20 @@ import { z } from "zod";
 import { CANONICAL_ASSEMBLY, ASSEMBLY_LABELS } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
 
+/** Increment only when previously cached fallback allele identity is no longer safe to reuse. */
+export const LOCUS_POLICY_VERSION = 2;
+
+/** Additive wire vocabulary: old payloads without a failure kind still parse. */
+export const locusFailureKindSchema = z.enum([
+  "ambiguous-allele",
+  "transient-provider",
+  "incomplete-evidence",
+  "not-found",
+  "invalid-notation",
+  "unknown",
+]);
+export type LocusFailureKind = z.infer<typeof locusFailureKindSchema>;
+
 /** One rung of the locus ladder, as attempted on this run. */
 export const locusResolutionStepSchema = z.object({
   step: z.enum([
@@ -61,6 +75,10 @@ export const locusResolutionSchema = z.object({
    * about the variant that a retry cannot alter.
    */
   retryable: z.boolean(),
+  /** Why no exact allele was established. Never inferred from a missing frequency. */
+  failureKind: locusFailureKindSchema.optional(),
+  /** Cache policy generation for fallback results; absent on legacy payloads. */
+  policyVersion: z.number().int().positive().optional(),
   steps: z.array(locusResolutionStepSchema).max(12),
 });
 
@@ -115,9 +133,35 @@ export function isFallbackLocus(result: LocusResultLike | null | undefined): boo
  * the only thing known is that the lookup failed, and every recorded cause of that is transient.
  */
 export function isRetryableFallbackLocus(result: LocusResultLike | null | undefined): boolean {
-  if (!isFallbackLocus(result)) return false;
+  return locusRecoveryAction(result) === "retry";
+}
+
+/**
+ * Read a typed failure, with narrowly-scoped migration for the PR #23 trail.
+ * Ambiguity is definitive even if another target timed out: neither a reference-base check nor a
+ * database containing only one observed allele proves which nucleotide the person submitted.
+ */
+export function locusFailureKind(result: LocusResultLike | null | undefined): LocusFailureKind | null {
+  if (!isFallbackLocus(result)) return null;
   const trail = result?.predictorData?.locusResolution;
-  return trail ? trail.retryable : true;
+  if (trail?.failureKind) return trail.failureKind;
+  const details = trail?.steps.map(step => step.detail ?? "").join("\n") ?? "";
+  if (/could not uniquely determine nucleotide change|distinct loci .*ambiguous|refused as ambiguous/i.test(details)) {
+    return "ambiguous-allele";
+  }
+  if (!trail || trail.retryable) return "transient-provider";
+  return "unknown";
+}
+
+/** Shared recovery policy for humans and agents; no surface re-derives retryability. */
+export function locusRecoveryAction(result: LocusResultLike | null | undefined): "retry" | "provide-allele" | null {
+  const kind = locusFailureKind(result);
+  if (!kind) return null;
+  if (kind === "ambiguous-allele" || kind === "incomplete-evidence" || kind === "invalid-notation") {
+    return "provide-allele";
+  }
+  const trail = result?.predictorData?.locusResolution;
+  return (!trail || trail.retryable) ? "retry" : null;
 }
 
 /**
@@ -132,9 +176,9 @@ export function isRetryableFallbackLocus(result: LocusResultLike | null | undefi
 export function fallbackLocusSentence(
   source: string,
   assembly: GenomeAssembly | null,
-  options: { retryable?: boolean } = {},
+  options: { retryable?: boolean; failureKind?: LocusFailureKind | null } = {},
 ): string {
-  return `${source} was not queried: ${fallbackCause(assembly, options.retryable ?? true)}`;
+  return `${source} was not queried: ${fallbackCause(assembly, options.retryable ?? true, options.failureKind)}`;
 }
 
 /**
@@ -143,7 +187,23 @@ export function fallbackLocusSentence(
  * The server writes refusals as `${sourceKey} was not queried: …` so the client's `humaniseRefusal`
  * (which rewrites a leading source key into its display name) keeps working on these too.
  */
-export function fallbackCause(assembly: GenomeAssembly | null, retryable: boolean): string {
+export function fallbackCause(
+  assembly: GenomeAssembly | null,
+  retryable: boolean,
+  failureKind?: LocusFailureKind | null,
+): string {
+  if (failureKind === "ambiguous-allele") {
+    return "this protein change can represent more than one nucleotide allele. Provide the original transcript-qualified cDNA variant or genomic variant with its genome build; no allele was selected or inferred.";
+  }
+  if (failureKind === "incomplete-evidence") {
+    return "the lookup did not establish a unique nucleotide allele from complete evidence. Provide the original transcript-qualified cDNA variant or genomic variant with its genome build; no allele was selected or inferred.";
+  }
+  if (failureKind === "invalid-notation") {
+    return "the submitted notation could not establish a genomic allele. Check the original transcript-qualified cDNA variant or genomic variant and its genome build.";
+  }
+  if (!retryable) {
+    return "no verified genomic allele was established from this input. This does not establish absence from a population database; no frequency criterion was applied.";
+  }
   const canonical = ASSEMBLY_LABELS[CANONICAL_ASSEMBLY];
   const found = assembly
     ? `only a ${ASSEMBLY_LABELS[assembly]} locus was found, and this source indexes ${canonical}`
@@ -156,7 +216,8 @@ export function fallbackCause(assembly: GenomeAssembly | null, retryable: boolea
 }
 
 /** A short form for tight chrome (the header's run-state slot). */
-export function fallbackLocusShortLabel(assembly: GenomeAssembly | null): string {
+export function fallbackLocusShortLabel(assembly: GenomeAssembly | null, failureKind?: LocusFailureKind | null): string {
+  if (failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence" || failureKind === "invalid-notation") return "Nucleotide allele needed";
   if (!assembly) return "Locus not resolved";
   return `${assembly === "GRCh37" ? "hg19" : assembly} fallback`;
 }

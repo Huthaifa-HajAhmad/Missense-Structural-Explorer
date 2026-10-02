@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, RotateCw, Scissors } from "lucide-react";
+import { AlertTriangle, ChevronDown, RotateCw, Search, Scissors } from "lucide-react";
 import { AnalysisResult } from "../types";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { ConstraintMetric, MiniTrack } from "./header/ConstraintTrack";
@@ -10,6 +10,7 @@ interface VariantHeaderProps {
   variant: string;
   uniprotId: string;
   analysisResult: AnalysisResult | null;
+  onProvideAllele?: () => void;
 }
 
 /**
@@ -30,7 +31,7 @@ interface VariantHeaderProps {
  * Replaced a two-band 124px header plus a 52px top bar (176px) with 56 + 38 = 94px, and removed the
  * compact-on-scroll mode, which existed only because the old header was too tall to keep.
  */
-function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHeaderProps) {
+function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAllele }: VariantHeaderProps) {
   const model = useVariantHeaderModel({ gene, variant, uniprotId, analysisResult });
   const requestRerun = useVariantAnalysisStore((s) => s.requestRerun);
   const [open, setOpen] = useState(false);
@@ -102,7 +103,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
         </>
       )}
 
-      <Notes model={model} onRerun={requestRerun} />
+      <Notes model={model} onRerun={requestRerun} onProvideAllele={onProvideAllele} />
 
       {open && metrics.length > 0 && (
         <div ref={panelRef} id={panelId} className="vcs-panel" role="region" aria-label="Gene constraint reference ranges">
@@ -133,7 +134,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
 }
 
 /** The strip's right end: splice alert, numbering basis, then the fixed run-state slot. */
-function Notes({ model, onRerun }: { model: VariantHeaderModel; onRerun: () => void }) {
+function Notes({ model, onRerun, onProvideAllele }: { model: VariantHeaderModel; onRerun: () => void; onProvideAllele?: () => void }) {
   const { splice, modelledBasis, runState } = model;
   if (!splice && !modelledBasis && !runState) return null;
   return (
@@ -160,11 +161,18 @@ function Notes({ model, onRerun }: { model: VariantHeaderModel; onRerun: () => v
         </span>
       )}
       {runState && (
-        <span className="vcs-runstate" role="status" title={runState.detail} data-testid="run-state">
+        <span className="vcs-runstate" role="status" title={runState.detail} data-testid="run-state" data-recovery-action={runState.recoveryAction ?? undefined}>
           <AlertTriangle size={14} className="shrink-0" aria-hidden="true" />
           <span className="vcs-runstate-label">{runState.label}</span>
           <span className="vh-sr-only">. {runState.detail}</span>
-          {runState.retryable && (
+          {runState.recoveryAction === "provide-allele" && onProvideAllele && (
+            <button type="button" className="vcs-runstate-action" onClick={onProvideAllele} aria-label="Provide nucleotide allele">
+              <Search size={12} aria-hidden="true" />
+              <span className="vcs-runstate-action-label" aria-hidden="true">Provide nucleotide allele</span>
+              <span className="vcs-runstate-action-short" aria-hidden="true">Enter allele</span>
+            </button>
+          )}
+          {runState.recoveryAction === "retry" && (
             <button type="button" className="vcs-runstate-action" onClick={onRerun}>
               <RotateCw size={12} aria-hidden="true" />
               Re-run
