@@ -853,3 +853,90 @@ describe("foldxService", () => {
     );
   });
 });
+
+describe("foldxService reports its outcome to the Console", () => {
+  const immediate = (payload: any): any =>
+    vi.fn(async () => ({ ok: true, json: async () => payload }));
+
+  const run = async (payload: any, traceContext?: any) => {
+    const sink: any = makeSink();
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: immediate(payload),
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      traceContext,
+    });
+    return sink;
+  };
+
+  it("logs a failed result the server returned with HTTP 200, which no interceptor can see", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await run({ status: "failed", ddG: null, error: "RepairPDB did not converge" });
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[FoldX\] calculation failed for p\.Arg408Trp: RepairPDB did not converge/));
+    warn.mockRestore();
+  });
+
+  it("calls a deployment without the binary 'unavailable', not a failure", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await run({ status: "unavailable", ddG: null, energetics: { foldxError: "FoldX binary is missing" } });
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[FoldX\] unavailable for p\.Arg408Trp: FoldX binary is missing/));
+    warn.mockRestore();
+  });
+
+  it("stays quiet on success", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await run({ status: "success", ddG: 1.2, pdb: "ATOM", foldedResidueIndex: 408 });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("surfaces a ThermoMPNN error string instead of leaving it in the tab alone", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await run({ status: "success", ddG: 1.2, pdb: "ATOM", thermompnnError: "model service offline" });
+    expect(warn).toHaveBeenCalledWith("[ThermoMPNN] model service offline");
+    warn.mockRestore();
+  });
+
+  it("records a trace span carrying the same outcome the Energetics tab shows", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const addTraceSpan = vi.fn();
+    await run({ status: "failed", ddG: null, error: "boom" }, { activeTraceId: "t1", traceStart: performance.now(), addTraceSpan });
+    expect(addTraceSpan).toHaveBeenCalledWith(
+      expect.objectContaining({ traceId: "t1", name: "FoldX Mutagenesis (ΔΔG)", stage: "structure", status: "failed", error: "boom" })
+    );
+
+    addTraceSpan.mockClear();
+    await run({ status: "success", ddG: 1.2, pdb: "ATOM", foldedResidueIndex: 408 }, { activeTraceId: "t1", traceStart: performance.now(), addTraceSpan });
+    expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({ status: "success" }));
+    expect(addTraceSpan.mock.calls[0][0].error).toBeUndefined();
+
+    addTraceSpan.mockClear();
+    await run({ status: "unavailable", ddG: null }, { activeTraceId: "t1", traceStart: performance.now(), addTraceSpan });
+    expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({ status: "unavailable" }));
+    vi.restoreAllMocks();
+  });
+
+  it("records no span for a superseded run", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const addTraceSpan = vi.fn();
+    const sink: any = makeSink();
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth: immediate({ status: "failed", ddG: null }),
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 2,
+      traceContext: { activeTraceId: "t1", traceStart: 0, addTraceSpan },
+    });
+    expect(addTraceSpan).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});

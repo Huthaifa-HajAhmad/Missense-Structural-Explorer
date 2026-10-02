@@ -536,6 +536,7 @@ export async function executeFullAnalysisWorkflow({
             signal: activeSignal,
             requestId,
             getActiveRequestId,
+            traceContext: getTraceContext(),
             // This variant's own restored state, so a failure settles against what the STORE holds
             // rather than only against what this run has seen so far. Without it an engine the store
             // is already polling for can be marked unavailable, which tears that poller down.
@@ -624,6 +625,7 @@ export async function executeFullAnalysisWorkflow({
         signal: foldController.signal,
         requestId,
         getActiveRequestId,
+        traceContext: getTraceContext(),
         /**
          * The SAME seed the backfill dispatch passes — and it IS load-bearing, which a correction to an
          * earlier record needs to state plainly.

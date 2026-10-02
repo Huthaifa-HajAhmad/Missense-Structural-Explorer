@@ -10,7 +10,7 @@ import {
 } from "../../shared/timeouts";
 import { readJsonWithTimeout } from "../../shared/httpBody";
 import { toFoldxMutation } from "./notationService";
-import { PipelineBiophysicalSink } from "./types";
+import { PipelineBiophysicalSink, TraceContext } from "./types";
 import { setCachedVariant } from "./variantCache";
 
 export interface FoldxExecutionOptions {
@@ -25,6 +25,8 @@ export interface FoldxExecutionOptions {
   signal: AbortSignal;
   requestId: number;
   getActiveRequestId: () => number;
+  /** When present, the run is recorded as a span in the Console's pipeline waterfall. */
+  traceContext?: TraceContext;
   /**
    * The remote-engine state this variant ALREADY has, as restored from its cached bundle.
    *
@@ -48,7 +50,67 @@ export interface FoldxExecutionOptions {
   };
 }
 
+/**
+ * Runs FoldX and records how it ended in the Console.
+ *
+ * A FoldX failure used to be visible only inside the Energetics tab: the server answers 200 with
+ * `status: "failed"`, the client wrote that into the store, and nothing was logged or traced — so the
+ * Console reported "zero errors" and the waterfall had no FoldX row at all. The outcome is read off the
+ * sink writes rather than re-derived, so the span can never disagree with what the Energetics tab shows.
+ */
 export async function executeFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
+  const { traceContext, sink, signal, requestId, getActiveRequestId } = options;
+  if (!traceContext?.activeTraceId) return runFoldxPipeline(options);
+
+  const traceId = traceContext.activeTraceId;
+  const started = performance.now();
+  let finalStatus: string | null = null;
+  let finalError: string | null = null;
+  const observed: PipelineBiophysicalSink = {
+    ...sink,
+    setFoldingStatus: (status: any) => {
+      finalStatus = status;
+      sink.setFoldingStatus(status);
+    },
+    setFoldingError: (error: any) => {
+      if (error) finalError = String(error);
+      sink.setFoldingError(error);
+    },
+  };
+
+  try {
+    await runFoldxPipeline({ ...options, sink: observed });
+  } finally {
+    const superseded = signal.aborted || getActiveRequestId() !== requestId;
+    if (!superseded && (finalStatus === "success" || finalStatus === "failed" || finalStatus === "unavailable")) {
+      const durationMs = Math.round(performance.now() - started);
+      traceContext.addTraceSpan({
+        traceId,
+        name: "FoldX Mutagenesis (ΔΔG)",
+        stage: "structure",
+        startTime: Date.now() - durationMs,
+        offsetMs: Math.max(0, Math.round(started - traceContext.traceStart)),
+        durationMs,
+        status: finalStatus === "success" ? "success" : finalStatus === "unavailable" ? "unavailable" : "failed",
+        ...(finalStatus === "success" ? {} : { error: finalError ?? undefined }),
+        meta: { uniprotId: options.uniprotId, variant: options.variant },
+      });
+    }
+  }
+}
+
+/** Surfaces a ThermoMPNN error string, which the engine registry otherwise renders only in the tab. */
+function noteThermompnnError(message: unknown): void {
+  if (typeof message === "string" && message.trim()) console.warn(`[ThermoMPNN] ${message.trim()}`);
+}
+
+/** One line per FoldX outcome that is not a success — the server's own words, never a guess. */
+function noteFoldxFailure(status: string, variant: string, detail: string | null | undefined): void {
+  const verb = status === "unavailable" ? "unavailable" : "calculation failed";
+  console.warn(`[FoldX] ${verb} for ${variant}${detail ? `: ${detail}` : "."}`);
+}
+
+async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
   const { gene, uniprotId, variant, residueIndex, conditions, fetchWithAuth, sink, signal, requestId, getActiveRequestId } = options;
   const cacheGeneKey = gene || uniprotId;
 
@@ -237,7 +299,10 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
     if (data.ddmutStatus != null) sink.setDdmutStatus(data.ddmutStatus as any);
     if (data.thermompnnJobId != null) sink.setThermompnnJobId(data.thermompnnJobId);
     if (data.thermompnnStatus != null) sink.setThermompnnStatus(data.thermompnnStatus as any);
-    if (data.thermompnnError != null) sink.setThermompnnError(data.thermompnnError);
+    if (data.thermompnnError != null) {
+      sink.setThermompnnError(data.thermompnnError);
+      noteThermompnnError(data.thermompnnError);
+    }
 
     // Remember what the run has told us, so a later error exit can settle the engines it left
     // "pending" without a job id. Engines WITH a live id are left alone by the helper.
@@ -317,6 +382,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       if (!isFoldxSuccess && (data.error || data.energetics?.foldxError)) {
         sink.setFoldingError(data.error || data.energetics?.foldxError || "FoldX simulation failed");
       }
+      if (!isFoldxSuccess) noteFoldxFailure(effectiveFoldingStatus, variant, data.error || data.energetics?.foldxError);
 
       let resolvedProvenance: StructureProvenance | undefined;
       if (data.energetics) {
@@ -351,7 +417,10 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
             if (sub.ddmutStatus) sink.setDdmutStatus(sub.ddmutStatus);
             if (sub.thermompnnJobId) sink.setThermompnnJobId(sub.thermompnnJobId);
             if (sub.thermompnnStatus) sink.setThermompnnStatus(sub.thermompnnStatus);
-            if (sub.thermompnnError) sink.setThermompnnError(sub.thermompnnError);
+            if (sub.thermompnnError) {
+              sink.setThermompnnError(sub.thermompnnError);
+              noteThermompnnError(sub.thermompnnError);
+            }
             if (typeof sub.thermompnnVal === "number") {
               sink.setFoldingEnergetics((prev: any) => ({ ...(prev ?? {}), thermompnn: sub.thermompnnVal }));
             }
@@ -516,7 +585,10 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
         if (pollData.thermompnnStatus === "unavailable" || pollData.thermompnnStatus === "error") {
           sink.setThermompnnStatus(pollData.thermompnnStatus as any);
         }
-        if (pollData.thermompnnError != null) sink.setThermompnnError(pollData.thermompnnError);
+        if (pollData.thermompnnError != null) {
+          sink.setThermompnnError(pollData.thermompnnError);
+          noteThermompnnError(pollData.thermompnnError);
+        }
 
         if (pollData.status === "completed" || pollData.status === "failed") {
           if (!foldxCommitted) {
@@ -537,6 +609,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               if (!isFoldxSuccess && (resResult.error || resResult.energetics?.foldxError)) {
                 sink.setFoldingError(resResult.error || resResult.energetics?.foldxError || "FoldX simulation failed");
               }
+              if (!isFoldxSuccess) noteFoldxFailure(effectiveFoldingStatus, variant, resResult.error || resResult.energetics?.foldxError);
 
               let resolvedProvenance: StructureProvenance | undefined;
               if (resResult.energetics) {
