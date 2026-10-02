@@ -198,7 +198,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
         setLoading(false);
         setPluginCreated(true);
       } catch (err: any) {
-        console.error("Molstar initialization error:", err);
+        console.error("[Molstar] Initialization error:", err);
         setLoadError(`Plugin init error: ${err.message || err}`);
         setLoading(false);
       }
@@ -214,7 +214,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
         try {
           localPlugin.dispose();
         } catch (e) {
-          console.warn("Molstar dispose warning:", e);
+          console.warn("[Molstar] Dispose warning:", e);
         }
       }
       if (rootInstance) {
@@ -292,7 +292,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
         await helper.download(fileName);
         return;
       } catch (err) {
-        console.warn('Molstar screenshot helper failed, falling back:', err);
+        console.warn('[Molstar] Screenshot helper failed, falling back:', err);
       }
     }
     const blob = await captureCanvasBlob();
@@ -315,10 +315,10 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         return true;
       }
-      console.warn('Clipboard write not supported in this browser.');
+      console.warn('[Molstar] Clipboard write not supported in this browser.');
       return false;
     } catch (err) {
-      console.warn('Failed to copy image to clipboard:', err);
+      console.warn('[Molstar] Failed to copy image to clipboard:', err);
       return false;
     }
   };

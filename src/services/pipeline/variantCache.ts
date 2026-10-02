@@ -179,6 +179,22 @@ export function getCachedVariant(gene: string, variant: string): CachedVariantBu
   return null;
 }
 
+let cacheWriteFailureReported = false;
+
+/**
+ * A failed sessionStorage write (quota, private mode) used to vanish. The cost is real — the variant's
+ * FoldX result is not kept, so the next visit re-runs a multi-minute job — so it is reported, once per
+ * session, rather than on every write.
+ */
+function noteCacheWriteFailure(err: unknown): void {
+  if (cacheWriteFailureReported) return;
+  cacheWriteFailureReported = true;
+  console.warn(
+    "[Cache] Could not save this variant's results to the browser cache; revisiting it will recompute them:",
+    err instanceof Error ? err.message : err
+  );
+}
+
 /**
  * Drop one variant's bundle, so the next run of it is computed rather than restored.
  *
@@ -270,7 +286,9 @@ export function setCachedVariant(
       } else {
         sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
       }
-    } catch (_) {}
+    } catch (err) {
+      noteCacheWriteFailure(err);
+    }
     return;
   }
 
@@ -296,7 +314,10 @@ export function setCachedVariant(
     }
     delete storageCopy.foldxWtPdb;
     sessionStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(storageCopy));
-  } catch (_) {
+  } catch (err) {
+    // This entry is not persisted (the eviction below frees room for the NEXT write, it does not
+    // retry this one), so the session keeps it in memory only.
+    noteCacheWriteFailure(err);
     try {
       for (let i = 0; i < sessionStorage.length; i++) {
         const k = sessionStorage.key(i);

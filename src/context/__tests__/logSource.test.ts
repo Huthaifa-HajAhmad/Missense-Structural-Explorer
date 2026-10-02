@@ -47,6 +47,12 @@ describe("classifyLogSource", () => {
     ["[Vite Preload] outdated", "system"],
     ["[AlphaGenome region] x", "genomics"],
     ["[Landscape] x", "genomics"],
+    ["[Molstar] Initialization error:", "structure-3d"],
+    ["[UniProt] Unable to fetch sequence:", "structure-3d"],
+    ["[Cache] Could not save this variant's results", "system"],
+    ["[Stream Parse Warning] The final stream frame was dropped", "network"],
+    ["[WorkflowOrchestrator] Top-level pipeline error:", "workflow"],
+    ["[Settings] Could not save settings:", "console"],
   ];
   it.each(cases)("%s -> %s", (message, expected) => {
     expect(classifyLogSource([message])).toBe(expected);

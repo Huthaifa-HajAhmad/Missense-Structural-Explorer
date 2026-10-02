@@ -72,7 +72,7 @@ export function useSearchHistory(maxHistoryItems: number = 30, saveHistoryEnable
       try {
         localStorage.setItem(STORAGE_KEY, encryptHistory(updated));
       } catch (e) {
-        console.error(e);
+        console.warn("[History] Could not save search history:", e);
       }
       return updated;
     });
@@ -83,7 +83,7 @@ export function useSearchHistory(maxHistoryItems: number = 30, saveHistoryEnable
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem("variantHistory");
     } catch (e) {
-      console.error(e);
+      console.warn("[History] Could not clear search history:", e);
     }
     setHistory([]);
   };
