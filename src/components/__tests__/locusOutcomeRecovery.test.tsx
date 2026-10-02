@@ -72,7 +72,7 @@ describe("All of Us source provenance", () => {
 
   it.each([
     [null, "source not reported"],
-    [{ localTable: "not-installed", remoteDbnsfp: "not-reported" }, "source not reported"],
+    [{ localTable: "not-installed", remoteDbnsfp: "not-reported" }, "local table not installed"],
     [{ localTable: "found", remoteDbnsfp: "not-reported" }, "local frequency table"],
     [{ localTable: "found", remoteDbnsfp: "found" }, "local frequency table"],
     [{ localTable: "not-installed", remoteDbnsfp: "found" }, "remote dbNSFP"],

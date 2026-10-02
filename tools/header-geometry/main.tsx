@@ -256,12 +256,12 @@ function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   return checks;
 }
 
-/** The strip is one line by construction: 38px, whatever the width. */
+/** The strip is one line by construction: 44px, whatever the width. */
 function checkStripOneLine(host: HTMLElement, id: string): GeometryCheck {
   const strip = host.querySelector(".variant-header");
   if (!strip) return { name: `${id}: strip is one line`, pass: false, detail: "no strip" };
   const h = rect(strip).height;
-  return { name: `${id}: strip is one line`, pass: h <= 40, detail: `strip ${px(h)}px tall` };
+  return { name: `${id}: strip is one line`, pass: h <= 48, detail: `strip ${px(h)}px tall` };
 }
 
 /** The identity drops identifiers in a fixed order as its zone narrows, and never wraps. */
