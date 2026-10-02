@@ -199,6 +199,14 @@ export default function App() {
   // Address bar mirrors the active variant, so the URL is always a working share link.
   useVariantUrlSync();
 
+  // Keep the Console's session snapshot current so every captured entry says what was on screen.
+  useEffect(() => {
+    consoleDispatch({
+      type: "UPDATE_SESSION_CONTEXT",
+      context: { gene, variant, uniprotId, activeView: masterView, online: !isOffline },
+    });
+  }, [consoleDispatch, gene, variant, uniprotId, masterView, isOffline]);
+
   // Application side-effects hook
   useAppEffects({
     actions,

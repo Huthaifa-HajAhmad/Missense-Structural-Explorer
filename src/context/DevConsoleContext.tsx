@@ -42,7 +42,18 @@ function loadInitialTraces(): TraceRun[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed;
+      // A run that was mid-flight when the page unloaded will never finish; leaving it "running"
+      // would shimmer forever, so settle it as interrupted.
+      return (parsed as TraceRun[]).map((run) => {
+        if (run.status !== "running" && !run.spans.some((s) => s.status === "running")) return run;
+        return {
+          ...run,
+          status: "failed" as const,
+          spans: run.spans.map((s) =>
+            s.status === "running" ? { ...s, status: "failed" as const, error: "Interrupted by page reload" } : s
+          ),
+        };
+      });
     }
   } catch (e) {
     // Ignore trace load errors
@@ -79,7 +90,6 @@ const initialTraces = loadInitialTraces();
 const initialState: DevConsoleState = {
   errorState: createInitialStreamState(ERROR_STORAGE_KEY),
   liveState: createInitialStreamState(LIVE_STORAGE_KEY),
-  telemetrySpans: [],
   traceRuns: initialTraces,
   activeTraceRun: initialTraces.length > 0 ? initialTraces[0] : null,
   activeTab: "error",
@@ -343,24 +353,6 @@ function devConsoleReducer(state: DevConsoleState, action: DevConsoleAction): De
         ...state,
         traceRuns: [],
         activeTraceRun: null,
-        telemetrySpans: [],
-      };
-    }
-    case "ADD_TELEMETRY_SPAN": {
-      const newSpan = {
-        ...action.span,
-        timestamp: Date.now(),
-      };
-      const updated = [newSpan, ...state.telemetrySpans].slice(0, 50);
-      return {
-        ...state,
-        telemetrySpans: updated,
-      };
-    }
-    case "CLEAR_TELEMETRY": {
-      return {
-        ...state,
-        telemetrySpans: [],
       };
     }
     default:
@@ -377,8 +369,6 @@ export interface DevConsoleContextValue {
   addTraceSpan: (span: Omit<TraceSpan, "id">) => void;
   updateTraceSpan: (traceId: string, spanName: string, updates: Partial<TraceSpan>) => void;
   finishTraceRun: (traceId: string, status?: "completed" | "failed") => void;
-  exportErrorEntries: () => void;
-  exportLiveEntries: () => void;
   exportTraceRuns: () => void;
 }
 
@@ -462,6 +452,16 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
   return level === "error" ? "fatal" : "degraded";
 }
 
+/** Captures small JSON/string request bodies so "Copy cURL" can replay the call. */
+function readRequestBody(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== "string" || body.length > 4096) return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
 function formatArgsMessage(args: any[]): { message: string; detail?: string } {
   const messageParts = args.map((arg) => {
     if (typeof arg === "string") return arg;
@@ -494,7 +494,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       try {
         if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify(state.errorState.entries.slice(-100)));
+          sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify(state.errorState.entries.slice(0, 100)));
         }
       } catch (e) {}
     }, 500);
@@ -505,7 +505,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       try {
         if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(state.liveState.entries.slice(-100)));
+          sessionStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(state.liveState.entries.slice(0, 100)));
         }
       } catch (e) {}
     }, 500);
@@ -516,7 +516,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       try {
         if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(TRACE_STORAGE_KEY, JSON.stringify(state.traceRuns.slice(-50)));
+          sessionStorage.setItem(TRACE_STORAGE_KEY, JSON.stringify(state.traceRuns.slice(0, 50)));
         }
       } catch (e) {}
     }, 500);
@@ -555,17 +555,6 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
 
   const addTraceSpan = useCallback((span: Omit<TraceSpan, "id">) => {
     dispatch({ type: "ADD_TRACE_SPAN", span });
-    // Also push to legacy telemetry spans for backwards compatibility
-    if (span.status !== "running") {
-      dispatch({
-        type: "ADD_TELEMETRY_SPAN",
-        span: {
-          name: span.name,
-          durationMs: span.durationMs,
-          status: span.status === "failed" ? "failed" : "success",
-        },
-      });
-    }
   }, []);
 
   const updateTraceSpan = useCallback((traceId: string, spanName: string, updates: Partial<TraceSpan>) => {
@@ -575,26 +564,6 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
   const finishTraceRun = useCallback((traceId: string, status?: "completed" | "failed") => {
     dispatch({ type: "FINISH_TRACE_RUN", traceId, status });
   }, []);
-
-  const exportErrorEntries = useCallback(() => {
-    const blob = new Blob([JSON.stringify(state.errorState.entries, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `error-console-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state.errorState.entries]);
-
-  const exportLiveEntries = useCallback(() => {
-    const blob = new Blob([JSON.stringify(state.liveState.entries, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `live-console-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state.liveState.entries]);
 
   const exportTraceRuns = useCallback(() => {
     const blob = new Blob([JSON.stringify(state.traceRuns, null, 2)], { type: "application/json" });
@@ -610,6 +579,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const origLog = console.log.bind(console);
     const origInfo = console.info.bind(console);
+    const origDebug = console.debug.bind(console);
     const origError = console.error.bind(console);
     const origWarn = console.warn.bind(console);
     const origFetch = window.fetch.bind(window);
@@ -629,6 +599,15 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
         const source = detectSourceFromArgs(args);
         const { message, detail } = formatArgsMessage(args);
         pushLiveEntry({ level: "info", source, message, detail });
+      }
+    };
+
+    console.debug = (...args: any[]) => {
+      origDebug(...args);
+      if (!isInternalCapturingRef.current) {
+        const source = detectSourceFromArgs(args);
+        const { message, detail } = formatArgsMessage(args);
+        pushLiveEntry({ level: "debug", source, message, detail });
       }
     };
 
@@ -706,6 +685,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       const init = args[1];
       const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const requestBody = readRequestBody(init?.body);
       const startTime = performance.now();
 
       try {
@@ -753,6 +733,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
                 status: response.status,
                 statusText: response.statusText,
                 durationMs,
+                requestBody,
                 responseBody: parsedError || responseBody,
               },
               meta: { url, status: response.status, statusText: response.statusText, method, durationMs },
@@ -763,7 +744,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
               source: "network",
               impact: "info",
               message: `HTTP ${method} ${url} → ${response.status} OK (${durationMs}ms)`,
-              httpMeta: { url, method, status: response.status, statusText: "OK", durationMs },
+              httpMeta: { url, method, status: response.status, statusText: "OK", durationMs, requestBody },
               meta: { url, status: response.status, method, durationMs },
             });
           }
@@ -782,7 +763,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
             impact,
             message: `Fetch failed: ${method} ${url}`,
             detail: err?.stack || String(err),
-            httpMeta: { url, method, status: 0, durationMs },
+            httpMeta: { url, method, status: 0, durationMs, requestBody },
             meta: { url, method, durationMs },
           });
         }
@@ -793,6 +774,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     return () => {
       console.log = origLog;
       console.info = origInfo;
+      console.debug = origDebug;
       console.error = origError;
       console.warn = origWarn;
       window.fetch = origFetch;
@@ -813,8 +795,6 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
         addTraceSpan,
         updateTraceSpan,
         finishTraceRun,
-        exportErrorEntries,
-        exportLiveEntries,
         exportTraceRuns,
       }}
     >
