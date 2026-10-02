@@ -265,10 +265,13 @@ export type RankBand = "most" | "upper" | "lower" | "least";
  * sentence cannot drift apart.
  */
 export const RANK_BANDS: ReadonlyArray<{ band: RankBand; from: number; to: number; label: string }> = [
-  { band: "most", from: 1, to: 3, label: "Most preferred" },
-  { band: "upper", from: 4, to: 10, label: "Upper half" },
-  { band: "lower", from: 11, to: 17, label: "Dispreferred" },
-  { band: "least", from: 18, to: 20, label: "Least preferred" }
+  // Positional names, not preference claims. "Most preferred" was printed beside an ESMC rank of 3
+  // whose native residue held ~99% of the probability and a ΔLLR of −6.98 (SLC12A4 p.Gln867His):
+  // the rank orders what is left after the native residue, so it cannot carry "preferred" alone.
+  { band: "most", from: 1, to: 3, label: "Top 3" },
+  { band: "upper", from: 4, to: 10, label: "Upper middle" },
+  { band: "lower", from: 11, to: 17, label: "Lower middle" },
+  { band: "least", from: 18, to: 20, label: "Bottom 3" }
 ];
 
 /** A usable rank (an integer 1–20) or null. The producers used to default a missing rank to 1. */
@@ -284,8 +287,22 @@ export function rankBand(rank: number | null | undefined): RankBand | null {
   return RANK_BANDS.find(b => r >= b.from && r <= b.to)!.band;
 }
 
-/** App-defined positional-entropy reading marks, in bits (ceiling log2(20) ≈ 4.32). */
-export const ENTROPY_MARKS = { constrained: 1.0, tolerant: 2.5, ceiling: Math.log2(20) } as const;
+/**
+ * App-defined positional-entropy reading marks, in bits (ceiling log2(20) ≈ 4.32).
+ *
+ * `flat` (95% of the ceiling, ≈ 4.10 bits) marks a distribution so close to uniform that the model
+ * expresses no preference at the site. SLC12A4 p.Gln867His: sequence-only SaProt returned 4.23 bits
+ * — residue shares within a point of the amino-acid background — and its "rank 10 of 20" sat in the
+ * hero beside two models whose native residue held almost all the probability. Local, unsourced.
+ */
+export const ENTROPY_MARKS = { constrained: 1.0, tolerant: 2.5, flat: 0.95 * Math.log2(20), ceiling: Math.log2(20) } as const;
+
+/**
+ * App-defined "even odds" mark: |ΔLLR| below ln 2 means the model rates native and variant within a
+ * factor of two of each other, so the sign alone is not read as a preference. Local, unsourced; it is
+ * a reading aid for the direction statement, never a pathogenicity cut-point.
+ */
+export const EVEN_ODDS_LLR = Math.log(2);
 
 export function describeWithinModelRank(
   mutRank: number | null | undefined,

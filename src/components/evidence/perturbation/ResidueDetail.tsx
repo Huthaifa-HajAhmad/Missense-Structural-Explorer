@@ -2,6 +2,7 @@ import React from "react";
 import type { LmReading, PerturbationEvidence } from "../../../shared/perturbationEvidence";
 import type { PerturbationModelId } from "../../../shared/perturbationModels";
 import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
+import { oddsText } from "../../../shared/perturbationEvidence";
 
 /**
  * Residue-level detail for ONE language model: its distribution over the 20 residues at the site
@@ -13,7 +14,17 @@ import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
  * (the payload's alphabet), which is the defect d9e97e5 fixed; the shift is labelled Euclidean for
  * every model because the sidecar computes an L2 norm for all three (ESMC was called cosine), and
  * the "Max" header — which printed the shift AT the site — now says "at site".
+ *
+ * 2026-10: with no shift window (every remote engine) the right half of the panel held a lone
+ * "No shift window" note over empty space; the absence is now one line under the facts and the
+ * distribution takes the full width. "101% of native" became the model's own odds, and the rank's
+ * small print names the native's rank instead of a band label that read as a preference.
  */
+
+const ordinal = (n: number) => {
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${n}${suffix}`;
+};
 
 const pctText = (p: number) => (p * 100 < 0.01 ? "<0.01%" : `${(p * 100).toFixed(2)}%`);
 
@@ -171,8 +182,12 @@ export function ResidueDetail({
                 <dt>P(variant {mutLabel || "residue"})</dt>
                 <dd>
                   {selected.mutProb !== null ? selected.mutProb.toFixed(4) : "—"}
-                  {selected.retention !== null && (
-                    <small>{selected.retention < 0.01 ? "<1" : (selected.retention * 100).toFixed(0)}% of native</small>
+                  {selected.odds !== null && (
+                    <small>
+                      {selected.odds >= 1
+                        ? `${wtLabel || "Native"} ${oddsText(selected.odds)} as likely`
+                        : `${oddsText(1 / selected.odds)} as likely as ${wtLabel || "native"}`}
+                    </small>
                   )}
                 </dd>
               </div>
@@ -180,14 +195,16 @@ export function ResidueDetail({
                 <dt>Rank of {mutLabel || "variant"}</dt>
                 <dd>
                   {selected.rank !== null ? `${selected.rank} / 20` : "—"}
-                  {selected.bandLabel && <small>{selected.bandLabel}</small>}
+                  {selected.nativeRank !== null && <small>{wtLabel || "Native"} is {ordinal(selected.nativeRank)}</small>}
                 </dd>
               </div>
               <div>
                 <dt>Positional entropy</dt>
                 <dd>
                   {selected.entropy !== null ? `${selected.entropy.toFixed(2)} bits` : "—"}
-                  <small>of {ENTROPY_MARKS.ceiling.toFixed(2)} possible</small>
+                  <small>
+                    of {ENTROPY_MARKS.ceiling.toFixed(2)} possible{selected.direction === "flat" ? " · near-flat" : ""}
+                  </small>
                 </dd>
               </div>
               <div>
@@ -206,13 +223,20 @@ export function ResidueDetail({
                 </dd>
               </div>
             </dl>
-            <div className="ptb-detail__grid">
+            {selected.embedding.window.length === 0 && (
+              <p className="ptb-detail__absent" data-testid="ptb-shift-absent">
+                <strong>Embedding shift not returned.</strong> {selected.embedding.absentReason}
+              </p>
+            )}
+            <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
               <div>
                 <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />
               </div>
-              <div>
-                <ShiftTrace lm={selected} position={position} />
-              </div>
+              {selected.embedding.window.length > 0 && (
+                <div>
+                  <ShiftTrace lm={selected} position={position} />
+                </div>
+              )}
             </div>
             {selected.rankSentence && <p className="ptb-detail__sentence">{selected.rankSentence}</p>}
           </>

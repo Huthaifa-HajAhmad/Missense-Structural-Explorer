@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Atom, Layers, ListChecks, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, Atom, HelpCircle, Layers, ListChecks, Sparkles } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useSettings } from "../../context/SettingsContext";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { THRESHOLDS } from "../../shared/thresholds/constants";
+import { ENTROPY_MARKS } from "../../shared/modelCalibration";
 import {
   LM_CAVEAT_TEXT,
   buildPerturbationEvidence,
+  oddsText,
   perturbationFinding,
   type LmReading,
   type PerturbationEvidence,
@@ -26,9 +28,9 @@ import { ResidueDetail } from "./perturbation/ResidueDetail";
  * and what does that license? The answer is context: nothing here is an ACMG input. Three tiers,
  * the shape Population Data and Predictors set:
  *
- *   1. THE FINDING — the scale-free cross-model statement (the variant's within-model rank in each
- *      language model), the finding sentence, one strip of the three models, the caveats that change
- *      how to read them, and a fact strip ending in the engine record.
+ *   1. THE FINDING — the cross-model statement (which way each language model reads the substitution,
+ *      from its own output), the finding sentence with each model's own odds, one strip of the three
+ *      models, the caveats that change how to read them, and a fact strip ending in the engine record.
  *   2. READINGS — one table: language models, FoldX energy terms, ESM3 — every source a row on its
  *      own axis, every mark drawn dashed because none is published.
  *   3. RESIDUE DETAIL — one model's residue distribution and embedding-shift trace.
@@ -38,6 +40,9 @@ import { ResidueDetail } from "./perturbation/ResidueDetail";
  *   • No composite. The 0–100 "Local perturbation score" was removed (owner decision, 2026-09-29):
  *     its weights, transform and bands were app-defined, and it averaged three model-native ΔLLRs.
  *   • No red or green: nothing on this tab is an ACMG code.
+ *   • A rank is never shown without the native residue's rank beside it, and a flat distribution's
+ *     rank is never read (SLC12A4 p.Gln867His: "most preferred" beside a ΔLLR of −6.98).
+ *   • Clay is the variant residue everywhere (pips, rulers, bars); a hollow ink ring is the native.
  *
  * Replaced: model cards + metric bar + "Section A/B/C" card grids, a timed fake progress bar for
  * SaProt (stages guessed from elapsed seconds), and a hooks-after-early-return bug.
@@ -45,17 +50,35 @@ import { ResidueDetail } from "./perturbation/ResidueDetail";
 
 const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
 
-function shortServed(lm: LmReading): string {
-  const p = lm.servedBy;
-  if (!p) return lm.served.inferred ? "model not named" : "";
-  const outer = p.replace(/\([^)]*\)/g, "").trim();
-  const inner = p.match(/\(([^)]+)\)/)?.[1] ?? "";
-  // "SaProt (SaProt_35M_AF2 - Remote)" → "SaProt_35M_AF2 · Remote"; "ESMC-6B (Remote)" → "ESMC-6B · Remote".
-  const parts = inner.split(/\s+-\s+/).filter(Boolean);
-  // Keep the outer name unless the parentheses already name the model (a checkpoint id).
-  const innerNamesModel = parts.some(x => /_|esm|saprot|vesm/i.test(x));
-  const named = innerNamesModel ? parts : [outer, ...parts];
-  return named.filter(Boolean).join(" · ");
+const ordinal = (n: number) => {
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${n}${suffix}`;
+};
+
+/** The direction a model reads, as a short chip label and a tone. Nothing here is red or green. */
+function directionChip(lm: LmReading, wt: string, mut: string): { label: string; tone: "neutral" | "muted" } | null {
+  switch (lm.direction) {
+    case "favours-native": return { label: `Favours ${wt}`, tone: "neutral" };
+    case "favours-variant": return { label: `Favours ${mut}`, tone: "neutral" };
+    case "even": return { label: "Near even", tone: "neutral" };
+    case "flat": return { label: "No preference", tone: "muted" };
+    default: return null;
+  }
+}
+
+/** "Gln 384× as likely as His" / "His 2.1× as likely as Gln" / "within 2× of each other". */
+function oddsLine(lm: LmReading, wt: string, mut: string): string | null {
+  if (lm.odds === null) return null;
+  if (lm.direction === "flat") return lm.entropy !== null ? `Near-flat · ${lm.entropy.toFixed(2)} of ${ENTROPY_MARKS.ceiling.toFixed(2)} bits` : "Near-flat distribution";
+  if (lm.direction === "favours-variant") return `${mut} ${oddsText(1 / lm.odds)} as likely as ${wt}`;
+  if (lm.direction === "even") return `${wt} and ${mut} within 2× of each other`;
+  return `${wt} ${oddsText(lm.odds)} as likely as ${mut}`;
+}
+
+/** "His 5th of 20 · Gln 1st" — the rank always beside the native's, never alone. */
+function rankLine(lm: LmReading, wt: string, mut: string): string | null {
+  if (lm.rank === null) return null;
+  return `${mut} ${ordinal(lm.rank)} of 20${lm.nativeRank !== null ? ` · ${wt} ${ordinal(lm.nativeRank)}` : ""}`;
 }
 
 function AvailabilityCell({
@@ -95,6 +118,17 @@ function StatusChip({ a }: { a: ReadingAvailability }) {
   );
 }
 
+/** Twenty cells: the variant's rank in clay, the native's as an ink ring. */
+function RankPips({ lm }: { lm: LmReading }) {
+  return (
+    <span className="ptb-model__pips" aria-hidden="true" data-flat={lm.direction === "flat" || undefined}>
+      {Array.from({ length: 20 }, (_, i) => (
+        <i key={i} data-here={lm.rank === i + 1 || undefined} data-native={lm.nativeRank === i + 1 || undefined} />
+      ))}
+    </span>
+  );
+}
+
 function ModelStrip({
   evidence,
   selectedId,
@@ -104,16 +138,21 @@ function ModelStrip({
   selectedId: PerturbationModelId | null;
   onSelect: (id: PerturbationModelId) => void;
 }) {
+  const { wtLabel, mutLabel } = evidence.residues;
+  const wt = wtLabel || "native";
+  const mut = mutLabel || "variant";
   return (
-    <ol className="ptb-models" aria-label="Variant rank in each language model">
+    <ol className="ptb-models" aria-label="How each language model reads the substitution">
       {evidence.lms.map(l => {
         const ok = l.availability.state === "computed";
+        const chip = ok ? directionChip(l, wt, mut) : null;
         return (
           <li key={l.id}>
             <button
               type="button"
               className="ptb-model"
               data-state={l.availability.state}
+              data-direction={l.direction ?? undefined}
               aria-pressed={selectedId === l.id}
               disabled={!ok}
               onClick={() => onSelect(l.id)}
@@ -121,18 +160,14 @@ function ModelStrip({
             >
               <span className="ptb-model__head">
                 <span className="ptb-model__name">{l.family}</span>
-                <span className="ptb-model__served">{ok ? shortServed(l) : l.availability.label}</span>
+                <span className="ptb-model__served">{ok ? l.servedShort : l.availability.label}</span>
               </span>
-              <span className="ptb-model__rank">
-                <b>{l.rank !== null ? l.rank : "—"}</b>
-                <span>{l.rank !== null ? `/ 20 · ${l.bandLabel?.toLowerCase()}` : ok ? "no rank returned" : ""}</span>
-              </span>
-              <span className="ptb-model__pips" aria-hidden="true">
-                {Array.from({ length: 20 }, (_, i) => <i key={i} data-here={l.rank === i + 1 || undefined} />)}
-              </span>
+              <span className="ptb-model__call">{chip ? chip.label : ok ? "No ΔLLR" : "—"}</span>
+              <span className="ptb-model__odds">{ok ? (oddsLine(l, wt, mut) ?? "") : ""}</span>
+              {ok && l.rank !== null && <RankPips lm={l} />}
               <span className="ptb-model__foot">
-                <span>ΔLLR</span>
-                <span className="ptb-mono">{l.llr !== null ? `${signed(l.llr, 2)} nats` : "—"}</span>
+                <span>{ok ? (rankLine(l, wt, mut) ?? "no rank returned") : ""}</span>
+                <span className="ptb-mono">{l.llr !== null ? `ΔLLR ${signed(l.llr, 2)}` : ""}</span>
               </span>
             </button>
           </li>
@@ -142,18 +177,75 @@ function ModelStrip({
   );
 }
 
+/**
+ * One callout per model, naming every caveat that changes how its card reads. SaProt used to get a
+ * sequence-only callout while its near-flat distribution — the reason its reading is noise — went
+ * unsaid.
+ */
+function ModelCaveatCallouts({ evidence }: { evidence: PerturbationEvidence }) {
+  const mut = evidence.residues.mutLabel || "the variant residue";
+  const items = evidence.scored
+    .map(l => {
+      const parts: React.ReactNode[] = [];
+      if (l.caveats.includes("fallback-model")) {
+        parts.push(<>was served by {l.servedBy}{l.fallbackReason ? ` (${l.fallbackReason})` : ""}, so its row describes the model that ran, not the one it is named for</>);
+      }
+      if (l.caveats.includes("sequence-only")) parts.push(<>had no structure token at this residue and read it from sequence alone</>);
+      if (l.caveats.includes("flat") && l.entropy !== null) {
+        parts.push(
+          <>
+            spreads its probability almost evenly over the 20 residues ({l.entropy.toFixed(2)} of{" "}
+            {ENTROPY_MARKS.ceiling.toFixed(2)} bits): it has no preference to read, and its rank is set aside
+          </>
+        );
+      }
+      if (l.caveats.includes("probability-floor")) {
+        parts.push(<>did not return {mut} among its tokens, so its probability is the 1e-9 floor and ΔLLR is bounded by it, not measured</>);
+      }
+      return parts.length ? { l, parts } : null;
+    })
+    .filter((x): x is { l: LmReading; parts: React.ReactNode[] } => x !== null);
+  if (items.length === 0) return null;
+  return (
+    <>
+      {items.map(({ l, parts }) => (
+        <p key={l.id} className="ptb-callout" data-tone="warning" data-testid={`ptb-caveat-${l.id}`}>
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            <strong>{l.family}</strong>{" "}
+            {parts.map((p, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && (i === parts.length - 1 ? ", and " : ", ")}
+                {p}
+              </React.Fragment>
+            ))}
+            .
+          </span>
+        </p>
+      ))}
+    </>
+  );
+}
+
 function LmRow({
   lm,
+  wt,
+  mut,
   selected,
   onSelect,
   onAction
 }: {
   lm: LmReading;
+  wt: string;
+  mut: string;
   selected: boolean;
   onSelect: (id: PerturbationModelId) => void;
   onAction: (action: NonNullable<ReadingAvailability["action"]>) => void;
 }) {
   const ok = lm.availability.state === "computed";
+  const chip = ok ? directionChip(lm, wt, mut) : null;
+  const odds = ok ? oddsLine(lm, wt, mut) : null;
+  const ranks = ok ? rankLine(lm, wt, mut) : null;
   return (
     <tr data-testid={`ptb-lm-${lm.id}`} data-selected={selected || undefined}>
       <th scope="row" className="ptb-subject">
@@ -161,11 +253,11 @@ function LmRow({
           <span className="ptb-subject__name">{lm.family}</span>
           {ok && (
             <button type="button" className="ptb-select" aria-pressed={selected} onClick={() => onSelect(lm.id)}>
-              {selected ? "In residue detail" : "Show residue detail"}
+              {selected ? "Shown below" : "Show detail"}
             </button>
           )}
         </span>
-        <span className="ptb-subject__note">{lm.calibration?.note ?? "Protein language model."}</span>
+        <span className="ptb-subject__note">{lm.description}</span>
         {lm.caveats.length > 0 && (
           <span className="ptb-caveats">
             {lm.caveats.map(c => (
@@ -187,21 +279,22 @@ function LmRow({
         <>
           <td className="ptb-num">
             {lm.llr !== null ? signed(lm.llr, 2) : "—"}
-            <span className="ptb-unit">nats · ΔLLR</span>
+            <span className="ptb-unit">ΔLLR, nats</span>
           </td>
           <td className="ptb-scale">
             {lm.rank !== null ? (
               <>
-                <RankRuler rank={lm.rank} band={lm.band} label={`${lm.family} rank`} />
-                <span className="ptb-scale__source">Rank {lm.rank} of 20 · app-defined bands</span>
+                <RankRuler rank={lm.rank} band={lm.band} nativeRank={lm.nativeRank} flat={lm.direction === "flat"} label={`${lm.family} rank`} />
+                <span className="ptb-scale__source">{ranks}{lm.direction === "flat" ? " · not read: flat distribution" : ""}</span>
               </>
             ) : (
               <span className="ptb-dim">No residue rank returned.</span>
             )}
           </td>
           <td className="ptb-status">
-            {lm.bandLabel ? <span className="ev-tier" data-tone="neutral">{lm.bandLabel}</span> : <span className="ev-tier" data-tone="muted">{ENGINE_STATE_LABELS["no-result"]}</span>}
-            <span className="ptb-status__sub">{lm.votes ? "Counted in PP3/BP4" : "Not counted"}</span>
+            {chip ? <span className="ev-tier" data-tone={chip.tone}>{chip.label}</span> : <span className="ev-tier" data-tone="muted">{ENGINE_STATE_LABELS["no-result"]}</span>}
+            {odds && <span className="ptb-status__sub">{odds}</span>}
+            {lm.votes && <span className="ptb-status__sub">Counted in PP3/BP4</span>}
           </td>
         </>
       ) : (
@@ -253,9 +346,22 @@ function PhysicalRow({ r }: { r: PhysicalReading }) {
   );
 }
 
+/** The ESM3 drift band as a statement of which local marks it sits between. */
+function driftBandLabel(band: NonNullable<PerturbationEvidence["esm3"]>["driftBand"]): string | null {
+  const d = THRESHOLDS.esm3Drift;
+  switch (band) {
+    case "none": return `Below ${d.none} mark`;
+    case "minor": return `${d.none}–${d.minor}`;
+    case "moderate": return `${d.minor}–${d.moderate}`;
+    case "major": return `Above ${d.moderate} mark`;
+    default: return null;
+  }
+}
+
 function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
   const e = evidence.esm3!;
   const ok = e.availability.state === "computed";
+  const pos = evidence.residues.position;
   if (!ok) {
     return (
       <tr data-testid="ptb-esm3">
@@ -268,19 +374,37 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
     );
   }
   const d = THRESHOLDS.esm3Drift;
-  const bandLabel = e.driftBand ? `${e.driftBand[0].toUpperCase()}${e.driftBand.slice(1)} · local band` : null;
+  const bandLabel = driftBandLabel(e.driftBand);
+  const peakAway = e.peakDistance !== null && e.peakDistance > 10;
   return (
     <>
       <tr data-testid="ptb-esm3">
         <th scope="row" className="ptb-subject">
           <span className="ptb-subject__line"><span className="ptb-subject__name">ESM3 embedding drift</span></span>
           <span className="ptb-subject__note">
-            Largest per-residue cosine distance between wild-type and mutant ESM3 sequence embeddings
-            {e.driftResidue !== null ? `, at sequence index ${e.driftResidue}` : ""}. A representation change — not a structure prediction.
+            How much ESM3&apos;s internal description of each residue changes when the variant is introduced (cosine
+            distance between wild-type and mutant sequence embeddings). A representation change — not a structure
+            prediction.
           </span>
-          {e.fallback && (
+          {e.driftResidue !== null && (
+            <span className="ptb-subject__note ptb-subject__fact" data-testid="ptb-esm3-peak">
+              Largest change at residue {e.driftResidue}
+              {e.peakDistance === 0
+                ? " — the variant itself"
+                : e.peakDistance !== null
+                  ? `, ${e.peakDistance.toLocaleString("en-GB")} residues from the variant`
+                  : ""}
+              {e.siteDrift !== null && e.peakDistance !== 0 ? `; ${e.siteDrift.toFixed(3)} at residue ${pos}` : ""}.
+            </span>
+          )}
+          {(e.fallback || peakAway) && (
             <span className="ptb-caveats">
-              <span className="ev-tier" data-tone="warning" title="ESM3 was unavailable, so VESM-150M produced these numbers.">Fallback model</span>
+              {e.fallback && <span className="ev-tier" data-tone="warning" title="ESM3 was unavailable, so VESM-150M produced these numbers.">Fallback model</span>}
+              {peakAway && (
+                <span className="ev-tier" data-tone="warning" title="A single substitution normally changes its own residue's embedding most. A peak far from the variant suggests the change is near zero everywhere and the peak is noise.">
+                  Peak away from the variant
+                </span>
+              )}
             </span>
           )}
           {e.servedBy && <span className="ptb-subject__note ptb-subject__fact">Served by {e.servedBy}</span>}
@@ -299,7 +423,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
             label="ESM3 embedding drift"
             format={n => n.toFixed(2)}
           />
-          <span className="ptb-scale__source">Local bands {d.none} · {d.minor} · {d.moderate}, unsourced</span>
+          <span className="ptb-scale__source">Local marks {d.none} · {d.minor} · {d.moderate}, unsourced</span>
         </td>
         <td className="ptb-status">{bandLabel && <span className="ev-tier" data-tone="neutral">{bandLabel}</span>}</td>
       </tr>
@@ -307,25 +431,66 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
         <th scope="row" className="ptb-subject">
           <span className="ptb-subject__line"><span className="ptb-subject__name">Site context</span></span>
           <span className="ptb-subject__note">
-            Confidence is the input structure&apos;s per-residue value (pLDDT for an AlphaFold model) — not ESM3&apos;s
+            How confident the input structure is at this residue (pLDDT for an AlphaFold model) — not ESM3&apos;s
             confidence in anything it predicted.
           </span>
         </th>
         <td className="ptb-num">
           {e.templateConfidence !== null ? e.templateConfidence.toFixed(1) : "—"}
-          <span className="ptb-unit">input confidence</span>
+          <span className="ptb-unit">pLDDT</span>
         </td>
-        <td className="ptb-reason" colSpan={2}>
+        <td className="ptb-reason">
           {e.secondaryStructure ?? "Secondary structure not reported"} · {e.burial ?? "burial not measured"}
+        </td>
+        <td className="ptb-status">
+          {e.confidenceBand && (
+            <span className="ev-tier" data-tone="neutral" title="AlphaFold DB bands: very high > 90, confident 70–90, low 50–70, very low ≤ 50 (Jumper 2021)">
+              {e.confidenceBand}
+            </span>
+          )}
         </td>
       </tr>
     </>
   );
 }
 
+/** A short primer for a reader new to protein language models. Collapsed; the tab reads without it. */
+function ReadingPrimer({ wt, mut }: { wt: string; mut: string }) {
+  return (
+    <details className="ptb-primer" data-testid="ptb-primer">
+      <summary>
+        <HelpCircle className="w-3.5 h-3.5" aria-hidden="true" />
+        How to read this tab
+      </summary>
+      <ul>
+        <li>
+          <strong>Language models</strong> have learned from millions of natural proteins which amino acid tends to sit
+          at each position. Hide the residue at this position and each model gives a probability to all 20 amino acids.
+        </li>
+        <li>
+          <strong>The odds</strong> compare two of those probabilities: &ldquo;{wt} 380× as likely as {mut}&rdquo; means the
+          model expects the native residue far more than the variant. ΔLLR is the same comparison on a log scale
+          (negative = the native is preferred).
+        </li>
+        <li>
+          <strong>Each model has its own scale</strong>, so the tab compares the direction each model reads, never the size
+          of their numbers. A <em>flat</em> model spreads its probability almost evenly and has no preference to read.
+        </li>
+        <li>
+          <strong>None of this is evidence of pathogenicity on its own.</strong> No published study ties these models&apos;
+          numbers to clinical classification, so the rule engine does not count them. Calibrated predictors are on
+          the In-silico predictors tab.
+        </li>
+      </ul>
+    </details>
+  );
+}
+
 export function PerturbationTab({
   analysisState,
   foldingEnergetics,
+  foldingStatus,
+  foldingError,
   structuralDiff,
   metrics,
   isFolding,
@@ -364,19 +529,26 @@ export function PerturbationTab({
             structuralDiff,
             metrics,
             saprotEngine: settings.saprotEngine,
-            isFolding: Boolean(isFolding)
+            isFolding: Boolean(isFolding),
+            foldingStatus,
+            foldingError
           })
         : null,
-    [result, residues, foldingEnergetics, structuralDiff, metrics, settings.saprotEngine, isFolding]
+    [result, residues, foldingEnergetics, structuralDiff, metrics, settings.saprotEngine, isFolding, foldingStatus, foldingError]
   );
 
   if (!result || !evidence) return null;
 
+  // The configured default wins; when it has no result, prefer a model with a reading over a flat one.
   const selected =
-    evidence.lms.find(l => l.id === activeModel && l.availability.state === "computed") ?? evidence.scored[0] ?? null;
+    evidence.lms.find(l => l.id === activeModel && l.availability.state === "computed") ??
+    evidence.scored.find(l => l.direction !== "flat") ??
+    evidence.scored[0] ??
+    null;
   const finding = perturbationFinding(evidence);
-  const c = evidence.consensus;
-  const mut = residues.mutLabel || "the variant";
+  const dir = evidence.direction;
+  const wt = residues.wtLabel || "native";
+  const mut = residues.mutLabel || "variant";
   const pos = evidence.residues.position;
 
   const rerun = async (overrides?: { saprotEngine?: string }) => {
@@ -402,26 +574,29 @@ export function PerturbationTab({
     }
   };
 
-  const figure = c.nRanked === 0 ? "—" : c.agree && c.band ? `${c.nRanked} of ${c.nRanked}` : `${c.nLeast + c.nLower} of ${c.nRanked}`;
-  const figureLabel = c.nRanked === 0
-    ? "no model returned a residue rank"
-    : c.agree && c.band
-      ? `models place ${mut} in the same preference band${pos !== null ? ` at residue ${pos}` : ""}`
-      : `models rank ${mut} in the dispreferred half${pos !== null ? ` at residue ${pos}` : ""}`;
+  // The figure counts the direction most models read; with none, it says so.
+  const variantLeads = dir.nFavourVariant > dir.nFavourNative;
+  const figure = dir.nScored === 0 ? "—" : `${variantLeads ? dir.nFavourVariant : dir.nFavourNative} of ${dir.nScored}`;
+  const figureLabel = dir.nScored === 0
+    ? "no language model has scored this substitution yet"
+    : `models favour ${variantLeads ? `${mut} over native ${wt}` : `native ${wt} over ${mut}`}${pos !== null ? ` at residue ${pos}` : ""}`;
 
-  const fallbacks = evidence.scored.filter(l => l.caveats.includes("fallback-model"));
-  const seqOnly = evidence.scored.find(l => l.caveats.includes("sequence-only"));
-  const floored = evidence.scored.filter(l => l.caveats.includes("probability-floor"));
   const vdw = evidence.physical.readings.find(r => r.key === "vdw");
+  const energeticsLink = onNavigateToView ? (
+    <button type="button" className="ptb-link" onClick={() => onNavigateToView("energetics")}>
+      Energetics <ArrowRight className="w-3 h-3" aria-hidden="true" />
+    </button>
+  ) : "Energetics";
 
   return (
     <div className="ptb-screen">
-      <header>
+      <header className="ptb-header">
         <h1 className="screen-title">Structural perturbation</h1>
         <p className="screen-tab-description">
-          How protein language models and FoldX read this substitution at its own position. Context for
+          What protein language models expect at this residue, and how FoldX&apos;s mutant model packs. Context for
           curation — none of these scores is an ACMG input.
         </p>
+        <ReadingPrimer wt={wt} mut={mut} />
       </header>
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
@@ -430,7 +605,7 @@ export function PerturbationTab({
           <div className="ptb-hero__top">
             <span className="eyebrow" id="ptb-finding-title">
               <Atom className="w-3.5 h-3.5" />
-              Sequence &amp; structure models · context, not an ACMG input
+              Language models · what each expects at this residue
             </span>
             <span
               className="ev-tier ptb-verdict"
@@ -455,72 +630,30 @@ export function PerturbationTab({
 
           <ModelStrip evidence={evidence} selectedId={selected?.id ?? null} onSelect={setActiveModel} />
 
-          {fallbacks.length > 0 && (
-            <p className="ptb-callout" data-tone="warning" data-testid="ptb-fallback-callout">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                {fallbacks.map(l => (
-                  <React.Fragment key={l.id}>
-                    <strong>{l.family}</strong> was served by {l.servedBy}
-                    {l.fallbackReason ? ` (${l.fallbackReason})` : ""}.{" "}
-                  </React.Fragment>
-                ))}
-                Its row describes the model that ran, not the one the row is named for.
-              </span>
-            </p>
-          )}
-          {seqOnly && (
-            <p className="ptb-callout" data-tone="warning">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                <strong>SaProt had no structure token at this residue</strong> — it was scored from sequence
-                alone, so its reading is not structure-aware here.
-              </span>
-            </p>
-          )}
-          {floored.length > 0 && (
-            <p className="ptb-callout" data-tone="warning">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-              <span>
-                <strong>{floored.map(l => l.family).join(", ")}</strong>: {mut} was not among the tokens the remote
-                engine returned, so its probability is the 1e-9 floor and ΔLLR is bounded by it, not measured.
-              </span>
-            </p>
-          )}
+          <ModelCaveatCallouts evidence={evidence} />
 
           <dl className="ptb-hero__meta">
             <div>
-              <dt>Scale</dt>
+              <dt>Models read</dt>
               <dd>
-                {evidence.scored.length === 0
+                {dir.nScored === 0
                   ? "No model scored yet"
-                  : `${evidence.scored.length} model${evidence.scored.length === 1 ? "" : "s"} · ${evidence.scale.mixed ? "no shared scale" : evidence.scored.length > 1 ? "one family" : "single model"}`}
-                <span className="ptb-sub">ΔLLR is never averaged across families</span>
+                  : `${dir.nScored - dir.nFlat} of ${dir.nScored} with a preference${dir.nFlat ? ` · ${dir.nFlat} flat` : ""}`}
+                <span className="ptb-sub">Compared by direction; ΔLLR is never averaged across models</span>
               </dd>
             </div>
             <div>
-              <dt>FoldX clash term</dt>
-              <dd>
-                {vdw?.value != null ? `${vdw.text} kcal/mol` : evidence.physical.reason ?? "—"}
-                <span className="ptb-sub">
-                  {evidence.physical.available ? (
-                    <>
-                      Stability (ΔΔG) is on{" "}
-                      {onNavigateToView ? (
-                        <button type="button" className="ptb-link" onClick={() => onNavigateToView("energetics")}>
-                          Energetics <ArrowRight className="w-3 h-3" aria-hidden="true" />
-                        </button>
-                      ) : "Energetics"}
-                    </>
-                  ) : "No mutant model"}
-                </span>
+              <dt>FoldX mutant model</dt>
+              <dd data-testid="perturbation-foldx-fact">
+                {vdw?.value != null ? `Clash term ${vdw.text} kcal/mol` : evidence.physical.reason ?? "—"}
+                <span className="ptb-sub">Stability (ΔΔG) and every engine&apos;s status are on {energeticsLink}</span>
               </dd>
             </div>
             <div>
               <dt>Engine record</dt>
               <dd data-testid="perturbation-engine-record">
                 {evidence.engine.informational ? "Not counted in PP3/BP4" : `Counted: ${evidence.engine.counted.join(", ")}`}
-                <span className="ptb-sub">The rule lists these models as informational</span>
+                <span className="ptb-sub">No language model here has a published cut-point</span>
               </dd>
             </div>
           </dl>
@@ -555,12 +688,12 @@ export function PerturbationTab({
                 <th colSpan={4} scope="rowgroup">
                   <span className="ptb-group__inner">
                     <span className="ptb-group__title">Protein language models</span>
-                    <span className="ptb-group__meta">ΔLLR is model-native — compare these rows by rank, not by ΔLLR</span>
+                    <span className="ptb-group__meta">Each on its own scale — read the direction and the odds, not the size of ΔLLR across rows</span>
                   </span>
                 </th>
               </tr>
               {evidence.lms.map(l => (
-                <LmRow key={l.id} lm={l} selected={selected?.id === l.id} onSelect={setActiveModel} onAction={onAction} />
+                <LmRow key={l.id} lm={l} wt={wt} mut={mut} selected={selected?.id === l.id} onSelect={setActiveModel} onAction={onAction} />
               ))}
             </tbody>
             <tbody data-group="foldx">
@@ -579,12 +712,26 @@ export function PerturbationTab({
               {evidence.physical.available ? (
                 evidence.physical.readings.map(r => <PhysicalRow key={r.key} r={r} />)
               ) : (
-                <tr>
-                  <th scope="row" className="ptb-subject"><span className="ptb-subject__name">FoldX</span></th>
-                  <td className="ptb-reason" colSpan={2}>{evidence.physical.reason}</td>
+                <tr data-testid="ptb-foldx-absent">
+                  <th scope="row" className="ptb-subject">
+                    <span className="ptb-subject__name">FoldX</span>
+                    <span className="ptb-subject__note">Builds the variant into the structure and scores its packing.</span>
+                  </th>
+                  <td className="ptb-reason" colSpan={2}>
+                    {evidence.physical.reason}
+                    {!isFolding && onNavigateToView && (
+                      <span className="ptb-actions">
+                        <button type="button" className="ptb-link" onClick={() => onNavigateToView("energetics")}>Open Energetics</button>
+                      </span>
+                    )}
+                  </td>
                   <td className="ptb-status">
-                    <span className="ev-tier" data-tone={isFolding ? "neutral" : "muted"}>
-                      {isFolding ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"]}
+                    <span className="ev-tier" data-tone={isFolding ? "neutral" : foldingStatus === "failed" || foldingError ? "warning" : "muted"}>
+                      {isFolding
+                        ? ENGINE_STATE_LABELS.running
+                        : foldingStatus === "failed" || foldingError
+                          ? ENGINE_STATE_LABELS.failed
+                          : ENGINE_STATE_LABELS["no-result"]}
                     </span>
                   </td>
                 </tr>
@@ -605,9 +752,10 @@ export function PerturbationTab({
             )}
           </table>
           <div className="ptb-table-foot" aria-label="Legend">
-            <span className="ptb-legend__item"><span className="ptb-legend__band" aria-hidden="true"><i /><i /><i /><i /></span>Rank bands, most → least preferred</span>
+            <span className="ptb-legend__item"><i className="ptb-legend__marker" />Variant ({mut})</span>
+            <span className="ptb-legend__item"><i className="ptb-legend__native" />Native ({wt})</span>
+            <span className="ptb-legend__item"><span className="ptb-legend__band" aria-hidden="true"><i /><i /><i /><i /></span>Rank bands, 1 → 20</span>
             <span className="ptb-legend__item"><i className="ptb-legend__tick" />App-defined reading mark</span>
-            <span className="ptb-legend__item"><i className="ptb-legend__marker" />This variant</span>
             {evidence.physical.runsIdentical && (
               <span className="ptb-legend__item">
                 FoldX runs identical (SD 0.00) — no run-to-run spread, not a precision claim

@@ -465,6 +465,9 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             foldingEnergetics={foldingEnergetics}
             structuralDiff={primaryStructuralDiff}
             metrics={metrics}
+            isFolding={isFolding}
+            foldingStatus={foldingStatus}
+            foldingError={foldingError}
           />
         )}
 
