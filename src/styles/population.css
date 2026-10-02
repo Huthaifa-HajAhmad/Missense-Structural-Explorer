@@ -142,7 +142,7 @@
 .pop-callout > svg { margin-top: 3px; }
 .pop-callout[data-tone="warning"] { background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
 .pop-callout--banner { margin: 0; border-radius: 0; padding: 10px 20px; border-top: 1px solid var(--cs-border-subtle); }
-/* The one remedy the banner can offer: shown only when a re-run could change the answer. */
+/* The shared recovery policy decides between exact-allele entry, retry, and no action. */
 .pop-callout__action {
   margin-left: auto;
   flex-shrink: 0;
@@ -162,6 +162,17 @@
 }
 .pop-callout__action:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
 .pop-callout__action:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+@container (max-width: 560px) {
+  .pop-callout--banner { display: grid; grid-template-columns: 14px minmax(0, 1fr); }
+  .pop-callout--banner .pop-callout__action {
+    grid-column: 2;
+    justify-self: start;
+    margin-left: 0;
+    min-height: 44px;
+    height: auto;
+    padding: 8px 10px;
+  }
+}
 
 /* ── Frequency scale ────────────────────────────────────────── */
 .pop-scale { margin: 0; }

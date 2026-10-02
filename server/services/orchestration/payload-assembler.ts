@@ -5,6 +5,7 @@ import type { PdbBestStructureMapping, ClinVarData, StringInteraction, GnomadVar
 import type { PredictorData, ConservationData, PdbSource, AouLookup } from "../../../src/shared/contracts.ts";
 import type { DisruptionPrediction } from "../stability/biophysics.ts";
 import type { RuleBasedInsights } from "../prediction/acmg.ts";
+import { LOCUS_POLICY_VERSION } from "../../../src/shared/locusResolution.ts";
 
 /**
  * The outcome of one external fetch.
@@ -169,7 +170,8 @@ export function assembleCoreResponsePayload(
       alternativeVariants: generateAltVariants(sequence),
       mutatedSequence,
       serviceStatus: coreData.serviceStatus,
-      serviceTimings: coreData.serviceTimings
+      serviceTimings: coreData.serviceTimings,
+      populationPolicyVersion: LOCUS_POLICY_VERSION
     },
     serviceStatus: coreData.serviceStatus,
     serviceTimings: coreData.serviceTimings,

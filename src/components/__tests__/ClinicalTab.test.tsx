@@ -138,7 +138,8 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
     );
     expect(screen.getByText(/still running/)).toBeTruthy();
     expect(screen.queryByText(/No population frequency was available/)).toBeNull();
-    expect(screen.getByText(/still being queried/)).toBeTruthy();
+    expect(within(screen.getByRole("status")).getByText(/still being queried/)).toBeTruthy();
+    expect(screen.getByTestId("population-readings").querySelector(".pop-readings__empty")).toHaveAttribute("data-kind", "pending");
   });
 });
 
@@ -463,7 +464,7 @@ describe("ClinicalTab — source readings split into observed and no reading", (
   });
 
   it("says so in one line when no source reported the allele", () => {
-    renderTab(gzf1Result({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "not_found", clinvar: "ok" } }));
+    renderTab(gzf1Result({ gnomadFrequency: null, serviceStatus: { gnomadFrequency: "not_found", clinvar: "ok" }, aouLookup: { localTable: "absent", remoteDbnsfp: "not-reported" } }));
     expect(screen.getByText("No source reported this allele.")).toBeTruthy();
     expect(screen.getByTestId("population-readings").querySelector("table")).toBeNull();
   });

@@ -3,7 +3,8 @@ import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
 import type { PredictorConcordance } from "./thresholds/concordance";
 import { CANONICAL_ASSEMBLY, statedAssemblyOf, type AssemblyTaggedCoordinate } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
-import { locusResolutionSchema, isFallbackLocus, isRetryableFallbackLocus, type LocusResolution } from "./locusResolution";
+import { locusResolutionSchema, locusFailureKindSchema, LOCUS_POLICY_VERSION, isFallbackLocus, isRetryableFallbackLocus, type LocusResolution } from "./locusResolution";
+import { isIntrinsicallyAmbiguousProteinChange } from "./proteinAlleleIdentity";
 
 /**
  * The FoldX phase vocabulary, as a schema.
@@ -379,9 +380,15 @@ export function isBuildDegradedResult(
   result:
     | {
         coordinateLift?: CoordinateLiftRecord | null;
+        metadata?: { gene?: string; variant?: string; populationPolicyVersion?: number } | null;
+        aouFrequency?: unknown;
+        conservationData?: { aouFrequency?: unknown } | null;
+        gnomadFrequency?: { dataset?: string | null } | null;
         predictorData?: {
           gnomadVariantAssembly?: GenomeAssembly | null;
           gnomadVariantId?: string | null;
+          caddPhred?: number | null;
+          source?: string;
           locusResolution?: LocusResolution | null;
         } | null;
       }
@@ -389,6 +396,25 @@ export function isBuildDegradedResult(
     | undefined
 ): boolean {
   if (!result) return false;
+
+  // PR #23 could accept a single database-listed allele after an ambiguous protein lookup.
+  // Migrate every old fallback bundle once, including a seemingly canonical one. Healthy VEP
+  // results keep their existing caches; current definitive input requirements remain cacheable.
+  const trail = result.predictorData?.locusResolution;
+  if (trail?.route === "fallback" && trail.policyVersion !== LOCUS_POLICY_VERSION) return true;
+  if (!trail && /fallback/i.test(result.predictorData?.source ?? "")) return true;
+
+  // Protein-only VEP successes written before this policy could themselves select an arbitrary
+  // allele. Coordinate-route results retain the user's exact verified allele instead.
+  if (trail?.route !== "vep-coordinate" &&
+      isIntrinsicallyAmbiguousProteinChange(result.metadata?.variant ?? "", result.metadata?.gene) &&
+      (result.predictorData?.gnomadVariantId || result.predictorData?.caddPhred != null)) return true;
+
+  // Old local population rows were selected by protein notation even on otherwise healthy VEP
+  // runs. Refresh those outer bundles once; retain healthy remote gnomAD/predictor caches.
+  const hadUnboundPopulationProducer = result.aouFrequency != null ||
+    result.conservationData?.aouFrequency != null || result.gnomadFrequency?.dataset === "gnomad_r4_local";
+  if (hadUnboundPopulationProducer && result.metadata?.populationPolicyVersion !== LOCUS_POLICY_VERSION) return true;
 
   /**
    * A FALLBACK locus is degraded whatever the intake lift record says, and is checked first.
@@ -1246,7 +1272,11 @@ export const conservationDataSchema = z.object({
      * True when the refusal is a consequence of a FALLBACK locus (the GRCh38 lookup failed on this
      * run) rather than of a build the user chose. Surfaces read it as retryable, not "Not covered".
      */
-    retryable: z.boolean().optional()
+    retryable: z.boolean().optional(),
+    /** Same locus failure vocabulary across coordinate-keyed evidence sources. */
+    failureKind: locusFailureKindSchema.optional(),
+    /** The remedy is an original nucleotide allele, not another provider request. */
+    inputRequired: z.boolean().optional()
   })).nullable().optional(),
   source: z.string().optional()
 });
@@ -1425,7 +1455,9 @@ export const analyzeVariantResponseSchema = z.object({
     pdbSource: z.string().nullable().optional(),
     sequence: z.string().nullable().optional(),
     serviceTimings: z.record(z.string(), z.number()).optional(),
-    serviceStatus: z.record(z.string(), z.string()).optional()
+    serviceStatus: z.record(z.string(), z.string()).optional(),
+    /** Version of exact-allele population binding; legacy local observations are refreshed once. */
+    populationPolicyVersion: z.number().int().positive().optional()
   }).passthrough(),
   predictorData: predictorDataSchema.nullable().optional(),
   conservationData: conservationDataSchema.nullable().optional(),

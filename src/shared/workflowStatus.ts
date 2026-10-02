@@ -1,7 +1,7 @@
 import type { AnalysisResult } from "./contracts.ts";
 import { toCanonicalDdg, formatDdg, type EnergyEngineId } from "./engineStatus.ts";
 import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
-import { isFallbackLocus } from "./locusResolution.ts";
+import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "./locusResolution.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
 
@@ -202,7 +202,11 @@ export function getWorkflowStageStatus(
       if (isFallbackLocus(result)) {
         return {
           status: "degraded",
-          desc: "GRCh38 lookup failed on this run · population evidence not assessed — re-run to retry"
+          desc: `Population evidence not assessed: ${fallbackCause(
+             result.predictorData?.gnomadVariantAssembly ?? null,
+             locusRecoveryAction(result) === "retry",
+             locusFailureKind(result) ?? undefined
+           )}`
         };
       }
       if (gnomadStatus === "timeout" || gnomadStatus === "error") {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  LOCUS_POLICY_VERSION,
   isFallbackLocus,
   isRetryableFallbackLocus,
   fallbackLocusSentence,
@@ -25,6 +26,7 @@ import { getWorkflowStageStatus } from "../workflowStatus";
 
 const FALLBACK_TRAIL: LocusResolution = {
   route: "fallback",
+  policyVersion: LOCUS_POLICY_VERSION,
   canonicalBy: null,
   retryable: true,
   steps: [

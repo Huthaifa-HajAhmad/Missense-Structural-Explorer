@@ -12,7 +12,7 @@ import { useMemo } from "react";
 import type { AnalysisResult } from "../../types";
 import { parseVariantCoordinate } from "../../shared/variantCoordinate";
 import { variantNumberingView } from "../../shared/numbering";
-import { isFallbackLocus, isRetryableFallbackLocus, fallbackLocusShortLabel } from "../../shared/locusResolution";
+import { isFallbackLocus, locusFailureKind, locusRecoveryAction, fallbackCause, fallbackLocusShortLabel } from "../../shared/locusResolution";
 import { buildConstraintMetrics, type VhMetric } from "./constraintMetrics";
 
 export type TierTone = "good" | "clay" | "warn" | "muted";
@@ -32,7 +32,7 @@ export interface VariantHeaderModel {
    * The run's state, when it is not clean. A degraded run must never look like a finished one in the
    * chrome: this is the fixed slot the strip renders it in.
    */
-  runState: { label: string; detail: string; retryable: boolean } | null;
+  runState: { label: string; detail: string; retryable: boolean; recoveryAction: "retry" | "provide-allele" | null } | null;
 }
 
 export interface VariantHeaderInput {
@@ -88,9 +88,10 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
   let runState: VariantHeaderModel["runState"] = null;
   if (isFallbackLocus(result)) {
     runState = {
-      label: fallbackLocusShortLabel(assembly),
-      detail: "The GRCh38 lookup did not complete on this run, so population evidence and the other GRCh38-only sources were not assessed.",
-      retryable: isRetryableFallbackLocus(result),
+      label: fallbackLocusShortLabel(assembly, locusFailureKind(result)),
+      detail: fallbackCause(assembly, locusRecoveryAction(result) === "retry", locusFailureKind(result)),
+      retryable: locusRecoveryAction(result) === "retry",
+      recoveryAction: locusRecoveryAction(result),
     };
   } else {
     const gnomadStatus = result?.serviceStatus?.gnomadFrequency ?? result?.metadata?.serviceStatus?.gnomadFrequency;
@@ -99,6 +100,7 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
         label: "gnomAD did not answer",
         detail: "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
         retryable: true,
+        recoveryAction: "retry",
       };
     }
   }
