@@ -40,10 +40,13 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.getByText("Evidence")).toBeInTheDocument();
   });
 
-  it("keeps a wordless in-flight cue while the biophysics run and nothing labelled", () => {
+  it("renders no in-flight cue at all while the biophysics run: the rail owns progress", () => {
     render(<HeaderBar {...base} isBiophysicalLoading={true} />);
-    expect(document.querySelector(".cs-spinner")).not.toBeNull();
+    // No labelled status and no stray spinner — a wordless arc alone in the header chrome said
+    // nothing, so even it is gone; the pipeline rail carries the stage list and the aria-live
+    // step line.
     expect(screen.queryByText(/Computing/i)).not.toBeInTheDocument();
+    expect(document.querySelector(".cs-spinner")).toBeNull();
   });
 
   it("should display offline label when isOffline is true", () => {
