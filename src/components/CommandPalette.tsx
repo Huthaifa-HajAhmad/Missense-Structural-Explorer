@@ -179,9 +179,7 @@ export default function CommandPalette({
       Boolean(
         s.analysisState?.isLoading ||
           s.isBiophysicalLoading ||
-          s.isStructuralLoading ||
-          s.isClinicalLoading ||
-          s.isNarrativeLoading,
+          s.isClinicalLoading,
       ),
   );
 

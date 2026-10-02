@@ -6,6 +6,8 @@ import { Color } from "molstar/lib/mol-util/color";
 import { isValidPdbUrl } from "./molstarThemes";
 import { PAIR_COLOURS, pdbIdFromUrl, type ColourPlan, type LoadedEntry, type ThemePlan } from "../../shared/structure3dEvidence";
 import type { StructureProvenance } from "../../shared/contracts";
+import { STRUCTURE_REF_HEADER } from "../../shared/structureRefs";
+import { registerStructureRefForPdb } from "../../api/structureRefRegistry";
 
 /**
  * Loads the coordinates `AppViews` hands the canvas and draws them with the colour plan the 3D
@@ -178,6 +180,17 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           const entryText = await res.text();
           if (!active) return;
           if (!hasCoordinates(entryText)) throw new Error("The structure file contained no atomic coordinates.");
+          /**
+           * A reader-selected PDB entry is drawn from bytes THIS server just served, so it can be
+           * reference-enabled exactly like the AlphaFold/pipeline path: register the reference the
+           * route returned for these bytes, and a later pocket or contact-map call names them
+           * instead of re-uploading the entry — and, crucially, instead of letting the accession
+           * ladder answer with a different structure than the one on screen.
+           *
+           * Registration happens before the early `return` below, because that return hands the
+           * entry to the store's echo and never reaches the local drawing path.
+           */
+          registerStructureRefForPdb(entryText, res.headers.get(STRUCTURE_REF_HEADER));
           const reasonHeader = res.headers.get("X-Entry-Reason");
           const unmappedHeader = Number.parseInt(res.headers.get("X-Entry-Unmapped") ?? "", 10);
           const mappingHeader = res.headers.get("X-Entry-Mapping");
@@ -205,6 +218,9 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           text = await res.text();
           if (!active) return;
           if (!hasCoordinates(text)) throw new Error("The structure file contained no atomic coordinates.");
+          // Same as the entry path above: this AlphaFold model came from this server's route, so its
+          // reference is registered before the early return hands the text to the store's echo.
+          registerStructureRefForPdb(text, res.headers.get(STRUCTURE_REF_HEADER));
           // Publish, and let the store's echo draw it: only then is the provenance, and so the
           // pLDDT colouring and filter, known. Drawing here would paint it plain and race the echo.
           if (onPdbTextLoadedRef.current) {

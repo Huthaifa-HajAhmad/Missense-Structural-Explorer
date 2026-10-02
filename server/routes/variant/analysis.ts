@@ -8,7 +8,7 @@ import {
   runCoreAnalysis,
   runStructuralAnalysis,
 } from "../../services/analysis-orchestrator.ts";
-import { PrewarmManager } from "../../services/prewarm-manager.ts";
+import { PrewarmManager, isPrewarmEnabled } from "../../services/prewarm-manager.ts";
 
 const MAX_LANDSCAPE_WINDOW = 121;
 
@@ -40,21 +40,40 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     try {
       const responseData = await runCoreAnalysis(context);
 
-      // Trigger background FoldX pre-warming asynchronously
-      PrewarmManager.getInstance()
-        .triggerPrewarm({
-          gene: context.gene,
-          variant: context.variant,
-          uniprotId: context.uniprotId,
-          sequence: context.sequence,
-          pos: context.pos,
-          wt1Letter: context.wt1Letter,
-          mutant: context.mutant,
-          pdbMapping: responseData._internal?.pdbMapping || null,
-        })
-        .catch(err => {
-          console.warn("[Pre-warm Cache Dispatch Warning]:", err);
-        });
+      /**
+       * Speculative FoldX pre-warming — opt-in, OFF by default, and invoked from THIS route only.
+       *
+       * `isPrewarmEnabled()` is checked here rather than only inside the manager so a deployment that
+       * has not opted in does not even build the parameters, and so the disabled path is visible at
+       * the call site.
+       *
+       * The streaming route (`/analyze-variant/stream`) deliberately does NOT prewarm. It serves the
+       * same analysis to the same reader, so dispatching from both would enqueue a second speculative
+       * FoldX run for one visit; the standalone route is the one place that can legitimately precede
+       * an Energetics submission.
+       *
+       * `numberingVerified` travels with the request because it is an INTERPRETATION fact, not a
+       * cache hint: when the numbering could not be verified across the gene's isoforms, the residue
+       * index this substitution sits on is unestablished, and a prewarm would compute against a guess
+       * the reader's own submit may not share.
+       */
+      if (isPrewarmEnabled()) {
+        PrewarmManager.getInstance()
+          .triggerPrewarm({
+            gene: context.gene,
+            variant: context.variant,
+            uniprotId: context.uniprotId,
+            sequence: context.sequence,
+            pos: context.pos,
+            wt1Letter: context.wt1Letter,
+            mutant: context.mutant,
+            pdbMapping: responseData._internal?.pdbMapping || null,
+            conditions: { numberingVerified: context.numberingVerified },
+          })
+          .catch(err => {
+            console.warn("[Pre-warm Cache Dispatch Warning]:", err);
+          });
+      }
 
       // Exclude internal routing metadata from API response
       const { _internal, ...payload } = responseData;

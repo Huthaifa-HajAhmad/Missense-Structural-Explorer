@@ -106,6 +106,8 @@ export function getWorkflowStageStatus(
     loadingStep = "",
     isPocketLoading = false,
     isNarrativeLoading = false,
+    dynamut2Status = null,
+    ddmutStatus = null,
     hasStructureCoordinates = false
   } = p;
 
@@ -200,24 +202,13 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "structure" || view === "structure_alphafold" || view === "structure_esmfold") {
-      if (isFolding || !!isPocketLoading) {
-        return {
-          status: "progress",
-          desc: isFolding ? foldxActivityDesc : "Running binding pocket solver..."
-        };
+      if (!!isPocketLoading) {
+        return { status: "progress", desc: "Coordinates available · Assessing binding pockets..." };
       }
-      // PDB coordinates are available when:
-      // 1. Explicitly flagged via hasStructureCoordinates, OR
-      // 2. An experimental pdbId is present, OR
-      // 3. A UniProt/Gene accession is present in metadata (AlphaFold/ESMFold warmup), OR
-      // 4. ESM3 PDB text, folding energetics, or real analysis are populated.
+      // An accession, template selection, or narrative is not proof that coordinates loaded.
       const hasStructureEvidence = Boolean(
         hasStructureCoordinates ||
-        result.metadata?.pdbId ||
-        result.metadata?.uniprotId ||
-        (result.esm3Eval && "pdbText" in result.esm3Eval && result.esm3Eval.pdbText) ||
-        realAnalysis ||
-        result.foldingEnergetics
+        (result.esm3Eval && "pdbText" in result.esm3Eval && result.esm3Eval.pdbText)
       );
       if (hasStructureEvidence) {
         return {
@@ -249,7 +240,7 @@ export function getWorkflowStageStatus(
       }
 
       const hasBiophysics = result.foldingEnergetics != null || result.dynamut2 != null || result.ddmut != null || result.biophysicalEnergetics != null;
-      const isProgress = (isBiophysicalLoading || (isFolding && !hasBiophysics)) && !hasBiophysics && !realAnalysis;
+      const isProgress = (isBiophysicalLoading || isFolding) && !hasBiophysics;
 
       if (isProgress) {
         return {
@@ -258,7 +249,7 @@ export function getWorkflowStageStatus(
         };
       }
 
-      if (hasBiophysics || realAnalysis) {
+      if (hasBiophysics) {
         /**
          * Each fallback now carries the engine it came from, so the value can be canonicalised before
          * it is printed.
@@ -280,10 +271,10 @@ export function getWorkflowStageStatus(
         const picked = ddgCandidates.find(([, raw]) => raw !== null && raw !== undefined);
         const canonicalDdg = picked ? toCanonicalDdg(picked[0], picked[1]) : null;
         const ddgText = canonicalDdg !== null
-          ? `ΔΔG = ${canonicalDdg > 0 ? "+" : ""}${formatDdg(canonicalDdg)} · Biophysics ready`
-          : "Biophysical stability models active · In-silico chips updating";
+          ? `ΔΔG = ${canonicalDdg > 0 ? "+" : ""}${formatDdg(canonicalDdg)} · ${isFolding || dynamut2Status === "pending" || ddmutStatus === "pending" ? "Other engines running" : "Available"}`
+          : isFolding ? "Assessment available · Stability engines running" : "Assessment available · No numeric ΔΔG reported";
         return {
-          status: "complete",
+          status: isFolding || dynamut2Status === "pending" || ddmutStatus === "pending" ? "progress" : "complete",
           desc: ddgText
         };
       }
@@ -295,6 +286,9 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "landscape") {
+      const outcome = result.metadata?.pipelineStages?.landscape;
+      if (outcome === "running") return { status: "progress", desc: "Loading residue landscape..." };
+      if (outcome === "error") return { status: "degraded", desc: "Landscape query failed · Retry from Landscape" };
       const count = result.landscapeData?.length ?? 0;
       if (count === 0) {
         if (isBiophysicalLoading) {
@@ -315,6 +309,9 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "insights") {
+      if (result.ruleBasedInsights && !isBiophysicalLoading && !isClinicalLoading) {
+        return { status: "complete", desc: isNarrativeLoading ? "Rule-based interpretation ready · Optional AI running" : "Rule-based interpretation ready" };
+      }
       if (isAnalysisFailed(result)) {
         return {
           status: "degraded",
@@ -351,19 +348,19 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "literature") {
-      if (isClinicalLoading || isBiophysicalLoading) {
-        return {
-          status: "progress",
-          desc: "Mining PubMed & Europe PMC citations..."
-        };
-      }
-      return {
-        status: "complete",
-        desc: "PubMed & Europe PMC citations indexed"
-      };
+      const outcome = result.metadata?.pipelineStages?.literature;
+      if (outcome === "running") return { status: "progress", desc: "Searching Europe PMC citations..." };
+      if (outcome === "complete") return { status: "complete", desc: "Literature query complete" };
+      if (outcome === "degraded" || outcome === "error") return { status: "degraded", desc: "Literature query unavailable · Open Literature to retry" };
+      return { status: "pending", desc: "Open Literature to search citations" };
     }
 
     if (view === "report") {
+      const hasEvidence = Boolean(result.ruleBasedInsights || result.clinvar || result.predictorData || result.conservationData || result.metadata?.pipelineStages?.core === "complete");
+      if (hasEvidence) {
+        return { status: isBiophysicalLoading || isClinicalLoading ? "progress" : "complete",
+          desc: isBiophysicalLoading || isClinicalLoading ? "Evidence snapshot available · Sources still loading" : isNarrativeLoading ? "Evidence report ready · Optional AI running" : "Evidence report ready" };
+      }
       if (isAnalysisFailed(result)) {
         return {
           status: "error",

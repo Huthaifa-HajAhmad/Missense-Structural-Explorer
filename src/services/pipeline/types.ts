@@ -2,12 +2,23 @@ import React from "react";
 import { PdbHomolog, NearestResidue, DisruptionPredictorResult } from "../../types";
 import type { CoordinateLiftRecord, NumberingRemapRecord, StructureProvenance } from "../../shared/contracts";
 import type { FoldxProgress } from "../../shared/foldxPhase";
+import type { DeepEvidenceContext } from "../../shared/deepModelEvidence";
+import type { TraceRunFinishStatus } from "../../types/devConsole";
 
 export interface TraceContext {
   activeTraceId: string | null;
   traceStart: number;
   addTraceSpan: (span: any) => void;
-  finishTraceRun?: (traceId: string, status: "completed" | "failed") => void;
+  /**
+   * End the trace run.
+   *
+   * `cancelled` is the outcome for a run that was SUPERSEDED rather than broken — the reader moved on,
+   * a new analysis started — and it is deliberately not `failed`: no provider or pipeline error
+   * occurred, and writing one would put a fault in the diagnostics that nobody observed. It is the
+   * caller's job to finish the run IT started, even when that run is no longer the active one, because
+   * a run left `running` never ends.
+   */
+  finishTraceRun?: (traceId: string, status: TraceRunFinishStatus) => void;
 }
 
 export interface RemoteJobStatuses {
@@ -177,6 +188,38 @@ export interface TranslatedVariantResult {
   };
 }
 
+/**
+ * The run's evidence as of the moment a synthesis is requested.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The automatic narrative pass described itself from the biophysical response it was handed
+ * (`bpResult`), which carries no FoldX energetics: the stability route does not return them and
+ * `createCompletedAnalysisState` never copies them. The stability numbers live in the client's
+ * biophysics state (and, once settled, on the run's recorded result), so the automatic synthesis was
+ * built from a WEAKER evidence set than the explicit Re-synthesize control — one run with two different
+ * narratives, decided by which control asked — and the two could not even coalesce, because they hashed
+ * different evidence.
+ *
+  * `getCurrentEvidence` is the orchestrator's answer: a callback rather than a value, because the
+ * snapshot must be read AT INVOCATION (after the mode gate and after the enrichment that fills the
+ * store), and because only the caller can verify that the result it returns belongs to the run that is
+ * asking (`metadata.pipelineRunId`, gene, variant). Returning nothing is a valid answer: the pass then
+ * falls back to `bpResult`, exactly as it did before.
+ */
+export interface CurrentRunEvidence {
+  /** The current run's analysis result — the object the report is rendering. */
+  result: any;
+  /** The deep-model supplement the result does not carry (see `DeepEvidenceContext`). */
+  context: DeepEvidenceContext;
+}
+
+/**
+ * Everything the pipeline's stages read from the run.
+ *
+ * `result` inside `CurrentRunEvidence` is `any` on purpose: this contract exists for the fields a caller
+ * can vouch for (identity, accepted syntax, current evidence), not to re-declare the analysis payload.
+ */
 export interface StructuredPipelineOptions {
   fetchWithAuth: (url: string, options?: any) => Promise<Response>;
   apiClient: any;
@@ -192,6 +235,15 @@ export interface StructuredPipelineOptions {
    */
   numberingBasis?: "canonical";
   sinks: PipelineStateSinks;
+  /**
+   * The run's current evidence, read at the moment the automatic synthesis is requested.
+   *
+   * Optional: absent for the flat/legacy option shape, which is why `narrativeService` keeps the
+   * `bpResult` path as its fallback rather than requiring this. The return type admits `undefined` as
+   * well as `null`, because that is what a caller's own lookup naturally produces when it has no
+   * snapshot — the consumer normalizes both to "no snapshot" instead of making every call site coerce.
+   */
+  getCurrentEvidence?: () => CurrentRunEvidence | null | undefined;
 }
 
 export type UseAnalysisPipelineOptions =
@@ -204,5 +256,7 @@ export type UseAnalysisPipelineOptions =
       userDirections: string;
       numberingBasis?: "canonical";
       sinks?: PipelineStateSinks;
+      /** Optional here too: a flat-options caller with no store snapshot keeps the `bpResult` path. */
+      getCurrentEvidence?: () => CurrentRunEvidence | null | undefined;
     });
 

@@ -1,5 +1,6 @@
 import { RotateCcw } from "lucide-react";
 import { useSettings } from "../../../context/SettingsContext";
+import { DEFAULT_UI_BIOPHYSICS_CONDITIONS } from "../../../shared/biophysicsConditions";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
 
@@ -9,7 +10,14 @@ const CONDITION_FIELDS = [
   { key: "ionicStrength" as const, label: "Ionic strength", unit: "mM", step: 10, min: 0, max: 2000 }
 ];
 
-const PHYSIOLOGICAL = { ph: 7.4, temperature: 25, ionicStrength: 150 };
+/**
+ * What "physiological" means here — the shared UI defaults, not a fourth copy of the numbers.
+ *
+ * These are the values the panel DISPLAYS and resets to, in the panel's own units (°C, mM). The wire
+ * carries Kelvin and molar, converted at the client boundary (`foldxService` →
+ * `toNativeFoldxConditions`), so nothing in this file should ever be handed to the server as-is.
+ */
+const PHYSIOLOGICAL = DEFAULT_UI_BIOPHYSICS_CONDITIONS;
 
 const ACMG_DESCRIPTIONS: Record<string, string> = {
   standard: "Standard ACMG/AMP rules balancing population, computational, and functional evidence.",

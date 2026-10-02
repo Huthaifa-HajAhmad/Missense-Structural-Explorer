@@ -15,18 +15,102 @@ import {
   getResidueDetails,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
+import {
+  resolveStructureReference,
+  structureReferenceMatchesText,
+  type StructureReferenceIdentity,
+} from "../../services/structure/structure-reference-store.ts";
+import { type StructureResolutionEcho } from "../../../src/shared/structureRefs.ts";
 
-async function resolvePdbText(body: { pdbText?: string; pdbRef?: string; uniprotId?: string }): Promise<string | null> {
-  if (body.pdbText && body.pdbText.trim().length > 0) {
-    return body.pdbText;
+/**
+ * What the routes computed on, and where it came from.
+ *
+ * `resolution` is returned to the caller as an audit echo: a pocket or contact map that cannot say
+ * which structure produced it is not reproducible, and the whole point of this path is that the
+ * answer must be about the structure the reader is looking at.
+ */
+export interface ResolvedStructureInput {
+  pdbText: string;
+  resolution: StructureResolutionEcho;
+  identity?: StructureReferenceIdentity;
+}
+
+/** A reference was supplied, is no longer resolvable, and no text came with it. */
+export interface UnresolvedStructureRef {
+  unresolvedStructureRef: string;
+}
+
+export function isUnresolvedStructureRef(value: unknown): value is UnresolvedStructureRef {
+  return Boolean(value) && typeof value === "object" && "unresolvedStructureRef" in (value as any);
+}
+
+/**
+ * Resolve the PDB text a pocket/nearest request should be computed on.
+ *
+ * Order of authority — and WHY it is this order:
+ *   1. `structureRef` — the exact bytes this server returned for the structure on screen. Exact by
+ *      construction: the reference is the digest of those bytes. When text is also present and
+ *      disagrees with the reference, the TEXT wins (step 1b): the caller's bytes are what it is
+ *      displaying, and answering about the reference's structure would be the very conflation this
+ *      path exists to prevent. The disagreement is reported via `refTextMismatch`.
+ *   2. `pdbText` — the caller's own bytes: a local upload, or the documented one-shot fallback when
+ *      a reference has been evicted. Preferred over any accession so the computation stays on the
+ *      structure that was sent, never on whatever the resolver happens to pick.
+ *   3. `pdbRef` / `uniprotId` — the legacy accession ladder, kept for older callers only. It can
+ *      return a DIFFERENT template than the one on screen, which is why it is last.
+ *
+ * An unresolvable reference with no text is reported (`unresolvedStructureRef`) rather than silently
+ * falling through to step 3: the caller asked for specific bytes, and substituting another structure
+ * for them would be a wrong answer that looks right.
+ */
+export async function resolveStructureInput(body: {
+  pdbText?: string;
+  pdbRef?: string;
+  uniprotId?: string;
+  structureRef?: string;
+}): Promise<ResolvedStructureInput | UnresolvedStructureRef | null> {
+  const requestedRef = typeof body.structureRef === "string" ? body.structureRef.trim() : "";
+  const providedText = typeof body.pdbText === "string" ? body.pdbText : "";
+
+  if (requestedRef) {
+    const record = resolveStructureReference(requestedRef);
+    if (record) {
+      if (providedText.trim().length === 0 || structureReferenceMatchesText(record, providedText)) {
+        return {
+          pdbText: record.pdbText,
+          resolution: {
+            resolvedFrom: "structureRef",
+            structureRef: record.ref,
+            source: record.identity.source,
+            pdbId: record.identity.pdbId,
+            chainId: record.identity.chainId,
+          },
+          identity: record.identity,
+        };
+      }
+      return {
+        pdbText: providedText,
+        resolution: { resolvedFrom: "pdbText", refTextMismatch: true },
+      };
+    }
+    if (providedText.trim().length > 0) {
+      // The reference was evicted (or never existed): use the bytes the caller sent, exactly once.
+      return { pdbText: providedText, resolution: { resolvedFrom: "pdbText" } };
+    }
+    return { unresolvedStructureRef: requestedRef };
   }
+
+  if (providedText.trim().length > 0) {
+    return { pdbText: providedText, resolution: { resolvedFrom: "pdbText" } };
+  }
+
   const ref = (body.pdbRef || body.uniprotId || "").trim();
   if (!ref) return null;
 
   const { pdbCache } = await import("../../services/cache.ts");
   if (pdbCache.has(ref)) {
     const cached = pdbCache.get(ref);
-    if (cached) return cached;
+    if (cached) return { pdbText: cached, resolution: { resolvedFrom: "uniprot-resolver" } };
   }
 
   try {
@@ -34,7 +118,15 @@ async function resolvePdbText(body: { pdbText?: string; pdbRef?: string; uniprot
     const resolved = await resolveStructure(ref);
     if (resolved?.pdbText) {
       pdbCache.set(ref, resolved.pdbText);
-      return resolved.pdbText;
+      return {
+        pdbText: resolved.pdbText,
+        resolution: {
+          resolvedFrom: "uniprot-resolver",
+          source: resolved.provenance?.source,
+          pdbId: resolved.provenance?.pdbId,
+          chainId: resolved.provenance?.chainId,
+        },
+      };
     }
   } catch (_) {}
 
@@ -43,21 +135,30 @@ async function resolvePdbText(body: { pdbText?: string; pdbRef?: string; uniprot
     const fetched = await fetchAlphafoldPdb(ref);
     if (fetched) {
       pdbCache.set(ref, fetched);
-      return fetched;
+      return {
+        pdbText: fetched,
+        resolution: { resolvedFrom: "uniprot-resolver", source: "alphafold" },
+      };
     }
   } catch (_) {}
   return null;
 }
 
+const STALE_STRUCTURE_REF_MESSAGE =
+  "The structure reference is no longer available on the server (it expired, was evicted, or " +
+  "predates a restart). Re-send the exact PDB text (structureRef with pdbText) or re-fetch the " +
+  "structure so the viewer and this computation use the same coordinates.";
+
 const pocketFinderSchema = z.object({
   pdbText: z.string().optional(),
   pdbRef: z.string().optional(),
   uniprotId: z.string().optional(),
+  structureRef: z.string().optional(),
   targetIndex: z.union([z.number(), z.string()]).optional(),
   mutIndex: z.union([z.number(), z.string()]).optional(),
   targetChain: z.string().optional()
-}).refine(data => data.pdbText !== undefined || data.pdbRef !== undefined || data.uniprotId !== undefined, {
-  message: "Either pdbText, pdbRef, or uniprotId must be specified."
+}).refine(data => data.pdbText !== undefined || data.pdbRef !== undefined || data.uniprotId !== undefined || data.structureRef !== undefined, {
+  message: "Either pdbText, pdbRef, uniprotId, or structureRef must be specified."
 }).refine(data => data.targetIndex !== undefined || data.mutIndex !== undefined, {
   message: "Either targetIndex or mutIndex must be specified."
 });
@@ -66,6 +167,7 @@ const nearestResiduesSchema = z.object({
   pdbText: z.string().optional(),
   pdbRef: z.string().optional(),
   uniprotId: z.string().optional(),
+  structureRef: z.string().optional(),
   targetIndex: z.union([z.number(), z.string()]),
   targetChain: z.string().optional(),
   distanceThreshold: z.union([z.number(), z.string()]).refine(
@@ -73,8 +175,8 @@ const nearestResiduesSchema = z.object({
     "distanceThreshold must be positive"
   ).optional(),
   n: z.union([z.number(), z.string()]).optional()
-}).refine(data => data.pdbText !== undefined || data.pdbRef !== undefined || data.uniprotId !== undefined, {
-  message: "Either pdbText, pdbRef, or uniprotId must be specified."
+}).refine(data => data.pdbText !== undefined || data.pdbRef !== undefined || data.uniprotId !== undefined || data.structureRef !== undefined, {
+  message: "Either pdbText, pdbRef, uniprotId, or structureRef must be specified."
 });
 
 export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): void {
@@ -86,8 +188,14 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       return;
     }
     try {
-      const { targetIndex, mutIndex, targetChain } = req.body;
-      const pdbText = await resolvePdbText(req.body);
+      const { targetIndex, mutIndex, targetChain, pdbRef, uniprotId } = parseResult.data;
+      const input = await resolveStructureInput(parseResult.data);
+      if (isUnresolvedStructureRef(input)) {
+        sendError(res, 409, "STALE_STRUCTURE_REF", STALE_STRUCTURE_REF_MESSAGE);
+        return;
+      }
+      const pdbText = input?.pdbText ?? null;
+      const structureResolution = input?.resolution;
 
       if (!pdbText || typeof pdbText !== "string" || (!pdbText.includes("ATOM") && !pdbText.includes("HETATM"))) {
         sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records or unresolvable structure.");
@@ -119,7 +227,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
 
         if (!targetRes) {
           // If residue is missing from experimental structure, attempt fallback to AlphaFold full-length model
-          const ref = (req.body.pdbRef || req.body.uniprotId || "").trim();
+          const ref = (pdbRef || uniprotId || "").trim();
           if (ref) {
             console.log(`[Pocket Finder] Target residue #${mutIndexVal} missing from provided PDB. Falling back to AlphaFold for ${ref}...`);
             const { fetchAlphafoldPdb } = await import("../../services/structure-fetcher.ts");
@@ -164,7 +272,10 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
 
         res.json({
           status: "queued",
-          pocketJobId: queueJobId
+          pocketJobId: queueJobId,
+          // Which bytes this job was queued on. The result itself comes back through the job route,
+          // so this echo is the only place the queued call can state its structure provenance.
+          structureResolution
         });
 
       } catch (err: any) {
@@ -241,12 +352,18 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       return;
     }
     try {
-      const { targetIndex, targetChain } = req.body;
-      const pdbText = await resolvePdbText(req.body);
-      const distanceThreshold = req.body.distanceThreshold !== undefined
-        ? Number(req.body.distanceThreshold)
+      const { targetIndex, targetChain } = parseResult.data;
+      const input = await resolveStructureInput(parseResult.data);
+      if (isUnresolvedStructureRef(input)) {
+        sendError(res, 409, "STALE_STRUCTURE_REF", STALE_STRUCTURE_REF_MESSAGE);
+        return;
+      }
+      const pdbText = input?.pdbText ?? null;
+      const structureResolution = input?.resolution;
+      const distanceThreshold = parseResult.data.distanceThreshold !== undefined
+        ? Number(parseResult.data.distanceThreshold)
         : null;
-      let n = req.body.n !== undefined ? Number(req.body.n) : 5;
+      let n = parseResult.data.n !== undefined ? Number(parseResult.data.n) : 5;
 
       if (!pdbText || typeof pdbText !== "string" || (!pdbText.includes("ATOM") && !pdbText.includes("HETATM"))) {
         sendError(res, 400, "BAD_REQUEST", "Invalid PDB content: missing ATOM/HETATM records or unresolvable structure.");
@@ -311,7 +428,10 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
 
       res.json({
         residues: sliced,
-        source: "computed"
+        source: "computed",
+        // Which exact bytes these distances were measured on — the audit trail that makes the
+        // contact map reproducible and lets a caller prove it was not re-resolved by accession.
+        structureResolution
       });
     } catch (err: any) {
       console.error("Nearest residues calculation failure:", err);

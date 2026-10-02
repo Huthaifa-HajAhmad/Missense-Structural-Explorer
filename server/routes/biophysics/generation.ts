@@ -25,9 +25,13 @@ import {
   runRaspLocal,
   getRaspCoverage,
   submitThermoMpnnJob,
-  getFoldxCacheKey,
   cleanPdbForFoldX,
 } from "../../services/biophysics.ts";
+import {
+  activeFoldxJobs,
+  buildFoldxCacheKey,
+  submitOrJoinFoldxJob,
+} from "../../services/infra/foldx-job-registry.ts";
 import { runStabilityOracleAnalysis } from "../../services/stabilityoracle.ts";
 import { fetchUniprotSequence } from "../../services/uniprot.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
@@ -55,7 +59,14 @@ const generateMutantSchema = z.object({
   ionicStrength: z.union([z.number(), z.string()]).optional()
 });
 
-export const activeFoldxJobs = new Map<string, string>();
+/**
+ * In-flight FoldX jobs, keyed by the FoldX cache key.
+ *
+ * Re-exported from the shared registry so every submitter — this route and the speculative pre-warm
+ * — deduplicates through ONE map. Two maps meant a pre-warm job was invisible here and one variant
+ * could run two concurrent FoldX jobs (audit R2-F4).
+ */
+export { activeFoldxJobs };
 
 export interface InFlightSubmissions {
   dynamut2Promise?: Promise<string | null>;
@@ -406,6 +417,15 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         console.warn("[generate-mutant] Invariant check warning:", checkErr.message);
       }
 
+        /**
+         * The FoldX environment, in FOLDX'S OWN UNITS — temperature in KELVIN, ionic strength in
+         * MOLAR (pH is unit-free). They are forwarded verbatim to `--temperature` /
+         * `--ionStrength`, and they are part of the mutant cache key, so this route must NOT convert
+         * them: the client's Settings panel collects °C and mM and converts at its own boundary
+         * (`src/shared/biophysicsConditions.ts`). Converting here as well would double-convert, and
+         * converting here *instead* would silently reinterpret every caller that already sends
+         * native units.
+         */
         const foldxOptions = {
           pH: isNaN(pHVal as number) ? undefined : pHVal,
           temperature: isNaN(tempVal as number) ? undefined : tempVal,
@@ -418,10 +438,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         onClientDisconnect(res, () => clientAbortController.abort());
         const combinedSignal = anySignal([clientAbortController.signal, AbortSignal.timeout(240000)]);
 
-        // 1. Calculate cache key for FoldX mutant (consistent with foldx.ts)
-        const normalizedPdb = cleanPdbForFoldX(effectiveWtPdb);
-        const pdbHash = crypto.createHash("sha256").update(normalizedPdb).digest("hex");
-        const foldxCacheKey = getFoldxCacheKey(pdbHash, actualMutation, foldxOptions);
+        // 1. Calculate cache key for FoldX mutant (one derivation, shared with the pre-warm registry)
+        const foldxCacheKey = buildFoldxCacheKey(effectiveWtPdb, actualMutation, foldxOptions);
 
         const cachedFoldx = await getMutantFromCache(foldxCacheKey);
 
@@ -437,54 +455,50 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let joinedJobStatus: "queued" | "running" | null = null;
         let joinedJobPhase: string | null = null;
         let joinedJobStartedAt: number | null = null;
+        /**
+         * True when the job joined here was submitted by the PRE-WARM, not by a reader's request.
+         *
+         * The two are not interchangeable. A joined reader request relies on the original submitter
+         * having already dispatched DynaMut2 / DDMut / ThermoMPNN / StabilityOracle and being the
+         * writer of the job's `remoteJobs` — the pre-warm does neither (it has no reader tokens and
+         * its results are only a cache warm). Treating a joined pre-warm job as a joined request
+         * would answer the reader with those engines missing and nothing on the way to fill them in,
+         * which is the "pending with no route to a result" defect this file has already been fixed
+         * for once. So a pre-warm join takes over BOTH jobs: the remote submissions and the writes.
+         */
+        let joinedJobIsPrewarm = false;
+
+        /**
+         * Where this request's structure came from. Built once, because a joined PRE-WARM job has no
+         * provenance of its own (it was submitted with no reader context) and this request must
+         * supply it — the keys matched, so this IS the run's structure.
+         */
+        const structureProvenance = {
+          source: resolvedStructure?.provenance.source ?? "client-provided",
+          pdbId: resolvedStructure?.provenance.pdbId ?? null,
+          chainId: resolvedStructure?.provenance.chainId ?? null,
+          resolution: resolvedStructure?.provenance.resolution ?? null,
+          method: resolvedStructure?.provenance.method ?? null,
+          identity: resolvedStructure?.provenance.identity ?? null,
+          timestamp: new Date().toISOString()
+        };
 
         if (!cachedFoldx) {
           const queue = BiophysicalJobQueue.getInstance();
-          const existingJobId = activeFoldxJobs.get(foldxCacheKey);
-          if (existingJobId) {
-            const statusInfo = await queue.getJobStatus(existingJobId);
-            if (statusInfo && (statusInfo.status === "queued" || statusInfo.status === "running")) {
-              queueJobId = existingJobId;
-              isExistingActiveJob = true;
-              joinedJobStatus = statusInfo.status;
-              joinedJobStartedAt = statusInfo.startedAt ?? null;
-              const existingJobData = await queue.getJobData(existingJobId);
-              joinedJobPhase = typeof existingJobData?.phase === "string" ? existingJobData.phase : null;
-              if (existingJobData && existingJobData.remoteJobs) {
-                dynamut2JobId = existingJobData.remoteJobs.dynamut2JobId;
-                dynamut2Status = existingJobData.remoteJobs.dynamut2Status;
-                ddmutJobId = existingJobData.remoteJobs.ddmutJobId;
-                ddmutStatus = existingJobData.remoteJobs.ddmutStatus;
-                thermompnnJobId = existingJobData.remoteJobs.thermompnnJobId;
-                thermompnnStatus = existingJobData.remoteJobs.thermompnnStatus;
-                thermompnnError = existingJobData.remoteJobs.thermompnnError;
-              }
-              console.log(`[Biophysical Deduplication] Joined existing active queued/running FoldX job: ${queueJobId}`);
-            } else {
-              activeFoldxJobs.delete(foldxCacheKey);
-            }
-          }
-
-          if (!isExistingActiveJob) {
-            await AuditLogger.log("GENERATE_MUTANT", {
-              mutation: actualMutation
-            });
-            try {
-              queueJobId = await queue.pushJob("foldx", {
+          const submission = await submitOrJoinFoldxJob({
+            cacheKey: foldxCacheKey,
+            queue,
+            enqueue: async () => {
+              await AuditLogger.log("GENERATE_MUTANT", {
+                mutation: actualMutation
+              });
+              return queue.pushJob("foldx", {
                 wtPdb: effectiveWtPdb,
                 mutation: actualMutation,
                 uniprotId,
                 jobDir,
                 options: foldxOptions,
-                structureProvenance: {
-                  source: resolvedStructure?.provenance.source ?? "client-provided",
-                  pdbId: resolvedStructure?.provenance.pdbId ?? null,
-                  chainId: resolvedStructure?.provenance.chainId ?? null,
-                  resolution: resolvedStructure?.provenance.resolution ?? null,
-                  method: resolvedStructure?.provenance.method ?? null,
-                  identity: resolvedStructure?.provenance.identity ?? null,
-                  timestamp: new Date().toISOString()
-                },
+                structureProvenance,
                 remoteJobs: {
                   dynamut2JobId: null,
                   dynamut2Status: "pending",
@@ -497,18 +511,56 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   stabilityoracleVal: null
                 }
               });
-              activeFoldxJobs.set(foldxCacheKey, queueJobId);
-            } catch (queueErr: any) {
-              if (queueErr.message.includes("BUSY")) {
-                throw queueErr;
-              }
-              throw queueErr;
+            }
+          });
+
+          queueJobId = submission.queueJobId;
+          isExistingActiveJob = submission.joined;
+          joinedJobStatus = submission.status;
+          joinedJobStartedAt = submission.startedAt;
+          joinedJobPhase = submission.phase;
+
+          if (submission.joined) {
+            const existingJobData = submission.jobData;
+            joinedJobIsPrewarm = existingJobData?.prewarm === true;
+            if (existingJobData && existingJobData.remoteJobs) {
+              dynamut2JobId = existingJobData.remoteJobs.dynamut2JobId;
+              dynamut2Status = existingJobData.remoteJobs.dynamut2Status;
+              ddmutJobId = existingJobData.remoteJobs.ddmutJobId;
+              ddmutStatus = existingJobData.remoteJobs.ddmutStatus;
+              thermompnnJobId = existingJobData.remoteJobs.thermompnnJobId;
+              thermompnnStatus = existingJobData.remoteJobs.thermompnnStatus;
+              thermompnnError = existingJobData.remoteJobs.thermompnnError;
+            }
+            console.log(
+              `[Biophysical Deduplication] Joined existing active queued/running FoldX job: ${queueJobId}` +
+                (joinedJobIsPrewarm ? " (speculative pre-warm; this request owns the remote engines)" : "")
+            );
+
+            if (joinedJobIsPrewarm) {
+              /**
+               * The pre-warm was submitted with no reader context, so its record carries no
+               * structure provenance. This request's structure IS the run's structure — the cache
+               * keys matched — so it supplies the provenance the reader's export cites. Written
+               * through `mutateJobData` so it cannot race the worker's own phase writes.
+               */
+              await queue.mutateJobData(submission.queueJobId, (data: any) =>
+                data ? { ...data, structureProvenance } : data
+              );
             }
           }
         }
 
+        /**
+         * A pre-warm job carries no remote-engine submissions, so a request that joins one must make
+         * them itself — and must be allowed to write them to the job record, which the
+         * `isExistingActiveJob` guard otherwise forbids (it exists to stop two READER requests from
+         * fighting over one record; the pre-warm is not a competing writer).
+         */
+        const ownsRemoteSubmissions = !isExistingActiveJob || joinedJobIsPrewarm;
+
         async function updateQueueJobRemoteData(updates: any) {
-          if (!queueJobId || isExistingActiveJob) return;
+          if (!queueJobId || (isExistingActiveJob && !joinedJobIsPrewarm)) return;
           try {
             const queue = BiophysicalJobQueue.getInstance();
             /**
@@ -539,16 +591,16 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let stabilityOraclePromise = Promise.resolve();
 
         const existingDynamut2 = cachedFoldx?.energetics?.dynamut2;
-        const needDynamut2 = !isExistingActiveJob && (typeof existingDynamut2 !== "number");
+        const needDynamut2 = ownsRemoteSubmissions && (typeof existingDynamut2 !== "number");
 
         const existingDdmut = cachedFoldx?.energetics?.ddmut;
-        const needDdmut = !isExistingActiveJob && (typeof existingDdmut !== "number");
+        const needDdmut = ownsRemoteSubmissions && (typeof existingDdmut !== "number");
 
         const existingThermompnn = cachedFoldx?.energetics?.thermompnn;
-        const needThermompnn = !isExistingActiveJob && (typeof existingThermompnn !== "number");
+        const needThermompnn = ownsRemoteSubmissions && (typeof existingThermompnn !== "number");
 
         const existingStabilityoracle = cachedFoldx?.energetics?.stabilityoracle;
-        const needStabilityoracle = !isExistingActiveJob && (typeof existingStabilityoracle !== "number");
+        const needStabilityoracle = ownsRemoteSubmissions && (typeof existingStabilityoracle !== "number");
 
         if (typeof existingDynamut2 === "number") {
           dynamut2Status = "done";

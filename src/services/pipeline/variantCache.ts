@@ -5,6 +5,7 @@
  */
 
 import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/narrativeFallback";
+import { analysisContextMatches, type AnalysisCacheContext } from "./analysisContext";
 
 /**
  * Client-side snapshot cache, versioned so a schema change to what a bundle MEANS invalidates it.
@@ -61,7 +62,8 @@ import { isFallbackNarrative as sharedIsFallbackNarrative } from "../../shared/n
  * v4.3: PM2 is weighed at Supporting (ClinGen SVI 2020) and PVS1 + 1 Supporting is Likely pathogenic,
  * which re-tiers stored verdicts the same way.
  */
-export const CACHE_VERSION = "v4.3";
+// v4.4 separates context-scoped interpretation from reusable protein artifacts.
+export const CACHE_VERSION = "v4.5";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 
@@ -95,6 +97,8 @@ export interface CachedVariantBundle {
   foldedResidueIndex?: number | null;
   foldingDdG?: number | null;
   foldingEnergetics?: any | null;
+  /** Conditions actually submitted for these cached solver artifacts. */
+  biophysicsContext?: string;
   foldingStatus?: string | null;
   dynamut2JobId?: string | null;
   dynamut2Status?: string | null;
@@ -150,7 +154,20 @@ function getCacheKey(gene: string, variant: string): string {
   return `${gene.trim().toUpperCase()}_${variant.trim().toLowerCase()}`;
 }
 
-export function getCachedVariant(gene: string, variant: string): CachedVariantBundle | null {
+/** Reads reusable artifacts separately from context-dependent interpretation. */
+export function getCachedVariant(gene: string, variant: string, expected?: AnalysisCacheContext): CachedVariantBundle | null {
+  const compatible = (entry: CachedVariantBundle): CachedVariantBundle | null => {
+    if (!expected) return entry;
+    // A missing reference is not permission to reuse another isoform's coordinates or mutation.
+    if (!expected.uniprotId || (entry.uniprotId || "").toUpperCase() !== expected.uniprotId) return null;
+    const copy = { ...entry };
+    if (!analysisContextMatches(entry.analysisResult?.metadata?.pipelineContext, expected)) copy.analysisResult = undefined;
+    if (entry.biophysicsContext !== expected.simulationConditions) {
+      // Coordinates remain reusable. Energetics, mutants and remote jobs do not cross conditions.
+      for (const key of ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "dynamut2JobId", "dynamut2Status", "ddmutJobId", "ddmutStatus", "thermompnnJobId", "thermompnnStatus", "thermompnnError", "biophysicsAttemptedAt"] as const) delete copy[key];
+    }
+    return copy;
+  };
   if (!gene || !variant) return null;
   const key = getCacheKey(gene, variant);
 
@@ -158,7 +175,9 @@ export function getCachedVariant(gene: string, variant: string): CachedVariantBu
   if (memoryVariantCache.has(key)) {
     const entry = memoryVariantCache.get(key)!;
     if (Date.now() - entry.timestamp < 24 * 60 * 60 * 1000) {
-      return entry;
+      memoryVariantCache.delete(key);
+      memoryVariantCache.set(key, entry);
+      return compatible(entry);
     }
     memoryVariantCache.delete(key);
   }
@@ -170,13 +189,23 @@ export function getCachedVariant(gene: string, variant: string): CachedVariantBu
       const parsed: CachedVariantBundle = JSON.parse(stored);
       if (parsed && parsed.version === CACHE_VERSION && Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000) {
         memoryVariantCache.set(key, parsed);
-        return parsed;
+        return compatible(parsed);
       }
       sessionStorage.removeItem(`${CACHE_PREFIX}${key}`);
     }
   } catch (_) {}
 
   return null;
+}
+
+/** Discard failed optional prose, never the independently completed scientific evidence. */
+function withoutDegradedNarrative(result: any): any {
+  if (result?.metadata?.pipelineStages?.core !== "complete") return undefined;
+  return {
+    ...result, analysis: "", insights: null, modelUsed: null,
+    metadata: { ...result.metadata, narrativeEvidence: undefined, insightsSource: undefined,
+      pipelineStages: { ...result.metadata.pipelineStages, narrative: "degraded" } }
+  };
 }
 
 export function setCachedVariant(
@@ -206,7 +235,13 @@ export function setCachedVariant(
     timestamp: Date.now()
   };
 
+  memoryVariantCache.delete(key);
   memoryVariantCache.set(key, updated);
+  // Every entry counts toward the bound, including fallback/failed/preliminary writes.
+  if (memoryVariantCache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = memoryVariantCache.keys().next().value;
+    if (oldestKey) memoryVariantCache.delete(oldestKey);
+  }
 
   // Do not persist preliminary, failed/errored, or fallback narrative evaluations into long-term sessionStorage
   const isPreliminary = updated.foldingEnergetics?.evidenceComplete === false ||
@@ -230,19 +265,19 @@ export function setCachedVariant(
      * Biophysical artefacts (structures, energetics, pockets) are still cached — only the
      * narrative is discarded so the next lookup re-attempts synthesis.
      */
-    updated.analysisResult = undefined;
+    updated.analysisResult = withoutDegradedNarrative(updated.analysisResult);
     memoryVariantCache.set(key, updated);
 
     try {
       const hasBiophysicalData = Boolean(
-        updated.pdbText ||
+        updated.analysisResult || updated.pdbText ||
         updated.mutantPdb ||
         updated.foldingDdG !== undefined ||
         updated.foldingEnergetics ||
         updated.computedPocket
       );
       if (hasBiophysicalData) {
-        const storageCopy = { ...updated, analysisResult: undefined };
+        const storageCopy = { ...updated };
         if (storageCopy.pdbText && storageCopy.pdbText.length > 2 * 1024 * 1024) {
           delete storageCopy.pdbText;
         }
@@ -306,7 +341,7 @@ export function isFallbackNarrative(
 export function purgeFallbackNarratives(): void {
   for (const [, entry] of memoryVariantCache.entries()) {
     if (isFallbackNarrative(entry.analysisResult?.analysis, entry.analysisResult?.isFallback, entry.analysisResult?.fallbackReason)) {
-      entry.analysisResult = undefined;
+      entry.analysisResult = withoutDegradedNarrative(entry.analysisResult);
     }
   }
 
@@ -320,7 +355,7 @@ export function purgeFallbackNarratives(): void {
           if (raw) {
             const parsed = JSON.parse(raw);
             if (isFallbackNarrative(parsed?.analysisResult?.analysis, parsed?.analysisResult?.isFallback, parsed?.analysisResult?.fallbackReason)) {
-              parsed.analysisResult = undefined;
+              parsed.analysisResult = withoutDegradedNarrative(parsed.analysisResult);
               sessionStorage.setItem(k, JSON.stringify(parsed));
             }
           }

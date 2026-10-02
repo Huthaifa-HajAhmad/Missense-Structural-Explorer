@@ -11,6 +11,10 @@ import {
 } from "../services/pipeline/structureService.ts";
 import { executeFullAnalysisWorkflow } from "../services/pipeline/workflowOrchestrator.ts";
 import { getCachedVariant } from "../services/pipeline/variantCache.ts";
+import { hasReusableCoreEvidence } from "../services/pipeline/resultMerge";
+import { createAnalysisCacheContext } from "../services/pipeline/analysisContext.ts";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
+import { deepEvidenceContextFromStore } from "../shared/deepModelEvidence";
 import { isBuildDegradedResult } from "../shared/contracts.ts";
 import {
   PipelineAnalysisSink,
@@ -40,6 +44,8 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
       settings: options.settings,
       serverGeminiReady: options.serverGeminiReady,
       userDirections: options.userDirections,
+      numberingBasis: options.numberingBasis,
+      getCurrentEvidence: options.getCurrentEvidence,
       sinks: options.sinks
     };
   }
@@ -51,6 +57,8 @@ export function normalizePipelineOptions(options: UseAnalysisPipelineOptions): S
     settings: flat.settings,
     serverGeminiReady: flat.serverGeminiReady,
     userDirections: flat.userDirections || "",
+    numberingBasis: flat.numberingBasis,
+    getCurrentEvidence: flat.getCurrentEvidence,
     sinks: {
       search: {
         setGene: flat.setGene || (() => {}),
@@ -127,8 +135,12 @@ export function useAnalysisPipeline() {
     analysisAbortRef,
     mutantFoldAbortRef,
     activeRequestIdRef,
-    abortAllPendingRequests
+    abortAllPendingRequests: abortRequests
   } = usePipelineAbortController();
+  const abortAllPendingRequests = useCallback((...args: Parameters<typeof abortRequests>) => {
+    if (activeTraceIdRef.current) finishPipelineTrace("cancelled", activeTraceIdRef.current);
+    abortRequests(...args);
+  }, [abortRequests, activeTraceIdRef, finishPipelineTrace]);
 
   const {
     homologs,
@@ -295,13 +307,18 @@ export function useAnalysisPipeline() {
       if (providedSignal.aborted) {
         controller.abort();
       } else {
-        providedSignal.addEventListener("abort", () => controller.abort(), { once: true });
+        const onProvidedAbort = () => controller.abort();
+        providedSignal.addEventListener("abort", onProvidedAbort, { once: true });
+        // Keep the link for long-lived FoldX work, but release it when this run is replaced/unmounted.
+        controller.signal.addEventListener("abort", () => providedSignal.removeEventListener("abort", onProvidedAbort), { once: true });
       }
     }
     analysisAbortRef.current = controller;
     const activeSignal = controller.signal;
 
-    const cached = getCachedVariant(targetGeneArg, targetVariantArg);
+    analysisSink.setIsNarrativeLoading(false);
+    const cacheContext = createAnalysisCacheContext(targetUniprotArg || "", normalizedOptions.settings, {}, normalizedOptions.userDirections, normalizedOptions.numberingBasis);
+    const cached = getCachedVariant(targetGeneArg, targetVariantArg, cacheContext);
     /**
      * A cached bundle whose evidence was built against a non-canonical reference is NOT painted.
      *
@@ -313,7 +330,7 @@ export function useAnalysisPipeline() {
      * artefacts (PDB text, energetics) are still restored from it.
      */
     const servableCachedResult =
-      cached?.analysisResult && !isBuildDegradedResult(cached.analysisResult)
+      cached?.analysisResult && hasReusableCoreEvidence(cached.analysisResult) && !isBuildDegradedResult(cached.analysisResult)
         ? cached.analysisResult
         : null;
     if (servableCachedResult) {
@@ -329,14 +346,21 @@ export function useAnalysisPipeline() {
     }
 
     const traceQuery = `${targetGeneArg} ${targetVariantArg}`.trim();
-    startPipelineTrace(traceQuery);
+    const traceId = startPipelineTrace(traceQuery);
 
     try {
-      await executeFullAnalysisWorkflow({
+      const outcome = await executeFullAnalysisWorkflow({
         targetGeneArg,
         targetVariantArg,
         targetUniprotArg,
-        options: normalizedOptions,
+        options: {
+          ...normalizedOptions,
+          getCurrentEvidence: normalizedOptions.getCurrentEvidence ?? (() => {
+            const state = useVariantAnalysisStore.getState();
+            const result = state.analysisState.result;
+            return result ? { result, context: deepEvidenceContextFromStore(state, normalizedOptions.settings.saprotEngine) } : null;
+          })
+        },
         activeSignal,
         requestId,
         getActiveRequestId: () => activeRequestIdRef.current,
@@ -345,13 +369,9 @@ export function useAnalysisPipeline() {
         fetchPocketData,
         mutantFoldAbortRef
       });
-      if (activeTraceIdRef.current && activeRequestIdRef.current === requestId) {
-        finishPipelineTrace("completed");
-      }
+      finishPipelineTrace(outcome === "aborted" ? "cancelled" : outcome, traceId);
     } catch (err: any) {
-      if (activeTraceIdRef.current && activeRequestIdRef.current === requestId) {
-        finishPipelineTrace("failed");
-      }
+      finishPipelineTrace(activeSignal.aborted || activeRequestIdRef.current !== requestId ? "cancelled" : "failed", traceId);
     }
   };
 

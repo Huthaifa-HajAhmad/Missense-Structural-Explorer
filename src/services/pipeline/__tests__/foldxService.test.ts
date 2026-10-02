@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { executeFoldxPipeline } from "../foldxService";
-import { getCachedVariant, clearClientVariantCache } from "../variantCache";
+import { getCachedVariant, setCachedVariant, clearClientVariantCache } from "../variantCache";
+import { biophysicsContextOf, createAnalysisCacheContext } from "../analysisContext";
+import {
+  BIOPHYSICS_CONDITION_UNIT_VERSION,
+  BIOPHYSICS_NATIVE_DEFAULT_VERSION,
+  DEFAULT_UI_BIOPHYSICS_CONDITIONS,
+} from "../../../shared/biophysicsConditions";
+import { DEFAULT_USER_SETTINGS } from "../../../components/settings/defaults";
 
 /** The biophysical sink surface `executeFoldxPipeline` is allowed to write to. */
 const makeSink = () => ({
@@ -851,5 +858,147 @@ describe("foldxService", () => {
         identity: 100
       })
     );
+  });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SIMULATION CONDITIONS CROSS THE UNIT BOUNDARY HERE
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The Settings panel collects °C and mM. `/generate-mutant` takes FoldX's units — Kelvin and molar —
+ * and forwards them straight to `--temperature` / `--ionStrength`. Forwarding the panel's numbers
+ * verbatim asked FoldX for 25 K and 150 M, and the cache key recorded the panel's numbers, so the
+ * wrong-units result was cached under a key that claimed the requested condition.
+ *
+ * `foldxService` is the adapter, so these tests assert the WIRE, the CACHE and the REFUSAL.
+ */
+describe("foldxService simulation conditions", () => {
+  const UI_CONDITIONS = { ph: 7.4, temperature: 25, ionicStrength: 150 };
+
+  const completingFetch = () =>
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        pdb: "ATOM 1 N ...",
+        ddG: 1.5,
+        foldedResidueIndex: 408,
+        energetics: { foldx: 1.5 }
+      })
+    });
+
+  const run = (fetchWithAuth: any, sink: any, conditions?: any) =>
+    executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      ...(conditions ? { conditions } : {}),
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+  const submittedBody = (fetchWithAuth: any) => JSON.parse(fetchWithAuth.mock.calls[0][1].body);
+
+  it("sends FoldX's native units: 25 °C → 298.15 K, 150 mM → 0.15 M, pH unchanged", async () => {
+    clearClientVariantCache();
+    const fetchWithAuth = completingFetch();
+    await run(fetchWithAuth, makeSink(), UI_CONDITIONS);
+
+    const body = submittedBody(fetchWithAuth);
+    expect(body.temperature).toBe(298.15);
+    expect(body.ionicStrength).toBe(0.15);
+    expect(body.pH).toBe(7.4);
+    // The defect itself, stated as an assertion: the panel's numbers must never reach the wire.
+    expect(body.temperature).not.toBe(25);
+    expect(body.ionicStrength).not.toBe(150);
+  });
+
+  it("sends no conditions at all when the caller has none, leaving the server's defaults in force", async () => {
+    clearClientVariantCache();
+    const fetchWithAuth = completingFetch();
+    await run(fetchWithAuth, makeSink());
+
+    expect(submittedBody(fetchWithAuth)).toEqual({ uniprotId: "P00439", mutation: "RA408W" });
+  });
+
+  it("stamps a no-conditions run as the SERVER's native defaults, not the panel's", async () => {
+    clearClientVariantCache();
+    await run(completingFetch(), makeSink());
+
+    // Nothing was sent, so the numbers FoldX actually used are its own defaults — and the stamp has
+    // to say so, or a native-default artifact could be served for a panel-default request.
+    expect(JSON.parse(getCachedVariant("P00439", "p.Arg408Trp")!.biophysicsContext!)).toEqual({
+      unitVersion: BIOPHYSICS_NATIVE_DEFAULT_VERSION,
+      basis: "server-native-defaults",
+      ph: 7.0,
+      temperature: 298,
+      ionicStrength: 0.05
+    });
+    expect(getCachedVariant("P00439", "p.Arg408Trp")!.biophysicsContext)
+      .not.toBe(biophysicsContextOf(UI_CONDITIONS));
+  });
+
+  it("stamps the cache with the SUBMITTED panel conditions, plus the unit version", async () => {    clearClientVariantCache();
+    await run(completingFetch(), makeSink(), UI_CONDITIONS);
+
+    const cached = getCachedVariant("P00439", "p.Arg408Trp");
+    // The record keeps what the reader chose in the units the reader chose — the conversion belongs
+    // to the wire, not to the stored context, which is what the Settings panel is compared against.
+    expect(JSON.parse(cached!.biophysicsContext!)).toEqual({
+      unitVersion: BIOPHYSICS_CONDITION_UNIT_VERSION,
+      basis: "submitted-ui",
+      ph: 7.4,
+      temperature: 25,
+      ionicStrength: 150
+    });
+    expect(cached!.biophysicsContext).toBe(biophysicsContextOf(UI_CONDITIONS));
+  });
+
+  it("refuses unusable conditions instead of submitting a fabricated one", async () => {
+    clearClientVariantCache();
+    const fetchWithAuth = completingFetch();
+    const sink: any = makeSink();
+
+    await run(fetchWithAuth, sink, { ph: 7.4, temperature: Number.NaN, ionicStrength: 150 });
+
+    expect(fetchWithAuth, "an unusable condition must not be submitted at all").not.toHaveBeenCalled();
+    expect(sink.setFoldingStatus).toHaveBeenCalledWith("failed");
+    // The run clears any previous error first, so the reason is the LAST error written.
+    const errors = sink.setFoldingError.mock.calls.map(([e]: [any]) => String(e));
+    expect(errors[errors.length - 1]).toContain("temperature");
+    expect(errors[errors.length - 1]).toContain("not a number");
+    expect(sink.setIsFolding).toHaveBeenLastCalledWith(false);
+  });
+
+  it("ships the same defaults the converter fills absent fields from", () => {
+    /**
+     * "The default" used to exist in more than one place — the Settings defaults, the panel's own
+     * PHYSIOLOGICAL reset constant, and the cache-context fallbacks. A drift between them makes the
+     * panel show one condition while the wire carries another, so the shipped default is pinned to
+     * the converter's here.
+     */
+    expect(DEFAULT_USER_SETTINGS.biophysicsConditions).toEqual(DEFAULT_UI_BIOPHYSICS_CONDITIONS);
+  });
+
+  it("cannot reuse an artifact stamped before the unit version existed", () => {    /**
+     * The pre-fix artifact: the same three numbers and no `unitVersion` — computed while
+     * `temperature: 25` meant 25 KELVIN. It must not be served for a request whose panel shows 25 °C.
+     */
+    clearClientVariantCache();
+    setCachedVariant("P00439", "p.Arg408Trp", "P00439", {
+      biophysicsContext: JSON.stringify({ ph: 7.4, temperature: 25, ionicStrength: 150 }),
+      mutantPdb: "ATOM old",
+      foldingDdG: 9.9,
+      foldingStatus: "success"
+    } as any);
+
+    const expected = createAnalysisCacheContext("P00439", { biophysicsConditions: UI_CONDITIONS });
+    const cached = getCachedVariant("P00439", "p.Arg408Trp", expected);
+
+    expect(cached?.mutantPdb, "the wrong-units mutant must not be reused").toBeUndefined();
+    expect(cached?.foldingDdG).toBeUndefined();
   });
 });

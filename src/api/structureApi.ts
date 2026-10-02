@@ -17,10 +17,83 @@ import {
 import type { PdbHomolog } from "../types";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 import { CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS } from "../shared/timeouts";
+import { STRUCTURE_REF_HEADER, isStructureRef } from "../shared/structureRefs";
+import { resolveStructureRefForPdb } from "./structureRefRegistry";
 
 export interface StructureFetchResult {
   pdbText: string;
   provenance: StructureProvenance;
+  /**
+   * Opaque server-side handle for these exact bytes, when the server issued one.
+   *
+   * Carried through the trusted fetch result so the pipeline can register it against `pdbText`
+   * (see `structureRefRegistry`) and later ask the pocket/nearest routes to use the same structure
+   * without uploading it again.
+   */
+  structureRef?: string;
+  /**
+   * Whether the SERVER reported serving this structure from a cache.
+   *
+   * Deliberately absent from every current route: none of them reports a hit, and the pipeline must
+   * not infer one from how fast the response arrived (a warm connection beats a cache read). The
+   * field exists so a route that starts reporting a hit can say so, and the trace records the fact
+   * instead of a guess.
+   */
+  cached?: boolean;
+}
+
+/** A structureRef that arrived in a response header, or undefined when the server sent none. */
+export function parseStructureRefFromHeaders(res: Response): string | undefined {
+  const raw = res.headers.get(STRUCTURE_REF_HEADER);
+  return isStructureRef(raw) ? raw : undefined;
+}
+
+/**
+ * The body shape the pocket/nearest routes accept; `structureRef` is the exact-bytes handle.
+ *
+ * The index signature is deliberate: callers add route-specific fields (`targetIndex`, `n`,
+ * `distanceThreshold`, `targetChain`), and they must survive the reference substitution below
+ * untouched — the substitution only ever removes `pdbText` and adds `structureRef`.
+ */
+export interface StructureQueryParams {
+  pdbText?: string;
+  pdbRef?: string;
+  uniprotId?: string;
+  structureRef?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Builds the request body for a pocket/nearest call.
+ *
+ * When a reference for this exact text is known, the reference is sent INSTEAD of the text: the
+ * server already holds those bytes, and re-uploading half a megabyte per call was the cost this
+ * removes. The text is kept aside as `textRetryBody` — the one-shot recovery for a reference the
+ * server can no longer resolve (see `postStructureQuery`).
+ *
+ * A reference is only ever taken from the trusted registry (or an explicit caller-supplied one).
+ * Nothing here invents a handle from the text: only the server can mint one.
+ */
+export function buildStructureRequestBody(params: StructureQueryParams): {
+  body: Record<string, unknown>;
+  textRetryBody: Record<string, unknown> | null;
+} {
+  const pdbText = typeof params.pdbText === "string" ? params.pdbText : "";
+  const explicitRef = typeof params.structureRef === "string" ? params.structureRef.trim() : "";
+  const ref = isStructureRef(explicitRef) ? explicitRef : resolveStructureRefForPdb(pdbText);
+
+  if (!ref) {
+    const body: Record<string, unknown> = { ...params };
+    delete body.structureRef;
+    return { body, textRetryBody: null };
+  }
+
+  const body: Record<string, unknown> = { ...params, structureRef: ref };
+  delete body.pdbText;
+
+  const textRetryBody: Record<string, unknown> | null = pdbText ? { ...params, pdbText } : null;
+  if (textRetryBody) delete textRetryBody.structureRef;
+  return { body, textRetryBody };
 }
 
 export function parseProvenanceFromHeaders(res: Response): StructureProvenance {
@@ -50,6 +123,36 @@ export function parseProvenanceFromHeaders(res: Response): StructureProvenance {
 }
 
 export function createStructureApi(fetchWithAuth: FetchWithAuth) {
+  /**
+   * POSTs a structure query, sending the exact-bytes reference in place of the PDB text when one is
+   * known, and retrying ONCE with the text if the server says the reference is no longer resolvable.
+   *
+   * The retry is deliberately narrow: only HTTP 409 (the server's `STALE_STRUCTURE_REF`) triggers it,
+   * and it re-sends the caller's own bytes. Falling back to the UniProt accession instead — the old
+   * behaviour — could quietly compute the answer on a different template than the one on screen.
+   */
+  const postStructureQuery = async (
+    path: string,
+    params: StructureQueryParams,
+    timeout: number,
+    signal?: AbortSignal
+  ): Promise<Response> => {
+    const { body, textRetryBody } = buildStructureRequestBody(params);
+    const submit = (payload: Record<string, unknown>) =>
+      fetchWithAuth(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        timeout,
+        signal
+      });
+    const res = await submit(body);
+    if (res.status === 409 && textRetryBody) {
+      return await submit(textRetryBody);
+    }
+    return res;
+  };
+
   return {
     async resolveGene(gene: string, signal?: AbortSignal): Promise<{ gene: string; uniprotId: string; pdbUrl?: string | null }> {
       const res = await fetchWithAuth("/api/v1/resolve-gene", {
@@ -124,7 +227,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       }
       const provenance = parseProvenanceFromHeaders(res);
       const pdbText = await res.text();
-      return { pdbText, provenance };
+      return { pdbText, provenance, structureRef: parseStructureRefFromHeaders(res) };
     },
 
     async getPdb(uniprotId: string, pos?: number, signal?: AbortSignal): Promise<string> {
@@ -143,7 +246,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       }
       const provenance = parseProvenanceFromHeaders(res);
       const pdbText = await res.text();
-      return { pdbText, provenance };
+      return { pdbText, provenance, structureRef: parseStructureRefFromHeaders(res) };
     },
 
     async getAlphaFoldPdb(uniprotId: string, signal?: AbortSignal): Promise<string> {
@@ -165,14 +268,8 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       return z.object({ homologs: z.array(z.any()) }).parse(data).homologs as PdbHomolog[];
     },
 
-    async getNearestResidues(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex: number, distanceThreshold: number, targetChain?: string }, signal?: AbortSignal): Promise<NearestResiduesResponse> {
-      const res = await fetchWithAuth("/api/v1/nearest-residues", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-        timeout: 10000,
-        signal
-      });
+    async getNearestResidues(params: StructureQueryParams & { targetIndex: number, distanceThreshold: number, targetChain?: string }, signal?: AbortSignal): Promise<NearestResiduesResponse> {
+      const res = await postStructureQuery("/api/v1/nearest-residues", params, 10000, signal);
       if (!res.ok) {
         const errorMsg = await extractErrorMessage(res, "Failed to fetch nearest residues");
         throw new Error(errorMsg);
@@ -181,14 +278,8 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       return nearestResiduesResponseSchema.parse(data);
     },
 
-    async detectPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
-      const res = await fetchWithAuth("/api/v1/pocket-detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-        timeout: 60000,
-        signal
-      });
+    async detectPocket(params: StructureQueryParams & { targetIndex: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+      const res = await postStructureQuery("/api/v1/pocket-detect", params, 60000, signal);
       if (!res.ok) {
         const errorMsg = await extractErrorMessage(res, "Failed to detect binding pocket");
         throw new Error(errorMsg);
@@ -223,7 +314,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       return pocketFinderResponseSchema.parse(initialData);
     },
 
-    async findPocket(params: { pdbText?: string, pdbRef?: string, uniprotId?: string, targetIndex?: number, mutIndex?: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
+    async findPocket(params: StructureQueryParams & { targetIndex?: number, mutIndex?: number, targetChain?: string }, signal?: AbortSignal): Promise<PocketFinderResponse> {
       return this.detectPocket({
         ...params,
         targetIndex: params.targetIndex ?? params.mutIndex ?? 1

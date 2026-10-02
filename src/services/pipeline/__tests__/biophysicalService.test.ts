@@ -57,7 +57,7 @@ describe("biophysicalService", () => {
 
       // Parent span
       expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({
-        name: "Multi-Model Biophysics Suite (ESM-2, SaProt, ClinVar, gnomAD)",
+        name: "Core evidence sources",
         stage: "biophysics",
         status: "success"
       }));

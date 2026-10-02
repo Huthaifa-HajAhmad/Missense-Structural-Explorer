@@ -547,9 +547,12 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
                 onOpenReport={handleOpenFullNarrative}
               />
             )}
+            {!analysisState.result.insights && (settings?.narrativeMode === "off" || settings?.narrativeMode === "on-demand") && (
+              <p className="ins-callout m-0" data-tone="muted">Rule-based interpretation is available independently. {settings.narrativeMode === "off" ? "AI synthesis is off." : "Generate an optional AI summary from Report when needed."}</p>
+            )}
             {/* Only a FINISHED run may say the structured report is missing: `insights` is also absent
                 while the model is still working, so this must not fire beside a live progress state. */}
-            {!analysisState.result.insights && !structuredAnalysisPending && (
+            {!analysisState.result.insights && !structuredAnalysisPending && settings?.narrativeMode !== "off" && settings?.narrativeMode !== "on-demand" && (
               <p className="ins-callout m-0" data-tone="warning">
                 <span>
                   <strong>No structured interpretation came back.</strong>{" "}

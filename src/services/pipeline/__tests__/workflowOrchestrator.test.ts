@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { executeFullAnalysisWorkflow } from "../workflowOrchestrator";
 import { executeFoldxPipeline } from "../foldxService";
+import { fetchBiophysicalAnalysis } from "../biophysicalService";
 import * as variantCache from "../variantCache";
+import { createAnalysisCacheContext } from "../analysisContext";
 import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../../shared/timeouts";
 
 vi.mock("../biophysicalService", () => ({
@@ -68,7 +70,11 @@ const createMockSinks = () => ({
     structure: {
       setPdbText: vi.fn(),
       setCustomPdbUrl: vi.fn(),
-      setIsStructureLoading: vi.fn()
+      setIsStructureLoading: vi.fn(),
+      setComputedPocket: vi.fn(), setIsPocketLoading: vi.fn(), setPocketError: vi.fn(),
+      setHomologs: vi.fn(), setIsHomologsLoading: vi.fn(),
+      setComputedResiduesCache: vi.fn(), setDisruptionPredictor: vi.fn(),
+      resetViewerState: vi.fn(), clearDynaMutPoll: vi.fn()
     }
 });
 
@@ -116,12 +122,13 @@ describe("workflowOrchestrator", () => {
     const cachedAnalysis = {
       analysis: "Cached report",
       isFallback: false,
-      metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
+      metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineContext: createAnalysisCacheContext("P00439", { biophysicsConditions: {} }) },
       clinvar: { classification: "Pathogenic" }
     };
 
     variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", {
       analysisResult: cachedAnalysis,
+      biophysicsContext: createAnalysisCacheContext("P00439", { biophysicsConditions: {} }).simulationConditions,
       pdbText: "ATOM CA ...",
       foldingStatus: "success",
       foldingDdG: 2.1
@@ -156,15 +163,13 @@ describe("workflowOrchestrator", () => {
     );
   });
 
-  it("safely handles fatal errors by setting top-level error state", async () => {
+  it("reports core failure as a failed run and preserves its error", async () => {
     const sinks = createMockSinks();
-    const failingApiClient = {
-      resolveGene: vi.fn().mockImplementation(() => {
-        throw new Error("Cluster offline");
-      })
-    };
+    vi.mocked(fetchBiophysicalAnalysis).mockRejectedValueOnce(new Error("Cluster offline"));
+    const failingApiClient = {};
 
-    await executeFullAnalysisWorkflow({
+
+    const outcome = await executeFullAnalysisWorkflow({
       targetGeneArg: "PAH",
       targetVariantArg: "invalid_format",
       targetUniprotArg: "P00439",
@@ -184,6 +189,8 @@ describe("workflowOrchestrator", () => {
       mutantFoldAbortRef: { current: null }
     });
 
+    expect(outcome).toBe("failed");
+    expect(sinks.analysis.setAnalysisState).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining("Cluster offline") }));
     expect(sinks.analysis.setIsBiophysicalLoading).toHaveBeenCalledWith(false);
   });
 });
@@ -200,13 +207,14 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
   const COMPLETE_ANALYSIS = {
     analysis: "Cached report",
     isFallback: false,
-    metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439" },
+    metadata: { gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pipelineContext: createAnalysisCacheContext("P00439", { biophysicsConditions: {} }) },
     clinvar: { classification: "Pathogenic" },
     predictorData: { revel: 0.88 }
   };
 
   const HEALTHY_SNAPSHOT = {
     analysisResult: COMPLETE_ANALYSIS,
+    biophysicsContext: createAnalysisCacheContext("P00439", { biophysicsConditions: {} }).simulationConditions,
     pdbText: "ATOM CA ...",
     mutantPdb: "ATOM CA ...",
     foldingStatus: "success",
@@ -217,7 +225,7 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
 
   async function runWithCache(bundle: Record<string, unknown>) {
     const sinks = createMockSinks();
-    variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", bundle);
+    variantCache.setCachedVariant("PAH", "p.Arg408Trp", "P00439", { biophysicsContext: createAnalysisCacheContext("P00439", { biophysicsConditions: {} }).simulationConditions, ...bundle });
     await executeFullAnalysisWorkflow({
       targetGeneArg: "PAH",
       targetVariantArg: "p.Arg408Trp",

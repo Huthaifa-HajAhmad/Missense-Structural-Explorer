@@ -1,4 +1,4 @@
-import { fetchClinVarData } from "../external-api/clinvar.ts";
+import { fetchClinVarData, type ClinVarData } from "../external-api/clinvar.ts";
 import { fetchPredictorData } from "../prediction/index.ts";
 import { computeRuleBasedACMG } from "../prediction/acmg.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
@@ -11,12 +11,20 @@ import {
   persistVariantAnalysisPayload,
   buildAnalysisPayload,
   persistAnalysis,
-  buildMutatedSequence
+  buildMutatedSequence,
+  withCacheProvenance
 } from "./payload-assembler.ts";
 import { healCachedAnalysisIfPossible } from "./self-healer.ts";
-import { fetchCoreVariantData } from "../external-api/core-data-fetcher.ts";
+import {
+  fetchCoreVariantData,
+  type CoreAnalysisPartial,
+  type CoreFastTriage,
+  type CorePrefetchOptions
+} from "../external-api/core-data-fetcher.ts";
+import { findRunningCoreFetch, runSharedCoreFetch } from "./core-singleflight.ts";
+import { checkPayloadCompatibility, structuralIdentityRecordOf, type IdentityScope } from "./core-identity.ts";
 import { fetchStructuralModelData, type StructuralAnalysisData } from "../structure/structural-model-fetcher.ts";
-import { predictorCoordinateFromContext } from "../../../src/shared/contracts.ts";
+import { predictorCoordinateFromContext, type PredictorData } from "../../../src/shared/contracts.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { CONFIG } from "../../config.ts";
 
@@ -28,7 +36,8 @@ export {
   assembleCoreResponsePayload,
   persistVariantAnalysisPayload,
   buildAnalysisPayload,
-  persistAnalysis
+  persistAnalysis,
+  withCacheProvenance
 };
 
 /**
@@ -117,7 +126,75 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
 }
 
 /**
+ * The single decision every route makes before trusting a persisted row.
+ *
+ * Two predicates, in this order:
+ *
+ *   1. the STALENESS predicate — a payload missing a source a configured provider can now answer
+ *      (GPN-Star / ESM3 / AlphaGenome) is recomputed, which is what backfills a capability that was
+ *      unavailable when the row was written;
+ *   2. the CONTEXT-IDENTITY guard — a payload that states a DIFFERENT scientific identity (another
+ *      build trail, weighting, numbering decision, sequence, or provider/endpoint set) is refused, and
+ *      so is one that states NO identity at all: an unstamped row cannot be verified, so it is
+ *      recomputed ONCE and the recompute stamps it. That is a one-time recompute, not a cache wipe —
+ *      the reader gets freshly fetched evidence, not an empty card.
+ *
+ * See `core-identity.ts` for why the identity lives in the payload instead of a new column.
+ */
+function isUsableCachedPayload(
+  payload: any,
+  context: ParsedVariantContext,
+  recordUpdatedAt?: string | null,
+  scope: IdentityScope = "core"
+): boolean {
+  if (!payload) return false;
+  if (isStaleCachedPayload(payload, context, recordUpdatedAt)) return false;
+
+  const compatibility = checkPayloadCompatibility(payload, context, scope);
+  if (!compatibility.compatible) {
+    const message =
+      `[Cache Context Guard] Recomputing ${context.gene} ${context.variant}: ${compatibility.reason}.`;
+    /**
+     * An unstamped row is an EXPECTED, self-healing refresh (every row written before this guard, one
+     * per variant). A stated mismatch is an anomaly — two identity records that disagree — so it is
+     * the one that deserves a warning.
+     */
+    if (compatibility.recorded) console.warn(message);
+    else console.log(message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Merges the structural models' outcomes into the payload's status map WITHOUT losing the core's.
+ *
+ * The two maps collided on `esm2`: the core run records its VESM-150M triage evaluation there
+ * (`core-data-fetcher.ts` status rules), and the structural run recorded its ESM-2 650M outcome
+ * under the same key. A plain spread therefore replaced a measured core outcome with a deep-model
+ * one, so the same source read `timeout` on one surface and `ok` on another depending on which
+ * route answered last. The structural producer now reports `esm2Eval`; this function additionally
+ * refuses to let ANY `esm2` key in the structural map overwrite the core's, so a stale or
+ * third-party producer cannot reintroduce the collision through the merge.
+ */
+export function mergeStructuralServiceStatus(
+  coreStatus: Record<string, string> | null | undefined,
+  structuralStatus: Record<string, string> | null | undefined
+): Record<string, string> {
+  const merged: Record<string, string> = { ...(coreStatus || {}) };
+  for (const [key, value] of Object.entries(structuralStatus || {})) {
+    if (key === "esm2") continue;
+    merged[key] = value;
+  }
+  return merged;
+}
+
+/**
  * Orchestrates synchronous end-to-end execution of core variant analysis (/analyze-variant).
+ *
+ * Shares a running core fetch when one exists for the same scientific identity: this route and
+ * `/analyze-variant/stream` are fired together by the client, they miss the same row at the same
+ * instant, and there is no reason for the providers to be asked twice (see `core-singleflight.ts`).
  */
 export async function runCoreAnalysis(context: ParsedVariantContext): Promise<any> {
   const { gene, variant, acmgWeighting } = context;
@@ -125,15 +202,25 @@ export async function runCoreAnalysis(context: ParsedVariantContext): Promise<an
   // Check persistent SQLite database
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = await db.getVariantAnalysisAsync(gene, variant, acmgWeighting);
-  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context, cachedRecord.updatedAt)) {
-    return healCachedAnalysisIfPossible(cachedRecord.payload, context);
+  if (cachedRecord && isUsableCachedPayload(cachedRecord.payload, context, cachedRecord.updatedAt)) {
+    /**
+     * A RESTORE, and the response says so — measured here rather than inferred by the client from how
+     * fast this answered. `withCacheProvenance` copies: the row must not record a wire provenance.
+     */
+    return withCacheProvenance(healCachedAnalysisIfPossible(cachedRecord.payload, context), true);
   }
 
-  const coreData = await fetchCoreVariantData(context, CONFIG.timeouts.coreAnalysisMs);
+  const coreData = await runSharedCoreFetch(context, { timeoutMs: CONFIG.timeouts.coreAnalysisMs });
   const responsePayload = assembleCoreResponsePayload(coreData, context);
-  persistVariantAnalysisPayload(context, responsePayload, coreData.ruleBasedInsights?.acmgVerdict || null);
+  /**
+   * Deliberately NOT awaited: the reader's payload is assembled and every source is down, so the
+   * response must not wait on a database round trip. The helper's returned promise is handled here —
+   * it never rejects (a write failure is logged inside it) — rather than left floating by accident.
+   */
+  void persistVariantAnalysisPayload(context, responsePayload, coreData.ruleBasedInsights?.acmgVerdict || null);
 
-  return responsePayload;
+  /** The row keeps no wire provenance (above); the RESPONSE states that this evidence is fresh. */
+  return withCacheProvenance(responsePayload, false);
 }
 
 /**
@@ -213,14 +300,16 @@ async function runStream(
 
   const db = AnalysisDatabase.getInstance();
   const cachedRecord = await db.getVariantAnalysisAsync(gene, variant, context.acmgWeighting);
-  if (cachedRecord && cachedRecord.payload && !isStaleCachedPayload(cachedRecord.payload, context, cachedRecord.updatedAt)) {
+  if (cachedRecord && isUsableCachedPayload(cachedRecord.payload, context, cachedRecord.updatedAt)) {
     const healed = healCachedAnalysisIfPossible(cachedRecord.payload, context);
+    /** A RESTORE from the analysis row, stated on the frame rather than guessed by the client. */
+    const restored = withCacheProvenance(healed, true);
     onChunk({
       chunkIndex: 1,
       isFinal: true,
-      data: stripInternalFields(healed)
+      data: stripInternalFields(restored)
     });
-    return healed;
+    return restored;
   }
 
   /**
@@ -235,33 +324,121 @@ async function runStream(
     onChunk({ chunkIndex: ++previewIndex, isFinal: false, data: preview.data });
   };
 
-  // Fast triage: fetch ClinVar + Predictors immediately with fine-grained status tracking
-  const fastClinvarPromise = (async () => {
-    try {
-      const data = await fetchClinVarData(gene, variant, context.originalNotation);
-      const status: ServiceFetchStatus = data
-        ? (data.classification === "Not found in ClinVar" ? "not_found" : "ok")
-        : "not_found";
-      return { data, status };
-    } catch (err: any) {
-      const isTimeout = err?.name === "TimeoutError" || err?.message?.toLowerCase().includes("timeout");
-      return { data: null, status: (isTimeout ? "timeout" : "error") as ServiceFetchStatus };
+  /**
+   * CHUNK-1 FIRST, WHATEVER ELSE HAS HAPPENED.
+   *
+   * The rest of the core fetch is started BEFORE the triage barrier so its nine independent sources
+   * are already in flight while ClinVar and the predictors are still being awaited, instead of
+   * starting ~150 ms late — a stream that only begins its slowest query after its fastest two have
+   * answered pays that latency on every request, and the per-source previews it produces are what the
+   * reader watches.
+   *
+   * The ordering is preserved by a gate, not by luck: a partial that settles while chunk 1 has not
+   * been written is BUFFERED (in settlement order) and flushed immediately after chunk 1, so the
+   * first frame on the wire is still the triage frame, still not final, and the preview indices still
+   * increase. Nothing about the contract in the module note above changes; only WHEN the other
+   * sources begin.
+   */
+  let chunk1Written = false;
+  const deferredPreviews: CoreAnalysisPartial[] = [];
+  const writeCorePartial = (partial: CoreAnalysisPartial) => {
+    if (!chunk1Written) {
+      deferredPreviews.push(partial);
+      return;
     }
-  })();
+    writePreview(partial);
+  };
 
-  const fastPredictorPromise = (async () => {
-    try {
-      // Pairing lives in one shared helper: a coordinate beside the wrong build is the
-      // wrong-locus hazard, and the canonical pair the translation step verified is preferred
-      // (so a GRCh37 input is not lifted a second time here).
-      const inputCoordinate = predictorCoordinateFromContext(context);
-      const data = await fetchPredictorData(gene, variant, uniprotId, inputCoordinate);
-      return { data, status: (data ? "ok" : "not_found") as ServiceFetchStatus };
-    } catch (err: any) {
-      const isTimeout = err?.name === "TimeoutError" || err?.message?.toLowerCase().includes("timeout");
-      return { data: null, status: (isTimeout ? "timeout" : "error") as ServiceFetchStatus };
-    }
-  })();
+  /**
+   * Fast triage: fetch ClinVar + Predictors immediately with fine-grained status tracking.
+   *
+   * `triageStartedAt` is a REAL clock reading taken as these two promises are created, and it is
+   * handed to the core fetch so the per-source timings it reports for a prefetched source cover that
+   * source's whole latency rather than only the tail the core fetch happened to observe. Nothing is
+   * estimated or reconstructed from strings, here or there.
+   */
+  /**
+   * IS ANOTHER ROUTE ALREADY RUNNING THIS CORE FETCH?
+   *
+   * Asked BEFORE the triage is started, because that run already holds the two fast answers (its own
+   * ClinVar and predictor queries), and re-asking the providers for a frame this route can build from
+   * them is exactly the duplicate the fan-out produces in practice: the structural request opens the
+   * run, the stream arrives a few milliseconds later. Adopting them also means chunk 1 and the final
+   * payload cannot disagree about ClinVar — they are the same answer.
+   */
+  const runningCore = findRunningCoreFetch(context);
+  const adoptedTriage: CoreFastTriage | null = runningCore?.fastTriage ?? null;
+
+  const triageStartedAt = performance.now();
+
+  const fastClinvarPromise: Promise<{ data: ClinVarData | null; status: ServiceFetchStatus }> = adoptedTriage
+    ? adoptedTriage.clinvar
+    : (async () => {
+        try {
+          const data = await fetchClinVarData(gene, variant, context.originalNotation);
+          const status: ServiceFetchStatus = data
+            ? (data.classification === "Not found in ClinVar" ? "not_found" : "ok")
+            : "not_found";
+          return { data, status };
+        } catch (err: any) {
+          const isTimeout = err?.name === "TimeoutError" || err?.message?.toLowerCase().includes("timeout");
+          return { data: null, status: (isTimeout ? "timeout" : "error") as ServiceFetchStatus };
+        }
+      })();
+
+  const fastPredictorPromise: Promise<{ data: PredictorData | null; status: ServiceFetchStatus }> = adoptedTriage
+    ? adoptedTriage.predictorData
+    : (async () => {
+        try {
+          // Pairing lives in one shared helper: a coordinate beside the wrong build is the
+          // wrong-locus hazard, and the canonical pair the translation step verified is preferred
+          // (so a GRCh37 input is not lifted a second time here).
+          const inputCoordinate = predictorCoordinateFromContext(context);
+          const data = await fetchPredictorData(gene, variant, uniprotId, inputCoordinate);
+          return { data, status: (data ? "ok" : "not_found") as ServiceFetchStatus };
+        } catch (err: any) {
+          const isTimeout = err?.name === "TimeoutError" || err?.message?.toLowerCase().includes("timeout");
+          return { data: null, status: (isTimeout ? "timeout" : "error") as ServiceFetchStatus };
+        }
+      })();
+
+  /**
+   * The triage's own verdict on the two prefetched sources, exposed as GETTERS.
+   *
+   * The core fetch is started before `Promise.all` below, so it cannot be handed the statuses as
+   * values yet. It does not need to be: its status rules read these fields when the corresponding
+   * promise settles, and the getters resolve then. The ordering is guaranteed by data dependency
+   * rather than by timing luck — each triage promise assigns its status BEFORE it resolves, and the
+   * promise the core fetch consumes is derived from that resolution, so the status is always in
+   * place before any rule can read it.
+   */
+  let clinvarTriageStatus: ServiceFetchStatus | undefined;
+  let predictorTriageStatus: ServiceFetchStatus | undefined;
+  // Both triage promises resolve rather than reject (their bodies catch the provider error and return
+  // an outcome, and an adopted one already carries the run's own verdict), but the chains are closed
+  // explicitly so a future edit cannot turn one into an unhandled rejection on a request that is
+  // already answering.
+  fastClinvarPromise.then(outcome => { clinvarTriageStatus = outcome.status; }).catch(() => {});
+  fastPredictorPromise.then(outcome => { predictorTriageStatus = outcome.status; }).catch(() => {});
+
+  const prefetched: CorePrefetchOptions = {
+    clinvarPromise: fastClinvarPromise.then(r => r.data),
+    predictorPromise: fastPredictorPromise.then(r => r.data),
+    get clinvarStatus() { return clinvarTriageStatus; },
+    get predictorStatus() { return predictorTriageStatus; },
+    /**
+     * Only when THIS route started the source. An adopted promise's origin was observed by the run
+     * that created it, not here, so reporting `triageStartedAt` for it would be an invented start
+     * time; absent, the duration is measured from when this route attached, which is what it saw.
+     */
+    ...(adoptedTriage ? {} : { clinvarStartedAt: triageStartedAt, predictorStartedAt: triageStartedAt })
+  };
+
+  const fullCorePromise = runSharedCoreFetch(context, {
+    timeoutMs: CONFIG.timeouts.coreAnalysisMs,
+    prefetched,
+    onPartial: writeCorePartial
+  });
 
   // Chunk 1: Instant Header, ClinVar, Predictors, Initial ACMG Verdict (~100-150ms)
   const [clinvarOutcome, predictorOutcome] = await Promise.all([fastClinvarPromise, fastPredictorPromise]);
@@ -319,43 +496,59 @@ async function runStream(
     ruleBasedInsights: preliminaryVerdict
   };
 
-  onChunk({ chunkIndex: 1, isFinal: false, data: chunk1Data });
+  /**
+   * Chunk 1 is FRESH evidence (a cache restore emits a single final frame instead, above), and it
+   * says so on the first frame the client paints — so a surface never has to guess provenance from
+   * how fast the frame arrived.
+   */
+  onChunk({ chunkIndex: 1, isFinal: false, data: withCacheProvenance(chunk1Data, false) });
   if (signal?.aborted) return null;
 
-  // Complete remaining background pipelines concurrently, reusing fast triage promises.
+  /**
+   * The gate opens: chunk 1 is on the wire, so every partial buffered while it was being assembled
+   * is written now, in settlement order, and every later one is written on arrival.
+   */
+  chunk1Written = true;
+  for (const partial of deferredPreviews.splice(0)) {
+    writePreview(partial);
+  }
+
+  // Await the core fetch that was started BEFORE the triage barrier.
   //
-  // Each source publishes the moment it settles, so the reader sees gnomAD the second gnomAD
-  // answers instead of waiting for the slowest of the eleven. It is also what removes the 30 s
-  // silence the client used to abort on.
+  // Each source published the moment it settled (indices above), so the reader saw gnomAD the
+  // second gnomAD answered rather than waiting for the slowest of the eleven — that is also what
+  // removes the 30 s silence the client used to abort on.
   //
-  // The triage's own STATUS travels with its data: this function caught the provider error, so
-  // `fetchCoreVariantData` cannot see it, and re-deriving the status from a null value reported an
-  // outage as a measured absence.
-  const fullCoreData = await fetchCoreVariantData(
-    context,
-    CONFIG.timeouts.coreAnalysisMs,
-    {
-      clinvarPromise: fastClinvarPromise.then(r => r.data),
-      predictorPromise: fastPredictorPromise.then(r => r.data),
-      clinvarStatus: clinvarOutcome.status,
-      predictorStatus: predictorOutcome.status
-    },
-    writePreview
-  );
+  // The triage's own STATUS travels with its data through the getters on `prefetched`: this function
+  // caught the provider error, so the core fetch cannot see it, and re-deriving the status from a
+  // null value reported an outage as a measured absence.
+  //
+  // A shared run is the same value this call would have produced alone — see `core-singleflight.ts`.
+  const fullCoreData = await fullCorePromise;
   if (signal?.aborted) return null;
 
   const fullPayload = assembleCoreResponsePayload(fullCoreData, context);
+  /** The authoritative frame states its own provenance: this evidence was fetched now, not restored. */
+  const finalPayload = withCacheProvenance(fullPayload, false);
 
   onChunk({
     // After every preview that was emitted before it, whatever number that reached.
     chunkIndex: previewIndex + 1,
     isFinal: true,
-    data: stripInternalFields(fullPayload)
+    data: stripInternalFields(finalPayload)
   });
 
-  persistVariantAnalysisPayload(context, fullPayload, fullCoreData.ruleBasedInsights?.acmgVerdict || null);
+  /**
+   * Deliberately NOT awaited: the final frame has already been written, and a reader must not be
+   * held by a database round trip. The promise is handled by the helper (it never rejects).
+   *
+   * The ROW is persisted from `fullPayload`, not from `finalPayload`: `cacheHit: false` is a fact
+   * about this response, and a row that replayed it later would be stating a provenance it no longer
+   * has.
+   */
+  void persistVariantAnalysisPayload(context, fullPayload, fullCoreData.ruleBasedInsights?.acmgVerdict || null);
 
-  return fullPayload;
+  return finalPayload;
 }
 
 /**
@@ -376,12 +569,37 @@ export async function runStructuralAnalysis(
   // Check persistent SQLite database for existing core data
   const db = AnalysisDatabase.getInstance();
   const cached = await db.getVariantAnalysisAsync(gene, variant, acmgWeighting);
-  const cachedPdbMapping = cached?.payload?._internal?.pdbMapping || null;
 
-  // Run deep models concurrently with core data fetching (or reuse existing)
+  /**
+   * CACHE GATES for the structural route, which used to trust any row it found.
+   *
+   * Two things were reused from it unconditionally: the assembled core payload as this run's core
+   * evidence, and `_internal.pdbMapping` as the structure the deep models would read. A row can be
+   * stale (a source a configured provider can now answer), or belong to a DIFFERENT context (another
+   * build trail, weighting, capability or model set) — and a mapping from another context can sit
+   * outside this residue's position, which is the one error a structure-reading model cannot detect
+   * for itself. Both gates are applied before either value is handed on.
+   */
+  const cachedPayload = cached?.payload ?? null;
+  const cachedCoreUsable = isUsableCachedPayload(cachedPayload, context, cached?.updatedAt, "core");
+  const cachedPdbMapping = cachedCoreUsable ? (cachedPayload?._internal?.pdbMapping ?? null) : null;
+
+  // Run deep models concurrently with core data fetching (or reuse a VALIDATED existing payload).
+  //
+  // A cache miss here shares a running core fetch rather than repeating it: the UI opens the stream
+  // for the same variant moments before (or after) this request, and both would otherwise miss the
+  // same row and ask all eleven providers twice. See `core-singleflight.ts`.
   const [structuralData, coreData] = await Promise.all([
-    fetchStructuralModelData(context, biohubToken, hfToken, CONFIG.timeouts.structuralModelsMs, { pdbMapping: cachedPdbMapping }),
-    cached?.payload ? Promise.resolve(cached.payload) : fetchCoreVariantData(context, CONFIG.timeouts.coreAnalysisMs)
+    fetchStructuralModelData(context, biohubToken, hfToken, CONFIG.timeouts.structuralModelsMs, {
+      /**
+       * A validated mapping saves the PDBe round trip. An unusable one is left OUT of the object
+       * entirely rather than sent as `null`: the fetcher reads an explicit `null` as "this mapping
+       * is the answer, and there is none", which skipped the structure lookup altogether and
+       * silently demoted the run to AlphaFold.
+       */
+      pdbMapping: cachedPdbMapping ?? undefined
+    }),
+    cachedCoreUsable ? Promise.resolve(cachedPayload) : runSharedCoreFetch(context, { timeoutMs: CONFIG.timeouts.coreAnalysisMs })
   ]);
 
   const ruleBasedInsights = computeRuleBasedACMG({
@@ -403,11 +621,28 @@ export async function runStructuralAnalysis(
     serviceStatus: coreData.serviceStatus
   });
 
-  const basePayload = cached?.payload || assembleCoreResponsePayload(coreData, context);
-  const mergedServiceStatus = {
-    ...(basePayload.serviceStatus || coreData.serviceStatus || {}),
-    ...(structuralData.serviceStatus || {})
-  };
+  const basePayload = cachedCoreUsable && cachedPayload ? cachedPayload : assembleCoreResponsePayload(coreData, context);
+
+  /**
+   * The merge keeps the CORE's `esm2` (its VESM-150M outcome) and records the structural ESM-2 650M
+   * outcome under `esm2Eval`. The old spread put both under `esm2`, so a finished deep model replaced
+   * a measured core source and the Evidence Lineage could list one source twice, disagreeing with
+   * itself. See `mergeStructuralServiceStatus`.
+   */
+  const mergedServiceStatus = mergeStructuralServiceStatus(
+    basePayload.serviceStatus || coreData.serviceStatus || {},
+    structuralData.serviceStatus || {}
+  );
+
+  /**
+   * The structural models' OWN spans, under structural names.
+   *
+   * `updatedPayload` spreads `basePayload`, which carries the CORE `serviceTimings` /
+   * `serviceTimingOffsets`; these are written beside them, never over them — a payload that mixed the
+   * two would have a waterfall of one run labelled with another's sources.
+   */
+  const structuralTimings = structuralData.structuralTimings || {};
+  const structuralTimingOffsets = structuralData.structuralTimingOffsets || {};
 
   const updatedPayload = {
     ...basePayload,
@@ -416,10 +651,29 @@ export async function runStructuralAnalysis(
     esm2Eval: structuralData.esm2Eval,
     saprotEval: structuralData.saprotEval,
     serviceStatus: mergedServiceStatus,
-    ruleBasedInsights
+    ruleBasedInsights,
+    structuralTimings,
+    structuralTimingOffsets,
+    metadata: {
+      ...((basePayload?.metadata as Record<string, unknown>) || {}),
+      structuralTimings,
+      structuralTimingOffsets
+    },
+    _internal: {
+      ...(basePayload?._internal || {}),
+      /**
+       * WHICH structural run produced the four deep-model fields above — recorded, in the payload,
+       * under the same non-migrating guard the core block uses. A later structural read of this row
+       * can therefore refuse to present a checkpoint's numbers as another checkpoint's (the
+       * capability digest in this record includes the SaProt model choice, which the core record
+       * deliberately does not).
+       */
+      structuralIdentity: structuralIdentityRecordOf(context)
+    }
   };
 
-  persistVariantAnalysisPayload(context, updatedPayload, ruleBasedInsights?.acmgVerdict || null);
+  /** Deliberately NOT awaited — the response is the reader's, and it must not wait on the write. */
+  void persistVariantAnalysisPayload(context, updatedPayload, ruleBasedInsights?.acmgVerdict || null);
 
   return {
     esm3Eval: structuralData.esm3Eval,
@@ -427,6 +681,9 @@ export async function runStructuralAnalysis(
     esm2Eval: structuralData.esm2Eval,
     saprotEval: structuralData.saprotEval,
     serviceStatus: mergedServiceStatus,
-    ruleBasedInsights
+    ruleBasedInsights,
+    /** Readable straight off the response: a span per model, including the ones that failed. */
+    structuralTimings,
+    structuralTimingOffsets
   };
 }

@@ -9,6 +9,8 @@ import { formatEvidenceCode } from "../../shared/thresholds";
 import { REPORT_PRESETS, BLOCK_ORDER, type ReportPresetId } from "../../shared/reportDocument";
 import { renderReportHtml, renderReportJson, renderReportText } from "../../shared/reportRender";
 import { deriveAiStatus } from "../report/reportStatus";
+import { narrativeFreshness, readNarrativeEvidenceStamp } from "../../shared/narrativeEvidence";
+import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import { useReportDocument } from "../report/useReportDocument";
 import { downloadBlob, fileStem, printReport } from "../report/reportExport";
 
@@ -80,6 +82,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const [pptxBusy, setPptxBusy] = useState(false);
 
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
+  const narrativeContext = useNarrativeEvidenceContext(settings?.saprotEngine);
   const isNarrativeBusy = propIsNarrativeLoading ?? storeIsNarrativeLoading;
   const narrative = analysisResult?.analysis ?? "";
   const isDegraded = isFallbackNarrative(analysisResult?.analysis, analysisResult?.isFallback, analysisResult?.fallbackReason);
@@ -94,10 +97,12 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         providerDetail: analysisResult?.providerDetail,
         attemptedModels: analysisResult?.attemptedModels,
         isKeyActive,
-        hasNarrative: Boolean(narrative),
+        hasNarrative: Boolean(narrative && (!analysisResult?.metadata?.pipelineRunId || readNarrativeEvidenceStamp(analysisResult))),
         isNarrativeLoading: isNarrativeBusy,
+        narrativeMode: settings?.narrativeMode,
+        narrativeOutdated: narrativeFreshness(analysisResult, narrativeContext) === "outdated",
       }),
-    [isDegraded, analysisResult, isKeyActive, narrative, isNarrativeBusy]
+    [isDegraded, analysisResult, isKeyActive, narrative, isNarrativeBusy, settings?.narrativeMode, narrativeContext]
   );
 
   if (!analysisResult) {
@@ -268,10 +273,12 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         </div>
         <p className="rpt-p">{aiStatus.detail}</p>
         <div style={{ display: "flex", gap: 8 }}>
-          {isKeyActive ? (
+          {settings?.narrativeMode === "off" ? (
+            <button type="button" className="rpt-btn" onClick={() => openSettingsTab("analysis")}>Enable AI synthesis</button>
+          ) : isKeyActive ? (
             <button type="button" className="rpt-btn" onClick={() => onRetryNarrative?.()} disabled={isNarrativeBusy || !onRetryNarrative}>
               <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-              {isNarrativeBusy ? "Synthesizing" : isDegraded ? "Generate summary" : "Re-synthesize"}
+              {isNarrativeBusy ? "Synthesizing" : isDegraded || !narrative || (analysisResult.metadata?.pipelineRunId && !readNarrativeEvidenceStamp(analysisResult)) ? "Generate summary" : "Re-synthesize"}
             </button>
           ) : (
             <button type="button" className="rpt-btn" onClick={() => openSettingsTab("connections")}>

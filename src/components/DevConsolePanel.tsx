@@ -1267,7 +1267,7 @@ export default function DevConsolePanel() {
               {selectedSpan.cached && (
                 <tr>
                   <td>Cache State</td>
-                  <td className="text-amber-600 font-bold">Fast Cache Hit (&lt;40ms)</td>
+                  <td className="text-amber-600 font-bold">Reported cache hit</td>
                 </tr>
               )}
               {selectedSpan.error && (

@@ -41,6 +41,11 @@ import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "../infra/http-client.ts";
 import { healCachedAnalysisIfPossible } from "../orchestration/self-healer.ts";
 import type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData } from "../orchestration/payload-assembler.ts";
+import {
+  BUDGET_EXPIRED,
+  createTimeoutScope,
+  type TimeoutScope
+} from "../orchestration/timeout-scope.ts";
 import { CONFIG } from "../../config.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData };
@@ -59,7 +64,47 @@ export interface CoreAnalysisPartial {
   data: Record<string, unknown>;
   serviceStatus: RunningServiceStatus;
   serviceTimings: Record<string, number>;
+  /**
+   * WHEN each settled source settled, on this run's clock — as opposed to `serviceTimings`, which is
+   * how long it took.
+   *
+   * SETTLEMENT, not start. A consumer that needs a span's origin derives it as
+   * `serviceTimingOffsets[key] - serviceTimings[key]`, clamped at 0 — the subtraction is exact
+   * whenever the duration is complete, and clamps to 0 for a source that was already in flight when
+   * this run's clock began (which is the honest reading of "it started before this clock did", not a
+   * negative time). Nothing here is an estimated start.
+   *
+   * The distinction is not cosmetic. A source can be prefetched by the caller (the stream's fast
+   * triage starts ClinVar and the predictors before this function is called), and a duration measured
+   * from "when this function attached" is then only the TAIL of that source's real latency, reported
+   * as though it were the whole of it. The offset is measured from the run's own start to the settle
+   * instant, so it is a true position on the timeline whatever started the promise — which is what a
+   * waterfall needs and what a duration cannot be reconstructed into once the tail is all that was
+   * observed.
+   */
+  serviceTimingOffsets: Record<string, number>;
 }
+
+/**
+ * The caller's fast triage as the SHARED RUN sees it: data beside the verdict this pipeline would
+ * itself assign to that data.
+ *
+ * Handed out synchronously by {@link fetchCoreVariantData} (through its `onFastTriage` listener) so a
+ * route that joins an ALREADY-RUNNING core fetch can build its own first frame from the same two
+ * answers instead of asking the providers again. Two consequences, both wanted:
+ *
+ *   • no duplicate ClinVar / predictor query when the structural request started the run first, which
+ *     is the order the client's fan-out actually produces today;
+ *   • the joining route's first frame and the run's final payload cannot disagree about ClinVar,
+ *     because they are the SAME answer rather than two answers taken half a second apart — a real
+ *     hazard when a classifier is read off both surfaces.
+ */
+export interface CoreFastTriage {
+  clinvar: Promise<{ data: ClinVarData | null; status: ServiceFetchStatus }>;
+  predictorData: Promise<{ data: PredictorData | null; status: ServiceFetchStatus }>;
+}
+
+export type CoreFastTriageListener = (triage: CoreFastTriage) => void;
 
 /**
  * The status map of a RUN in progress: the ten sources of {@link ServiceStatusMap}, with anything
@@ -87,31 +132,77 @@ const SERVICE_STATUS_KEYS: readonly (keyof ServiceStatusMap)[] = [
 export type CoreAnalysisPartialListener = (partial: CoreAnalysisPartial) => void;
 
 /**
+ * Work the caller has already started, handed down instead of repeated.
+ *
+ * Exported (rather than an inline parameter type) so the singleflight layer and the tests can name
+ * the same shape this function accepts.
+ */
+export interface CorePrefetchOptions {
+  clinvarPromise?: Promise<ClinVarData | null>;
+  predictorPromise?: Promise<PredictorData | null>;
+  /**
+   * The triage's OWN verdict on the two prefetched sources.
+   *
+   * Load-bearing, and the reason it is forwarded rather than re-derived: `streamCoreAnalysis`
+   * catches the provider error and resolves `{data: null, status: "timeout" | "error"}`, so the
+   * failure never reaches this function's own `catch` blocks. Re-deriving the status from a null
+   * value therefore reported an OUTAGE as `not_found` — "ClinVar holds no submission for this
+   * variant" for a query that was never answered — while the non-streaming route reported `error`
+   * for the same event. Two routes, two answers, both about a clinical absence.
+   */
+  clinvarStatus?: ServiceFetchStatus;
+  predictorStatus?: ServiceFetchStatus;
+  /**
+   * `performance.now()` at which the prefetched promise's own request STARTED.
+   *
+   * Only meaningful beside the matching promise, and only so that `serviceTimings` reports that
+   * source's REAL latency instead of the tail this function happened to observe. Absent, the clock
+   * starts when this function attaches to the promise.
+   */
+  clinvarStartedAt?: number;
+  predictorStartedAt?: number;
+}
+
+/**
  * Executes parallel fetching of external databases and quick predictor pipelines with timeout racing.
  *
  * @param onPartial Called once per source, the moment that source settles. Optional: the
  *   non-streaming `/analyze-variant` route has no use for it.
+ * @param onFastTriage Called ONCE, synchronously, with the ClinVar and predictor outcomes of this run
+ *   as raced promises. The singleflight layer uses it to let a route that joins this run build its
+ *   own first frame from the same two answers instead of asking the providers again — see
+ *   {@link CoreFastTriage}.
  */
 export async function fetchCoreVariantData(
   context: ParsedVariantContext,
   coreTimeoutMs: number = CONFIG.timeouts.coreAnalysisMs,
-  prefetched?: {
-    clinvarPromise?: Promise<ClinVarData | null>;
-    predictorPromise?: Promise<PredictorData | null>;
-    /**
-     * The triage's OWN verdict on the two prefetched sources.
-     *
-     * Load-bearing, and the reason it is forwarded rather than re-derived: `streamCoreAnalysis`
-     * catches the provider error and resolves `{data: null, status: "timeout" | "error"}`, so the
-     * failure never reaches this function's own `catch` blocks. Re-deriving the status from a null
-     * value therefore reported an OUTAGE as `not_found` — "ClinVar holds no submission for this
-     * variant" for a query that was never answered — while the non-streaming route reported `error`
-     * for the same event. Two routes, two answers, both about a clinical absence.
-     */
-    clinvarStatus?: ServiceFetchStatus;
-    predictorStatus?: ServiceFetchStatus;
-  },
-  onPartial?: CoreAnalysisPartialListener
+  prefetched?: CorePrefetchOptions,
+  onPartial?: CoreAnalysisPartialListener,
+  onFastTriage?: CoreFastTriageListener
+): Promise<CoreAnalysisData> {
+  /**
+   * One scope for the whole run, disposed in a `finally`.
+   *
+   * Every race below arms a timer, and each is cleared the moment its source settles; the disposal
+   * is what covers the path where this function throws instead of returning — a request that dies
+   * mid-flight must not leave eleven timers armed behind it, one per source, for the length of the
+   * budget.
+   */
+  const budgets = createTimeoutScope();
+  try {
+    return await runCoreFetch(context, coreTimeoutMs, prefetched, onPartial, onFastTriage, budgets);
+  } finally {
+    budgets.dispose();
+  }
+}
+
+async function runCoreFetch(
+  context: ParsedVariantContext,
+  coreTimeoutMs: number,
+  prefetched: CorePrefetchOptions | undefined,
+  onPartial: CoreAnalysisPartialListener | undefined,
+  onFastTriage: CoreFastTriageListener | undefined,
+  budgets: TimeoutScope
 ): Promise<CoreAnalysisData> {
   const {
     gene,
@@ -154,31 +245,60 @@ export async function fetchCoreVariantData(
 
   const overallStart = performance.now();
   const serviceTimings: Record<string, number> = {};
+  /** When each source SETTLED on this run's clock. See {@link CoreAnalysisPartial}. */
+  const serviceTimingOffsets: Record<string, number> = {};
 
-  const timeTask = <T>(key: string, task: Promise<T>): Promise<T> => {
-    const t0 = performance.now();
-    return task.finally(() => {
-      serviceTimings[key] = Math.round(performance.now() - t0);
-    });
+  const recordTiming = (key: string, startedAt: number): void => {
+    const now = performance.now();
+    serviceTimings[key] = Math.round(now - startedAt);
+    serviceTimingOffsets[key] = Math.round(now - overallStart);
   };
 
-  const TIMEOUT_FLAG = Symbol("TIMEOUT_FLAG");
-  const coreTimeout = new Promise(resolve => setTimeout(() => resolve(TIMEOUT_FLAG), coreTimeoutMs));
-  const deepModelTimeout = new Promise(resolve => setTimeout(() => resolve(TIMEOUT_FLAG), 15000));
+  /**
+   * Times one source — its REAL latency, not the tail this function happened to observe.
+   *
+   * `startedAt` is supplied when the caller prefetched the promise (the stream's fast triage does),
+   * so a source that had already been running for 120 ms before this function was reached reports
+   * 120 ms + whatever remained, rather than only the remainder. The offset is recorded either way,
+   * because a duration alone cannot place a source on a timeline.
+   */
+  const timeTask = <T>(key: string, task: Promise<T>, startedAt?: number): Promise<T> => {
+    const t0 = startedAt ?? performance.now();
+    return task.then(
+      value => {
+        recordTiming(key, t0);
+        return value;
+      },
+      err => {
+        recordTiming(key, t0);
+        throw err;
+      }
+    );
+  };
+
+  /**
+   * The budget sentinel, aliased to the shared one so every `=== TIMEOUT_FLAG` comparison in this
+   * file and in `statusRules` keeps working while the timer that produced it is disposable.
+   */
+  const TIMEOUT_FLAG = BUDGET_EXPIRED;
+  /** Budget for a source on the core critical path. */
+  const CORE_BUDGET_MS = coreTimeoutMs;
+  /** Budget for the ESM-2 triage, which is allowed to answer later than the cheap sources. */
+  const DEEP_MODEL_BUDGET_MS = 15000;
 
   let clinvarHasError = false;
   const clinvarPromise = timeTask("clinvar", (prefetched?.clinvarPromise || fetchClinVarData(gene, variant, originalNotation)).catch(err => {
     console.warn("[ClinVar Parallel Run Warning] Failed to fetch ClinVar data:", err);
     clinvarHasError = true;
     return null;
-  }));
+  }), prefetched?.clinvarStartedAt);
 
   let predictorHasError = false;
   const predictorPromise = timeTask("predictorData", (prefetched?.predictorPromise || fetchPredictorData(gene, variant, uniprotId, inputCoordinate)).catch(err => {
     console.warn("[Predictor Parallel Run Warning] Failed to fetch predictor data:", err);
     predictorHasError = true;
     return null;
-  }));
+  }), prefetched?.predictorStartedAt);
 
   let pdbHasError = false;
   const pdbMappingPromise = timeTask("pdbMapping", fetchBestPdbStructure(uniprotId, pos).catch(err => {
@@ -326,17 +446,26 @@ export async function fetchCoreVariantData(
     };
   }));
 
-  const fastClinvarPromise = Promise.race([clinvarPromise, coreTimeout]);
-  const fastPredictorPromise = Promise.race([predictorPromise, coreTimeout]);
-  const fastStringPromise = Promise.race([stringPromise, coreTimeout]);
-  const fastDisruptionPromise = Promise.race([disruptionPromise, coreTimeout]);
-  const fastEsm2TriagePromise = Promise.race([esm2Promise, deepModelTimeout]);
-  const fastConservationPromise = Promise.race([conservationPromise, coreTimeout]);
-  const fastGnomadFrequencyPromise = Promise.race([gnomadFrequencyPromise, coreTimeout]);
-  const fastGnomadConstraintPromise = Promise.race([gnomadConstraintPromise, coreTimeout]);
-  const fastUniprotFeaturesPromise = Promise.race([uniprotFeaturesPromise, coreTimeout]);
-  const fastLocalFreqsPromise = Promise.race([localFreqsPromise, coreTimeout]);
-  const fastPdbMappingPromise = Promise.race([pdbMappingPromise, coreTimeout]);
+  /**
+   * Races through the disposable scope, not through a shared `Promise.race([task, timer])` pair.
+   *
+   * The budget's timer is cleared the instant its own source settles, and a source that settles
+   * AFTER its budget has already answered is absorbed rather than left to reject into the timer's
+   * context — see `timeout-scope.ts`. Both properties are per source here, which is what makes the
+   * timings above (and the statuses below) real per source rather than an artefact of whichever
+   * promise happened to be armed first.
+   */
+  const fastClinvarPromise = budgets.race(clinvarPromise, CORE_BUDGET_MS);
+  const fastPredictorPromise = budgets.race(predictorPromise, CORE_BUDGET_MS);
+  const fastStringPromise = budgets.race(stringPromise, CORE_BUDGET_MS);
+  const fastDisruptionPromise = budgets.race(disruptionPromise, CORE_BUDGET_MS);
+  const fastEsm2TriagePromise = budgets.race(esm2Promise, DEEP_MODEL_BUDGET_MS);
+  const fastConservationPromise = budgets.race(conservationPromise, CORE_BUDGET_MS);
+  const fastGnomadFrequencyPromise = budgets.race(gnomadFrequencyPromise, CORE_BUDGET_MS);
+  const fastGnomadConstraintPromise = budgets.race(gnomadConstraintPromise, CORE_BUDGET_MS);
+  const fastUniprotFeaturesPromise = budgets.race(uniprotFeaturesPromise, CORE_BUDGET_MS);
+  const fastLocalFreqsPromise = budgets.race(localFreqsPromise, CORE_BUDGET_MS);
+  const fastPdbMappingPromise = budgets.race(pdbMappingPromise, CORE_BUDGET_MS);
 
   /**
    * ─────────────────────────────────────────────────────────────────────────────
@@ -429,10 +558,49 @@ export async function fetchCoreVariantData(
     return allNull ? null : value;
   };
 
+  /**
+   * The ACMG verdict as of RIGHT NOW — recomputed on every settled source.
+   *
+   * Progressive recomputation, not a second opinion: it uses the same engine, the same accumulated
+   * evidence and the SAME running status map the preview carries, so a preview's verdict cannot
+   * contradict the payload that supersedes it any more than its statuses can.
+   *
+   * It is safe to run with sources still `pending` — and the safety is the engine's, not this
+   * function's: every criterion that could read a missing value as a measurement is gated on the
+   * status (`gnomadFrequency === "not_found"` is what awards PM2 from a confirmed absence;
+   * `timeout`/`error`/`unsupported-build` WITHDRAW the criterion instead), so a source still in
+   * flight withholds its criterion rather than inventing one. That is why a preliminary verdict may
+   * strengthen or weaken as the run proceeds, and why the final frame remains the authority.
+   */
+  const progressiveInsights = (runningStatus: RunningServiceStatus): RuleBasedInsights | null => {
+    try {
+      return computeRuleBasedACMG({
+        gene,
+        variant,
+        residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
+        clinvar: (partialData.clinvar as ClinVarData | null) ?? null,
+        predictorData: (partialData.predictorData as PredictorData | null) ?? null,
+        conservationData: (partialData.conservationData as ConservationData | null) ?? null,
+        gnomadConstraint: (partialData.gnomadConstraint as GnomadGeneConstraint | null) ?? null,
+        gnomadFrequency: (partialData.gnomadFrequency as GnomadVariantFrequency | null) ?? null,
+        acmgWeighting,
+        esm2: (partialData.esm2 as { llr: number | null; verdict: string } | null) ?? null,
+        uniprotFeatures: (partialData.uniprotFeatures as UniprotFeaturesResult | null) ?? null,
+        sequence,
+        serviceStatus: runningStatus
+      });
+    } catch (err: any) {
+      // A preview is advisory: a failure here must not abort a run whose evidence is still arriving.
+      console.warn("[Progressive ACMG Warning] Could not recompute the running verdict:", err?.message ?? err);
+      return null;
+    }
+  };
+
   const emitPartial = () => {
     if (!onPartial) return;
     const runningStatus = { ...partialStatus };
     const runningTimings = { ...serviceTimings };
+    const runningOffsets = { ...serviceTimingOffsets };
     onPartial({
       data: {
         ...partialData,
@@ -442,13 +610,16 @@ export async function fetchCoreVariantData(
         metadata: {
           ...((partialData.metadata as Record<string, unknown>) || {}),
           serviceStatus: runningStatus,
-          serviceTimings: runningTimings
+          serviceTimings: runningTimings,
+          serviceTimingOffsets: runningOffsets
         },
         serviceStatus: runningStatus,
-        serviceTimings: runningTimings
+        serviceTimings: runningTimings,
+        serviceTimingOffsets: runningOffsets
       },
       serviceStatus: runningStatus,
-      serviceTimings: runningTimings
+      serviceTimings: runningTimings,
+      serviceTimingOffsets: runningOffsets
     });
   };
 
@@ -464,11 +635,28 @@ export async function fetchCoreVariantData(
   ) => {
     Object.assign(partialData, fields);
     Object.assign(partialStatus, statuses);
+    // The verdict travels with the preview that supersedes the previous one, computed from exactly
+    // the evidence and statuses that preview carries.
+    partialData.ruleBasedInsights = progressiveInsights({ ...partialStatus });
     emitPartial();
   };
 
   /** Value of a raced source, or `null` when its budget expired. */
   const settled = <T>(raw: unknown): T | null => (raw === TIMEOUT_FLAG ? null : (raw as T));
+
+  /**
+   * Hand the run's two fast sources to the singleflight layer, SYNCHRONOUSLY and before the first
+   * await, so a route that joins this run can build its first frame from them.
+   *
+   * These are the RACED promises, paired with the status the same `statusRules` above will report in
+   * the final payload — so a joiner's chunk 1 cannot describe ClinVar differently from the payload
+   * that supersedes it, and a source that never answers is a bounded `timeout` rather than a hang.
+   * The raw sentinel is not exposed: it is converted here, once.
+   */
+  onFastTriage?.({
+    clinvar: fastClinvarPromise.then(raw => ({ data: settled<ClinVarData>(raw), status: statusRules.clinvar(raw) })),
+    predictorData: fastPredictorPromise.then(raw => ({ data: settled<PredictorData>(raw), status: statusRules.predictorData(raw) }))
+  });
 
   fastClinvarPromise
     .then(raw => publish({ clinvar: settled<ClinVarData>(raw) }, { clinvar: statusRules.clinvar(raw) }))
@@ -676,6 +864,8 @@ export async function fetchCoreVariantData(
     uniprotId,
     totalMs,
     timings: serviceTimings,
+    /** When each source settled on this run's clock — the waterfall the durations cannot be rebuilt into. */
+    timingOffsets: serviceTimingOffsets,
     statuses: serviceStatus
   }));
 
@@ -724,6 +914,7 @@ export async function fetchCoreVariantData(
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,
-    serviceTimings
+    serviceTimings,
+    serviceTimingOffsets
   };
 }

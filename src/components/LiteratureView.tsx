@@ -80,6 +80,21 @@ export default function LiteratureView({
   // earlier fetch can never overwrite the results of a later one.
   const requestSeq = useRef(0);
   const probeSeq = useRef(0);
+  const requestAbort = useRef<AbortController | null>(null);
+  const publishOutcome = useCallback((outcome: "running" | "complete" | "degraded" | "error" | "skipped", runId?: string) => {
+    useVariantAnalysisStore.getState().setAnalysisState(prev => {
+      if (!prev.result || prev.result.metadata?.gene !== gene || prev.result.metadata?.pipelineRunId !== runId) return prev;
+      return { ...prev, result: { ...prev.result, metadata: { ...prev.result.metadata,
+        pipelineStages: { ...prev.result.metadata.pipelineStages, literature: outcome }
+      } } };
+    });
+  }, [gene]);
+  useEffect(() => () => {
+    requestSeq.current++;
+    requestAbort.current?.abort();
+    const result = useVariantAnalysisStore.getState().analysisState.result;
+    if (result?.metadata?.pipelineStages?.literature === "running") publishOutcome("skipped", result.metadata.pipelineRunId);
+  }, [publishOutcome]);
   const lastGene = useRef(gene);
   // Set when this component itself updates the shared query, so the prop-change effect
   // below can tell its own echo apart from an execution requested by the inspector.
@@ -91,10 +106,15 @@ export default function LiteratureView({
   const fetchCitations = useCallback(async (forceSync = false, customQuery?: string) => {
     if (!gene) return;
     const seq = ++requestSeq.current;
+    const runId = useVariantAnalysisStore.getState().analysisState.result?.metadata?.pipelineRunId;
+    requestAbort.current?.abort();
+    const controller = new AbortController();
+    requestAbort.current = controller;
+    publishOutcome("running", runId);
     setIsLoading(true);
     setError(null);
     try {
-      const data = await apiClient.getLiterature(gene, forceSync, undefined, customQuery);
+      const data = await apiClient.getLiterature(gene, forceSync, controller.signal, customQuery);
       if (seq !== requestSeq.current) return; // superseded — a newer request owns the UI
       setCitations(data.citations || []);
       const meta: LiteratureResponseMeta = {
@@ -105,6 +125,7 @@ export default function LiteratureView({
         pageSize: typeof data.pageSize === "number" ? data.pageSize : null,
       };
       setResponse(meta);
+      publishOutcome(meta.degraded ? "degraded" : "complete", runId);
       if (!meta.degraded && meta.hitCount !== null) {
         const q = (customQuery ?? "").trim();
         if (!q) setGeneHitCount(meta.hitCount);
@@ -114,7 +135,8 @@ export default function LiteratureView({
         }
       }
     } catch (err: any) {
-      if (seq !== requestSeq.current) return;
+      if (seq !== requestSeq.current || controller.signal.aborted) return;
+      publishOutcome("error", runId);
       // Keep the raw error as the console argument: its stack is the only record of WHERE the
       // response was lost (the body-read frame), and the Dev Console stores that as the entry's
       // detail. Only the banner text is translated.
@@ -129,7 +151,7 @@ export default function LiteratureView({
         setIsLoading(false);
       }
     }
-  }, [gene, apiClient, variantQuery]);
+  }, [gene, apiClient, variantQuery, publishOutcome]);
 
   // The shared query prop changes only when a search actually executes — from the main
   // form, the inspector, or a scope button. Typing never touches it, so a prop change

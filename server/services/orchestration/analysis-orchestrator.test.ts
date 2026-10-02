@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runCoreAnalysis, isStaleCachedPayload, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
+import { payloadIdentityRecordOf } from "./core-identity.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
@@ -9,7 +10,15 @@ vi.mock("../structure/structural-model-fetcher.ts", () => ({
     esmcEval: { score: -2.1 },
     esm2Eval: { score: -3.8 },
     saprotEval: { score: -1.9 },
-    serviceStatus: { esm3: "ok", esmc: "ok", esm2: "ok", saprot: "ok" }
+    /**
+     * The structural ESM-2 650M outcome travels as `esm2Eval`. The `esm2` entry is kept deliberately
+     * in this fixture as a LEGACY ALIAS: the merge must refuse to let it overwrite the core run's own
+     * VESM-150M status, which is what used to happen (both producers used that one key).
+     */
+    serviceStatus: { esm3: "ok", esmc: "ok", esm2Eval: "ok", saprot: "ok", esm2: "timeout" },
+    /** The structural stage's own spans, under structural names (never the core's). */
+    structuralTimings: { esm3: 11, esmc: 12, esm2Eval: 13, saprot: 14, pdbText: 9 },
+    structuralTimingOffsets: { esm3: 20, esmc: 21, esm2Eval: 22, saprot: 24, pdbText: 9 }
   }))
 }));
 
@@ -88,8 +97,22 @@ describe("Analysis Orchestrator Unit Tests", () => {
     mut1Letter: "W"
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // The singleflight registry is process-local state: a run left in flight by one test must not be
+    // joined by the next.
+    const { resetCoreSingleflightForTests } = await import("./core-singleflight.ts");
+    resetCoreSingleflightForTests();
+  });
+
+  /**
+   * A persisted row as the CURRENT server writes it: the payload plus the identity record the guard
+   * verifies. Fixtures that assert a cache HIT must be stamped — an unstamped row is refused by
+   * design, recomputed once, and stamped by that recompute.
+   */
+  const stamp = (payload: any, context: ParsedVariantContext = baseContext) => ({
+    ...payload,
+    _internal: { ...(payload?._internal || {}), coreIdentity: payloadIdentityRecordOf(context) }
   });
 
   it("should run synchronous core analysis and persist result to cache", async () => {
@@ -106,12 +129,17 @@ describe("Analysis Orchestrator Unit Tests", () => {
   });
 
   it("should return cached analysis when valid SQLite cache entry exists", async () => {
-    const cachedPayload = {
+    /**
+     * STAMPED, because an unstamped row is no longer reusable — it records no identity to verify
+     * against, so the guard refuses it and the route refetches once (see the legacy test below).
+     * `stamp()` is what a modern row carries.
+     */
+    const cachedPayload = stamp({
       metadata: { gene: "PAH", variant: "p.Arg408Trp" },
       clinvar: { classification: "Pathogenic" },
       conservationData: { available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0 },
       ruleBasedInsights: { acmgVerdict: "Pathogenic" }
-    };
+    });
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayload, id: "1" });
 
     const result = await runCoreAnalysis(baseContext);
@@ -121,6 +149,41 @@ describe("Analysis Orchestrator Unit Tests", () => {
     // Should NOT have called fetchCoreVariantData because cache hit occurred
     const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
     expect(fetchCoreVariantData).not.toHaveBeenCalled();
+    /**
+     * The restore states its own provenance — the fact the client used to guess from latency.
+     * The ROW must not carry it (a row claiming `cacheHit: true` would be asserting a provenance it
+     * no longer has), which is why the helper returns a copy.
+     */
+    expect(result.cacheHit).toBe(true);
+    expect(result.metadata.cacheHit).toBe(true);
+    expect(result.cacheLayer).toBe("analysis-db");
+    expect(cachedPayload.metadata.cacheHit).toBeUndefined();
+  });
+
+  it("refetches an UNSTAMPED row once, and the payload it writes is stamped", async () => {
+    // A row written before the guard existed: it records no identity, so nothing about it can be
+    // verified. It is a one-time recompute (the refetch stamps the row), not a blanked cache.
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
+      payload: {
+        metadata: { gene: "PAH", variant: "p.Arg408Trp" },
+        clinvar: { classification: "Pathogenic" },
+        ruleBasedInsights: { acmgVerdict: "Pathogenic" }
+      },
+      id: "legacy-1"
+    });
+
+    const result = await runCoreAnalysis(baseContext);
+
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    expect(fetchCoreVariantData, "an unverifiable row must be recomputed").toHaveBeenCalledTimes(1);
+    expect(result.cacheHit).toBe(false);
+
+    const lastSave = mockDb.saveVariantAnalysisAsync.mock.calls[mockDb.saveVariantAnalysisAsync.mock.calls.length - 1][0];
+    expect(
+      lastSave.payload._internal?.coreIdentity?.scienceHash,
+      "the refetch is what makes the row verifiable from then on"
+    ).toBeTruthy();
+    expect(lastSave.payload.metadata.cacheHit, "the row records no wire provenance").toBeUndefined();
   });
 
   it("should stream progressive analysis chunks to onChunk callback", async () => {
@@ -296,8 +359,58 @@ describe("Analysis Orchestrator Unit Tests", () => {
     expect((result.esm2Eval as any)?.score).toBe(-3.8);
     expect((result.saprotEval as any)?.score).toBe(-1.9);
     expect(result.serviceStatus.esm3).toBe("ok");
+    /**
+     * The collision regression: the core run's VESM-150M outcome lives at `serviceStatus.esm2`, so
+     * the structural merge may not overwrite it — not even with the legacy `esm2` key the fixture
+     * carries, and not with anything else. The deep model's ESM-2 650M outcome is `esm2Eval`.
+     */
+    expect(result.serviceStatus.esm2, "the core's status must survive the structural merge").toBe("ok");
+    expect(result.serviceStatus.esm2Eval).toBe("ok");
+    /**
+     * The structural stage's own spans travel on the response, under structural names — the client's
+     * waterfall can then draw a real model span instead of the whole-request span, which reports a
+     * healthy structural stage even when every model was unavailable.
+     */
+    expect(result.structuralTimings).toMatchObject({ esm3: 11, esmc: 12, esm2Eval: 13, saprot: 14 });
+    expect(result.structuralTimingOffsets).toMatchObject({ esm3: 20, saprot: 24 });
     expect(result.ruleBasedInsights).toBeDefined();
     expect(mockDb.saveVariantAnalysisAsync).toHaveBeenCalled();
+  });
+
+  it("persists structural spans BESIDE the core's, never over them", async () => {
+    // A restored core row that carries its own per-source timings: the structural stage must not
+    // relabel those sources with its own spans (nor the reverse).
+    const cachedCore = stamp({
+      metadata: {
+        gene: "PAH",
+        variant: "p.Arg408Trp",
+        // The rest of the payload mirrors its timings into metadata; this row does too.
+        serviceTimings: { clinvar: 12, predictorData: 480 },
+        serviceTimingOffsets: { clinvar: 12, predictorData: 500 }
+      },
+      clinvar: { classification: "Pathogenic" },
+      conservationData: { available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12.0 },
+      serviceStatus: { ...mockCoreData.serviceStatus },
+      serviceTimings: { clinvar: 12, predictorData: 480 },
+      serviceTimingOffsets: { clinvar: 12, predictorData: 500 },
+      ruleBasedInsights: { plausibility: "", acmgVerdict: "Pathogenic", acmgCriteria: [] }
+    });
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
+      payload: cachedCore, id: "timings-1", updatedAt: new Date().toISOString()
+    });
+
+    const result = await runStructuralAnalysis(baseContext, null, null);
+
+    const saved = mockDb.saveVariantAnalysisAsync.mock.calls[mockDb.saveVariantAnalysisAsync.mock.calls.length - 1][0].payload;
+    expect(saved.serviceTimings, "the core's per-source timings are untouched").toEqual({ clinvar: 12, predictorData: 480 });
+    expect(saved.serviceTimingOffsets).toEqual({ clinvar: 12, predictorData: 500 });
+    expect(saved.structuralTimings.esm3).toBe(11);
+    expect(saved.structuralTimingOffsets.saprot).toBe(24);
+    // The metadata mirror carries the STRUCTURAL spans beside the core's, not instead of them.
+    expect(saved.metadata.structuralTimings.esm2Eval).toBe(13);
+    expect(saved.metadata.structuralTimingOffsets.esmc).toBe(21);
+    expect(saved.metadata.serviceTimings).toEqual({ clinvar: 12, predictorData: 480 });
+    expect(result.structuralTimings.esm3).toBe(11);
   });
 
   it("should invalidate cached analysis when HF token is provided but cached data lacks GPN-Star", async () => {
@@ -314,12 +427,12 @@ describe("Analysis Orchestrator Unit Tests", () => {
         gpnStarStatus: "token_required"
       }
     };
-    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayloadLackingGpn, id: "1" });
-
     const contextWithHfToken: ParsedVariantContext = {
       ...baseContext,
       hfToken: "hf_test_token"
     };
+    // Stamped with the context that will READ it, so the ONLY reason for the recompute is staleness.
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(cachedPayloadLackingGpn, contextWithHfToken), id: "1" });
 
     const result = await runCoreAnalysis(contextWithHfToken);
 
@@ -342,14 +455,13 @@ describe("Analysis Orchestrator Unit Tests", () => {
         alphagenome: null
       }
     };
-    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayloadLackingAlpha, id: "2" });
-
     const contextWithAlphaKey: ParsedVariantContext = {
       ...baseContext,
       gene: "CNNM2",
       variant: "p.Ser489Cys",
       alphagenomeApiKey: "ag_secret_key_123"
     };
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(cachedPayloadLackingAlpha, contextWithAlphaKey), id: "2" });
 
     const result = await runCoreAnalysis(contextWithAlphaKey);
 
@@ -375,14 +487,13 @@ describe("Analysis Orchestrator Unit Tests", () => {
         }
       }
     };
-    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: cachedPayloadUnindexed, id: "3" });
-
     const contextWithAlphaKey: ParsedVariantContext = {
       ...baseContext,
       gene: "CNNM2",
       variant: "p.Ser489Cys",
       alphagenomeApiKey: "ag_secret_key_123"
     };
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(cachedPayloadUnindexed, contextWithAlphaKey), id: "3" });
 
     const result = await runCoreAnalysis(contextWithAlphaKey);
 
@@ -421,7 +532,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
 
   it("honors a RECENT build refusal without thrashing (no recompute)", async () => {
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
-      payload: refusedPayload, id: "4", updatedAt: new Date().toISOString()
+      payload: stamp(refusedPayload, alphaKeyContext), id: "4", updatedAt: new Date().toISOString()
     });
 
     await runCoreAnalysis(alphaKeyContext);
@@ -432,7 +543,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
 
   it("re-attempts after the refusal window lapses — a transient refusal must not pin a blank forever", async () => {
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({
-      payload: refusedPayload, id: "5",
+      payload: stamp(refusedPayload, alphaKeyContext), id: "5",
       updatedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString() // 7h ago (> 6h window)
     });
 
@@ -440,6 +551,186 @@ describe("Analysis Orchestrator Unit Tests", () => {
 
     const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
     expect(fetchCoreVariantData).toHaveBeenCalled();
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * ONE CORE FETCH FOR THE SAME IDENTITY — and what sharing must not change
+   * ─────────────────────────────────────────────────────────────────────────────
+   * The UI fires the structural tab and the stream for the same variant within milliseconds, and the
+   * dispatch order is not fixed: the structural request can be the one that starts the core fetch.
+   * In both orders there must be exactly ONE run, and the stream must still honour the chunk
+   * contract — chunk 1 first, one final frame, and it comes last.
+   */
+  it("shares ONE core fetch with a concurrent structural request, in the stream-first order", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValue(null);
+
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    const { coreSingleflightStats } = await import("./core-singleflight.ts");
+    let releaseCore: () => void = () => {};
+    const gate = new Promise<void>(resolve => { releaseCore = resolve; });
+    (vi.mocked(fetchCoreVariantData) as any).mockImplementationOnce(async (_c: any, _t: any, _p: any, onPartial: any) => {
+      await gate;
+      onPartial?.({
+        data: { conservationData: { revel: 0.9 } },
+        serviceStatus: { conservationData: "ok" },
+        serviceTimings: { conservationData: 12 },
+        serviceTimingOffsets: { conservationData: 12 }
+      });
+      return mockCoreData;
+    });
+
+    const chunks: any[] = [];
+    const stream = streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
+    const structural = runStructuralAnalysis(baseContext, null, null);
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(vi.mocked(fetchCoreVariantData), "the second route must join, not repeat").toHaveBeenCalledTimes(1);
+
+    releaseCore();
+    await Promise.all([stream, structural]);
+
+    expect(vi.mocked(fetchCoreVariantData)).toHaveBeenCalledTimes(1);
+    expect(coreSingleflightStats()).toMatchObject({ started: 1, joined: 1 });
+    expect(chunks[0].chunkIndex).toBe(1);
+    expect(chunks[0].isFinal).toBe(false);
+    const finals = chunks.filter(c => c.isFinal);
+    expect(finals.length).toBe(1);
+    expect(chunks[chunks.length - 1]).toBe(finals[0]);
+    // The preview the owner's run published reached the joining stream, after chunk 1.
+    const preview = chunks.find(c => !c.isFinal && c.chunkIndex !== 1);
+    expect(preview?.data.conservationData).toEqual({ revel: 0.9 });
+  });
+
+  it("shares ONE core fetch when the STRUCTURAL request started it, and the stream still frames correctly", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValue(null);
+
+    const { fetchClinVarData } = await import("../external-api/clinvar.ts");
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+    vi.mocked(fetchClinVarData).mockClear();
+
+    let releaseCore: () => void = () => {};
+    const gate = new Promise<void>(resolve => { releaseCore = resolve; });
+    (vi.mocked(fetchCoreVariantData) as any).mockImplementationOnce(
+      async (_c: any, _t: any, _p: any, onPartial: any, onFastTriage: any) => {
+        /**
+         * The run hands out its own two fast sources as it starts, exactly as the real fetcher does —
+         * BEFORE any await, so the stream that joins a moment later can build chunk 1 from them.
+         */
+        onFastTriage?.({
+          clinvar: Promise.resolve({ data: { classification: "Pathogenic" }, status: "ok" }),
+          predictorData: Promise.resolve({ data: { caddPhred: 25 }, status: "ok" })
+        });
+        await gate;
+        onPartial?.({
+          data: { conservationData: { revel: 0.7 } },
+          serviceStatus: { conservationData: "ok" },
+          serviceTimings: { conservationData: 8 },
+          serviceTimingOffsets: { conservationData: 8 }
+        });
+        return mockCoreData;
+      }
+    );
+
+    // The structural request goes first, exactly as the fan-out dispatches it.
+    const structural = runStructuralAnalysis(baseContext, null, null);
+    const chunks: any[] = [];
+    const stream = streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(
+      vi.mocked(fetchCoreVariantData),
+      "a structural request must not be repeated by the stream that follows it"
+    ).toHaveBeenCalledTimes(1);
+
+    releaseCore();
+    await Promise.all([structural, stream]);
+
+    /**
+     * ...and the stream did not ask the providers for ClinVar either: chunk 1 was built from the
+     * RUN's answer. That is the duplicate the crossing order used to pay, and it is also why chunk 1
+     * and the final payload cannot disagree about ClinVar.
+     */
+    expect(
+      fetchClinVarData,
+      "the joining stream must reuse the run's fast sources rather than re-query ClinVar"
+    ).not.toHaveBeenCalled();
+
+    expect(chunks[0].chunkIndex).toBe(1);
+    expect(chunks[0].isFinal).toBe(false);
+    expect(chunks[0].data.clinvar).toEqual({ classification: "Pathogenic" });
+    expect(chunks[0].data.serviceStatus.clinvar).toBe("ok");
+    // A frame from a live run is not a cache restore, and says so.
+    expect(chunks[0].data.metadata.cacheHit).toBe(false);
+    expect(chunks[0].data.metadata.cacheLayer).toBeNull();
+    const finals = chunks.filter(c => c.isFinal);
+    expect(finals.length).toBe(1);
+    expect(chunks[chunks.length - 1]).toBe(finals[0]);
+    expect(finals[0].chunkIndex).toBeGreaterThan(chunks[0].chunkIndex);
+    expect(finals[0].data.metadata.gene).toBe("PAH");
+    expect(finals[0].data.metadata.cacheHit).toBe(false);
+  });
+
+  it("writes chunk 1 BEFORE any core preview, even when a core source settles first", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
+
+    const { fetchClinVarData } = await import("../external-api/clinvar.ts");
+    const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+
+    // The triage is slow; the core run's other sources answer immediately, i.e. before chunk 1 can
+    // exist. The preview must wait for chunk 1 rather than overtake it on the wire.
+    vi.mocked(fetchClinVarData).mockImplementationOnce(async () => {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return { classification: "Pathogenic" } as any;
+    });
+    (vi.mocked(fetchCoreVariantData) as any).mockImplementationOnce(async (_c: any, _t: any, _p: any, onPartial: any) => {
+      onPartial?.({
+        data: { stringInteractions: [{ preferredName: "QDPR" }] },
+        serviceStatus: { stringInteractions: "ok" },
+        serviceTimings: { stringInteractions: 1 },
+        serviceTimingOffsets: { stringInteractions: 1 }
+      });
+      return mockCoreData;
+    });
+
+    const chunks: any[] = [];
+    await streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
+
+    expect(chunks[0].chunkIndex, "the triage frame is still the first frame on the wire").toBe(1);
+    expect(chunks[0].isFinal).toBe(false);
+    expect(chunks[0].data.ruleBasedInsights).toBeDefined();
+
+    const deferredPreview = chunks[1];
+    expect(deferredPreview.isFinal).toBe(false);
+    expect(deferredPreview.chunkIndex).toBeGreaterThan(chunks[0].chunkIndex);
+    expect(deferredPreview.data.stringInteractions).toEqual([{ preferredName: "QDPR" }]);
+
+    const finals = chunks.filter(c => c.isFinal);
+    expect(finals.length).toBe(1);
+    expect(chunks[chunks.length - 1]).toBe(finals[0]);
+  });
+
+  /**
+   * The reader's readiness must not be a database write.
+   *
+   * The persisted-write promise is deliberately left UNRESOLVED here: if any route awaited it, this
+   * test would hang rather than fail, so the assertion below is the whole point — the analysis
+   * answers while the write is still in flight.
+   */
+  it("answers /analyze-variant while the persistence write is still in flight", async () => {
+    mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
+    let resolveWrite: () => void = () => {};
+    mockDb.saveVariantAnalysisAsync.mockImplementationOnce(() => new Promise<void>(resolve => { resolveWrite = resolve; }));
+
+    const result = await runCoreAnalysis(baseContext);
+
+    expect(result.metadata.gene).toBe("PAH");
+    expect(mockDb.saveVariantAnalysisAsync).toHaveBeenCalled();
+    const write = mockDb.saveVariantAnalysisAsync.mock.results[0].value;
+    expect(write).toBeInstanceOf(Promise);
+
+    resolveWrite();
+    await write;
   });
 });
 

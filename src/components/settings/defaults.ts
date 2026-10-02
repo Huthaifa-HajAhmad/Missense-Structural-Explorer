@@ -1,4 +1,5 @@
 import type { UserSettings } from "../../types";
+import { DEFAULT_UI_BIOPHYSICS_CONDITIONS } from "../../shared/biophysicsConditions";
 
 /**
  * Single source of truth for user-settings defaults.
@@ -40,11 +41,13 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   defaultStructureModel: "alphafold",
   saprotEngine: "saprot-650m",
   spliceaiWindow: 500,
-  biophysicsConditions: {
-    ph: 7.4,
-    temperature: 25,
-    ionicStrength: 150
-  }
+  /**
+   * The simulation conditions the panel collects. Taken from the shared module rather than written
+   * out again: this literal, the panel's own `PHYSIOLOGICAL` reset constant and the converter's
+   * defaults were three copies of the same three numbers, and a drift between them means the panel
+   * shows one condition while the wire carries another.
+   */
+  biophysicsConditions: { ...DEFAULT_UI_BIOPHYSICS_CONDITIONS }
 };
 
 /** Credential fields that must never reach localStorage. */

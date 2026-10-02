@@ -172,7 +172,7 @@ describe("progressive first paint", () => {
     // The structure warm-up is the FALLBACK path (no chunks at all, e.g. non-streaming clients):
     // it still seeds the placeholder so a structure-only run is not left with no result object.
     expect(analysis.get().result).not.toBeNull();
-    expect(analysis.get().result.analysis).toContain("in progress");
+    expect(analysis.get().result.analysis).toBe(""); // No synthesized narrative has arrived.
 
     biophysicsGate.resolve({ analysis: "done", metadata: {} });
     await workflow;

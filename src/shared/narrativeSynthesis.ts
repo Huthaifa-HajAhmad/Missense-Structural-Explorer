@@ -57,8 +57,13 @@
  * lives beside the producer and is read by the consumer, so a change cannot be made in one place and
  * forgotten in the other. `server/routes/variant/narrative.ts` interpolates this constant rather than
  * a literal, and `narrativeCacheKey.test.ts` fails if a literal reappears.
+ *
+ * v5: the prompt gained the deep-model observation block (`src/shared/deepModelEvidence.ts`) and the
+ * rule that no ACMG criterion may be created from it. Every narrative in the cache was written without
+ * the stability and language-model results the report displays, so without this bump a re-run of the
+ * same variant would have been served the pre-integration narrative for the cache's full 24h TTL.
  */
-export const NARRATIVE_PROMPT_SCHEMA_VERSION = 4;
+export const NARRATIVE_PROMPT_SCHEMA_VERSION = 5;
 
 /** The narrative call's provider parameters. The server reads these; the UI only reports them. */
 export const NARRATIVE_SYNTHESIS = {
@@ -93,14 +98,29 @@ export function describeSampling(temperature: number): string {
 /**
  * What the narrative prompt is given, in words a reader can check the summary against.
  *
- * The prompt (`performGeminiAnalysis`) carries ClinVar, AlphaMissense, CADD, REVEL, GERP, phyloP and the
- * top STRING partners. It carries no allele frequency, gene constraint, functional domain, stability,
- * splicing or structure reading, and lets it propose criteria. The prompt used to ask for "molecular
- * hypotheses based on peptide chain coordinates" while sending none; it now asks for biochemical
- * hypotheses and tells the model it has no coordinates (schema v4). `narrativeSynthesis.test.ts` reads
- * the prompt source and fails if a block named here disappears or a "not sent" source appears in it.
+ * The prompt (`performGeminiAnalysis`) carries ClinVar, AlphaMissense, CADD, REVEL, GERP, phyloP, the
+ * top STRING partners, and — since schema v5 — the deep-model observation block built by
+ * `deepModelEvidencePromptBlock` (`src/shared/deepModelEvidence.ts`): every ΔΔG engine the run
+ * produced, the language models' ΔLLR, and a line naming the engines that returned nothing.
+ *
+ * It still carries no allele frequency, gene constraint, functional domain annotation, splicing
+ * prediction or 3D coordinates, and it does not let the model propose a criterion from a prediction.
+ * The prompt used to ask for "molecular hypotheses based on peptide chain coordinates" while sending
+ * none; it now asks for biochemical hypotheses and tells the model it has no coordinates (schema v4).
+ * `narrativePromptEvidence.test.ts` reads the prompt source and fails if a block named here disappears
+ * or a "not sent" source appears in it.
  */
 export const NARRATIVE_PROMPT_EVIDENCE = {
-  sent: ["ClinVar", "AlphaMissense", "CADD", "REVEL", "GERP++", "phyloP", "STRING partners"],
-  notSent: ["gnomAD frequency", "gene constraint", "functional domains", "stability (ΔΔG)", "splicing", "3D structure"],
+  sent: [
+    "ClinVar",
+    "AlphaMissense",
+    "CADD",
+    "REVEL",
+    "GERP++",
+    "phyloP",
+    "STRING partners",
+    "deep-model ΔΔG engines (FoldX, DynaMut2, DDMut, RaSP, ThermoMPNN, StabilityOracle)",
+    "language-model variant scores (SaProt, ESM-2, ESM-C, ESM3)",
+  ],
+  notSent: ["gnomAD frequency", "gene constraint", "functional domains", "splicing", "3D structure"],
 } as const;

@@ -32,7 +32,9 @@ import * as path from "path";
  * The root lives under the OS temp directory, so a crashed run cannot leave mock content where
  * production reads it.
  */
-const TEST_STATE_ROOT = path.join(os.tmpdir(), "missense-test-state");
+// Each setup execution belongs to one test file. Parallel files (and concurrent agent runs)
+// must not clear another file's caches/database/fixtures through the same redirected directory.
+const TEST_STATE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "missense-test-state-"));
 
 /** Redirect targets, one per real path a module resolves. */
 const TEST_STATE_ENV: Record<string, string> = {

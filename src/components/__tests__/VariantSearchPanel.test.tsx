@@ -737,7 +737,7 @@ describe("VariantSearchPanel keyless-first", () => {
     const analyse = screen.getByRole("button", { name: /^analyse variant$/i });
     expect(analyse).toHaveAttribute("type", "submit");
     expect(screen.queryByText(/add api key to analyse/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/interpretation will be rule-based/i)).toBeInTheDocument();
+    expect(screen.getByText(/rule-based classification work without Gemini/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
   });
 });

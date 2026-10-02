@@ -149,7 +149,7 @@ describe("Literature tab — the papers", () => {
     getLiterature.mockClear();
     fireEvent.click(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }));
     await waitFor(() => expect(getLiterature).toHaveBeenCalled());
-    expect(getLiterature).toHaveBeenCalledWith(GENE, false, undefined, VARIANT_Q);
+    expect(getLiterature).toHaveBeenCalledWith(GENE, false, expect.any(AbortSignal), VARIANT_Q);
     expect(await screen.findByText("No record names p.Asp116Gly")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }).getAttribute("aria-pressed")).toBe("true");
   });

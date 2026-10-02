@@ -64,6 +64,7 @@ export function HeaderBar({
   onOpenOnboarding
 }: HeaderBarProps) {
   let hasConfiguredGeminiKey = true;
+  let showAiSetupNotice = true;
   let openSettingsTab = (_tab?: SettingsTabId | LegacySettingsTabId) => {};
   let isDark = isDarkProp ?? false;
   let toggleTheme = onToggleTheme ?? (() => {});
@@ -71,6 +72,7 @@ export function HeaderBar({
   try {
     const settings = useSettings();
     hasConfiguredGeminiKey = settings.hasConfiguredGeminiKey;
+    showAiSetupNotice = !settings.settings?.narrativeMode || settings.settings.narrativeMode === "automatic";
     openSettingsTab = settings.openSettingsTab;
     // Props win when provided (e.g. isolated tests); context is the live source otherwise.
     if (isDarkProp === undefined) isDark = settings.isDark;
@@ -186,7 +188,7 @@ export function HeaderBar({
 
         {/* An invitation, not a warning: analyses run without a key and the interpretation falls
             back to rule-based criteria, so this is neutral chrome rather than amber alarm. */}
-        {!hasConfiguredGeminiKey && !errorIsKey && (
+        {(!hasConfiguredGeminiKey && showAiSetupNotice) && !errorIsKey && (
           <button
             type="button"
             onClick={() => openSettingsTab("connections")}
@@ -218,7 +220,7 @@ export function HeaderBar({
         )}
 
         {/* The divider only separates notices from actions, so it exists only when there are notices. */}
-        {(error || !hasConfiguredGeminiKey || isOffline) && (
+        {(error || (!hasConfiguredGeminiKey && showAiSetupNotice) || isOffline) && (
           <span className={`${CHROME_DIVIDER} mx-1.5`} aria-hidden="true" />
         )}
 

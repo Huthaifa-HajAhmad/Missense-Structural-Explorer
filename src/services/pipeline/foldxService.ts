@@ -9,9 +9,14 @@ import {
   CLIENT_REMOTE_SUBMISSION_WAIT_MS,
 } from "../../shared/timeouts";
 import { readJsonWithTimeout } from "../../shared/httpBody";
+import {
+  toNativeFoldxConditions,
+  describeConditionRejection,
+} from "../../shared/biophysicsConditions";
 import { toFoldxMutation } from "./notationService";
 import { PipelineBiophysicalSink } from "./types";
 import { setCachedVariant } from "./variantCache";
+import { biophysicsContextOf } from "./analysisContext";
 
 export interface FoldxExecutionOptions {
   gene?: string;
@@ -186,19 +191,43 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
   };
 
   try {
+    /**
+     * ─────────────────────────────────────────────────────────────────────────────
+     * THE UNIT BOUNDARY — °C/mM IN, K/M ON THE WIRE
+     * ─────────────────────────────────────────────────────────────────────────────
+     * `conditions` is what the Settings panel holds (°C, mM). The server's `/generate-mutant`
+     * contract is FoldX's native one — Kelvin and molar — and it forwards what it is given straight
+     * to `--temperature` / `--ionStrength`. Forwarding the panel's numbers verbatim therefore asked
+     * FoldX for 25 K and 150 M while the cache key recorded the panel's numbers, so the wrong-units
+     * result was cached under a key that claimed the requested condition.
+     *
+     * The conversion lives HERE, at the boundary, and nowhere else: the server contract is unchanged,
+     * and the cache context keeps the SUBMITTED panel conditions (`biophysicsContextOf(conditions)`
+     * below), so what a reader sees in Settings is what the record says was submitted.
+     *
+     * A conditions object that is present but unusable is rejected rather than converted to
+     * something merely plausible: the run reports which field to fix instead of silently computing
+     * under a condition nobody chose. No conditions object at all means "use the server's defaults",
+     * which is the existing contract and is left alone.
+     */
+    let conditionsBody: Partial<{ pH: number; temperature: number; ionicStrength: number }> = {};
+    if (conditions) {
+      const converted = toNativeFoldxConditions(conditions);
+      if (!converted.ok) {
+        throw new Error(
+          `Simulation conditions are not usable (${describeConditionRejection(converted)}); FoldX was not submitted.`
+        );
+      }
+      conditionsBody = converted.native;
+    }
+
     const res = await fetchWithAuth("/api/v1/generate-mutant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         uniprotId,
         mutation: foldxMutation,
-        ...(conditions
-          ? {
-              pH: conditions.ph,
-              temperature: conditions.temperature,
-              ionicStrength: conditions.ionicStrength
-            }
-          : {})
+        ...conditionsBody
       }),
       signal,
       // This request may resolve a structure from PDBe and fall back to AlphaFold; without a ceiling
@@ -379,6 +408,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
       // this was one of the three sites still feeding the settle a narrower view than the store's.
       settleUnreachableRemoteEngines(lastRemoteState);
       setCachedVariant(cacheGeneKey, variant, uniprotId, {
+        biophysicsContext: biophysicsContextOf(conditions),
         mutantPdb: data.pdb ?? null,
         foldxWtPdb: data.wtReferencePdb ?? null,
         foldedResidueIndex: data.foldedResidueIndex ?? residueIndex,
@@ -559,6 +589,7 @@ export async function executeFoldxPipeline(options: FoldxExecutionOptions): Prom
               });
 
               setCachedVariant(cacheGeneKey, variant, uniprotId, {
+        biophysicsContext: biophysicsContextOf(conditions),
                 mutantPdb: resResult.pdb ?? null,
                 foldxWtPdb: resResult.wtReferencePdb ?? null,
                 foldedResidueIndex: resResult.foldedResidueIndex ?? residueIndex,

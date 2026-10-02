@@ -43,6 +43,9 @@ export interface DeriveAiStatusInput {
   /** Whether any narrative text is present. */
   hasNarrative: boolean;
   isNarrativeLoading: boolean;
+  narrativeMode?: "automatic" | "on-demand" | "off";
+  narrativeOutdated?: boolean;
+  deepEvidenceIncluded?: boolean;
 }
 
 /**
@@ -54,6 +57,14 @@ export interface DeriveAiStatusInput {
  * Here a degraded report can never render a "ready" status.
  */
 export function deriveAiStatus(input: DeriveAiStatusInput): AiStatusModel {
+  if (input.narrativeMode === "off") return {
+    state: "idle", label: "AI synthesis off", tone: "neutral", retryable: false, canSynthesize: false,
+    detail: "The evidence report is available without Gemini. Enable AI synthesis in Analysis settings to generate a narrative."
+  };
+  if (input.narrativeOutdated && !input.isNarrativeLoading) return {
+    state: "idle", label: "Narrative describes earlier evidence", tone: "warn", retryable: true, canSynthesize: input.isKeyActive,
+    detail: "Evidence changed after this narrative was generated. Re-synthesize to describe the current evidence snapshot."
+  };
   const {
     isFallback,
     fallbackReason,
