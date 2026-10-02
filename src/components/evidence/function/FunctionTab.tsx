@@ -147,6 +147,14 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   const result = analysisState.result;
   const [zoom, setZoom] = useState<Zoom>("whole");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggleGroup = (g: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
 
   const ev = useMemo(() => (result ? buildFunctionEvidence(functionEvidenceInputFrom(result)) : null), [result]);
   if (!result || !ev) return null;
@@ -252,15 +260,24 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
                     <th scope="col">Evidence</th>
                   </tr>
                 </thead>
-                {ev.groups.map((g) => (
+                {ev.groups.map((g) => {
+                  // Near the variant by default: a 68-row wall hides the few rows that matter. Domains stay,
+                  // and a row the reader opened stays even when it is far.
+                  const near = (r: AnnotationRow) => r.covers || Math.abs(r.distance) <= NEAR || g.group === "domains" || r.key === selectedKey;
+                  const open = expanded.has(g.group);
+                  const shown = open ? g.rows : g.rows.filter(near);
+                  const hidden = g.rows.length - shown.length;
+                  const hasFar = g.rows.some((r) => !near(r));
+                  return (
                   <tbody key={g.group} data-group={g.group}>
                     <tr className="fnd-group">
                       <th colSpan={4} scope="rowgroup">
                         <span className="fnd-group__title">{g.label}</span>
                         <span className="fnd-group__count">{g.rows.length}</span>
+                        {g.summary && <span className="fnd-group__note">{g.summary}</span>}
                       </th>
                     </tr>
-                    {g.rows.map((row) => {
+                    {shown.map((row) => {
                       const open = selectedKey === row.key;
                       return (
                         <React.Fragment key={row.key}>
@@ -286,8 +303,18 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
                         </React.Fragment>
                       );
                     })}
+                    {hasFar ? (
+                      <tr className="fnd-more">
+                        <td colSpan={4}>
+                          <button type="button" className="fnd-more__btn" aria-expanded={open} onClick={() => toggleGroup(g.group)}>
+                            {open ? `Show only within ${NEAR} residues of ${ev.residue}` : `Show ${hidden} more, more than ${NEAR} residues away`}
+                          </button>
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
-                ))}
+                  );
+                })}
               </table>
             ) : (
               <p className="fnd-empty">UniProtKB lists no features for this protein beyond the chain itself.</p>

@@ -200,6 +200,11 @@
 .fnd-table tbody:last-of-type tr:last-child > * { border-bottom: 0; }
 .fnd-group > th { padding: 8px 16px !important; background: var(--cs-surface-2); }
 .fnd-table tbody + tbody .fnd-group > th { border-top: 1px solid var(--cs-border-subtle); }
+.fnd-group__note { margin-left: 12px; font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-secondary); }
+.fnd-more td { padding: 0; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface); }
+.fnd-more__btn { display: block; width: 100%; min-height: 36px; padding: 8px 16px; text-align: left; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); background: none; border: 0; cursor: pointer; }
+.fnd-more__btn:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-accent) 6%, transparent); }
+.fnd-more__btn:focus-visible { outline: 2px solid var(--cs-accent); outline-offset: -2px; }
 .fnd-group__count { margin-left: 8px; font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
 
 .fnd-table tr[data-covers] > * { background: color-mix(in srgb, var(--cs-accent-clay) 6%, transparent); }

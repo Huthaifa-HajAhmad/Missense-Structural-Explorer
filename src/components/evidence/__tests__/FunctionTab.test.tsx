@@ -95,7 +95,7 @@ describe("FunctionRail", () => {
   it("traces the rule and names the sources from the payload", () => {
     render(<FunctionRail analysisResult={resultFor()} />);
     const trace = screen.getByTestId("function-rule-trace").textContent ?? "";
-    expect(trace).toMatch(/counting experimental evidence only/);
+    expect(trace).toMatch(/counting only evidence observed in this protein/);
     expect(trace).toMatch(/Engine record: PM1 not met/);
     expect(screen.getByTestId("function-rail").textContent).not.toMatch(/Swiss-Prot Verified|v2024/);
     expect(screen.getByText("InterPro via UniParc")).toBeTruthy();

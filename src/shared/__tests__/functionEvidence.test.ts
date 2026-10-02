@@ -98,3 +98,57 @@ describe("buildFunctionEvidence — states and the engine", () => {
     expect(buildFunctionEvidence({ ...NAE1_INPUT, residue: 130, uniprot, engineCriteria: null }).pm1.status).toBe("met");
   });
 });
+
+describe("buildFunctionEvidence — SLC12A4 p.Gln867His (membrane transporter audit)", () => {
+  const ENS = [{ code: "ECO:0000269", source: "PubMed", id: "31649201" }];
+  const uniprot = {
+    ...NAE1_UNIPROT,
+    sequenceLength: 1085,
+    domainMatches: [],
+    secondaryStructure: [
+      { kind: "helix" as const, start: 855, end: 866, pdb: "6KKR" },
+      { kind: "helix" as const, start: 869, end: 871, pdb: "6KKR" },
+    ],
+    features: [
+      { type: "Topological domain", description: "Cytoplasmic", start: 652, end: 1085, evidence: ENS },
+      { type: "Transmembrane", description: "Helical; Name=4", start: 249, end: 271, evidence: ENS },
+      { type: "Transmembrane", description: "Discontinuously helical; Name=1", start: 120, end: 141, evidence: ENS },
+      { type: "Binding site", description: "Ligand: K(+)", start: 131, end: 131, evidence: ENS },
+    ],
+  };
+  const ev = buildFunctionEvidence({ ...NAE1_INPUT, residue: 867, wildType: "Gln", mutant: "His", uniprot, engineCriteria: [] });
+
+  it("tidies UniProt's machine names for display", () => {
+    expect(ev.rows.find((r) => r.start === 249)?.name).toBe("TM4");
+    expect(ev.rows.find((r) => r.start === 120)?.name).toBe("TM1 (discontinuous)");
+    expect(ev.rows.find((r) => r.start === 131)?.name).toBe("K⁺ binding");
+  });
+
+  it("treats a broad topological span as context, not an annotation at the residue", () => {
+    expect(ev.finding.lead).not.toMatch(/carries one annotation/);
+    expect(ev.finding.rest).toContain("a broad span rather than a site");
+    expect(ev.verdict).toBe("not-met");
+  });
+
+  it("summarises the topology group", () => {
+    expect(ev.groups.find((g) => g.group === "topology")?.summary).toBe("2 transmembrane segments");
+  });
+
+  it("calls a two-residue gap a link, but never a long unassigned stretch", () => {
+    expect(ev.finding.rest).toContain("2-residue link between helices");
+    const far = buildFunctionEvidence({ ...NAE1_INPUT, residue: 900, uniprot, engineCriteria: [] });
+    expect(far.structureContext?.value).toBe("Terminal, no regular structure");
+    const gap = buildFunctionEvidence({
+      ...NAE1_INPUT,
+      residue: 500,
+      uniprot: { ...uniprot, secondaryStructure: [{ kind: "helix" as const, start: 400, end: 410, pdb: "6KKR" }, { kind: "helix" as const, start: 600, end: 620, pdb: "6KKR" }] },
+      engineCriteria: [],
+    });
+    expect(gap.structureContext?.value).toBe("No helix or strand assigned");
+    expect(gap.finding.rest).not.toContain("link between");
+  });
+
+  it("does not read an absent disease-variant list as a negative finding", () => {
+    expect(ev.facts.find((f) => f.label === "Disease variants")?.value).toBe("None in UniProtKB");
+  });
+});

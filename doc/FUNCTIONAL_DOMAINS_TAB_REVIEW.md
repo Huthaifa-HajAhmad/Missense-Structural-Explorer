@@ -60,3 +60,16 @@ experimental / inferred / uncited evidence.
 - Benign variation in the region is not checked (would need gnomAD missense counts per region); PM1 says so.
 - The hot-spot reading of PM1 (clusters of pathogenic variants) is not implemented.
 - The Threshold Guide's "PM1 / BP3" label on ΔΔG rows, above.
+
+## Follow-up audit, 2026-10-02 (SLC12A4 p.Gln867His, Q9UP95, 1085 aa)
+
+PM1 "not met" was correct for this variant. Changes, all in `functionEvidence.ts` unless noted:
+
+- A topological span or region covering ≥ 30% of the chain is stated as context ("a broad span rather than a site"), not "carries one annotation".
+- A gap between helices is called a link only when ≤ 8 residues; a longer one is "no helix or strand assigned", since UniProt's secondary structure omits unresolved residues.
+- UniProt strings are tidied for display: `Helical; Name=4` → TM4, `Ligand: K(+)` → K⁺ binding. The topology group carries a count summary.
+- Domain segments are sorted by position; the disease-variant fact no longer reads an empty UniProt list as a negative finding; the rail trace states the evidence PM1 counts (experimental, structure, large-scale) accurately and lists only the evidence levels present in the entry.
+- The table shows rows covering the residue or within 50 residues by default, with a per-group "Show N more".
+- Variant header (separate commit): Missense Z below 2 is no longer labelled "Tolerant" unless Z ≤ 0 (0 < Z < 2 is "Not constrained"); LOEUF above the cut reads "Not LoF constrained".
+
+Not done: 3D distances from the loaded model, a membrane lane in the schematic and a default ±50 zoom, a benign-variation context line (D1) and naming same-residue mutagenesis in the finding (D2).
