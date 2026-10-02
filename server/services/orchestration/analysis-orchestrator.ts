@@ -60,11 +60,18 @@ function stripInternalFields<T extends Record<string, any>>(payload: T): Omit<T,
   return clientPayload;
 }
 
-function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
+export function isStaleCachedPayload(payload: any, context?: ParsedVariantContext, recordUpdatedAt?: string | null): boolean {
   if (!payload) return true;
   const cons = payload.conservationData;
   if (cons && cons.available === true) {
     if (cons.dann === null || cons.bayesdel === null || cons.clinpred === null || cons.eigenPhred === null) {
+      return true;
+    }
+    // A live SpliceAI score carries the window it was computed under. A reader who has since chosen a
+    // different window must not be served the old one under the new label: recompute. A score with no
+    // stated window (a frozen table) cannot be compared, so it is left alone.
+    const scoredWindow = cons.spliceai?.provenance?.source === "broad-lookup" ? cons.spliceai.provenance.distanceBp : null;
+    if (context?.spliceaiDistance && typeof scoredWindow === "number" && scoredWindow !== context.spliceaiDistance) {
       return true;
     }
     // Invalidate stale cache if Hugging Face token is provided but cached payload lacks GPN-Star

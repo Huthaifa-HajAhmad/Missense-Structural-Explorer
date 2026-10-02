@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { runCoreAnalysis, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
+import { runCoreAnalysis, isStaleCachedPayload, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
@@ -440,5 +440,29 @@ describe("Analysis Orchestrator Unit Tests", () => {
 
     const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
     expect(fetchCoreVariantData).toHaveBeenCalled();
+  });
+});
+
+describe("isStaleCachedPayload — SpliceAI window", () => {
+  const payload = (source: string | null, distanceBp: number | null) => ({
+    conservationData: {
+      available: true, dann: 1, bayesdel: 1, clinpred: 1, eigenPhred: 1,
+      spliceai: source ? { max_ds: 0.1, provenance: { source, distanceBp } } : null,
+    },
+  });
+  const ctx = (d?: number) => ({ spliceaiDistance: d } as any);
+
+  it("recomputes a live score computed under another window", () => {
+    expect(isStaleCachedPayload(payload("broad-lookup", 500), ctx(2000))).toBe(true);
+    expect(isStaleCachedPayload(payload("broad-lookup", 50), ctx(500))).toBe(true);
+  });
+
+  it("keeps a score whose window matches, or when no window was requested", () => {
+    expect(isStaleCachedPayload(payload("broad-lookup", 500), ctx(500))).toBe(false);
+    expect(isStaleCachedPayload(payload("broad-lookup", 500), ctx(undefined))).toBe(false);
+  });
+
+  it("leaves a frozen table alone: it states no window to compare", () => {
+    expect(isStaleCachedPayload(payload("precomputed-dbnsfp", null), ctx(2000))).toBe(false);
   });
 });

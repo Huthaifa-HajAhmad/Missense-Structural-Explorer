@@ -139,7 +139,7 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.queryByText("AVI")).not.toBeInTheDocument();
   });
 
-  it("should render the splice junction proximity alert when adjacent to a splice site", () => {
+  it("states proximity to a splice junction as context, not as an alert", () => {
     render(
       <VariantHeader
         gene="BRAF"
@@ -149,13 +149,29 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const alert = screen.getByTitle(/Splice alert/);
-    expect(alert).toHaveClass("vh-chip--alert");
-    expect(alert).toHaveTextContent("4 bp");
-    expect(alert).toHaveTextContent("Splice site");
-    expect(
-      screen.getByText("Splice alert: variant is 4 bp from the nearest exon–intron boundary.")
-    ).toBeInTheDocument();
+    const chip = screen.getByTestId("splice-proximity-chip");
+    expect(chip).not.toHaveClass("vh-chip--alert");
+    expect(chip).toHaveTextContent("4 bp");
+    expect(chip).toHaveTextContent("Near splice site");
+    expect(chip.getAttribute("title")).toMatch(/context, not evidence/);
+    expect(screen.queryByTitle(/Splice alert/)).toBeNull();
+  });
+
+  it("words an oriented position in splice-site numbering", () => {
+    render(
+      <VariantHeader
+        gene="SLC12A4"
+        variant="p.Gln867His"
+        uniprotId="Q9UP95"
+        analysisResult={
+          {
+            ...mockAnalysisResult,
+            conservationData: { spliceProximity: { isNearSpliceSite: true, distance: 6, junctionType: "donor", regionType: "exonic" } } as any,
+          } as AnalysisResult
+        }
+      />
+    );
+    expect(screen.getByTestId("splice-proximity-chip")).toHaveTextContent("−7 donor");
   });
 
   it("should NOT render the splice junction alert when not near a splice site", () => {

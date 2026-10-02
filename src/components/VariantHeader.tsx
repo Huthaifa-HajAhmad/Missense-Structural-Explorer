@@ -3,6 +3,7 @@ import { AnalysisResult } from "../types";
 import { parseVariantCoordinate } from "../shared/variantCoordinate";
 import { variantNumberingView } from "../shared/numbering";
 import { THRESHOLDS } from "../shared/thresholds";
+import { describeSplicePlacement } from "../shared/splicingEvidence";
 import { ExternalLink, Copy, Check, Dna, MapPin, FlaskConical, Scissors } from "lucide-react";
 
 interface VariantHeaderProps {
@@ -537,6 +538,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
     : undefined;
 
   const spliceProximity = conservation?.spliceProximity;
+  const splicePlacement = describeSplicePlacement(analysisResult);
   const hasIdentifiers = Boolean(
     displayTranscriptId || genomicId || uniprotId || spliceProximity?.isNearSpliceSite
   );
@@ -601,19 +603,19 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult }: VariantHead
               </span>
             )}
 
-            {spliceProximity?.isNearSpliceSite && (
+            {spliceProximity?.isNearSpliceSite && splicePlacement && (
               <span
-                className="vh-chip vh-chip--alert"
-                data-tone="path"
-                title={`Splice alert — this variant sits ${spliceProximity.distance} bp from the nearest exon–intron boundary.`}
+                className="vh-chip"
+                data-testid="splice-proximity-chip"
+                title={`${splicePlacement.long}. Distance from a splice junction is context, not evidence of a splicing effect — see RNA splicing.`}
               >
                 <Scissors className="vh-chip-icon" size={12} strokeWidth={1.75} aria-hidden="true" />
-                <span className="vh-chip-value">{spliceProximity.distance} bp</span>
-                <span className="vh-chip-tag" data-tone="path">
-                  Splice site
+                <span className="vh-chip-value">{splicePlacement.short}</span>
+                <span className="vh-chip-tag" data-tone="muted">
+                  Near splice site
                 </span>
                 <span className="vh-sr-only">
-                  Splice alert: variant is {spliceProximity.distance} bp from the nearest exon–intron boundary.
+                  Near a splice site: variant is {splicePlacement.long}. Distance is context, not evidence of a splicing effect.
                 </span>
               </span>
             )}

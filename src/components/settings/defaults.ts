@@ -26,6 +26,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   autoZoomOnSelect: false,
   showAtomInteractions: true,
   acmgWeighting: "standard",
+  narrativeMode: "automatic",
   energyUnit: "kcal/mol",
   seqColorScheme: "chemical",
   seqScrollStep: 31,
@@ -38,6 +39,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   defaultPerturbationModel: "saprot",
   defaultStructureModel: "alphafold",
   saprotEngine: "saprot-650m",
+  spliceaiWindow: 500,
   biophysicsConditions: {
     ph: 7.4,
     temperature: 25,

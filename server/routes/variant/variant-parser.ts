@@ -1,3 +1,4 @@
+import { normaliseSpliceAiDistance } from "../../services/external-api/spliceai_broad.ts";
 import { z } from "zod";
 import {
   validateGene,
@@ -84,6 +85,7 @@ export const analyzeVariantSchema = z.object({
   gpnApiUrl: z.string().url().max(512).optional(),
   alphagenomeApiKey: z.string().optional(),
   alphagenomeApiUrl: z.string().url().max(512).optional(),
+  spliceaiDistance: z.number().int().min(50).max(10000).optional(),
   saprotEngine: z.enum(["saprot-650m", "saprot-35m", "remote-hf"]).or(z.string()).optional(),
 });
 
@@ -216,6 +218,8 @@ export interface ParsedVariantContext {
   gpnApiUrl?: string | null;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
+  /** SpliceAI reporting window the caller asked for; null leaves the client's default. */
+  spliceaiDistance?: number | null;
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
@@ -553,6 +557,7 @@ export async function validateAndParseVariantRequest(
     gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
     alphagenomeApiKey: sanitizeToken(req.headers["x-alphagenome-key"]) || sanitizeToken(req.body?.alphagenomeApiKey) || sanitizeToken(process.env.ALPHAGENOME_API_KEY),
     alphagenomeApiUrl: sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl) || sanitizeUrl(process.env.ALPHAGENOME_API_URL),
+    spliceaiDistance: normaliseSpliceAiDistance(req.headers["x-spliceai-distance"]) ?? normaliseSpliceAiDistance(req.body?.spliceaiDistance),
     saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };
 }

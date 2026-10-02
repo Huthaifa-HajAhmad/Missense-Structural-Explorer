@@ -351,24 +351,7 @@
 .vh-chip-tag[data-tone="clay"]  { background: var(--vh-clay-soft);  color: var(--vh-clay-fg); }
 .vh-chip-tag[data-tone="muted"] { background: var(--vh-muted-soft); color: var(--vh-muted-fg); }
 
-/* Splice-junction proximity — rare, actionable, and the only alert in the row.
-   No fill on the entry itself: the path-toned icon, value and "Splice site" tag
-   carry the urgency in the same verdict grammar as the metric rows. The pulse is
-   a state cue, not an idle animation: it stops under prefers-reduced-motion and
-   the colour and label carry the same signal statically. */
-.vh-chip--alert {
-  animation: vh-alert-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-.vh-chip--alert .vh-chip-icon,
-.vh-chip--alert .vh-chip-value {
-  color: var(--vh-path-fg);
-}
-@keyframes vh-alert-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.62; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .vh-chip--alert { animation: none; }
   .vh-icon-btn:active { transform: none; }
 }
 

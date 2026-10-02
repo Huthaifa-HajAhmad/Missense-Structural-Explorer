@@ -17,6 +17,20 @@ const ACMG_DESCRIPTIONS: Record<string, string> = {
   "strict-structural": "Heavily weights PM1 structural hotspots and PS3 functional assays."
 };
 
+/**
+ * SpliceAI reporting windows. 50 is Illumina's published default (and what its precomputed tables
+ * used); 500 is the Broad Lookup's default and this app's. Wider windows reach cryptic sites deeper in
+ * an intron at the cost of more reported positions and a slower request.
+ */
+const SPLICEAI_WINDOWS = [50, 200, 500, 1000, 2000] as const;
+const SPLICEAI_DESCRIPTIONS: Record<number, string> = {
+  50: "Illumina's published default. Reports only sites within 50 bp of the variant.",
+  200: "A middle reach: catches most cryptic sites in the neighbouring intron.",
+  500: "The Broad Lookup's default. Comparable with what the Broad web tool shows.",
+  1000: "Reaches deeper into introns; more positions reported, slower request.",
+  2000: "The widest reach the splice map draws; slowest request."
+};
+
 const SAPROT_DESCRIPTIONS: Record<string, string> = {
   "saprot-650m": "Local 650M on CPU — most accurate, ~3.5 s per variant.",
   "saprot-35m": "Local 35M — ~200 ms per variant with a low memory footprint.",
@@ -40,9 +54,17 @@ export function AnalysisSection() {
     settings.biophysicsConditions.ionicStrength === PHYSIOLOGICAL.ionicStrength;
 
   const saprotEngine = settings.saprotEngine || "saprot-650m";
+  const spliceaiWindow = (SPLICEAI_WINDOWS as readonly number[]).includes(settings.spliceaiWindow ?? 500) ? (settings.spliceaiWindow ?? 500) : 500;
 
   return (
     <div className="space-y-7">
+      <SettingsSection title="Optional AI synthesis">
+        <SettingsRow stacked label="Generate AI narrative" description="Evidence and the workspace are available independently. Automatic runs Gemini in the background; on-demand waits for you to select Synthesize in Report; off makes no narrative requests.">
+          <SegmentedControl fullWidth ariaLabel="AI narrative mode" value={settings.narrativeMode || "automatic"}
+            onChange={(value) => updateSetting("narrativeMode", value)}
+            options={[{ value: "automatic", label: "Automatic" }, { value: "on-demand", label: "On demand" }, { value: "off", label: "Off" }]} />
+        </SettingsRow>
+      </SettingsSection>
       <SettingsSection title="Clinical evidence weighting">
         <SettingsRow
           stacked
@@ -70,6 +92,22 @@ export function AnalysisSection() {
               { value: "kcal/mol", label: "kcal/mol" },
               { value: "kJ/mol", label: "kJ/mol" }
             ]}
+          />
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title="RNA splicing">
+        <SettingsRow
+          stacked
+          label="SpliceAI window"
+          description={`${SPLICEAI_DESCRIPTIONS[spliceaiWindow]} Applies to the next analysis, and can also be changed beside the score on the RNA splicing tab, which re-scores just that variant.`}
+        >
+          <SegmentedControl
+            fullWidth
+            ariaLabel="SpliceAI reporting window"
+            value={String(spliceaiWindow)}
+            onChange={(value) => updateSetting("spliceaiWindow", Number(value))}
+            options={SPLICEAI_WINDOWS.map((w) => ({ value: String(w), label: `±${w}` }))}
           />
         </SettingsRow>
       </SettingsSection>

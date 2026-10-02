@@ -46,7 +46,9 @@ describe("SplicingTab — reference variant (no SpliceAI score)", () => {
   it("places the variant at +26 from the acceptor, outside dbscSNV's window", () => {
     renderTab(nae1Reference());
     expect(screen.getByRole("img", { name: /position \+26 of the acceptor.*outside it/ })).toBeTruthy();
-    expect(screen.getByTestId("splice-dbscsnv-ada").textContent).toMatch(/−12 to \+2 at an acceptor/);
+    // Both dbscSNV models are out of window for the same reason: one row, not the reason twice.
+    expect(screen.getByTestId("splice-dbscsnv").textContent).toMatch(/−12 to \+2 at an acceptor/);
+    expect(screen.queryByTestId("splice-dbscsnv-rf")).toBeNull();
   });
 
   it("uses no legacy status words", () => {
@@ -83,6 +85,51 @@ describe("SplicingTab — scored variant", () => {
     expect(row.textContent).toMatch(/20%/);
     expect(row.textContent).toMatch(/Informational/);
     expect(row.textContent).not.toMatch(/Primary Driver/);
+  });
+});
+
+describe("SplicingTab — splice map", () => {
+  // NAE1 has no exon bounds, but the fixture's exon length (80 bp) and +26 acceptor position are enough.
+  const withScores = (ds: Record<string, number>, dp: Record<string, number>) =>
+    nae1Reference({
+      conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: Math.max(...Object.values(ds)), ...ds, dp } },
+    });
+
+  it("draws a lollipop for a channel that scores, labelled and placed in transcript direction", () => {
+    renderTab(withScores({ ds_dl: 0.62 }, { ds_dl: 40 }));
+    const lollipop = screen.getByTestId("map-ds_dl");
+    expect(lollipop.textContent).toBe("Donor loss 0.62");
+    // Reverse-strand gene: genomic +40 is 40 bases UPSTREAM, so the map says −40, and so does the aria label.
+    expect(screen.getByRole("img", { name: /donor loss 0\.62 at −40 bases/ })).toBeTruthy();
+  });
+
+  it("says so in words, rather than drawing an empty lane, when no channel scores", () => {
+    renderTab(withScores({ ds_dl: 0.001 }, { ds_dl: 40 }));
+    expect(screen.queryByTestId("map-ds_dl")).toBeNull();
+    expect(screen.getByTestId("map-note").textContent).toMatch(/No SpliceAI channel reaches 0\.01/);
+  });
+
+  it("does not claim a channel was below the floor when SpliceAI returned nothing at all", () => {
+    renderTab(nae1Reference());
+    expect(screen.getByTestId("map-note").textContent).toMatch(/returned no score/);
+    expect(screen.getByTestId("map-note").textContent).not.toMatch(/reaches 0\.01/);
+  });
+
+  it("names why SpliceAI has no score, in the table and with a state label that is not 'No result'", () => {
+    renderTab(nae1Reference({ conservationData: { spliceaiFailure: { kind: "coordinate-rejected", httpStatus: 400, detail: "REF does not match" } } }));
+    const row = screen.getByTestId("splice-spliceai");
+    expect(row.textContent).toMatch(/refused this variant \(HTTP 400\)/);
+    expect(row.textContent).toMatch(/Coordinate rejected/);
+  });
+
+  it("keeps dbscSNV and AlphaGenome out of the hero, where the table already holds them", () => {
+    renderTab(nae1Reference({
+      conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0.62, max_ds: 0.62, dp: { ds_dl: 40 }, provenance: { source: "broad-lookup", distanceBp: 500, masked: 1, computedLive: true } } },
+    }));
+    const hero = screen.getByTestId("splicing-finding");
+    expect(hero.textContent).not.toMatch(/dbscSNV/);
+    expect(hero.textContent).not.toMatch(/AlphaGenome splicing/);
+    expect(hero.textContent).toMatch(/Broad Lookup/);
   });
 });
 

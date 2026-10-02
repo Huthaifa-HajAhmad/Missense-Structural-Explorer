@@ -65,17 +65,90 @@ window; the "Tertiary Structure-Dominant" verdict is gone.
 - Rendered with the NAE1 payload and two synthetic ones (scored PP3 vs engine BP4; intronic +5 donor
   with dbscSNV) in light, dark and an ~800 px main column.
 
+## Second pass — layout, consistency, and the splice map (2 October 2026)
+
+Reviewed against SLC12A4 p.Gln867His (NM_005072.5, reverse strand; SpliceAI max Δ 0.001) and two
+synthetic payloads (a donor loss on the annotated donor plus a cryptic acceptor gain; a refused
+coordinate).
+
+| # | Finding | Fix |
+|---|---|---|
+| L1 | The hero ruler was capped at 560 px: half the card was empty and 0 / 0.1 / 0.2 were squeezed into 60 px. | Full width. |
+| L2 | The table's Source column took all the slack; scores floated mid-card; the four channel rows were four identical dots on a bandless ruler. | Column widths set; channels are one row of four cells (channel, Δ, position, description). |
+| L3 | dbscSNV AdaBoost and random forest repeated the same "not covered" reason word for word. | One row when both are absent for the same reason; two rows when scored (the models can disagree). |
+| L4 | The same score printed `0.00` in the tab and `0.001` in the rail; 0.0996 would print `0.10` while in BP4. | `formatDelta` everywhere: `< 0.01` for a non-zero score under 0.005, a third decimal only when rounding lands on a cut-point. |
+| L5 | The table showed a solid `BP4 (splicing)` chip (reads as recorded) and the hero a clay one beside the red band (reads as pathogenic). | One chip: `BP4 · splicing`, toned by direction, dashed wherever it means "not applied by the engine". |
+| L6 | Rail cut-points and Method prose were hand-typed numbers. | Read from `THRESHOLDS`. |
+| L7 | The hero repeated dbscSNV (hero cell, table row and junction text) and carried AlphaGenome's attribution, which is not splicing evidence. | Hero facts are Position · SpliceAI source · Engine record. |
+| L8 | "Donor gain 0.00 at −360 bp": a location for a score of zero. | A position is shown only for a score ≥ 0.01. |
+| L9 | SpliceAI's delta positions are **genomic**; the tab's other positions are transcript-direction. On a reverse-strand gene the table said "at −6 bp" while the position was +6 from the donor. | Converted to transcript direction everywhere; with no strand they stay genomic and say so. |
+| L10 | The header chip was a red, pulsing "Splice alert" on the app's own ≤ 5 bp flag. | A neutral "Near splice site" chip in splice-site numbering (`−7 donor`), no pulse; its title says distance is context, not evidence. |
+| F1 | A failed SpliceAI request was a bare `null`, so the tab guessed. | `fetchSpliceAiBroadOutcome` classifies it (rate-limited, coordinate-rejected, upstream-error, timeout, network, unreadable, no-transcript) and the payload carries `conservationData.spliceaiFailure`; the tab names the cause and labels the state ("Provider busy", "Coordinate rejected", "Provider error"). A payload from before this field keeps the cautious wording. |
+
+### The splice map
+
+The junction schematic (one junction, ±40 bp, a dot) is replaced by a variant-centred **splice map**:
+one axis in bases from the variant, in transcript direction; the exon to its real length with the
+annotated donor and acceptor; SpliceAI's four channels as lollipops at their delta positions
+(height = score on 0–1, the Walker PP3 line drawn across; gains solid, losses hollow); dbscSNV's
+real window; the canonical dinucleotide while the scale is fine enough. It answers what the old
+figure could not: whether a predicted change lands **on a real splice site** (a weakened or
+strengthened one) **or in open sequence** (a cryptic site). A channel on an annotated site says so in
+its table cell. When no channel reaches 0.01 no lane is drawn; the card says so in words.
+
+The model is `SpliceMap` in `splicingEvidence.ts` (pure, tested); `SpliceMap.tsx` only draws it.
+
+Two facts were checked against the live Broad service rather than assumed. BRCA1 exon 3
+(ENST00000357654, reverse strand, 54 bp), variant chr17:43115729 (4th exonic base from the donor):
+`DP_DG = −3` and `DP_AG = +50`. In genomic coordinates the donor is at the exon's low end and the
+acceptor at its high end, and SpliceAI marks the **exonic** base next to each junction. So DP is
+genomic (reverse-strand genes flip) and the annotated sites sit at `junction − ½` (donor) and
+`junction + ½` (acceptor). `splicingEvidence.test.ts` pins exactly this case.
+
+### Neighbouring exons and the SpliceAI window (same day)
+
+- **Exon list.** `resolveSpliceProximity` now carries `nearbyExons` (the transcript's exons within
+  2.5 kb of the variant, transcript-numbered, 1-based inclusive genomic coordinates). The map takes
+  every exon's bounds from it, draws the neighbours muted, names the introns between them, and puts
+  their annotated sites on the axis, so a delta can land on a neighbour's site (checked: an acceptor
+  gain on the upstream exon's acceptor reads "Lands on the annotated acceptor"). Payloads from before
+  the field fall back to the nearest exon alone; both paths are tested.
+- **SpliceAI window setting** (Settings → Analysis → RNA splicing): ±50 / 200 / **500** / 1000 / 2000,
+  persisted like other analysis settings, sent as `x-spliceai-distance`, clamped server-side to the
+  service's 50–10,000 range, and passed to the Broad request (it is already part of the cache key).
+  A cached analysis whose live SpliceAI score was computed under another window is treated as stale
+  and recomputed (`isStaleCachedPayload`); a frozen-table score states no window and is left alone.
+  The identity hash is deliberately untouched, so no stored row is invalidated by the new setting.
+  The map widens to 1 and 2 kb steps to match.
+
+- **Inline control.** The window is also a control beside the readings on the tab
+  (`SpliceWindowControl`), so a reader weighing a splicing call does not leave it for Settings. A choice
+  saves the default (same setting) and re-scores only that variant through a new
+  `POST /api/v1/spliceai/score` (coordinate, build, window), which returns the fields the analysis
+  would have carried (`liveSpliceAiFields`, shared with the pipeline). The control selects the window
+  the score was actually computed under, not merely the saved default; a failed re-score keeps the
+  score on screen, labelled with its real window, and says why.
+
+### Verification
+
+- `npx tsc --noEmit` and `npm run lint` clean.
+- New tests: map geometry and strand flipping (BRCA1 case), failure reasons (client and tab),
+  `formatDelta`, merged dbscSNV row, header chip. Updated: the channel-shift test now states the
+  transcript-direction rule, and the header test no longer expects an alert.
+- Rendered in light, dark and ~1000 px for a zero score, a PP3 case with a donor loss on the
+  annotated donor, and a refused coordinate.
+
 ## Not done (follow-ups)
 
 - **Engine**: splicing is not an engine input. If that changes, Walker 2023's "PP3 once" rule and
   the missense-BP4 interaction need implementing in `criteria.ts`, not in a surface.
-- **Payload**: SpliceAI failures are swallowed as `null`; the server should record why (rate limit,
-  reference mismatch, timeout) so the tab can say "Provider error" rather than infer it.
-- **Header chip**: `VariantHeader` still shows "Splice site · N bp" from `isNearSpliceSite` (≤ 5 bp,
-  app-defined). It asserts nothing wrong but uses a local proximity flag.
-- Walker 2023's full text could not be fetched in this review (PMC captcha, Cell 403, Europe PMC
-  rate-limited). Its SpliceAI bands were verified via the ClinGen Criteria Specification Registry,
-  which quotes them ("a score equal to or >0.2" / "based on a score <0.1").
+- **Client cache**: a result already held in the browser's own history is not re-fetched when the
+  window setting changes; it is recomputed when the server sees it (new analysis or reopen).
+- **Strand**: when the resolver leaves the strand unresolved, SpliceAI's positions are not placed on
+  the map (they are genomic and the side cannot be known).
+- Walker 2023's full text could not be fetched in the first review (PMC captcha, Cell 403, Europe
+  PMC rate-limited). Its SpliceAI bands were verified via the ClinGen Criteria Specification
+  Registry, which quotes them ("a score equal to or >0.2" / "based on a score <0.1").
 
 ## Sources
 

@@ -138,7 +138,8 @@ export async function fetchCoreVariantData(
     hfToken,
     gpnApiUrl,
     alphagenomeApiKey,
-    alphagenomeApiUrl
+    alphagenomeApiUrl,
+    spliceaiDistance
   } = context;
 
   /**
@@ -278,6 +279,7 @@ export async function fetchCoreVariantData(
     gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
+    spliceaiDistance,
     sequence
   }).catch(err => {
     console.warn("[Conservation Parallel Run Warning] Failed to fetch conservation:", err);

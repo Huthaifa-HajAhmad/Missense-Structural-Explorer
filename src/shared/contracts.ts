@@ -1138,6 +1138,12 @@ export const conservationDataSchema = z.object({
     exonStart: z.number().nullable().optional(),
     exonEnd: z.number().nullable().optional(),
     exonLength: z.number().nullable().optional(),
+    /**
+     * The transcript's exons within reach of the splice map (±2.5 kb of the variant), numbered in
+     * transcript order, 1-based inclusive genomic coordinates. Absent on payloads from before the
+     * map drew neighbouring exons; the map then draws only the nearest exon from `exonLength`.
+     */
+    nearbyExons: z.array(z.object({ number: z.number(), start: z.number(), end: z.number() })).optional(),
     intronNumber: z.number().nullable().optional(),
     junctionType: z.enum(["donor", "acceptor", "terminal"]).nullable().optional(),
     adjacentIntronNumber: z.number().nullable().optional(),
@@ -1185,6 +1191,17 @@ export const conservationDataSchema = z.object({
       computedLive: z.boolean().optional(),
       annotationSet: z.string().nullable().optional()
     }).optional()
+  }).nullable().optional(),
+  /**
+   * Why the live SpliceAI request produced no score, when one was made. Absent on a payload
+   * that carries a score, and on payloads from before this field existed (the tab then says
+   * the reason was not recorded rather than inferring one). `coordinate-rejected` is the
+   * service refusing the variant itself — most often a REF that does not match the genome.
+   */
+  spliceaiFailure: z.object({
+    kind: z.enum(["rate-limited", "coordinate-rejected", "upstream-error", "timeout", "network", "unreadable", "no-transcript"]),
+    httpStatus: z.number().nullable(),
+    detail: z.string().nullable()
   }).nullable().optional(),
   dbscsnv: z.object({
     ada_score: z.number().nullable(),

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   fetchSpliceAiBroad,
+  fetchSpliceAiBroadOutcome,
+  normaliseSpliceAiDistance,
   clearSpliceAiCache,
   buildSpliceAiCacheKey,
   SPLICEAI_DEFAULT_DISTANCE,
@@ -178,6 +180,87 @@ describe("fetchSpliceAiBroad — degradation (must never throw, never fabricate)
     // "cannot score", and must not be rendered as a zero delta score.
     fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(jsonResponse(maco1Payload({ scores: [] })));
     expect(await fetchSpliceAiBroad("1", 25484258, "G", "A", { skipCache: true })).toBeNull();
+  });
+});
+
+describe("fetchSpliceAiBroadOutcome — says why there is no score", () => {
+  const ask = () => fetchSpliceAiBroadOutcome("1", 25484258, "G", "A", { skipCache: true });
+
+  it("names a refused coordinate, with the service's own words", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(jsonResponse({ error: "REF does not match" }, 400));
+    const out = await ask();
+    expect(out.record).toBeNull();
+    expect(out.failure).toMatchObject({ kind: "coordinate-rejected", httpStatus: 400 });
+    expect(out.failure!.detail).toMatch(/REF does not match/);
+  });
+
+  it("names a rate limit and a server error, which the shared client surfaces as a throw carrying the status", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(jsonResponse({ error: "slow down" }, 429));
+    expect((await ask()).failure).toMatchObject({ kind: "rate-limited", httpStatus: 429 });
+    clearSpliceAiCache();
+    fetchSpy.mockResolvedValue(jsonResponse({ error: "bad gateway" }, 502));
+    expect((await ask()).failure).toMatchObject({ kind: "upstream-error", httpStatus: 502 });
+  });
+
+  it("names a timeout and a dropped connection apart", async () => {
+    const t: any = new Error("The operation timed out");
+    t.name = "TimeoutError";
+    fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(t);
+    expect((await ask()).failure?.kind).toBe("timeout");
+    clearSpliceAiCache();
+    fetchSpy.mockRejectedValue(new Error("ECONNREFUSED"));
+    expect((await ask()).failure?.kind).toBe("network");
+  });
+
+  it("separates a malformed body from an empty gene list", async () => {
+    // Every field in the contract is optional, so "unreadable" needs a wrong TYPE, not a missing key.
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(jsonResponse({ scores: "not-a-list" }));
+    expect((await ask()).failure?.kind).toBe("unreadable");
+    fetchSpy.mockResolvedValue(jsonResponse(maco1Payload({ scores: [] })));
+    expect((await ask()).failure?.kind).toBe("no-transcript");
+  });
+
+  it("keeps the reason when a cached miss is replayed", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(jsonResponse({ error: "REF does not match" }, 422));
+    await fetchSpliceAiBroadOutcome("1", 25484258, "G", "A");
+    const again = await fetchSpliceAiBroadOutcome("1", 25484258, "G", "A");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(again.failure?.kind).toBe("coordinate-rejected");
+  });
+
+  it("reports no failure for a score, or when nothing was asked", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(jsonResponse(maco1Payload()));
+    const ok = await ask();
+    expect(ok.record).not.toBeNull();
+    expect(ok.failure).toBeNull();
+    expect((await fetchSpliceAiBroadOutcome("", 1, "G", "A", { skipCache: true })).failure).toBeNull();
+  });
+});
+
+describe("SpliceAI reporting window", () => {
+  it("normalises a requested window into the service's range, and refuses what is not a number", () => {
+    expect(normaliseSpliceAiDistance("200")).toBe(200);
+    expect(normaliseSpliceAiDistance(" 1000 ")).toBe(1000);
+    expect(normaliseSpliceAiDistance(["500"])).toBe(500);
+    expect(normaliseSpliceAiDistance(5)).toBe(50);
+    expect(normaliseSpliceAiDistance(99999)).toBe(10000);
+    expect(normaliseSpliceAiDistance("abc")).toBeNull();
+    expect(normaliseSpliceAiDistance("12.5e3")).toBeNull();
+    expect(normaliseSpliceAiDistance(undefined)).toBeNull();
+  });
+
+  it("sends the requested window to the service, and keeps windows apart in the cache", async () => {
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) => {
+      const d = Number(new URL(String(url)).searchParams.get("distance"));
+      return jsonResponse(maco1Payload({ distance: d }));
+    });
+    const narrow = await fetchSpliceAiBroad("1", 25484258, "G", "A", { distance: 50 });
+    const wide = await fetchSpliceAiBroad("1", 25484258, "G", "A", { distance: 2000 });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0][0])).toMatch(/distance=50&/);
+    expect(String(fetchSpy.mock.calls[1][0])).toMatch(/distance=2000&/);
+    expect(narrow!.distance).toBe(50);
+    expect(wide!.distance).toBe(2000);
   });
 });
 

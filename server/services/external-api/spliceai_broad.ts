@@ -52,6 +52,21 @@ const SPLICEAI_BASE_URLS = {
  */
 export const SPLICEAI_DEFAULT_DISTANCE = 500;
 
+/** The range the Broad service accepts for the reporting window (its MAX_DISTANCE_LIMIT is 10,000). */
+export const SPLICEAI_MIN_DISTANCE = 50;
+export const SPLICEAI_MAX_DISTANCE = 10_000;
+
+/**
+ * A caller's requested window as an integer inside the service's range, or null when it is absent or
+ * not a number — so a bad header falls back to the default instead of failing the analysis.
+ */
+export function normaliseSpliceAiDistance(raw: unknown): number | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\s*\d+\s*$/.test(v) ? Number.parseInt(v, 10) : NaN;
+  if (!Number.isFinite(n)) return null;
+  return Math.min(SPLICEAI_MAX_DISTANCE, Math.max(SPLICEAI_MIN_DISTANCE, Math.round(n)));
+}
+
 /** Masking: 1 = masked (recommended for interpretation), 0 = raw. */
 export const SPLICEAI_DEFAULT_MASK = 1;
 
@@ -60,12 +75,52 @@ const REQUEST_TIMEOUT_MS = 20_000;
 /** Immutable per (variant, build, distance, mask): a long TTL is safe. */
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
-/** Sentinel stored for a negative result, so a miss is cacheable with a short TTL. */
-const NO_SCORE = Symbol("spliceai-no-score");
+/**
+ * Why SpliceAI produced no score. A miss used to be a bare null, so the tab could only guess
+ * between "nothing to score" (impossible for a gene variant) and "the request failed", and it
+ * guessed in prose. The kinds are the ones an operator can act on:
+ *   rate-limited       HTTP 429 — the interactive service's per-user limit
+ *   coordinate-rejected HTTP 400/422 — the service validated the variant and refused it, most often
+ *                      because REF does not match the genome (a strand or build error upstream)
+ *   upstream-error     any other non-2xx
+ *   timeout            no answer within the request budget
+ *   network            the request never completed
+ *   unreadable         a 2xx whose body did not match the contract
+ *   no-transcript      a clean answer with no scored transcript (outside any gene)
+ */
+export type SpliceAiFailureKind =
+  | "rate-limited"
+  | "coordinate-rejected"
+  | "upstream-error"
+  | "timeout"
+  | "network"
+  | "unreadable"
+  | "no-transcript";
+
+export interface SpliceAiFailure {
+  kind: SpliceAiFailureKind;
+  httpStatus: number | null;
+  /** The service's own words when it gave any, trimmed. */
+  detail: string | null;
+}
+
+export interface SpliceAiOutcome {
+  record: SpliceAiScoreRecord | null;
+  /** Set exactly when `record` is null and a request was actually made (or replayed from cache). */
+  failure: SpliceAiFailure | null;
+}
+
+/** A negative result, cacheable with a short TTL; carries its reason so a replay still explains itself. */
+interface NoScore {
+  readonly noScore: true;
+  readonly failure: SpliceAiFailure;
+}
+const noScore = (failure: SpliceAiFailure): NoScore => ({ noScore: true, failure });
+const isNoScore = (v: unknown): v is NoScore => typeof v === "object" && v !== null && (v as NoScore).noScore === true;
 
 interface SpliceAiCache {
-  get(key: string): SpliceAiScoreRecord | typeof NO_SCORE | undefined;
-  set(key: string, value: SpliceAiScoreRecord | typeof NO_SCORE, options?: { ttl?: number }): unknown;
+  get(key: string): SpliceAiScoreRecord | NoScore | undefined;
+  set(key: string, value: SpliceAiScoreRecord | NoScore, options?: { ttl?: number }): unknown;
   delete(key: string): unknown;
   clear(): void;
 }
@@ -76,7 +131,7 @@ interface SpliceAiCache {
  * "we never asked": the former gets a short TTL rather than being re-queried on every
  * request, and unlike `null` it survives a cache that treats falsy values as absent.
  */
-const spliceAiCache = new LRUCache<string, SpliceAiScoreRecord | typeof NO_SCORE>({
+const spliceAiCache = new LRUCache<string, SpliceAiScoreRecord | NoScore>({
   max: 2000,
 }) as unknown as SpliceAiCache;
 
@@ -201,7 +256,8 @@ export interface FetchSpliceAiOptions {
  *
  * Returns null when the variant cannot be scored (upstream unreachable, rate limited,
  * malformed or empty response). Callers must treat null as "no live score" and fall
- * through to another source — never as evidence of benign splicing.
+ * through to another source — never as evidence of benign splicing. Callers that need to say
+ * WHY use `fetchSpliceAiBroadOutcome`.
  */
 export async function fetchSpliceAiBroad(
   chrom: string,
@@ -210,21 +266,38 @@ export async function fetchSpliceAiBroad(
   alt: string,
   options: FetchSpliceAiOptions = {}
 ): Promise<SpliceAiScoreRecord | null> {
+  return (await fetchSpliceAiBroadOutcome(chrom, pos, ref, alt, options)).record;
+}
+
+/** The first line of a service message, bounded: enough to name the cause, never a payload dump. */
+function briefDetail(text: string | null | undefined): string | null {
+  const line = (text ?? "").replace(/\s+/g, " ").trim();
+  return line ? line.slice(0, 200) : null;
+}
+
+export async function fetchSpliceAiBroadOutcome(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  options: FetchSpliceAiOptions = {}
+): Promise<SpliceAiOutcome> {
   const assembly = options.assembly ?? "GRCh38";
   const distance = options.distance ?? SPLICEAI_DEFAULT_DISTANCE;
   const mask = options.mask ?? SPLICEAI_DEFAULT_MASK;
 
   const baseUrl = SPLICEAI_BASE_URLS[assembly];
-  if (!baseUrl) return null;
-  if (!chrom || !Number.isFinite(pos) || !ref || !alt) return null;
+  // Nothing was asked of the service in these three cases, so there is no failure to report.
+  if (!baseUrl) return { record: null, failure: null };
+  if (!chrom || !Number.isFinite(pos) || !ref || !alt) return { record: null, failure: null };
 
-  if (mockProvider) return mockProvider(chrom, pos, ref, alt);
+  if (mockProvider) return { record: await mockProvider(chrom, pos, ref, alt), failure: null };
 
   const cacheKey = buildSpliceAiCacheKey(chrom, pos, ref, alt, assembly, distance, mask);
   if (!options.skipCache) {
     const cached = spliceAiCache.get(cacheKey);
-    if (cached === NO_SCORE) return null;
-    if (cached !== undefined) return cached;
+    if (isNoScore(cached)) return { record: null, failure: cached.failure };
+    if (cached !== undefined) return { record: cached, failure: null };
   }
 
   const hg = assembly === "GRCh38" ? 38 : 37;
@@ -246,17 +319,26 @@ export async function fetchSpliceAiBroad(
       1
     );
 
+    const miss = (failure: SpliceAiFailure): SpliceAiOutcome => {
+      spliceAiCache.set(cacheKey, noScore(failure), { ttl: 60_000 });
+      return { record: null, failure };
+    };
+
     if (!response.ok) {
       console.warn(`[SpliceAI Broad] ${variant} returned HTTP ${response.status}; falling back.`);
-      spliceAiCache.set(cacheKey, NO_SCORE, { ttl: 60_000 });
-      return null;
+      const status = response.status;
+      const detail = briefDetail(await response.text().catch(() => null));
+      return miss({
+        kind: status === 429 ? "rate-limited" : status === 400 || status === 422 ? "coordinate-rejected" : "upstream-error",
+        httpStatus: status,
+        detail,
+      });
     }
 
     const parsed = responseSchema.safeParse(await response.json());
     if (!parsed.success) {
       console.warn(`[SpliceAI Broad] ${variant} returned an unrecognised payload; falling back.`);
-      spliceAiCache.set(cacheKey, NO_SCORE, { ttl: 60_000 });
-      return null;
+      return miss({ kind: "unreadable", httpStatus: response.status, detail: null });
     }
 
     const body = parsed.data;
@@ -266,8 +348,7 @@ export async function fetchSpliceAiBroad(
       // A scored variant always carries at least one transcript record. An empty list is a
       // real "cannot score" (outside any gene, near a chromosome end), so cache it briefly
       // and report null rather than fabricating zeros.
-      spliceAiCache.set(cacheKey, NO_SCORE, { ttl: 60_000 });
-      return null;
+      return miss({ kind: "no-transcript", httpStatus: response.status, detail: null });
     }
 
     const channels = [selected.DS_AG, selected.DS_AL, selected.DS_DG, selected.DS_DL];
@@ -298,12 +379,21 @@ export async function fetchSpliceAiBroad(
     };
 
     spliceAiCache.set(cacheKey, record, { ttl: CACHE_TTL_MS });
-    return record;
+    return { record, failure: null };
   } catch (err: any) {
     if (options.signal?.aborted) throw err;
     console.warn(`[SpliceAI Broad] ${variant} lookup failed: ${err?.message ?? "unknown error"}; falling back.`);
-    spliceAiCache.set(cacheKey, NO_SCORE, { ttl: 60_000 });
-    return null;
+    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError" || /time(d)? ?out/i.test(String(err?.message ?? ""));
+    // The shared client throws (with the last status) on 429 and 5xx, so those arrive here, not above.
+    const status = typeof err?.statusCode === "number" && err.statusCode !== 200 ? (err.statusCode as number) : null;
+    const failure: SpliceAiFailure =
+      status === 429
+        ? { kind: "rate-limited", httpStatus: 429, detail: null }
+        : status !== null && status >= 500
+        ? { kind: "upstream-error", httpStatus: status, detail: null }
+        : { kind: timedOut ? "timeout" : "network", httpStatus: null, detail: briefDetail(err?.message) };
+    spliceAiCache.set(cacheKey, noScore(failure), { ttl: 60_000 });
+    return { record: null, failure };
   }
 }
 

@@ -11,7 +11,7 @@ import { queryDbnsfpOrg } from "./dbnsfp-query.ts";
 import { fetchRealConsurfData } from "./consurf-resolver.ts";
 import { fetchPopEVEScore, fetchPopEVEScoreOnline } from "./popeve-resolver.ts";
 import { fetchAlphaGenome } from "../../external-api/alphagenome-bridge.ts";
-import { fetchSpliceAiBroad, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiScoreRecord } from "../../external-api/spliceai_broad.ts";
+import { fetchSpliceAiBroadOutcome, SPLICEAI_DEFAULT_DISTANCE, type SpliceAiOutcome } from "../../external-api/spliceai_broad.ts";
 import { CANONICAL_ASSEMBLY, sourceSupportsAssembly, describeAssemblyRefusal, ASSEMBLY_REFUSAL_SOURCES } from "../../../../src/shared/assembly.ts";
 import type { GenomeAssembly } from "../../../../src/shared/variantNotation.ts";
 import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateString } from "../../../../src/shared/contracts.ts";
@@ -27,13 +27,15 @@ import { type ConservationData, type AlphaGenomeAviData, parseGenomicCoordinateS
  * `provenance` is always stamped, so a reader can tell which window and annotation the
  * number came from — the two sources legitimately disagree on borderline variants.
  */
-function applyLiveSpliceAi<T extends ConservationData>(
-  data: T,
-  live: SpliceAiScoreRecord | null
-): T {
-  if (!live) return data;
+/**
+ * The payload fields a live SpliceAI outcome contributes: the score with its provenance, or the
+ * reason there is none. Shared by the analysis and by the splicing tab's own re-score, so a score
+ * re-fetched under another window is shaped exactly like the one the analysis would have carried.
+ */
+export function liveSpliceAiFields(outcome: SpliceAiOutcome | null): Pick<ConservationData, "spliceai" | "spliceaiFailure"> | null {
+  const live = outcome?.record ?? null;
+  if (!live) return outcome?.failure ? { spliceaiFailure: outcome.failure } : null;
   return {
-    ...data,
     spliceai: {
       ds_ag: live.ds_ag,
       ds_al: live.ds_al,
@@ -49,7 +51,17 @@ function applyLiveSpliceAi<T extends ConservationData>(
         annotationSet: live.isManeSelect ? "MANE Select" : null,
       },
     },
+    spliceaiFailure: null,
   };
+}
+
+function applyLiveSpliceAi<T extends ConservationData>(
+  data: T,
+  outcome: SpliceAiOutcome | null
+): T {
+  // With no live score the frozen/Genos value stays, and the failure (if any) says why the live request missed.
+  const fields = liveSpliceAiFields(outcome);
+  return fields ? { ...data, ...fields } : data;
 }
 
 /**
@@ -57,7 +69,7 @@ function applyLiveSpliceAi<T extends ConservationData>(
  * unreachable academic endpoint degrades to the existing precomputed sources rather than
  * failing the analysis.
  */
-async function fetchLiveSpliceAiIfPossible(
+export async function fetchLiveSpliceAiIfPossible(
   chrom: string,
   pos: number,
   ref: string,
@@ -68,14 +80,15 @@ async function fetchLiveSpliceAiIfPossible(
    * service validates REF, and when the other build's base at that numeric position coincides
    * it returns plausible scores for a different locus.
    */
-  coordinateAssembly: GenomeAssembly | null
-): Promise<SpliceAiScoreRecord | null> {
+  coordinateAssembly: GenomeAssembly | null,
+  distance: number = SPLICEAI_DEFAULT_DISTANCE
+): Promise<SpliceAiOutcome | null> {
   // SpliceAI Lookup runs a separate service per build, so a known build is routed rather
   // than rejected — GRCh37 coordinates legitimately go to the spliceai-37 service.
   if (coordinateAssembly === null) return null;
   if (!sourceSupportsAssembly("spliceai-lookup", coordinateAssembly)) return null;
-  return fetchSpliceAiBroad(chrom, pos, ref, alt, {
-    distance: SPLICEAI_DEFAULT_DISTANCE,
+  return fetchSpliceAiBroadOutcome(chrom, pos, ref, alt, {
+    distance,
     assembly: coordinateAssembly,
   });
 }
@@ -711,6 +724,8 @@ export interface ProgressiveConservationContext {
   gpnApiUrl?: string | null;
   alphagenomeApiKey?: string | null;
   alphagenomeApiUrl?: string | null;
+  /** SpliceAI reporting window (-D); defaults to `SPLICEAI_DEFAULT_DISTANCE`. */
+  spliceaiDistance?: number | null;
   sequence?: string | null;
 }
 
@@ -729,6 +744,7 @@ export async function fetchConservationDataProgressive(
     gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
+    spliceaiDistance,
     sequence
   } = context;
 
@@ -770,7 +786,7 @@ export async function fetchConservationDataProgressive(
       let spliceProximity: any = null;
       let gpnStarResult: EvolutionaryScaleResult | null = null;
       let alphagenomeResult: AlphaGenomeAviData | null = null;
-      let liveSpliceAi: SpliceAiScoreRecord | null = null;
+      let liveSpliceAi: SpliceAiOutcome | null = null;
       const assemblyRefusals: Array<{ source: string; reason: string }> = [];
 
       const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
@@ -847,7 +863,8 @@ export async function fetchConservationDataProgressive(
           // Live SpliceAI runs a service per build, so it routes on the COORDINATE's build
           // rather than the request's.
           fetchLiveSpliceAiIfPossible(
-            parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, coordinateAssembly
+            parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, coordinateAssembly,
+            spliceaiDistance ?? SPLICEAI_DEFAULT_DISTANCE
           )
             // A caller abort makes the client throw so the HTTP layer can answer 504 honestly.
             // Catching it HERE keeps that abort from nulling PopEVE, GPN-Star and AlphaGenome, which

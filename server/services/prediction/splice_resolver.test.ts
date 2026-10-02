@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   calculateDistanceToSpliceSite,
   fetchTranscriptExons,
+  nearbyExonsOf,
   resolveSpliceProximity,
   resetExonCacheForTests
 } from "./splice_resolver.ts";
@@ -478,5 +479,31 @@ describe("Splice Resolver and Distance Calculator Tests", () => {
         }
       }, 15000);
     });
+  });
+});
+
+describe("nearbyExonsOf — the exons the splice map draws", () => {
+  // A three-exon reverse-strand transcript, ascending in the genome: the genome-lowest exon is the LAST in the transcript.
+  const rev = [
+    { start: 43106456, end: 43106533 },
+    { start: 43115726, end: 43115779 },
+    { start: 43124017, end: 43124115 },
+  ];
+
+  it("numbers in transcript order: a reverse-strand gene counts down the genome", () => {
+    expect(nearbyExonsOf(rev, 43115729, true, 100_000).map(e => e.number)).toEqual([3, 2, 1]);
+  });
+
+  it("keeps only exons within reach of the variant, keeping their transcript numbers", () => {
+    // The neighbours are 8–9 kb away: only the variant's own exon (number 2 of 3) is in a 2.5 kb reach.
+    expect(nearbyExonsOf(rev, 43115729, true, 2500)).toEqual([{ number: 2, start: 43115726, end: 43115779 }]);
+  });
+
+  it("numbers a forward-strand gene up the genome", () => {
+    const fwd = [{ start: 100, end: 200 }, { start: 400, end: 500 }, { start: 900, end: 950 }];
+    expect(nearbyExonsOf(fwd, 450, false, 300)).toEqual([
+      { number: 1, start: 100, end: 200 },
+      { number: 2, start: 400, end: 500 },
+    ]);
   });
 });
