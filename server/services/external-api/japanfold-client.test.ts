@@ -139,7 +139,7 @@ describe("JapanFold API Client", () => {
       expect(result).not.toBeNull();
       expect(result?.ipTm).toBe(0.84);
       expect(result?.interfaceContacts.length).toBe(1);
-      expect(result?.provenance).toBe("JapanFold Boltz-2 (Tier 1)");
+      expect(result?.provenance).toBe("Boltz-2 via JapanFold");
     });
 
     it("returns null for ipTm and pTm when upstream does not provide them", async () => {

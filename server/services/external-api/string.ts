@@ -1,4 +1,5 @@
 import type { LRUCache } from "lru-cache";
+import { LRUCache as LRUCacheImpl } from "lru-cache";
 import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import { stringCache, getCachedOrFetch } from "../infra/cache.ts";
 import { buildStringKey } from "../infra/cache-keys.ts";
@@ -119,4 +120,84 @@ export async function fetchStringInteractions(
   options?: FetchStringOptions
 ): Promise<StringInteraction[]> {
   return (await fetchStringInteractionsWithStatus(gene, options)).partners;
+}
+
+/**
+ * STRING partner lists for the Interfaces & PPI tab: the PHYSICAL sub-network (evidence that the two
+ * proteins bind or sit in one complex) and the FUNCTIONAL network (any association: co-expression,
+ * text mining, pathways), each down to STRING's lowest band (0.15).
+ *
+ * Why not `fetchStringInteractions`: it returns the functional top five, so for every partner a
+ * curator or an IntAct screen named, the screen could only say "not in STRING's top five" — STRING
+ * was never actually asked about it. Here each list goes to `STRING_PARTNER_LIMIT` rows; a partner
+ * absent from a list shorter than that has no association at or above 0.15 in that network.
+ *
+ * Endpoint: https://string-db.org/api/json/interaction_partners (network_type, required_score in
+ * thousandths, limit). Version from /api/json/version. Only a successful answer is cached.
+ */
+export const STRING_PARTNER_LIMIT = 500;
+export const STRING_MIN_SCORE = 0.15;
+
+export interface StringPartnerLists {
+  physical: StringInteraction[] | null;
+  functional: StringInteraction[] | null;
+  version: string | null;
+  limit: number;
+  minScore: number;
+}
+
+const partnerListCache = new LRUCacheImpl<string, StringPartnerLists>({ max: 500, ttl: 14 * 24 * 60 * 60 * 1000 });
+
+async function partnersOf(gene: string, networkType: "physical" | "functional"): Promise<StringInteraction[] | null> {
+  const url =
+    `https://string-db.org/api/json/interaction_partners?identifiers=${encodeURIComponent(gene)}&species=9606` +
+    `&network_type=${networkType}&required_score=${Math.round(STRING_MIN_SCORE * 1000)}&limit=${STRING_PARTNER_LIMIT}` +
+    `&caller_identity=missense-structural-explorer`;
+  try {
+    const res = await fetchWithRetry(url, { timeout: 15000 });
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    if (!Array.isArray(data)) return null;
+    const target = gene.toUpperCase();
+    const best = new Map<string, number>();
+    for (const row of data) {
+      const a = String(row.preferredName_A ?? "").toUpperCase();
+      const b = String(row.preferredName_B ?? "").toUpperCase();
+      const score = Number(row.score);
+      if (!Number.isFinite(score)) continue;
+      const partner = a === target ? b : b === target ? a : b;
+      if (!partner || partner === target) continue;
+      best.set(partner, Math.max(best.get(partner) ?? 0, score));
+    }
+    return [...best].map(([partner, score]) => ({ partner, score })).sort((x, y) => y.score - x.score);
+  } catch (err: any) {
+    console.warn(`[STRING] ${networkType} partners failed for ${gene}: ${err?.message}`);
+    return null;
+  }
+}
+
+async function stringVersion(): Promise<string | null> {
+  try {
+    const res = await fetchWithRetry("https://string-db.org/api/json/version", { timeout: 10000 });
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const v = Array.isArray(data) ? data[0]?.string_version : data?.string_version;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchStringPartnerLists(gene: string): Promise<StringPartnerLists> {
+  const normGene = normalizeGeneSymbol(gene);
+  const hit = partnerListCache.get(normGene);
+  if (hit) return hit;
+  const [physical, functional, version] = await Promise.all([
+    partnersOf(normGene, "physical"),
+    partnersOf(normGene, "functional"),
+    stringVersion(),
+  ]);
+  const lists: StringPartnerLists = { physical, functional, version, limit: STRING_PARTNER_LIMIT, minScore: STRING_MIN_SCORE };
+  if (physical && functional) partnerListCache.set(normGene, lists);
+  return lists;
 }

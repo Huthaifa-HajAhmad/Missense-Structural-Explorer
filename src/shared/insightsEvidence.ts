@@ -34,6 +34,7 @@ import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildFrequencyEvidence } from "./frequencyEvidence.ts";
 import { buildSplicingEvidence } from "./splicingEvidence.ts";
 import { buildFunctionEvidence, type FunctionEvidenceInput } from "./functionEvidence.ts";
+import { buildInterfacesEvidence, isStaleAssembly } from "./interfacesEvidence.ts";
 import { THRESHOLDS, formatEvidenceCode } from "./thresholds.ts";
 import { deriveNarrativeAuthorship, type NarrativeAuthorship } from "./narrativeAuthorship.ts";
 import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
@@ -50,7 +51,7 @@ export type LaneKey =
 export type Lean = "pathogenic" | "benign" | "none";
 
 /** Evidence tab ids, as `EVIDENCE_SUB_ITEMS` names them. */
-export type EvidenceTabId = "clinical" | "function" | "predictors" | "alphagenome" | "splicing" | "structure" | "perturbation" | "multimers" | "interactions";
+export type EvidenceTabId = "clinical" | "function" | "predictors" | "alphagenome" | "splicing" | "structure" | "perturbation" | "interfaces";
 
 export interface LaneLink { label: string; tab: EvidenceTabId }
 
@@ -274,6 +275,10 @@ const oxfordList = (items: string[]) =>
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
+function supportPhrase(k: number, n: number): string {
+  return k >= n ? `in all ${n} solved structures` : `in ${k} of ${n} solved structures`;
+}
+
 export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvidence {
   const { result, functionInput, stability, isLoading = false } = input;
   const weighting = result.metadata?.acmgWeighting ?? null;
@@ -425,24 +430,45 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     rest: "A looser fold can still be harmless, so the engine does not count stability.",
   });
 
-  // Assembly ─ context.
+  // Assembly ─ context. Read from the Interfaces & PPI model, so the lane and the tab say the same
+  // thing. It used to read `isMultimer` alone: "UniProt records no complex" for a protein with NO
+  // SUBUNIT record (not stated is not a monomer), and it never said whether the residue is at an
+  // interface although the pipeline had already read the solved structures.
   const uf = result.uniprotFeatures;
+  const asm = (result as any).multimerData ?? null;
+  const ifc = buildInterfacesEvidence({
+    result,
+    assembly: asm,
+    assemblyStatus: asm && !isStaleAssembly(asm) ? "ready" : isLoading ? "loading" : "ready",
+    ppi: null,
+    ppiStatus: "ready",
+    shift: null,
+    shiftLoading: false,
+  });
+  const ifcRead = Boolean(uf || (asm && !isStaleAssembly(asm)));
+  const asmKind = ifc.assembly.kind;
   lanes.push({
     key: "assembly",
     name: "Assembly",
-    links: [{ label: "Multimer", tab: "multimers" }, { label: "Interactions", tab: "interactions" }],
+    links: [{ label: "Interfaces & PPI", tab: "interfaces" }],
     lean: "none",
     counted: false,
     code: null,
     length: 1,
     unconfirmed: false,
-    state: uf ? "read" : isLoading ? "pending" : "absent",
-    lead: !uf ? "UniProt's subunit record was not read."
-      : uf.isMultimer ? "UniProt records this protein as part of a complex."
-      : "UniProt records no complex for this protein.",
-    rest: !uf ? "" : uf.isMultimer
-      ? `${uf.subunitComment ?? ""} Whether this residue touches a partner is on the Multimer tab.`.trim()
-      : "The engine does not read assembly.",
+    state: ifcRead ? "read" : isLoading ? "pending" : "absent",
+    lead: !ifcRead ? "UniProt's subunit record was not read."
+      : ifc.interface.verdict === "at-interface"
+        ? `${ifc.residueLabel} is at an interface: ${ifc.interface.observed ? `${supportPhrase(ifc.interface.observed.k, ifc.interface.observed.n)}` : "in the predicted complex only"}.`
+        : asmKind === "unstated" ? "UniProt states no assembly for this protein."
+        : asmKind === "monomer" ? "UniProt records this protein as a monomer."
+        : `UniProt records a ${ifc.assembly.label.toLowerCase()}${ifc.assembly.qualifier ? ` (${ifc.assembly.qualifier.toLowerCase()})` : ""}.`,
+    rest: !ifcRead ? ""
+      : ifc.interface.verdict === "at-interface"
+        ? `${ifc.assembly.kind === "unstated" ? "" : `${ifc.assembly.label}${ifc.assembly.qualifier ? ` (${ifc.assembly.qualifier.toLowerCase()})` : ""}. `}Contact is not disruption, and the engine does not read assembly.`
+        : asmKind === "unstated" ? "Not stated is not a monomer. The engine does not read assembly."
+        : ifc.interface.verdict === "not-at-interface" ? `${ifc.residueLabel} is not at any interface seen in solved structures. The engine does not read assembly.`
+        : "The engine does not read assembly.",
   });
 
   // Protein and genome language models ─ informational readings, none of them voting.

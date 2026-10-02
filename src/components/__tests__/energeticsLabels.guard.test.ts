@@ -54,18 +54,15 @@ const GUARDED_SURFACES = [
   // could not reach, and the old tab "Unannotated" / "Unmapped" for absences with known reasons.
   "src/components/inspector/SplicingRail.tsx",
   "src/shared/splicingEvidence.ts",
-  // The multimer redesign: the old tab showed "Complex Modeling Unavailable" in red for a heteromer
-  // it chose not to model, and "Quaternary Assembly Not Evaluated" for a result it had discarded.
-  "src/components/evidence/MultimersTab.tsx",
-  "src/components/inspector/MultimerRail.tsx",
-  "src/shared/multimerEvidence.ts",
+  // Interfaces & PPI (merged Multimer assembly + Protein interactions): the multimer tab once showed
+  // "Complex Modeling Unavailable" in red for a heteromer it chose not to model, and the interactions
+  // tab "N/A" / "Pending" for a ΔΔG_bind that was never measured.
+  "src/components/evidence/InterfacesTab.tsx",
+  "src/components/inspector/InterfacesRail.tsx",
+  "src/shared/interfacesEvidence.ts",
   // The Score thresholds redesign: the old rail printed "N/A" for a missing REVEL / FoldX value and
   // the old table "awaiting data" beside absences with known reasons.
   "src/components/evidence/predictors/StrengthLadder.tsx",
-  // The interactions redesign: "N/A" and "Pending" stood in for a ΔΔG_bind that was never measured.
-  "src/components/evidence/InteractionsTab.tsx",
-  "src/components/inspector/InteractionsRail.tsx",
-  "src/shared/interactionsEvidence.ts",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

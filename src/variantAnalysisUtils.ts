@@ -49,7 +49,7 @@ export {
  *
  * An entry created WITHOUT a signal is not evictable by this mechanism, and the lookup treats it as
  * reusable (nothing is known to be wrong with it). Callers that can abort should therefore pass
- * their signal; `MultimersTab` shares a key with the pipeline and does exactly that.
+ * their signal; `useInterfacesData` (Interfaces & PPI) shares a key with the pipeline and does exactly that.
  */
 interface InFlightRequest {
   promise: Promise<any>;

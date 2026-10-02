@@ -117,9 +117,8 @@ const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
   splicing: "Splice rule & junction geometry",
   structure: "Residue Shifts & Pocket Provenance",
   perturbation: "Structural perturbation trace",
-  multimers: "Multimer Assembly Quality",
   function: "Functional Domains & Features",
-  interactions: "PPI Network Provenance"
+  interfaces: "Interfaces & partner provenance"
 };
 
 /** Panel width bounds. Previously duplicated as literals in the initializer and the drag. */

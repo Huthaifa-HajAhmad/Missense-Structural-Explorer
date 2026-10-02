@@ -622,7 +622,10 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
   const multimerRequestSchema = z.object({
     gene: z.string().trim().min(1, "gene is required").max(30),
     variant: z.string().trim().min(3, "variant is required").max(50),
-    uniprotId: z.string().trim().min(3, "uniprotId is required").max(20)
+    uniprotId: z.string().trim().min(3, "uniprotId is required").max(20),
+    // The complex model is a GPU job the reader asks for; without it the answer is the curated
+    // assembly and the solved-structure interfaces alone.
+    model: z.boolean().optional()
   });
 
   // Lookups only. The old body also took `wtPdb`/`mutPdb`/`chainA`/`chainB`; zod strips them now, so an
@@ -641,7 +644,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       id: z.string().trim().regex(/^[A-Z]$/, "Chain ids are single capital letters"),
       accession: z.string().trim().min(6).max(15),
       gene: z.string().trim().max(30).optional().nullable()
-    })).min(2, "A complex needs at least two chains").max(4, "At most four chains are modelled")
+    })).min(2, "A complex needs at least two chains").max(4, "At most four chains are modelled").optional()
   });
 
   apiRouter.post("/structure/multimer", jsonParserRegular, async (req, res) => {
@@ -658,7 +661,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       const validVariant = validateVariant(parseResult.data.variant);
       const validUniprot = validateUniProt(parseResult.data.uniprotId);
 
-      const result = await analyzeMultimerStructure(validGene, validVariant, validUniprot, clientAbortController.signal);
+      const result = await analyzeMultimerStructure(validGene, validVariant, validUniprot, clientAbortController.signal, {
+        model: parseResult.data.model === true,
+      });
       res.json(result);
     } catch (err: any) {
       sendError(res, 400, "BAD_REQUEST", err.message || "Failed to analyze multimer structure.");
@@ -698,7 +703,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       const validGene = validateGene(parseResult.data.gene);
       const validVariant = validateVariant(parseResult.data.variant);
       const validUniprot = validateUniProt(parseResult.data.uniprotId);
-      const chains = parseResult.data.chains.map(c => ({ id: c.id, accession: validateUniProt(c.accession), gene: c.gene ?? null }));
+      const chains = (parseResult.data.chains ?? []).map(c => ({ id: c.id, accession: validateUniProt(c.accession), gene: c.gene ?? null }));
       const result = await analyzeBindingShift(validGene, validVariant, validUniprot, chains, clientAbortController.signal);
       res.json(result);
     } catch (err: any) {
