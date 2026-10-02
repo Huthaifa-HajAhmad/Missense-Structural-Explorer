@@ -6,7 +6,7 @@
  * that model's contract (the model's own arithmetic is pinned in predictorEvidence.test.ts).
  */
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../context/SettingsContext", () => ({
@@ -36,6 +36,34 @@ function renderTab(result: any, extra: Record<string, unknown> = {}) {
 }
 
 describe("PredictorsTab", () => {
+  it("starts the informational table groups collapsed and expands them on request", () => {
+    renderTab(gzf1());
+    const table = screen.getByTestId("predictor-readings");
+    const group = table.querySelector("tbody[data-group='genome']")!;
+    expect(group.getAttribute("data-collapsed")).toBe("true");
+    expect(table.querySelector("tbody[data-group='vote']")!.hasAttribute("data-collapsed")).toBe(false);
+    fireEvent.click(within(group as HTMLElement).getByRole("button", { name: /Show \d+ of \d+ scored/ }));
+    expect(group.hasAttribute("data-collapsed")).toBe(false);
+  });
+
+  it("explains each non-voting family in its own card, never counting them", () => {
+    renderTab(gzf1());
+    const card = screen.getByTestId("predictor-informational");
+    for (const g of ["protein-lm", "genome", "conservation"]) {
+      const fam = within(card).getByTestId(`predictor-family-${g}`);
+      expect(fam.textContent).toMatch(/What it measures/);
+      expect(fam.textContent).toMatch(/Why it is not counted/);
+    }
+    expect(card.textContent).toMatch(/never change the PP3 \/ BP4 call/);
+  });
+
+  it("prints the calibrated reference's band edges on its ruler", () => {
+    renderTab(gzf1());
+    const ref = screen.getByTestId("predictor-reference-row");
+    const edges = Array.from(ref.querySelectorAll(".prd-ruler__cut")).map(n => n.textContent);
+    expect(edges).toEqual(expect.arrayContaining(["0.644", "0.29"]));
+  });
+
   it("states the finding once, and marks an unconfirmed code as unconfirmed", () => {
     renderTab(gzf1());
     const summary = screen.getByTestId("predictor-summary");

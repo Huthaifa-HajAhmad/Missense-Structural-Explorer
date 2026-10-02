@@ -103,14 +103,12 @@
 /* The vote tally: one segment per voting tool, grouped by call; the group's
    flex-grow is its size, so every segment is the same width. */
 .prd-tally { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; min-width: 0; }
-.prd-tally__group { flex-basis: 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.prd-tally__tools { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; }
 .prd-tally__tool { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .prd-tally__seg { display: block; width: 100%; height: 10px; border-radius: 2px; }
-.prd-tally__group[data-call="path"] .prd-tally__seg { background: var(--cs-text-danger); opacity: 0.8; }
-.prd-tally__group[data-call="benign"] .prd-tally__seg { background: var(--cs-text-success); opacity: 0.8; }
-.prd-tally__group[data-call="vus"] .prd-tally__seg { background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
-.prd-tally__group[data-call="none"] .prd-tally__seg { border: 1px dashed var(--cs-text-muted); box-sizing: border-box; }
+.prd-tally__tool[data-call="path"] .prd-tally__seg { background: var(--cs-text-danger); opacity: 0.8; }
+.prd-tally__tool[data-call="benign"] .prd-tally__seg { background: var(--cs-text-success); opacity: 0.8; }
+.prd-tally__tool[data-call="vus"] .prd-tally__seg { background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
+.prd-tally__tool[data-call="none"] .prd-tally__seg { border: 1px dashed var(--cs-text-muted); box-sizing: border-box; }
 .prd-tally__name {
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary);
@@ -127,7 +125,7 @@
 .prd-tally__swatch[data-call="benign"] { background: var(--cs-text-success); opacity: 0.8; }
 .prd-tally__swatch[data-call="vus"] { background: color-mix(in srgb, var(--cs-text-secondary) 22%, transparent); }
 .prd-tally__swatch[data-call="none"] { border: 1px dashed var(--cs-text-muted); box-sizing: border-box; }
-.prd-tally__group[data-call="none"] .prd-tally__name { color: var(--cs-text-muted); }
+.prd-tally__tool[data-call="none"] .prd-tally__name { color: var(--cs-text-muted); }
 
 .prd-hero__foot {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
@@ -179,7 +177,19 @@
 .prd-table tbody + tbody .prd-group > th { border-top: 1px solid var(--cs-border-subtle); }
 .prd-table .prd-group__title { color: var(--cs-text-primary); }
 .prd-table tbody tr.prd-group:hover > * { background: var(--cs-surface-2); }
-.prd-group__inner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.prd-group__inner { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; width: 100%; }
+.prd-group__toggle {
+  margin-left: auto; min-height: 24px; padding: 0 6px; border: 0; border-radius: 4px; background: none; cursor: pointer;
+  font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-accent);
+}
+.prd-group__toggle:hover { text-decoration: underline; }
+.prd-group__toggle:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.prd-table tbody[data-collapsed] > tr:not(.prd-group) { display: none; }
+.prd-head-sub {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: 6px;
+  font-weight: 400; letter-spacing: 0.02em; text-transform: none; font-size: var(--cs-font-size-badge);
+}
+.prd-head-sub .prd-legend__marker { width: 7px; height: 7px; }
 .prd-group__meta { font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
 
 .prd-subject { min-width: 220px; max-width: 380px; }
@@ -297,6 +307,39 @@
   font-family: var(--cs-font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--cs-text-muted);
 }
 
+/* Band-edge numbers under the track: lanes are 12px apart, set inline; the axis grows to hold them. */
+.prd-ruler__axis { position: relative; }
+.prd-ruler__axis[data-lanes="2"] { padding-bottom: 12px; }
+.prd-ruler__axis[data-lanes="3"] { padding-bottom: 24px; }
+.prd-ruler__cut {
+  position: absolute; transform: translateX(-50%); white-space: nowrap; line-height: 12px;
+  color: var(--cs-text-secondary);
+}
+.prd-ruler__cut::before {
+  content: ""; position: absolute; left: 50%; bottom: 100%; width: 1px; height: 3px;
+  background: currentColor; opacity: 0.5;
+}
+.prd-ruler__cut[data-side="path"] { color: var(--cs-text-danger); }
+.prd-ruler__cut[data-side="benign"] { color: var(--cs-text-success); }
+
+/* ── Informational models card ──────────────────────────────── */
+.prd-info-lede { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--cs-border-subtle); }
+.prd-info-lede strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.prd-fam {
+  display: grid; grid-template-columns: minmax(150px, 200px) minmax(0, 1fr);
+  gap: 6px 20px; padding: 14px 16px; border-bottom: 1px solid var(--cs-border-subtle);
+}
+.prd-fam:last-child { border-bottom: 0; }
+.prd-fam__name { display: block; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.prd-fam__sub { display: block; margin-top: 1px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.45; }
+.prd-fam__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.prd-fam__body p { margin: 0; max-width: 72ch; }
+.prd-fam__body b { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.prd-fam__body .prd-fam__scores { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 2px; max-width: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.prd-fam__scores > span { display: inline-flex; gap: 6px; align-items: baseline; }
+.prd-fam__scores .prd-mono { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); }
+@container (max-width: 640px) { .prd-fam { grid-template-columns: minmax(0, 1fr); } }
+
 /* ============================================================
    PREDICTORS RAIL (inspector)
    Sections separated by hairlines; only the rule trace is framed.
@@ -373,4 +416,6 @@
   .prd-ruler__band, .prd-tally__seg, .prd-tally__swatch, .prd-legend__swatch > i { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .prd-info, .prd-link { display: none; }
   .prd-table-wrap { overflow: visible; }
+  .prd-table tbody[data-collapsed] > tr:not(.prd-group) { display: table-row; }
+  .prd-group__toggle { display: none; }
 }

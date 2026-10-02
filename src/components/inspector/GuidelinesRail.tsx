@@ -120,7 +120,7 @@ export function GuidelinesRail({ analysisResult, foldingDdG, foldingEnergetics }
             <span className="gt-step__sub">
               {vote.direction === "pathogenic" ? "Plurality → PP3 at Supporting"
                 : vote.direction === "benign" ? "Plurality → BP4 at Supporting"
-                : vote.direction === "tie" ? "Tie → no criterion"
+                : vote.direction === "tie" ? "Split vote → no criterion"
                 : "Nothing to count → no criterion"}
             </span>
           </Step>

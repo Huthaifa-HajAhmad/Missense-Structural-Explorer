@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
+import { BookOpen, Database, GitBranch } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
@@ -9,8 +9,8 @@ import { buildPredictorEvidence } from "../../shared/predictorEvidence";
  * PredictorsRail — the Evidence Lineage inspector for the Predictors tab.
  *
  * The column states WHAT each tool said; the rail states HOW the PP3/BP4 verdict was reached — a
- * four-step trace (tools → calls → rule → engine) — then the calibrated reference tool's bands with
- * this variant's band marked, the method caveats, and the sources.
+ * four-step trace (tools → calls → rule → engine) — then the method caveats and the sources (the calibrated
+ * reference's band numbers are drawn on its ruler in the tab, not repeated here).
  *
  * It replaced a rail that asserted two things the code did not do: that scores were "calibrated
  * against local odds of pathogenicity" (the vote used uncalibrated cut-points for most tools) and
@@ -45,15 +45,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-const fmtCut = (n: number) => (Math.abs(n) >= 10 ? n.toFixed(1) : Number(n.toFixed(3)).toString());
-
 export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const { settings } = useSettings();
   const evidence = buildPredictorEvidence({
     result: analysisResult,
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
   });
-  const { vote, voters, engine, reference } = evidence;
+  const { vote, voters, engine } = evidence;
   const scored = vote.nVoting;
   const totalVoters = scored + voters.missing.length;
 
@@ -94,7 +92,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
             <span>
               {vote.direction === "pathogenic" ? "Pathogenic > benign → PP3"
                 : vote.direction === "benign" ? "Benign > pathogenic → BP4"
-                : vote.direction === "tie" ? "Tie → no criterion"
+                : vote.direction === "tie" ? "Split vote → no criterion"
                 : "Nothing to count → no criterion"}
             </span>
             <span className="prd-step__sub">Plurality of calls; applied at Supporting strength.</span>
@@ -124,54 +122,19 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
         </ol>
       </section>
 
-      {/* ── 2. The calibrated reference tool ── */}
-      {reference && (
-        <section className="prd-rsec" aria-labelledby="prd-rail-bands">
-          <h3 className="eyebrow" id="prd-rail-bands">
-            <Ruler className="w-3.5 h-3.5" />
-            {reference.name} bands · {reference.source}
-          </h3>
-          <ul className="prd-cuts" data-testid="reference-bands">
-            {[...reference.bands]
-              .sort((a, b) => b.threshold - a.threshold)
-              .map(b => {
-                const active = reference.call.code === b.code;
-                const op = b.direction === "PP3" ? "≥" : "≤";
-                return (
-                  <li key={b.code} className="prd-cut" data-active={active || undefined}>
-                    <span className="ev-tier chip-code" data-tone={active ? (b.direction === "PP3" ? "danger" : "good") : "muted"}>
-                      {formatEvidenceCode(b.code)}
-                    </span>
-                    <span className="prd-cut__rule">{op} {fmtCut(b.threshold)}</span>
-                    {active && <span className="prd-cut__here">this variant</span>}
-                  </li>
-                );
-              })}
-          </ul>
-          {/* A band marked "this variant" already states the reading; say it in words only when no
-              band is marked, so the rail does not print the tab's reference row a second time. */}
-          {!reference.call.direction && (
-            <p className="prd-step__sub">
-              {reference.name} <span className="prd-mono">{reference.score.toFixed(3)}</span> sits between the
-              bands: indeterminate.
-            </p>
-          )}
-        </section>
-      )}
-
       {/* ── 3. Method notes ── */}
       <section className="prd-rsec" aria-labelledby="prd-rail-notes">
         <h3 className="eyebrow" id="prd-rail-notes">
           <BookOpen className="w-3.5 h-3.5" />
           Method
         </h3>
-        <details className="prd-notes" open>
+        <details className="prd-notes">
           <summary>How to read this vote</summary>
           <ul>
             <li>
               ClinGen (Pejaver 2022) recommends a single calibrated tool chosen in advance (REVEL, BayesDel,
               MutPred2 or VEST4), not a count of correlated tools. The vote here is kept at Supporting strength for that reason; the
-              calibrated reference above is the reading ClinGen would apply.
+              calibrated reference on the tab is the reading ClinGen would apply.
             </li>
             <li>
               REVEL, BayesDel, CADD and AlphaMissense vote on ClinGen&apos;s calibrated bands. MetaRNN, ClinPred
@@ -182,12 +145,8 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
               their votes overlap with PM2/BS1 and are partly circular for a variant already in ClinVar.
             </li>
             <li>
-              The AlphaGenome AVI is a rank among all possible SNVs, not a probability, and contains
-              AlphaMissense, so it is informational. It no longer raises PP3 to Moderate or Strong.
-            </li>
-            <li>
-              Conservation (phyloP, GERP++, ConSurf) measures constraint, not pathogenicity. ClinGen caps
-              PP3 and PM1 together at Strong, because the two are not independent: a predictor already scores the position a critical site sits in (Pejaver 2022).
+              Protein language, genome-wide and conservation scores are informational; the card on the
+              Predictors tab explains each family and why it does not vote.
             </li>
           </ul>
         </details>

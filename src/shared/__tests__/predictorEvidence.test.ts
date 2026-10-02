@@ -297,7 +297,7 @@ describe("predictorSummary — one line for every engine and reference state", (
   it("a tie, with the calibrated reference reaching a band: no criterion, and the reference flagged", () => {
     const s = summary({ predictorData: { caddPhred: 29.5 }, conservationData: { revel: 0.234 }, ...record() });
     expect(s).toMatchObject({ state: "none", tone: "warning" });
-    expect(s.lead).toBe("No PP3 or BP4: pathogenic and benign calls are tied, 1 each.");
+    expect(s.lead).toBe("No PP3 or BP4: the vote is split, 1 pathogenic against 1 benign.");
     expect(s.rest[0]).toBe("REVEL, the calibrated reference, reads BP4 on its own, which the vote does not reflect.");
   });
 
