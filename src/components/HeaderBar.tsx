@@ -67,7 +67,9 @@ export function viewCrumbs(view: MasterView, evidenceTab?: string): string[] {
 
 export function HeaderBar({
   masterView,
-  isBiophysicalLoading,
+  // isBiophysicalLoading stays part of the props contract (callers pass it), but this header no
+  // longer renders an in-flight cue: the pipeline rail owns the whole progress story.
+  // isBiophysicalLoading,
   isOffline,
   activeEvidenceTab,
   showNavToggle = false,
@@ -244,16 +246,12 @@ export function HeaderBar({
           </button>
         )}
 
-        {/* A wordless in-flight cue. Everything that can say it already does — the pipeline rail,
-            the stage rows, the submit button — so a labelled "Computing" here repeated them for a
-            third surface. The bare spinner survives as quiet chrome for a reader whose eyes are
-            away from the workspace, and it is decorative: the rail's aria-live step line carries
-            the announcement. */}
-        {isBiophysicalLoading && (
-          <span className="inline-flex items-center h-7 px-2 shrink-0" aria-hidden="true">
-            <span className="cs-spinner cs-spinner-sm" />
-          </span>
-        )}
+        {/* No in-flight cue here at all. The labelled "Computing" was a third surface repeating
+            the same fact as the pipeline rail and the submit button; its wordless spinner
+            successor was a leftover nobody needed — a bare arc appearing alone in exactly this
+            gap says nothing to a reader who is not already looking at the pipeline rail, which
+            carries the stage list and the aria-live step line. The rail owns the progress
+            story; the header keeps only notices and actions. */}
         {isOffline && (
           <span
             className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[var(--cs-radius-input)] text-[12px] font-medium bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)] shrink-0"
@@ -265,7 +263,7 @@ export function HeaderBar({
         )}
 
         {/* The divider only separates notices from actions, so it exists only when there are notices. */}
-        {(error || !hasConfiguredGeminiKey || isBiophysicalLoading || isOffline) && (
+        {(error || !hasConfiguredGeminiKey || isOffline) && (
           <span className={`${CHROME_DIVIDER} mx-1.5`} aria-hidden="true" />
         )}
 
