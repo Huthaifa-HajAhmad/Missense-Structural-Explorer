@@ -716,7 +716,7 @@ END
    * while the defect was diagnosed — the fixtures below mirror those responses).
    */
   describe("Unmapping-defect regressions (ACOT9 coordinate path)", () => {
-    const acot9AssemblyMocks = (urls: string[]) =>
+    const acot9AssemblyMocks = (urls: string[], reference = "C") =>
       vi.fn(async (input: any) => {
         const urlStr = String(input);
         urls.push(urlStr);
@@ -727,7 +727,7 @@ END
           return new Response(JSON.stringify({ mappings: [{ mapped: { seq_region_name: "X", start: 23723975, end: 23723975, strand: 1 } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         if (urlStr.includes("/sequence/region/human/X:23705858")) {
-          return new Response("C", { status: 200, headers: { "Content-Type": "text/plain" } });
+          return new Response(reference, { status: 200, headers: { "Content-Type": "text/plain" } });
         }
         return null; // caller falls through to its own defaults
       });
@@ -791,7 +791,7 @@ END
       }
     }, 20000);
 
-    it("F-1 negative control: a REF-mismatched VEP region answer falls through to the ladder", async () => {
+    it("F-1 negative control: a REF-mismatched VEP region answer cannot select an alternative allele", async () => {
       const { fetchPredictorData } = await import("../predictors.ts");
       const { clearAllCaches } = await import("../infra/cache.ts");
       clearAllCaches(true);
@@ -817,21 +817,25 @@ END
         const res = await fetchPredictorData("ACOT9", "p.Lys272Asn", "Q9Y305", {
           chrom: "X", pos: 23723975, ref: "C", alt: "A", assembly: "GRCh37"
         });
-        // Fell through to the fallback (MyVariant 404s here → transcript-only fallback).
+        // Protein scores may fall back, but neither asserted input nor a different allele
+        // may authorize locus-keyed evidence before the gene/substitution binding succeeds.
         expect(res.source).not.toBe("Ensembl VEP API (coordinate)");
-        expect(urls.some(u => u.includes("/vep/human/hgvs/"))).toBe(true);
+        expect(res.gnomadVariantId).toBeNull();
+        expect(res.locusResolution).toMatchObject({ retryable: true, failureKind: "transient-provider" });
+        expect(urls.some(u => u.includes("/vep/human/hgvs/"))).toBe(false);
       } finally {
         global.fetch = origFetch;
       }
     }, 20000);
 
     it("F-3: the MyVariant fallback lifts its hg19 _id onto the canonical build", async () => {
+      // Synthetic unique-backmap K> E control (AAA/AAG -> GAA/GAG, minus strand T>C).
       const { fetchPredictorData } = await import("../predictors.ts");
       const { clearAllCaches } = await import("../infra/cache.ts");
       clearAllCaches(true);
       const origFetch = global.fetch;
       const urls: string[] = [];
-      const assemblyMock = acot9AssemblyMocks(urls);
+      const assemblyMock = acot9AssemblyMocks(urls, "T");
 
       global.fetch = async (input: any) => {
         const urlStr = String(input);
@@ -839,13 +843,15 @@ END
         if (handled) return handled;
         urls.push(urlStr);
         if (urlStr.includes("uniprot.org")) return new Response(acot9UniprotBody, { status: 200, headers: { "Content-Type": "application/json" } });
-        if (urlStr.includes("rest.ensembl.org")) return new Response(JSON.stringify({ error: "Could not uniquely determine nucleotide change" }), { status: 400 });
+        // This recovery fixture is a missing VEP annotation, not a definitive ambiguous
+        // nucleotide back-map; known ambiguity is never cured by a single database hit.
+        if (urlStr.includes("rest.ensembl.org")) return new Response(JSON.stringify({ error: "No annotation found" }), { status: 400 });
         if (urlStr.includes("myvariant.info")) {
           return new Response(JSON.stringify({
             hits: [{
-              _id: "chrX:g.23723975C>A",
+              _id: "chrX:g.23723975T>C",
               dbnsfp: {
-                hgvsp: ["ENSP00000336580.7:p.Lys272Asn", "NP_001032248.1:p.Lys281Asn"],
+                hgvsp: ["ENSP00000336580.7:p.Lys272Glu", "NP_001032248.1:p.Lys281Glu"],
                 alphamissense: { am_pathogenicity: 0.191, am_class: "benign" },
                 cadd: { phred: 12.3 }
               }
@@ -856,9 +862,9 @@ END
       };
 
       try {
-        const res = await fetchPredictorData("ACOT9", "p.Lys272Asn", "Q9Y305");
+        const res = await fetchPredictorData("ACOT9", "p.Lys272Glu", "Q9Y305");
         expect(res.source).toBe("MyVariant.info & dbNSFP (VEP Fallback)");
-        expect(res.gnomadVariantId).toBe("X-23705858-C-A");
+        expect(res.gnomadVariantId).toBe("X-23705858-T-C");
         expect(res.gnomadVariantAssembly).toBe("GRCh38");
       } finally {
         global.fetch = origFetch;
@@ -1058,6 +1064,7 @@ END
     }, 20000);
 
     it("F-3 negative control: an un-liftable map keeps the honest GRCh37 tag (never coerced)", async () => {
+      // Synthetic unique-backmap K> E control (AAA/AAG -> GAA/GAG, minus strand T>C).
       // Ported from the substitute harness (parity review): this pins the no-coercion contract.
       const { fetchPredictorData } = await import("../predictors.ts");
       const { clearAllCaches } = await import("../infra/cache.ts");
@@ -1071,15 +1078,15 @@ END
         if (urlStr.includes("rest.ensembl.org")) return new Response(JSON.stringify({ error: "ambiguous" }), { status: 400 });
         if (urlStr.includes("myvariant.info")) {
           return new Response(JSON.stringify({
-            hits: [{ _id: "chrX:g.23723975C>A", dbnsfp: { hgvsp: ["ENSP00000336580.7:p.Lys272Asn"], alphamissense: { am_pathogenicity: 0.191 }, cadd: { phred: 12.3 } } }]
+            hits: [{ _id: "chrX:g.23723975T>C", dbnsfp: { hgvsp: ["ENSP00000336580.7:p.Lys272Glu"], alphamissense: { am_pathogenicity: 0.191 }, cadd: { phred: 12.3 } } }]
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return new Response("{}", { status: 404 });
       });
 
       try {
-        const res = await fetchPredictorData("ACOT9", "p.Lys272Asn", "Q9Y305");
-        expect(res.gnomadVariantId).toBe("X-23723975-C-A");
+        const res = await fetchPredictorData("ACOT9", "p.Lys272Glu", "Q9Y305");
+        expect(res.gnomadVariantId).toBe("X-23723975-T-C");
         expect(res.gnomadVariantAssembly).toBe("GRCh37");
       } finally {
         global.fetch = origFetch;
@@ -1133,6 +1140,7 @@ END
      * the recovered (lifted) answer.
      */
     it("F-4: a GRCh37-tagged fallback result is not cached; the next call retries the lift", async () => {
+      // Synthetic unique-backmap K> E control (AAA/AAG -> GAA/GAG, minus strand T>C).
       const { fetchPredictorData } = await import("../predictors.ts");
       const { clearAllCaches } = await import("../infra/cache.ts");
       clearAllCaches(true);
@@ -1149,25 +1157,25 @@ END
         if (urlStr.includes("/map/human/GRCh38/X:23705858")) {
           return new Response(JSON.stringify({ mappings: [{ mapped: { seq_region_name: "X", start: 23723975, end: 23723975, strand: 1 } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
-        if (urlStr.includes("/sequence/region/human/X:23705858")) return new Response("C", { status: 200 });
+        if (urlStr.includes("/sequence/region/human/X:23705858")) return new Response("T", { status: 200 });
         if (urlStr.includes("uniprot.org")) return new Response(acot9UniprotBody, { status: 200, headers: { "Content-Type": "application/json" } });
         if (urlStr.includes("rest.ensembl.org")) return new Response(JSON.stringify({ error: "ambiguous" }), { status: 400 });
         if (urlStr.includes("myvariant.info")) {
           return new Response(JSON.stringify({
-            hits: [{ _id: "chrX:g.23723975C>A", dbnsfp: { hgvsp: ["ENSP00000336580.7:p.Lys272Asn"], alphamissense: { am_pathogenicity: 0.191 }, cadd: { phred: 12.3 } } }]
+            hits: [{ _id: "chrX:g.23723975T>C", dbnsfp: { hgvsp: ["ENSP00000336580.7:p.Lys272Glu"], alphamissense: { am_pathogenicity: 0.191 }, cadd: { phred: 12.3 } } }]
           }), { status: 200, headers: { "Content-Type": "application/json" } });
         }
         return new Response("{}", { status: 404 });
       });
 
       try {
-        const first = await fetchPredictorData("ACOT9", "p.Lys272Asn", "Q9Y305-F4");
+        const first = await fetchPredictorData("ACOT9", "p.Lys272Glu", "Q9Y305-F4");
         expect(first.gnomadVariantAssembly).toBe("GRCh37");
         liftAvailable = true;
-        const second = await fetchPredictorData("ACOT9", "p.Lys272Asn", "Q9Y305-F4");
+        const second = await fetchPredictorData("ACOT9", "p.Lys272Glu", "Q9Y305-F4");
         // If the GRCh37 result had been cached, this would still read GRCh37.
         expect(second.gnomadVariantAssembly).toBe("GRCh38");
-        expect(second.gnomadVariantId).toBe("X-23705858-C-A");
+        expect(second.gnomadVariantId).toBe("X-23705858-T-C");
       } finally {
         global.fetch = origFetch;
       }

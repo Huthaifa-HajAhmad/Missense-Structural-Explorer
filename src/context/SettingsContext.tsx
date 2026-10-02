@@ -116,7 +116,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.setItem(THEME_STORAGE_KEY, prev);
       } catch (e) {
-        console.error(e);
+        console.warn("[Settings] Could not save the theme preference:", e);
       }
       return prev;
     });
@@ -252,7 +252,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         }
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
       } catch (e) {
-        console.error(e);
+        console.warn("[Settings] Could not save settings:", e);
       }
 
       if ((TRANSIENT_SETTING_KEYS as readonly string[]).includes(key as string)) {
@@ -282,7 +282,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
     } catch (e) {
-      console.error(e);
+      console.warn("[Settings] Could not save settings:", e);
     }
     try {
       sessionStorage.removeItem(TRANSIENT_STORAGE_KEY);
@@ -312,7 +312,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         }
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
       } catch (e) {
-        console.error(e);
+        console.warn("[Settings] Could not save settings:", e);
       }
       if (safe.showAtomInteractions !== undefined) {
         setShowPolarContacts(safe.showAtomInteractions);

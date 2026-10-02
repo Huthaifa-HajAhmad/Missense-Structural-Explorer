@@ -133,3 +133,39 @@ All-of-Us column semantics (whether `aou_an` is a callable allele number).
 | --- | --- | --- |
 | LOW | `PredictorSpecialistPanels.tsx:379`, `AlphaGenomeTab.tsx` | Unrelated false-cause copy tracked by `ALPHAGENOME_STANDBY_RCA_AND_UI_AUDIT.md`; out of scope here. |
 | LOW | `self-healer.ts:80` | Retries a gnomAD frequency fetch on `timeout`/`error` but not on `unsupported-build`. Correct as it stands — a build refusal is not transient — but worth a comment if the liftover ever makes it retryable. |
+
+## 7. Follow-on reconciliation of PR #23 — exact allele before population evidence
+
+Scope: branch `fix/locus-outcome-reconciliation`, based on `5520daf`; isolated worktree so concurrent deployment changes were not touched. [PR #23](https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer/pull/23) repaired outage recovery but did not fully distinguish allele ambiguity from provider failure. Its [reported Actions run](https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer/actions/runs/36902066865) passing did not cover these counterexamples.
+
+### Findings and decisions
+
+| Severity | Evidence / defect | Correction |
+| --- | --- | --- |
+| HIGH | `NM_005072.5:p.Gln867His` has both `c.2601G>T` and `c.2601G>C`; one observed database hit does not establish a unique nucleotide allele. | Explicit `ambiguous-allele` outcome; retain protein AlphaMissense, withhold arbitrary allele/CADD. Shared standard-code proof still applies during an outage; false never proves uniqueness. |
+| HIGH | An unrelated MANE isoform error could veto a healthy canonical-numbering target, or its success could claim canonical numbering. | Canonical-aligned target authority; retain RefSeq authority when MANE Ensembl equals canonical. |
+| HIGH | Truncated or contradictory MyVariant totals could make one returned hit appear unique. | Require a valid nonnegative integer total and complete retrieval before promotion. |
+| HIGH | Retryable null-locus results bypassed the predictor cache's GRCh37-only guard and stayed cached for 14 days. | Symmetric cache read/write guards, contextual ambiguity checks, and one-time old fallback policy migration. |
+| HIGH | Local gnomAD/AoU counts could bypass the predictor gate, select the first protein row/ALT, or manufacture zero from missing AC. | Exact verified GRCh38 chromosome/position/REF/ALT plus protein match; no first-row fallback; unknown AC stays null; empty/invalid local evidence does not suppress remote lookup. |
+| HIGH | Malformed counts could manufacture rare AF; diploid correlation would reject legitimate hemizygous counts. | Finite nonnegative safe integers, AC≤AN, defensible carrier bounds; exact diploid genotype correlation only on autosomes. |
+| HIGH | Conservation/Genos rows and self-healing could restore protein-selected AoU counts even when a different allele was verified. | Only exact-coordinate local AoU is retained; healing cannot import unbound Genos counts or unusable predictor caches. Legacy local population bundles migrate via additive metadata generation. |
+| HIGH | The persisted outer key is gene/protein/weighting: a new explicit allele could reuse a cached ambiguity or another ALT. | Compare requested and cached verified allele identity; a prior coordinate choice cannot resolve a new intrinsically ambiguous protein-only request. |
+| MEDIUM | Definitive ambiguity displayed provider error/retry; unknown AoU provenance implied a queried local table. | Shared typed cause/action across card, rail, header and workflow; original-allele entry preserves input and never auto-submits a candidate; unknown source is not reported as local or queried. |
+| MEDIUM | The longer recovery button crowded constraint text and overflowed a narrow banner. | Prioritise actionable recovery, compact header copy, retain Details, and place the narrow card action on its own ≥44px-high row. |
+
+**Clinical policy decision:** no threshold, criterion strength, or voting-membership change. Criteria based on unbound/invalid counts may disappear intentionally; withholding is not zero or benign evidence. Missing local tables/incomplete retrieval never establish population absence. Protein-only evidence remains independently available.
+
+**Reference variant:** Q867H no longer selects forward GRCh38 `16:67946177 C>A` or `C>G` from a protein-only request. It asks for the source report's nucleotide allele. A verified explicitly supplied allele can query the correct population record and escapes a cached protein ambiguity. Nothing is auto-selected or auto-submitted.
+
+### Verification and limits
+
+- Full Vitest coverage run: **3,194 passed, 5 skipped, 248 files passed / 2 skipped**; configured coverage gates passed. Windows run used an isolated TEMP directory and one worker to avoid shared SQLite fixture locks; no production state was changed.
+- Whole-repository lint, TypeScript, boundary, focus and verify-parity checks passed. Final integrated cache/healer/policy rerun: **54 tests passed**, including 8 additional sync/stream allele-context regressions after the full-suite run.
+- Production frontend built successfully. Server and both worker bundles compiled successfully in memory. The all-artifact build hit a native Windows disk-write denial for server output: the permission diagnostic found the missing output path, changed no permissions, and made no rollback necessary. This is **not** a completed disk-artifact build or deployment.
+- **116 browser geometry assertions passed**, covering recovery at 1440/1200/1000/820/375px and Population card/lineage in light/dark narrow fixtures, with production utility classes. Functional-domain geometry passed separately. Synthetic layout fixtures are not live clinical results.
+- No Linux mirror, physical-device testing, production deployment, or global biological re-calibration was performed.
+- Follow-up outside this population reconciliation: stored protein-selected local/Genos splice scores still need a separate nucleotide-provenance audit; population guards do not certify them. Also retain the earlier upstream AoU semantic/calibration caveats in §4.
+
+Implementation entry points: [locus policy](../src/shared/locusResolution.ts), [genetic-code proof](../src/shared/proteinAlleleIdentity.ts), [verified identity](../server/services/prediction/predictors/allele-identity.ts), [population producer](../server/services/external-api/core-data-fetcher.ts), [cache healing](../server/services/orchestration/self-healer.ts), [API contract](API.md), [browser regression harness](../tools/header-geometry/main.tsx).
+
+Primary sources: [Ensembl VEP HGVS endpoint](https://rest.ensembl.org/documentation/info/vep_hgvs_get), [MyVariant query contract](https://docs.myvariant.info/en/latest/doc/variant_query_service.html), and [NCBI genetic code Table 1](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi#SG1) / [printable table v4.6](https://ftp.ncbi.nlm.nih.gov/entrez/misc/data/gc.prt). No new calibrated cut-point was introduced, so existing threshold paper/DOI references remain governing rather than being replaced by API documentation.

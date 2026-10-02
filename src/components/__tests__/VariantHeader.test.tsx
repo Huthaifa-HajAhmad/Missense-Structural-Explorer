@@ -1,9 +1,43 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import VariantHeader from "../VariantHeader";
+import { VariantIdentity } from "../header/VariantIdentity";
+import { buildVariantHeaderModel } from "../header/variantHeaderModel";
 import { AnalysisResult } from "../../types";
+
+/**
+ * The variant chrome as the app renders it: the identity (top bar) above the context strip.
+ * The identity and the strip were one component before the option-B redesign; these tests kept
+ * their assertions and render both, with the strip's Details panel OPEN so the full tracks are in
+ * the DOM. A chip and its panel row both state the value, so value/verdict assertions are scoped
+ * to the panel (`panel()`), the surface that carries the full reading.
+ */
+type ChromeProps = { gene: string; variant: string; uniprotId: string; analysisResult: AnalysisResult | null };
+function Chrome(props: ChromeProps) {
+  return (
+    <>
+      <VariantIdentity model={buildVariantHeaderModel(props)} />
+      <VariantHeader {...props} />
+    </>
+  );
+}
+function openDetails() {
+  const button = screen.queryByRole("button", { name: /^Details/ });
+  if (button && button.getAttribute("aria-expanded") !== "true") fireEvent.click(button);
+}
+function render(ui: React.ReactElement) {
+  const result = rtlRender(ui);
+  openDetails();
+  const rerender = (next: React.ReactElement) => {
+    result.rerender(next);
+    openDetails();
+  };
+  return { ...result, rerender };
+}
+/** The Details panel: the full tracks, cut-points and verdicts. */
+const panel = () => within(screen.getByRole("region", { name: "Gene constraint reference ranges" }));
 
 describe("VariantHeader Component Tests", () => {
   /**
@@ -26,7 +60,7 @@ describe("VariantHeader Component Tests", () => {
       },
     } as unknown as AnalysisResult;
 
-    render(<VariantHeader gene="ACOT9" variant="p.Lys272Asn" uniprotId="Q9Y305" analysisResult={remapped} />);
+    render(<Chrome gene="ACOT9" variant="p.Lys272Asn" uniprotId="Q9Y305" analysisResult={remapped} />);
 
     expect(screen.getByText("p.Lys281Asn")).toBeTruthy();
     const basis = screen.getByTestId("modelled-basis");
@@ -37,7 +71,7 @@ describe("VariantHeader Component Tests", () => {
   });
 
   it("shows the plain notation when nothing was remapped", () => {
-    render(<VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={null} />);
+    render(<Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={null} />);
 
     expect(screen.getByText("p.Val600Glu")).toBeTruthy();
     expect(screen.queryByTestId("modelled-basis")).toBeNull();
@@ -83,7 +117,7 @@ describe("VariantHeader Component Tests", () => {
 
   it("should render gene and formatted variant", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -97,7 +131,7 @@ describe("VariantHeader Component Tests", () => {
 
   it("should render lineage and identifier chips (Transcript, GRCh38, UniProt)", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -109,8 +143,9 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.getByText("MANE Select")).toBeInTheDocument();
     expect(screen.getByText("7-140753336-A-T")).toBeInTheDocument();
     expect(screen.getByText("P15056")).toBeInTheDocument();
-    // Assembly stays visible next to the coordinate, without a "GRCh38:" key label
-    expect(screen.getByText("hg38")).toBeInTheDocument();
+    // The build is named in the field's own terms ("GRCh38", not UCSC "hg38") in front of the coordinate
+    expect(screen.getByText("GRCh38")).toBeInTheDocument();
+    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
 
     // The keyword labels are now conveyed to assistive tech instead of printed
     expect(screen.getByText("Transcript")).toBeInTheDocument();
@@ -126,7 +161,7 @@ describe("VariantHeader Component Tests", () => {
 
   it("should NOT render AlphaGenome AVI badge in header (removed per specification)", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -141,7 +176,7 @@ describe("VariantHeader Component Tests", () => {
 
   it("states proximity to a splice junction as context, not as an alert", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -186,7 +221,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -199,7 +234,7 @@ describe("VariantHeader Component Tests", () => {
 
   it("should render the gnomAD v2 constraint rail with compact labels, values and verdicts", () => {
     const { container } = render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -207,32 +242,34 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    // Source attribution lives on the list's accessible label and the row
-    // tooltips; there is no visible caption line above the rows.
+    // The rows are scoped as GENE constraint in a visible caption, so a verdict beside the HGVS
+    // cannot be read as a call on the variant.
     expect(screen.getByRole("list", { name: /gnomAD v2 population constraint/ })).toBeInTheDocument();
+    expect(container.querySelector(".vh-rail-title")).toHaveTextContent("Gene constraint · gnomAD v2");
+    expect(container.querySelector(".vh-rail-axis")).toHaveTextContent(/tolerant.*constrained/);
     expect(container.querySelector(".vh-rail-meta")).not.toBeInTheDocument();
 
     // Compact metric labels — the full names live in the tooltip/sr-only copy
-    expect(screen.getByText("Missense Z")).toBeInTheDocument();
-    expect(screen.getByText("LOEUF")).toBeInTheDocument();
-    expect(screen.getByText("Regional O/E")).toBeInTheDocument();
+    expect(panel().getByText("Missense Z")).toBeInTheDocument();
+    expect(panel().getByText("LOEUF")).toBeInTheDocument();
+    expect(panel().getByText("Regional O/E")).toBeInTheDocument();
 
     // Scores
-    expect(screen.getByText("+2.04")).toBeInTheDocument();
-    expect(screen.getByText("0.71")).toBeInTheDocument();
-    expect(screen.getByText("0.85")).toBeInTheDocument();
+    expect(panel().getByText("+2.04")).toBeInTheDocument();
+    expect(panel().getByText("0.71")).toBeInTheDocument();
+    expect(panel().getByText("0.85")).toBeInTheDocument();
 
     // Verdicts
-    expect(screen.getByText("Constrained")).toBeInTheDocument();
-    expect(screen.getByText("Not LoF constrained")).toBeInTheDocument(); // 0.71 ≥ 0.6, gnomAD's suggested cut
-    expect(screen.getByText("Subgenic constrained")).toBeInTheDocument();
+    expect(panel().getByText("Constrained")).toBeInTheDocument();
+    expect(panel().getByText("Not LoF constrained")).toBeInTheDocument(); // 0.71 ≥ 0.6, gnomAD's suggested cut
+    expect(panel().getByText("Subgenic constrained")).toBeInTheDocument();
 
     // Reference ranges are rendered as threshold ticks on the tracks
-    expect(screen.getByText("2.0")).toBeInTheDocument();
-    expect(screen.getByText("3.09")).toBeInTheDocument();
-    expect(screen.getByText("0.35")).toBeInTheDocument();
-    expect(screen.getByText("0.6")).toBeInTheDocument(); // LOEUF constraint cut
-    expect(screen.getByText("1.0")).toBeInTheDocument(); // RMC baseline
+    expect(panel().getByText("2.0")).toBeInTheDocument();
+    expect(panel().getByText("3.09")).toBeInTheDocument();
+    expect(panel().getByText("0.35")).toBeInTheDocument();
+    expect(panel().getByText("0.6")).toBeInTheDocument(); // LOEUF constraint cut
+    expect(panel().getByText("1.0")).toBeInTheDocument(); // RMC baseline
 
     // Three threshold tracks, each with a marker for the observed value
     expect(container.querySelectorAll(".vh-scale").length).toBe(3);
@@ -244,17 +281,17 @@ describe("VariantHeader Component Tests", () => {
     // RMC block span and p-value are tooltip/sr-only provenance, not visible
     // text — a footnote would give the third row a second line and break the
     // row rhythm.
-    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
     expect(rmcRow).not.toBeNull();
     expect(rmcRow!.getAttribute("title")).toContain("Constrained block 460 to 600");
     expect(rmcRow!.getAttribute("title")).toContain("p = 0.002");
     expect(rmcRow!.textContent).toContain("RMC block 460 to 600");
-    expect(screen.queryByText(/460–600/)).not.toBeInTheDocument();
+    expect(panel().queryByText(/460–600/)).not.toBeInTheDocument();
   });
 
   it("should expose the reference ranges to assistive tech without restating the visible values", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -265,14 +302,14 @@ describe("VariantHeader Component Tests", () => {
     // The reference sentence is the sr-only contract; the label, value and verdict are
     // already exposed as visible text, so repeating them here would double every row.
     expect(
-      screen.getByText(/Reference: tolerant below 2\.0, constrained from 2\.0, severe intolerance at or above 3\.09/)
+      panel().getByText(/Reference: tolerant below 2\.0, constrained from 2\.0, severe intolerance at or above 3\.09/)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Reference: strong loss-of-function intolerance below 0\.35, constrained below 0\.60/)
+      panel().getByText(/Reference: strong loss-of-function intolerance below 0\.35, constrained below 0\.60/)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Reference: unconstrained at O\/E ≈ 1\.0\./)).toBeInTheDocument();
+    expect(panel().getByText(/Reference: unconstrained at O\/E ≈ 1\.0\./)).toBeInTheDocument();
 
-    const srOnly = Array.from(document.querySelectorAll(".vh-sr-only")).map((el) => el.textContent ?? "");
+    const srOnly = Array.from(document.querySelectorAll(".vh-metric .vh-sr-only")).map((el) => el.textContent ?? "");
     // The RMC row's detail leads with the constrained block (window provenance,
     // formerly the visible footnote), so match containment rather than a prefix.
     const detail = srOnly.filter((t) => t.includes("Reference:"));
@@ -283,13 +320,13 @@ describe("VariantHeader Component Tests", () => {
     expect(detail.some((t) => t.includes("0.71"))).toBe(false);
 
     expect(
-      screen.getByTitle(/Regional Missense Constraint \(RMC\): Constrained block 460 to 600/)
+      panel().getByTitle(/Regional Missense Constraint \(RMC\): Constrained block 460 to 600/)
     ).toBeInTheDocument();
   });
 
   it("should carry the full metric names and ClinGen thresholds in the tooltips", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -297,9 +334,9 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByTitle(/Missense Z score \+2\.04/)).toBeInTheDocument();
+    expect(panel().getByTitle(/Missense Z score \+2\.04/)).toBeInTheDocument();
     expect(
-      screen.getByTitle(/loss-of-function observed\/expected upper bound fraction \(LOEUF\) 0\.71/)
+      panel().getByTitle(/loss-of-function observed\/expected upper bound fraction \(LOEUF\) 0\.71/)
     ).toBeInTheDocument();
   });
 
@@ -322,7 +359,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="TP53"
         variant="p.Arg175His"
         uniprotId="P04637"
@@ -330,13 +367,13 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByText("+3.50")).toBeInTheDocument();
-    expect(screen.getByText("Severe intolerance")).toBeInTheDocument();
-    expect(screen.getByText("0.22")).toBeInTheDocument();
-    expect(screen.getByText("Strong LoF intolerance")).toBeInTheDocument();
-    expect(screen.getByText("Expected variation")).toBeInTheDocument();
+    expect(panel().getByText("+3.50")).toBeInTheDocument();
+    expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
+    expect(panel().getByText("0.22")).toBeInTheDocument();
+    expect(panel().getByText("Strong LoF intolerance")).toBeInTheDocument();
+    expect(panel().getByText("Expected variation")).toBeInTheDocument();
     // No observed ratio reported, so the metric renders the empty value state
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(panel().getByText("—")).toBeInTheDocument();
   });
 
   it("should collapse a tiny RMC p-value into scientific notation", () => {
@@ -358,7 +395,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="MACO1"
         variant="p.Glu433Lys"
         uniprotId="Q9NSG2"
@@ -366,10 +403,10 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
     expect(rmcRow).not.toBeNull();
     expect(rmcRow!.getAttribute("title")).toContain("p = 6.6×10⁻⁶");
-    expect(screen.queryByText(/Gln199–Met555/)).not.toBeInTheDocument();
+    expect(panel().queryByText(/Gln199–Met555/)).not.toBeInTheDocument();
   });
 
   it("should handle null and NaN constraint values gracefully", () => {
@@ -386,7 +423,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     const { container } = render(
-      <VariantHeader
+      <Chrome
         gene="UNKNOWN"
         variant="p.Ala123Val"
         uniprotId="Q99999"
@@ -395,15 +432,15 @@ describe("VariantHeader Component Tests", () => {
     );
 
     // Both NaN scores report "No data" with the empty-marker track state
-    expect(screen.getAllByText("No data").length).toBe(2);
-    expect(screen.getByText("No gnomAD blocks")).toBeInTheDocument();
+    expect(panel().getAllByText("No data").length).toBe(2);
+    expect(panel().getByText("No gnomAD blocks")).toBeInTheDocument();
     expect(container.querySelectorAll(".vh-marker").length).toBe(0);
     expect(container.querySelectorAll('.vh-scale[data-empty="true"]').length).toBe(3);
   });
 
   it("should handle a null analysisResult safely without crashing", () => {
     const { container } = render(
-      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={null} />
+      <Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={null} />
     );
 
     expect(screen.getByText("BRAF")).toBeInTheDocument();
@@ -421,7 +458,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     const { rerender } = render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -437,7 +474,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     rerender(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -465,7 +502,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="MACO1"
         variant="p.Glu433Lys"
         uniprotId="Q9NSG2"
@@ -473,12 +510,12 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByText("No data")).toBeInTheDocument();
+    expect(panel().getByText("No data")).toBeInTheDocument();
     // The gene must NOT be described as lacking blocks: only this residue was unresolved.
-    expect(screen.queryByText(/no gnomAD constraint blocks/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("No gnomAD blocks")).not.toBeInTheDocument();
-    expect(screen.getByText(/No sub-regional call was returned for this residue/)).toBeInTheDocument();
-    expect(screen.getByTitle(/no sub-regional call was returned for this residue/)).toBeInTheDocument();
+    expect(panel().queryByText(/no gnomAD constraint blocks/i)).not.toBeInTheDocument();
+    expect(panel().queryByText("No gnomAD blocks")).not.toBeInTheDocument();
+    expect(panel().getByText(/No sub-regional call was returned for this residue/)).toBeInTheDocument();
+    expect(panel().getByTitle(/no sub-regional call was returned for this residue/)).toBeInTheDocument();
   });
 
   it("still says a gene has no blocks when it genuinely has none", () => {
@@ -495,7 +532,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="UNKNOWN"
         variant="p.Ala123Val"
         uniprotId="Q99999"
@@ -503,8 +540,8 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    expect(screen.getByText("No gnomAD blocks")).toBeInTheDocument();
-    expect(screen.getByText(/The gene has no gnomAD constraint blocks/)).toBeInTheDocument();
+    expect(panel().getByText("No gnomAD blocks")).toBeInTheDocument();
+    expect(panel().getByText(/The gene has no gnomAD constraint blocks/)).toBeInTheDocument();
   });
 
   it.each([
@@ -530,7 +567,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="MACO1"
         variant="p.Glu433Lys"
         uniprotId="Q9NSG2"
@@ -538,7 +575,7 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
     expect(rmcRow).not.toBeNull();
     expect(rmcRow!.getAttribute("title")).toContain(expected);
   });
@@ -557,7 +594,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="MACO1"
         variant="p.Glu433Lys"
         uniprotId="Q9NSG2"
@@ -565,11 +602,11 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const rmcRow = screen.getByText("Subgenic constrained").closest("li");
+    const rmcRow = panel().getByText("Subgenic constrained").closest("li");
     expect(rmcRow).not.toBeNull();
     expect(rmcRow!.getAttribute("title")).not.toContain("p = ");
     expect(rmcRow!.getAttribute("title")).toContain("Constrained block Gln199 to Met555");
-    expect(screen.queryByText(/p = /)).not.toBeInTheDocument();
+    expect(panel().queryByText(/p = /)).not.toBeInTheDocument();
   });
 
   it("labels a matched RMC window that did not reach significance as sub-threshold, not as expected variation", () => {
@@ -588,7 +625,7 @@ describe("VariantHeader Component Tests", () => {
     };
 
     render(
-      <VariantHeader
+      <Chrome
         gene="MACO1"
         variant="p.Glu433Lys"
         uniprotId="Q9NSG2"
@@ -596,13 +633,13 @@ describe("VariantHeader Component Tests", () => {
       />
     );
 
-    const verdict = screen.getByText("Sub-threshold window");
+    const verdict = panel().getByText("Sub-threshold window");
     const row = verdict.closest("li");
     expect(row).not.toBeNull();
     expect(row!.getAttribute("title")).toContain("did not reach significance");
     expect(row!.getAttribute("title")).toContain("p = 0.400");
     // The "outside every constrained sub-region" copy would be false here.
-    expect(screen.queryByText("Expected variation")).not.toBeInTheDocument();
+    expect(panel().queryByText("Expected variation")).not.toBeInTheDocument();
   });
 
   it("labels the coordinate build from the payload instead of assuming GRCh38", () => {
@@ -611,11 +648,11 @@ describe("VariantHeader Component Tests", () => {
     };
 
     const { container, rerender } = render(
-      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={grch37 as AnalysisResult} />
+      <Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={grch37 as AnalysisResult} />
     );
 
-    expect(screen.getByText("hg19")).toBeInTheDocument();
-    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
+    expect(screen.getByText("GRCh37")).toBeInTheDocument();
+    expect(screen.queryByText("GRCh38")).not.toBeInTheDocument();
     expect(screen.getByTitle(/GRCh37 genomic coordinates/)).toBeInTheDocument();
     expect(screen.getByText("GRCh37 coordinates")).toBeInTheDocument();
 
@@ -625,17 +662,17 @@ describe("VariantHeader Component Tests", () => {
     };
 
     rerender(
-      <VariantHeader gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={unknownBuild as AnalysisResult} />
+      <Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={unknownBuild as AnalysisResult} />
     );
 
-    expect(container.querySelector(".vh-chip-key")).toBeNull();
-    expect(screen.queryByText("hg38")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^GRCh3[78]$/)).toBeNull();
+    expect(container).toBeTruthy();
     expect(screen.getByTitle(/Build not reported/)).toBeInTheDocument();
   });
 
   it("exposes the constraint metrics as a list for VoiceOver", () => {
     const { container } = render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -663,14 +700,14 @@ describe("VariantHeader Component Tests", () => {
     };
 
     const { rerender } = render(
-      <VariantHeader gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={pp2NotMet as AnalysisResult} />
+      <Chrome gene="GENE1" variant="p.Ala1Val" uniprotId="P00001" analysisResult={pp2NotMet as AnalysisResult} />
     );
 
     // The Z severity itself still reports as severe...
-    expect(screen.getByText("Severe intolerance")).toBeInTheDocument();
+    expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
     // ...but PP2 is not claimed.
-    expect(screen.getByTitle(/ClinGen PP2 not met/)).toBeInTheDocument();
-    expect(screen.queryByTitle(/ClinGen PP2 is met/)).not.toBeInTheDocument();
+    expect(panel().getByTitle(/ClinGen PP2 not met/)).toBeInTheDocument();
+    expect(panel().queryByTitle(/ClinGen PP2 is met/)).not.toBeInTheDocument();
 
     const pp2Met: Partial<AnalysisResult> = {
       gnomadConstraint: {
@@ -681,15 +718,15 @@ describe("VariantHeader Component Tests", () => {
     };
 
     rerender(
-      <VariantHeader gene="GENE2" variant="p.Ala1Val" uniprotId="P00002" analysisResult={pp2Met as AnalysisResult} />
+      <Chrome gene="GENE2" variant="p.Ala1Val" uniprotId="P00002" analysisResult={pp2Met as AnalysisResult} />
     );
 
-    expect(screen.getByTitle(/ClinGen PP2 is met/)).toBeInTheDocument();
+    expect(panel().getByTitle(/ClinGen PP2 is met/)).toBeInTheDocument();
   });
 
   it("keeps the band tones and verdicts in step with the thresholds", () => {
     const { container } = render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"
@@ -705,10 +742,35 @@ describe("VariantHeader Component Tests", () => {
     };
 
     // The band ladder and the tier ladder are declared separately; this pins them together.
+    // Bands are listed in drawn order: every track reads tolerant on the left, constrained on the
+    // right, so LOEUF (which falls as constraint rises) runs on a reversed axis.
     expect(tonesOf("Missense Z")).toEqual(["good", "warn", "path"]);
-    expect(tonesOf("LOEUF")).toEqual(["path", "warn", "good"]);
+    expect(tonesOf("LOEUF")).toEqual(["good", "warn", "path"]);
     expect(tonesOf("Regional O/E")).toEqual([]);
   });
+
+  it("draws every track in the same direction: constrained values sit right", () => {
+    const { container } = render(
+      <Chrome gene="BRAF" variant="p.Val600Glu" uniprotId="P15056" analysisResult={mockAnalysisResult as AnalysisResult} />
+    );
+    const leftOf = (label: string, selector: string) => {
+      const row = Array.from(container.querySelectorAll("li.vh-metric")).find(
+        (li) => li.querySelector(".vh-metric-label")?.textContent === label
+      );
+      return Array.from(row?.querySelectorAll<HTMLElement>(selector) ?? []).map((el) => parseFloat(el.style.left));
+    };
+    // Missense Z ticks 2.0 then 3.09, left to right
+    const [z20, z309] = leftOf("Missense Z", ".vh-axis-label");
+    expect(z309).toBeGreaterThan(z20);
+    // LOEUF: the strong cut (0.35) sits RIGHT of the 0.6 cut on the reversed axis
+    const [l035, l06] = leftOf("LOEUF", ".vh-axis-label");
+    expect(l035).toBeGreaterThan(l06);
+    // RMC: O/E 0.85 sits right of the 1.0 baseline
+    const [rmcMarker] = leftOf("Regional O/E", ".vh-marker");
+    const [rmcBaseline] = leftOf("Regional O/E", ".vh-axis-label");
+    expect(rmcMarker).toBeGreaterThan(rmcBaseline);
+  });
+
 
   it("should handle copy to clipboard interaction and update screen reader feedback", async () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
@@ -719,7 +781,7 @@ describe("VariantHeader Component Tests", () => {
     });
 
     render(
-      <VariantHeader
+      <Chrome
         gene="BRAF"
         variant="p.Val600Glu"
         uniprotId="P15056"

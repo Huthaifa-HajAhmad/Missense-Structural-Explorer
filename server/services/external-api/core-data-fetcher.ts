@@ -19,9 +19,8 @@ import {
 } from "./gnomad.ts";
 import { fetchLocalPopulationFrequencies } from "../prediction/landscape.ts";
 import { fetchUniprotFeatures, type UniprotFeaturesResult } from "./uniprot.ts";
-import type { PredictorData, ConservationData } from "../../../src/shared/contracts.ts";
+import type { PredictorData, ConservationData, AouLookup } from "../../../src/shared/contracts.ts";
 import {
-  parseGenomicCoordinateString,
   predictorCoordinateFromContext,
   PDB_SOURCE_ALPHAFOLD,
   PDB_SOURCE_RCSB,
@@ -29,7 +28,6 @@ import {
 } from "../../../src/shared/contracts.ts";
 import {
   CANONICAL_ASSEMBLY,
-  sourceSupportsAssembly,
   type AssemblyTaggedCoordinate,
 } from "../../../src/shared/assembly.ts";
 import { isLocalDbnsfpAvailable } from "../prediction/dbnsfp_local.ts";
@@ -47,6 +45,12 @@ import {
   type TimeoutScope
 } from "../orchestration/timeout-scope.ts";
 import { CONFIG } from "../../config.ts";
+import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
+
+function hasPopulationObservation(value: any): boolean {
+  return Boolean(value && [value.maxAF, value.groupMaxAF, value.genomeAF, value.exomeAF,
+    value.genomeAC, value.exomeAC, value.genomeAN, value.exomeAN, value.nHomozygous].some(v => v != null));
+}
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData };
 
@@ -340,12 +344,26 @@ async function runCoreFetch(
     return null;
   }));
 
-  const localFreqsPromise = timeTask("localFreqs", (isLocalDbnsfpAvailable() && pos !== null)
-    ? fetchLocalPopulationFrequencies(gene, pos, variant).catch((err: any) => {
-        console.warn("[Local dbNSFP Freq Warning] Error querying local frequencies:", err);
-        return null;
-      })
-    : Promise.resolve(null));
+  /**
+   * What the local All of Us lookup established, recorded as it happens so the payload can say WHICH
+   * absence an empty row is (`aouLookup`). The lookup itself still resolves to null on every failure,
+   * exactly as before — only the reason is new.
+   */
+  const localTableInstalled = isLocalDbnsfpAvailable() && pos !== null;
+  let localTableFailed = false;
+  let localPopulationWithheld = false;
+  const localFreqsPromise = timeTask("localFreqs", predictorPromise.then(pred => {
+    const coordinate = verifiedPopulationCoordinate(pred);
+    if (!coordinate) {
+      localPopulationWithheld = true;
+      return null;
+    }
+    return localTableInstalled ? fetchLocalPopulationFrequencies(gene, pos!, variant, coordinate) : null;
+  }).catch((err: any) => {
+    console.warn("[Local dbNSFP Freq Warning] Error querying local frequencies:", err);
+    localTableFailed = true;
+    return null;
+  }));
 
   let gnomadFreqHasError = false;
   /**
@@ -357,7 +375,7 @@ async function runCoreFetch(
    */
   let gnomadFreqBuildRefused = false;
   const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then((localFreqs: any) => {
-    if (localFreqs && localFreqs.gnomad) return localFreqs.gnomad;
+    if (hasPopulationObservation(localFreqs?.gnomad)) return localFreqs.gnomad;
     return predictorPromise.then(pred => {
       /**
        * Build gate on the coordinate before querying gnomAD.
@@ -371,12 +389,12 @@ async function runCoreFetch(
        * `unsupported-build` rather than as an absence. The build is also passed into the cache key so
        * a cross-build entry can never be served.
        */
-      const coordinateAssembly = pred?.gnomadVariantAssembly ?? null;
-      if (!coordinateAssembly || !sourceSupportsAssembly("gnomad-variants", coordinateAssembly)) {
+      const coordinate = verifiedPopulationCoordinate(pred);
+      if (!coordinate) {
         gnomadFreqBuildRefused = true;
         return null;
       }
-      return fetchGnomadVariantFrequency(pred?.gnomadVariantId || null, { assembly: coordinateAssembly });
+      return fetchGnomadVariantFrequency(pred!.gnomadVariantId!, { assembly: coordinate.assembly });
     });
   }).catch(err => {
     console.warn("[Gnomad Frequency Warning] Error querying variant frequency:", err);
@@ -401,6 +419,11 @@ async function runCoreFetch(
     alphagenomeApiUrl,
     spliceaiDistance,
     sequence
+  }).then(conservation => {
+    // This producer queries conservation/Genos by protein notation and carries no exact-allele
+    // provenance for AoU. A canonical predictor ID alone cannot bind those counts to its ALT.
+    // Only the separately queried, exact-coordinate local frequency result is trusted below.
+    return conservation?.aouFrequency ? { ...conservation, aouFrequency: null } : conservation;
   }).catch(err => {
     console.warn("[Conservation Parallel Run Warning] Failed to fetch conservation:", err);
     conservationHasError = true;
@@ -554,7 +577,7 @@ async function runCoreFetch(
    */
   const normalizeAouFrequency = (value: any): any => {
     if (!value) return null;
-    const allNull = value.aouAC === null && value.aouAN === null && value.aouHet === null && value.aouHom === null;
+    const allNull = value.aouAC == null && value.aouAN == null && value.aouHet == null && value.aouHom == null;
     return allNull ? null : value;
   };
 
@@ -812,9 +835,21 @@ async function runCoreFetch(
   let aouFrequency = null;
   if (localFreqsRes && localFreqsRes.aou) {
     aouFrequency = normalizeAouFrequency(localFreqsRes.aou);
-  } else if (conservationRes?.aouFrequency) {
-    aouFrequency = normalizeAouFrequency(conservationRes.aouFrequency);
   }
+  const localAou = localFreqsRes?.aou ? normalizeAouFrequency(localFreqsRes.aou) : null;
+  const aouLookup: AouLookup | null = localPopulationWithheld || localFreqsRes?.aouInvalidCounts || !verifiedPopulationCoordinate(predictorRes) ? null : {
+    localTable: !localTableInstalled
+      ? "not-installed"
+      : rawLocalFreqs === TIMEOUT_FLAG
+        ? "timed-out"
+        : localTableFailed
+          ? "failed"
+          : localAou
+            ? "found"
+            : "absent",
+    // No exact-allele remote AoU read occurred; this is not a population absence.
+    remoteDbnsfp: "not-reported",
+  };
 
   let resolvedPdbId: string | null = null;
   // "AlphaFold" is the default because it is what the structural models fall back to; the id
@@ -911,6 +946,7 @@ async function runCoreFetch(
     uniprotFeatures: uniprotFeaturesRes,
     ruleBasedInsights,
     aouFrequency,
+    aouLookup,
     resolvedPdbId,
     resolvedPdbSource,
     serviceStatus,

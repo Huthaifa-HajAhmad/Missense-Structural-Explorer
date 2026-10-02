@@ -1,8 +1,23 @@
 # Missense & Fold Reverse Proxy and TLS Configuration
 # Run via: caddy run --config Caddyfile
 
+{
+    # Runtime errors include request headers too. Filter the default logger, not only access logs.
+    log default {
+        format filter {
+            wrap json
+            fields {
+                request>headers delete
+            }
+        }
+    }
+}
+
 missense-resolve.duckdns.org {
+    respond /internal/* 404
     reverse_proxy missense-resolve-app:3000 {
+        # Existing streams retain their old upstream while its requests and jobs drain.
+        stream_close_delay 35m
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}

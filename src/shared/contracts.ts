@@ -10,6 +10,8 @@ import {
   type DeepEvidenceModelId,
 } from "./deepModelEvidence";
 import { STRUCTURE_RESOLUTION_SOURCES, type StructureResolutionSource } from "./structureRefs";
+import { locusResolutionSchema, locusFailureKindSchema, LOCUS_POLICY_VERSION, isFallbackLocus, isRetryableFallbackLocus, type LocusResolution } from "./locusResolution";
+import { isIntrinsicallyAmbiguousProteinChange } from "./proteinAlleleIdentity";
 
 /**
  * The FoldX phase vocabulary, as a schema.
@@ -427,12 +429,53 @@ export function isBuildDegradedResult(
   result:
     | {
         coordinateLift?: CoordinateLiftRecord | null;
-        predictorData?: { gnomadVariantAssembly?: GenomeAssembly | null } | null;
+        metadata?: { gene?: string; variant?: string; populationPolicyVersion?: number } | null;
+        aouFrequency?: unknown;
+        conservationData?: { aouFrequency?: unknown } | null;
+        gnomadFrequency?: { dataset?: string | null } | null;
+        predictorData?: {
+          gnomadVariantAssembly?: GenomeAssembly | null;
+          gnomadVariantId?: string | null;
+          caddPhred?: number | null;
+          source?: string;
+          locusResolution?: LocusResolution | null;
+        } | null;
       }
     | null
     | undefined
 ): boolean {
   if (!result) return false;
+
+  // PR #23 could accept a single database-listed allele after an ambiguous protein lookup.
+  // Migrate every old fallback bundle once, including a seemingly canonical one. Healthy VEP
+  // results keep their existing caches; current definitive input requirements remain cacheable.
+  const trail = result.predictorData?.locusResolution;
+  if (trail?.route === "fallback" && trail.policyVersion !== LOCUS_POLICY_VERSION) return true;
+  if (!trail && /fallback/i.test(result.predictorData?.source ?? "")) return true;
+
+  // Protein-only VEP successes written before this policy could themselves select an arbitrary
+  // allele. Coordinate-route results retain the user's exact verified allele instead.
+  if (trail?.route !== "vep-coordinate" &&
+      isIntrinsicallyAmbiguousProteinChange(result.metadata?.variant ?? "", result.metadata?.gene) &&
+      (result.predictorData?.gnomadVariantId || result.predictorData?.caddPhred != null)) return true;
+
+  // Old local population rows were selected by protein notation even on otherwise healthy VEP
+  // runs. Refresh those outer bundles once; retain healthy remote gnomAD/predictor caches.
+  const hadUnboundPopulationProducer = result.aouFrequency != null ||
+    result.conservationData?.aouFrequency != null || result.gnomadFrequency?.dataset === "gnomad_r4_local";
+  if (hadUnboundPopulationProducer && result.metadata?.populationPolicyVersion !== LOCUS_POLICY_VERSION) return true;
+
+  /**
+   * A FALLBACK locus is degraded whatever the intake lift record says, and is checked first.
+   *
+   * A protein-notation run carries a `not-needed` lift record (the analysis route defaults the build
+   * to GRCh38), and that record used to short-circuit to "settled" below — so a run whose GRCh38
+   * lookup failed and fell back to an hg19 locus was cached as a finished analysis and restored on
+   * every later Recents click, withholding population evidence the variant does have (NAE1
+   * p.Asp116Gly). The intake record describes what the user SUBMITTED; this describes what the
+   * predictor FOUND, and only the second decides whether the evidence is complete.
+   */
+  if (isFallbackLocus(result)) return isRetryableFallbackLocus(result);
 
   const lift = result.coordinateLift;
   if (lift?.status === "unavailable") {
@@ -948,6 +991,20 @@ export type StructuralDiffResponse = z.infer<typeof structuralDiffResponseSchema
 // ============================================================================
 // 10. Predictor & Conservation Canonical Domain Contracts
 // ============================================================================
+/**
+ * What the All of Us lookup actually consulted, so an empty row can say which absence it is.
+ *
+ * Without it, "The local All of Us frequency table holds no entry" was printed for every empty row —
+ * including when no local table is installed in the deployment and when the lookup never finished.
+ *   - `localTable`: the local dbNSFP ingest (`server/services/prediction/local-population.ts`).
+ *   - `remoteDbnsfp`: whether the dbNSFP record reached through the conservation lookup carried counts.
+ */
+export const aouLookupSchema = z.object({
+  localTable: z.enum(["found", "absent", "not-installed", "failed", "timed-out"]),
+  remoteDbnsfp: z.enum(["found", "not-reported"]),
+});
+export type AouLookup = z.infer<typeof aouLookupSchema>;
+
 export const predictorDataSchema = z.object({
   available: z.boolean().optional(),
   amPathogenicity: z.number().nullable(),
@@ -970,6 +1027,12 @@ export const predictorDataSchema = z.object({
    * slipped through. Consumers refuse a coordinate with an unknown or unsupported build.
    */
   gnomadVariantAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
+  /**
+   * How the locus above was established on this run: which route answered, how the GRCh38 locus
+   * was verified (or why it was not), and whether a re-run could change that. Optional — payloads
+   * written before it existed are read through `isFallbackLocus` (src/shared/locusResolution.ts).
+   */
+  locusResolution: locusResolutionSchema.nullable().optional(),
   proteinName: z.string().nullable().optional(),
   transcriptId: z.string().optional(),
   /**
@@ -1306,7 +1369,16 @@ export const conservationDataSchema = z.object({
    */
   assemblyRefusals: z.array(z.object({
     source: z.string(),
-    reason: z.string()
+    reason: z.string(),
+    /**
+     * True when the refusal is a consequence of a FALLBACK locus (the GRCh38 lookup failed on this
+     * run) rather than of a build the user chose. Surfaces read it as retryable, not "Not covered".
+     */
+    retryable: z.boolean().optional(),
+    /** Same locus failure vocabulary across coordinate-keyed evidence sources. */
+    failureKind: locusFailureKindSchema.optional(),
+    /** The remedy is an original nucleotide allele, not another provider request. */
+    inputRequired: z.boolean().optional()
   })).nullable().optional(),
   source: z.string().optional()
 });
@@ -1485,7 +1557,9 @@ export const analyzeVariantResponseSchema = z.object({
     pdbSource: z.string().nullable().optional(),
     sequence: z.string().nullable().optional(),
     ...runtimeTimingFields,
-    serviceStatus: z.record(z.string(), z.string()).optional()
+    serviceStatus: z.record(z.string(), z.string()).optional(),
+    /** Version of exact-allele population binding; legacy local observations are refreshed once. */
+    populationPolicyVersion: z.number().int().positive().optional()
   }).passthrough(),
   predictorData: predictorDataSchema.nullable().optional(),
   conservationData: conservationDataSchema.nullable().optional(),
@@ -1608,6 +1682,7 @@ export const analyzeVariantResponseSchema = z.object({
     aouHet: z.number().nullable().optional(),
     aouHom: z.number().nullable().optional()
   }).nullable().optional(),
+  aouLookup: aouLookupSchema.nullable().optional(),
   esm2: z.object({
     llr: z.number().nullable(),
     verdict: z.string().nullable().optional()
@@ -2346,6 +2421,7 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   gnomadConstraint?: GnomadConstraintData | null;
   gnomadFrequency?: GnomadFrequencyData | null;
   aouFrequency?: AouFrequencyData | null;
+  aouLookup?: AouLookup | null;
   serviceStatus?: Record<string, string>;
   inSilicoConcordance?: PredictorConcordance | null;
 }

@@ -22,14 +22,14 @@ export function usePipelineAbortController() {
       try {
         analysisAbortRef.current.abort();
       } catch (e) {
-        console.error("Failed to abort analysis request", e);
+        console.warn("[Pipeline] Failed to abort analysis request:", e);
       }
     }
     if (mutantFoldAbortRef.current) {
       try {
         mutantFoldAbortRef.current.abort();
       } catch (e) {
-        console.error("Failed to abort mutant fold request", e);
+        console.warn("[Pipeline] Failed to abort mutant fold request:", e);
       }
     }
   }, []);

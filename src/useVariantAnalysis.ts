@@ -99,8 +99,8 @@ export default function useVariantAnalysis() {
             setCustomVariant: currentStore.setCustomVariant,
             setCustomUniprot: currentStore.setCustomUniprot,
             setSelectedResidueIndex: currentStore.setSelectedResidueIndex,
-            addToHistory: (gene: string, variant: string, uniprotId: string) =>
-              currentStore.addToHistory({ gene, variant, uniprotId })
+            addToHistory: (gene: string, variant: string, uniprotId: string, query?: string) =>
+              currentStore.addToHistory({ gene, variant, uniprotId, ...(query ? { query } : {}) })
           },
           analysis: {
             setAnalysisState: currentStore.setAnalysisState,
@@ -164,7 +164,7 @@ export default function useVariantAnalysis() {
   );
 
   const handleSelectHistoryItem = useCallback(
-    (item: { gene: string; variant: string; uniprotId: string }) => {
+    (item: { gene: string; variant: string; uniprotId: string; query?: string }) => {
       const currentStore = useVariantAnalysisStore.getState();
       currentStore.handleSelectHistoryItem(item, {
         abortAllPendingRequests: () =>

@@ -145,7 +145,7 @@ export function useAppEffects({
               wtSeq = data.sequence;
             }
           } catch (err) {
-            console.error("Failed to resolve mutated sequence for ESMFold:", err);
+            console.error("[ESMFold] Failed to resolve mutated sequence:", err);
           }
         }
 

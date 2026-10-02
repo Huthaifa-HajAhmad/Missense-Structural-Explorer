@@ -1,6 +1,7 @@
 import type { AnalysisResult } from "./contracts.ts";
 import { toCanonicalDdg, formatDdg, type EnergyEngineId } from "./engineStatus.ts";
 import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
+import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "./locusResolution.ts";
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
 
@@ -192,6 +193,28 @@ export function getWorkflowStageStatus(
         return {
           status: "progress",
           desc: "Querying ClinVar, gnomAD, and predictors..."
+        };
+      }
+      /**
+       * A run whose population evidence could not be read is not "complete", and the rail must not
+       * show it in the same green as a clean one: a fallback locus (the GRCh38 lookup failed, so
+       * gnomAD was never queried) or a gnomAD query that timed out or failed.
+       */
+      const gnomadStatus = result.serviceStatus?.gnomadFrequency ?? result.metadata?.serviceStatus?.gnomadFrequency;
+      if (isFallbackLocus(result)) {
+        return {
+          status: "degraded",
+          desc: `Population evidence not assessed: ${fallbackCause(
+             result.predictorData?.gnomadVariantAssembly ?? null,
+             locusRecoveryAction(result) === "retry",
+             locusFailureKind(result) ?? undefined
+           )}`
+        };
+      }
+      if (gnomadStatus === "timeout" || gnomadStatus === "error") {
+        return {
+          status: "degraded",
+          desc: "gnomAD did not answer on this run · population evidence incomplete — re-run to retry"
         };
       }
       const clinvarText = result.clinvar?.classification || "Annotated";

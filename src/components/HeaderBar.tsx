@@ -1,18 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MasterView, MASTER_VIEW_ITEMS, isViewActive } from "./MasterSidebar";
 import {
-  AlertTriangle, KeyRound, X, Settings, Sun, Moon, PanelLeft, CircleHelp, Search, Link2, Check, WifiOff,
+  MasterView, MASTER_VIEW_ITEMS, EVIDENCE_SUB_ITEMS, STRUCTURE_SUB_ITEMS, isViewActive,
+} from "./MasterSidebar";
+import {
+  AlertTriangle, KeyRound, X, Settings, Sun, Moon, PanelLeft, CircleHelp, Search, Link2, Check, WifiOff, ChevronRight,
 } from "lucide-react";
 import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/SettingsContext";
 import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
 import { commandPaletteHint } from "../shared/platform";
 import { isShareable, withVariantParams } from "../shared/shareLink";
 import { CHROME_DIVIDER, CHROME_ICON_BUTTON } from "./ui/chrome";
+import { VariantIdentity } from "./header/VariantIdentity";
+import { useVariantHeaderModel, type VariantHeaderInput } from "./header/variantHeaderModel";
 
 interface HeaderBarProps {
   masterView: MasterView;
   isBiophysicalLoading: boolean;
   isOffline: boolean;
+  /** The Evidence sub-tab on screen, so the breadcrumb can name the page and not just the section. */
+  activeEvidenceTab?: string;
   /** Narrow-viewport drawer trigger (App gates it via matchMedia). */
   showNavToggle?: boolean;
   onToggleNavDrawer?: () => void;
@@ -26,25 +32,37 @@ interface HeaderBarProps {
   onOpenSettings?: () => void;
   /** Opens the high-level onboarding walkthrough and API keys guide */
   onOpenOnboarding?: () => void;
+  /**
+   * The variant on screen, when the view is an analysis view. The bar then TITLES itself with the
+   * variant's identity instead of a breadcrumb: on those views the variant is the subject of the page,
+   * the sidebar already says where you are, and the page's H1 names the page.
+   */
+  variant?: VariantHeaderInput | null;
 }
 
 /**
- * View titles, read from the sidebar's own registry so the header and the nav can never name the
- * same place differently (About and Console are registry rows now, so the old hand-written
- * "Developer Console" / "3D Structure" special cases — which had already drifted — are gone).
+ * The breadcrumb for the view on screen, read from the sidebar's own registries so the header and
+ * the nav can never name the same place differently. A single "Evidence" only repeated the sidebar's
+ * highlighted row; the sub-page ("Population data", "AlphaFold2") is the part the reader needs.
  */
-function viewTitle(view: MasterView): string {
-  return MASTER_VIEW_ITEMS.find(item => isViewActive(item.id, view))?.label ?? "";
+export function viewCrumbs(view: MasterView, evidenceTab?: string): string[] {
+  const section = MASTER_VIEW_ITEMS.find(item => isViewActive(item.id, view))?.label;
+  if (!section) return [];
+  const page =
+    view === "evidence"
+      ? EVIDENCE_SUB_ITEMS.find(item => item.id === evidenceTab)?.label
+      : STRUCTURE_SUB_ITEMS.find(item => item.id === view)?.label;
+  return page ? [section, page] : [section];
 }
 
 /* ──────────────────────────────────────────────────────────────────────────────────────────────
-   Header layout — three zones on one 56px bar:
+   Header layout — two primary zones on one 56px bar:
 
-     [nav] Title                 [ 🔍 Search or run a variant…   Ctrl K ]          notices · ⎘ ? ☾ ⚙
+     [nav] Section › Page                                     notices · [🔍] ⎘ ? ☾ ⚙
 
-   Left says WHERE you are, centre is the one way IN (the palette, now labelled — the bare "Ctrl K"
-   chip it replaces told nobody what it opened), right is state and global actions. Every icon
-   button is the same 32px control (`CHROME_ICON_BUTTON`), shared with the sidebar's toggle.
+   Left says WHERE you are (identity or breadcrumbs), right is state, expandable search, and
+   global actions. The search button expands smoothly into a full query bar on click and collapses
+   via X, Escape, or click-outside. Every icon button is the same 32px control (`CHROME_ICON_BUTTON`).
    ────────────────────────────────────────────────────────────────────────────────────────────── */
 
 export function HeaderBar({
@@ -53,6 +71,7 @@ export function HeaderBar({
   // longer renders an in-flight cue: the pipeline rail owns the whole progress story.
   // isBiophysicalLoading,
   isOffline,
+  activeEvidenceTab,
   showNavToggle = false,
   onToggleNavDrawer,
   onOpenPalette,
@@ -61,7 +80,8 @@ export function HeaderBar({
   isDark: isDarkProp,
   onToggleTheme,
   onOpenSettings,
-  onOpenOnboarding
+  onOpenOnboarding,
+  variant: variantChrome = null,
 }: HeaderBarProps) {
   let hasConfiguredGeminiKey = true;
   let showAiSetupNotice = true;
@@ -103,16 +123,50 @@ export function HeaderBar({
     }
   };
 
-  const title = viewTitle(masterView);
+  const crumbs = viewCrumbs(masterView, activeEvidenceTab);
+  // Built unconditionally (hooks), rendered only when a variant is on screen.
+  const variantModel = useVariantHeaderModel(
+    variantChrome ?? { gene: "", variant: "", uniprotId: "", analysisResult: null }
+  );
+  const showIdentity = Boolean(variantChrome?.gene);
   /* One source for the chord label — the palette footer prints the same string. */
   const paletteHint = commandPaletteHint();
   const errorText = error?.replace(/^Error:\s*/i, "") ?? "";
   const errorIsKey = /unauthori[sz]ed|api key/i.test(errorText);
 
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isSearchExpanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsSearchExpanded(false);
+        searchBtnRef.current?.focus();
+      }
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setIsSearchExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onMouseDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [isSearchExpanded]);
+
   return (
     <header className="app-header" id="main-header">
-      {/* ── Left: where you are ── */}
-      <div className="flex items-center gap-2 min-w-0 flex-1 basis-0">
+      {/* ── Left: the variant on analysis views, otherwise where you are ──
+          With a variant the zone takes twice the share of the free width and becomes a size
+          container, so its identifiers can drop in order as the bar narrows (`.vid` rules). */}
+      <div
+        className={`flex items-center gap-2 min-w-0 basis-0 ${showIdentity ? "flex-[2_1_0%] vid-zone" : "flex-1"}`}
+      >
         {showNavToggle && (
           <button
             type="button"
@@ -126,34 +180,32 @@ export function HeaderBar({
         )}
         {/* Hidden on Search: the page's own H1 names it, and the header repeating it was the third
             copy of the same word on one screen. */}
-        {masterView !== "search" && title && (
-          <span className="text-[13px] font-medium text-cs-text-primary truncate" aria-current="page">
-            {title}
-          </span>
+        {showIdentity && <VariantIdentity model={variantModel} />}
+        {!showIdentity && masterView !== "search" && crumbs.length > 0 && (
+          <nav aria-label="Breadcrumb" className="min-w-0">
+            <ol className="flex items-center gap-1.5 min-w-0 text-[13px]">
+              {crumbs.map((crumb, i) => {
+                const isCurrent = i === crumbs.length - 1;
+                return (
+                  <li key={crumb} className={`flex items-center gap-1.5 min-w-0 ${isCurrent ? "" : "shrink-0"}`}>
+                    {i > 0 && <ChevronRight className="w-3.5 h-3.5 shrink-0 text-cs-text-muted" aria-hidden="true" />}
+                    <span
+                      className={isCurrent ? "font-medium text-cs-text-primary truncate" : "text-cs-text-muted"}
+                      aria-current={isCurrent ? "page" : undefined}
+                    >
+                      {crumb}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
         )}
       </div>
 
-      {/* ── Centre: the palette, labelled ──
-          The chord is the fast path; this control exists so the palette is discoverable and has a
-          visible name. Full field from `md`, icon-only below. */}
-      <button
-        type="button"
-        onClick={onOpenPalette}
-        className="group hidden md:flex items-center gap-2 h-8 w-[clamp(200px,32vw,420px)] min-w-0 shrink pl-2.5 pr-1.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted hover:border-cs-border hover:text-cs-text-secondary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-        title={`Open command palette (${paletteHint})`}
-        aria-label={`Open command palette (${paletteHint})`}
-        aria-keyshortcuts={paletteHint === "⌘K" ? "Meta+K" : "Control+K"}
-      >
-        <Search className="w-3.5 h-3.5 shrink-0" />
-        <span className="flex-1 text-left text-[12.5px] truncate">Search views or run a variant…</span>
-        <kbd className="cs-kbd">
-          {paletteHint}
-        </kbd>
-      </button>
-
       {/* ── Right: state, then actions ── */}
       {/* `min-w-max`: the right zone may grow past its half of the bar (a long error, several notices)
-          and push the palette narrower, but it can never overlap it. */}
+          and push into the middle space, but it can never overlap. */}
       <div className="flex items-center justify-end gap-1 min-w-max flex-1 basis-0">
         {/* Notices first, so they sit next to the thing they are about (settings). */}
         {error && (
@@ -224,16 +276,55 @@ export function HeaderBar({
           <span className={`${CHROME_DIVIDER} mx-1.5`} aria-hidden="true" />
         )}
 
-        {/* Palette, icon-only, below `md` where the labelled field is hidden. */}
-        <button
-          type="button"
-          onClick={onOpenPalette}
-          className={`${CHROME_ICON_BUTTON} md:hidden`}
-          title={`Search (${paletteHint})`}
-          aria-label="Search views or run a variant"
-        >
-          <Search className="w-4 h-4" />
-        </button>
+        {/* ── Expandable Search Control ──
+            Collapsed by default to a 32px icon button aligned with the action icons.
+            Expands smoothly into a search bar on click; collapses via X, Escape, or click-outside. */}
+        {!isSearchExpanded ? (
+          <button
+            ref={searchBtnRef}
+            type="button"
+            onClick={() => setIsSearchExpanded(true)}
+            className={CHROME_ICON_BUTTON}
+            title={`Search views or run a variant (${paletteHint})`}
+            aria-label={`Search views or run a variant (${paletteHint})`}
+            aria-expanded={false}
+          >
+            <Search className="w-4 h-4" />
+          </button>
+        ) : (
+          <div
+            ref={searchContainerRef}
+            className="flex items-center gap-1 shrink-0"
+          >
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              autoFocus
+              className="group flex items-center gap-2 h-8 w-[clamp(180px,22vw,280px)] min-w-0 shrink pl-2.5 pr-1.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted hover:border-cs-border hover:text-cs-text-secondary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+              title={`Open command palette (${paletteHint})`}
+              aria-label={`Open command palette (${paletteHint})`}
+              aria-keyshortcuts={paletteHint === "⌘K" ? "Meta+K" : "Control+K"}
+            >
+              <Search className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex-1 text-left text-[12.5px] truncate">
+                {showIdentity ? "Search or run…" : "Search views or run a variant…"}
+              </span>
+              <kbd className="cs-kbd">{paletteHint}</kbd>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSearchExpanded(false);
+                searchBtnRef.current?.focus();
+              }}
+              className={CHROME_ICON_BUTTON}
+              title="Close search"
+              aria-label="Close search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {canShare && (
           <button

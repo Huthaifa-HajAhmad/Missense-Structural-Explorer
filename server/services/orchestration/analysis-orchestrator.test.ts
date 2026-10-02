@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runCoreAnalysis, isStaleCachedPayload, streamCoreAnalysis, runStructuralAnalysis } from "./analysis-orchestrator.ts";
 import { payloadIdentityRecordOf } from "./core-identity.ts";
+import { LOCUS_POLICY_VERSION } from "../../../src/shared/locusResolution.ts";
 import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
@@ -184,6 +185,105 @@ describe("Analysis Orchestrator Unit Tests", () => {
       "the refetch is what makes the row verifiable from then on"
     ).toBeTruthy();
     expect(lastSave.payload.metadata.cacheHit, "the row records no wire provenance").toBeUndefined();
+  });
+
+  describe.each(["synchronous", "streaming"] as const)("%s persisted locus-policy cache", (mode) => {
+    const freshCachedPayload = (predictorData: Record<string, unknown>) => ({
+      metadata: { gene: "PAH", variant: "p.Arg408Trp" },
+      clinvar: { classification: "Pathogenic" },
+      conservationData: {
+        available: true, dann: 0.9, bayesdel: 0.5, clinpred: 0.8, eigenPhred: 12,
+        gpnStar: -0.2, gpnStarStatus: "live",
+        // This cached fixture is otherwise fresh even when provider credentials exist in the test env.
+        assemblyRefusals: [{ source: "alphagenome", reason: "No verified allele", retryable: false }],
+      },
+      predictorData,
+      ruleBasedInsights: { acmgVerdict: "Pathogenic", acmgCriteria: [] },
+    });
+    const run = async (context: ParsedVariantContext = baseContext) => mode === "synchronous"
+      ? runCoreAnalysis(context)
+      : streamCoreAnalysis(context, () => {});
+
+    it("recomputes an old canonical fallback instead of restoring its inferred allele", async () => {
+      const payload = freshCachedPayload({
+        gnomadVariantId: "12-102836889-C-T", gnomadVariantAssembly: "GRCh38",
+        source: "MyVariant.info & dbNSFP (VEP Fallback)",
+        locusResolution: { route: "fallback", canonicalBy: "dbnsfp-grch38", retryable: false, steps: [] },
+      });
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload, id: "old-canonical-fallback", updatedAt: new Date().toISOString() });
+
+      const resolved = await run();
+
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      expect(fetchCoreVariantData).toHaveBeenCalledOnce();
+      expect(resolved.predictorData).toEqual(mockCoreData.predictorData);
+    });
+
+    it("restores a current-policy definitive ambiguity without another automatic attempt", async () => {
+      /**
+       * STAMPED, so the only reason this row could be refused is the locus POLICY — which is what the
+       * test is about. An unstamped row is refused by the identity guard for a different reason, and
+       * the legacy test below covers that case explicitly.
+       */
+      const payload = stamp(freshCachedPayload({
+        gnomadVariantId: null, gnomadVariantAssembly: null,
+        source: "MyVariant.info & dbNSFP (VEP Fallback)",
+        locusResolution: {
+          route: "fallback", canonicalBy: null, retryable: false,
+          failureKind: "ambiguous-allele", policyVersion: LOCUS_POLICY_VERSION, steps: [],
+        },
+      }));
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload, id: "current-ambiguity", updatedAt: new Date().toISOString() });
+
+      const resolved = await run();
+
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      expect(fetchCoreVariantData).not.toHaveBeenCalled();
+      expect(resolved.predictorData.locusResolution.failureKind).toBe("ambiguous-allele");
+      expect(resolved.predictorData.gnomadVariantId).toBeNull();
+    });
+
+    const alleleContext: ParsedVariantContext = { ...baseContext, gene: "SLC12A4", variant: "Q867H", pos: 867, residueIndex: "867", wildType: "Gln", mutant: "His", wt1Letter: "Q", mut1Letter: "H", uniprotId: "Q9UP95", genomicCoordinates: "16-67946177-C-G", assembly: "GRCh38" };
+    const coordinatePredictor = { gnomadVariantId: "16-67946177-C-G", gnomadVariantAssembly: "GRCh38", source: "Ensembl VEP",
+      locusResolution: { route: "vep-coordinate", canonicalBy: "vep", retryable: false, steps: [] } };
+
+    it.each([
+      { gnomadVariantId: null, locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "ambiguous-allele", policyVersion: LOCUS_POLICY_VERSION, steps: [] } },
+      { ...coordinatePredictor, gnomadVariantId: "16-67946177-C-A" }
+    ])("a supplied nucleotide allele escapes ambiguity or another ALT cached under the same protein", async (predictor) => {
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: freshCachedPayload(predictor), id: "protein-keyed-cache", updatedAt: new Date().toISOString() });
+      await run(alleleContext);
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      expect(fetchCoreVariantData).toHaveBeenCalledOnce();
+    });
+
+    it("reuses a cache for the same verified explicit allele", async () => {
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: stamp(freshCachedPayload(coordinatePredictor), alleleContext), id: "same-allele", updatedAt: new Date().toISOString() });
+      await run(alleleContext);
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      expect(fetchCoreVariantData).not.toHaveBeenCalled();
+    });
+
+    it("does not use a prior coordinate allele to resolve a new ambiguous protein-only input", async () => {
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload: freshCachedPayload(coordinatePredictor), id: "old-explicit-allele", updatedAt: new Date().toISOString() });
+      await run({ ...alleleContext, genomicCoordinates: undefined });
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      expect(fetchCoreVariantData).toHaveBeenCalledOnce();
+    });
+
+    it("keeps a healthy old VEP result cacheable without requiring a policy stamp", async () => {
+      const payload = stamp(freshCachedPayload({
+        gnomadVariantId: "12-102836889-C-T", gnomadVariantAssembly: "GRCh38", source: "Ensembl VEP",
+        locusResolution: { route: "vep-hgvs", canonicalBy: "vep", retryable: false, steps: [] },
+      }));
+      mockDb.getVariantAnalysisAsync.mockResolvedValueOnce({ payload, id: "healthy-old-vep", updatedAt: new Date().toISOString() });
+
+      const resolved = await run();
+
+      const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
+      expect(fetchCoreVariantData).not.toHaveBeenCalled();
+      expect(resolved.predictorData.gnomadVariantId).toBe("12-102836889-C-T");
+    });
   });
 
   it("should stream progressive analysis chunks to onChunk callback", async () => {

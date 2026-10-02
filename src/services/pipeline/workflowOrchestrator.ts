@@ -201,6 +201,9 @@ export async function executeFullAnalysisWorkflow({
 
   let targetGene = targetGeneArg.trim();
   let targetVariant = targetVariantArg.trim();
+  /** The notation as submitted. Recorded in Recents only when resolution changed it. */
+  const submittedVariant = targetVariantArg.trim();
+  const historyQuery = () => (submittedVariant && submittedVariant !== targetVariant ? submittedVariant : undefined);
   let targetUniprot = (targetUniprotArg || "").trim();
   let transcriptMeta: any = null;
   let residueIndex: number | undefined;
@@ -500,7 +503,7 @@ export async function executeFullAnalysisWorkflow({
         // Explicitly claim this valid snapshot for the new run before guarded progressive cache writes.
         setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: decorateState({ result: cached.analysisResult }).result });
         const cachedTasks: Promise<unknown>[] = [];
-        searchSink.addToHistory(targetGene, targetVariant, targetUniprot);
+        searchSink.addToHistory(targetGene, targetVariant, targetUniprot, historyQuery());
         if (residueIndex != null) {
           searchSink.setSelectedResidueIndex(residueIndex);
         }
@@ -577,6 +580,7 @@ export async function executeFullAnalysisWorkflow({
             signal: activeSignal,
             requestId,
             getActiveRequestId,
+            traceContext: getTraceContext(),
             // This variant's own restored state, so a failure settles against what the STORE holds
             // rather than only against what this run has seen so far. Without it an engine the store
             // is already polling for can be marked unavailable, which tears that poller down.
@@ -672,6 +676,8 @@ export async function executeFullAnalysisWorkflow({
         gene: targetGene, uniprotId: targetUniprot, variant: targetVariant,
         residueIndex: residueIndex ?? null, conditions: settings.biophysicsConditions,
         fetchWithAuth, sink: biophysicalSink, signal: foldController.signal, requestId, getActiveRequestId,
+        // FoldX records its own span; the run's trace context is what lets it land in the waterfall.
+        traceContext: getTraceContext(),
         // Preserve this variant's live remote-job IDs when a new submission fails before returning IDs.
         initialRemoteState: restoredRemoteState
       }).catch(error => {
@@ -774,7 +780,7 @@ export async function executeFullAnalysisWorkflow({
         },
         apiClient,
         {
-          addToHistory: searchSink.addToHistory,
+          addToHistory: (g: string, v: string, u: string) => searchSink.addToHistory(g, v, u, historyQuery()),
           setSelectedResidueIndex: searchSink.setSelectedResidueIndex
         },
         runAnalysisSink,
@@ -828,7 +834,7 @@ export async function executeFullAnalysisWorkflow({
       })
       .catch(async (err: any) => {
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
-        console.error("Biophysical analysis error:", err);
+        console.error("[WorkflowOrchestrator] Biophysical analysis error:", err);
         markCoreFailure();
         analysisSink.setIsBiophysicalLoading(false);
         analysisSink.setIsStructuralLoading(false);
@@ -856,7 +862,7 @@ export async function executeFullAnalysisWorkflow({
       });
   } catch (err: any) {
     if (getActiveRequestId() === requestId && !activeSignal.aborted) {
-      console.error("Top-level pipeline error:", err);
+      console.error("[WorkflowOrchestrator] Top-level pipeline error:", err);
       markCoreFailure();
       // Defensive: when notation translation fails, `targetVariant` is still a genomic
       // coordinate and this helper throws. Letting that escape would skip the error-state

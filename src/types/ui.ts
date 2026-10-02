@@ -18,6 +18,13 @@ export interface SearchHistoryItem {
   gene: string;
   variant: string;
   uniprotId: string;
+  /**
+   * The notation as the user SUBMITTED it, when it differs from `variant` (a genomic coordinate, a
+   * cDNA or an accession-qualified notation). A Recents click replays this, so the re-run takes the
+   * same route as the original: a coordinate input keeps its coordinate-first predictor query instead
+   * of being re-derived from protein HGVS, which Ensembl cannot do for codon-ambiguous substitutions.
+   */
+  query?: string;
 }
 
 export interface AnalysisState {

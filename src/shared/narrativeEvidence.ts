@@ -65,8 +65,13 @@ import {
  * Version 2 adds the DEEP-MODEL evidence block (see `src/shared/deepModelEvidence.ts`): a synthesis now
  * records whether it was given the stability and language-model observations, so a narrative written
  * before an engine settled cannot be served as though it had seen it.
+ *
+ * Version 3 adds `aouLookup`. The All of Us absence sentence and its source label are built from that
+ * record (`aouAbsenceReason`, `aouSourceLabel`), so it is evidence the prose reads rather than context:
+ * without it in the contract, a narrative written where the lookup answered could be served to a run
+ * where no local table is installed — the same defect version 1 closed for `serviceStatus`.
  */
-export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 2;
+export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 3;
 
 /**
  * The evidence the narrative synthesis is given, in the order the request states it.
@@ -84,6 +89,7 @@ export const NARRATIVE_EVIDENCE_FIELDS = [
   "gnomadConstraint",
   "gnomadFrequency",
   "aouFrequency",
+  "aouLookup",
   "uniprotFeatures",
   "sequence",
 ] as const;
@@ -263,6 +269,7 @@ export function narrativeEvidenceSourceFromResult(
     gnomadConstraint: result?.gnomadConstraint ?? null,
     gnomadFrequency: result?.gnomadFrequency ?? null,
     aouFrequency: result?.aouFrequency ?? null,
+    aouLookup: result?.aouLookup ?? null,
     uniprotFeatures: result?.uniprotFeatures ?? null,
     sequence: result?.metadata?.sequence ?? result?.sequence ?? null,
     serviceStatus: result?.serviceStatus ?? result?.metadata?.serviceStatus ?? null,

@@ -136,7 +136,14 @@ export async function fetchBiophysicalAnalysis(
             Object.entries(timings).forEach(([key, taskDurationMs]) => {
               const labelInfo = serviceLabels[key];
               if (labelInfo && typeof taskDurationMs === "number" && taskDurationMs >= 0) {
-                const isFail = statuses?.[key] === "error" || statuses?.[key] === "timeout";
+                const serviceState = statuses?.[key];
+                const isFail = serviceState === "error" || serviceState === "timeout";
+                const isUnavailable = serviceState === "unavailable";
+                // A source that answered 200 with a failed state is invisible to the fetch interceptor,
+                // so say so here — otherwise the span turns red and the Errors tab stays empty.
+                if (isFail || isUnavailable) {
+                  console.warn(`[Service] ${labelInfo.name}: ${serviceState}`);
+                }
                 // Server offsets describe SETTLEMENT, not start. Duration recovers the relative start.
                 const taskOffset = typeof timingOffsets?.[key] === "number" ? Math.max(0, timingOffsets[key] - taskDurationMs) : 0;
                 traceContext.addTraceSpan({
@@ -146,7 +153,7 @@ export async function fetchBiophysicalAnalysis(
                   startTime: Date.now() - durationMs + taskOffset,
                   offsetMs: offsetMs + taskOffset,
                   durationMs: taskDurationMs,
-                  status: isFail ? "failed" : "success",
+                  status: isFail ? "failed" : isUnavailable ? "unavailable" : "success",
                   meta: { serviceKey: key, status: statuses?.[key] || "ok" }
                 });
               }

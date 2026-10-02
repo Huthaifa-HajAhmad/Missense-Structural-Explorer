@@ -52,8 +52,8 @@ jobs:
       # (~600 of the 1,800-minute month at 202 deploys — a third of the budget spent asleep).
       #
       # A warm-cache deploy really does finish in ~110 s, but the runner no longer watches the build,
-      # so waiting here is not what makes a deploy safe: `depends_on: condition: service_healthy`
-      # plus Docker's build-before-replace is. What the window is still good for is failing FAST on
+      # so waiting here is not what makes a deploy safe: the health-gated standby handover is.
+      # The window still catches immediate failures on
       # an error that happens on the VM immediately — invalid compose file, no docker daemon, the
       # superseded-revision guard tripping — and all of those surface in seconds, never minutes.
       # So a push deploy waits 30 s, while a manual workflow_dispatch keeps the long window: there a
@@ -88,9 +88,9 @@ jobs:
       #
       # What is deliberately NOT claimed: when the window lapses, this run no longer asserts that
       # the deploy succeeded. Production safety does not depend on the runner asserting it.
-      # `depends_on: condition: service_healthy` in deploy/docker-compose.oci.yml gates caddy and
-      # the tunnel on `GET /api/v1/health`, and Docker builds before it replaces, so a failed build
-      # leaves the previously running revision serving. The VM keeps the full log either way.
+      # deploy/rollout.py retains the old app, checks the standby revision and sidecar readiness,
+      # reloads Caddy, then drains requests and transfers exclusive SQLite worker ownership.
+      # The host lock and deployment journal outlive this SSH confirmation window.
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -104,6 +104,15 @@ jobs:
             set -eu
             cd Missense-Structural-Explorer || exit 1
             echo "[CD] Deploying the CI-validated commit $DEPLOY_SHA"
+
+            # The workflow concurrency ends before the detached build does. This host lock spans
+            # checkout, asset restoration, build, handover, and drain; a second run defers safely.
+            exec 9>"$HOME/.mse-deploy.lock"
+            if ! flock -n 9; then
+              echo "[CD] DEPLOY_DEFERRED: another rollout owns the host lock; production unchanged."
+              exit 1
+            fi
+            export MSE_DEPLOY_LOCK_FD=9
 
             git fetch --all --prune
 
@@ -138,19 +147,8 @@ jobs:
 
             for p in $ASSET_PATHS; do
               if [ -e "$ASSET_SAFE/$p" ]; then
-                # `rm -rf` first, and `-T` on the copy.
-                #
-                # This loop used to compound. `cp -a "$ASSET_SAFE/$p" "$p"` copies INTO `$p` when
-                # `$p` already exists as a directory -- and after the first untracking deploy it
-                # always does, because git leaves untracked paths alone, so the directory survives
-                # the checkout. Every deploy then pushed the tree one level deeper: tools/foldx_linux
-                # reached EIGHT nested levels, the binary was nowhere near the path the runner looks
-                # for, and each deploy duplicated the whole tree again (disk 49% -> 64%). The first
-                # version of this step was tested against the tracked->untracked transition, where
-                # the destination genuinely is absent and the copy is correct; the steady state,
-                # which is every deploy after that, was never exercised. The `rm -rf` clears the
-                # accumulated nesting too, so the next deploy repairs it rather than deepening it.
-                rm -rf "$p"
+                # Copy AS the destination without deleting bind-mounted files from the serving app.
+                # -T avoids repeated directory nesting on every subsequent deployment.
                 mkdir -p "$(dirname "$p")"
                 cp -aT "$ASSET_SAFE/$p" "$p"
                 echo "[CD] restored $p"
@@ -201,20 +199,7 @@ jobs:
             set -e
             on_fail() { rc=$?; echo "[CD] DEPLOY_FAILED rc=$rc"; exit "$rc"; }
             trap on_fail ERR
-            echo "[CD] build started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            docker compose -f deploy/docker-compose.oci.yml up -d --build
-            echo "[CD] containers up; compose gates caddy/tunnel on /api/v1/health"
-            docker compose -f deploy/docker-compose.oci.yml ps
-            # The env var is part of the service config, so a revision change recreates the
-            # container; reading it back is what makes this a version check and not just an exit code.
-            RUNNING="$(docker inspect missense-resolve-app \
-              --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^BUILD_COMMIT=//p')"
-            if [ "$RUNNING" != "$BUILD_COMMIT" ]; then
-              echo "[CD] version mismatch: container reports '$RUNNING', expected '$BUILD_COMMIT'"
-              echo "[CD] DEPLOY_FAILED"
-              exit 1
-            fi
-            echo "[CD] DEPLOY_OK $BUILD_COMMIT"
+            python3 deploy/rollout.py --commit "$BUILD_COMMIT"
             MSE_DEPLOY_EOF
 
             setsid nohup bash "$HOME/mse-deploy-run.sh" >> "$LOG" 2>&1 < /dev/null &
@@ -237,7 +222,7 @@ jobs:
             done
 
             echo "[CD] Still building after ${WAIT}s. The build continues on the VM and is NOT cancelled."
-            echo "[CD] Production is protected by Docker's build-before-replace and by the compose"
-            echo "[CD] health gate, so the previously running revision keeps serving if it fails."
+            echo "[CD] The serving generation remains available while the standby warms and existing work drains."
+            echo "[CD] Inspect deploy/runtime/rollout.json for the authoritative phase and final verdict."
             echo "[CD] Full log: $LOG"
             exit 0
