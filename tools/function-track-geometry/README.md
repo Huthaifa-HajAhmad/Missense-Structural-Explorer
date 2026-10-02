@@ -17,8 +17,10 @@ the tab's wording are unit-tested in vitest (`src/components/evidence/function/_
 | `nae1-zoom` | same, "116 ± 50" | Clipped domain box, marks outside the window dropped |
 | `nae1-narrow` | same, 380px | Phone width: labels that do not fit are dropped and counted, never overlapped |
 | `nae1-dark` | same, `.dark` | Contrast against the dark card |
-| `cnnm2` | CNNM2 Q9H8M5 p.Ser489Cys | UniProt Domain features only (InterPro not read), transmembrane regions |
-| `gzf1` | GZF1 Q9H116 p.Arg591Trp | Ten adjacent zinc-finger regions: region-label collisions |
+| `cnnm2` | CNNM2 Q9H8M5 p.Ser489Cys, "Whole protein" pressed | UniProt Domain features only (InterPro not read), three unnamed transmembrane helices numbered by position, no topological domains (bars without rails) |
+| `gzf1` | GZF1 Q9H116 p.Arg591Trp, "Whole protein" pressed | Ten adjacent zinc-finger regions: region-label collisions |
+| `slc12a4` | SLC12A4 Q9UP95 p.Gln867His, as the tab opens | A 1085 aa transporter opens on 817–917: the overview strip, the helix strip, the inside rail alone, a site label that must flip left at the window's edge |
+| `slc12a4-whole` | same, "Whole protein" pressed | Twelve numbered helices and ten topology rails, the helix strip hidden, a domain end number the variant's stem would cross |
 | `crowded` | synthetic | Six sites in eleven residues (tier overflow), a disulfide drawn as its two cysteines, PM1 met |
 
 The NAE1 fixture is shared with the vitest suites (`src/shared/__tests__/fixtures/nae1FunctionalDomains.ts`).
@@ -38,9 +40,19 @@ CNNM2 and GZF1 are the real feature tables the earlier track harness used.
 - **selection**: clicking a mark opens its table row; the row button closes it.
 - **verdict**: the PM1 chip reads what the fixture's engine record says.
 - **zoom** (`nae1-zoom` only): the window is residue ± 50 and holds only marks inside it.
+- **opens** (once per case, before any button is pressed): the tab opens on residue ± 50 above 600
+  residues and on the whole protein otherwise. Cases written against the whole-protein drawing press
+  "Whole protein" afterwards.
+- **view**: the helix / strand strip is drawn only in a window of 300 residues or fewer; a zoomed window
+  has an overview strip whose bracket and variant dot sit at their whole-protein scale, a whole-protein
+  view has none.
+- **membrane** (cases with topology): bars and rails sit at their residues and number what the fixture
+  says; the lane sits between the lowest site mark and the axis; the variant's tick crosses it at its
+  residue.
 
 Each family declares its size in `FAMILY_SIZE`; the run fails if a family produced a different
-number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (107).
+number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (173). `TRACK_H=12000`
+with `TRACK_SHOT=1` makes the screenshot tall enough to show every case.
 
 ## Mutation-tested
 
@@ -56,6 +68,11 @@ number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (107).
 | `small-hit-target` (12px hit area) | targets |
 | `faint-uncited-mark` (30% tint, no outline) | contrast |
 | `no-row-focus-ring` | focus |
+| `ss-strip-always` (helix strip in any window) | view |
+| `membrane-bars-widened` (every helix bar 5px too wide) | membrane |
+| `lane-over-the-axis` (axis ignores the topology lane) | membrane, labels |
+| `overview-window-off` (overview bracket 8px right) | view |
+| `label-never-flips` (a label at the right edge runs off the drawing) | labels |
 
 ## Running locally
 

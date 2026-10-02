@@ -101,3 +101,34 @@ describe("FunctionRail", () => {
     expect(screen.getByText("InterPro via UniParc")).toBeTruthy();
   });
 });
+
+describe("FunctionTab — opening window and nearby rows", () => {
+  const long = (residue: number) =>
+    resultFor({
+      metadata: { gene: "NAE1", variant: `p.Asp${residue}Gly`, residueIndex: residue, wildType: "D", mutant: "G", uniprotId: "Q13564" },
+      uniprotFeatures: { ...NAE1_UNIPROT, sequenceLength: 1085 },
+    });
+
+  it("opens on the neighbourhood of the variant for a protein over 600 residues, and on the whole protein otherwise", () => {
+    const { unmount } = renderTab(long(867));
+    expect(screen.getByTestId("domain-architecture").querySelector("svg")?.getAttribute("data-window")).toBe("817-917");
+    expect(screen.getByRole("button", { name: "867 ± 50" })).toHaveAttribute("aria-pressed", "true");
+    unmount();
+    renderTab(resultFor());
+    expect(screen.getByTestId("domain-architecture").querySelector("svg")?.getAttribute("data-window")).toBe("1-534");
+  });
+
+  it("keeps the choice of window the reader made", () => {
+    renderTab(long(867));
+    fireEvent.click(screen.getByRole("button", { name: "Whole protein" }));
+    expect(screen.getByTestId("domain-architecture").querySelector("svg")?.getAttribute("data-window")).toBe("1-1085");
+  });
+
+  it("says when a group has nothing near the variant and offers the rest", () => {
+    renderTab(resultFor());
+    const more = screen.getAllByRole("button", { name: /None within 50 residues of 116\. Show \d+/ });
+    expect(more.length).toBeGreaterThan(0);
+    fireEvent.click(more[0]);
+    expect(screen.getAllByRole("button", { name: /Show only within 50 residues of 116/ }).length).toBeGreaterThan(0);
+  });
+});

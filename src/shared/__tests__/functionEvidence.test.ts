@@ -152,3 +152,30 @@ describe("buildFunctionEvidence — SLC12A4 p.Gln867His (membrane transporter au
     expect(ev.facts.find((f) => f.label === "Disease variants")?.value).toBe("None in UniProtKB");
   });
 });
+
+describe("buildFunctionEvidence — context for PM1 and mutagenesis at the residue", () => {
+  it("D2: names mutagenesis at the residue itself and says it is not counted", () => {
+    const ev = buildFunctionEvidence({ ...NAE1_INPUT, residue: 331, engineCriteria: [] });
+    expect(ev.finding.rest).toContain("mutagenesis at this residue");
+    expect(ev.finding.rest).toContain("not counted for PM1");
+    expect(ev.verdict).toBe("not-met");
+  });
+
+  it("D1: reports the regional missense O/E as context, with no cut-point and no effect on PM1", () => {
+    const withRc = buildFunctionEvidence({ ...NAE1_INPUT, regionalConstraint: { isConstrained: true, oeRatio: 0.88, regionText: "600–900" } });
+    const caveat = withRc.caveats.find((c) => c.lead.startsWith("Benign variation in the region is not tested"));
+    expect(caveat?.rest).toContain("0.88");
+    expect(caveat?.rest).toContain("It is not used by PM1");
+    expect(withRc.verdict).toBe(buildFunctionEvidence(NAE1_INPUT).verdict);
+    expect(buildFunctionEvidence({ ...NAE1_INPUT, regionalConstraint: null }).caveats.some((c) => c.lead.includes("Benign variation"))).toBe(false);
+  });
+
+  it("numbers unnamed transmembrane helices by position and says the number is ours", () => {
+    const tm = (s: number, e: number) => ({ type: "Transmembrane", description: "Helical", start: s, end: e, evidence: [] });
+    const ev = buildFunctionEvidence({ ...NAE1_INPUT, uniprot: { ...NAE1_UNIPROT, features: [tm(300, 320), tm(100, 120)] }, engineCriteria: [] });
+    const rows = ev.rows.filter((r) => r.type === "Transmembrane").sort((a, b) => a.start - b.start);
+    expect(rows.map((r) => r.name)).toEqual(["TM1", "TM2"]);
+    expect(rows[0].note).toBe("Transmembrane, numbered here by position");
+    expect(rows.every((r) => r.lane === "membrane")).toBe(true);
+  });
+});

@@ -72,4 +72,27 @@ PM1 "not met" was correct for this variant. Changes, all in `functionEvidence.ts
 - The table shows rows covering the residue or within 50 residues by default, with a per-group "Show N more".
 - Variant header (separate commit): Missense Z below 2 is no longer labelled "Tolerant" unless Z ≤ 0 (0 < Z < 2 is "Not constrained"); LOEUF above the cut reads "Not LoF constrained".
 
-Not done: 3D distances from the loaded model, a membrane lane in the schematic and a default ±50 zoom, a benign-variation context line (D1) and naming same-residue mutagenesis in the finding (D2).
+### Schematic redesign (same day)
+
+A 1085 aa membrane protein drew twelve helices and its cytoplasmic and extracellular spans as look-alike
+boxes on the backbone, with forty labels dropped and a helix strip that was dashes at that scale.
+
+- **Topology lane** (`layoutMembrane`): outside and inside rails with the helices as numbered bars between them,
+  at the foot above the axis, the variant's tick running through it. Helices UniProt leaves unnamed are numbered
+  by position and the row says the number is ours. A window that shows only the inside rail draws one line.
+- **Opens on residue ± 50** above 600 residues (the reader's choice is kept per variant), with a whole-protein
+  **overview strip** that brackets the window and places the variant.
+- **Helix / strand strip** only in a window of 300 residues or fewer.
+- **Space follows use**: only the label tiers below the backbone that were needed.
+- Two defects found by rendering, both fixed: a label next to the right edge of a zoomed window ran off the drawing
+  (now flips left of its mark), and in the whole-protein view the variant's stem crossed the end number of a domain
+  box 27 residues away (an end number the stem would cross is now dropped; the range stays in the table). A lower
+  stem under a domain box also starts on the box's bottom edge, as the upper ones do.
+- **D1**: the gnomAD regional missense O/E is shown as context in the caveats, with its window and no cut-point;
+  PM1 does not use it. **D2**: mutagenesis at the variant's own residue is named in the finding and not counted.
+- Table: a group with nothing within 50 residues says so ("None within 50 residues of 867. Show 4").
+
+Geometry harness: 173 assertions over nine cases (adds SLC12A4 as the tab opens and whole-protein, and the
+`opens`, `view` and `membrane` families); every new guarantee has a mutation in `mutations.mjs` that turns it red.
+
+Not done: 3D distances from the loaded model (the "From N" column stays a sequence distance, labelled as one).

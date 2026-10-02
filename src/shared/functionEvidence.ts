@@ -52,7 +52,7 @@ export const ANNOTATION_GROUP_LABEL: Record<AnnotationGroup, string> = {
 const GROUP_ORDER: AnnotationGroup[] = ["domains", "variants", "sites", "mutagenesis", "modifications", "topology", "composition"];
 
 /** Where a row is drawn on the schematic. `none` rows are listed, not drawn. */
-export type SchematicLane = "domain" | "region" | "above" | "below" | "none";
+export type SchematicLane = "domain" | "region" | "membrane" | "above" | "below" | "none";
 
 export interface AnnotationRow {
   key: string;
@@ -157,6 +157,8 @@ export interface FunctionEvidenceInput {
   transcriptId?: string | null;
   engineCriteria?: ReadonlyArray<{ code?: string }> | null;
   acmgWeighting?: string | null;
+  /** gnomAD regional missense constraint at the residue; context only, PM1 does not use it. */
+  regionalConstraint?: { isConstrained: boolean; oeRatio: number | null; regionText: string | null } | null;
 }
 
 /** Member databases drawn as domain boxes. Family and superfamily signatures are listed, not drawn. */
@@ -302,7 +304,9 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
     }
     note = pair ? "Disulfide bond, two cysteines" : f.type;
   } else if (group === "topology") {
-    lane = f.end !== f.start ? "region" : "below";
+    // Transmembrane, intramembrane and topological spans share one topology lane (outside / membrane /
+    // inside); a signal peptide or propeptide stays an inset on the backbone.
+    lane = ["transmembrane", "intramembrane", "topological domain"].includes(t) ? "membrane" : f.end !== f.start ? "region" : "below";
     note = f.type;
     // "Helical" says nothing on the drawing; the type is the label a reader scans for.
     shortLabel = t === "transmembrane" ? "TM" : t === "intramembrane" ? "IM" : t === "signal" ? "Signal" : f.description || f.type;
@@ -439,6 +443,16 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const availability = availabilityOf(input);
 
   const rows = features.map((f, i) => rowFromFeature(f, residue, i));
+  // UniProt names helices (Name=4) only for some entries. Where none is named, number them by position so
+  // the drawing can label them, and say in the row that the number is ours.
+  const tmRows = rows.filter((r) => r.type.toLowerCase() === "transmembrane").sort((a, b) => a.start - b.start);
+  if (tmRows.length && tmRows.every((r) => !/^TM\d/.test(r.shortLabel))) {
+    tmRows.forEach((r, i) => {
+      r.name = `TM${i + 1}`;
+      r.shortLabel = `TM${i + 1}`;
+      r.note = "Transmembrane, numbered here by position";
+    });
+  }
 
   // Domains: InterPro member-database matches when UniParc answered, UniProt's own Domain features always.
   const matches = uniprot?.domainMatches ?? [];
@@ -592,6 +606,12 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     restParts.push(`It lies in the ${c.name.toLowerCase()} ${c.type.toLowerCase()} (${c.residuesText}), a broad span rather than a site.`);
   }
   if (uniprot && ssContext) restParts.push(ssContext.sentence);
+  // D2: mutagenesis at this very residue is a different substitution, so it is named but never counted.
+  const mutagenesisHere = rows.filter((r) => r.group === "mutagenesis" && r.start === residue && r.end === residue);
+  if (mutagenesisHere.length) {
+    const m = mutagenesisHere[0];
+    restParts.push(`UniProt lists mutagenesis at this residue (${m.name}${m.note ? `: ${m.note.charAt(0).toLowerCase()}${m.note.slice(1)}` : ""}); it is a different substitution and is not counted for PM1.`);
+  }
   if (sameResidueDisease.length) restParts.push(`UniProt lists a disease variant at this same residue (${sameResidueDisease[0].name}, ${sameResidueDisease[0].note}).`);
   else if (nearestDiseaseVariant)
     restParts.push(
@@ -652,6 +672,15 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     caveats.push({
       lead: `${pm1.notCounted[0].feature.type} at ${residue} not counted for PM1.`,
       rest: `Its evidence is ${EVIDENCE_LEVEL_LABEL[pm1.notCounted[0].level].toLowerCase()}, not an observation in this protein.`,
+    });
+  }
+  // D1: PM1 asks for a region without benign variation but does not test it. Show the one population
+  // measure the payload has, as context with no cut-point of its own.
+  const rc = input.regionalConstraint;
+  if (uniprot && rc && typeof rc.oeRatio === "number" && Number.isFinite(rc.oeRatio)) {
+    caveats.push({
+      lead: "Benign variation in the region is not tested for PM1.",
+      rest: `For context, gnomAD observes missense variants at ${rc.oeRatio.toFixed(2)} of expectation${rc.regionText ? ` in the window ${rc.regionText}` : " in this residue's window"} (regional O/E; 1.0 is neutral). It is not used by PM1.`,
     });
   }
   if (engineMismatch) caveats.push({ lead: "Engine record differs from the current rule.", rest: engineMismatch });

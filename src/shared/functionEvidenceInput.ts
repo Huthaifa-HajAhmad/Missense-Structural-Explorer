@@ -25,5 +25,6 @@ export function functionEvidenceInputFrom(result: AnalysisResult): FunctionEvide
     transcriptId: meta.transcriptId ?? r?.transcriptId ?? null,
     engineCriteria: r?.ruleBasedInsights?.acmgCriteria ?? r?.insights?.acmgCriteria ?? null,
     acmgWeighting: meta.acmgWeighting ?? null,
+    regionalConstraint: r?.gnomadConstraint?.regionalConstraint ?? null,
   };
 }

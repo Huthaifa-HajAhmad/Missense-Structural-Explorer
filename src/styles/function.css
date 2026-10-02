@@ -181,6 +181,21 @@
 .fnd-arch__query line { stroke: var(--cs-accent-clay); stroke-width: 1.5; }
 .fnd-arch__query circle { fill: var(--cs-accent-clay); stroke: var(--cs-surface); stroke-width: 2; }
 
+/* Membrane topology lane: rails are the two sides, bars are the helices crossing between them. */
+.fnd-arch__rail { stroke: var(--cs-text-secondary); stroke-width: 2; stroke-linecap: round; }
+.fnd-arch__rail[data-side="outside"] { stroke: var(--cs-text-muted); }
+.fnd-arch__tm { cursor: pointer; }
+.fnd-arch__tm rect { fill: color-mix(in srgb, var(--cs-text-muted) 24%, var(--cs-surface)); stroke: var(--cs-text-muted); stroke-width: 1; }
+.fnd-arch__tm[data-kind="im"] rect { fill: var(--cs-surface); stroke-dasharray: none; }
+.fnd-arch__tm[data-selected] rect { fill: color-mix(in srgb, var(--cs-accent-clay) 26%, var(--cs-surface)); stroke: var(--cs-accent-clay); stroke-width: 2; }
+.fnd-arch__membrane-query { stroke: var(--cs-accent-clay); stroke-width: 2; stroke-linecap: round; }
+/* Whole-protein overview under a zoomed window. */
+.fnd-arch__overview { margin-top: 2px; }
+.fnd-arch__ov-track { stroke: var(--cs-border); stroke-width: 6; stroke-linecap: round; }
+.fnd-arch__ov-domain { fill: color-mix(in srgb, var(--cs-accent-clay) 14%, var(--cs-surface)); stroke: color-mix(in srgb, var(--cs-accent-clay) 55%, var(--cs-surface)); stroke-width: 1; }
+.fnd-arch__ov-tm { fill: color-mix(in srgb, var(--cs-text-muted) 55%, var(--cs-surface)); }
+.fnd-arch__ov-window { fill: color-mix(in srgb, var(--cs-accent-clay) 8%, transparent); stroke: var(--cs-accent-clay); stroke-width: 1.5; }
+.fnd-arch__ov-query { fill: var(--cs-accent-clay); stroke: var(--cs-surface); stroke-width: 1.5; }
 .fnd-arch__axis line { stroke: var(--cs-border); }
 .fnd-arch__axis g line { stroke: var(--cs-text-muted); }
 .fnd-arch__hidden { margin: 0; padding: 0 20px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }

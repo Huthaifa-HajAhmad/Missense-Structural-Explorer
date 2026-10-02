@@ -24,7 +24,7 @@ const root = path.resolve(here, "../..");
 const distIndex = path.join(here, "dist", "index.html");
 const shot = path.join(here, "function-track.png");
 /** Must match expectedCheckCount() in main.tsx: a shorter report means the run did not complete. */
-const EXPECTED_ASSERTIONS = 107;
+const EXPECTED_ASSERTIONS = 173;
 
 const CANDIDATES = [
   process.env.GEOMETRY_BROWSER,
@@ -93,7 +93,7 @@ const args = [
   "--force-device-scale-factor=1",
   `--user-data-dir=${path.join(here, ".browser-profile")}`,
   // Tall enough that TRACK_SHOT captures every case below the (long) assertion report.
-  `--window-size=1060,${process.env.TRACK_SHOT ? 6400 : 3000}`,
+  `--window-size=1060,${process.env.TRACK_H ?? (process.env.TRACK_SHOT ? 6400 : 3000)}`,
   "--virtual-time-budget=8000",
   "--dump-dom",
 ];

@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import type { FunctionEvidence } from "../../../shared/functionEvidence";
-import { layoutArchitecture, type ArchLabel, type ArchWindow } from "./architectureLayout";
+import { layoutArchitecture, layoutOverview, type ArchLabel, type ArchWindow } from "./architectureLayout";
 
 /**
  * DomainArchitecture — the protein drawn once, N to C, with everything the table lists placed on it.
@@ -9,8 +9,11 @@ import { layoutArchitecture, type ArchLabel, type ArchWindow } from "./architect
  *                        in clay, highest, its stem running down to the secondary-structure strip
  *   on the backbone      domain boxes (InterPro member-database matches, else UniProt Domain features),
  *                        functional regions as insets
- *   under the backbone   Gene3D structural segments, the PDB helix / strand strip, then point sites,
- *                        mutagenesis and modifications as diamonds filled by evidence level
+ *   under the backbone   Gene3D structural segments, the PDB helix / strand strip (zoomed windows only),
+ *                        then point sites, mutagenesis and modifications as diamonds filled by evidence
+ *   at the foot          membrane topology: outside and inside rails with the transmembrane segments
+ *                        as bars between them, the variant's tick running through
+ *   below, when zoomed   a whole-protein strip with the current window bracketed
  *
  * Geometry is `layoutArchitecture`'s; this file only paints it. The SVG is drawn at its container's
  * pixel width (never scaled), so an 11px label is 11px on a phone as on a desktop.
@@ -46,6 +49,8 @@ function describe(ev: FunctionEvidence): string {
   if (regions.length) parts.push(regions.map((r) => `${r.name} ${r.start} to ${r.end}`).join(". ") + ".");
   const disease = ev.rows.filter((r) => r.disease);
   if (disease.length) parts.push(`Disease variants at ${disease.map((r) => r.start).join(", ")}.`);
+  const tm = ev.rows.filter((r) => r.lane === "membrane" && r.type.toLowerCase() === "transmembrane");
+  if (tm.length) parts.push(`${tm.length} transmembrane segments.`);
   parts.push(`This variant, ${ev.variantShort}, at ${ev.residue}.`);
   return parts.join(" ");
 }
@@ -133,6 +138,27 @@ export function DomainArchitecture({
           )
         )}
 
+        {/* Membrane topology: rails first, bars over them, the variant's tick last. */}
+        {L.membrane && (
+          <g className="fnd-arch__membrane" data-testid="arch-membrane">
+            {L.membrane.rails.map((r) => (
+              <line key={`rail-${r.key}`} data-start={r.start} data-end={r.end} x1={r.x} x2={r.x + r.width} y1={r.y} y2={r.y} className="fnd-arch__rail" data-side={r.side} />
+            ))}
+            {L.membrane.bars.map((b) => (
+              <g key={`bar-${b.key}`} className="fnd-arch__tm" data-kind={b.kind} data-start={b.start} data-end={b.end} data-selected={b.selected || undefined} onClick={() => onSelect(b.rowKey)} data-testid="arch-tm">
+                <rect x={b.x} y={b.y} width={b.width} height={b.h} rx={2} />
+                {b.label && <Label l={b.label} />}
+              </g>
+            ))}
+            {L.membrane.labels.map((l) => (
+              <Label key={`rl-${l.text}`} l={l} />
+            ))}
+            {L.membrane.queryX !== null && (
+              <line x1={L.membrane.queryX} x2={L.membrane.queryX} y1={L.membrane.outsideY - 6} y2={L.membrane.insideY + 5} className="fnd-arch__membrane-query" />
+            )}
+          </g>
+        )}
+
         {/* Heads and labels. */}
         {L.pins.map((p) => (
           <g
@@ -177,11 +203,41 @@ export function DomainArchitecture({
           ))}
         </g>
       </svg>
+      {win.start > 1 || win.end < ev.length ? <Overview ev={ev} width={width} win={win} /> : null}
       {L.hiddenLabels > 0 && (
         <p className="fnd-arch__hidden" data-testid="arch-hidden-labels">
           {L.hiddenLabels} label{L.hiddenLabels === 1 ? "" : "s"} left off where marks sit too close to name. Zoom in, or read them in the table below.
         </p>
       )}
     </div>
+  );
+}
+
+/** The whole protein, thin, with the current window bracketed. Decorative: the main drawing carries the text. */
+function Overview({ ev, width, win }: { ev: FunctionEvidence; width: number; win: ArchWindow }) {
+  const O = layoutOverview(ev, width, win);
+  return (
+    <svg
+      role="img"
+      aria-label={`Overview: the drawing above shows residues ${win.start} to ${win.end} of ${ev.length}.`}
+      width={O.width}
+      height={O.height}
+      viewBox={`0 0 ${O.width} ${O.height}`}
+      className="fnd-arch__svg fnd-arch__overview"
+      data-testid="arch-overview"
+    >
+      <line x1={O.x0} x2={O.x1} y1={O.trackY} y2={O.trackY} className="fnd-arch__ov-track" />
+      {O.domains.map((d, i) => (
+        <rect key={`d-${i}`} x={d.x} y={O.trackY - 6} width={d.width} height={12} rx={2} className="fnd-arch__ov-domain" data-covers={d.covers || undefined} />
+      ))}
+      {O.membrane.map((m, i) => (
+        <rect key={`m-${i}`} x={m.x} y={O.trackY - 5} width={m.width} height={10} className="fnd-arch__ov-tm" />
+      ))}
+      <rect x={O.window.x} y={O.trackY - 11} width={O.window.width} height={22} rx={3} className="fnd-arch__ov-window" data-testid="arch-overview-window" />
+      {O.queryX !== null && <circle cx={O.queryX} cy={O.trackY} r={3.5} className="fnd-arch__ov-query" />}
+      {O.ends.map((l) => (
+        <Label key={l.text} l={l} />
+      ))}
+    </svg>
   );
 }

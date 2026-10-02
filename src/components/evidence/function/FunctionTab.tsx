@@ -4,6 +4,7 @@ import type { TabComponentProps } from "../types";
 import { buildFunctionEvidence, type AnnotationRow, type FunctionEvidence } from "../../../shared/functionEvidence";
 import { DomainArchitecture } from "./DomainArchitecture";
 import { functionEvidenceInputFrom } from "./functionInput";
+import { SECONDARY_MAX_SPAN } from "./architectureLayout";
 
 /**
  * Functional domains.
@@ -31,6 +32,8 @@ import { functionEvidenceInputFrom } from "./functionInput";
 
 type Zoom = "whole" | "near";
 const NEAR = 50;
+/** Above this length the whole-protein drawing cannot name its marks, so the tab opens on the variant's neighbourhood. */
+const OPEN_NEAR_ABOVE = 600;
 
 function VerdictChip({ ev }: { ev: FunctionEvidence }) {
   const tone = ev.verdict === "met" ? "danger" : ev.verdict === "not-assessed" ? "muted" : "neutral";
@@ -48,7 +51,8 @@ function VerdictChip({ ev }: { ev: FunctionEvidence }) {
   );
 }
 
-function Legend({ ev }: { ev: FunctionEvidence }) {
+function Legend({ ev, win }: { ev: FunctionEvidence; win: { start: number; end: number } }) {
+  const showSS = win.end - win.start <= SECONDARY_MAX_SPAN;
   const has = (pred: (r: AnnotationRow) => boolean) => ev.rows.some(pred);
   const below = (r: AnnotationRow) => r.lane === "below";
   return (
@@ -58,20 +62,21 @@ function Legend({ ev }: { ev: FunctionEvidence }) {
       {has((r) => below(r) && ["experimental", "structure", "proteomics"].includes(r.evidence)) && <li><i className="fnd-key" data-kind="experimental" />Experimental</li>}
       {has((r) => below(r) && ["similarity", "predicted", "curated"].includes(r.evidence)) && <li><i className="fnd-key" data-kind="inferred" />Inferred</li>}
       {has((r) => (below(r) || r.lane === "region") && r.evidence === "none") && <li><i className="fnd-key" data-kind="uncited" />No evidence cited</li>}
-      {ev.secondaryStructure.some((e) => e.kind === "helix") && <li><i className="fnd-key" data-kind="helix" />Helix</li>}
-      {ev.secondaryStructure.some((e) => e.kind === "strand") && <li><i className="fnd-key" data-kind="strand" />Strand</li>}
+      {showSS && ev.secondaryStructure.some((e) => e.kind === "helix") && <li><i className="fnd-key" data-kind="helix" />Helix</li>}
+      {showSS && ev.secondaryStructure.some((e) => e.kind === "strand") && <li><i className="fnd-key" data-kind="strand" />Strand</li>}
       {ev.structuralDomains.length > 0 && <li><i className="fnd-key" data-kind="structural" />Gene3D segment</li>}
     </ul>
   );
 }
 
-function architectureCaption(ev: FunctionEvidence): string {
+function architectureCaption(ev: FunctionEvidence, win: { start: number; end: number }): string {
   const parts: string[] = [];
   if (ev.domains.length && ev.domains[0].source !== "UniProtKB") {
     parts.push(`Domains from InterPro (${ev.domains.map((d) => `${d.source} ${d.accession}`).join(", ")})`);
   } else if (ev.domains.length) parts.push("Domains from UniProtKB");
   if (ev.structuralDomains.length) parts.push(`structural segments from ${ev.structuralDomains[0].source}`);
-  if (ev.secondaryStructure.length) {
+  if (ev.rows.some((r) => r.lane === "membrane")) parts.push("membrane topology from UniProtKB");
+  if (ev.secondaryStructure.length && win.end - win.start <= SECONDARY_MAX_SPAN) {
     const pdb = ev.secondaryStructure.find((e) => e.pdb)?.pdb;
     parts.push(`helices and strands from ${pdb ? `PDB ${pdb}` : "UniProtKB"}`);
   }
@@ -145,7 +150,8 @@ function RowDetail({
 
 export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, onNavigateToView }: TabComponentProps) {
   const result = analysisState.result;
-  const [zoom, setZoom] = useState<Zoom>("whole");
+  // The zoom is the reader's once they touch it; until then it follows the protein (re-derived per variant).
+  const [zoomChoice, setZoomChoice] = useState<{ key: string; zoom: Zoom } | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const toggleGroup = (g: string) =>
@@ -158,6 +164,11 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
 
   const ev = useMemo(() => (result ? buildFunctionEvidence(functionEvidenceInputFrom(result)) : null), [result]);
   if (!result || !ev) return null;
+
+  const zoomKey = `${ev.uniprotId}:${ev.residue}`;
+  const defaultZoom: Zoom = ev.length > OPEN_NEAR_ABOVE && Number.isFinite(ev.residue) ? "near" : "whole";
+  const zoom: Zoom = zoomChoice && zoomChoice.key === zoomKey ? zoomChoice.zoom : defaultZoom;
+  const setZoom = (z: Zoom) => setZoomChoice({ key: zoomKey, zoom: z });
 
   const ok = ev.availability.state === "ok";
   const win =
@@ -206,9 +217,9 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
         {ok && (
           <figure className="fnd-figure-block">
             <DomainArchitecture ev={ev} win={win} selectedKey={selectedKey} onSelect={toggle} />
-            <figcaption className="fnd-caption">{architectureCaption(ev)}</figcaption>
+            <figcaption className="fnd-caption">{architectureCaption(ev, win)}</figcaption>
             <div className="fnd-figure-block__bar">
-              <Legend ev={ev} />
+              <Legend ev={ev} win={win} />
               <div className="fnd-seg" role="group" aria-label="Zoom the schematic">
                 <button type="button" aria-pressed={zoom === "whole"} onClick={() => setZoom("whole")}>
                   Whole protein
@@ -307,7 +318,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
                       <tr className="fnd-more">
                         <td colSpan={4}>
                           <button type="button" className="fnd-more__btn" aria-expanded={open} onClick={() => toggleGroup(g.group)}>
-                            {open ? `Show only within ${NEAR} residues of ${ev.residue}` : `Show ${hidden} more, more than ${NEAR} residues away`}
+                            {open ? `Show only within ${NEAR} residues of ${ev.residue}` : shown.length === 0 ? `None within ${NEAR} residues of ${ev.residue}. Show ${hidden}` : `Show ${hidden} more, more than ${NEAR} residues away`}
                           </button>
                         </td>
                       </tr>
