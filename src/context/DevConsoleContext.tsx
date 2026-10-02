@@ -13,6 +13,7 @@ import {
   SessionContext
 } from "../types/devConsole";
 import { isConnectionFailureText } from "../shared/fetch-retry";
+import { classifyLogSource } from "./logSource";
 
 const ERROR_STORAGE_KEY = "devConsoleErrors";
 const LIVE_STORAGE_KEY = "devConsoleLive";
@@ -374,62 +375,6 @@ export interface DevConsoleContextValue {
 
 const DevConsoleContext = createContext<DevConsoleContextValue | null>(null);
 
-function detectSourceFromArgs(args: any[]): LogSource {
-  const firstArg = args[0];
-  if (typeof firstArg === "string") {
-    const s = firstArg.toLowerCase();
-    if (
-      s.startsWith("[dynamut2]") ||
-      s.startsWith("[ddmut]") ||
-      s.startsWith("[thermompnn]") ||
-      s.startsWith("[foldx]") ||
-      s.startsWith("[stabilityoracle]") ||
-      s.startsWith("[esm-2]") ||
-      s.startsWith("[esm-3]") ||
-      s.startsWith("[esmc]") ||
-      s.startsWith("[saprot]") ||
-      s.startsWith("[biophysical") ||
-      s.startsWith("[comparison")
-    ) {
-      return "biophysics";
-    }
-    if (s.startsWith("[vep]") || s.startsWith("[mane]") || s.startsWith("[splice]") || s.startsWith("[genomic]")) {
-      return "genomics";
-    }
-    if (
-      s.startsWith("[pdb]") ||
-      s.startsWith("[alphafold]") ||
-      s.startsWith("[pocket]") ||
-      s.startsWith("[mol*]") ||
-      s.startsWith("[structure")
-    ) {
-      return "structure-3d";
-    }
-    if (s.startsWith("[gemini]") || s.startsWith("[narrative]") || s.startsWith("[acmg]") || s.startsWith("[clinical]")) {
-      return "ai-narrative";
-    }
-    if (s.startsWith("[pubmed]") || s.startsWith("[litrag]") || s.startsWith("[literature]")) {
-      return "literature";
-    }
-    if (s.startsWith("[errorboundary:")) {
-      return "component";
-    }
-    if (s.startsWith("[notification")) {
-      return "notification";
-    }
-    if (s.startsWith("[cache]") || s.startsWith("[worker]") || s.startsWith("[webgl]")) {
-      return "system";
-    }
-    if (s.startsWith("[retry]") || s.startsWith("[pipeline]")) {
-      return "workflow";
-    }
-    if (s.startsWith("[network]") || s.startsWith("[http]") || s.startsWith("[fetch]")) {
-      return "network";
-    }
-  }
-  return "console";
-}
-
 function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "debug", message: string, status?: number): ErrorImpact {
   if (level === "info" || level === "debug") return "info";
   if (status === 429 || message.toLowerCase().includes("retry") || message.toLowerCase().includes("rate limit")) {
@@ -446,6 +391,9 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
   if (status === 500 || level === "error" && (source === "runtime" || source === "component" || message.includes("Variant analysis failed"))) {
     return "fatal";
   }
+  // "Fatal" means a result is blocked. A biophysics engine failing never blocks the clinical result —
+  // the other engines and every evidence tab still report — so it is degraded, not fatal.
+  if (source === "biophysics") return "degraded";
   if (status === 404 || status === 503 || level === "warn" || source === "literature" || source === "notification") {
     return "degraded";
   }
@@ -587,7 +535,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.log = (...args: any[]) => {
       origLog(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushLiveEntry({ level: "info", source, message, detail });
       }
@@ -596,7 +544,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.info = (...args: any[]) => {
       origInfo(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushLiveEntry({ level: "info", source, message, detail });
       }
@@ -605,7 +553,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.debug = (...args: any[]) => {
       origDebug(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushLiveEntry({ level: "debug", source, message, detail });
       }
@@ -614,7 +562,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.error = (...args: any[]) => {
       origError(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushErrorEntry({ level: "error", source, message, detail });
       }
@@ -623,7 +571,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.warn = (...args: any[]) => {
       origWarn(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushErrorEntry({ level: "warn", source, message, detail });
       }

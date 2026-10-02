@@ -163,6 +163,8 @@ export function useJobPoller<TData = any>({
             }
             return;
           } else if (normStatus === "UNAVAILABLE") {
+            // No toast on this branch, so without a log line the Console never hears the engine gave up.
+            console.warn(`[useJobPoller] ${toolName} reported unavailable${data.error ? `: ${data.error}` : "."}`);
             onStatusChangeRef.current("unavailable");
             if (onErrorRef.current && data.error) onErrorRef.current(data.error);
             if (onToolFailedRef.current) onToolFailedRef.current(toolName);
