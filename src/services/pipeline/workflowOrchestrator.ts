@@ -841,7 +841,7 @@ export async function executeFullAnalysisWorkflow({
       })
       .catch((err: any) => {
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
-        console.error("Biophysical analysis error:", err);
+        console.error("[WorkflowOrchestrator] Biophysical analysis error:", err);
         analysisSink.setIsBiophysicalLoading(false);
         analysisSink.setIsStructuralLoading(false);
         analysisSink.setIsClinicalLoading(false);
@@ -866,7 +866,7 @@ export async function executeFullAnalysisWorkflow({
       });
   } catch (err: any) {
     if (getActiveRequestId() === requestId && !activeSignal.aborted) {
-      console.error("Top-level pipeline error:", err);
+      console.error("[WorkflowOrchestrator] Top-level pipeline error:", err);
       // Defensive: when notation translation fails, `targetVariant` is still a genomic
       // coordinate and this helper throws. Letting that escape would skip the error-state
       // assignment below and leave the UI stuck on a loading spinner with no message, so

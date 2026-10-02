@@ -31,7 +31,7 @@ function loadInitialStreamEntries(key: string): ConsoleEntry[] {
       return parsed;
     }
   } catch (e) {
-    console.error(`Failed to load entries from sessionStorage for key ${key}:`, e);
+    console.warn(`[DevConsole] Could not restore saved entries for ${key}:`, e);
   }
   return [];
 }

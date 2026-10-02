@@ -90,3 +90,31 @@ describe("streamBiophysicalAnalysis liveness", () => {
     await expect(settled).resolves.toMatch(/rejected: Streaming connection stalled/);
   });
 });
+
+describe("streamBiophysicalAnalysis truncated final frame", () => {
+  it("says so in the Console when the last frame is cut off, and still returns the payload it did receive", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(JSON.stringify({ chunkIndex: 1, isFinal: true, data: finalPayload }) + String.fromCharCode(10)));
+        // A frame severed mid-write: no trailing newline, not valid JSON.
+        controller.enqueue(encoder.encode('{"chunkIndex":2,"isFin'));
+        controller.close();
+      }
+    });
+    const api = createBiophysicsApi((async () => new Response(body, { status: 200 })) as any);
+
+    const result = await api.streamBiophysicalAnalysis(
+      { gene: "PAH", uniprotId: "P00439", variant: "p.Arg408Trp" },
+      () => {}
+    );
+
+    expect(result.metadata.gene).toBe("PAH");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("[Stream Parse Warning] The final stream frame"),
+      expect.anything()
+    );
+    warn.mockRestore();
+  });
+});
