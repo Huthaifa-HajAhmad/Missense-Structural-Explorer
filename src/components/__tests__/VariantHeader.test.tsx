@@ -208,7 +208,7 @@ describe("VariantHeader Component Tests", () => {
 
     // Verdicts
     expect(screen.getByText("Constrained")).toBeInTheDocument();
-    expect(screen.getByText("LoF tolerant")).toBeInTheDocument(); // 0.71 ≥ 0.6, gnomAD's suggested cut
+    expect(screen.getByText("Not LoF constrained")).toBeInTheDocument(); // 0.71 ≥ 0.6, gnomAD's suggested cut
     expect(screen.getByText("Subgenic constrained")).toBeInTheDocument();
 
     // Reference ranges are rendered as threshold ticks on the tracks

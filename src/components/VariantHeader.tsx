@@ -168,7 +168,9 @@ function buildMissenseZMetric(
         }
       : z >= 2.0
         ? { tone: "warn" as VhTone, verdict: "Constrained", why: "above the tolerant reference range" }
-        : { tone: "good" as VhTone, verdict: "Tolerant", why: "within the tolerant reference range" };
+        : z > 0
+          ? { tone: "muted" as VhTone, verdict: "Not constrained", why: "a positive Z means slightly fewer missense variants than expected, below the constraint range" }
+          : { tone: "good" as VhTone, verdict: "Tolerant", why: "observed missense variants at or above expectation" };
 
   return {
     key: "missense-z",
@@ -225,7 +227,7 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
       ? { tone: "path" as VhTone, verdict: "Strong LoF intolerance", why: "below the decile-1 intolerance threshold" }
       : v < constrained
         ? { tone: "warn" as VhTone, verdict: "LoF constrained", why: `below gnomAD's suggested constraint cut of ${constrained.toFixed(2)}` }
-        : { tone: "good" as VhTone, verdict: "LoF tolerant", why: "at or above gnomAD's suggested constraint cut" };
+        : { tone: "muted" as VhTone, verdict: "Not LoF constrained", why: "at or above gnomAD's suggested constraint cut; this does not show the gene tolerates loss of function" };
 
   return {
     key: "loeuf",
