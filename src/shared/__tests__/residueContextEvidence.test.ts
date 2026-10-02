@@ -97,7 +97,7 @@ describe("buildResidueContextEvidence on NAE1 p.Asp116Gly", () => {
 
   it("records that no ACMG criterion reads this tab", () => {
     const model = nae1();
-    expect(model.facts[3]).toMatchObject({ label: "Engine record", value: "None" });
+    expect(model.facts[3].label).toBe("Pocket confidence");
     expect(model.trace[4].value).toMatch(/No ACMG criterion/);
   });
 

@@ -222,7 +222,7 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   // ── Pocket axis ──
   const distance = pocket.status === "success" ? pocket.proximity.distance : null;
   const pocketAxis = {
-    max: Math.max(30, distance === null ? 0 : Math.ceil(distance / 5) * 5),
+    max: Math.max(20, distance === null ? 0 : Math.ceil(distance / 5) * 5),
     marks: [POCKET_PROXIMITY_BANDS.lining, POCKET_PROXIMITY_BANDS.proximal, POCKET_PROXIMITY_BANDS.peripheral],
     marker: distance,
   };
@@ -257,7 +257,6 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   if (pocket.status !== "success" && pocket.status !== "loading") {
     detailParts.push(`${pocket.headline}.`);
   }
-  detailParts.push("No ACMG criterion is drawn from this tab.");
 
   // ── Facts ──
   const facts: ResidueContextFact[] = [
@@ -283,7 +282,16 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
           mono: true,
         }
       : { label: "Nearest pocket", value: pocket.badge || ENGINE_STATE_LABELS["no-result"], sub: pocket.status === "loading" ? "P2Rank is running" : "No distance reported" },
-    { label: "Engine record", value: "None", sub: "No ACMG criterion reads this tab" },
+    // The engine record is stated by the eyebrow, the "Informational" chip and the last trace step;
+    // a fourth fact slot says how much to trust the pocket instead.
+    pocket.status === "success" && pocket.ranking.display
+      ? {
+          label: "Pocket confidence",
+          value: pocket.ranking.display,
+          sub: pocket.ranking.kind === "probability" ? "P2Rank, this profile only" : "P2Rank score, not a probability",
+          mono: true,
+        }
+      : { label: "Pocket confidence", value: pocket.status === "loading" ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"], sub: "No P2Rank score reported" },
   ];
 
   // ── Trace ──
@@ -354,10 +362,9 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   ];
 
   const notes = [
-    "The four scales describe the two residues, not an effect on this protein. A large shift is a large move on the scale, not a large effect.",
-    "Burial is given only from measured solvent accessibility. The Cα count loosely tracks burial and is shown as a reading.",
-    "P2Rank finds cavity geometry, not function, from one static structure. Its probability is calibrated per model profile and does not compare across profiles.",
-    "The pocket is computed on the structure loaded in the 3D view, which can differ from the structure burial was measured in.",
+    "A large shift is a large move on the scale, not a large effect on this protein.",
+    "Burial comes only from measured solvent accessibility; the Cα count is a reading.",
+    "The pocket is computed on the structure loaded in 3D, which can differ from the one burial was measured in.",
   ];
 
   const sources = [

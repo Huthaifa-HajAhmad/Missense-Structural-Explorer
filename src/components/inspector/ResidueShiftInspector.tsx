@@ -147,67 +147,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 
   return (
     <div className="rsx-rail" data-testid="residue-shift-rail">
-      {/* ── 1. Trace ── */}
-      <section
-        className="rsx-rsec"
-        id={INSPECTOR_SECTIONS.residueShiftPocket}
-        tabIndex={-1}
-        aria-labelledby="rsx-rail-trace"
-      >
-        <h3 className="eyebrow" id="rsx-rail-trace">
-          <span>
-            <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
-            Trace
-          </span>
-          <button type="button" className="rsx-info" onClick={handleCopy} title={copyHint} aria-label={copyHint}>
-            {copyState === "copied" ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
-          </button>
-        </h3>
-        <ol className="rsx-steps" data-testid="residue-trace">
-          {model.trace.map((step, i) => (
-            <Step key={step.label} n={i + 1} {...step} />
-          ))}
-        </ol>
-        {canRetryPocket && (
-          <button
-            type="button"
-            className="rsx-button"
-            disabled={isPocketLoading}
-            onClick={() => {
-              void onRetryPocket!();
-            }}
-          >
-            <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
-            Retry pocket detection
-          </button>
-        )}
-      </section>
-
-      {/* ── 2. Cut-points ── */}
-      <section className="rsx-rsec" aria-labelledby="rsx-rail-cuts">
-        <h3 className="eyebrow" id="rsx-rail-cuts">
-          <span>
-            <Ruler className="w-3.5 h-3.5" aria-hidden="true" />
-            Cut-points · this app&apos;s own
-          </span>
-        </h3>
-        <div className="rsx-cuts" data-testid="residue-cuts">
-          {Object.entries(cutGroups).map(([group, cuts]) => (
-            <div className="rsx-cuts__group" key={group}>
-              <span className="rsx-cuts__title">{group}</span>
-              {cuts.map(cut => (
-                <div className="rsx-cut" key={cut.rule} data-active={cut.active || undefined}>
-                  <span className="rsx-cut__rule">{cut.rule}</span>
-                  {cut.here ? <span className="rsx-cut__here">{cut.here}</span> : <span />}
-                </div>
-              ))}
-            </div>
-          ))}
-          <p className="rsx-cuts__foot">None of these is a published classification; they are drawn dashed on the tab.</p>
-        </div>
-      </section>
-
-      {/* ── 3. Model narrative ── */}
+      {/* ── 1. Model narrative (first: the sentence a reader wants) ── */}
       <section
         className="rsx-rsec"
         id={INSPECTOR_SECTIONS.residueShiftNarrative}
@@ -260,6 +200,66 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         )}
       </section>
 
+      {/* ── 2. Trace ── */}
+      <section
+        className="rsx-rsec"
+        id={INSPECTOR_SECTIONS.residueShiftPocket}
+        tabIndex={-1}
+        aria-labelledby="rsx-rail-trace"
+      >
+        <h3 className="eyebrow" id="rsx-rail-trace">
+          <span>
+            <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
+            Trace
+          </span>
+          <button type="button" className="rsx-info" onClick={handleCopy} title={copyHint} aria-label={copyHint}>
+            {copyState === "copied" ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
+          </button>
+        </h3>
+        <ol className="rsx-steps" data-testid="residue-trace">
+          {model.trace.map((step, i) => (
+            <Step key={step.label} n={i + 1} {...step} />
+          ))}
+        </ol>
+        {canRetryPocket && (
+          <button
+            type="button"
+            className="rsx-button"
+            disabled={isPocketLoading}
+            onClick={() => {
+              void onRetryPocket!();
+            }}
+          >
+            <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+            Retry pocket detection
+          </button>
+        )}
+      </section>
+
+      {/* ── 3. Cut-points ── */}
+      <section className="rsx-rsec" aria-labelledby="rsx-rail-cuts">
+        <h3 className="eyebrow" id="rsx-rail-cuts">
+          <span>
+            <Ruler className="w-3.5 h-3.5" aria-hidden="true" />
+            Cut-points · this app&apos;s own
+          </span>
+        </h3>
+        <div className="rsx-cuts" data-testid="residue-cuts">
+          {Object.entries(cutGroups).map(([group, cuts]) => (
+            <div className="rsx-cuts__group" key={group}>
+              <span className="rsx-cuts__title">{group}</span>
+              {cuts.map(cut => (
+                <div className="rsx-cut" key={cut.rule} data-active={cut.active || undefined}>
+                  <span className="rsx-cut__rule">{cut.rule}</span>
+                  {cut.here ? <span className="rsx-cut__here">{cut.here}</span> : null}
+                </div>
+              ))}
+            </div>
+          ))}
+          <p className="rsx-cuts__foot">None of these is a published classification; they are drawn dashed on the tab.</p>
+        </div>
+      </section>
+
       {/* ── 4. Method ── */}
       <section className="rsx-rsec" aria-labelledby="rsx-rail-method">
         <h3 className="eyebrow" id="rsx-rail-method">
@@ -277,23 +277,27 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 
       {/* ── 5. Sources ── */}
       <section className="rsx-rsec" aria-labelledby="rsx-rail-sources">
-        <h3 className="eyebrow" id="rsx-rail-sources">
-          <span>
-            <Database className="w-3.5 h-3.5" aria-hidden="true" />
-            Sources
-          </span>
-        </h3>
-        <ul className="rsx-refs" data-testid="residue-sources">
-          {model.sources.map(src => (
-            <li key={src.doi}>
-              {src.citation}{" "}
-              <a href={`https://doi.org/${src.doi}`} target="_blank" rel="noopener noreferrer">
-                doi:{src.doi}
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-            </li>
-          ))}
-        </ul>
+        <details className="rsx-disclosure">
+          <summary>
+            <h3 className="eyebrow" id="rsx-rail-sources">
+              <span>
+                <Database className="w-3.5 h-3.5" aria-hidden="true" />
+                Sources ({model.sources.length})
+              </span>
+            </h3>
+          </summary>
+          <ul className="rsx-refs" data-testid="residue-sources">
+            {model.sources.map(src => (
+              <li key={src.doi}>
+                {src.citation}{" "}
+                <a href={`https://doi.org/${src.doi}`} target="_blank" rel="noopener noreferrer">
+                  doi:{src.doi}
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
       </section>
     </div>
   );
