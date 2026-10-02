@@ -39,7 +39,7 @@ that asserts an unsourced cut-point is worse than the ugly one it replaced.
    polished (fact strip removed, rail cut-points re-gridded to a 44px code column) Predictors lost
    its fact strip and group-row styling and its rail codes overprinted their thresholds.
 6. **Propagate fixes to every copy.** grep for the old literal numbers and labels across `src/` and
-   `server/` (Threshold Guide rows in `shared/thresholdEvidence.ts`, heatmaps, knowledge modal,
+   `server/` (strength-ladder rows in `shared/ladderEvidence.ts`, heatmaps, knowledge modal,
    attributions, engine reason strings). A fix in one surface that leaves a second copy is a new bug.
 7. **Verify** (see "Verification"): tsc + `npm run lint`, full vitest, and look at the rendered page
    in light, dark and a narrow column.
@@ -151,7 +151,7 @@ the environment requires it).
 | Tab | State |
 |---|---|
 | Population data | Done (reference) |
-| In-silico predictors | Done (reference); `doc/PREDICTORS_TAB_REVIEW.md` |
+| In-silico predictors | Done (reference); `doc/PREDICTORS_TAB_REVIEW.md`. Also owns the strength ladder (`predictors/StrengthLadder.tsx`, `shared/ladderEvidence.ts`); the Score thresholds tab was merged into it and its ids redirect via `normalizeEvidenceTab` |
 | AlphaGenome | Rail in progress elsewhere; still shows `acmgStrength` PP3/BP4 tiers derived from an uncalibrated rank — must become the percentile |
 | 3D structure (viewer + inspector) | Done; `doc/STRUCTURE_3D_REVIEW.md`. Model `shared/structure3dEvidence.ts`, `s3d-` CSS |
-| RNA splicing, Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions, Score thresholds | Not yet audited with this skill |
+| RNA splicing, Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions | Not yet audited with this skill |

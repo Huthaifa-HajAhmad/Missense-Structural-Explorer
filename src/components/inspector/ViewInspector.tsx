@@ -119,9 +119,7 @@ const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
   perturbation: "Structural perturbation trace",
   multimers: "Multimer Assembly Quality",
   function: "Functional Domains & Features",
-  interactions: "PPI Network Provenance",
-  guidelines: "Cut-points and rule trace",
-  thresholds: "Cut-points and rule trace"
+  interactions: "PPI Network Provenance"
 };
 
 /** Panel width bounds. Previously duplicated as literals in the initializer and the drag. */

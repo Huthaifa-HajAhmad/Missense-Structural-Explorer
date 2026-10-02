@@ -10,6 +10,7 @@ import VariantHeader from "./components/VariantHeader";
 import AppViews from "./components/AppViews";
 import SettingsDrawer from "./components/settings/SettingsDrawer";
 import CommandPalette from "./components/CommandPalette";
+import { normalizeEvidenceTab } from "./components/evidence/types";
 import HowToInspectModal from "./components/modals/HowToInspectModal";
 import OnboardingModal, { hasCompletedOnboarding, type OnboardingPreset } from "./components/modals/OnboardingModal";
 import NotificationToastContainer from "./components/NotificationToastContainer";
@@ -52,7 +53,8 @@ export default function App() {
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");
   const [windowSize, setWindowSize] = useState<number>(() => settings.seqScrollStep || 31);
-  const [activeEvidenceTab, setActiveEvidenceTab] = useState<string>("clinical");
+  const [activeEvidenceTab, setActiveEvidenceTabRaw] = useState<string>("clinical");
+  const setActiveEvidenceTab = useCallback((tab: string) => setActiveEvidenceTabRaw(normalizeEvidenceTab(tab)), []);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     /* Corrupt `cs-sidebar-width` entries used to parse to NaN and flow straight
        into the aside's inline style. clampSidebarWidth sends NaN (and any value
@@ -167,6 +169,14 @@ export default function App() {
 
   // Address bar mirrors the active variant, so the URL is always a working share link.
   useVariantUrlSync();
+
+  // Keep the Console's session snapshot current so every captured entry says what was on screen.
+  useEffect(() => {
+    consoleDispatch({
+      type: "UPDATE_SESSION_CONTEXT",
+      context: { gene, variant, uniprotId, activeView: masterView, online: !isOffline },
+    });
+  }, [consoleDispatch, gene, variant, uniprotId, masterView, isOffline]);
 
   // Application side-effects hook
   useAppEffects({

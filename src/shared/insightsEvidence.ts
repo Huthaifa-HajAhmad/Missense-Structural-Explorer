@@ -50,7 +50,7 @@ export type LaneKey =
 export type Lean = "pathogenic" | "benign" | "none";
 
 /** Evidence tab ids, as `EVIDENCE_SUB_ITEMS` names them. */
-export type EvidenceTabId = "clinical" | "function" | "predictors" | "alphagenome" | "splicing" | "structure" | "perturbation" | "multimers" | "interactions" | "guidelines";
+export type EvidenceTabId = "clinical" | "function" | "predictors" | "alphagenome" | "splicing" | "structure" | "perturbation" | "multimers" | "interactions";
 
 export interface LaneLink { label: string; tab: EvidenceTabId }
 

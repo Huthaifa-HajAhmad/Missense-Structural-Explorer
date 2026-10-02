@@ -419,3 +419,109 @@
   .prd-table tbody[data-collapsed] > tr:not(.prd-group) { display: table-row; }
   .prd-group__toggle { display: none; }
 }
+
+/* ============================================================
+   STRENGTH LADDER + merged rail sections (formerly Score thresholds, gt-*)
+   ============================================================ */
+/* ── Strength ladder ────────────────────────────────────────── */
+.prd-ladder { --prd-ladder-name: 150px; padding: 4px 16px 12px; }
+.prd-ladder__row { display: grid; align-items: center; min-height: 32px; }
+.prd-ladder__row + .prd-ladder__row { border-top: 1px solid var(--cs-border-subtle); }
+.prd-ladder__head { min-height: 36px; background: var(--cs-surface-2); border-radius: 6px 6px 0 0; }
+.prd-ladder__col {
+  display: flex; flex-direction: column; align-items: center; line-height: 1.2;
+  font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); text-align: center;
+}
+.prd-ladder__col > b {
+  font-family: var(--cs-font-mono); font-weight: var(--cs-font-weight-semibold);
+  font-variant-numeric: tabular-nums; color: var(--cs-text-secondary);
+}
+.prd-ladder__name {
+  display: flex; flex-direction: column; min-width: 0; padding: 4px 8px 4px 0;
+  color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); line-height: 1.25;
+}
+.prd-ladder__name > small { font-size: var(--cs-font-size-badge); font-weight: 400; color: var(--cs-text-muted); }
+.prd-ladder__absent { grid-column: 2 / -1; padding-left: 4px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.prd-ladder__cell { position: relative; height: 22px; margin: 0 1px; border-radius: 3px; background: color-mix(in srgb, var(--cs-text-secondary) 9%, transparent); }
+.prd-ladder__cell[data-dir="PP3"] { background: color-mix(in srgb, var(--cs-text-danger) 12%, transparent); }
+.prd-ladder__cell[data-dir="PP3"][data-rank="2"] { background: color-mix(in srgb, var(--cs-text-danger) 22%, transparent); }
+.prd-ladder__cell[data-dir="PP3"][data-rank="3"] { background: color-mix(in srgb, var(--cs-text-danger) 32%, transparent); }
+.prd-ladder__cell[data-dir="PP3"][data-rank="4"] { background: color-mix(in srgb, var(--cs-text-danger) 42%, transparent); }
+.prd-ladder__cell[data-dir="BP4"] { background: color-mix(in srgb, var(--cs-text-success) 12%, transparent); }
+.prd-ladder__cell[data-dir="BP4"][data-rank="2"] { background: color-mix(in srgb, var(--cs-text-success) 22%, transparent); }
+.prd-ladder__cell[data-dir="BP4"][data-rank="3"] { background: color-mix(in srgb, var(--cs-text-success) 32%, transparent); }
+.prd-ladder__cell[data-dir="BP4"][data-rank="4"] { background: color-mix(in srgb, var(--cs-text-success) 42%, transparent); }
+/* A band the tool's calibration does not publish: hatched, never tinted. */
+.prd-ladder .prd-ladder__cell[data-unreachable][data-dir] {
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--cs-border-subtle) 4px 5px);
+}
+.prd-ladder__dot {
+  position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%; background: var(--cs-text-primary); box-shadow: 0 0 0 2px var(--cs-surface);
+}
+.prd-ladder__sides {
+  display: grid; padding-top: 6px;
+  font-size: var(--cs-font-size-badge); color: var(--cs-text-muted);
+}
+.prd-ladder__sides > span:nth-child(3) { text-align: center; }
+.prd-ladder__sides > span:nth-child(4) { text-align: right; }
+@container (max-width: 640px) {
+  .prd-ladder { --prd-ladder-name: 104px; }
+  .prd-ladder__col { font-size: 10px; }
+}
+
+
+/* ── Direction lane: the authors' cut-point has no strength levels, so one flat tint per side. ── */
+.prd-ladder__divider {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-top: 6px; padding: 8px 0 4px;
+  border-top: 1px solid var(--cs-border-subtle);
+  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted);
+}
+.prd-ladder__divider > span { font-weight: 400; letter-spacing: 0; text-transform: none; font-size: var(--cs-font-size-caption); }
+.prd-ladder__side { position: relative; height: 22px; margin: 0 1px; border-radius: 3px; background: color-mix(in srgb, var(--cs-text-secondary) 9%, transparent); }
+.prd-ladder__side[data-side="pathogenic"][data-here] { background: color-mix(in srgb, var(--cs-text-danger) 18%, transparent); }
+.prd-ladder__side[data-side="benign"][data-here] { background: color-mix(in srgb, var(--cs-text-success) 18%, transparent); }
+.prd-ladder__side[data-side="between"][data-here] { background: color-mix(in srgb, var(--cs-text-secondary) 18%, transparent); }
+
+.prd-rcuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.prd-rcut {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline;
+  padding: 5px 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary);
+}
+.prd-rcut + .prd-rcut { border-top: 1px solid var(--cs-border-subtle); }
+.prd-rcut__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); }
+.prd-rcut__rule { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); font-variant-numeric: tabular-nums; color: var(--cs-text-muted); }
+
+/* ClinGen points bar: the five class bands on −8…+10 (Tavtigian 2020). */
+.prd-points { position: relative; height: 54px; }
+.prd-points__band {
+  position: absolute; top: 0; height: 20px; border-right: 1px solid var(--cs-surface);
+  font-size: var(--cs-font-size-badge); line-height: 20px; text-align: center; color: var(--cs-text-primary);
+  background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent);
+}
+.prd-points__band[data-id="B"] { background: color-mix(in srgb, var(--cs-text-success) 40%, transparent); }
+.prd-points__band[data-id="LB"] { background: color-mix(in srgb, var(--cs-text-success) 18%, transparent); }
+.prd-points__band[data-id="LP"] { background: color-mix(in srgb, var(--cs-text-danger) 18%, transparent); }
+.prd-points__band[data-id="P"] { background: color-mix(in srgb, var(--cs-text-danger) 40%, transparent); }
+.prd-points__band:first-child { border-radius: 4px 0 0 4px; }
+.prd-points__band:nth-child(5) { border-radius: 0 4px 4px 0; }
+.prd-points__tick {
+  position: absolute; top: 24px; transform: translateX(-50%);
+  font-family: var(--cs-font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--cs-text-muted);
+}
+.prd-points__mark { position: absolute; top: -3px; height: 26px; width: 0; margin-left: -1px; border-left: 2px solid var(--cs-text-primary); }
+.prd-points__marklabel {
+  position: absolute; top: 38px; transform: translateX(-50%); white-space: nowrap;
+  font-family: var(--cs-font-mono); font-size: 10px; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary);
+}
+.prd-rail-note { margin: 0; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
+
+
+.prd-scale__cut {
+  display: block; margin-top: 2px; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge);
+  font-variant-numeric: tabular-nums; line-height: 1.5; color: var(--cs-text-secondary);
+}
+@media print {
+  .prd-ladder__cell, .prd-ladder__side, .prd-ladder__dot, .prd-points__band { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}

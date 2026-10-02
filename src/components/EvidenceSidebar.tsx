@@ -1,6 +1,6 @@
 import React, { useCallback } from "react";
 import {
-  Database, Cpu, Compass, Activity, ShieldAlert,
+  Database, Cpu, Compass, Activity,
   Layers, TrendingUp, ChevronLeft, ChevronRight,
   Dna, FlaskConical, Leaf,
 } from "lucide-react";
@@ -14,8 +14,7 @@ export type EvidenceTab =
   | "conservation"
   | "structure"
   | "function"
-  | "energetics"
-  | "guidelines";
+  | "energetics";
 
 export type DataStatus = "full" | "partial" | "none" | "always";
 export type DataAvailabilityMap = Record<string, DataStatus>;
@@ -55,7 +54,6 @@ const NAV_SECTIONS: NavSection[] = [
   },
   { id: "function",     label: "Function",      Icon: TrendingUp },
   { id: "energetics",   label: "Energetics",    Icon: Activity   },
-  { id: "guidelines",   label: "Score thresholds", Icon: ShieldAlert },
 ];
 
 /** Determines whether a tab's parent section is active */

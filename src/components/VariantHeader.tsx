@@ -188,7 +188,7 @@ function buildMissenseZMetric(
 }
 
 function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
-  // One source for the cut-points: the Score thresholds tab and this header must not disagree.
+  // One source for the cut-points: `THRESHOLDS.loeuf` is the only copy, so no surface can disagree with this header.
   const strong = THRESHOLDS.loeuf.pathogenicStrong;
   const constrained = THRESHOLDS.loeuf.pathogenicSupporting;
   const domains = {
@@ -204,7 +204,7 @@ function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
     ],
   };
   const refRange =
-    `Reference: strong loss-of-function intolerance below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut, the same one the Score thresholds tab uses), tolerant at or above ${constrained.toFixed(2)}.`;
+    `Reference: strong loss-of-function intolerance below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut), tolerant at or above ${constrained.toFixed(2)}.`;
 
   const v = typeof loeuf === "number" ? loeuf : null;
 

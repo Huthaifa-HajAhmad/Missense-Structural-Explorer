@@ -17,7 +17,9 @@ import {
   type PredictorEvidence,
   type PredictorReading,
 } from "../../shared/predictorEvidence";
+import { buildLadderEvidence } from "../../shared/ladderEvidence";
 import { ScoreRuler } from "./predictors/ScoreRuler";
+import { StrengthLadder } from "./predictors/StrengthLadder";
 
 /**
  * In-silico predictors.
@@ -26,10 +28,12 @@ import { ScoreRuler } from "./predictors/ScoreRuler";
  * ACMG PP3/BP4 rule make of it? Three tiers, top to bottom — the same shape as Population Data:
  *
  *   1. THE FINDING — a header bar with the engine's recorded code; ONE summary line (engine record,
- *      vote, calibrated reference, and any disagreement in words); then two rows to compare, the
- *      vote as a tally bar and the calibrated single tool ClinGen recommends on its own ruler, each
- *      ending in the code it supports. This replaced a card that stated the count four times,
- *      REVEL's reading three times (one a full-width yellow banner) and every voter's score twice.
+ *      vote, calibrated reference, and any disagreement in words); the STRENGTH LADDER (every tool on
+ *      one shared axis of evidence strength, the variant's band marked; tools with only their authors'
+ *      cut-point show a side, never a strength); then two rows to compare, the vote as a tally bar
+ *      and the calibrated single tool ClinGen recommends on its own ruler, each ending in the code
+ *      it supports. The ladder replaced the Score thresholds tab, which repeated this one.
+ *      This replaced a card that stated the count four times, REVEL's reading three times (one a full-width yellow banner) and every voter's score twice.
  *   2. READINGS — one table, every tool a row: score, its position on its own axis with its
  *      cut-points drawn by provenance, and its call. Grouped by role: the tools that vote, then the
  *      informational ones. This replaced a 4-tab card grid that showed one family at a time, so the
@@ -250,8 +254,11 @@ function ReadingRow({
   onKnowledge,
   onAction,
   onTabChange,
+  cutLines,
 }: {
   reading: PredictorReading;
+  /** The cut-points in words ("PP3 ≥ 0.644 · 0.773 · 0.932"), so a number can be read off without a hover. */
+  cutLines?: string[];
   onKnowledge: (key: string) => void;
   onAction: (action: NonNullable<PredictorReading["availability"]["action"]>) => void;
   onTabChange?: (tab: string) => void;
@@ -306,6 +313,9 @@ function ReadingRow({
               {reading.cutpoints.source ? ` · ${reading.cutpoints.source}` : ""}
             </span>
           )}
+          {cutLines?.map(line => (
+            <span key={line} className="prd-scale__cut">{line}</span>
+          ))}
         </td>
       ) : (
         <td className="prd-reason prd-scale">
@@ -423,6 +433,11 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
   });
   const summary = predictorSummary(evidence);
+  const ladder = buildLadderEvidence({ result, predictor: evidence });
+  const cutLinesByKey = new Map<string, string[]>([
+    ...ladder.ladder.map(l => [l.key, l.cutLines] as [string, string[]]),
+    ...ladder.directional.map(d => [d.key, [d.cutText]] as [string, string[]]),
+  ]);
 
   const openConnections = () => {
     if (onOpenSettings) onOpenSettings();
@@ -464,6 +479,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
             {summary.rest.map(sentence => ` ${sentence}`).join("")}
           </span>
         </p>
+
+        <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />
 
         <VoteRow evidence={evidence} />
         <ReferenceRow evidence={evidence} />
@@ -536,6 +553,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
                     onKnowledge={setKnowledgeKey}
                     onAction={openConnections}
                     onTabChange={onTabChange}
+                    cutLines={cutLinesByKey.get(r.key)}
                   />
                 ))}
               </tbody>

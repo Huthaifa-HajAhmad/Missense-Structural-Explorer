@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Database } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
-import { EvidenceDashboardCardProps, TabType } from "./evidence/types";
+import { EvidenceDashboardCardProps, TabType, normalizeEvidenceTab } from "./evidence/types";
 import { formatDdg } from "../shared/engineStatus";
 import { ClinicalTab } from "./evidence/ClinicalTab";
 import { SplicingTab } from "./evidence/SplicingTab";
@@ -10,7 +10,6 @@ import { StructureTab } from "./evidence/StructureTab";
 import { PerturbationTab } from "./evidence/PerturbationTab";
 import { MultimersTab } from "./evidence/MultimersTab";
 import { FunctionTab, InteractionsTab } from "./evidence/FunctionInteractionsTabs";
-import { GuidelinesTab } from "./evidence/GuidelinesTab";
 import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
 
@@ -62,7 +61,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
   } = props;
 
   const [localActiveTab, setLocalActiveTab] = useState<TabType>("clinical");
-  const activeTab = (activeTabProp as TabType) || localActiveTab;
+  const activeTab = (activeTabProp ? normalizeEvidenceTab(activeTabProp) : localActiveTab) as TabType;
   const setActiveTab = useCallback((tab: string) => {
     if (onTabChange) {
       onTabChange(tab);
@@ -259,7 +258,6 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "function" && <FunctionTab {...tabProps} />}
         {activeTab === "interactions" && <InteractionsTab {...tabProps} />}
         {activeTab === "splicing" && <SplicingTab {...tabProps} />}
-        {(activeTab === "guidelines" || (activeTab as string) === "thresholds") && <GuidelinesTab {...tabProps} />}
 
         <MetricExplanationModal 
           selectedMetric={selectedMetric} 

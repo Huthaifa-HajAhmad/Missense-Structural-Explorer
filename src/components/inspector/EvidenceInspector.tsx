@@ -21,8 +21,8 @@ import { PopulationRail } from "./PopulationRail";
 import { MultimerRail } from "./MultimerRail";
 import { InteractionsRail } from "./InteractionsRail";
 import { PredictorsRail } from "./PredictorsRail";
+import { normalizeEvidenceTab } from "../evidence/types";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
-import { GuidelinesRail } from "./GuidelinesRail";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -53,7 +53,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   const conservationData = analysisResult.conservationData;
 
   // Active subtab category normalization
-  const tab = activeEvidenceTab?.toLowerCase() || "clinical";
+  const tab = normalizeEvidenceTab(activeEvidenceTab?.toLowerCase() || "clinical");
 
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
@@ -68,19 +68,10 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "predictors" && <PredictorsRail analysisResult={analysisResult} />}
 
-      {(tab === "thresholds" || tab === "guidelines") && (
-        <GuidelinesRail
-          analysisResult={analysisResult}
-          foldingDdG={foldingDdG}
-          foldingEnergetics={foldingEnergetics}
-          onSelectEvidenceTab={onSelectEvidenceTab}
-        />
-      )}
-
       {tab === "alphagenome" && <AlphaGenomeRail analysisResult={analysisResult} />}
 
       {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "thresholds" && tab !== "guidelines" && (
+      {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && (
         <div className="flex flex-col gap-3">
           <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />

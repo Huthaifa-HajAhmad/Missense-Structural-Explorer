@@ -1,7 +1,19 @@
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult, StructuralMetrics } from "../../types";
 import { MasterView } from "../MasterSidebar";
 
-export type TabType = "clinical" | "predictors" | "structure" | "multimers" | "perturbation" | "function" | "interactions" | "guidelines" | "splicing" | "alphagenome";
+export type TabType = "clinical" | "predictors" | "structure" | "multimers" | "perturbation" | "function" | "interactions" | "splicing" | "alphagenome";
+
+/**
+ * Ids of evidence tabs that no longer exist, and the tab that took over. "Score thresholds" repeated
+ * the Predictors tab; its strength ladder now lives there, so a stale id (a bookmark, a palette
+ * recent, a link from an older build) lands on Predictors rather than on a blank pane.
+ */
+const RETIRED_EVIDENCE_TABS: Record<string, TabType> = { guidelines: "predictors", thresholds: "predictors" };
+
+/** The tab id to render for `tab`: a retired id becomes its successor, anything else passes through. */
+export function normalizeEvidenceTab(tab: string): string {
+  return RETIRED_EVIDENCE_TABS[tab.toLowerCase()] ?? tab;
+}
 
 export interface EvidenceDashboardCardProps {
   isDark: boolean;
