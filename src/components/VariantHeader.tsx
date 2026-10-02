@@ -14,7 +14,7 @@ interface VariantHeaderProps {
 }
 
 /**
- * The variant CONTEXT strip: one 38px line under the top bar.
+ * The variant CONTEXT strip: one 44px line under the top bar.
  *
  * The variant's identity moved into the top bar (`header/VariantIdentity.tsx`); what stays here is
  * context that applies to every evidence page:
@@ -28,7 +28,7 @@ interface VariantHeaderProps {
  * - The RUN STATE slot is fixed at the strip's end, so a degraded run (a fallback locus, a gnomAD
  *   outage) can never look like a clean one, and offers the re-run when one could help.
  *
- * Replaced a two-band 124px header plus a 52px top bar (176px) with 56 + 38 = 94px, and removed the
+ * Replaced a two-band 124px header plus a 52px top bar (176px) with 56 + 44 = 100px, and removed the
  * compact-on-scroll mode, which existed only because the old header was too tall to keep.
  */
 function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAllele }: VariantHeaderProps) {

@@ -890,6 +890,7 @@ export function aouSourceLabel(lookup: AouLookup | null | undefined, locus?: Loc
   if (lookup.remoteDbnsfp === "found") return "remote dbNSFP";
   if (lookup.localTable === "absent") return "local frequency table (no entry)";
   if (lookup.localTable === "failed" || lookup.localTable === "timed-out") return "local frequency table (not read)";
+  if (lookup.localTable === "not-installed") return "local table not installed";
   return "source not reported";
 }
 
@@ -943,13 +944,18 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   } = input;
 
   const gnomadStatus = serviceStatus?.gnomadFrequency;
-  const dataset = gnomadReleaseLabel(gnomadFrequency?.dataset);
-  const isLocalIngest = gnomadFrequency?.dataset === LOCAL_GNOMAD_DATASET;
   const buildRefusal =
     assembly && !sourceSupportsAssembly(GNOMAD_SOURCE, assembly)
       ? describeAssemblyRefusal(GNOMAD_SOURCE, assembly)
       : null;
   const fallback = fallbackRefusal(input);
+  const rawDataset = gnomadFrequency?.dataset ?? (
+    (gnomadStatus === "not_found" || gnomadStatus === "ok") && !buildRefusal && !fallback
+      ? "gnomad_r4"
+      : null
+  );
+  const dataset = gnomadReleaseLabel(rawDataset);
+  const isLocalIngest = rawDataset === LOCAL_GNOMAD_DATASET;
 
   const gnomadObservation = (
     id: FrequencyObservation["id"],

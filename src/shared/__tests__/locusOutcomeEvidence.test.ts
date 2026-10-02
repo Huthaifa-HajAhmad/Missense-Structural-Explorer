@@ -101,8 +101,14 @@ describe("All of Us queried state and source lineage", () => {
     expect(aou(reading).availability.reason).not.toMatch(/local.*table/);
   });
 
-  it.each([null, { localTable: "not-installed", remoteDbnsfp: "not-reported" }])("does not count an unreported or uninstalled empty source as answered", (aouLookup) => {
-    const reading = buildFrequencyEvidence({ aouLookup: aouLookup as any });
+  it("does not count an uninstalled empty source as answered", () => {
+    const reading = buildFrequencyEvidence({ aouLookup: { localTable: "not-installed", remoteDbnsfp: "not-reported" } });
+    expect(aou(reading).queried).toBe(false);
+    expect(aou(reading).dataset).toBe("All of Us (local table not installed)");
+  });
+
+  it("does not count an unreported empty source as answered", () => {
+    const reading = buildFrequencyEvidence({ aouLookup: null });
     expect(aou(reading).queried).toBe(false);
     expect(aou(reading).dataset).toBe("All of Us (source not reported)");
   });

@@ -56,13 +56,13 @@ export function viewCrumbs(view: MasterView, evidenceTab?: string): string[] {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────────────────────────
-   Header layout — three zones on one 56px bar:
+   Header layout — two primary zones on one 56px bar:
 
-     [nav] Section › Page        [ 🔍 Search or run a variant…   Ctrl K ]          notices · ⎘ ? ☾ ⚙
+     [nav] Section › Page                                     notices · [🔍] ⎘ ? ☾ ⚙
 
-   Left says WHERE you are, centre is the one way IN (the palette, now labelled — the bare "Ctrl K"
-   chip it replaces told nobody what it opened), right is state and global actions. Every icon
-   button is the same 32px control (`CHROME_ICON_BUTTON`), shared with the sidebar's toggle.
+   Left says WHERE you are (identity or breadcrumbs), right is state, expandable search, and
+   global actions. The search button expands smoothly into a full query bar on click and collapses
+   via X, Escape, or click-outside. Every icon button is the same 32px control (`CHROME_ICON_BUTTON`).
    ────────────────────────────────────────────────────────────────────────────────────────────── */
 
 export function HeaderBar({
@@ -132,6 +132,31 @@ export function HeaderBar({
   const errorText = error?.replace(/^Error:\s*/i, "") ?? "";
   const errorIsKey = /unauthori[sz]ed|api key/i.test(errorText);
 
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isSearchExpanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsSearchExpanded(false);
+        searchBtnRef.current?.focus();
+      }
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setIsSearchExpanded(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onMouseDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [isSearchExpanded]);
+
   return (
     <header className="app-header" id="main-header">
       {/* ── Left: the variant on analysis views, otherwise where you are ──
@@ -176,27 +201,9 @@ export function HeaderBar({
         )}
       </div>
 
-      {/* ── Centre: the palette, labelled ──
-          The chord is the fast path; this control exists so the palette is discoverable and has a
-          visible name. Full field from `md`, icon-only below. */}
-      <button
-        type="button"
-        onClick={onOpenPalette}
-        className={`group hidden md:flex items-center gap-2 h-8 ${showIdentity ? "w-[clamp(180px,20vw,300px)]" : "w-[clamp(200px,32vw,420px)]"} min-w-0 shrink pl-2.5 pr-1.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted hover:border-cs-border hover:text-cs-text-secondary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]`}
-        title={`Open command palette (${paletteHint})`}
-        aria-label={`Open command palette (${paletteHint})`}
-        aria-keyshortcuts={paletteHint === "⌘K" ? "Meta+K" : "Control+K"}
-      >
-        <Search className="w-3.5 h-3.5 shrink-0" />
-        <span className="flex-1 text-left text-[12.5px] truncate">{showIdentity ? "Search or run…" : "Search views or run a variant…"}</span>
-        <kbd className="cs-kbd">
-          {paletteHint}
-        </kbd>
-      </button>
-
       {/* ── Right: state, then actions ── */}
       {/* `min-w-max`: the right zone may grow past its half of the bar (a long error, several notices)
-          and push the palette narrower, but it can never overlap it. */}
+          and push into the middle space, but it can never overlap. */}
       <div className="flex items-center justify-end gap-1 min-w-max flex-1 basis-0">
         {/* Notices first, so they sit next to the thing they are about (settings). */}
         {error && (
@@ -267,16 +274,55 @@ export function HeaderBar({
           <span className={`${CHROME_DIVIDER} mx-1.5`} aria-hidden="true" />
         )}
 
-        {/* Palette, icon-only, below `md` where the labelled field is hidden. */}
-        <button
-          type="button"
-          onClick={onOpenPalette}
-          className={`${CHROME_ICON_BUTTON} md:hidden`}
-          title={`Search (${paletteHint})`}
-          aria-label="Search views or run a variant"
-        >
-          <Search className="w-4 h-4" />
-        </button>
+        {/* ── Expandable Search Control ──
+            Collapsed by default to a 32px icon button aligned with the action icons.
+            Expands smoothly into a search bar on click; collapses via X, Escape, or click-outside. */}
+        {!isSearchExpanded ? (
+          <button
+            ref={searchBtnRef}
+            type="button"
+            onClick={() => setIsSearchExpanded(true)}
+            className={CHROME_ICON_BUTTON}
+            title={`Search views or run a variant (${paletteHint})`}
+            aria-label={`Search views or run a variant (${paletteHint})`}
+            aria-expanded={false}
+          >
+            <Search className="w-4 h-4" />
+          </button>
+        ) : (
+          <div
+            ref={searchContainerRef}
+            className="flex items-center gap-1 shrink-0"
+          >
+            <button
+              type="button"
+              onClick={onOpenPalette}
+              autoFocus
+              className="group flex items-center gap-2 h-8 w-[clamp(180px,22vw,280px)] min-w-0 shrink pl-2.5 pr-1.5 rounded-[var(--cs-radius-input)] border border-cs-border-subtle bg-cs-surface-2 text-cs-text-muted hover:border-cs-border hover:text-cs-text-secondary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+              title={`Open command palette (${paletteHint})`}
+              aria-label={`Open command palette (${paletteHint})`}
+              aria-keyshortcuts={paletteHint === "⌘K" ? "Meta+K" : "Control+K"}
+            >
+              <Search className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex-1 text-left text-[12.5px] truncate">
+                {showIdentity ? "Search or run…" : "Search views or run a variant…"}
+              </span>
+              <kbd className="cs-kbd">{paletteHint}</kbd>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSearchExpanded(false);
+                searchBtnRef.current?.focus();
+              }}
+              className={CHROME_ICON_BUTTON}
+              title="Close search"
+              aria-label="Close search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {canShare && (
           <button
