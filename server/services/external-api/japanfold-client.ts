@@ -319,6 +319,7 @@ const pendingBoltzJobs = new LRUCache<string, { resultsUrl: string; jobId: strin
 
 export function clearBoltzJobs(): void {
   pendingBoltzJobs.clear();
+  inflightBoltzSubmits.clear();
 }
 
 function readModel(data: any): JapanFoldMultimerResult | null {
@@ -354,6 +355,76 @@ async function detailOf(res: Response): Promise<string | null> {
   }
 }
 
+type BoltzSubmit = { kind: "outcome"; outcome: Boltz2Outcome } | { kind: "job"; job: { resultsUrl: string; jobId: string; submittedAt: number } };
+
+/** Submissions in flight, by chain hash: see `runBoltz2Multimer`. */
+const inflightBoltzSubmits = new Map<string, Promise<BoltzSubmit>>();
+
+/**
+ * Where a job's results may be fetched from. `links.results` comes from the service's own response and
+ * is fetched with our auth headers, so only the configured JapanFold host is followed: a path, or an
+ * absolute URL on that origin. Anything else is refused rather than sent our credentials.
+ */
+export function resolveResultsUrl(resultsPath: string, base = CONFIG.services.japanfoldBaseUrl): string | null {
+  try {
+    const baseUrl = new URL(base);
+    const url = new URL(resultsPath, `${baseUrl.origin}/`);
+    return url.origin === baseUrl.origin ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The submit step on its own. It does not take a caller's abort signal: it may be shared by several
+ * callers, and one caller leaving must not cancel the others' submission. Its own timeout bounds it.
+ */
+async function submitBoltz2(
+  chains: Array<{ chainId: string; sequence: string }>,
+  chainHash: string,
+  cacheKey: string,
+  timeoutMs: number
+): Promise<BoltzSubmit> {
+  let response: Response;
+  try {
+    response = await fetch(`${CONFIG.services.japanfoldBaseUrl}/v1/predictions`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ model: "boltz-2", chains }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err: any) {
+    const failure = err?.name === "TimeoutError" || err?.name === "AbortError"
+      ? { kind: "timeout" as const, detail: `No answer within ${Math.round(timeoutMs / 1000)} s of submitting.` }
+      : { kind: "network" as const, detail: err?.message ?? null };
+    return { kind: "outcome", outcome: { status: "failed", failure } };
+  }
+  if (!response.ok) {
+    const detail = await detailOf(response);
+    const rejected = response.status === 400 || response.status === 413 || response.status === 422;
+    return { kind: "outcome", outcome: { status: "failed", failure: { kind: rejected ? "rejected" : "http", httpStatus: response.status, detail } } };
+  }
+  const data = (await response.json().catch(() => null)) as any;
+  // A finished model is read whatever the 2xx code; a 202 carries a job, not coordinates.
+  const model = readModel(data);
+  if (model) {
+    japanFoldCache.set(cacheKey, model);
+    return { kind: "outcome", outcome: { status: "done", result: model } };
+  }
+  const jobId = data?.id ?? data?.jobId ?? data?.job_id;
+  const resultsPath = data?.links?.results || (jobId ? `/v1/jobs/${jobId}/results` : null);
+  if (!jobId || !resultsPath) {
+    return { kind: "outcome", outcome: { status: "failed", failure: { kind: "no-model", httpStatus: response.status, detail: "The service answered without a model or a job to follow." } } };
+  }
+  const resultsUrl = resolveResultsUrl(String(resultsPath));
+  if (!resultsUrl) {
+    return { kind: "outcome", outcome: { status: "failed", failure: { kind: "no-model", httpStatus: response.status, detail: "The service named a results URL on another host; it was not followed." } } };
+  }
+  const job = { jobId: String(jobId), resultsUrl, submittedAt: Date.now() };
+  pendingBoltzJobs.set(chainHash, job);
+  return { kind: "job", job };
+}
+
 /**
  * Submit (or resume) a Boltz-2 complex prediction and wait up to `waitMs` for it.
  *
@@ -374,43 +445,18 @@ export async function runBoltz2Multimer(
   let job = pendingBoltzJobs.get(chainHash) ?? null;
 
   if (!job) {
-    let response: Response;
-    try {
-      response = await fetch(`${CONFIG.services.japanfoldBaseUrl}/v1/predictions`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ model: "boltz-2", chains }),
-        signal: anySignal([signal, AbortSignal.timeout(waitMs)]),
-      });
-    } catch (err: any) {
-      if (signal?.aborted) throw err;
-      return err?.name === "TimeoutError" || err?.name === "AbortError"
-        ? { status: "failed", failure: { kind: "timeout", detail: `No answer within ${Math.round(waitMs / 1000)} s of submitting.` } }
-        : { status: "failed", failure: { kind: "network", detail: err?.message ?? null } };
+    // One submission per complex at a time: a second request for the same chains arriving while the
+    // first is still being accepted joins it instead of submitting again (the job is only recorded
+    // once the service answers, so without this both would submit).
+    let submitting = inflightBoltzSubmits.get(chainHash);
+    if (!submitting) {
+      submitting = submitBoltz2(chains, chainHash, cacheKey, waitMs).finally(() => inflightBoltzSubmits.delete(chainHash));
+      inflightBoltzSubmits.set(chainHash, submitting);
     }
-    if (!response.ok) {
-      const detail = await detailOf(response);
-      const rejected = response.status === 400 || response.status === 413 || response.status === 422;
-      return { status: "failed", failure: { kind: rejected ? "rejected" : "http", httpStatus: response.status, detail } };
-    }
-    const data = (await response.json().catch(() => null)) as any;
-    // A finished model is read whatever the 2xx code; a 202 carries a job, not coordinates.
-    const model = readModel(data);
-    if (model) {
-      japanFoldCache.set(cacheKey, model);
-      return { status: "done", result: model };
-    }
-    const jobId = data?.id ?? data?.jobId ?? data?.job_id;
-    const resultsPath = data?.links?.results || (jobId ? `/v1/jobs/${jobId}/results` : null);
-    if (!jobId || !resultsPath) {
-      return { status: "failed", failure: { kind: "no-model", httpStatus: response.status, detail: "The service answered without a model or a job to follow." } };
-    }
-    job = {
-      jobId: String(jobId),
-      resultsUrl: /^https?:/.test(resultsPath) ? resultsPath : `${CONFIG.services.japanfoldBaseUrl}${resultsPath}`,
-      submittedAt: Date.now(),
-    };
-    pendingBoltzJobs.set(chainHash, job);
+    const submitted = await submitting;
+    if (signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    if (submitted.kind === "outcome") return submitted.outcome;
+    job = submitted.job;
   }
 
   // Follow the job until it finishes or this call's wait runs out.

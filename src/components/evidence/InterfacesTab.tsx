@@ -478,7 +478,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
       </section>
 
       {/* ── 4. Partners ──────────────────────────────────────────────────────── */}
-      <section className="ifc-section" aria-labelledby="ifc-partners-title" aria-busy={ev.status.lookups === "loading"}>
+      <section className="ifc-section" aria-labelledby="ifc-partners-title" aria-busy={ev.status.lookups === "loading" || undefined}>
         <h2 className="eyebrow" id="ifc-partners-title">
           <Handshake className="w-3.5 h-3.5" />
           Partners

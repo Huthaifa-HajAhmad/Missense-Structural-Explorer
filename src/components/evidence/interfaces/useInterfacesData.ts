@@ -90,6 +90,9 @@ export function useInterfacesData(result: any) {
     const controller = new AbortController();
     void fetchAssembly(false, controller.signal);
     return () => controller.abort();
+    // Deliberately not `freshStoredAsm` itself: every answer is written back to the store, which hands
+    // this hook a new object each time, and depending on the object would re-run this effect (and
+    // re-read the assembly) after every write. Only "is there a usable stored payload" matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, Boolean(freshStoredAsm), fetchAssembly]);
 
@@ -135,6 +138,8 @@ export function useInterfacesData(result: any) {
     const controller = new AbortController();
     void fetchLookups(controller.signal);
     return () => controller.abort();
+    // Same reason as the assembly effect above: depend on whether a usable payload exists, not on the
+    // object the store re-creates after each write.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, Boolean(freshStoredPpi), fetchLookups]);
 
