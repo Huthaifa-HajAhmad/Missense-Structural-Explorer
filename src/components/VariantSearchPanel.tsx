@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Compass,
   CornerDownLeft,
+  X,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
@@ -111,6 +112,17 @@ export const WORKFLOW_STAGES = [
 
 type RailTabId = "telemetry" | "pipeline";
 const RAIL_TAB_ORDER: RailTabId[] = ["telemetry", "pipeline"];
+
+/**
+ * How long an active run waits before offering the explore-early hint under the last stage.
+ *
+ * A hint that fires on click reads as nagging (runs sometimes settle relevant stages in
+ * seconds), so it waits for real elapsed time instead. 10s clears any quick partial-cache
+ * run while arriving before the reader's attention has fully parked on the progress bar —
+ * and by then some stages have usually settled, so the "ready to explore" list has
+ * something to point at.
+ */
+const EXPLORE_HINT_DELAY_MS = 10_000;
 
 type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
 
@@ -594,6 +606,27 @@ function VariantSearchPanel({
   );
 
   const [activeRightTab, setActiveRightTab] = useState<RailTabId>(result ? "pipeline" : "telemetry");
+
+  /* ── Explore-early hint ─────────────────────────────────────────────────────────────────
+     Appears in the rail (under the last stage) after `EXPLORE_HINT_DELAY_MS` of an active
+     run, telling the reader the workspace is already browsable. Dismissed per run: a new
+     run resets the dismissal and the timer, and a finished arm offers nothing. */
+  const [exploreHintVisible, setExploreHintVisible] = useState(false);
+  const exploreHintDismissedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isPipelineActive) {
+      // A finished or idle run re-arms both, so the next slow stage gets its own notice.
+      setExploreHintVisible(false);
+      exploreHintDismissedRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (!exploreHintDismissedRef.current) setExploreHintVisible(true);
+    }, EXPLORE_HINT_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [isPipelineActive]);
+  /* ───────────────────────────────────────────────────────────────────────────────────── */
 
   /**
    * Set once the reader picks a tab themselves, and cleared when a run finishes.
@@ -1605,6 +1638,47 @@ function VariantSearchPanel({
                     );
                   })}
                 </ol>
+
+                {/* Explore-early hint, in the dead space under the last step. Identifies the
+                    stages that already settled so the pointer is to real content, and reads
+                    as a passive notice (mirrors the house callouts) with one clay accent that
+                    says the workspace is live now — not that the pipeline is done. */}
+                {isPipelineActive && exploreHintVisible && (() => {
+                  const readyStages = stageInfos.filter(({ info }) => info.rawStatus === "complete");
+                  const readyList = readyStages
+                    .map(({ stage }) => stage.title)
+                    .slice(0, 3)
+                    .join(", ");
+                  const remaining = readyStages.length > 3 ? `\u00A0+${readyStages.length - 3}` : "";
+                  return (
+                    <div
+                      role="status"
+                      className="relative shrink-0 flex items-start gap-2.5 px-3 py-2.5 rounded-[var(--cs-radius-card)] border border-cs-accent-clay/25 bg-cs-accent-clay/[0.06] cs-fade-in"
+                    >
+                      <Compass className="w-3.5 h-3.5 mt-0.5 text-cs-text-accent shrink-0" aria-hidden="true" />
+                      <p className="m-0 text-[11px] leading-snug text-cs-text-secondary">
+                        <span className="font-medium text-cs-text-primary">No need to wait —</span>{" "}
+                        {readyList ? (
+                          <>the workspace is already live: <span className="text-cs-text-primary">{readyList}</span>{remaining} are ready to explore.</>
+                        ) : (
+                          <>the workspace keeps updating as each stage lands — feel free to look around in the meantime.</>
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exploreHintDismissedRef.current = true;
+                          setExploreHintVisible(false);
+                        }}
+                        title="Dismiss notice"
+                        aria-label="Dismiss notice"
+                        className="absolute top-1.5 right-1.5 p-1 rounded-[var(--cs-radius-badge)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                      >
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {result && !isPipelineActive && onViewChange && (
                   <p className="text-[11px] text-cs-text-muted shrink-0">Select a stage to open it.</p>
