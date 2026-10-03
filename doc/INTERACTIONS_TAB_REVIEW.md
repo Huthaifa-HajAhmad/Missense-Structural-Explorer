@@ -1,3 +1,8 @@
+> **Superseded.** The Protein interactions tab no longer exists. It was merged with its sibling into
+> **Interfaces & PPI** (`interfaces`; the old ids `multimers` and `interactions` redirect to it).
+> See [INTERFACES_AUDIT.md](INTERFACES_AUDIT.md) for what changed and why. The findings below are kept
+> as the record of the earlier tabs; the files, classes and functions they name are gone.
+
 # Protein interactions tab: review
 
 Reference variant: NAE1 p.Asp116Gly (UniProtKB Q13564). Built on the Multimer assembly change (PR #5),
