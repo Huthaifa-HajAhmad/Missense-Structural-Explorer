@@ -37,7 +37,7 @@
 import { z } from "zod";
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
-import type { ConservationData } from "../../../src/shared/contracts.ts";
+import { SPLICEAI_DISTANCE_RANGE, type ConservationData } from "../../../src/shared/contracts.ts";
 
 /** Cloud Run services, one per genome build. Selected by `-comprehensive` suffix upstream. */
 const SPLICEAI_BASE_URLS = {
@@ -54,8 +54,8 @@ const SPLICEAI_BASE_URLS = {
 export const SPLICEAI_DEFAULT_DISTANCE = 500;
 
 /** The range the Broad service accepts for the reporting window (its MAX_DISTANCE_LIMIT is 10,000). */
-export const SPLICEAI_MIN_DISTANCE = 50;
-export const SPLICEAI_MAX_DISTANCE = 10_000;
+export const SPLICEAI_MIN_DISTANCE = SPLICEAI_DISTANCE_RANGE.min;
+export const SPLICEAI_MAX_DISTANCE = SPLICEAI_DISTANCE_RANGE.max;
 
 /**
  * A caller's requested window as an integer inside the service's range, or null when it is absent or

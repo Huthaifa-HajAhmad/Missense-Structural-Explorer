@@ -3,6 +3,7 @@ import { useSettings } from "../../../context/SettingsContext";
 import { useApiClient } from "../../../apiClient";
 import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 import { SPLICEAI_WINDOWS, describeSpliceAiFailure, type SplicingEvidence } from "../../../shared/splicingEvidence";
+import type { SpliceAiScoreRequest } from "../../../shared/contracts";
 import type { AnalysisResult } from "../../../types";
 
 /**
@@ -35,6 +36,11 @@ export function mergeSpliceAiRescore(
 ): NonNullable<AnalysisResult["conservationData"]> {
   if (response.spliceai) return { ...conservation, spliceai: response.spliceai, spliceaiFailure: null };
   return { ...conservation, spliceaiFailure: response.spliceaiFailure ?? conservation.spliceaiFailure ?? null };
+}
+
+/** The request the route accepts (`spliceAiScoreRequestSchema`); typed against it so the two cannot drift apart. */
+export function spliceAiScoreRequest(coordinates: string, assembly: "GRCh37" | "GRCh38", distance: number): SpliceAiScoreRequest {
+  return { coordinates, assembly, distance };
 }
 
 const assemblyOf = (raw: unknown): "GRCh37" | "GRCh38" => (typeof raw === "string" && /37|hg19/i.test(raw) ? "GRCh37" : "GRCh38");
@@ -75,7 +81,7 @@ export function SpliceWindowControl({
       const response = await fetchWithAuth("/api/v1/spliceai/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coordinates, assembly, distance }),
+        body: JSON.stringify(spliceAiScoreRequest(coordinates as string, assembly, distance)),
       });
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
       const json = (await response.json()) as SpliceAiScoreResponse;

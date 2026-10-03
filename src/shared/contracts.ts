@@ -1033,6 +1033,22 @@ export const alphaGenomeRegionSaturationRequestSchema = z.object({
 });
 export type AlphaGenomeRegionSaturationRequest = z.infer<typeof alphaGenomeRegionSaturationRequestSchema>;
 
+/** The range the Broad SpliceAI Lookup accepts for its reporting window (-D); its own limit is 10,000. */
+export const SPLICEAI_DISTANCE_RANGE = { min: 50, max: 10_000 } as const;
+
+/**
+ * `POST /spliceai/score` — re-score ONE variant under a chosen reporting window. Shared by the route and
+ * by the RNA splicing tab's inline window control, so what the client sends is checked against what the
+ * server accepts by the same definition.
+ */
+export const spliceAiScoreRequestSchema = z.object({
+  /** `chrom-pos-ref-alt`, the form `metadata.genomicCoordinates` carries. */
+  coordinates: z.string().min(5).max(200),
+  assembly: z.enum(["GRCh37", "GRCh38"]).default("GRCh38"),
+  distance: z.number().int().min(SPLICEAI_DISTANCE_RANGE.min).max(SPLICEAI_DISTANCE_RANGE.max),
+});
+export type SpliceAiScoreRequest = z.input<typeof spliceAiScoreRequestSchema>;
+
 export const alphaGenomeSaturationVariantSchema = z.object({
   alt: z.enum(["A", "C", "G", "T"]),
   phred: z.number().nullable(),
