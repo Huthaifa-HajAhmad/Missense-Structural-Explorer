@@ -63,6 +63,7 @@ const GUARDED_SURFACES = [
   // The Score thresholds redesign: the old rail printed "N/A" for a missing REVEL / FoldX value and
   // the old table "awaiting data" beside absences with known reasons.
   "src/components/evidence/predictors/StrengthLadder.tsx",
+  "src/components/inspector/PredictorsRail.tsx",
   /**
    * The derivation layer itself, listed because it makes a structural promise — "this module adds
    * no new user-facing vocabulary; every label comes from engineStatus" — and a promise in a

@@ -475,9 +475,6 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           <EvidenceInspector
             analysisResult={analysisResult}
             activeEvidenceTab={activeEvidenceTab}
-            onSelectEvidenceTab={onSelectEvidenceTab}
-            foldingDdG={foldingDdG}
-            foldingEnergetics={foldingEnergetics}
           />
         )}
 

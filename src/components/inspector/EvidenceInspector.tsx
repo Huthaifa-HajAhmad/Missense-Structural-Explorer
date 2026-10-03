@@ -9,7 +9,7 @@ import {
   ArrowRight,
   Gauge
 } from "lucide-react";
-import { AnalysisResult, EnergeticsData } from "../../types";
+import { AnalysisResult } from "../../types";
 import {
   THRESHOLDS,
   STRING_CONFIDENCE_BANDS,
@@ -26,18 +26,11 @@ import { AlphaGenomeRail } from "./AlphaGenomeRail";
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
   activeEvidenceTab?: string;
-  onSelectEvidenceTab?: (tab: string) => void;
-  foldingDdG?: number | null;
-  /** ΔΔG engine results backing the Thresholds pane's live match roll-up. */
-  foldingEnergetics?: EnergeticsData | null;
 }
 
 export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   analysisResult,
   activeEvidenceTab = "clinical",
-  onSelectEvidenceTab,
-  foldingDdG = null,
-  foldingEnergetics = null
 }) => {
   if (!analysisResult) {
     return (

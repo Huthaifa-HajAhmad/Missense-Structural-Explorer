@@ -19,7 +19,7 @@ import { INSPECTOR_SECTIONS } from "../../../lib/inspectorFocus";
 import { NAE1_RESULT } from "../../../shared/__tests__/fixtures/nae1Result";
 
 function renderPane(result: any = NAE1_RESULT, tab = "predictors") {
-  return render(<EvidenceInspector analysisResult={result} activeEvidenceTab={tab} foldingDdG={2.62} />);
+  return render(<EvidenceInspector analysisResult={result} activeEvidenceTab={tab} />);
 }
 
 describe("EvidenceInspector — predictors pane", () => {

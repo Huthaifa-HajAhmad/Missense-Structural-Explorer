@@ -13,7 +13,8 @@ import type { DirectionRow, DirectionSide, LadderColumn, LadderEvidence, LadderR
  *                   a band the tool's calibration cannot reach is hatched, never tinted.
  *   DIRECTION rows  the tools that publish only the authors' cut-point. The dot sits on a SIDE —
  *                   benign, between, pathogenic — in one flat tint, because a cut-point is not a
- *                   strength and a deeper shade would say otherwise.
+ *                   strength and a deeper shade would say otherwise. The tint is red or green only
+ *                   for a tool the engine counts (its call is PP3 or BP4); any other stays grey.
  *
  * Every placement is read from `buildLadder`; this file tests no score.
  */
@@ -42,6 +43,9 @@ export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvi
     }),
     ...directional.map(d => `${d.name}: ${d.side === null ? "no result" : `${SIDE_WORD[d.side]} of the authors' cut-point`}`),
   ].join("; ");
+  const directionNote = directional.length
+    ? " Tools listed as direction only have just their authors' cut-point, so they show a side of it, not a strength."
+    : "";
 
   const side = (d: DirectionRow, s: DirectionSide) => (
     <span
@@ -49,6 +53,7 @@ export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvi
       className="prd-ladder__side"
       data-side={s}
       data-here={d.side === s || undefined}
+      data-votes={d.votes || undefined}
       style={{
         gridColumn: s === "benign" ? `2 / span ${nBenign}` : s === "between" ? `${mid} / span 1` : `${mid + 1} / span ${nPath}`,
       }}
@@ -58,7 +63,7 @@ export function StrengthLadder({ evidence, referenceKey }: { evidence: LadderEvi
   );
 
   return (
-    <div className="prd-ladder" role="img" aria-label={`Strength ladder. ${describe}.`} data-testid="strength-ladder">
+    <div className="prd-ladder" role="img" aria-label={`Strength ladder. ${describe}.${directionNote}`} data-testid="strength-ladder">
       <div className="prd-ladder__row prd-ladder__head" style={template} aria-hidden="true">
         <span />
         {columns.map(c => (
