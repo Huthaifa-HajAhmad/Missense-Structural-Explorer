@@ -422,12 +422,13 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
    * fetch) was reported to the operator as a fatal error when a retry recovers it.
    */
   if (isConnectionFailureText(message)) return "recoverable";
+  // "Fatal" means a result is blocked. A biophysics engine failing never blocks the clinical result —
+  // the other engines and every evidence tab still report — so it is degraded, not fatal. Checked
+  // BEFORE the HTTP 500 rule so a 500 from a biophysics endpoint cannot escalate past it.
+  if (source === "biophysics") return "degraded";
   if (status === 500 || level === "error" && (source === "runtime" || source === "component" || message.includes("Variant analysis failed"))) {
     return "fatal";
   }
-  // "Fatal" means a result is blocked. A biophysics engine failing never blocks the clinical result —
-  // the other engines and every evidence tab still report — so it is degraded, not fatal.
-  if (source === "biophysics") return "degraded";
   if (status === 404 || status === 503 || level === "warn" || source === "literature" || source === "notification") {
     return "degraded";
   }
