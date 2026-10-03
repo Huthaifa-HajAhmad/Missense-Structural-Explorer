@@ -524,23 +524,23 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(screen.getByText(valid ? "Format OK" : "Check format")).toBeInTheDocument();
     });
 
-    it("surfaces custom analysis instructions on the still-collapsed disclosure", async () => {
+    it("shows the AI focus field open, with its privacy note and live counter", async () => {
       renderPanel();
 
-      const details = document.querySelector("details");
-      expect(details).not.toBeNull();
-      // The claim is specifically about the CLOSED row, so the state has to be asserted rather
-      // than assumed: jsdom renders and edits controls inside a closed <details>.
-      expect((details as HTMLDetailsElement).open).toBe(false);
-      expect(screen.queryByText(/^\d+ chars$/)).not.toBeInTheDocument();
+      // The field is no longer a disclosure: there is no closed row left to announce content,
+      // because the content is always visible. Absence of the old details shape is asserted so
+      // a collapse cannot silently come back.
+      expect(document.querySelectorAll("details")).toHaveLength(0);
 
-      const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions");
+      const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions") as HTMLTextAreaElement;
+      expect(screen.getByText(/Do not include patient identifiers/)).toBeInTheDocument();
+      expect(screen.getByText("0/2000")).toBeInTheDocument();
+
       await act(async () => {
         fireEvent.change(textarea, { target: { value: "Focus on the cofactor loop" } });
       });
 
-      expect(screen.getByText("26 chars")).toBeInTheDocument();
-      expect((details as HTMLDetailsElement).open).toBe(false);
+      expect(screen.getByText("26/2000")).toBeInTheDocument();
     });
 
     it("does not claim a genome build for text that is not a coordinate", async () => {

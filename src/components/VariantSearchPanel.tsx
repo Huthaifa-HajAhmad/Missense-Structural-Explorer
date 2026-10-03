@@ -22,7 +22,7 @@ import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
-import { getWorkflowStageStatus } from "../shared/workflowStatus";
+import { getWorkflowStageStatus, summarizeWorkflowStatuses } from "../shared/workflowStatus";
 import {
   needsNotationResolution,
   classifyNotation,
@@ -538,6 +538,7 @@ function VariantSearchPanel({
   const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading ?? false);
   const loadedPdb = useVariantAnalysisStore(s => s.pdbText);
+  const engineState = useVariantAnalysisStore(s => s.primaryBiophysics);
   // Submission is blocked only during intake/core, never by optional background work.
   const isForegroundActive = Boolean((propsAnalysisState ?? storeAnalysisState).isLoading || isBiophysicalLoading || isClinicalLoading);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
@@ -586,6 +587,9 @@ function VariantSearchPanel({
     isStructuralLoading ||
     Object.values(result?.metadata?.pipelineStages ?? {}).some(outcome => outcome === "running") ||
     isFolding ||
+    dynamut2Status === "pending" ||
+    ddmutStatus === "pending" ||
+    engineState.thermompnnStatus === "pending" ||
     isPocketLoading
   );
 
@@ -872,6 +876,8 @@ function VariantSearchPanel({
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
     const raw = getWorkflowStageStatus({
+      ...engineState,
+      foldingPhase: engineState.foldingProgress?.phase,
       view: stage,
       result,
       isFolding,
@@ -897,7 +903,9 @@ function VariantSearchPanel({
       progress: "Running",
       pending: "Pending",
       degraded: "Degraded",
-      error: "Error"
+      error: "Error",
+      unavailable: "Unavailable",
+      "on-demand": "On demand"
     };
     return {
       status: statusMap[raw.status] || raw.status,
@@ -907,16 +915,15 @@ function VariantSearchPanel({
   };
 
   const stageInfos = WORKFLOW_STAGES.map(stage => ({ stage, info: getStageInfo(stage.key) }));
-  const settledCount = stageInfos.filter(
-    ({ info }) => info.rawStatus === "complete" || info.rawStatus === "degraded" || info.rawStatus === "error"
-  ).length;
+  const summary = summarizeWorkflowStatuses(stageInfos.map(({ info }) => info.rawStatus));
+  const settledCount = summary.settled;
   const hasRun = Boolean(result) || isPipelineActive;
-  const progressPct = Math.round((settledCount / WORKFLOW_STAGES.length) * 100);
+  const progressPct = summary.percent;
 
   const pipelineStatusLabel = isForegroundActive
     ? "Loading evidence"
     : result
-    ? isPipelineActive ? "Workspace ready · Enriching" : "Workspace ready"
+    ? isPipelineActive ? "Workspace ready · Enriching" : summary.hasProblems ? "Workspace ready · Partial results" : "Workspace ready"
     : "Pipeline ready";
 
   return (
@@ -953,7 +960,9 @@ function VariantSearchPanel({
           <h2 id="variant-form-title" className="sr-only">Variant query</h2>
 
           <form onSubmit={onFormSubmit} className="flex flex-col flex-1">
-            <div className="p-6 flex flex-col gap-6">
+            {/* flex-1: this is the slab that stretches to the panel floor; the AI field inside
+                it takes the leftover, so no dead gap pools above the pinned footer. */}
+            <div className="p-6 flex flex-col gap-6 flex-1 min-h-0">
               {result?.numberingChoices &&
               /**
                * Two readings minimum: a single "choice" is not a decision, and the refusal message
@@ -1191,48 +1200,51 @@ function VariantSearchPanel({
                 </div>
               </fieldset>
 
-              {/* AI focus (optional) */}
-              <details className="group rounded-[var(--cs-radius-card)] border border-cs-border-subtle">
-                <summary className="flex justify-between items-center gap-2 px-3.5 h-10 text-[12px] font-medium text-cs-text-secondary select-none cursor-pointer list-none [&::-webkit-details-marker]:hidden rounded-[var(--cs-radius-card)] hover:bg-cs-surface-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]">
-                  <span>
-                    AI focus &amp; custom instructions
-                    <span className="ml-1.5 font-normal text-cs-text-muted">Optional</span>
-                  </span>
-                  <span className="flex items-center gap-2 shrink-0">
-                    {/* Collapsed content used to be silent: instructions could be set and then
-                        invisible, with nothing on the closed row to say so. */}
-                    {hasDirections && (
+              {/* AI focus (optional) — an open field, not a disclosure.
+                  The workspace form flexes to share one bottom line with the rail, so a collapsed
+                  disclosure under the Variant field left nothing between itself and the footer,
+                  while the panel stretched — the dead space the open field now fills: the block
+                  takes the leftover height and the writing surface grows with it (capped, so a
+                  very tall window pools only modest slack below it). Label, badge and hint row
+                  follow the same anatomy as every other field. */}
+              <fieldset className="flex flex-col gap-1.5 flex-1 min-h-0">
+                <FieldLabel
+                  htmlFor="textarea-user-directions"
+                  badge={
+                    hasDirections ? (
                       <FieldBadge tone="clay" title="Custom analysis instructions are set and will direct the AI narrative.">
                         {userDirections.trim().length} chars
                       </FieldBadge>
-                    )}
-                    <ChevronDown className="w-4 h-4 text-cs-text-muted transition-transform duration-150 group-open:rotate-180" />
+                    ) : (
+                      <FieldBadge title="Steer the AI synthesis; biophysical stages run without it.">
+                        Optional
+                      </FieldBadge>
+                    )
+                  }
+                >
+                  AI focus &amp; custom instructions
+                </FieldLabel>
+                <textarea
+                  id="textarea-user-directions"
+                  aria-label="AI Focus Area & Custom Analysis Instructions"
+                  aria-describedby="user-directions-privacy"
+                  placeholder="e.g. Focus on disruption of the cofactor-binding loop, or weigh ACMG PM2/PS3."
+                  value={userDirections}
+                  onChange={(e) => {
+                    const text = e.target.value.slice(0, 2000);
+                    setUserDirections(text);
+                  }}
+                  maxLength={2000}
+                  className="w-full rounded-[var(--cs-radius-input)] border border-cs-border bg-cs-surface px-2.5 py-2 text-[13px] leading-relaxed text-cs-text-primary outline-none resize-none min-h-[88px] flex-1 max-h-[224px] select-text placeholder:text-cs-text-muted transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
+                />
+                <div className="flex justify-between items-start gap-3 text-[11px] text-cs-text-muted">
+                  <span id="user-directions-privacy" className="flex items-start gap-1.5">
+                    <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--cs-text-warning)]" />
+                    Do not include patient identifiers (names, MRNs, dates of birth).
                   </span>
-                </summary>
-                <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-2">
-                  <textarea
-                    id="textarea-user-directions"
-                    aria-label="AI Focus Area & Custom Analysis Instructions"
-                    aria-describedby="user-directions-privacy"
-                    placeholder="e.g. Focus on disruption of the cofactor-binding loop, or weigh ACMG PM2/PS3."
-                    value={userDirections}
-                    onChange={(e) => {
-                      const text = e.target.value.slice(0, 2000);
-                      setUserDirections(text);
-                    }}
-                    maxLength={2000}
-                    rows={3}
-                    className="w-full rounded-[var(--cs-radius-input)] border border-cs-border bg-cs-surface p-2.5 text-[13px] leading-relaxed text-cs-text-primary outline-none resize-y min-h-[76px] select-text placeholder:text-cs-text-muted transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
-                  />
-                  <div className="flex justify-between items-start gap-3 text-[11px] text-cs-text-muted">
-                    <span id="user-directions-privacy" className="flex items-start gap-1.5">
-                      <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-px text-[var(--cs-text-warning)]" />
-                      Do not include patient identifiers (names, MRNs, dates of birth).
-                    </span>
-                    <span className="tabular-nums shrink-0">{userDirections.length}/2000</span>
-                  </div>
+                  <span className="tabular-nums shrink-0">{userDirections.length}/2000</span>
                 </div>
-              </details>
+              </fieldset>
             </div>
 
             {/* ── Form footer: hint left, primary action right ── */}
@@ -1457,7 +1469,7 @@ function VariantSearchPanel({
                     </span>
                     <span className="text-[11px] tabular-nums text-cs-text-muted">
                       {hasRun
-                        ? `${settledCount} of ${WORKFLOW_STAGES.length} done`
+                        ? `${settledCount} of ${summary.total} settled`
                         : `${WORKFLOW_STAGES.length} stages`}
                     </span>
                   </div>
@@ -1467,7 +1479,7 @@ function VariantSearchPanel({
                       role="progressbar"
                       aria-label="Pipeline progress"
                       aria-valuemin={0}
-                      aria-valuemax={WORKFLOW_STAGES.length}
+                      aria-valuemax={summary.total}
                       aria-valuenow={settledCount}
                     >
                       <div
