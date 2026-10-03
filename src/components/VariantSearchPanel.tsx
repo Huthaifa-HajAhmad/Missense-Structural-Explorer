@@ -18,6 +18,7 @@ import {
   Compass,
   CornerDownLeft,
   X,
+  Eraser,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
@@ -695,6 +696,22 @@ function VariantSearchPanel({
   }, [handleSelectHistoryItem]);
 
   /**
+   * Empties the four query fields, leaving the workspace as it was before the last fill.
+   *
+   * Scope is deliberately the query inputs only: AI focus instructions are a separate,
+   * deliberately-set input (the reader types or leaves them for future analyses — notice the
+   * char-count badge is stated on its label), and the run state/history are owned by
+   * Recents' own Clear. Anything a run has already rendered (result, rail states) is
+   * untouched: this is "clear the form", not "reset the workspace".
+   */
+  const clearQueryFields = useCallback(() => {
+    actions.setCustomGene("");
+    actions.setCustomUniprot("");
+    actions.setCustomVariant("");
+    actions.setCustomGenomic("");
+  }, [actions]);
+
+  /**
    * Answers the numbering prompt: record the decision, put the chosen notation in the Variant field
    * and run.
    *
@@ -1313,24 +1330,44 @@ function VariantSearchPanel({
                 )}
               </p>
 
-              <button
-                type="submit"
-                disabled={isForegroundActive}
-                aria-label="Analyse variant"
-                className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
-              >
-                {isForegroundActive ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Analysing…
-                  </>
-                ) : (
-                  <>
-                    Analyse variant
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2 sm:ml-auto">
+                {/* Quiet secondary action beside the primary one. Disabled while the fields are
+                    already empty — an inert Clear in a footer reads as a dead control, and the
+                    form states its own fill state through the badges that fields already wear. */}
+                <button
+                  type="button"
+                  onClick={clearQueryFields}
+                  disabled={
+                    !customGene.trim() &&
+                    !customUniprot.trim() &&
+                    !customVariant.trim() &&
+                    !customGenomic.trim()
+                  }
+                  aria-label="Clear query fields"
+                  className="inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--cs-radius-input)] text-[12.5px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                >
+                  <Eraser className="w-3.5 h-3.5" aria-hidden="true" />
+                  Clear
+                </button>
+                <button
+                  type="submit"
+                  disabled={isForegroundActive}
+                  aria-label="Analyse variant"
+                  className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
+                >
+                  {isForegroundActive ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Analysing…
+                    </>
+                  ) : (
+                    <>
+                      Analyse variant
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </form>
         </section>
