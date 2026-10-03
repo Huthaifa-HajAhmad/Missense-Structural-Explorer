@@ -2,6 +2,7 @@ import os from "os";
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
+import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext } from "./failure.ts";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
 import { CONFIG } from "../../../config.ts";
@@ -419,6 +420,7 @@ export async function generateMutantPdbInternal(
             foldxRepairFailed = true;
           }
         } catch (repairErr: any) {
+          if (signal?.aborted || repairErr?.name === "AbortError") throw repairErr;
           const isTimeout = Boolean(
             repairErr?.code === "ETIMEDOUT" ||
             (!signal?.aborted && (repairErr?.killed || repairErr?.signal === "SIGTERM"))
@@ -495,11 +497,22 @@ export async function generateMutantPdbInternal(
         overallSd = parsedResult.sd;
         console.log(`[Biophysical Modeling] Parsed FoldX 5-run stochastic ddG: ${overallDdG} ± ${overallSd} kcal/mol`);
       }
+    } else {
+      throw new Error("FoldX BuildModel completed without producing a mutant PDB");
     }
   } catch (foldxErr: any) {
+    if (signal?.aborted || foldxErr?.name === "AbortError") throw foldxErr;
     console.warn(`[Biophysical Modeling] FoldX execution failed:`, foldxErr.message);
     if (foldxErr.stdout) console.log(`[FoldX Failure STDOUT]:`, foldxErr.stdout);
     if (foldxErr.stderr) console.error(`[FoldX Failure STDERR]:`, foldxErr.stderr);
+    if (classifyFoldxFailure(foldxErr) === "runtime-crash") {
+      // jobDir still holds the exact wt.pdb, individual_list.txt and parameter links: rerun it by hand.
+      console.error(`[FoldX Crash Context]:`, JSON.stringify(foldxCrashContext({
+        binary: foldxBin, jobDir, pdbText: await fs.promises.readFile(fullWtPath, "utf8").catch(() => cleanedWt),
+        mutation: await fs.promises.readFile(fullMutPath, "utf8").then(text => text.trim()).catch(() => ""),
+        args: ["--command=BuildModel", "--pdb=wt.pdb", "--mutant-file=individual_list.txt", "--numberOfRuns=5", ...extraArgs]
+      })));
+    }
 
     // Surface ENOENT (binary missing) explicitly so callers can report engine unavailability (P0-1.5)
     if (foldxErr?.code === "ENOENT") {
@@ -507,7 +520,7 @@ export async function generateMutantPdbInternal(
     }
 
     // If RepairPDB previously failed, try one more time with the original PDB content
-    if (foldxRepairFailed && !foldxSuccess) {
+    if (!foldxSuccess && canRetryFoldxAfterRepair(foldxRepairFailed, foldxErr, signal)) {
       console.warn("[Biophysical Modeling] BuildModel failed after RepairPDB failure. " +
         "Retrying with original PDB content (no cleanup)...");
       try {
@@ -539,8 +552,11 @@ export async function generateMutantPdbInternal(
             overallSd = parsedResult.sd;
             console.log(`[Biophysical Modeling] Parsed FoldX 5-run stochastic ddG: ${overallDdG} ± ${overallSd} kcal/mol`);
           }
+        } else {
+          throw new Error("FoldX BuildModel retry completed without producing a mutant PDB");
         }
       } catch (secondErr: any) {
+        if (signal?.aborted || secondErr?.name === "AbortError") throw secondErr;
         console.warn(`[Biophysical Modeling] Second BuildModel attempt also failed:`, secondErr.message);
         if (secondErr.stderr) console.error(`[Second BuildModel STDERR]:`, secondErr.stderr.slice(0, 500));
 
@@ -548,7 +564,7 @@ export async function generateMutantPdbInternal(
         throw new Error(
           `FoldX BuildModel failed after two attempts. ` +
           `Attempt 1 (cleaned PDB after RepairPDB): ${foldxErr.message}. ` +
-          `Attempt 2 (original PDB): ${secondErr.message}. ` +
+          `Attempt 2 (original PDB): ${describeFoldxFailure(secondErr, foldxRepairFailed)}. ` +
           `Check that the FoldX binary is accessible and parameter files (molecules/, rotabase.txt) are in place.`
         );
       }
@@ -556,13 +572,7 @@ export async function generateMutantPdbInternal(
 
     // If we got here and still haven't succeeded, surface the original error
     if (!foldxSuccess) {
-      const repairSummary = foldxRepairFailed
-        ? "(RepairPDB previously failed — PDB may contain steric clashes or formatting issues)"
-        : "unknown cause";
-      throw new Error(
-        `FoldX BuildModel failed (${repairSummary}): ${foldxErr.message}. ` +
-        `Verify that wt.pdb is a valid PDB structure and FoldX parameters are accessible.`
-      );
+      throw new Error(describeFoldxFailure(foldxErr, foldxRepairFailed));
     }
   }
 

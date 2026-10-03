@@ -1791,6 +1791,10 @@ export function isPdbSource(value: unknown): value is PdbSource {
   return typeof value === "string" && (PDB_SOURCES as readonly string[]).includes(value);
 }
 
+export type AnalysisPipelineStage = "core" | "coordinates" | "landscape" | "structural" | "multimer" | "narrative" | "literature";
+export type AnalysisStageOutcome = "running" | "complete" | "degraded" | "error" | "skipped";
+export type AnalysisPipelineStages = Partial<Record<AnalysisPipelineStage, AnalysisStageOutcome>>;
+
 export interface VariantMetadata {
   gene: string;
   variant: string;
@@ -1801,7 +1805,7 @@ export interface VariantMetadata {
   acmgWeighting?: string;
   pipelineRunId?: string;
   pipelineContext?: Record<string, unknown>;
-  pipelineStages?: Partial<Record<"core" | "landscape" | "structural" | "multimer" | "narrative" | "literature", "running" | "complete" | "degraded" | "error" | "skipped">>;
+  pipelineStages?: AnalysisPipelineStages;
   narrativeMode?: "automatic" | "on-demand" | "off";
   serviceTimings?: Record<string, number>;
   /** Settlement offsets, not start offsets. */
@@ -2516,4 +2520,3 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
   serviceStatus?: Record<string, string>;
   inSilicoConcordance?: PredictorConcordance | null;
 }
-

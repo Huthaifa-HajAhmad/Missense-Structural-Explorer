@@ -26,6 +26,7 @@ function withStabilityConsensus<T extends Record<string, any>>(merged: T): T {
 import { AMINO_ACID_3_TO_1 } from "../aminoAcids";
 import { useJobPoller } from "./useJobPoller";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
+import { getCachedVariant, setCachedVariant } from "../services/pipeline/variantCache";
 
 export function useBiophysicalModeling(
   settings: UserSettings,
@@ -71,56 +72,75 @@ export function useBiophysicalModeling(
   const [pocketError, setPocketError] = useState<string | null>(null);
 
   // Centralized telemetry tracking for biophysics jobs
-  const jobTimersRef = useRef<Record<string, number>>({});
+  const jobTimersRef = useRef<Record<string, { start: number; jobId: string; traceId: string | null; traceStart: number }>>({});
+  const jobErrorsRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    if (dynamut2Status === "pending" && !jobTimersRef.current["dynamut2"]) {
-      jobTimersRef.current["dynamut2"] = performance.now();
-    }
-    if (ddmutStatus === "pending" && !jobTimersRef.current["ddmut"]) {
-      jobTimersRef.current["ddmut"] = performance.now();
-    }
-    if (thermompnnStatus === "pending" && !jobTimersRef.current["thermompnn"]) {
-      jobTimersRef.current["thermompnn"] = performance.now();
-    }
-  }, [dynamut2Status, ddmutStatus, thermompnnStatus]);
+    const result = useVariantAnalysisStore.getState().analysisState.result;
+    const metadata = result?.metadata;
+    if (!metadata?.gene || !metadata.variant || !metadata.uniprotId || !metadata.pipelineRunId) return;
+    const cached = getCachedVariant(metadata.gene, metadata.variant);
+    if (cached?.analysisResult?.metadata?.pipelineRunId !== metadata.pipelineRunId || cached.uniprotId !== metadata.uniprotId) return;
+    setCachedVariant(metadata.gene, metadata.variant, metadata.uniprotId, {
+      foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError,
+      dynamut2JobId, ddmutJobId, thermompnnJobId
+    });
+  }, [foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus, thermompnnError, dynamut2JobId, ddmutJobId, thermompnnJobId]);
+
+  useEffect(() => {
+    const track = (name: string, status: string | null, jobId: string | null) => {
+      if (status === "pending" && jobId && jobTimersRef.current[name]?.jobId !== jobId) {
+        jobTimersRef.current[name] = { start: performance.now(), jobId,
+          traceId: consoleState.activeTraceRun?.traceId ?? null,
+          traceStart: consoleState.activeTraceRun?.timestamp ?? Date.now() };
+        delete jobErrorsRef.current[name];
+      }
+    };
+    track("dynamut2", dynamut2Status, dynamut2JobId);
+    track("ddmut", ddmutStatus, ddmutJobId);
+    track("thermompnn", thermompnnStatus, thermompnnJobId);
+  }, [dynamut2Status, ddmutStatus, thermompnnStatus, dynamut2JobId, ddmutJobId, thermompnnJobId, consoleState.activeTraceRun]);
 
   useEffect(() => {
     const checkJobEnd = (name: string, status: string | null) => {
       if (status === null) {
         delete jobTimersRef.current[name];
+        delete jobErrorsRef.current[name];
         return;
       }
-      const start = jobTimersRef.current[name];
-      if (start && (status === "done" || status === "unavailable" || status === "error" || status === "failed")) {
-        const durationMs = Math.round(performance.now() - start);
-        if (consoleState.activeTraceRun) {
+      const timer = jobTimersRef.current[name];
+      if (timer && ["done", "unavailable", "error", "failed"].includes(status)) {
+        const durationMs = Math.round(performance.now() - timer.start);
+        if (timer.traceId) {
           addTraceSpan({
-            traceId: consoleState.activeTraceRun.traceId,
+            traceId: timer.traceId,
             name: `${name.toUpperCase()} Biophysical Job Execution`,
             stage: "biophysics",
             startTime: Date.now() - durationMs,
-            offsetMs: Math.max(0, Date.now() - durationMs - consoleState.activeTraceRun.timestamp),
+            offsetMs: Math.max(0, Date.now() - durationMs - timer.traceStart),
             durationMs,
-            status: status === "done" ? "success" : status === "unavailable" ? "unavailable" : "failed"
+            status: status === "done" ? "success" : status === "unavailable" ? "unavailable" : "failed",
+            ...(status !== "done" ? { error: jobErrorsRef.current[name] ?? `${name} settled as ${status} without provider diagnostics` } : {}),
+            meta: { jobId: timer.jobId }
           });
         }
         delete jobTimersRef.current[name];
       }
     };
-
     checkJobEnd("dynamut2", dynamut2Status);
     checkJobEnd("ddmut", ddmutStatus);
     checkJobEnd("thermompnn", thermompnnStatus);
-  }, [dynamut2Status, ddmutStatus, thermompnnStatus, addTraceSpan, consoleState.activeTraceRun]);
+  }, [dynamut2Status, ddmutStatus, thermompnnStatus, addTraceSpan]);
+
+  const recordRemoteError = (engine: string, message: string) => {
+    jobErrorsRef.current[engine] = message;
+    setFoldingEnergetics((prev: any) => ({ ...prev, [engine + "Error"]: message }));
+  };
 
   const dynamutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const ddmutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const thermompnnPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const lastFetchedFoldRef = useRef<string>("");
-
-  const foldingEnergeticsRef = useRef(foldingEnergetics);
-  foldingEnergeticsRef.current = foldingEnergetics;
 
   const notifiedJobsRef = useRef<Set<string>>(new Set());
 
@@ -167,22 +187,8 @@ export function useBiophysicalModeling(
     endpoint: id => `/api/v1/dynamut2-job/${id}`,
     toolName: "DynaMut2",
     fetchWithAuth,
-    buildQueryParams: () => {
-      const energetics = foldingEnergeticsRef.current;
-      const foldx = energetics?.foldxMean ?? energetics?.foldx ?? "";
-      const rasp = energetics?.rasp ?? "";
-      const ddmut = energetics?.ddmut ?? "";
-      const stabilityoracle = energetics?.stabilityoracle ?? "";
-      const foldxRepairFailed = energetics?.foldxRepairFailed ? "true" : "false";
-      const q = new URLSearchParams();
-      if (foldx !== "") q.set("foldx", foldx.toString());
-      if (rasp !== "") q.set("rasp", rasp.toString());
-      if (ddmut !== "") q.set("ddmut", ddmut.toString());
-      if (stabilityoracle !== "") q.set("stabilityoracle", stabilityoracle.toString());
-      q.set("foldxRepairFailed", foldxRepairFailed);
-      return q;
-    },
     onStatusChange: setDynamut2Status,
+    onError: message => recordRemoteError("dynamut2", message),
     onToolFailed: tool => {
       setFoldingEnergetics((prev: any) => {
         if (!prev) return prev;
@@ -196,6 +202,7 @@ export function useBiophysicalModeling(
       setFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         dynamut2: data.prediction,
+        dynamut2Error: null,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DynaMut2") : []
       }));
     },
@@ -209,22 +216,8 @@ export function useBiophysicalModeling(
     endpoint: id => `/api/v1/ddmut-job/${id}`,
     toolName: "DDMut",
     fetchWithAuth,
-    buildQueryParams: () => {
-      const energetics = foldingEnergeticsRef.current;
-      const foldx = energetics?.foldxMean ?? energetics?.foldx ?? "";
-      const rasp = energetics?.rasp ?? "";
-      const dynamut2 = energetics?.dynamut2 ?? "";
-      const stabilityoracle = energetics?.stabilityoracle ?? "";
-      const foldxRepairFailed = energetics?.foldxRepairFailed ? "true" : "false";
-      const q = new URLSearchParams();
-      if (foldx !== "") q.set("foldx", foldx.toString());
-      if (rasp !== "") q.set("rasp", rasp.toString());
-      if (dynamut2 !== "") q.set("dynamut2", dynamut2.toString());
-      if (stabilityoracle !== "") q.set("stabilityoracle", stabilityoracle.toString());
-      q.set("foldxRepairFailed", foldxRepairFailed);
-      return q;
-    },
     onStatusChange: setDdmutStatus,
+    onError: message => recordRemoteError("ddmut", message),
     onToolFailed: tool => {
       setFoldingEnergetics((prev: any) => {
         if (!prev) return prev;
@@ -238,6 +231,7 @@ export function useBiophysicalModeling(
       setFoldingEnergetics((prev: any) => withStabilityConsensus({
         ...(prev || {}),
         ddmut: data.prediction,
+        ddmutError: null,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DDMut") : []
       }));
     },

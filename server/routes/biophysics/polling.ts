@@ -318,6 +318,11 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
   });
 
   const BIOSIG_MAX_AGE_MS = 300 * 1000; // 300s (5 min) max wait for remote academic server queue
+  const finishBioSigUnavailable = (res: any, jobId: string, tool: "dynamut2" | "ddmut", error: string) => {
+    const payload = { jobId, status: "UNAVAILABLE", prediction: null, error };
+    broadcastJobUpdate({ ...payload, tool });
+    return res.json(payload);
+  };
  
   async function checkBioSigJobStaleness(jobId: string, tool: "dynamut2" | "ddmut"): Promise<boolean> {
     try {
@@ -378,24 +383,16 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     }
 
     const isStale = await checkBioSigJobStaleness(jobId, "dynamut2");
-    if (isStale) {
-      await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
-      broadcastJobUpdate({ jobId, tool: "dynamut2", status: "UNAVAILABLE" });
-      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>5m wait)." });
-    }
-
-    const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
-    const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
-    const ddmut = req.query?.ddmut ? parseFloat(req.query.ddmut as string) : null;
-    const stabilityoracle = req.query?.stabilityoracle ? parseFloat(req.query.stabilityoracle as string) : null;
-    const foldxRepairFailed = req.query?.foldxRepairFailed === "true";
 
     try {
       const result = await pollDynaMut2Job(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-        broadcastJobUpdate({ jobId, tool: "dynamut2", status: "UNAVAILABLE" });
-        return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "DynaMut2 upstream server currently unavailable." });
+        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 upstream server currently unavailable.");
+      }
+      if (result.status !== "DONE" && isStale) {
+        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
+        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 remained unfinished after the 5-minute polling window.");
       }
 
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
@@ -427,7 +424,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     } catch (err: any) {
       console.warn(`[Route Warning] DynaMut2 job polling failed for ${jobId}:`, err.message);
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: `DynaMut2 upstream unavailable: ${err.message}` });
+      return finishBioSigUnavailable(res, jobId, "dynamut2", `DynaMut2 upstream unavailable: ${err.message}`);
     }
   });
 
@@ -441,24 +438,16 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     }
 
     const isStale = await checkBioSigJobStaleness(jobId, "ddmut");
-    if (isStale) {
-      await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
-      broadcastJobUpdate({ jobId, tool: "ddmut", status: "UNAVAILABLE" });
-      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "BioSig server queue congested (>5m wait)." });
-    }
-
-    const foldx = req.query?.foldx ? parseFloat(req.query.foldx as string) : null;
-    const rasp = req.query?.rasp ? parseFloat(req.query.rasp as string) : null;
-    const dynamut2 = req.query?.dynamut2 ? parseFloat(req.query.dynamut2 as string) : null;
-    const stabilityoracle = req.query?.stabilityoracle ? parseFloat(req.query.stabilityoracle as string) : null;
-    const foldxRepairFailed = req.query?.foldxRepairFailed === "true";
 
     try {
       const result = await pollDdmutJob(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-        broadcastJobUpdate({ jobId, tool: "ddmut", status: "UNAVAILABLE" });
-        return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: "DDMut upstream server currently unavailable." });
+        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut upstream server currently unavailable.");
+      }
+      if (result.status !== "DONE" && isStale) {
+        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
+        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut remained unfinished after the 5-minute polling window.");
       }
 
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
@@ -479,7 +468,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     } catch (err: any) {
       console.warn(`[Route Warning] DDMut job polling failed for ${jobId}:`, err.message);
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-      return res.json({ jobId, status: "UNAVAILABLE", prediction: null, error: `DDMut upstream unavailable: ${err.message}` });
+      return finishBioSigUnavailable(res, jobId, "ddmut", `DDMut upstream unavailable: ${err.message}`);
     }
   });
 

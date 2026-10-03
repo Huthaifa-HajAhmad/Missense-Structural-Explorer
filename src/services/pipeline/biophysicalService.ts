@@ -201,6 +201,7 @@ export function fetchProgressiveLandscape(
     .getLandscapeData(params, signal)
     .then((landscapeRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
+      if (!Array.isArray(landscapeRes?.landscapeData)) throw new Error("Landscape response did not contain a residue array");
       setAnalysisState((prev: any) => mergeResultPatch(prev, {
         landscapeData: landscapeRes.landscapeData,
         landscapeMeta: landscapeRes.landscapeMeta ?? null

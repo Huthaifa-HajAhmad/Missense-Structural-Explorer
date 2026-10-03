@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeFullAnalysisWorkflow } from "../workflowOrchestrator";
-import { fetchBiophysicalAnalysis, fetchProgressiveStructuralAssessments } from "../biophysicalService";
+import { fetchBiophysicalAnalysis, fetchProgressiveLandscape, fetchProgressiveStructuralAssessments } from "../biophysicalService";
 import { generateClinicalNarrative } from "../narrativeService";
 import { executeFoldxPipeline } from "../foldxService";
 import { fetchPdbCoordinates } from "../structureService";
@@ -56,11 +56,44 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearClientVariantCache();
   vi.mocked(fetchBiophysicalAnalysis).mockResolvedValue(core);
+  vi.mocked(fetchProgressiveLandscape).mockReset().mockResolvedValue(undefined);
   vi.mocked(fetchProgressiveStructuralAssessments).mockReset().mockResolvedValue(undefined);
   vi.mocked(generateClinicalNarrative).mockReset().mockResolvedValue(undefined);
 });
 
 describe("foreground readiness and stage ownership", () => {
+  it("retains enrichment through the actual final-frame callback path and caches the retained evidence", async () => {
+    const held = deferred<any>();
+    vi.mocked(fetchBiophysicalAnalysis).mockImplementationOnce((_params, _api, _signal, onChunk) => held.promise.then(payload => { onChunk?.(payload); return payload; }));
+    vi.mocked(fetchProgressiveLandscape).mockImplementationOnce(async (_params, _api, _signal, update) => {
+      update((prev: any) => mergeResultPatch(prev, { landscapeData: [{ position: 408 }] }, undefined, "landscape", "complete"));
+    });
+    vi.mocked(fetchProgressiveStructuralAssessments).mockImplementationOnce(async (_params, _api, _signal, update) => {
+      update((prev: any) => mergeResultPatch(prev, { esm2Eval: { llr: -2 } }, undefined, "structural", "complete"));
+    });
+    const fixtureState = fixture();
+    const work = fixtureState.run();
+    await vi.waitFor(() => expect(fixtureState.state.result?.landscapeData?.length).toBe(1));
+    held.resolve({ ...core, landscapeData: null, esm2Eval: null });
+    await work;
+    expect(fixtureState.state.result.landscapeData).toEqual([{ position: 408 }]);
+    expect(fixtureState.state.result.esm2Eval).toEqual({ llr: -2 });
+    expect(getCachedVariant("PAH", "p.Arg408Trp")?.analysisResult.landscapeData).toEqual([{ position: 408 }]);
+  });
+  it("refreshes a poisoned completed-model cache containing loading placeholders", async () => {
+    const fixtureState = fixture();
+    cacheCore(fixtureState.settings, { esm2Eval: { loading: true } });
+    await fixtureState.run();
+    expect(fetchBiophysicalAnalysis).not.toHaveBeenCalled();
+    expect(fetchProgressiveStructuralAssessments).toHaveBeenCalledOnce();
+  });
+  it("settles absent coordinates without failing independent core evidence", async () => {
+    vi.mocked(fetchPdbCoordinates).mockResolvedValueOnce(null);
+    const fixtureState = fixture();
+    expect(await fixtureState.run()).toBe("completed");
+    expect(fixtureState.state.result.metadata.pipelineStages.coordinates).toBe("degraded");
+    expect(fixtureState.state.result.metadata.pipelineStages.core).toBe("complete");
+  });
   it("starts enrichment before a held core response, retaining its verdict when core completes", async () => {
     const held = deferred<any>();
     vi.mocked(fetchBiophysicalAnalysis).mockReturnValueOnce(held.promise);

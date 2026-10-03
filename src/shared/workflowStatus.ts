@@ -1,14 +1,62 @@
 import type { AnalysisResult } from "./contracts.ts";
-import { toCanonicalDdg, formatDdg, type EnergyEngineId } from "./engineStatus.ts";
+import { formatDdg, type RemoteStatus } from "./engineStatus.ts";
+import { buildEnergeticsEvidence } from "./energeticsEvidence.ts";
 import { describeFoldxPhase, type FoldxPhase } from "./foldxPhase.ts";
 import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction } from "./locusResolution.ts";
 
-export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error";
+export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error" | "unavailable" | "on-demand";
+
+export function summarizeWorkflowStatuses(statuses: WorkflowStatusType[]) {
+  const automatic = statuses.filter(status => status !== "on-demand");
+  const settled = automatic.filter(status => ["complete", "degraded", "error", "unavailable"].includes(status)).length;
+  return {
+    settled,
+    total: automatic.length,
+    percent: automatic.length ? Math.round(settled / automatic.length * 100) : 0,
+    hasProblems: automatic.some(status => ["degraded", "error", "unavailable"].includes(status))
+  };
+}
+
+function remoteStatus(status: string | null | undefined): RemoteStatus {
+  if (status === "failed" || status === "timeout") return "error";
+  return status === "pending" || status === "done" || status === "error" || status === "unavailable" ? status : null;
+}
+
+function energeticsStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string } {
+  const result = params.result;
+  const energetics = params.foldingEnergetics !== undefined ? params.foldingEnergetics : result?.foldingEnergetics;
+  const evidence = buildEnergeticsEvidence({
+    foldingEnergetics: { ...energetics, dynamut2: energetics?.dynamut2 ?? result?.dynamut2, ddmut: energetics?.ddmut ?? result?.ddmut },
+    foldingDdG: params.foldingDdG,
+    foldingStatus: params.foldingStatus === "success" || params.foldingStatus === "failed" || params.foldingStatus === "unavailable" ? params.foldingStatus : null,
+    foldingError: params.foldingError ?? energetics?.foldxError,
+    dynamut2Status: remoteStatus(params.dynamut2Status),
+    ddmutStatus: remoteStatus(params.ddmutStatus),
+    thermompnnStatus: remoteStatus(params.thermompnnStatus),
+    thermompnnError: params.thermompnnError,
+    isFolding: params.isFolding
+  });
+  const computed = evidence.readings.find(reading => reading.ddg !== null);
+  const failed = evidence.missing.filter(reading => ["failed", "upstream-error", "upstream-busy"].includes(reading.outcome.state));
+  if (params.isFolding || evidence.running.length) {
+    return { status: "progress", desc: computed ? 
+      `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · Other engines running` : describeFoldxPhase(params.foldingPhase)?.detail ?? "Stability engines running..." };
+  }
+  if (computed) {
+    return { status: failed.length ? "degraded" : "complete", desc: `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · ${failed.length ? "Some engines unavailable" : "Available"}` };
+  }
+  if (failed.length) return { status: "error", desc: `${failed.map(reading => reading.name).join(", ")} failed or unavailable · Open Energetics to retry` };
+  if (params.foldingStatus || energetics || result?.metadata?.pipelineStages?.core === "complete") {
+    return { status: "unavailable", desc: "Stability engines settled without a numeric result · Open Energetics for details" };
+  }
+  return { status: params.isLoadingSearch || params.isBiophysicalLoading ? "progress" : "pending", desc: "Awaiting stability engine results..." };
+}
 
 export function hasRealAnalysis(result: AnalysisResult | null | undefined): boolean {
   if (typeof result?.analysis !== "string") return false;
-  const a = result.analysis.toLowerCase();
+  const a = result.analysis.trim().toLowerCase();
   return (
+    Boolean(a) &&
     !a.includes("in progress") &&
     !a.includes("unavailable") &&
     !a.includes("generation failed") &&
@@ -47,6 +95,12 @@ export interface WorkflowStageStatusParams {
   ddmutStatus?: string | null;
   isNarrativeLoading?: boolean;
   hasStructureCoordinates?: boolean;
+  foldingEnergetics?: Record<string, any> | null;
+  foldingDdG?: number | null;
+  foldingStatus?: string | null;
+  foldingError?: string | null;
+  thermompnnStatus?: string | null;
+  thermompnnError?: string | null;
 }
 
 export function getWorkflowStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string };
@@ -140,48 +194,13 @@ export function getWorkflowStageStatus(
   if (view === "search") {
     return { status: "complete", desc: "Variant search workspace active" };
   }
+  if (view === "energetics") return energeticsStageStatus(p);
 
   // 1. Running state (Active search pipeline execution)
   if (isLoadingSearch && !result) {
-    const match = (loadingStep || "").match(/Step (\d+)\/4/);
-    const currentStep = match ? parseInt(match[1], 10) : 1;
-
-    switch (view) {
-      case "evidence":
-        return {
-          status: "progress",
-          desc: loadingStep || "Running evidence query..."
-        };
-      case "structure":
-      case "structure_alphafold":
-      case "structure_esmfold":
-        return {
-          status: currentStep >= 2 ? "progress" : "pending",
-          desc: currentStep >= 2 ? "Resolving AlphaFold, ESMFold & PDB structural models..." : "Awaiting structural template resolution..."
-        };
-      case "landscape":
-        return {
-          status: currentStep >= 3 ? "progress" : "pending",
-          desc: currentStep >= 3 ? "Loading residue scores..." : "Awaiting landscape model execution..."
-        };
-      case "energetics":
-        return {
-          status: currentStep >= 4 ? "progress" : "pending",
-          desc: currentStep >= 4 ? "Modeling FoldX, DynaMut2 & DDMut biophysical energetics..." : "Awaiting free-energy stability calculations..."
-        };
-      case "insights":
-        return {
-          status: currentStep >= 3 ? "progress" : "pending",
-          desc: currentStep >= 3 ? "Synthesizing pathogenicity & ACMG/AMP criteria..." : "Awaiting clinical insight generation..."
-        };
-      case "report":
-        return {
-          status: currentStep >= 4 ? "progress" : "pending",
-          desc: currentStep >= 4 ? "Compiling clinical summary & evidence export..." : "Awaiting final clinical report compilation..."
-        };
-      default:
-        return { status: "pending", desc: defaultDescs[view] || "" };
-    }
+    if (view === "evidence") return { status: "progress", desc: loadingStep || "Running evidence query..." };
+    if (view === "literature") return { status: "on-demand", desc: "Open Literature to search citations" };
+    return { status: "pending", desc: defaultDescs[view] || "Awaiting evidence..." };
   }
 
   // 2. Landed state (active background computation tracking)
@@ -189,6 +208,7 @@ export function getWorkflowStageStatus(
     const realAnalysis = hasRealAnalysis(result);
 
     if (view === "evidence") {
+      if (result.metadata?.pipelineStages?.core === "error") return { status: "error", desc: "Core evidence query failed · Re-run to retry" };
       if (isClinicalLoading || isBiophysicalLoading) {
         return {
           status: "progress",
@@ -236,8 +256,13 @@ export function getWorkflowStageStatus(
       if (hasStructureEvidence) {
         return {
           status: "complete",
-          desc: "AlphaFold, ESMFold & PDB 3D coordinates ready"
+          desc: "Protein 3D coordinates ready"
         };
+      }
+      const coordinates = result.metadata?.pipelineStages?.coordinates;
+      if (coordinates === "running") return { status: "progress", desc: "Loading protein 3D coordinates..." };
+      if (coordinates === "error" || coordinates === "degraded" || coordinates === "skipped") {
+        return { status: "unavailable", desc: "Protein coordinates query settled without a structure · Re-run to retry" };
       }
       return {
         status: "pending",
@@ -245,68 +270,6 @@ export function getWorkflowStageStatus(
       };
     }
 
-    if (view === "energetics") {
-      const hasStructure = hasStructureCoordinates ||
-                           Boolean(result.metadata?.uniprotId || result.metadata?.pdbId) ||
-                           isBiophysicalLoading ||
-                           isFolding ||
-                           result.foldingEnergetics != null ||
-                           result.dynamut2 != null ||
-                           result.ddmut != null ||
-                           result.biophysicalEnergetics != null ||
-                           realAnalysis;
-      if (!hasStructure) {
-        return {
-          status: "pending",
-          desc: "Awaiting PDB structure coordinates..."
-        };
-      }
-
-      const hasBiophysics = result.foldingEnergetics != null || result.dynamut2 != null || result.ddmut != null || result.biophysicalEnergetics != null;
-      const isProgress = (isBiophysicalLoading || isFolding) && !hasBiophysics;
-
-      if (isProgress) {
-        return {
-          status: "progress",
-          desc: isFolding ? "Modeling FoldX, DynaMut2 & DDMut stability..." : "Computing AI biophysical assessment..."
-        };
-      }
-
-      if (hasBiophysics) {
-        /**
-         * Each fallback now carries the engine it came from, so the value can be canonicalised before
-         * it is printed.
-         *
-         * The previous form picked a raw number across engines whose native sign conventions differ —
-         * DynaMut2 and DDMut are negative-destabilizing, FoldX and ThermoMPNN are not
-         * (`engineStatus.ts:126`, `:135`) — and formatted it under one "ΔΔG" label. For a DynaMut2
-         * value that inverted the meaning: a destabilizing variant printed as negative, i.e. as
-         * stabilizing. `engineStatus.ts:212-214` states the rule this violated: every surface must
-         * format a ΔΔG through `formatDdg`, so one value can never show two signs in two panels.
-         */
-        const ddgCandidates: Array<[EnergyEngineId, number | null | undefined]> = [
-          ["foldx", result.foldingEnergetics?.foldx],
-          ["dynamut2", result.foldingEnergetics?.dynamut2],
-          ["ddmut", result.foldingEnergetics?.ddmut],
-          ["thermompnn", result.foldingEnergetics?.thermompnn],
-          ["dynamut2", result.dynamut2],
-        ];
-        const picked = ddgCandidates.find(([, raw]) => raw !== null && raw !== undefined);
-        const canonicalDdg = picked ? toCanonicalDdg(picked[0], picked[1]) : null;
-        const ddgText = canonicalDdg !== null
-          ? `ΔΔG = ${canonicalDdg > 0 ? "+" : ""}${formatDdg(canonicalDdg)} · ${isFolding || dynamut2Status === "pending" || ddmutStatus === "pending" ? "Other engines running" : "Available"}`
-          : isFolding ? "Assessment available · Stability engines running" : "Assessment available · No numeric ΔΔG reported";
-        return {
-          status: isFolding || dynamut2Status === "pending" || ddmutStatus === "pending" ? "progress" : "complete",
-          desc: ddgText
-        };
-      }
-
-      return {
-        status: "pending",
-        desc: "Energetics calculation unavailable"
-      };
-    }
 
     if (view === "landscape") {
       const outcome = result.metadata?.pipelineStages?.landscape;
@@ -314,6 +277,9 @@ export function getWorkflowStageStatus(
       if (outcome === "error") return { status: "degraded", desc: "Landscape query failed · Retry from Landscape" };
       const count = result.landscapeData?.length ?? 0;
       if (count === 0) {
+        if (outcome === "complete" || outcome === "skipped" || outcome === "degraded") {
+          return { status: "unavailable", desc: outcome === "skipped" ? "Landscape source not configured" : "No residue scores returned for this window · Open Landscape for details" };
+        }
         if (isBiophysicalLoading) {
           return {
             status: "progress",
@@ -375,7 +341,7 @@ export function getWorkflowStageStatus(
       if (outcome === "running") return { status: "progress", desc: "Searching Europe PMC citations..." };
       if (outcome === "complete") return { status: "complete", desc: "Literature query complete" };
       if (outcome === "degraded" || outcome === "error") return { status: "degraded", desc: "Literature query unavailable · Open Literature to retry" };
-      return { status: "pending", desc: "Open Literature to search citations" };
+      return { status: "on-demand", desc: "Open Literature to search citations" };
     }
 
     if (view === "report") {

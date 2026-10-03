@@ -1,6 +1,6 @@
 import { parseMutationResidues } from "../../variantAnalysisUtils";
 import { FALLBACK_ANALYSES, FALLBACK_INSIGHTS } from "../../data";
-import { BIOPHYSICS_RETRY_COOLDOWN_MS } from "../../shared/timeouts";
+import { shouldRunBiophysics } from "./biophysicsRetryPolicy";
 import {
   needsNotationResolution,
   translateVariantNotation as translateVariantNotationService
@@ -14,7 +14,7 @@ import {
   fetchProgressiveMultimer
 } from "./biophysicalService";
 import { generateClinicalNarrative } from "./narrativeService";
-import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence } from "./resultMerge";
+import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, type StageOutcome } from "./resultMerge";
 import { createAnalysisCacheContext, narrativeModeOf } from "./analysisContext";
 import { narrativeFreshness } from "../../shared/narrativeEvidence";
 import {
@@ -320,6 +320,23 @@ export async function executeFullAnalysisWorkflow({
       const state = createPlaceholderAnalysisState(baseParams);
       return { ...state, result: { ...state.result, metadata: { ...state.result.metadata, ...runMetadata } } };
     };
+    const markCoordinates = (outcome: StageOutcome) => {
+      if (!acceptingEvidence || activeSignal.aborted || getActiveRequestId() !== requestId) return;
+      initialStages.coordinates = outcome;
+      setAnalysisState((prev: any) => {
+        const next = mergeResultPatch(prev, {}, undefined, "coordinates", outcome);
+        const cachedResult = getCachedVariant(targetGene, targetVariant)?.analysisResult;
+        if (next?.result && cachedResult?.metadata?.pipelineRunId === runMetadata.pipelineRunId) {
+          setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: next.result });
+        }
+        return next;
+      });
+    };
+    const structureFailed = (error: any) => {
+      if (activeSignal.aborted || getActiveRequestId() !== requestId) return;
+      markCoordinates("error");
+      console.warn("[Pipeline] Protein coordinates query failed:", error?.message || error);
+    };
     // Protein artifacts are reusable; interpretation must match all scientific inputs.
     const hasActiveGemini = Boolean(
       (settings?.geminiSessionId && settings?.geminiSessionExpiresAt && settings.geminiSessionExpiresAt > Date.now()) ||
@@ -526,6 +543,7 @@ export async function executeFullAnalysisWorkflow({
           fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
         }
         if (!cached.pdbText) {
+          markCoordinates("running");
           fetchPdbCoordinates(
             targetGene,
             targetVariant,
@@ -534,40 +552,12 @@ export async function executeFullAnalysisWorkflow({
             apiClient,
             activeSignal,
             getTraceContext()
-          ).then(installStructure);
+          ).then(installStructure).catch(structureFailed);
+        } else {
+          markCoordinates("complete");
         }
 
-        /**
-         * Should this cached snapshot be re-computed?
-         *
-         * The previous predicate was PERMANENTLY TRUE in any deployment without the Python
-         * sidecar: `cached.foldingEnergetics?.stabilityoracle == null` can never be satisfied
-         * because StabilityOracle has no other data path. Every single visit therefore re-ran the
-         * full FoldX pipeline, and the watchdog then stamped a fresh `failed` status onto an
-         * otherwise good cached snapshot — which is why the tab showed cached engine values
-         * beside a brand-new "timed out" error.
-         *
-         * Three rules replace it:
-         *   1. Re-run only what another attempt can actually fix (missing structure, missing
-         *      energetics, or a failure that is not structural).
-         *   2. An engine that is *structurally* unavailable here — missing binary, failed repair,
-         *      absent sidecar, uncovered dataset — is not evidence of an incomplete snapshot.
-         *   3. Rate-limit retries, so a persistently failing run cannot re-burn minutes of compute
-         *      on every visit. There is no negative-caching or circuit breaker behind this yet.
-         */
-        const cachedEnergetics = cached.foldingEnergetics;
-        const foldxStructurallyUnavailable = Boolean(
-          cachedEnergetics?.foldxBinaryMissing || cachedEnergetics?.foldxRepairFailed
-        );
-        const snapshotIncomplete = !cached.mutantPdb || !cachedEnergetics;
-        const retryableFailure =
-          cached.foldingStatus === "failed" && !foldxStructurallyUnavailable;
-        const retryCooldownElapsed =
-          Date.now() - (getBiophysicsAttemptedAt(targetGene, targetVariant) ?? 0) > BIOPHYSICS_RETRY_COOLDOWN_MS;
-
-        const needsBiophysicsBackfill =
-          !foldxStructurallyUnavailable && (snapshotIncomplete || retryableFailure) && retryCooldownElapsed;
-
+        const needsBiophysicsBackfill = shouldRunBiophysics(cached, getBiophysicsAttemptedAt(targetGene, targetVariant));
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
           // Recorded BEFORE dispatch, so an abort or a crash still starts the cooldown rather
           // than leaving the next visit free to launch another full run. Written to its own store:
@@ -614,7 +604,8 @@ export async function executeFullAnalysisWorkflow({
           if (!cached.analysisResult?.landscapeData || stages?.landscape === "running" || stages?.landscape === "error") {
             cachedTasks.push(fetchProgressiveLandscape(requestParams(), apiClient, activeSignal, setAnalysisState, requestId, getActiveRequestId));
           }
-          if (["running", "error", "degraded"].includes(stages?.structural ?? "") || (!stages?.structural && !cached.analysisResult?.esm2Eval && !cached.analysisResult?.saprotEval)) {
+          const modelStillLoading = ["esm3Eval", "esmcEval", "esm2Eval", "saprotEval"].some(key => cached.analysisResult?.[key]?.loading);
+          if (modelStillLoading || ["running", "error", "degraded"].includes(stages?.structural ?? "") || (!stages?.structural && !cached.analysisResult?.esm2Eval && !cached.analysisResult?.saprotEval)) {
             cachedTasks.push(fetchProgressiveStructuralAssessments(requestParams(), apiClient, activeSignal, setAnalysisState, requestId, getActiveRequestId, getTraceContext(), analysisSink.setIsStructuralLoading));
           }
         }
@@ -654,6 +645,7 @@ export async function executeFullAnalysisWorkflow({
       analysisSink.setLoadingStep("Fetching protein structure...");
     }
     const initialStructureAccession = targetUniprot;
+    if (targetUniprot) markCoordinates("running");
     const pdbWarmupPromise = targetUniprot ? fetchPdbCoordinates(
       targetGene,
       targetVariant,
@@ -668,11 +660,7 @@ export async function executeFullAnalysisWorkflow({
     const startFolding = () => {
       if (!targetUniprot || !posMatch || activeSignal.aborted || getActiveRequestId() !== requestId) return;
       const foldKey = `${targetUniprot}_${targetVariant}_${pipelineContext.simulationConditions}`;
-      const structurallyUnavailable = Boolean(cached?.foldingEnergetics?.foldxBinaryMissing || cached?.foldingEnergetics?.foldxRepairFailed);
-      const healthyBiophysics = Boolean(cached?.mutantPdb && cached?.foldingEnergetics && cached.foldingStatus !== "failed");
-      const retryCoolingDown = cached?.foldingStatus === "failed" && Date.now() -
-        (getBiophysicsAttemptedAt(targetGene, targetVariant) ?? cached.biophysicsAttemptedAt ?? 0) <= BIOPHYSICS_RETRY_COOLDOWN_MS;
-      if (biophysicalSink.lastFetchedFoldRef.current === foldKey || structurallyUnavailable || healthyBiophysics || retryCoolingDown) return;
+      if (biophysicalSink.lastFetchedFoldRef.current === foldKey || !shouldRunBiophysics(cached, getBiophysicsAttemptedAt(targetGene, targetVariant))) return;
       recordBiophysicsAttempt(targetGene, targetVariant, targetUniprot);
       biophysicalSink.lastFetchedFoldRef.current = foldKey;
       mutantFoldAbortRef.current?.abort();
@@ -740,6 +728,12 @@ export async function executeFullAnalysisWorkflow({
      * and this call is then a no-op by design.
      */
     function installStructure(pdb: any) {
+      if (!acceptingEvidence || activeSignal.aborted || getActiveRequestId() !== requestId) return;
+      const coordinates = typeof pdb === "string" ? pdb : pdb?.pdbText;
+      if (typeof coordinates !== "string" || !coordinates.trim()) {
+        markCoordinates("degraded");
+        return;
+      }
       if (pdb && acceptingEvidence && getActiveRequestId() === requestId && !activeSignal.aborted) {
         const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
         if (typeof pdbString !== "string" || !pdbString.trim()) return;
@@ -764,9 +758,10 @@ export async function executeFullAnalysisWorkflow({
           if (prev.result) return prev;
           return createPlaceholderAnalysisState(baseParams);
         });
+        markCoordinates("complete");
       }
     }
-    void pdbWarmupPromise.then(installStructure);
+    if (initialStructureAccession) void pdbWarmupPromise.then(installStructure).catch(structureFailed);
 
     function triggerNarrative(bpResult: any) {
       if (activeSignal.aborted || getActiveRequestId() !== requestId) return Promise.resolve();
@@ -823,7 +818,8 @@ export async function executeFullAnalysisWorkflow({
 
           pipelineContext.uniprotId = targetUniprot.toUpperCase();
           if (!initialStructureAccession && targetUniprot) {
-            void fetchPdbCoordinates(targetGene, targetVariant, targetUniprot, residueIndex, apiClient, activeSignal, getTraceContext()).then(installStructure);
+            markCoordinates("running");
+            void fetchPdbCoordinates(targetGene, targetVariant, targetUniprot, residueIndex, apiClient, activeSignal, getTraceContext()).then(installStructure).catch(structureFailed);
           }
           startFolding();
           setAnalysisState((prev: any) => mergeCompletedCore(prev, createCompletedAnalysisState(resResult, baseParams), baseParams));

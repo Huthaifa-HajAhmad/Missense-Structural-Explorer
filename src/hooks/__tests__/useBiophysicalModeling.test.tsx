@@ -57,7 +57,7 @@ describe("useBiophysicalModeling Hook State Binding", () => {
 
     // Poller should have called the endpoint
     expect(fetchWithAuth).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/dynamut2-job/178931919574")
+      expect.stringContaining("/api/v1/dynamut2-job/178931919574"), { signal: expect.any(AbortSignal) }
     );
 
     // Zustand store should be updated with the completed prediction!
@@ -100,7 +100,7 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     });
 
     expect(fetchWithAuth).toHaveBeenCalledWith(
-      expect.stringContaining("/api/v1/ddmut-job/17893192007005534")
+      expect.stringContaining("/api/v1/ddmut-job/17893192007005534"), { signal: expect.any(AbortSignal) }
     );
 
     const state = useVariantAnalysisStore.getState();

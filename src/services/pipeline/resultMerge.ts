@@ -1,9 +1,20 @@
 import type { PipelineStateBaseParams } from "./pipelineStateFactory";
 import { createPlaceholderAnalysisState } from "./pipelineStateFactory";
+import type { AnalysisPipelineStage, AnalysisStageOutcome, AnalysisPipelineStages } from "../../shared/contracts";
 
-export type PipelineStage = "core" | "landscape" | "structural" | "multimer" | "narrative";
-export type StageOutcome = "running" | "complete" | "degraded" | "error" | "skipped";
-export type PipelineStages = Partial<Record<PipelineStage, StageOutcome>>;
+export type PipelineStage = AnalysisPipelineStage;
+export type StageOutcome = AnalysisStageOutcome;
+export type PipelineStages = AnalysisPipelineStages;
+
+const enrichmentOwners: Record<string, PipelineStage> = {
+  landscapeData: "landscape",
+  landscapeMeta: "landscape",
+  multimerData: "multimer",
+  esm3Eval: "structural",
+  esmcEval: "structural",
+  esm2Eval: "structural",
+  saprotEval: "structural"
+};
 
 /** Declared running/failed/refused core is never made reusable by optional prose. */
 export function hasReusableCoreEvidence(result: any): boolean {
@@ -19,6 +30,12 @@ export function mergeResultPatch(prev: any, patch: any, base?: PipelineStateBase
   const seed = prev?.result ? prev : base ? createPlaceholderAnalysisState(base) : prev;
   if (!seed?.result) return prev;
   const result = seed.result;
+  patch = { ...patch };
+  if (stage) {
+    for (const [field, owner] of Object.entries(enrichmentOwners)) {
+      if (stage !== owner) delete patch[field];
+    }
+  }
   if (stage === "core" && result.metadata?.ruleBasedInsightsStage === "structural") {
     patch = { ...patch };
     delete patch.ruleBasedInsights;
@@ -47,10 +64,6 @@ export function mergeResultPatch(prev: any, patch: any, base?: PipelineStateBase
 
 /** A final CORE payload is authoritative for core only, not for already-settled enrichment. */
 export function mergeCompletedCore(prev: any, completed: any, base: PipelineStateBaseParams): any {
-  const patch = { ...completed.result };
-  for (const key of ["landscapeData", "landscapeMeta", "multimerData", "esm3Eval", "esmcEval", "esm2Eval", "saprotEval"]) {
-    if (prev?.result?.[key] !== undefined && prev.result[key] !== null) delete patch[key];
-  }
-  const merged = mergeResultPatch(prev, patch, base, "core", "complete");
+  const merged = mergeResultPatch(prev, completed.result, base, "core", "complete");
   return { ...merged, isLoading: false, error: null };
 }

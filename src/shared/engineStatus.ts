@@ -686,6 +686,8 @@ export interface EngineFacts {
   stabilityoracle?: number | null;
   dynamut2Status?: RemoteStatus;
   ddmutStatus?: RemoteStatus;
+  dynamut2Error?: string | null;
+  ddmutError?: string | null;
   thermompnnStatus?: RemoteStatus;
   raspReason?: string | null;
   /** From `energetics.raspCoverage`; absent on older payloads. */
@@ -815,6 +817,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       value: facts.dynamut2 ?? null,
       status: facts.dynamut2Status ?? null,
       problem: absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status),
+      detail: facts.dynamut2Error ?? null,
       runActive: isFolding || remoteRunActive(facts.dynamut2Status, facts.dynamut2),
     },
     {
@@ -822,6 +825,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       value: facts.ddmut ?? null,
       status: facts.ddmutStatus ?? null,
       problem: absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus),
+      detail: facts.ddmutError ?? null,
       runActive: isFolding || remoteRunActive(facts.ddmutStatus, facts.ddmut),
     },
     {

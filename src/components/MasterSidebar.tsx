@@ -207,6 +207,8 @@ const STATUS_TEXT: Record<WorkflowStatusType, string> = {
   degraded: "Service degraded",
   error: "Error",
   pending: "Not started",
+  unavailable: "Unavailable",
+  "on-demand": "On demand",
 };
 
 /**
@@ -516,8 +518,10 @@ function MasterSidebar({
   );
 
   const loadedPdb = useVariantAnalysisStore(s => s.pdbText);
+  const engineState = useVariantAnalysisStore(s => s.primaryBiophysics);
   const stageOf = (id: MasterView) =>
     getWorkflowStageStatus({
+      ...engineState,
       view: id,
       result: analysisResult,
       isFolding,

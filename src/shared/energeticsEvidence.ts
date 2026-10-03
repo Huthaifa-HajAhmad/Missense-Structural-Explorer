@@ -304,6 +304,8 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     stabilityoracle: num(e?.stabilityoracle),
     dynamut2Status: input.dynamut2Status,
     ddmutStatus: input.ddmutStatus,
+    dynamut2Error: typeof e?.dynamut2Error === "string" ? e.dynamut2Error : null,
+    ddmutError: typeof e?.ddmutError === "string" ? e.ddmutError : null,
     thermompnnStatus: input.thermompnnStatus,
     raspReason: typeof e?.raspReason === "string" ? e.raspReason : null,
     raspCoverage: (e?.raspCoverage as RaspCoverage | undefined) ?? null,

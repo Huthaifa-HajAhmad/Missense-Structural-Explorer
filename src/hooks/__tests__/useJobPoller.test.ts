@@ -55,7 +55,7 @@ describe("useJobPoller Hook", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/dynamut2-job/job-123");
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/dynamut2-job/job-123", { signal: expect.any(AbortSignal) });
     expect(onStatusChange).toHaveBeenCalledWith("done");
     expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ status: "DONE", prediction: -1.25 }));
     expect(notifyOnce).toHaveBeenCalledWith("DynaMut2_job-123_done", "success", expect.any(String));

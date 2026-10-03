@@ -1441,6 +1441,8 @@ function VariantSearchPanel({
                 badge={
                   isPipelineActive ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay animate-pulse shrink-0" aria-label="running" />
+                  ) : result && summary.hasProblems ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-text-warning)] shrink-0" aria-label="partial results" />
                   ) : result ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-text-success)] shrink-0" aria-label="complete" />
                   ) : null
@@ -1460,6 +1462,8 @@ function VariantSearchPanel({
                     <span className="text-[12px] font-medium text-cs-text-primary inline-flex items-center gap-2">
                       {isPipelineActive ? (
                         <span className="cs-spinner" aria-hidden="true" />
+                      ) : result && summary.hasProblems ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-[var(--cs-text-warning)]" />
                       ) : result ? (
                         <CheckCircle2 className="w-3.5 h-3.5 text-[var(--cs-text-success)]" />
                       ) : (

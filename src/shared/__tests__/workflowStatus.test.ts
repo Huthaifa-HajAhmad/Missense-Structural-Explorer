@@ -68,7 +68,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
 
     // Available qualitative evidence does not make still-running engines complete.
     expect(status.status).toBe("progress");
-    expect(status.desc).toContain("Assessment available");
+    expect(status.desc).toContain("Stability engines running");
   });
 
   it("P1-12: energetics gate shows progress only while the initial biophysical call is in flight and nothing has resolved", () => {
@@ -126,7 +126,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(insightsStatus.status).toBe("complete");
 
     const litStatus = getWorkflowStageStatus("literature", cachedResult, false, false, false, false, undefined, false, null, null, false);
-    expect(litStatus.status).toBe("pending");
+    expect(litStatus.status).toBe("on-demand");
     expect(litStatus.desc).toContain("Open Literature");
 
     const reportStatus = getWorkflowStageStatus("report", cachedResult, false, false, false, false, undefined, false, null, null, false);
@@ -161,7 +161,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(insightsStatus.status).not.toBe("complete");
 
     const literatureStatus = getWorkflowStageStatus("literature", placeholderResult, true, true, true);
-    expect(literatureStatus.status).toBe("pending");
+    expect(literatureStatus.status).toBe("on-demand");
     expect(literatureStatus.status).not.toBe("complete");
 
     const reportStatus = getWorkflowStageStatus("report", placeholderResult, true, true, true);
@@ -229,5 +229,4 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(reportStatus.status).not.toBe("complete");
   });
 });
-
 
