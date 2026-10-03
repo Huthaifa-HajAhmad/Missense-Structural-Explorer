@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -146,7 +146,7 @@ wt_3.pdb	12.50	3.04	9.00	2.10	2.20
 
   describe("FoldX Persistent Disk Cache", () => {
     it("should write to and read from the disk cache correctly", async () => {
-      const { writeMutantToCache, getMutantFromCache, mutantCache } = await import("../foldx.ts");
+      const { writeMutantToCache, getMutantFromCache, mutantCache, getCacheFilename } = await import("../foldx.ts");
       
       const testKey = "test_key_" + crypto.randomUUID();
       const mockResult = { pdb: "MOCK_PDB_DATA", ddG: 2.34, status: "success", foldedResidueIndex: 12 };
@@ -157,8 +157,9 @@ wt_3.pdb	12.50	3.04	9.00	2.10	2.20
       // Write to cache
       writeMutantToCache(testKey, mockResult);
       
-      // Wait a short bit to ensure file system async write completes
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // The writer atomically renames when complete: observe that boundary, not an arbitrary sleep.
+      const filepath = getCacheFilename(testKey);
+      await vi.waitFor(() => expect(fs.existsSync(filepath)).toBe(true), { timeout: 5000 });
       
       // Memory check (should be in memory LRU)
       expect(mutantCache.get(testKey)).toEqual(mockResult);
@@ -172,10 +173,7 @@ wt_3.pdb	12.50	3.04	9.00	2.10	2.20
       expect(cached).toEqual(mockResult);
       expect(mutantCache.get(testKey)).toEqual(mockResult);
       
-      // Clean up cache file
-      const FOLDX_CACHE_DIR = path.join(process.cwd(), "logs", "foldx_cache");
-      const hash = crypto.createHash("sha256").update(testKey).digest("hex");
-      const filepath = path.join(FOLDX_CACHE_DIR, `${hash}.json`);
+      // Clean up only the exact redirected file created above, never the real repository cache.
       if (fs.existsSync(filepath)) {
         fs.unlinkSync(filepath);
       }

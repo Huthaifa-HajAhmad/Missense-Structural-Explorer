@@ -52,7 +52,7 @@ export const ANNOTATION_GROUP_LABEL: Record<AnnotationGroup, string> = {
 const GROUP_ORDER: AnnotationGroup[] = ["domains", "variants", "sites", "mutagenesis", "modifications", "topology", "composition"];
 
 /** Where a row is drawn on the schematic. `none` rows are listed, not drawn. */
-export type SchematicLane = "domain" | "region" | "above" | "below" | "none";
+export type SchematicLane = "domain" | "region" | "membrane" | "above" | "below" | "none";
 
 export interface AnnotationRow {
   key: string;
@@ -122,7 +122,7 @@ export interface FunctionEvidence {
   /** InterPro could not be read in this run (UniProt was). */
   interproMissing: boolean;
   rows: AnnotationRow[];
-  groups: Array<{ group: AnnotationGroup; label: string; rows: AnnotationRow[] }>;
+  groups: Array<{ group: AnnotationGroup; label: string; rows: AnnotationRow[]; summary: string | null }>;
   atResidue: AnnotationRow[];
   secondaryStructure: SecondaryStructureElement[];
   structureContext: { value: string; sub: string; sentence: string } | null;
@@ -157,6 +157,8 @@ export interface FunctionEvidenceInput {
   transcriptId?: string | null;
   engineCriteria?: ReadonlyArray<{ code?: string }> | null;
   acmgWeighting?: string | null;
+  /** gnomAD regional missense constraint at the residue; context only, PM1 does not use it. */
+  regionalConstraint?: { isConstrained: boolean; oeRatio: number | null; regionText: string | null } | null;
 }
 
 /** Member databases drawn as domain boxes. Family and superfamily signatures are listed, not drawn. */
@@ -188,6 +190,26 @@ function groupOf(f: UniprotFeatureItem): AnnotationGroup {
   if (["transmembrane", "intramembrane", "topological domain", "signal", "propeptide", "transit peptide"].includes(t)) return "topology";
   if (t === "compositional bias" || isDisorderRegion(f)) return "composition";
   return "sites";
+}
+
+/** A span covering this share of the chain is context for the residue, not an annotation at it. */
+const BROAD_SPAN = 0.3;
+/** Longest unassigned gap still described as a link between two secondary-structure elements. */
+const MAX_LINK = 8;
+
+/** UniProt's machine-style names, as a reader writes them: "Helical; Name=4" → TM4, "Ligand: K(+)" → K⁺ binding. */
+const CHARGE: Record<string, string> = { "(+)": "⁺", "(2+)": "²⁺", "(3+)": "³⁺", "(-)": "⁻", "(2-)": "²⁻" };
+const ionText = (raw: string): string => raw.replace(/\((?:\d)?[+-]\)/g, (m) => CHARGE[m] ?? m);
+
+function tidyTransmembrane(description: string): { name: string; short: string } {
+  const n = /name=(\d+)/i.exec(description)?.[1];
+  if (!n) return { name: description || "Transmembrane", short: "TM" };
+  return { name: `TM${n}${/discontinuous/i.test(description) ? " (discontinuous)" : ""}`, short: `TM${n}` };
+}
+
+function tidyLigand(description: string): string | null {
+  const m = /^ligand:\s*(.+)$/i.exec(description.trim());
+  return m ? `${ionText(m[1])} binding` : null;
 }
 
 /** "in NEDFIH; dbSNP:rs123" → disease note "In NEDFIH"; a dbSNP-only record is a polymorphism. */
@@ -282,12 +304,26 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
     }
     note = pair ? "Disulfide bond, two cysteines" : f.type;
   } else if (group === "topology") {
-    lane = f.end !== f.start ? "region" : "below";
+    // Transmembrane, intramembrane and topological spans share one topology lane (outside / membrane /
+    // inside); a signal peptide or propeptide stays an inset on the backbone.
+    lane = ["transmembrane", "intramembrane", "topological domain"].includes(t) ? "membrane" : f.end !== f.start ? "region" : "below";
     note = f.type;
     // "Helical" says nothing on the drawing; the type is the label a reader scans for.
     shortLabel = t === "transmembrane" ? "TM" : t === "intramembrane" ? "IM" : t === "signal" ? "Signal" : f.description || f.type;
   } else {
     lane = "none";
+  }
+
+  if (t === "transmembrane" && f.description) {
+    const tm = tidyTransmembrane(f.description);
+    name = tm.name;
+    shortLabel = tm.short;
+  } else if (group === "sites") {
+    const ligand = tidyLigand(f.description || "");
+    if (ligand) {
+      name = ligand;
+      if (f.start === f.end) shortLabel = ligand;
+    }
   }
 
   const residuesText = pair ? `${f.start}, ${f.end}` : f.start === f.end ? `${f.start}` : `${f.start}–${f.end}`;
@@ -329,7 +365,7 @@ function boxFromMatch(m: DomainMatch, residue: number, length: number): DomainBo
     source: m.database,
     accession: m.accession,
     interpro: m.interpro,
-    segments: m.locations,
+    segments: [...m.locations].sort((a, b) => a.start - b.start || a.end - b.end),
     covers: m.locations.some((l) => residue >= l.start && residue <= l.end),
     coverage: length > 0 ? Math.min(1, covered / length) : 0,
     url: domainUrl(m),
@@ -356,12 +392,21 @@ function structureContext(ss: SecondaryStructureElement[], residue: number): { v
   const before = [...els].reverse().find((e) => e.end < residue);
   const after = els.find((e) => e.start > residue);
   if (!before || !after) {
-    return { value: "Terminal, no regular structure", sub: pdbText, sentence: `It lies beyond the last annotated helix or strand (${pdbText}).` };
+    return { value: "Terminal, no regular structure", sub: pdbText, sentence: `It lies beyond the first or last helix or strand assigned in ${pdbText}.` };
   }
   const gapStart = before.end + 1;
   const gapEnd = after.start - 1;
   const n = gapEnd - gapStart + 1;
   const pair = before.kind === after.kind ? plural(before.kind) : `${word(before.kind)} and ${word(after.kind)}`;
+  // A long gap is not evidence of a link: UniProt's secondary structure omits residues the map never
+  // resolved, so only a short gap between two assigned elements is called a link.
+  if (n > MAX_LINK) {
+    return {
+      value: "No helix or strand assigned",
+      sub: `${gapStart}–${gapEnd} unassigned, ${pdbText}`,
+      sentence: `It is in a ${n}-residue stretch with no helix or strand assigned in ${pdbText}; that may be flexible or simply unresolved.`,
+    };
+  }
   return {
     value: `Between ${pair}`,
     sub: `${gapStart === gapEnd ? gapStart : `${gapStart}–${gapEnd}`} unassigned, ${pdbText}`,
@@ -398,6 +443,16 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const availability = availabilityOf(input);
 
   const rows = features.map((f, i) => rowFromFeature(f, residue, i));
+  // UniProt names helices (Name=4) only for some entries. Where none is named, number them by position so
+  // the drawing can label them, and say in the row that the number is ours.
+  const tmRows = rows.filter((r) => r.type.toLowerCase() === "transmembrane").sort((a, b) => a.start - b.start);
+  if (tmRows.length && tmRows.every((r) => !/^TM\d/.test(r.shortLabel))) {
+    tmRows.forEach((r, i) => {
+      r.name = `TM${i + 1}`;
+      r.shortLabel = `TM${i + 1}`;
+      r.note = "Transmembrane, numbered here by position";
+    });
+  }
 
   // Domains: InterPro member-database matches when UniParc answered, UniProt's own Domain features always.
   const matches = uniprot?.domainMatches ?? [];
@@ -455,7 +510,16 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     group: g,
     label: ANNOTATION_GROUP_LABEL[g],
     rows: allRows.filter((r) => r.group === g).sort((a, b) => a.start - b.start || a.end - b.end),
+    summary: null as string | null,
   })).filter((g) => g.rows.length > 0);
+
+  const topo = groups.find((g) => g.group === "topology");
+  if (topo) {
+    const tm = topo.rows.filter((r) => r.type.toLowerCase() === "transmembrane").length;
+    const im = topo.rows.filter((r) => r.type.toLowerCase() === "intramembrane").length;
+    const parts = [tm ? `${tm} transmembrane segment${tm === 1 ? "" : "s"}` : "", im ? `${im} intramembrane` : ""].filter(Boolean);
+    topo.summary = parts.length ? parts.join(", ") : null;
+  }
 
   // "At the residue": anything covering it, except a family-level fold that covers most of the protein.
   const broad = (b: DomainBox) => b.coverage >= 0.8;
@@ -467,7 +531,10 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     }
     return r.group !== "composition";
   });
-  const specificAtResidue = atResidue.filter((r) => r.group !== "domains");
+  // A topological span or region covering a third of the chain is context for the residue, not a site at it.
+  const isBroadRow = (r: AnnotationRow) => r.group !== "domains" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
+  const contextAtResidue = atResidue.filter(isBroadRow);
+  const specificAtResidue = atResidue.filter((r) => r.group !== "domains" && !isBroadRow(r));
 
   const secondaryStructure = uniprot?.secondaryStructure ?? [];
   const ssContext = structureContext(secondaryStructure, residue);
@@ -534,7 +601,17 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     sub = domains.length ? "outside every annotated domain" : "no domain, site or modification annotated here";
   }
   const restParts: string[] = [];
+  if (uniprot && contextAtResidue.length) {
+    const c = contextAtResidue[0];
+    restParts.push(`It lies in the ${c.name.toLowerCase()} ${c.type.toLowerCase()} (${c.residuesText}), a broad span rather than a site.`);
+  }
   if (uniprot && ssContext) restParts.push(ssContext.sentence);
+  // D2: mutagenesis at this very residue is a different substitution, so it is named but never counted.
+  const mutagenesisHere = rows.filter((r) => r.group === "mutagenesis" && r.start === residue && r.end === residue);
+  if (mutagenesisHere.length) {
+    const m = mutagenesisHere[0];
+    restParts.push(`UniProt lists mutagenesis at this residue (${m.name}${m.note ? `: ${m.note.charAt(0).toLowerCase()}${m.note.slice(1)}` : ""}); it is a different substitution and is not counted for PM1.`);
+  }
   if (sameResidueDisease.length) restParts.push(`UniProt lists a disease variant at this same residue (${sameResidueDisease[0].name}, ${sameResidueDisease[0].note}).`);
   else if (nearestDiseaseVariant)
     restParts.push(
@@ -558,7 +635,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
             sub: `${Math.abs(nearestDiseaseVariant!.distance)} aa ${nearestDiseaseVariant!.distance < 0 ? "upstream" : "downstream"}`,
             mono: true,
           }
-      : { label: "Disease variants", value: uniprot ? "None listed" : "—", sub: "UniProtKB" },
+      : { label: "Disease variants", value: uniprot ? "None in UniProtKB" : "—", sub: uniprot ? "see Population data for ClinVar" : availability.label },
     {
       label: "Engine record",
       value: verdictLabel,
@@ -597,6 +674,15 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       rest: `Its evidence is ${EVIDENCE_LEVEL_LABEL[pm1.notCounted[0].level].toLowerCase()}, not an observation in this protein.`,
     });
   }
+  // D1: PM1 asks for a region without benign variation but does not test it. Show the one population
+  // measure the payload has, as context with no cut-point of its own.
+  const rc = input.regionalConstraint;
+  if (uniprot && rc && typeof rc.oeRatio === "number" && Number.isFinite(rc.oeRatio)) {
+    caveats.push({
+      lead: "Benign variation in the region is not tested for PM1.",
+      rest: `For context, gnomAD observes missense variants at ${rc.oeRatio.toFixed(2)} of expectation${rc.regionText ? ` in the window ${rc.regionText}` : " in this residue's window"} (regional O/E; 1.0 is neutral). It is not used by PM1.`,
+    });
+  }
   if (engineMismatch) caveats.push({ lead: "Engine record differs from the current rule.", rest: engineMismatch });
 
   const present = new Set(features.map((f) => lower(f.type)));
@@ -633,7 +719,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
         : { text: coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `Nothing covers residue ${residue}.`, strong: "" }
       : { text: "Nothing is claimed about the residue until the record arrives.", strong: "" },
     {
-      text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting experimental evidence only: `,
+      text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting only evidence observed in this protein (experimental, structure or large-scale study):`,
       strong: pm1.qualifying ? `${pm1.qualifying.type.toLowerCase()} found` : pm1.notCounted.length ? "none counted" : uniprot ? "none found" : "not assessed",
     },
     {

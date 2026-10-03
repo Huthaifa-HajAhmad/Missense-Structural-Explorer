@@ -51,3 +51,16 @@ ClinGen-calibrated tools on one axis of evidence strength (BP4 Very strong −8 
 - Tavtigian SV, et al. Hum Mutat 2020;41:1734–1737. doi:10.1002/humu.24088
 - Dieckhaus H, et al. PNAS 2024;121:e2314853121. doi:10.1073/pnas.2314853121
 - Zhou Y, et al. (DDMut) Nucleic Acids Res 2023;51:W122. doi:10.1093/nar/gkad472
+
+---
+
+## Update: merged into Predictors
+
+The Score thresholds tab was removed. It repeated the Predictors tab (same readings, vote, rulers and engine record), so its strength ladder moved there:
+
+- `src/components/evidence/predictors/StrengthLadder.tsx` draws it; `src/shared/ladderEvidence.ts` is its model (formerly `thresholdEvidence.ts`).
+- Calibrated tools get a STRENGTH row. Tools with only the authors' cut-point (MetaRNN, ClinPred, popEVE) get a DIRECTION row: a side, one flat tint, never a strength.
+- The rule trace (PP2, BP1, engine record), the bands reached and the ClinGen point scale moved into `PredictorsRail`.
+- Cut-points in words now sit under each ruler in the readings table.
+- Gene-constraint and ΔΔG rows were dropped: constraint is in the header bar, ΔΔG in Energetics. Neither is an in-silico predictor.
+- `guidelines` / `thresholds` ids redirect to `predictors` through `normalizeEvidenceTab` (`components/evidence/types.ts`).

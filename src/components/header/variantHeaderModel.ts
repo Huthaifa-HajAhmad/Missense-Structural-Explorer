@@ -26,7 +26,6 @@ export interface VariantHeaderModel {
   transcript: { id: string; tier: { tone: TierTone; label: string | null }; title: string } | null;
   coordinate: { id: string; assemblyKey: "GRCh37" | "GRCh38" | null; title: string; srLabel: string } | null;
   uniprotId: string | null;
-  splice: { distance: number } | null;
   metrics: VhMetric[];
   /**
    * The run's state, when it is not clean. A degraded run must never look like a finished one in the
@@ -105,10 +104,7 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
     }
   }
 
-  const splice = result?.conservationData?.spliceProximity;
-
-  return {
-    gene,
+  return {    gene,
     headlineVariant,
     modelledBasis,
     transcript: displayTranscript
@@ -123,7 +119,6 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
         }
       : null,
     uniprotId: uniprotId || null,
-    splice: splice?.isNearSpliceSite && typeof splice.distance === "number" ? { distance: splice.distance } : null,
     metrics: buildConstraintMetrics(result),
     runState,
   };

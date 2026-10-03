@@ -61,9 +61,7 @@ const GUARDED_SURFACES = [
   "src/shared/multimerEvidence.ts",
   // The Score thresholds redesign: the old rail printed "N/A" for a missing REVEL / FoldX value and
   // the old table "awaiting data" beside absences with known reasons.
-  "src/components/evidence/GuidelinesTab.tsx",
-  "src/components/inspector/GuidelinesRail.tsx",
-  "src/shared/thresholdEvidence.ts",
+  "src/components/evidence/predictors/StrengthLadder.tsx",
   // The interactions redesign: "N/A" and "Pending" stood in for a ΔΔG_bind that was never measured.
   "src/components/evidence/InteractionsTab.tsx",
   "src/components/inspector/InteractionsRail.tsx",

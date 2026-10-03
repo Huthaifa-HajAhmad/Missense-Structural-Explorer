@@ -11,6 +11,10 @@ import type { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../.
 import type { NarrativeFallbackReason } from "../../../src/shared/narrativeFallback.ts";
 import { NARRATIVE_SYNTHESIS } from "../../../src/shared/narrativeSynthesis.ts";
 import {
+  deepEvidencePromptBlock,
+  type DeepModelEvidence,
+} from "../../../src/shared/deepModelEvidence.ts";
+import {
   CLINVAR_ABSENCE_SENTENCE,
   clinvarPresence,
   type ServiceStatusMap,
@@ -680,7 +684,16 @@ export async function performGeminiAnalysis(
    * an absent map degrades a failed query to `unqueried` — which is a weaker claim than the truth but
    * never a false one, which is the direction this must fail in.
    */
-  serviceStatus?: ServiceStatusMap
+  serviceStatus?: ServiceStatusMap,
+  /**
+   * The deep-model observations this synthesis is given (`src/shared/deepModelEvidence.ts`), already
+   * bounded and validated by `deepModelEvidenceSchema` at the route.
+   *
+   * Optional so every existing caller keeps compiling, and so a synthesis without deep evidence builds
+   * the same prompt it always did: no block is emitted when the payload is absent, and the shared
+   * renderer emits none either when nothing informative is in it.
+   */
+  deepEvidence?: DeepModelEvidence | null
 ) {
   // Validate key is usable early (throws if placeholder/missing)
   getGeminiClient(customApiKey);
@@ -834,9 +847,23 @@ Apply conservative weighting. Do not apply speculative criteria like PM2 (absent
   } else if (acmgWeighting === "strict-structural") {
     weightingInstructions = `
 [ACMG PATHFINDER WEIGHTING MODEL: STRICT-STRUCTURAL]:
-Apply strict-structural weighting. Focus on structural hotspot criteria (PM1) and functional biophysical study criteria (PS3) supported by the structural packing, molecular volume changes, and clash conflicts.
+Apply strict-structural weighting. Focus on structural hotspot criteria (PM1) supported by the structural packing, molecular volume changes, and clash conflicts. Do NOT raise PS3 from a predicted ΔΔG or from a predictor score: PS3 requires functional study evidence, and this run contains none.
 `;
   }
+
+  /**
+   * The deep-model block, rendered by the SHARED module.
+   *
+   * `null` when the run produced nothing informative (or when the caller sent no block at all), so a
+   * synthesis without deep evidence builds exactly the prompt it always did — the interpolation below
+   * contributes an empty line rather than a heading with no content.
+   *
+   * The wording, the sign normalization and the "no ACMG criterion may be created from these" rule all
+   * live in `deepModelEvidencePromptBlock`, where the disclosure surfaces read the same text. A block
+   * written here would be a second statement of the same provenance claim, which is the shape of defect
+   * this codebase has removed from the frequency panel, the model registry and the report manifest.
+   */
+  const deepEvidenceBlock = deepEvidencePromptBlock(deepEvidence) ?? "";
 
   const prompt = `You are an expert computational structural biologist and clinical geneticist.
 Analyze the following missense variant:
@@ -849,6 +876,7 @@ ${clinvarEvidence}
 ${predictorEvidence}
 ${conservationEvidence}
 ${stringEvidence}
+${deepEvidenceBlock}
 ${weightingInstructions}
 ${literatureEvidence}
 
@@ -890,6 +918,7 @@ In the "structuralImpact" JSON field, provide a compact biophysical summary of t
 [ACMG CRITERIA SELECTION RULE]:
 Only select valid ACMG/AMP criteria codes from the following whitelist: PVS1, PS1, PS2, PS3, PS4, PM1, PM2, PM3, PM4, PM5, PM6, PP1, PP2, PP3, PP4, BA1, BS1, BS2, BS3, BS4, BP1, BP2, BP3, BP4, BP5, BP7.
 DO NOT suggest PP5 or BP6. These codes are deprecated by the ClinGen SVI working group due to significant double-counting risks and clinical safety concerns.
+Never derive a criterion from the deep-model observations above: a predicted ΔΔG is not PS3 evidence, a predicted deleterious score is not PP3 evidence on its own, and the same prediction must not be counted twice under two codes. The rule engine applies its own criteria from the retrieved database values; do not re-state them.
 `;
 
 

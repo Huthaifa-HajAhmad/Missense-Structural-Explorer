@@ -4,6 +4,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useAnalysisPipeline } from "../useAnalysisPipeline";
 import { setCachedVariant } from "../../services/pipeline/variantCache";
+import { createAnalysisCacheContext } from "../../services/pipeline/analysisContext";
 import { DevConsoleProvider } from "../../context/DevConsoleContext";
 
 describe("useAnalysisPipeline Hook Integration", () => {
@@ -267,6 +268,7 @@ describe("useAnalysisPipeline Hook Integration", () => {
     ({
       analysis: "Clinical narrative generated",
       insights: { biochemicalShift: "A->V", acmgVerdict: "Pathogenic" },
+      metadata: { pipelineContext: createAnalysisCacheContext("P00439", mockOptions.settings) },
       ...overrides,
     }) as any;
 

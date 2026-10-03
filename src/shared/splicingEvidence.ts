@@ -116,7 +116,7 @@ export const SPLICE_GROUP_LABEL: Record<SpliceGroup, string> = {
 
 export const SPLICE_GROUP_NOTE: Record<SpliceGroup, string> = {
   rule: "SpliceAI max Δ on the Walker 2023 bands",
-  channels: "Which change the maximum came from, and where it lands",
+  channels: "Which change the maximum came from, and where it lands (bases from the variant, transcript direction)",
   context: "Authors' cut-points and attributions · not counted",
 };
 
@@ -132,7 +132,8 @@ export interface SpliceReading {
   scale: SpliceScale | null;
   /** Provenance of the drawn marks, shown under the ruler. */
   scaleSource: string | null;
-  call: { label: string; tone: SpliceTone; isCode: boolean } | null;
+  /** `unapplied`: what the splicing rule supports, which the engine never records — drawn dashed. */
+  call: { label: string; tone: SpliceTone; isCode: boolean; unapplied?: boolean } | null;
   note: string | null;
   availability: EvidenceAvailability;
   knowledgeKey: string | null;
@@ -177,6 +178,88 @@ export interface SpliceGeometry {
   junctionLabel: string;
   /** Why no geometry, when there is none. */
   refusal: string | null;
+}
+
+/**
+ * The splice map: the variant at 0, everything else in bases from it, in TRANSCRIPT direction
+ * (5′ → 3′ left to right), so a reverse-strand gene reads the same way as a forward one.
+ *
+ * What it holds, and where each number comes from:
+ *   exon / sites      the resolver's exon length and the variant's splice-site position; the
+ *                     annotated donor is the exon's last base and the annotated acceptor its first,
+ *                     which is the base SpliceAI itself reports a site at (checked against the live
+ *                     service on BRCA1 exon 3: DP_DG −3 and DP_AG +50 land on the Ensembl exon ends);
+ *   predictions       SpliceAI's four channels at their delta positions. DP is in GENOMIC
+ *                     coordinates, so a reverse-strand gene flips the sign; with no strand nothing
+ *                     is placed rather than placed on the wrong side;
+ *   dbscSNV window    Jian 2014's −3..+8 donor / −12..+2 acceptor, as a span of bases.
+ * It replaced a ±40 bp ruler that showed one junction and the variant, and could not say whether a
+ * predicted change lands on a real splice site or makes a new one.
+ */
+export interface SpliceMapSite {
+  type: "donor" | "acceptor";
+  /** Offset of the site's exonic base from the variant, in bases. */
+  offset: number;
+  /** True for the exon's other boundary (the one the variant is not nearest to). */
+  far: boolean;
+}
+
+export interface SpliceMapPrediction {
+  key: SpliceChannelKey;
+  name: string;
+  type: "donor" | "acceptor";
+  kind: "gain" | "loss";
+  ds: number;
+  /** Bases from the variant, transcript direction. */
+  offset: number;
+  /** The annotated site of the same type this lands on (±1 base), or null. */
+  atSite: "donor" | "acceptor" | null;
+  /** At or above the Walker PP3 band. */
+  inPp3Band: boolean;
+}
+
+/** A neighbouring exon of the same transcript, in offsets from the variant (transcript direction). */
+export interface SpliceMapExon {
+  number: number;
+  start: number;
+  end: number;
+}
+
+export interface SpliceMap {
+  junction: "donor" | "acceptor";
+  position: number;
+  /** Junction offset (between two bases, so ends in .5). */
+  junctionOffset: number;
+  /** The exon's extent in offsets; an end is null when the exon length is unknown. */
+  exon: { start: number | null; end: number | null };
+  sites: SpliceMapSite[];
+  /** The other exons of the transcript that fall in reach; empty when the payload does not carry them. */
+  neighbours: SpliceMapExon[];
+  /** The transcript's exon count, for numbering the introns between. */
+  totalExons: number | null;
+  /** The nearest exon's number, null when unresolved. */
+  exonNumber: number | null;
+  /** dbscSNV's window as [from, to] in offsets (edges of the bases it covers). */
+  dbscWindow: [number, number];
+  predictions: SpliceMapPrediction[];
+  /** Channels scored below the plotting floor, so the figure can say nothing was left out silently. */
+  belowFloor: number;
+  /** Why predictions are not placed, when they cannot be. */
+  predictionsNote: string | null;
+  /** Half-width of the drawn window in bases. */
+  halfWidth: number;
+  /** The variant sits in the exon (true) or the intron (false). */
+  exonic: boolean;
+}
+
+/** SpliceAI delta scores below this are not drawn on the map: they are indistinguishable from zero. */
+export const SPLICE_MAP_FLOOR = 0.01;
+const SPLICE_MAP_STEPS = [50, 100, 200, 500, 1000, 2000];
+
+/** Bases from splice-site position `from` to `to` (no 0 in the numbering, so crossing it costs one). */
+export function offsetBetweenPositions(from: number, to: number): number {
+  const d = to - from;
+  return from * to < 0 ? d - Math.sign(d) : d;
 }
 
 export interface SpliceEngineRecord {
@@ -225,6 +308,8 @@ export interface SplicingEvidence {
   /** The coordinate was rejected upstream for a reference-base mismatch (AlphaGenome's message). */
   referenceMismatch: string | null;
   geometry: SpliceGeometry;
+  /** Null when the variant cannot be placed at a donor or acceptor. */
+  map: SpliceMap | null;
   readings: SpliceReading[];
   engine: SpliceEngineRecord;
   relation: SpliceRelation;
@@ -235,6 +320,23 @@ export interface SplicingEvidence {
 
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const fmt3 = (v: number) => v.toFixed(3);
+
+/**
+ * A SpliceAI delta score as every surface prints it: two decimals, SpliceAI's own convention.
+ * Two exceptions keep the print honest. A non-zero score under 0.005 reads "< 0.01", not "0.00"
+ * (the tab printed 0.00 while the rail printed 0.001 for the same score). A score that rounds
+ * onto a Walker cut-point it is not on gets a third decimal, so 0.0996 never reads "0.10" while
+ * sitting in the BP4 band.
+ */
+export function formatDelta(v: number): string {
+  if (v > 0 && v < 0.005) return "< 0.01";
+  const two = v.toFixed(2);
+  const S = THRESHOLDS.spliceai;
+  const onCut = Number(two) === S.splicingBp4Below || Number(two) === S.splicingPp3;
+  return onCut && Number(two) !== v ? v.toFixed(3) : two;
+}
+/** "a max Δ of 0.34" / "a max Δ under 0.01" — for sentences. */
+const deltaPhrase = (v: number) => (v > 0 && v < 0.005 ? "a max Δ under 0.01" : `a max Δ of ${formatDelta(v)}`);
 const fmtBp = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v)} bp`;
 const ordinal = (n: number) => {
   const s = ["th", "st", "nd", "rd"];
@@ -253,8 +355,8 @@ function spliceAiScale(score: number | null, withBands: boolean): SpliceScale {
     max: 1,
     bands: withBands
       ? [
-          { from: 0, to: S.splicingBp4Below, side: "benign", label: `BP4 (splicing): < ${S.splicingBp4Below.toFixed(1)}`, active: code === "BP4" },
-          { from: S.splicingPp3, to: 1, side: "path", label: `PP3 (splicing): ≥ ${S.splicingPp3.toFixed(1)}`, active: code === "PP3" },
+          { from: 0, to: S.splicingBp4Below, side: "benign", label: `BP4 · splicing: < ${S.splicingBp4Below.toFixed(1)}`, active: code === "BP4" },
+          { from: S.splicingPp3, to: 1, side: "path", label: `PP3 · splicing: ≥ ${S.splicingPp3.toFixed(1)}`, active: code === "PP3" },
         ]
       : [],
     ticks: [
@@ -291,6 +393,191 @@ export function resolveJunctionOrientation(
   return { isDonor, isAcceptor, junctionType };
 }
 
+function buildSpliceMap({
+  geometry: g,
+  channels,
+  strand,
+  genomicPos,
+  nearby,
+}: {
+  geometry: SpliceGeometry;
+  channels: Array<{ key: SpliceChannelKey; ds: number | null; dp: number | null }>;
+  strand: "+" | "-" | null;
+  genomicPos: number | null;
+  nearby: Array<{ number: number; start: number; end: number }> | null;
+}): SpliceMap | null {
+  const p = g.position;
+  if (p === null || (g.junction !== "donor" && g.junction !== "acceptor") || g.regionType === null) return null;
+  const junction = g.junction;
+  const exonic = g.regionType === "exonic";
+  const k = Math.abs(p);
+  // Junction offset from the variant: it lies (k − ½) bases away, downstream of an exonic donor
+  // variant, upstream of an intronic one, and the mirror image at an acceptor.
+  const junctionOffset = junction === "donor" ? (exonic ? k - 0.5 : -(k - 0.5)) : exonic ? -(k - 0.5) : k - 0.5;
+  const L = g.exonLength !== null && g.exonLength > 0 ? g.exonLength : null;
+
+  let start: number | null;
+  let end: number | null;
+  if (junction === "donor") {
+    end = junctionOffset;
+    start = L === null ? null : junctionOffset - L;
+  } else {
+    start = junctionOffset;
+    end = L === null ? null : junctionOffset + L;
+  }
+  // The resolver's own exon list, when the payload carries it, is the truth for every exon's bounds
+  // (the derived extent above only needs the nearest exon's length). Genomic edges sit half a base
+  // outside the first and last base; a reverse-strand gene flips into transcript direction.
+  const neighbours: SpliceMapExon[] = [];
+  if (nearby && nearby.length > 0 && genomicPos !== null && strand !== null) {
+    const toOffsets = (e: { start: number; end: number }): [number, number] => {
+      const a = e.start - 0.5 - genomicPos;
+      const b = e.end + 0.5 - genomicPos;
+      return strand === "-" ? [-b, -a] : [a, b];
+    };
+    for (const e of nearby) {
+      const [a, b] = toOffsets(e);
+      if (g.exonNumber !== null && e.number === g.exonNumber) {
+        start = a;
+        end = b;
+      } else {
+        neighbours.push({ number: e.number, start: a, end: b });
+      }
+    }
+    neighbours.sort((x, y) => x.start - y.start);
+  }
+
+  const sites: SpliceMapSite[] = [];
+  if (start !== null) sites.push({ type: "acceptor", offset: start + 0.5, far: junction === "donor" });
+  if (end !== null) sites.push({ type: "donor", offset: end - 0.5, far: junction === "acceptor" });
+  for (const n of neighbours) {
+    sites.push({ type: "acceptor", offset: n.start + 0.5, far: true });
+    sites.push({ type: "donor", offset: n.end - 0.5, far: true });
+  }
+
+  const W = THRESHOLDS.dbscsnv.window;
+  const [qa, qb] = junction === "donor" ? [-W.donor.exonic, W.donor.intronic] : [-W.acceptor.intronic, W.acceptor.exonic];
+  const dbscWindow: [number, number] = [offsetBetweenPositions(p, qa) - 0.5, offsetBetweenPositions(p, qb) + 0.5];
+
+  const predictions: SpliceMapPrediction[] = [];
+  let belowFloor = 0;
+  let predictionsNote: string | null = null;
+  const scored = channels.filter(c => c.ds !== null);
+  if (scored.length > 0 && strand === null) {
+    predictionsNote = "The strand is not resolved, so SpliceAI's positions (reported in genomic coordinates) are not placed.";
+  } else {
+    for (const c of scored) {
+      const ds = c.ds as number;
+      if (ds < SPLICE_MAP_FLOOR) {
+        belowFloor += 1;
+        continue;
+      }
+      if (c.dp === null) continue;
+      const offset = strand === "-" ? -c.dp : c.dp;
+      const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
+      const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
+      predictions.push({
+        key: c.key,
+        name: SPLICE_CHANNEL_NAME[c.key],
+        type,
+        kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss",
+        ds,
+        offset,
+        atSite: near ? type : null,
+        inPp3Band: ds >= THRESHOLDS.spliceai.splicingPp3,
+      });
+    }
+  }
+
+  // The window grows to hold what is drawn: every plotted prediction, and the junction when the
+  // variant is far from it. Never past the widest step (2 kb), which matches the widest window offered.
+  const need = Math.max(
+    SPLICE_MAP_STEPS[0],
+    ...predictions.map(x => Math.abs(x.offset) * 1.1),
+    Math.min(Math.abs(junctionOffset) * 1.2, 500)
+  );
+  const halfWidth = SPLICE_MAP_STEPS.find(x => x >= need) ?? SPLICE_MAP_STEPS[SPLICE_MAP_STEPS.length - 1];
+
+  return {
+    junction,
+    position: p,
+    junctionOffset,
+    exon: { start, end },
+    sites,
+    neighbours,
+    totalExons: g.totalExons,
+    exonNumber: g.exonNumber,
+    dbscWindow,
+    predictions: predictions.sort((a, b) => a.offset - b.offset),
+    belowFloor,
+    predictionsNote,
+    halfWidth,
+    exonic,
+  };
+}
+
+/**
+ * Splice-site position in HGVS-style numbering (no 0) from the resolver's distance: at a donor the
+ * exon runs −1, −2… and the intron +1, +2…; at an acceptor the intron runs −1, −2… and the exon
+ * +1, +2…. Null for an intronic distance of 0, which is not a real placement.
+ */
+export function spliceSitePosition(junction: "donor" | "acceptor", regionType: "exonic" | "intronic", distance: number): number | null {
+  const p = junction === "donor" ? (regionType === "exonic" ? -(distance + 1) : distance) : regionType === "exonic" ? distance + 1 : -distance;
+  return p === 0 ? null : p;
+}
+
+/**
+ * How the header words a variant's place at its nearest junction: "−7 donor" when the resolver
+ * oriented it, else the bare distance. The header used to call this a red, pulsing "Splice alert"
+ * on the app's own ≤ 5 bp flag; a distance is context, so it is stated as one.
+ */
+export function describeSplicePlacement(
+  result: AnalysisResult | null | undefined
+): { short: string; long: string } | null {
+  const sp = result?.conservationData?.spliceProximity;
+  const distance = finite(sp?.distance);
+  if (distance === null) return null;
+  const { isDonor, isAcceptor } = resolveJunctionOrientation(result, distance);
+  const region = sp?.regionType ?? null;
+  const junction = isDonor ? "donor" : isAcceptor ? "acceptor" : null;
+  const pos = junction && region ? spliceSitePosition(junction, region, distance) : null;
+  if (pos !== null && junction) {
+    const signed = `${pos > 0 ? "+" : "−"}${Math.abs(pos)}`;
+    return { short: `${signed} ${junction}`, long: `${signed} from the ${junction}, ${region}` };
+  }
+  return { short: `${distance} bp`, long: `${distance} bp from the nearest exon–intron boundary` };
+}
+
+const SPLICEAI_FAILURE_LABEL: Record<NonNullable<NonNullable<AnalysisResult["conservationData"]>["spliceaiFailure"]>["kind"], string> = {
+  "rate-limited": ENGINE_STATE_LABELS["upstream-busy"],
+  "coordinate-rejected": "Coordinate rejected",
+  "upstream-error": ENGINE_STATE_LABELS["upstream-error"],
+  timeout: ENGINE_STATE_LABELS["upstream-busy"],
+  network: ENGINE_STATE_LABELS["upstream-error"],
+  unreadable: ENGINE_STATE_LABELS["upstream-error"],
+  "no-transcript": ENGINE_STATE_LABELS["no-result"],
+};
+
+export function describeSpliceAiFailure(f: NonNullable<NonNullable<AnalysisResult["conservationData"]>["spliceaiFailure"]>): string {
+  const said = f.detail ? ` It said: “${f.detail}”.` : "";
+  switch (f.kind) {
+    case "rate-limited":
+      return `The Broad SpliceAI Lookup refused the request (HTTP ${f.httpStatus ?? 429}): it limits interactive use per user. The variant was not scored; retrying shortly usually works.`;
+    case "coordinate-rejected":
+      return `The Broad SpliceAI Lookup refused this variant (HTTP ${f.httpStatus ?? 400}), most often because the reference base does not match the genome at the coordinate sent.${said}`;
+    case "upstream-error":
+      return `The Broad SpliceAI Lookup failed on its side (HTTP ${f.httpStatus ?? 500}); the variant was not scored.${said}`;
+    case "timeout":
+      return "The Broad SpliceAI Lookup did not answer within the request budget; the variant was not scored.";
+    case "network":
+      return `The Broad SpliceAI Lookup could not be reached; the variant was not scored.${said}`;
+    case "unreadable":
+      return "The Broad SpliceAI Lookup answered, but not in the shape expected, so nothing could be read from it.";
+    case "no-transcript":
+      return "The Broad SpliceAI Lookup answered with no scored transcript at this coordinate, so it had nothing to report. For a variant inside an annotated gene that points to the coordinate, not to nothing to score.";
+  }
+}
+
 function describeSpliceAiSource(p: SplicingEvidence["spliceai"]["provenance"]): string {
   if (!p) return "Source not stated in the payload";
   if (p.source === "broad-lookup") return p.computedLive === false ? "Broad SpliceAI Lookup (served from its table)" : "Broad SpliceAI Lookup (model run for this request)";
@@ -324,13 +611,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   // Legacy payloads carry no regionType; placement then follows the old exonic default, but no
   // position is claimed for them.
   const oriented = (junction === "donor" || junction === "acceptor") && distance !== null && regionType !== null;
-  let position: number | null = null;
-  if (oriented) {
-    const d = distance as number;
-    if (junction === "donor") position = regionType === "exonic" ? -(d + 1) : d;
-    else position = regionType === "exonic" ? d + 1 : -d;
-    if (position === 0) position = null; // an intronic distance of 0 is not a real placement
-  }
+  const position = oriented ? spliceSitePosition(junction as "donor" | "acceptor", regionType, distance as number) : null;
   const W = THRESHOLDS.dbscsnv.window;
   const inDbscsnvWindow =
     position === null
@@ -398,17 +679,29 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     const top = channels.filter(c => c.ds !== null).sort((a, b) => (b.ds as number) - (a.ds as number))[0];
     maxChannel = top && top.ds === maxDs ? top.key : null;
   }
-  const maxShift = maxChannel ? channels.find(c => c.key === maxChannel)!.dp : null;
+  // SpliceAI reports delta positions in GENOMIC coordinates; every other number on this tab is in
+  // transcript direction (−7 from the donor), so a reverse-strand gene's positions flip here. With no
+  // strand they stay genomic, and the row says so.
+  const strandKnown = geometry.strand !== null;
+  const orient = (dp: number | null): number | null => (dp === null ? null : geometry.strand === "-" ? (dp === 0 ? 0 : -dp) : dp);
+  const maxShift = maxChannel ? orient(channels.find(c => c.key === maxChannel)!.dp) : null;
 
   const saiPending = !sai && isLoading;
   const inGene = regionType === "exonic" || regionType === "intronic";
   const saiAvailability = resolveEvidenceAvailability({ value: maxDs, pending: saiPending });
+  const failure = cd?.spliceaiFailure ?? null;
   if (!saiAvailability.hasValue && !saiPending) {
     saiAvailability.reason = sai
       ? "SpliceAI answered without a delta score for any of its four channels."
+      : failure
+      ? describeSpliceAiFailure(failure)
       : inGene
-      ? "Neither the live Broad lookup nor the precomputed tables returned a score. SpliceAI scores every single-nucleotide change in an annotated gene, so this points to a failed or rejected request, not to nothing to score."
+      ? "Neither the live Broad lookup nor the precomputed tables returned a score, and the payload does not record why. SpliceAI scores every single-nucleotide change in an annotated gene, so this points to a failed or rejected request, not to nothing to score."
       : "Neither the live Broad lookup nor the precomputed tables returned a score for this coordinate.";
+    if (failure) {
+      // A failed request is a provider fault, not "no result": say so in the state label too.
+      saiAvailability.label = SPLICEAI_FAILURE_LABEL[failure.kind];
+    }
   }
 
   const prov = sai?.provenance
@@ -467,7 +760,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     name: "SpliceAI max Δ",
     description: "Largest of the four delta scores: how much the model's splice-site probabilities change.",
     score: maxDs,
-    scoreText: maxDs !== null ? maxDs.toFixed(2) : "—",
+    scoreText: maxDs !== null ? formatDelta(maxDs) : "—",
     sub: maxChannel ? SPLICE_CHANNEL_NAME[maxChannel].toLowerCase() : null,
     scale: maxDs !== null ? spliceAiScale(maxDs, true) : null,
     scaleSource: SPLICEAI_SCALE_SOURCE,
@@ -475,9 +768,9 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
       maxDs === null
         ? null
         : ruleState === "pp3"
-        ? { label: "PP3 (splicing)", tone: "danger", isCode: true }
+        ? { label: "PP3 · splicing", tone: "danger", isCode: true, unapplied: true }
         : ruleState === "bp4"
-        ? { label: "BP4 (splicing)", tone: "good", isCode: true }
+        ? { label: "BP4 · splicing", tone: "good", isCode: true, unapplied: true }
         : { label: "Between bands", tone: "neutral", isCode: false },
     note: maxDs !== null ? describeSpliceAiSource(prov) : null,
     availability: saiAvailability,
@@ -494,8 +787,9 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         description:
           c.key === "ds_ag" ? "A new acceptor is created." : c.key === "ds_al" ? "An existing acceptor is weakened or lost." : c.key === "ds_dg" ? "A new donor is created." : "An existing donor is weakened or lost.",
         score: c.ds,
-        scoreText: c.ds !== null ? c.ds.toFixed(2) : "—",
-        sub: c.dp !== null ? `at ${fmtBp(c.dp)}` : null,
+        scoreText: c.ds !== null ? formatDelta(c.ds) : "—",
+        // A position is only a location when there is a signal to locate.
+        sub: c.dp !== null && (c.ds ?? 0) >= SPLICE_MAP_FLOOR ? `at ${fmtBp(orient(c.dp) as number)}${strandKnown ? "" : " (genomic)"}` : null,
         scale: c.ds !== null ? spliceAiScale(c.ds, false) : null,
         scaleSource: null,
         call: c.ds === null ? null : c.key === maxChannel ? { label: "Maximum", tone: "accent", isCode: false } : null,
@@ -578,6 +872,17 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     link: { tab: "alphagenome", label: "AlphaGenome tracks" },
   });
 
+  // ── Splice map ──
+  const map = buildSpliceMap({ geometry, channels, strand: geometry.strand, genomicPos: finite(sp?.genomicPos), nearby: sp?.nearbyExons ?? null });
+  if (map) {
+    // A channel whose delta position lands on the annotated site of its type says so in the table.
+    for (const pr of map.predictions) {
+      if (!pr.atSite) continue;
+      const row = readings.find(x => x.key === `spliceai-${pr.key}`);
+      if (row) row.note = `Lands on the annotated ${pr.atSite}`;
+    }
+  }
+
   // ── Engine record ──
   const predictors = buildPredictorEvidence({ result, alphagenomeConfigured });
   const engine: SpliceEngineRecord = {
@@ -608,6 +913,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     alphagenome: { share: agShare, shap: agShap, availability: agAvailability },
     referenceMismatch,
     geometry,
+    map,
     readings,
     engine,
     relation,
@@ -615,10 +921,28 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   };
 }
 
-/** Readings grouped for the table, in display order. Empty groups are dropped. */
+/**
+ * Readings grouped for the table, in display order. Empty groups are dropped.
+ *
+ * dbscSNV's two models share one window, so when neither scored and for the same reason they are
+ * one row: two rows repeating "dbscSNV scores only −3 to +8…" word for word was the table's
+ * largest block of dead space. A scored pair stays two rows, because the models can disagree.
+ */
 export function groupSpliceReadings(readings: SpliceReading[]): Array<{ group: SpliceGroup; rows: SpliceReading[] }> {
+  const ada = readings.find(r => r.key === "dbscsnv-ada");
+  const rf = readings.find(r => r.key === "dbscsnv-rf");
+  let list = readings;
+  if (ada && rf && ada.score === null && rf.score === null && ada.availability.reason === rf.availability.reason) {
+    const merged: SpliceReading = {
+      ...ada,
+      key: "dbscsnv",
+      name: "dbscSNV",
+      description: "AdaBoost and random-forest ensemble (Jian 2014). Defined only near the splice sites.",
+    };
+    list = readings.flatMap(r => (r === ada ? [merged] : r === rf ? [] : [r]));
+  }
   const order: SpliceGroup[] = ["rule", "channels", "context"];
-  return order.map(group => ({ group, rows: readings.filter(x => x.group === group) })).filter(g => g.rows.length > 0);
+  return order.map(group => ({ group, rows: list.filter(x => x.group === group) })).filter(g => g.rows.length > 0);
 }
 
 /**
@@ -628,7 +952,7 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
   const S = THRESHOLDS.spliceai;
   const { rule } = ev;
   const where = rule.maxChannel
-    ? ` (${SPLICE_CHANNEL_NAME[rule.maxChannel].toLowerCase()}${rule.maxShift !== null ? ` at ${fmtBp(rule.maxShift)}` : ""})`
+    ? ` (${SPLICE_CHANNEL_NAME[rule.maxChannel].toLowerCase()}${rule.maxShift !== null && (rule.maxDs ?? 0) >= SPLICE_MAP_FLOOR ? ` at ${fmtBp(rule.maxShift)}` : ""})`
     : "";
   switch (rule.state) {
     case "pending":
@@ -641,17 +965,17 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
     case "pp3":
       return {
         headline: `SpliceAI predicts a splicing change${where}`,
-        predicate: `a max Δ of ${rule.maxDs!.toFixed(2)} is at or above ${S.splicingPp3.toFixed(1)}, which supports PP3 for splicing impact`,
+        predicate: `${deltaPhrase(rule.maxDs!)} is at or above ${S.splicingPp3.toFixed(1)}, which supports PP3 for splicing impact`,
       };
     case "bp4":
       return {
         headline: "SpliceAI predicts no splicing change",
-        predicate: `a max Δ of ${rule.maxDs!.toFixed(2)}${where} is below ${S.splicingBp4Below.toFixed(1)}, which supports BP4 for splicing impact`,
+        predicate: `${deltaPhrase(rule.maxDs!)}${where} is below ${S.splicingBp4Below.toFixed(1)}, which supports BP4 for splicing impact`,
       };
     case "between":
       return {
         headline: "SpliceAI's score falls between the bands",
-        predicate: `a max Δ of ${rule.maxDs!.toFixed(2)}${where} is at or above ${S.splicingBp4Below.toFixed(1)} and below ${S.splicingPp3.toFixed(1)}, so the splicing rule supports neither PP3 nor BP4`,
+        predicate: `${deltaPhrase(rule.maxDs!)}${where} is at or above ${S.splicingBp4Below.toFixed(1)} and below ${S.splicingPp3.toFixed(1)}, so the splicing rule supports neither PP3 nor BP4`,
       };
   }
 }

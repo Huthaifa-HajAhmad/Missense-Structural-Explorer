@@ -11,6 +11,12 @@
  *   (the row is still in the table), rather than drawn over another.
  * - The query variant is drawn last and highest, in clay, and its stem runs through the backbone to the
  *   secondary-structure strip so the eye can read what it sits in.
+ * - Membrane topology is its own lane at the bottom, above the axis: an "outside" line, an "inside"
+ *   line and the transmembrane segments as bars crossing between them, so a membrane protein is not
+ *   drawn as a row of look-alike boxes on the backbone. The variant's tick runs through it.
+ * - The helix / strand strip is drawn only when the window is narrow enough to read it (<= 300
+ *   residues); across a whole large protein it is dashes that say nothing.
+ * - Vertical space follows use: the label tiers below the backbone are only as many as were needed.
  * - Text is laid out at real pixel sizes: the SVG is drawn at its container's width, never scaled, so
  *   11px labels stay 11px on a phone.
  */
@@ -76,6 +82,70 @@ export interface ArchLayout {
   axisY: number;
   termini: ArchLabel[];
   hiddenLabels: number;
+  /** The membrane-topology lane; null when the entry annotates none in this window. */
+  membrane: ArchMembrane | null;
+  /** Whether the helix / strand strip is drawn at this window. */
+  showSecondary: boolean;
+}
+
+export interface ArchMembrane {
+  top: number;
+  bottom: number;
+  outsideY: number;
+  insideY: number;
+  /** Topological domains as lines on the outside or inside rail. */
+  rails: Array<{ key: string; rowKey: string; side: "outside" | "inside"; start: number; end: number; x: number; width: number; y: number }>;
+  /** Transmembrane (and intramembrane) segments as bars crossing the lane. */
+  bars: Array<{ key: string; rowKey: string; kind: "tm" | "im"; start: number; end: number; x: number; width: number; y: number; h: number; selected: boolean; label: ArchLabel | null }>;
+  /** One label per rail name, set where the widest visible stretch of that rail is. */
+  labels: ArchLabel[];
+  /** The variant's tick, full lane height. */
+  queryX: number | null;
+}
+
+/** Windows up to this many residues show the helix / strand strip. */
+export const SECONDARY_MAX_SPAN = 300;
+
+export interface ArchOverview {
+  width: number;
+  height: number;
+  x0: number;
+  x1: number;
+  trackY: number;
+  domains: Array<{ x: number; width: number; covers: boolean }>;
+  membrane: Array<{ x: number; width: number }>;
+  queryX: number | null;
+  window: { x: number; width: number };
+  ends: ArchLabel[];
+}
+
+/** The whole protein as a thin strip with the current window bracketed, so a zoomed view keeps its place. */
+export function layoutOverview(
+  ev: Pick<FunctionEvidence, "length" | "residue" | "domains" | "rows">,
+  width: number,
+  win: ArchWindow
+): ArchOverview {
+  const W = Math.max(300, Math.round(width));
+  const x0 = 22;
+  const x1 = W - 22;
+  const len = Math.max(2, ev.length);
+  const x = (r: number) => x0 + ((Math.min(Math.max(r, 1), len) - 1) / (len - 1)) * (x1 - x0);
+  const trackY = 14;
+  return {
+    width: W,
+    height: 38,
+    x0,
+    x1,
+    trackY,
+    domains: ev.domains.flatMap((d) => d.segments.map((s) => ({ x: x(s.start), width: Math.max(2, x(s.end) - x(s.start)), covers: d.covers }))),
+    membrane: ev.rows.filter((r) => r.lane === "membrane" && r.type.toLowerCase() !== "topological domain").map((r) => ({ x: x(r.start), width: Math.max(1.5, x(r.end) - x(r.start)) })),
+    queryX: Number.isFinite(ev.residue) ? x(ev.residue) : null,
+    window: { x: x(win.start), width: Math.max(6, x(win.end) - x(win.start)) },
+    ends: [
+      { x: x0, y: 35, text: "1", anchor: "start", size: 10, mono: true, tone: "muted" },
+      { x: x1, y: 35, text: String(ev.length), anchor: "end", size: 10, mono: true, tone: "muted" },
+    ],
+  };
 }
 
 const CHAR = 0.58; // approximate advance per character, as a fraction of the font size
@@ -129,14 +199,12 @@ export function layoutArchitecture(
   const bb = pinHeadAbove + 34; // backbone centre
   const bh = 12;
   const hasStructural = ev.structuralDomains.length > 0;
-  const hasSS = ev.secondaryStructure.length > 0;
+  const hasSS = ev.secondaryStructure.length > 0 && span <= SECONDARY_MAX_SPAN;
   const g3Y = bb + 21;
   const ssY = bb + (hasStructural ? 31 : 20);
   const belowTop = hasSS ? ssY + 16 : hasStructural ? g3Y + 12 : bb + 24;
   const belowTiers = 3;
   const belowRowY = (t: number) => belowTop + 12 + t * labelTier;
-  const axisY = belowRowY(belowTiers - 1) + 24;
-  const height = axisY + 22;
 
   let hiddenLabels = 0;
 
@@ -156,11 +224,18 @@ export function layoutArchitecture(
         const name = d.name;
         const src = d.accession ? `${d.source} ${d.accession}` : d.source;
         const showEnds = w > 80 && inWin(s.start) && inWin(s.end);
+        // An end number the variant's stem would cross is left off; the range is in the table and the title.
+        const crossed = (l: ArchLabel) => {
+          if (queryX === null) return false;
+          const w = textWidth(l.text, l.size);
+          const [lo, hi] = l.anchor === "start" ? [l.x, l.x + w] : [l.x - w, l.x];
+          return queryX > lo - 4 && queryX < hi + 4;
+        };
         const ends: ArchLabel[] = showEnds
-          ? [
+          ? ([
               { x: a + 7, y: bb + 4, text: String(s.start), anchor: "start", size: 10.5, mono: true, tone: "secondary" },
               { x: b - 7, y: bb + 4, text: String(s.end), anchor: "end", size: 10.5, mono: true, tone: "secondary" },
-            ]
+            ] as ArchLabel[]).filter((l) => !crossed(l))
           : [];
         const lo = a + (showEnds ? 14 + textWidth(String(s.start), 10.5) : 6);
         const hi = b - (showEnds ? 14 + textWidth(String(s.end), 10.5) : 6);
@@ -191,7 +266,7 @@ export function layoutArchitecture(
       .map((s, i) => ({ key: `${d.key}-${i}`, x: x(s.start), width: Math.max(2, x(s.end) - x(s.start)), y: g3Y }))
   );
 
-  const secondary = ev.secondaryStructure
+  const secondary = (hasSS ? ev.secondaryStructure : [])
     .filter((e) => e.kind !== "turn" && e.end >= win.start && e.start <= win.end)
     .map((e) => ({ kind: e.kind, x: x(e.start), width: Math.max(1.5, x(e.end + 1) - x(e.start)), y: ssY }));
 
@@ -266,20 +341,23 @@ export function layoutArchitecture(
     const text = p.labelled ? p.r.shortLabel : "";
     const lw = textWidth(text, size);
     let labelled = p.labelled;
+    // Below the backbone labels run to the right of their mark; near the right edge of the drawing (a zoomed
+    // window ends just after the mark) the label goes to the left instead, rather than off the drawing.
+    const flip = !above && labelled && px + 10 + lw > W - 4;
     const t = above
       ? place(upper, [[px - Math.max(6, lw / 2), px + Math.max(6, lw / 2)]], px, aboveTiers)
-      : place(lower, labelled ? [[px - 6, px + 6], [px + 10, px + 10 + lw]] : [[px - 6, px + 6]], px, belowTiers);
+      : place(lower, labelled ? [[px - 6, px + 6], flip ? [px - 10 - lw, px - 10] : [px + 10, px + 10 + lw]] : [[px - 6, px + 6]], px, belowTiers);
     const tier = t < 0 ? (above ? 0 : belowTiers - 1) : t;
     if (t < 0) labelled = false;
     if (p.labelled && !labelled) hiddenLabels++;
-    return { ...p, px, above, size, text, lw, tier, labelled };
+    return { ...p, px, above, size, text, lw, tier, labelled, flip };
   });
 
   // Pass 2: a label may not be crossed by another mark's stem or sit on another head. In either band a
   // stem from tier j passes every tier below j, so any mark at tier >= t inside the label's span hides it.
   for (const p of placed) {
     if (!p.labelled) continue;
-    const [l, r] = p.above ? [p.px - p.lw / 2, p.px + p.lw / 2] : [p.px + 10, p.px + 10 + p.lw];
+    const [l, r] = p.above ? [p.px - p.lw / 2, p.px + p.lw / 2] : p.flip ? [p.px - 10 - p.lw, p.px - 10] : [p.px + 10, p.px + 10 + p.lw];
     const crossed = placed.some((o) => o !== p && o.above === p.above && o.tier >= p.tier && o.px + 5 > l && o.px - 5 < r);
     if (crossed) {
       p.labelled = false;
@@ -293,7 +371,9 @@ export function layoutArchitecture(
       ? null
       : p.above
         ? { x: p.px, y: headY - 9, text: p.text, anchor: "middle", size: p.size, mono: true, tone: "secondary" }
-        : { x: p.px + 10, y: headY + 4, text: p.text, anchor: "start", size: p.size, mono: true, tone: "secondary" };
+        : p.flip
+          ? { x: p.px - 10, y: headY + 4, text: p.text, anchor: "end", size: p.size, mono: true, tone: "secondary" }
+          : { x: p.px + 10, y: headY + 4, text: p.text, anchor: "start", size: p.size, mono: true, tone: "secondary" };
     pins.push({
       key: p.part === 1 ? p.r.key : `${p.r.key}#${p.part}`,
       rowKey: p.r.key,
@@ -301,7 +381,7 @@ export function layoutArchitecture(
       x: p.px,
       // Over a domain box the stem starts on the box's top edge, not inside it, so it never runs
       // through the box's label.
-      stemFrom: p.above ? (domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2) : hasSS ? ssY + 8 : hasStructural ? g3Y + 4 : bb + bh / 2,
+      stemFrom: p.above ? (domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2) : hasSS ? ssY + 8 : hasStructural ? g3Y + 4 : domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? bb + 15 : bb + bh / 2,
       y: headY,
       shape: p.above ? "dot" : "diamond",
       tone: evidenceTone(p.r),
@@ -329,6 +409,15 @@ export function layoutArchitecture(
           label: { x: qx, y: queryLabelY, text: qText, anchor: "middle" as const, size: 12.5, mono: true, weight: 600, tone: "accent" as const },
         }
       : null;
+
+  // Vertical extent below the backbone follows what was drawn: only the label tiers used, then the topology
+  // lane, then the axis.
+  const lowerUsed = placed.filter((p) => !p.above).reduce((n, p) => Math.max(n, p.tier + 1), 0);
+  const sitesBottom = lowerUsed ? belowRowY(lowerUsed - 1) + 10 : belowTop - 4;
+
+  const membrane = layoutMembrane(ev, x, win, selectedKey, sitesBottom + 14, qx);
+  const axisY = (membrane ? membrane.bottom : sitesBottom) + 18;
+  const height = axisY + 22;
 
   // Axis.
   const step = niceStep(span, Math.max(3, Math.floor((x1 - x0) / 90)));
@@ -363,5 +452,89 @@ export function layoutArchitecture(
     axisY,
     termini,
     hiddenLabels,
+    membrane,
+    showSecondary: hasSS,
   };
+}
+
+const MEM = { railLabel: 10.5, tm: 9.5 };
+
+/** Inside rail: UniProt names the cytoplasmic side; every other topological domain is the far side. */
+const isInside = (name: string) => /cytoplasm|matrix|stroma/i.test(name);
+
+function layoutMembrane(
+  ev: Pick<FunctionEvidence, "rows">,
+  x: (r: number) => number,
+  win: ArchWindow,
+  selectedKey: string | null,
+  top: number,
+  qx: number | null
+): ArchMembrane | null {
+  const rows = ev.rows.filter((r) => r.lane === "membrane" && r.end >= win.start && r.start <= win.end);
+  if (!rows.length) return null;
+  // A window that shows only the inside rail (a cytoplasmic domain, no helix) needs one line, not the full lane.
+  const topoRows = rows.filter((q) => q.type.toLowerCase() === "topological domain");
+  const hasBars = rows.length > topoRows.length;
+  const hasOutside = hasBars || topoRows.some((q) => !isInside(q.name));
+  const outsideY = hasOutside ? top + 15 : top + 9;
+  const insideY = hasOutside ? outsideY + 22 : outsideY;
+  const bottom = insideY + 24;
+
+  const rails: ArchMembrane["rails"] = [];
+  const widest = new Map<string, { side: "outside" | "inside"; lo: number; hi: number }>();
+  for (const r of rows.filter((q) => q.type.toLowerCase() === "topological domain")) {
+    const side = isInside(r.name) ? "inside" : "outside";
+    const a = x(Math.max(r.start, win.start));
+    const b = x(Math.min(r.end, win.end));
+    rails.push({ key: r.key, rowKey: r.key, side, start: r.start, end: r.end, x: a, width: Math.max(2, b - a), y: side === "inside" ? insideY : outsideY });
+    const best = widest.get(r.name);
+    if (!best || b - a > best.hi - best.lo) widest.set(r.name, { side, lo: a, hi: b });
+  }
+
+  const labels: ArchLabel[] = [];
+  for (const [name, w] of widest) {
+    if (w.hi - w.lo < textWidth(name, MEM.railLabel) + 14) continue;
+    labels.push({
+      x: (w.lo + w.hi) / 2,
+      y: w.side === "inside" ? insideY + 17 : outsideY - 7,
+      text: name,
+      anchor: "middle",
+      size: MEM.railLabel,
+      tone: "secondary",
+    });
+  }
+
+  // One label style per lane: "TM4" only when every helix is wide enough for it, else bare numbers, so a
+  // row of bars never mixes the two.
+  const tmRows = rows.filter((q) => q.type.toLowerCase() === "transmembrane");
+  const widthOf = (r: AnnotationRow) => Math.max(3, x(Math.min(r.end, win.end)) - x(Math.max(r.start, win.start)));
+  const prefixed = tmRows.length > 0 && tmRows.every((r) => textWidth(r.shortLabel, MEM.tm) + 4 <= widthOf(r));
+  const bars: ArchMembrane["bars"] = rows
+    .filter((q) => q.type.toLowerCase() !== "topological domain")
+    .map((r) => {
+      const a = x(Math.max(r.start, win.start));
+      const b = x(Math.min(r.end, win.end));
+      const kind = r.type.toLowerCase() === "intramembrane" ? "im" : "tm";
+      const w = Math.max(3, b - a);
+      const full = r.shortLabel;
+      const num = full.replace(/^TM/, "");
+      const text = kind === "im" ? null : prefixed ? full : num && textWidth(num, MEM.tm) + 2 <= w ? num : null;
+      const h = kind === "im" ? 12 : insideY - outsideY + 4;
+      const y = kind === "im" ? (outsideY + insideY) / 2 - 6 : outsideY - 2;
+      return {
+        key: r.key,
+        rowKey: r.key,
+        kind,
+        start: r.start,
+        end: r.end,
+        x: a,
+        width: w,
+        y,
+        h,
+        selected: r.key === selectedKey,
+        label: text ? { x: a + w / 2, y: (outsideY + insideY) / 2 + 3.5, text, anchor: "middle" as const, size: MEM.tm, mono: true, tone: "ink" as const } : null,
+      };
+    });
+
+  return { top, bottom, outsideY, insideY, rails, bars, labels, queryX: qx };
 }

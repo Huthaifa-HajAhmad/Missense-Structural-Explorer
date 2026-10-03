@@ -8,6 +8,7 @@ import {
   StreamState,
   ErrorImpact,
   TraceRun,
+  TraceRunFinishStatus,
   TraceSpan,
   PipelineStage,
   SessionContext
@@ -43,13 +44,21 @@ function loadInitialTraces(): TraceRun[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      // A run that was mid-flight when the page unloaded will never finish; leaving it "running"
-      // would shimmer forever, so settle it as interrupted.
+      /*
+       * A run that was mid-flight when the page unloaded will never finish; leaving it "running"
+       * would shimmer forever, so settle it as interrupted.
+       *
+       * The RUN is settled as `cancelled`, not `failed`: nothing failed — the page went away, which is
+       * the same class of outcome as a superseded run, and `cancelled` is the word for it. The spans
+       * that never closed keep their settled status and the sentence that explains why, because a
+       * SPAN's vocabulary has no "cancelled" and the error text is the honest record of the operation
+       * that was cut off.
+       */
       return (parsed as TraceRun[]).map((run) => {
         if (run.status !== "running" && !run.spans.some((s) => s.status === "running")) return run;
         return {
           ...run,
-          status: "failed" as const,
+          status: "cancelled" as const,
           spans: run.spans.map((s) =>
             s.status === "running" ? { ...s, status: "failed" as const, error: "Interrupted by page reload" } : s
           ),
@@ -320,6 +329,31 @@ function devConsoleReducer(state: DevConsoleState, action: DevConsoleAction): De
     case "FINISH_TRACE_RUN": {
       const updatedRuns = state.traceRuns.map((run) => {
         if (run.traceId === action.traceId) {
+          /*
+           * IDEMPOTENT: a run that has already ended keeps its outcome AND its ending time.
+           *
+           * Two flows can now close the same run — the abort wrapper cancels the current run the moment
+           * the reader moves on, and the superseded flow's own `finally` reports how IT ended some
+           * moment later. Last-write-wins would let that late report overwrite the cancellation with
+           * "completed" (claiming an analysis that never finished), and would let a cancellation
+           * overwrite a genuine "completed" for the same reason. The first terminal verdict is the true
+           * one, because it is the one that observed the run stop.
+           *
+           * The ending time is stamped on that first terminal write, and never restamped: a restamp
+           * would silently extend a run's duration to whenever the late report happened to arrive.
+           */
+          if (run.status !== "running") return run;
+
+          /*
+           * The ending time is stamped HERE, so a finished run always has one — including a run whose
+           * spans never closed (a superseded run's in-flight operation) and a run with no spans at all,
+           * which is exactly the shape a cancelled run can have. `Math.max(maxEnd, 1)` keeps a
+           * zero-length run at 1ms rather than 0, so "not recorded" and "instant" stay distinguishable.
+           *
+           * An explicit status always wins: a caller that says `cancelled` is reporting a run that
+           * stopped without a fault, and the span-derived fallback must not re-label it `failed` because
+           * one operation happened to fail before the reader moved on.
+           */
           const maxEnd = Math.max(...run.spans.map((s) => s.offsetMs + s.durationMs), Date.now() - run.timestamp);
           const hasFailedSpan = run.spans.some((s) => s.status === "failed");
           return {
@@ -369,7 +403,7 @@ export interface DevConsoleContextValue {
   startTraceRun: (query: string, customTraceId?: string) => string;
   addTraceSpan: (span: Omit<TraceSpan, "id">) => void;
   updateTraceSpan: (traceId: string, spanName: string, updates: Partial<TraceSpan>) => void;
-  finishTraceRun: (traceId: string, status?: "completed" | "failed") => void;
+  finishTraceRun: (traceId: string, status?: TraceRunFinishStatus) => void;
   exportTraceRuns: () => void;
 }
 
@@ -509,7 +543,13 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_TRACE_SPAN", traceId, spanName, updates });
   }, []);
 
-  const finishTraceRun = useCallback((traceId: string, status?: "completed" | "failed") => {
+  /**
+   * End a trace run.
+   *
+   * `status` is the caller's own verdict — `completed`, `failed`, or `cancelled` for a run that was
+   * superseded rather than broken. Omitting it keeps the reducer's derivation from the run's spans.
+   */
+  const finishTraceRun = useCallback((traceId: string, status?: TraceRunFinishStatus) => {
     dispatch({ type: "FINISH_TRACE_RUN", traceId, status });
   }, []);
 

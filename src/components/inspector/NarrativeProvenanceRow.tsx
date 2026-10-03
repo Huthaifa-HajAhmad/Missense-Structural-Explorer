@@ -4,6 +4,8 @@ import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { deriveAiStatus } from "../report/reportStatus";
+import { narrativeFreshness, readNarrativeEvidenceStamp, narrativeDeepEvidenceStatus } from "../../shared/narrativeEvidence";
+import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import { NARRATIVE_SYNTHESIS, describeSampling } from "../../shared/narrativeSynthesis";
 import { deriveNarrativeAuthorship } from "../../shared/narrativeAuthorship";
 
@@ -34,8 +36,9 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
   analysisResult,
   isNarrativeLoading = false,
 }) => {
-  const { hasConfiguredGeminiKey, serverGeminiReady } = useSettings();
+  const { hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
   const isKeyActive = hasConfiguredGeminiKey || serverGeminiReady;
+  const narrativeContext = useNarrativeEvidenceContext(settings?.saprotEngine);
 
   const narrative = analysisResult?.analysis ?? "";
 
@@ -55,8 +58,10 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         providerDetail: analysisResult?.providerDetail,
         attemptedModels: analysisResult?.attemptedModels,
         isKeyActive,
-        hasNarrative: Boolean(narrative),
+        hasNarrative: Boolean(narrative && (!analysisResult?.metadata?.pipelineRunId || readNarrativeEvidenceStamp(analysisResult))),
         isNarrativeLoading,
+        narrativeMode: settings?.narrativeMode,
+        narrativeOutdated: narrativeFreshness(analysisResult, narrativeContext) === "outdated",
       }),
     [
       isDegraded,
@@ -68,11 +73,15 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
       isKeyActive,
       narrative,
       isNarrativeLoading,
+      settings?.narrativeMode,
+      analysisResult,
+      narrativeContext,
     ]
   );
 
   const model = (analysisResult?.insights as { model?: string } | undefined)?.model;
   const attempted = analysisResult?.attemptedModels ?? [];
+  const deepEvidence = narrativeDeepEvidenceStatus(analysisResult, narrativeContext);
 
   /**
    * Who wrote the prose, from the shared predicate rather than from `source` alone.
@@ -84,7 +93,8 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
    * can never be AI-authored whatever the payload field says).
    */
   const declaredSource = (analysisResult?.insights as { source?: string } | undefined)?.source;
-  const authorship = deriveNarrativeAuthorship({ analysis: narrative, isDegraded, declaredSource });
+  const authorship = analysisResult?.metadata?.pipelineRunId && !readNarrativeEvidenceStamp(analysisResult)
+    ? "none" : deriveNarrativeAuthorship({ analysis: narrative, isDegraded, declaredSource });
   const proseIsAi = authorship === "ai";
 
   const StatusIcon = isNarrativeLoading
@@ -120,7 +130,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         </div>
       ))}
 
-      {!proseIsAi && narrative && (
+      {authorship === "rule-based" && narrative && (
         <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">
           No model produced this text. It was assembled from retrieved database evidence and the
           deterministic ACMG rules, so every statement in it traces to a source.
@@ -153,6 +163,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
         * was invisible in the other.
         */}
       <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">{status.detail}</p>
+      {deepEvidence.present.length > 0 && <p className="text-[10.5px] leading-relaxed text-cs-text-muted m-0">Synthesis supports the current deep-model observations. They do not create additional counted ACMG criteria.</p>}
 
       {attempted.length > 0 && (
         <div

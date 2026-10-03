@@ -60,10 +60,10 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
       <section className="fnd-rsec" aria-labelledby="fnd-rail-levels">
         <h3 className="eyebrow" id="fnd-rail-levels">
           <Ruler className="w-3.5 h-3.5" />
-          Evidence levels · UniProt ECO tags
+          Evidence levels · in this entry
         </h3>
         <ul className="fnd-cuts" data-testid="evidence-levels">
-          {EVIDENCE_LEVEL_CODES.map((l) => (
+          {EVIDENCE_LEVEL_CODES.filter((l) => levelsHere.size === 0 || levelsHere.has(l.level)).map((l) => (
             <li key={l.level} className="fnd-cut" data-present={levelsHere.has(l.level) || undefined}>
               <span className="fnd-cut__label">{EVIDENCE_LEVEL_LABEL[l.level]}</span>
               <span className="fnd-cut__rule">{l.codes}</span>

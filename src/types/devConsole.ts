@@ -63,13 +63,29 @@ export interface TraceSpan {
   meta?: Record<string, unknown>;
 }
 
+/**
+ * A trace run's outcome.
+ *
+ * `cancelled` is DISTINCT from `failed`, and that distinction is the whole point of this type:
+ * a superseded run — the reader moved on, a new analysis started, the panel was aborted — stopped
+ * without any provider or pipeline error. Recording it as `failed` would write a fault into the
+ * diagnostics that nobody observed (the same claim `narrativeFallback.ts` and `engineStatus.ts`
+ * refuse elsewhere), while leaving it as `running` is what a superseded run used to become: a row
+ * that never ends, keeps the "in flight" reading alive, and is indistinguishable from work still
+ * happening.
+ */
+export type TraceRunStatus = "running" | "completed" | "failed" | "cancelled";
+
+/** The outcomes a caller may SET when finishing a run: `running` is where a run starts, not an end. */
+export type TraceRunFinishStatus = Exclude<TraceRunStatus, "running">;
+
 /** Complete pipeline trace execution run */
 export interface TraceRun {
   traceId: string;
   query: string;
   timestamp: number;
   totalDurationMs: number;
-  status: "running" | "completed" | "failed";
+  status: TraceRunStatus;
   spans: TraceSpan[];
 }
 
@@ -124,6 +140,6 @@ export type DevConsoleAction =
   | { type: "START_TRACE_RUN"; traceId: string; query: string; timestamp?: number }
   | { type: "ADD_TRACE_SPAN"; span: Omit<TraceSpan, "id"> }
   | { type: "UPDATE_TRACE_SPAN"; traceId: string; spanName: string; updates: Partial<TraceSpan> }
-  | { type: "FINISH_TRACE_RUN"; traceId: string; status?: "completed" | "failed" }
+  | { type: "FINISH_TRACE_RUN"; traceId: string; status?: TraceRunFinishStatus }
   | { type: "SET_ACTIVE_TRACE_RUN"; traceId: string }
   | { type: "CLEAR_TRACES" };

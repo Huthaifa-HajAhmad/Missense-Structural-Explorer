@@ -9,13 +9,16 @@ import {
   SPLICE_GROUP_LABEL,
   SPLICE_GROUP_NOTE,
   buildSplicingEvidence,
+  SPLICE_MAP_FLOOR,
+  formatDelta,
   groupSpliceReadings,
   splicingFinding,
   type SpliceReading,
   type SplicingEvidence,
 } from "../../shared/splicingEvidence";
 import { SpliceRuler } from "./splicing/SpliceRuler";
-import { JunctionDiagram } from "./splicing/JunctionDiagram";
+import { SpliceMap } from "./splicing/SpliceMap";
+import { SpliceWindowControl } from "./splicing/SpliceWindowControl";
 
 /**
  * RNA splicing.
@@ -28,8 +31,9 @@ import { JunctionDiagram } from "./splicing/JunctionDiagram";
  *      beside it with any tension between the two stated in words.
  *   2. READINGS — one table: SpliceAI, its four channels, then the context that is never counted
  *      (dbscSNV on its authors' cut-point, AlphaGenome's splicing attribution).
- *   3. WHERE IT SITS — the junction to scale, with dbscSNV's real window and the canonical
- *      dinucleotide, and the transcript facts behind it.
+ *   3. WHERE IT SITS — the splice map: the exon and its annotated sites on one axis from the variant,
+ *      SpliceAI's predicted gains and losses at their delta positions, dbscSNV's real window, and the
+ *      transcript facts behind it.
  *
  * It replaced five KPI cards, a "mechanistic etiology" verdict that declared pathogenicity "driven by
  * protein misfolding" from a FoldX/REVEL/AlphaMissense OR-rule (with splicing unassessed), a
@@ -51,7 +55,9 @@ function RuleChip({ ev }: { ev: SplicingEvidence }) {
     return (
       <span
         className="ev-tier chip-code spl-verdict spl-verdict--unapplied"
-        data-tone="accent"
+        // Toned by direction like the table row and the rail; the dash alone says "not applied".
+        // A clay BP4 beside the red PP3 band read as pathogenic.
+        data-tone={rule.code === "PP3" ? "danger" : "good"}
         data-testid="splicing-verdict"
         title="What the ClinGen splicing rule supports. The ACMG engine does not apply splicing criteria, so this is not a recorded code."
         aria-label={`${rule.code} for splicing impact, supported by the splicing rule, not applied by the engine`}
@@ -138,6 +144,40 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
   );
 }
 
+/**
+ * SpliceAI's four channels as one row of four cells. They were four table rows, each a lone name
+ * in a wide column and a ruler that — with no bands on it — said only what the number beside it
+ * said; at the usual near-zero scores that was four identical dots. The maximum's ruler is the
+ * hero's; here the question is only which channel and where.
+ */
+function ChannelsRow({ rows }: { rows: SpliceReading[] }) {
+  return (
+    <tr className="spl-channels-row">
+      <td colSpan={4}>
+        <ul className="spl-channels" aria-label="SpliceAI delta score per channel">
+          {rows.map(r => {
+            const isMax = r.call?.label === "Maximum";
+            return (
+              <li key={r.key} className="spl-channel" data-max={isMax || undefined} data-testid={`splice-${r.key}`}>
+                <span className="spl-channel__name">
+                  {r.name}
+                  {isMax && <span className="ev-tier" data-tone="accent">Maximum</span>}
+                </span>
+                <span className="spl-channel__value">
+                  <span className="spl-mono">{r.scoreText}</span>
+                  {r.sub && <span className="spl-channel__pos">{r.sub}</span>}
+                </span>
+                <span className="spl-channel__desc">{r.description}</span>
+                {r.note && <span className="spl-channel__site">{r.note}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      </td>
+    </tr>
+  );
+}
+
 function ReadingRow({
   reading,
   onKnowledge,
@@ -205,18 +245,53 @@ function ReadingRow({
       <td className="spl-status">
         {has ? (
           reading.call ? (
-            <span className={`ev-tier${reading.call.isCode ? " chip-code" : ""}`} data-tone={reading.call.tone}>
+            <span
+              className={`ev-tier${reading.call.isCode ? " chip-code" : ""}${reading.call.unapplied ? " spl-verdict--unapplied" : ""}`}
+              data-tone={reading.call.tone}
+              title={reading.call.unapplied ? "Supported by the splicing rule; the ACMG engine does not apply it" : undefined}
+            >
               {reading.call.label}
             </span>
           ) : null
         ) : (
-          <span className="ev-tier" data-tone={pending ? "neutral" : "muted"}>
+          <span className="ev-tier" data-tone={pending ? "neutral" : reading.availability.tone === "warn" ? "warning" : "muted"}>
             {pending ? ENGINE_STATE_LABELS.running : reading.availability.label ?? ENGINE_STATE_LABELS["no-result"]}
           </span>
         )}
       </td>
     </tr>
   );
+}
+
+/** Only what the figure draws: a legend entry for a mark that is not there is noise. */
+function MapLegend({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
+  return (
+    <div className="spl-geo__legend" aria-hidden="true">
+      <span><i className="spl-key" data-kind="exon" />Exon</span>
+      <span><i className="spl-key" data-kind="site" />Annotated splice site</span>
+      <span><i className="spl-key" data-kind="window" />dbscSNV window</span>
+      {map.predictions.length > 0 && (
+        <>
+          <span><i className="spl-key" data-kind="gain" />SpliceAI gain</span>
+          <span><i className="spl-key" data-kind="loss" />SpliceAI loss</span>
+        </>
+      )}
+      <span><i className="spl-key" data-kind="variant" />This variant</span>
+    </div>
+  );
+}
+
+/** What the figure leaves out, and what its positions mean — in words, under it. */
+function MapNote({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
+  const parts: string[] = [];
+  if (map.predictionsNote) parts.push(map.predictionsNote);
+  else if (map.predictions.length === 0 && map.belowFloor === 0) parts.push("SpliceAI returned no score for this variant, so no predicted site is drawn.");
+  else if (map.predictions.length === 0) parts.push(`No SpliceAI channel reaches ${SPLICE_MAP_FLOOR} anywhere in its window, so no predicted site is drawn.`);
+  else if (map.belowFloor > 0) parts.push(`${map.belowFloor === 1 ? "One channel scores" : `${map.belowFloor} channels score`} below ${SPLICE_MAP_FLOOR} and ${map.belowFloor === 1 ? "is" : "are"} not drawn.`);
+  if (map.predictions.some(x => x.atSite)) parts.push("A predicted change on an annotated site is that site weakening or strengthening; one in open sequence is a cryptic site.");
+  if (map.exon.start === null || map.exon.end === null) parts.push("The exon's length was not resolved, so it runs off the edge.");
+  if (parts.length === 0) return null;
+  return <p className="spl-geo__note" data-testid="map-note">{parts.join(" ")}</p>;
 }
 
 export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }: TabComponentProps) {
@@ -234,8 +309,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
   const finding = splicingFinding(ev);
   const { geometry: g, rule } = ev;
   const spliceRow = ev.readings.find(r => r.key === "spliceai")!;
-  const dbsc = ev.dbscsnv;
-  const agRow = ev.readings.find(r => r.key === "alphagenome-splicing")!;
+  const map = ev.map;
   const positionText = g.position !== null ? `${g.position > 0 ? "+" : "−"}${Math.abs(g.position)}` : null;
 
   return (
@@ -263,11 +337,10 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
 
           <div className="spl-hero__figure">
             <span className="spl-figure" data-empty={rule.maxDs === null || undefined}>
-              {rule.maxDs !== null ? rule.maxDs.toFixed(2) : "—"}
+              {rule.maxDs !== null ? formatDelta(rule.maxDs) : "—"}
             </span>
             <span className="spl-hero__figure-label">
-              SpliceAI max Δ{spliceRow.sub ? ` · ${spliceRow.sub}` : ""}
-              {rule.maxShift !== null ? ` at ${rule.maxShift > 0 ? "+" : "−"}${Math.abs(rule.maxShift)} bp` : ""}
+              SpliceAI max Δ
             </span>
           </div>
 
@@ -302,22 +375,11 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
               <span className="spl-fact__sub">{g.exonLabel}{g.regionType ? ` · ${g.regionType}` : ""}</span>
             </div>
             <div className="spl-fact">
-              <dt>dbscSNV</dt>
-              <dd>
-                {dbsc.max !== null ? (
-                  <span className="spl-mono">{dbsc.max.toFixed(3)}</span>
-                ) : g.inDbscsnvWindow === false ? (
-                  "Outside its window"
-                ) : (
-                  ENGINE_STATE_LABELS["no-result"]
-                )}
-              </dd>
-              <span className="spl-fact__sub">Authors&apos; cut-point {THRESHOLDS.dbscsnv.spliceAltering} · not counted</span>
-            </div>
-            <div className="spl-fact">
-              <dt>AlphaGenome splicing</dt>
-              <dd>{agRow.score !== null ? <span className="spl-mono">{agRow.scoreText}</span> : agRow.availability.label}</dd>
-              <span className="spl-fact__sub">{agRow.score !== null ? "of the AVI attribution" : "Informational"}</span>
+              <dt>SpliceAI source</dt>
+              <dd>{rule.maxDs !== null ? ev.spliceai.provenance?.computedLive === false ? "Precomputed table" : ev.spliceai.provenance?.source === "broad-lookup" ? "Broad Lookup · live" : "Source not stated" : ev.spliceai.availability.label ?? ENGINE_STATE_LABELS["no-result"]}</dd>
+              <span className="spl-fact__sub">
+                {rule.maxDs !== null ? `${ev.spliceai.windowText} window · ${ev.spliceai.maskText.toLowerCase()} scores` : "No score to attribute"}
+              </span>
             </div>
             <div className="spl-fact">
               <dt>Engine record</dt>
@@ -337,12 +399,21 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
 
       {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
       <section className="spl-section" aria-labelledby="spl-readings-title">
-        <h2 className="eyebrow" id="spl-readings-title">
-          <ListChecks className="w-3.5 h-3.5" />
-          Splice readings
-        </h2>
+        <div className="spl-section__head">
+          <h2 className="eyebrow" id="spl-readings-title">
+            <ListChecks className="w-3.5 h-3.5" />
+            Splice readings
+          </h2>
+          <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />
+        </div>
         <div className="spl-card spl-table-wrap">
           <table className="spl-table" data-testid="splicing-readings">
+            <colgroup>
+              <col className="spl-col-subject" />
+              <col className="spl-col-score" />
+              <col />
+              <col className="spl-col-status" />
+            </colgroup>
             <thead>
               <tr>
                 <th scope="col">Source</th>
@@ -361,15 +432,17 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
                     </span>
                   </th>
                 </tr>
-                {rows.map(r => (
-                  <ReadingRow key={r.key} reading={r} onKnowledge={setKnowledgeKey} onTabChange={onTabChange} />
-                ))}
+                {group === "channels" ? (
+                  <ChannelsRow rows={rows} />
+                ) : (
+                  rows.map(r => <ReadingRow key={r.key} reading={r} onKnowledge={setKnowledgeKey} onTabChange={onTabChange} />)
+                )}
               </tbody>
             ))}
           </table>
           <div className="spl-table-foot" aria-label="Legend">
-            <span className="spl-legend__item"><i className="spl-legend__band" data-side="path" />PP3 (splicing) ≥ {THRESHOLDS.spliceai.splicingPp3.toFixed(1)}</span>
-            <span className="spl-legend__item"><i className="spl-legend__band" data-side="benign" />BP4 (splicing) &lt; {THRESHOLDS.spliceai.splicingBp4Below.toFixed(1)}</span>
+            <span className="spl-legend__item"><i className="spl-legend__band" data-side="path" />PP3 · splicing ≥ {THRESHOLDS.spliceai.splicingPp3.toFixed(1)}</span>
+            <span className="spl-legend__item"><i className="spl-legend__band" data-side="benign" />BP4 · splicing &lt; {THRESHOLDS.spliceai.splicingBp4Below.toFixed(1)}</span>
             <span className="spl-legend__item"><i className="spl-legend__tick" />Authors&apos; cut-point</span>
             <span className="spl-legend__item"><i className="spl-legend__marker" />This variant</span>
           </div>
@@ -383,49 +456,51 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
           Where the variant sits
         </h2>
         <div className="spl-card spl-geo">
-          {g.position !== null ? (
-            <>
-              <p className="spl-geo__lead">
-                <strong>{positionText} from the {g.junction}</strong> — {g.positionPhrase}.{" "}
-                {g.isCanonicalDinucleotide
-                  ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
-                  : g.inDbscsnvWindow
-                  ? "Inside dbscSNV's window."
-                  : "Outside dbscSNV's window and the canonical dinucleotide."}{" "}
-                Distance from a junction is context; it is not evidence for or against a splicing effect.
+          <div className="spl-geo__main">
+            {g.position !== null ? (
+              <div className="spl-geo__drawing">
+                <p className="spl-geo__lead">
+                  <strong>{positionText} from the {g.junction}</strong> — {g.positionPhrase}.{" "}
+                  {g.isCanonicalDinucleotide
+                    ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
+                    : g.inDbscsnvWindow
+                    ? "Inside dbscSNV's window."
+                    : "Outside dbscSNV's window and the canonical dinucleotide."}{" "}
+                  Distance from a junction is context; it is not evidence for or against a splicing effect.
+                </p>
+                {map ? (
+                  <>
+                    <div className="spl-geo__figure">
+                      <SpliceMap map={map} geometry={g} />
+                    </div>
+                    <MapLegend map={map} />
+                    <MapNote map={map} />
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <p className="spl-geo__lead" data-testid="geometry-absent">
+                {g.distance === null
+                  ? ev.pending
+                    ? "Junction geometry is still being resolved."
+                    : g.refusal ?? "The splice resolver returned no junction distance, region or exon bounds for this variant, so nothing is drawn. The SpliceAI score above does not depend on it."
+                  : g.junction === "terminal"
+                  ? `The nearest boundary, ${g.distance} bp away, is a transcript terminus, not a splice junction, so no splice-site position applies.`
+                  : `The variant is ${g.distance} bp from an exon boundary whose orientation was not resolved, so no splice-site position or window is drawn.`}
               </p>
-              <div className="spl-geo__figure">
-                <JunctionDiagram geometry={g} />
-              </div>
-              <div className="spl-geo__legend" aria-hidden="true">
-                <span><i className="spl-key" data-kind="exon" />Exon</span>
-                <span><i className="spl-key" data-kind="window" />dbscSNV window</span>
-                <span><i className="spl-key" data-kind="canonical" />Canonical dinucleotide</span>
-                <span><i className="spl-key" data-kind="variant" />This variant</span>
-              </div>
-            </>
-          ) : (
-            <p className="spl-geo__lead" data-testid="geometry-absent">
-              {g.distance === null
-                ? ev.pending
-                  ? "Junction geometry is still being resolved."
-                  : g.refusal ?? "The splice resolver returned no junction distance, region or exon bounds for this variant, so nothing is drawn. The SpliceAI score above does not depend on it."
-                : g.junction === "terminal"
-                ? `The nearest boundary, ${g.distance} bp away, is a transcript terminus, not a splice junction, so no splice-site position applies.`
-                : `The variant is ${g.distance} bp from an exon boundary whose orientation was not resolved, so no splice-site position or window is drawn.`}
-            </p>
-          )}
-
-          <dl className="spl-kv" data-testid="geometry-facts">
-            <div><dt>Transcript</dt><dd className="spl-mono" title={g.ensemblTranscriptId && g.ensemblTranscriptId !== g.transcriptId ? `Ensembl: ${g.ensemblTranscriptId}` : undefined}>{g.transcriptId ?? "Not resolved"}</dd></div>
-            <div><dt>Exon</dt><dd>{g.exonLabel}{g.exonLength !== null ? <span className="spl-dim"> · {g.exonLength.toLocaleString()} bp</span> : null}</dd></div>
-            <div><dt>Adjacent intron</dt><dd>{g.intronLabel}</dd></div>
-            <div><dt>Strand</dt><dd>{g.strandLabel}</dd></div>
-            <div><dt>Nearest boundary</dt><dd>{g.junctionLabel}</dd></div>
-            {g.exonStart !== null && g.exonEnd !== null && (
-              <div><dt>Exon bounds</dt><dd className="spl-mono">{g.exonStart.toLocaleString()}–{g.exonEnd.toLocaleString()}</dd></div>
             )}
-          </dl>
+
+            <dl className="spl-kv" data-testid="geometry-facts">
+              <div><dt>Transcript</dt><dd className="spl-mono" title={g.ensemblTranscriptId && g.ensemblTranscriptId !== g.transcriptId ? `Ensembl: ${g.ensemblTranscriptId}` : undefined}>{g.transcriptId ?? "Not resolved"}</dd></div>
+              <div><dt>Exon</dt><dd>{g.exonLabel}{g.exonLength !== null ? <span className="spl-dim"> · {g.exonLength.toLocaleString()} bp</span> : null}</dd></div>
+              <div><dt>Adjacent intron</dt><dd>{g.intronLabel}</dd></div>
+              <div><dt>Strand</dt><dd>{g.strandLabel}</dd></div>
+              <div><dt>Nearest boundary</dt><dd>{g.junctionLabel}</dd></div>
+              {g.exonStart !== null && g.exonEnd !== null && (
+                <div><dt>Exon bounds</dt><dd className="spl-mono">{g.exonStart.toLocaleString()}–{g.exonEnd.toLocaleString()}</dd></div>
+              )}
+            </dl>
+          </div>
         </div>
       </section>
     </div>

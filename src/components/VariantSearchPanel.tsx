@@ -535,12 +535,16 @@ function VariantSearchPanel({
   const isBiophysicalLoading = useVariantAnalysisStore(s => s.isBiophysicalLoading ?? false);
   const isClinicalLoading = useVariantAnalysisStore(s => s.isClinicalLoading ?? false);
   const isNarrativeLoading = useVariantAnalysisStore(s => s.isNarrativeLoading ?? false);
+  const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const isPocketLoading = useVariantAnalysisStore(s => s.isPocketLoading ?? false);
+  const loadedPdb = useVariantAnalysisStore(s => s.pdbText);
+  // Submission is blocked only during intake/core, never by optional background work.
+  const isForegroundActive = Boolean((propsAnalysisState ?? storeAnalysisState).isLoading || isBiophysicalLoading || isClinicalLoading);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
 
   const actions = useVariantAnalysisActions();
-  const { hasConfiguredGeminiKey, openSettingsTab } = useSettings();
+  const { hasConfiguredGeminiKey, openSettingsTab, settings } = useSettings();
 
   // Active state bindings with direct store reactivity
   const customGene = storeCustomGene;
@@ -579,6 +583,8 @@ function VariantSearchPanel({
     isBiophysicalLoading ||
     isClinicalLoading ||
     isNarrativeLoading ||
+    isStructuralLoading ||
+    Object.values(result?.metadata?.pipelineStages ?? {}).some(outcome => outcome === "running") ||
     isFolding ||
     isPocketLoading
   );
@@ -876,7 +882,8 @@ function VariantSearchPanel({
       isPocketLoading,
       dynamut2Status,
       ddmutStatus,
-      isNarrativeLoading
+      isNarrativeLoading,
+      hasStructureCoordinates: Boolean(loadedPdb)
     });
     /**
      * Display labels for the workflow states. "In Progress" was retired — it is in
@@ -906,10 +913,10 @@ function VariantSearchPanel({
   const hasRun = Boolean(result) || isPipelineActive;
   const progressPct = Math.round((settledCount / WORKFLOW_STAGES.length) * 100);
 
-  const pipelineStatusLabel = isPipelineActive
-    ? "Running"
+  const pipelineStatusLabel = isForegroundActive
+    ? "Loading evidence"
     : result
-    ? "Result loaded"
+    ? isPipelineActive ? "Workspace ready · Enriching" : "Workspace ready"
     : "Pipeline ready";
 
   return (
@@ -919,8 +926,8 @@ function VariantSearchPanel({
         <div className="min-w-0">
           <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
           <p className="mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
-            Give a gene and protein change, or genomic coordinates. Evidence, structure, stability and
-            literature are gathered in parallel.
+            Give a gene and protein change, or genomic coordinates. Evidence, structure and stability
+            arrive independently. AI synthesis is optional.
           </p>
         </div>
 
@@ -1235,7 +1242,11 @@ function VariantSearchPanel({
                   only adds the written interpretation, so it is a note here, never a gate — a gate
                   here was also bypassed by the history chips and the benchmarks, which always ran. */}
               <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                {hasConfiguredGeminiKey ? (
+                {settings?.narrativeMode === "off" ? (
+                  <span>AI synthesis is off. Evidence and classification remain available.</span>
+                ) : settings?.narrativeMode === "on-demand" ? (
+                  <span>AI synthesis is available on demand in Report.</span>
+                ) : hasConfiguredGeminiKey ? (
                   <>
                     <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
                       <CornerDownLeft className="w-3 h-3" />
@@ -1245,7 +1256,7 @@ function VariantSearchPanel({
                   </>
                 ) : (
                   <>
-                    <span>No Gemini key, so the interpretation will be rule-based.</span>
+                    <span>Evidence and rule-based classification work without Gemini.</span>
                     <button
                       type="button"
                       onClick={() => openSettingsTab("connections")}
@@ -1259,11 +1270,11 @@ function VariantSearchPanel({
 
               <button
                 type="submit"
-                disabled={isPipelineActive}
+                disabled={isForegroundActive}
                 aria-label="Analyse variant"
                 className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
               >
-                {isPipelineActive ? (
+                {isForegroundActive ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Analysing…

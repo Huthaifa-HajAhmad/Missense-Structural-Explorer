@@ -12,11 +12,14 @@ import {
   PREDICTOR_GROUP_NOTE,
   buildPredictorEvidence,
   groupReadings,
+  informationalSummary,
   predictorSummary,
   type PredictorEvidence,
   type PredictorReading,
 } from "../../shared/predictorEvidence";
+import { buildLadderEvidence } from "../../shared/ladderEvidence";
 import { ScoreRuler } from "./predictors/ScoreRuler";
+import { StrengthLadder } from "./predictors/StrengthLadder";
 
 /**
  * In-silico predictors.
@@ -25,10 +28,12 @@ import { ScoreRuler } from "./predictors/ScoreRuler";
  * ACMG PP3/BP4 rule make of it? Three tiers, top to bottom — the same shape as Population Data:
  *
  *   1. THE FINDING — a header bar with the engine's recorded code; ONE summary line (engine record,
- *      vote, calibrated reference, and any disagreement in words); then two rows to compare, the
- *      vote as a tally bar and the calibrated single tool ClinGen recommends on its own ruler, each
- *      ending in the code it supports. This replaced a card that stated the count four times,
- *      REVEL's reading three times (one a full-width yellow banner) and every voter's score twice.
+ *      vote, calibrated reference, and any disagreement in words); the STRENGTH LADDER (every tool on
+ *      one shared axis of evidence strength, the variant's band marked; tools with only their authors'
+ *      cut-point show a side, never a strength); then two rows to compare, the vote as a tally bar
+ *      and the calibrated single tool ClinGen recommends on its own ruler, each ending in the code
+ *      it supports. The ladder replaced the Score thresholds tab, which repeated this one.
+ *      This replaced a card that stated the count four times, REVEL's reading three times (one a full-width yellow banner) and every voter's score twice.
  *   2. READINGS — one table, every tool a row: score, its position on its own axis with its
  *      cut-points drawn by provenance, and its call. Grouped by role: the tools that vote, then the
  *      informational ones. This replaced a 4-tab card grid that showed one family at a time, so the
@@ -116,6 +121,8 @@ function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
     { call: "none", rows: voters.missing },
   ];
   const total = groups.reduce((n, g) => n + g.rows.length, 0);
+  // Fixed tool order, the same the readings table uses, so a tool can be tracked between the two.
+  const ordered = evidence.readings.filter(r => r.votes);
   const counted = vote.nVoting;
   return (
     <div className="prd-frow" data-testid="predictor-vote-row">
@@ -130,20 +137,15 @@ function VoteRow({ evidence }: { evidence: PredictorEvidence }) {
           <span className="prd-dim">No voting tool is configured for this analysis.</span>
         ) : (
           <ol className="prd-tally" aria-label="Voting tools by call">
-            {groups
-              .filter(g => g.rows.length > 0)
-              .map(g => (
-                <li key={g.call} className="prd-tally__group" data-call={g.call} style={{ flexGrow: g.rows.length }}>
-                  <ul className="prd-tally__tools">
-                    {g.rows.map(r => (
-                      <li key={r.key} className="prd-tally__tool" title={`${r.name}: ${r.scoreText} — ${r.callLabel}`}>
-                        <i className="prd-tally__seg" aria-hidden="true" />
-                        <span className="prd-tally__name">{r.name}</span>
-                      </li>
-                    ))}
-                  </ul>
+            {ordered.map(r => {
+              const call: VoteCall = r.signal === "pathogenic" ? "path" : r.signal === "benign" ? "benign" : r.signal === "vus" ? "vus" : "none";
+              return (
+                <li key={r.key} className="prd-tally__tool" data-call={call} title={`${r.name}: ${r.scoreText} — ${r.callLabel}`}>
+                  <i className="prd-tally__seg" aria-hidden="true" />
+                  <span className="prd-tally__name">{r.name}</span>
                 </li>
-              ))}
+              );
+            })}
           </ol>
         )}
         {total > 0 && (
@@ -189,7 +191,7 @@ function ReferenceRow({ evidence }: { evidence: PredictorEvidence }) {
       <div className="prd-frow__body">
         {ref && reading ? (
           <>
-            <ScoreRuler reading={reading} />
+            <ScoreRuler reading={reading} thresholds="all" />
             <span className="prd-frow__note">
               <span className="prd-mono">{reading.scoreText}</span>{" "}
               {ref.call.direction ? <>sits in the {formatEvidenceCode(ref.call.code)} band</> : "sits between the PP3 and BP4 bands"}
@@ -252,8 +254,11 @@ function ReadingRow({
   onKnowledge,
   onAction,
   onTabChange,
+  cutLines,
 }: {
   reading: PredictorReading;
+  /** The cut-points in words ("PP3 ≥ 0.644 · 0.773 · 0.932"), so a number can be read off without a hover. */
+  cutLines?: string[];
   onKnowledge: (key: string) => void;
   onAction: (action: NonNullable<PredictorReading["availability"]["action"]>) => void;
   onTabChange?: (tab: string) => void;
@@ -299,7 +304,7 @@ function ReadingRow({
       </td>
       {has ? (
         <td className="prd-scale">
-          <ScoreRuler reading={reading} />
+          <ScoreRuler reading={reading} thresholds="entry" />
           {/* A bare axis already shows there is no cut-point (the legend says so once); the
               caption is kept for every ruler that DRAWS a cut-point, since each carries its source. */}
           {reading.cutpoints.kind !== "none" && (
@@ -308,6 +313,9 @@ function ReadingRow({
               {reading.cutpoints.source ? ` · ${reading.cutpoints.source}` : ""}
             </span>
           )}
+          {cutLines?.map(line => (
+            <span key={line} className="prd-scale__cut">{line}</span>
+          ))}
         </td>
       ) : (
         <td className="prd-reason prd-scale">
@@ -342,7 +350,7 @@ function ReadingRow({
             >
               {formatEvidenceCode(reading.callLabel)}
             </span>
-            {!reading.votes && reading.calibrated?.direction && <span className="prd-call__sub">not counted</span>}
+            {!reading.votes && reading.calibrated && <span className="prd-call__sub">not counted</span>}
           </>
         ) : (
           <span className="ev-tier" data-tone={pending ? "neutral" : "muted"}>
@@ -354,10 +362,66 @@ function ReadingRow({
   );
 }
 
+/**
+ * The models that do not vote, explained for a reader who has not met them: per family, what it
+ * measures, why it sits outside PP3/BP4, how to read its number, and this variant's scores.
+ */
+function InformationalCard({ evidence }: { evidence: PredictorEvidence }) {
+  const families = informationalSummary(evidence);
+  if (families.length === 0) return null;
+  return (
+    <section className="prd-card" aria-labelledby="prd-info-title" data-testid="predictor-informational">
+      <div className="prd-hero__head">
+        <span className="eyebrow" id="prd-info-title">
+          <Info className="w-3.5 h-3.5" />
+          Informational models · not counted
+        </span>
+        <span className="ev-tier" data-tone="muted">Context only</span>
+      </div>
+      <p className="prd-info-lede">
+        <strong>These scores add context but never change the PP3 / BP4 call.</strong> Each is a different
+        kind of evidence, or has no published calibration saying what a given score means for
+        pathogenicity. Read each against its own axis in the table below.
+      </p>
+      {families.map(f => (
+        <div key={f.group} className="prd-fam" data-testid={`predictor-family-${f.group}`}>
+          <div>
+            <span className="prd-fam__name">{f.label}</span>
+            <span className="prd-fam__sub">{f.headline}</span>
+          </div>
+          <div className="prd-fam__body">
+            <p><b>What it measures.</b> {f.what}</p>
+            <p><b>Why it is not counted.</b> {f.why}</p>
+            <p><b>How to read it.</b> {f.read}</p>
+            <p className="prd-fam__scores">
+              {f.readings.map(r => (
+                <span key={r.key}>
+                  {r.name}
+                  <span className="prd-mono">{r.score !== null ? r.scoreText : "—"}</span>
+                  {r.score !== null && r.calibrated && <span>· {formatEvidenceCode(r.callLabel)}</span>}
+                </span>
+              ))}
+            </p>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSettings, onTabChange }: TabComponentProps) {
   const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const { settings, openSettingsTab } = useSettings();
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
+  // Informational groups start collapsed: the card above explains them and the voters are the table's point.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleGroup = (g: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
   const result = analysisState.result;
   if (!result) return null;
 
@@ -369,7 +433,11 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
   });
   const summary = predictorSummary(evidence);
-  const informational = evidence.readings.filter(r => !r.votes && r.score !== null).length;
+  const ladder = buildLadderEvidence({ result, predictor: evidence });
+  const cutLinesByKey = new Map<string, string[]>([
+    ...ladder.ladder.map(l => [l.key, l.cutLines] as [string, string[]]),
+    ...ladder.directional.map(d => [d.key, [d.cutText]] as [string, string[]]),
+  ]);
 
   const openConnections = () => {
     if (onOpenSettings) onOpenSettings();
@@ -412,23 +480,25 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           </span>
         </p>
 
+        <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />
+
         <VoteRow evidence={evidence} />
         <ReferenceRow evidence={evidence} />
 
-        <div className="prd-hero__foot">
-          <span>
-            <strong>Not counted</strong> {informational} informational {informational === 1 ? "score" : "scores"}, listed below
-          </span>
-          {evidence.pending && (
+        {evidence.pending && (
+          <div className="prd-hero__foot">
             <span role="status" className="prd-hero__pending">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               Some scores are still being computed; the rows marked below may fill in.
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </section>
 
-      {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
+      {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
+      <InformationalCard evidence={evidence} />
+
+      {/* ── 3. Readings ────────────────────────────────────────────────────────────────────── */}
       <section className="prd-section" aria-labelledby="prd-readings-title">
         <h2 className="eyebrow" id="prd-readings-title">
           <ListChecks className="w-3.5 h-3.5" />
@@ -446,17 +516,33 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
               <tr>
                 <th scope="col">Tool</th>
                 <th scope="col" className="prd-num">Score</th>
-                <th scope="col" title="The score on the tool's own axis, with its cut-points drawn by source">Position on scale</th>
+                <th scope="col" title="The score on the tool's own axis, with its cut-points drawn by source">
+                  Position on scale <span className="prd-head-sub"><i className="prd-legend__marker" aria-hidden="true" />this variant</span>
+                </th>
                 <th scope="col" className="prd-status">Call</th>
               </tr>
             </thead>
-            {groupReadings(evidence.readings).map(({ group, rows }) => (
-              <tbody key={group} data-group={group}>
+            {groupReadings(evidence.readings).map(({ group, rows }) => {
+              const collapsible = group !== "vote";
+              const open = !collapsible || expanded.has(group);
+              const scored = rows.filter(r => r.score !== null).length;
+              return (
+              <tbody key={group} data-group={group} data-collapsed={open ? undefined : "true"}>
                 <tr className="prd-group">
                   <th colSpan={4} scope="rowgroup">
                     <span className="prd-group__inner">
                       <span className="prd-group__title">{PREDICTOR_GROUP_LABEL[group]}</span>
                       <span className="prd-group__meta">{PREDICTOR_GROUP_NOTE[group]}</span>
+                      {collapsible && (
+                        <button
+                          type="button"
+                          className="prd-group__toggle"
+                          aria-expanded={open}
+                          onClick={() => toggleGroup(group)}
+                        >
+                          {open ? "Hide" : `Show ${scored} of ${rows.length} scored`}
+                        </button>
+                      )}
                     </span>
                   </th>
                 </tr>
@@ -467,10 +553,12 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
                     onKnowledge={setKnowledgeKey}
                     onAction={openConnections}
                     onTabChange={onTabChange}
+                    cutLines={cutLinesByKey.get(r.key)}
                   />
                 ))}
               </tbody>
-            ))}
+              );
+            })}
           </table>
           <div className="prd-table-foot" aria-label="Legend">
             <span className="prd-legend__item"><span className="prd-legend__swatch" aria-hidden="true"><i /><i /><i /></span>PP3 bands, deeper = stronger</span>

@@ -37,13 +37,30 @@
  *     "putative structural impact" line asserted whenever no residue-class rule fired.
  *   • Green/amber tints on RMSD, VdW and ESM3 drift from unsourced local cuts; missing contact
  *     counts printed as 0; ΔSASA of absolute residue area read as burial.
+ *
+ * DEFECTS THIS REPLACED (2026-10 audit, doc/PERTURBATION_REVIEW.md, SLC12A4 p.Gln867His)
+ *   • The hero led with rank bands: "0 of 3 models rank His in the dispreferred half" and "The
+ *     models disagree". ESM-2 and ESMC both gave native Gln nearly all their probability (ΔLLR −5.95
+ *     and −6.98: Gln ~380× and ~1,075× as likely as His), so "upper half" and "most preferred" read
+ *     the substitution the wrong way round. A rank orders what is left after the native residue; on
+ *     its own it says nothing about how strongly the model expects the native. The cross-model
+ *     statement is now the DIRECTION each model reads (the sign of its own ΔLLR, beyond an even-odds
+ *     mark), stated per model with its own odds — never pooled.
+ *   • A near-uniform distribution (SaProt, sequence-only, 4.23 of 4.32 bits) was read as a rank like
+ *     any other. It is now `flat`: no preference to read, outside the direction count.
+ *   • "Disagree" fired whenever two models fell in different rank bands, including two that agreed.
+ *   • A FoldX run that failed read "No FoldX mutant model was built": the pipeline's
+ *     `foldingStatus`/`foldingError` never reached the tab.
+ *   • ESM3 "drift at sequence index 4" for a variant at residue 867: the peak was printed with no
+ *     distance to the variant and no value AT the variant.
  */
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
-import { THRESHOLDS, LOCAL_STRUCTURAL_WINDOW } from "./thresholds/constants";
+import { THRESHOLDS, LOCAL_STRUCTURAL_WINDOW, STRUCTURE_COLOUR_BANDS } from "./thresholds/constants";
 import { UNMEASURED_BURIAL_ENVIRONMENT } from "./burialEvidence";
 import {
   ENTROPY_MARKS,
+  EVEN_ODDS_LLR,
   RANK_BANDS,
   describeWithinModelRank,
   rankBand,
@@ -75,7 +92,7 @@ export interface ReadingAvailability {
   action: "switch-saprot-35m" | "retry" | "settings" | null;
 }
 
-export type LmCaveat = "fallback-model" | "sequence-only" | "probability-floor" | "inferred-model";
+export type LmCaveat = "fallback-model" | "sequence-only" | "probability-floor" | "inferred-model" | "flat";
 
 export const LM_CAVEAT_TEXT: Record<LmCaveat, { label: string; detail: string }> = {
   "fallback-model": {
@@ -93,13 +110,29 @@ export const LM_CAVEAT_TEXT: Record<LmCaveat, { label: string; detail: string }>
   "inferred-model": {
     label: "Model inferred",
     detail: "The payload names no model, so the row is taken from your settings rather than from what ran."
+  },
+  flat: {
+    label: "Flat distribution",
+    detail: "The model spreads its probability almost evenly over the 20 residues here (entropy at or above 95% of the maximum), so it expresses no preference at this site and its rank is not read."
   }
 };
+
+/**
+ * What one model's own output says about the substitution, in words a non-specialist can act on.
+ *   favours-native   ΔLLR ≤ −ln 2: the model rates the native residue at least twice as likely
+ *   favours-variant  ΔLLR ≥ +ln 2
+ *   even             within a factor of two either way
+ *   flat             the distribution is near-uniform, so there is no preference to read
+ * The ln 2 and flat marks are app-defined reading aids (EVEN_ODDS_LLR, ENTROPY_MARKS.flat).
+ */
+export type LmDirection = "favours-native" | "favours-variant" | "even" | "flat";
 
 export interface LmReading {
   id: PerturbationModelId;
   /** Family label for the table row ("SaProt"). */
   family: string;
+  /** What the model reads, in one plain line. */
+  description: string;
   /** The model that served the numbers, as the payload names it. */
   servedBy: string | null;
   served: ServedModel;
@@ -110,6 +143,13 @@ export interface LmReading {
   mutProb: number | null;
   /** P(variant) / P(native) inside the one model — a same-model ratio, needing no calibration. */
   retention: number | null;
+  /** exp(−ΔLLR): how many times as likely the model rates the native residue as the variant. */
+  odds: number | null;
+  direction: LmDirection | null;
+  /** Rank of the native residue in the same distribution (1 = the model's top residue). */
+  nativeRank: number | null;
+  /** Served-model text for tight spaces ("SaProt_35M_AF2 · Remote"). */
+  servedShort: string;
   rank: number | null;
   band: RankBand | null;
   bandLabel: string | null;
@@ -168,6 +208,12 @@ export interface Esm3Reading {
   drift: number | null;
   driftBand: "none" | "minor" | "moderate" | "major" | null;
   driftResidue: number | null;
+  /** The drift AT the variant residue, when the score array covers it. */
+  siteDrift: number | null;
+  /** Residues between the drift peak and the variant (0 = the peak is the variant). */
+  peakDistance: number | null;
+  /** AlphaFold DB band for the input confidence ("Confident"); published (Jumper 2021). */
+  confidenceBand: string | null;
   templateConfidence: number | null;
   burial: string | null;
   secondaryStructure: string | null;
@@ -179,6 +225,12 @@ export interface PerturbationEvidence {
   scored: LmReading[];
   /** Families that contributed, and whether they share a scale (they never do across families). */
   scale: { families: string[]; mixed: boolean; llrMin: number | null; llrMax: number | null };
+  /**
+   * The cross-model statement: how many models read the substitution in each direction, each from
+   * its own output. Flat models are counted apart — they have no direction.
+   */
+  direction: { nScored: number; nFavourNative: number; nFavourVariant: number; nEven: number; nFlat: number };
+  /** Rank-band agreement among the non-flat models (rail context only; the hero reads `direction`). */
   consensus: {
     nRanked: number;
     nLeast: number;
@@ -209,6 +261,9 @@ export interface PerturbationEvidenceInput {
   metrics?: any;
   saprotEngine?: string | null;
   isFolding?: boolean;
+  /** The FoldX leg's settled state and error, so a failed run is not reported as "not built". */
+  foldingStatus?: "success" | "failed" | "unavailable" | null;
+  foldingError?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +273,22 @@ export interface PerturbationEvidenceInput {
 const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 const signed = (v: number, digits: number) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}`;
+
+/** "384×", "1,075×", "1.4×" — odds the way a reader says them. */
+export function oddsText(odds: number): string {
+  return odds >= 10 ? `${Math.round(odds).toLocaleString("en-GB")}×` : `${odds.toFixed(1)}×`;
+}
+
+function shortServed(provenance: string | null, inferred: boolean): string {
+  if (!provenance) return inferred ? "model not named" : "";
+  const outer = provenance.replace(/\([^)]*\)/g, "").trim();
+  const inner = provenance.match(/\(([^)]+)\)/)?.[1] ?? "";
+  // "SaProt (SaProt_35M_AF2 - Remote)" → "SaProt_35M_AF2 · Remote"; "ESMC-6B (Remote)" → "ESMC-6B · Remote".
+  const parts = inner.split(/\s+-\s+/).filter(Boolean);
+  // Keep the outer name unless the parentheses already name the model (a checkpoint id).
+  const innerNamesModel = parts.some(x => /_|esm|saprot|vesm/i.test(x));
+  return (innerNamesModel ? parts : [outer, ...parts]).filter(Boolean).join(" · ");
+}
 
 const computed = (): ReadingAvailability => ({ state: "computed", label: ENGINE_STATE_LABELS.computed, reason: null, action: null });
 
@@ -266,6 +337,30 @@ function embeddingAbsentReason(data: any, hasWindow: boolean): string | null {
 // Language models
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The rank sentence, qualified by what a rank cannot say on its own: on a flat distribution it
+ * orders near-equal values, and when the native residue holds most of the probability it orders
+ * the leftovers.
+ */
+function rankSentence(
+  rank: number | null,
+  entropy: number | null,
+  flat: boolean,
+  wtProb: number | null,
+  nativeRank: number | null,
+  wtLabel: string
+): string {
+  const wt = wtLabel || "the native residue";
+  if (flat && entropy !== null) {
+    return `This model spreads its probability almost evenly across the 20 residues here (${entropy.toFixed(2)} of ${ENTROPY_MARKS.ceiling.toFixed(2)} bits), so it expresses no preference at this site. Its rank${rank !== null ? ` (${rank} of 20)` : ""} orders near-equal values and is not read.`;
+  }
+  const base = describeWithinModelRank(rank, entropy);
+  if (wtProb !== null && wtProb >= 0.5 && nativeRank === 1) {
+    return `${base} ${wt} itself takes ${(wtProb * 100).toFixed(0)}% of the model's probability here, so this rank orders residues the model gives little weight to — read the odds against ${wt}, not the rank.`;
+  }
+  return base;
+}
+
 function buildLm(
   id: PerturbationModelId,
   data: any,
@@ -301,11 +396,19 @@ function buildLm(
 
   const token = ok && typeof data.conformationState === "string" && data.conformationState.trim() ? data.conformationState.trim() : null;
 
+  const llr = ok ? finite(data.llr) : null;
+  const flat = entropy !== null && entropy >= ENTROPY_MARKS.flat;
+  const direction: LmDirection | null =
+    llr === null ? null : flat ? "flat" : llr <= -EVEN_ODDS_LLR ? "favours-native" : llr >= EVEN_ODDS_LLR ? "favours-variant" : "even";
+  const nativeIdx = prefs.findIndex(p => p.aa === residues.wtCode);
+  const nativeRank = nativeIdx >= 0 ? nativeIdx + 1 : null;
+
   const caveats: LmCaveat[] = [];
   if (ok && served.fallback) caveats.push("fallback-model");
   if (ok && served.inferred) caveats.push("inferred-model");
   if (ok && id === "saprot" && !served.fallback && token === "#") caveats.push("sequence-only");
   if (ok && mutProb !== null && mutProb <= 1.1e-9) caveats.push("probability-floor");
+  if (flat) caveats.push("flat");
 
   const diagnostics: { tier: string; text: string }[] = [];
   const remoteNote = typeof data?.remoteEngineNote === "string" && data.remoteEngineNote.trim()
@@ -318,18 +421,23 @@ function buildLm(
   return {
     id,
     family: meta.familyLabel,
+    description: meta.description,
     servedBy: provenance,
     served,
     calibration: served.calibration,
     availability,
-    llr: ok ? finite(data.llr) : null,
+    llr,
     wtProb,
     mutProb,
     retention: wtProb !== null && mutProb !== null && wtProb > 0 ? mutProb / wtProb : null,
+    odds: llr !== null ? Math.exp(-llr) : null,
+    direction,
+    nativeRank,
+    servedShort: shortServed(provenance, served.inferred),
     rank,
     band,
     bandLabel: band ? RANK_BANDS.find(b => b.band === band)!.label : null,
-    rankSentence: ok ? describeWithinModelRank(rank, entropy) : "",
+    rankSentence: ok ? rankSentence(rank, entropy, flat, wtProb, nativeRank, residues.wtLabel) : "",
     entropy,
     preferences: prefs,
     embedding: {
@@ -355,7 +463,24 @@ function absent(reason: string): ReadingAvailability {
   return { state: "absent", label: ENGINE_STATE_LABELS["no-result"], reason, action: null };
 }
 
-function buildPhysical(fe: any, diff: any, metrics: any, isFolding: boolean): PerturbationEvidence["physical"] {
+/** Why there is no FoldX model, resolved in the order the Energetics engine outcome uses. */
+function foldxAbsenceReason(fe: any, isFolding: boolean, status?: string | null, error?: string | null): string {
+  if (isFolding) return "FoldX is still modelling the mutant.";
+  if (fe?.foldxBinaryMissing) return "FoldX is not installed on this server.";
+  if (fe?.foldxRepairFailed) return "FoldX could not repair the template structure, so no mutant model was built.";
+  if (status === "failed" || error) return `The FoldX run failed${error ? `: ${String(error).trim().replace(/\.$/, "")}` : ""}.`;
+  if (status === "unavailable") return "FoldX is not configured on this deployment.";
+  return "No FoldX mutant model was built for this variant.";
+}
+
+function buildPhysical(
+  fe: any,
+  diff: any,
+  metrics: any,
+  isFolding: boolean,
+  foldingStatus?: string | null,
+  foldingError?: string | null
+): PerturbationEvidence["physical"] {
   const hasFe = Boolean(fe) && (finite(fe.vdw) !== null || finite(fe.electrostatics) !== null);
   const rigid = Boolean(diff) && finite(diff.rmsd) === 0;
   const raw = Array.isArray(fe?.rawDdGs) ? fe.rawDdGs.filter((v: unknown) => finite(v) !== null) : [];
@@ -370,13 +495,7 @@ function buildPhysical(fe: any, diff: any, metrics: any, isFolding: boolean): Pe
       runs: null,
       runsIdentical: false,
       readings: [],
-      reason: isFolding
-        ? "FoldX is still modelling the mutant."
-        : fe?.foldxBinaryMissing
-          ? "FoldX is not installed on this server."
-          : fe?.foldxRepairFailed
-            ? "FoldX could not repair the template, so no mutant model was built."
-            : "No FoldX mutant model was built for this variant."
+      reason: foldxAbsenceReason(fe, isFolding, foldingStatus, foldingError)
     };
   }
 
@@ -513,17 +632,30 @@ function buildPhysical(fe: any, diff: any, metrics: any, isFolding: boolean): Pe
 // ESM3 (exploratory)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildEsm3(e: any): Esm3Reading | null {
+/** AlphaFold DB's published band for a pLDDT value (exclusive lower edges, as Mol* draws them). */
+function plddtBand(v: number | null): string | null {
+  if (v === null) return null;
+  return STRUCTURE_COLOUR_BANDS.plddt.find(b => v > b.min)?.label ?? null;
+}
+
+function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   if (!e) return null;
   if (e.error) {
     return {
       availability: { state: "failed", label: ENGINE_STATE_LABELS["upstream-error"], reason: String(e.error), action: "settings" },
       servedBy: null, fallback: false, drift: null, driftBand: null, driftResidue: null,
+      siteDrift: null, peakDistance: null, confidenceBand: null,
       templateConfidence: null, burial: null, secondaryStructure: null
     };
   }
-  const scores: number[] = Array.isArray(e.perturbationScores) ? e.perturbationScores.filter((v: unknown) => finite(v) !== null) : [];
+  // One score per residue, index i ↔ residue i + 1 (the route rejects a length mismatch). The VESM
+  // fallback writes −1 outside its window: a sentinel, not a distance.
+  const raw: unknown[] = Array.isArray(e.perturbationScores) ? e.perturbationScores : [];
+  const scores = raw.map(finite).filter((v): v is number => v !== null && v >= 0);
   const drift = scores.length ? Math.max(...scores) : null;
+  const atSite = position !== null && position >= 1 && position <= raw.length ? finite(raw[position - 1]) : null;
+  const driftResidue = finite(e.maxDriftResidue);
+  const plddt = finite(e.confidence?.plddt);
   const t = THRESHOLDS.esm3Drift;
   const driftBand = drift === null ? null : drift < t.none ? "none" : drift < t.minor ? "minor" : drift < t.moderate ? "moderate" : "major";
   const envs: string[] = Array.isArray(e.microenvironments) ? e.microenvironments : [];
@@ -536,8 +668,11 @@ function buildEsm3(e: any): Esm3Reading | null {
     fallback: Boolean(provenance && /vesm/i.test(provenance)),
     drift,
     driftBand,
-    driftResidue: finite(e.maxDriftResidue),
-    templateConfidence: finite(e.confidence?.plddt),
+    driftResidue,
+    siteDrift: atSite !== null && atSite >= 0 ? atSite : null,
+    peakDistance: driftResidue !== null && position !== null ? Math.abs(driftResidue - position) : null,
+    confidenceBand: plddtBand(plddt),
+    templateConfidence: plddt,
     burial: burialRaw && burialRaw !== UNMEASURED_BURIAL_ENVIRONMENT ? burialRaw : null,
     secondaryStructure: ss
   };
@@ -572,7 +707,8 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
   const families = Array.from(new Set(scored.map(l => l.calibration?.family).filter((f): f is NonNullable<typeof f> => Boolean(f))));
   const llrs = scored.map(l => l.llr).filter((v): v is number => v !== null);
 
-  const ranked = scored.filter(l => l.band !== null);
+  // A flat model has no preference to rank, so it stays out of the band agreement too.
+  const ranked = scored.filter(l => l.band !== null && l.direction !== "flat");
   const nLeast = ranked.filter(l => l.band === "least").length;
   const nLower = ranked.filter(l => l.band === "lower").length;
   const bands = new Set(ranked.map(l => l.band));
@@ -581,6 +717,13 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
     residues: { ...input.residues, position: pos },
     lms,
     scored,
+    direction: {
+      nScored: scored.length,
+      nFavourNative: scored.filter(l => l.direction === "favours-native").length,
+      nFavourVariant: scored.filter(l => l.direction === "favours-variant").length,
+      nEven: scored.filter(l => l.direction === "even").length,
+      nFlat: scored.filter(l => l.direction === "flat").length
+    },
     scale: {
       families,
       mixed: families.length > 1,
@@ -595,8 +738,15 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
       agree: ranked.length > 0 && bands.size === 1,
       band: bands.size === 1 ? (ranked[0]?.band ?? null) : null
     },
-    physical: buildPhysical(input.foldingEnergetics, input.structuralDiff, input.metrics, Boolean(input.isFolding)),
-    esm3: buildEsm3(r.esm3Eval),
+    physical: buildPhysical(
+      input.foldingEnergetics,
+      input.structuralDiff,
+      input.metrics,
+      Boolean(input.isFolding),
+      input.foldingStatus,
+      input.foldingError
+    ),
+    esm3: buildEsm3(r.esm3Eval, pos),
     engine: {
       informational: lms.every(l => !l.votes),
       counted: lms.filter(l => l.votes).map(l => l.family)
@@ -609,39 +759,62 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
 // Finding
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BAND_PHRASE: Record<RankBand, string> = {
-  least: "among the three least-preferred residues",
-  lower: "in the dispreferred half",
-  upper: "in the upper half of preferences",
-  most: "among the three most-preferred residues"
-};
+/** "SaProt", "SaProt and ESM-2", "SaProt, ESM-2 and ESMC". */
+export function listModels(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
+/** "Gln 384× as likely as His in ESM-2" — one model's own odds, never pooled. */
+function oddsClause(l: LmReading, wt: string, mut: string): string {
+  if (l.odds === null) return `${l.family}: no ΔLLR`;
+  if (l.direction === "favours-variant") return `${mut} ${oddsText(1 / l.odds)} as likely as ${wt} in ${l.family}`;
+  if (l.direction === "even") return `${wt} and ${mut} within a factor of two in ${l.family}`;
+  return `${wt} ${oddsText(l.odds)} as likely as ${mut} in ${l.family}`;
+}
+
+/**
+ * The finding: which way each model reads the substitution, from its own output.
+ *
+ * The cross-model statement is a count of directions, which needs no shared scale. Magnitudes are
+ * given per model as odds ("Gln 384× as likely as His in ESM-2") — the ΔLLR restated, never pooled.
+ * A flat model is named as having no preference, not counted for either side.
+ */
 export function perturbationFinding(ev: PerturbationEvidence): { headline: string; predicate: string } {
-  const { mutLabel, wtLabel } = ev.residues;
-  const mut = mutLabel || "The variant residue";
-  const wt = wtLabel || "the native residue";
-  const c = ev.consensus;
+  const mut = ev.residues.mutLabel || "the variant residue";
+  const wt = ev.residues.wtLabel || "the native residue";
+  const by = (dir: LmDirection) => ev.scored.filter(l => l.direction === dir);
+  const native = by("favours-native");
+  const variant = by("favours-variant");
+  const even = by("even");
+  const flat = by("flat");
+  const read = ev.scored.filter(l => l.direction !== null && l.direction !== "flat");
 
   let headline: string;
   if (ev.scored.length === 0) {
     headline = ev.pending ? "The language models are still running" : "No language model scored this substitution";
-  } else if (c.nRanked === 0) {
-    headline = `${ev.scored.length} language model${ev.scored.length === 1 ? "" : "s"} scored ${mut}, but none returned a residue rank`;
-  } else if (c.agree && c.band) {
-    headline = `${c.nRanked === 1 ? "One model places" : c.nRanked === 2 ? "Both models place" : `All ${c.nRanked} models place`} ${mut} ${BAND_PHRASE[c.band]} at this position`;
+  } else if (read.length === 0) {
+    headline = flat.length > 0
+      ? `No model shows a preference at this site: ${flat.length === 1 ? `${flat[0].family}'s distribution is` : "every distribution is"} near-flat`
+      : `${ev.scored.length} language model${ev.scored.length === 1 ? "" : "s"} answered without a ΔLLR`;
+  } else if (native.length === read.length) {
+    headline = `${listModels(native.map(l => l.family))} ${native.length === 1 ? "favours" : "favour"} native ${wt} over ${mut}`;
+  } else if (variant.length === read.length) {
+    headline = `${listModels(variant.map(l => l.family))} ${variant.length === 1 ? "rates" : "rate"} ${mut} at least as likely as native ${wt}`;
+  } else if (even.length === read.length) {
+    headline = `${listModels(even.map(l => l.family))} ${even.length === 1 ? "rates" : "rate"} ${wt} and ${mut} about equally`;
   } else {
-    headline = `The models disagree on ${mut}: ${c.nLeast + c.nLower} of ${c.nRanked} rank it in the dispreferred half`;
+    const parts: string[] = [];
+    if (native.length) parts.push(`${listModels(native.map(l => l.family))} favour${native.length === 1 ? "s" : ""} ${wt}`);
+    if (variant.length) parts.push(`${listModels(variant.map(l => l.family))} favour${variant.length === 1 ? "s" : ""} ${mut}`);
+    if (even.length) parts.push(`${listModels(even.map(l => l.family))} ${even.length === 1 ? "is" : "are"} near even`);
+    headline = `The models split: ${parts.join("; ")}`;
   }
 
   const parts: string[] = [];
-  if (ev.scale.llrMin !== null && ev.scale.llrMax !== null) {
-    const lo = ev.scale.llrMin, hi = ev.scale.llrMax;
-    const range = lo === hi ? `${signed(lo, 2)} nats` : `${signed(lo, 1)} to ${signed(hi, 1)} nats`;
-    parts.push(
-      hi < 0
-        ? `each scores it below native ${wt} (ΔLLR ${range}, each on its own model's scale)`
-        : `ΔLLR ${range}, each on its own model's scale`
-    );
+  if (read.length) parts.push(`${read.map(l => oddsClause(l, wt, mut)).join(", ")} — each on its own model's scale`);
+  if (flat.length && read.length) {
+    parts.push(`${listModels(flat.map(l => l.family))} ${flat.length === 1 ? "spreads its" : "spread their"} probability almost evenly here, so ${flat.length === 1 ? "it has" : "they have"} no preference to read`);
   }
   const vdw = ev.physical.readings.find(x => x.key === "vdw");
   if (vdw?.value != null) {
@@ -652,7 +825,7 @@ export function perturbationFinding(ev: PerturbationEvidence): { headline: strin
     );
   }
   const predicate = parts.length
-    ? `${parts.join("; ")}. Neither is calibrated pathogenicity evidence`
+    ? `${parts.join("; ")}. None of this is calibrated pathogenicity evidence`
     : "These scores are context for curation, not calibrated pathogenicity evidence";
   return { headline, predicate };
 }

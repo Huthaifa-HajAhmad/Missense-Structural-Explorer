@@ -3,6 +3,13 @@ import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
 import type { PredictorConcordance } from "./thresholds/concordance";
 import { CANONICAL_ASSEMBLY, statedAssemblyOf, type AssemblyTaggedCoordinate } from "./assembly";
 import type { GenomeAssembly } from "./variantNotation";
+import { ENGINE_STATE_IDS, type EngineState } from "./engineStatus";
+import {
+  DEEP_EVIDENCE_MODEL_IDS,
+  DEEP_MODEL_EVIDENCE_VERSION,
+  type DeepEvidenceModelId,
+} from "./deepModelEvidence";
+import { STRUCTURE_RESOLUTION_SOURCES, type StructureResolutionSource } from "./structureRefs";
 import { locusResolutionSchema, locusFailureKindSchema, LOCUS_POLICY_VERSION, isFallbackLocus, isRetryableFallbackLocus, type LocusResolution } from "./locusResolution";
 import { isIntrinsicallyAmbiguousProteinChange } from "./proteinAlleleIdentity";
 
@@ -221,6 +228,48 @@ export const modelEvalErrorSchema = z.object({
   error: z.string(),
   status: z.string().optional()
 });
+
+// ============================================================================
+// 3b. Deep-Model Evidence — the narrative request's trusted contract
+// ============================================================================
+/**
+ * The deep-model observations a narrative synthesis may be GIVEN.
+ *
+ * WHY THIS SCHEMA IS STRICT
+ * -------------------------
+ * The narrative request is client-supplied, so every part of it that reaches the prompt is untrusted
+ * input. This payload's whole purpose is to be interpolated into a clinical prompt, so it is validated
+ * here rather than read ad hoc off `req.body`: the ids are a closed set (one row per model, in the
+ * app's own order), the state vocabulary is `ENGINE_STATE_IDS` from `engineStatus.ts` rather than a
+ * string the client invents, values must be finite and plausible, and every free-text field is
+ * length-capped. A payload that does not describe one of THIS app's models is rejected, not
+ * paraphrased — which is what keeps a synthesis from being handed, or from appearing to have been
+ * handed, evidence the app never produced.
+ *
+ * It travels in the request beside the fast evidence, and it is part of the narrative evidence hash
+ * (see `src/shared/deepModelEvidence.ts` and `narrativeEvidence.ts`), so a narrative written with these
+ * observations can never be served for a run without them.
+ */
+export const deepModelEvidenceObservationSchema = z.object({
+  id: z.enum(DEEP_EVIDENCE_MODEL_IDS as unknown as [DeepEvidenceModelId, ...DeepEvidenceModelId[]]),
+  source: z.string().min(1).max(64),
+  state: z.enum(ENGINE_STATE_IDS as unknown as [EngineState, ...EngineState[]]),
+  value: z.number().nullable().refine(v => v === null || (Number.isFinite(v) && Math.abs(v) <= 1000), {
+    message: "Deep-model value must be finite and within ±1000",
+  }),
+  unit: z.enum(["kcal/mol", "ΔLLR"]).nullable(),
+  call: z.string().max(48).nullable(),
+  provenance: z.string().max(160).nullable(),
+  note: z.string().max(240).nullable(),
+});
+
+export const deepModelEvidenceSchema = z.object({
+  /** The projection's version; a value the server has not learned is refused rather than guessed at. */
+  version: z.literal(DEEP_MODEL_EVIDENCE_VERSION),
+  observations: z.array(deepModelEvidenceObservationSchema).max(DEEP_EVIDENCE_MODEL_IDS.length),
+});
+
+export type DeepModelEvidencePayload = z.infer<typeof deepModelEvidenceSchema>;
 
 export type ModelEvalError = z.infer<typeof modelEvalErrorSchema>;
 
@@ -662,9 +711,28 @@ export const nearestResidueItemSchema = z.object({
   classBadge: z.string()
 });
 
+/**
+ * Which exact structure a pocket/nearest computation ran on.
+ *
+ * Optional everywhere, so a payload cached before the field existed still parses. When present it is
+ * provenance, not decoration: `resolvedFrom: "structureRef"` means the coordinates came from the
+ * exact bytes this server returned for that reference, whereas `"uniprot-resolver"` means the legacy
+ * accession ladder chose the template — which can differ from the structure on screen.
+ */
+export const structureResolutionEchoSchema = z.object({
+  resolvedFrom: z.enum(STRUCTURE_RESOLUTION_SOURCES as unknown as [StructureResolutionSource, ...StructureResolutionSource[]]),
+  structureRef: z.string().optional(),
+  source: z.string().optional(),
+  pdbId: z.string().optional(),
+  chainId: z.string().optional(),
+  /** The caller's text won over a resolvable reference because the two disagreed. */
+  refTextMismatch: z.boolean().optional()
+});
+
 export const nearestResiduesResponseSchema = z.object({
   residues: z.array(nearestResidueItemSchema),
-  source: z.string()
+  source: z.string(),
+  structureResolution: structureResolutionEchoSchema.optional()
 });
 
 export type NearestResiduesRequest = z.infer<typeof nearestResiduesRequestSchema>;
@@ -719,7 +787,12 @@ export const pocketFinderResponseSchema = z.object({
       /** P2Rank model profile; its probabilities are calibrated per profile. */
       profile: z.string().optional()
     })
-    .optional()
+    .optional(),
+  /**
+   * Which exact structure the pocket was detected on. The queued response carries it (the job result
+   * is produced by the worker, which only sees the text); optional so older payloads still parse.
+   */
+  structureResolution: structureResolutionEchoSchema.optional()
 });
 
 export type PocketFinderRequest = z.infer<typeof pocketFinderRequestSchema>;
@@ -765,7 +838,18 @@ export const biophysicalAnalysisRequestSchema = z.object({
   options: z.any().optional()
 });
 
+const runtimeTimingFields = {
+  serviceTimings: z.record(z.string(), z.number().finite().nonnegative()).optional(),
+  /** Offsets mark settlement; consumers derive start = offset - duration. */
+  serviceTimingOffsets: z.record(z.string(), z.number().finite().nonnegative()).optional(),
+  structuralTimings: z.record(z.string(), z.number().finite().nonnegative()).optional(),
+  structuralTimingOffsets: z.record(z.string(), z.number().finite().nonnegative()).optional(),
+  cacheHit: z.boolean().optional(),
+  cacheLayer: z.string().nullable().optional()
+};
+
 export const biophysicalAnalysisResponseSchema = z.object({
+  ...runtimeTimingFields,
   analysis: z.string().nullable().optional(),
   biochemicalShift: z.string().optional(),
   structuralImpact: z.string().optional(),
@@ -798,6 +882,7 @@ export const biophysicalAnalysisResponseSchema = z.object({
     })).optional()
   }).nullable().optional(),
   metadata: z.object({
+    ...runtimeTimingFields,
     gene: z.string().optional(),
     variant: z.string().optional(),
     uniprotId: z.string().optional(),
@@ -1201,6 +1286,12 @@ export const conservationDataSchema = z.object({
     exonStart: z.number().nullable().optional(),
     exonEnd: z.number().nullable().optional(),
     exonLength: z.number().nullable().optional(),
+    /**
+     * The transcript's exons within reach of the splice map (±2.5 kb of the variant), numbered in
+     * transcript order, 1-based inclusive genomic coordinates. Absent on payloads from before the
+     * map drew neighbouring exons; the map then draws only the nearest exon from `exonLength`.
+     */
+    nearbyExons: z.array(z.object({ number: z.number(), start: z.number(), end: z.number() })).optional(),
     intronNumber: z.number().nullable().optional(),
     junctionType: z.enum(["donor", "acceptor", "terminal"]).nullable().optional(),
     adjacentIntronNumber: z.number().nullable().optional(),
@@ -1248,6 +1339,17 @@ export const conservationDataSchema = z.object({
       computedLive: z.boolean().optional(),
       annotationSet: z.string().nullable().optional()
     }).optional()
+  }).nullable().optional(),
+  /**
+   * Why the live SpliceAI request produced no score, when one was made. Absent on a payload
+   * that carries a score, and on payloads from before this field existed (the tab then says
+   * the reason was not recorded rather than inferring one). `coordinate-rejected` is the
+   * service refusing the variant itself — most often a REF that does not match the genome.
+   */
+  spliceaiFailure: z.object({
+    kind: z.enum(["rate-limited", "coordinate-rejected", "upstream-error", "timeout", "network", "unreadable", "no-transcript"]),
+    httpStatus: z.number().nullable(),
+    detail: z.string().nullable()
   }).nullable().optional(),
   dbscsnv: z.object({
     ada_score: z.number().nullable(),
@@ -1454,7 +1556,7 @@ export const analyzeVariantResponseSchema = z.object({
     pdbId: z.string().nullable().optional(),
     pdbSource: z.string().nullable().optional(),
     sequence: z.string().nullable().optional(),
-    serviceTimings: z.record(z.string(), z.number()).optional(),
+    ...runtimeTimingFields,
     serviceStatus: z.record(z.string(), z.string()).optional(),
     /** Version of exact-allele population binding; legacy local observations are refreshed once. */
     populationPolicyVersion: z.number().int().positive().optional()
@@ -1613,7 +1715,7 @@ export const analyzeVariantResponseSchema = z.object({
   esmcEval: esmcEvalResultSchema.nullable().optional(),
   esm2Eval: esmcEvalResultSchema.nullable().optional(),
   saprotEval: esmcEvalResultSchema.nullable().optional(),
-  serviceTimings: z.record(z.string(), z.number()).optional(),
+  ...runtimeTimingFields,
   serviceStatus: z.record(z.string(), z.string()).optional()
 }).passthrough();
 
@@ -1681,6 +1783,17 @@ export interface VariantMetadata {
   wildType: string;
   mutant: string;
   acmgWeighting?: string;
+  pipelineRunId?: string;
+  pipelineContext?: Record<string, unknown>;
+  pipelineStages?: Partial<Record<"core" | "landscape" | "structural" | "multimer" | "narrative" | "literature", "running" | "complete" | "degraded" | "error" | "skipped">>;
+  narrativeMode?: "automatic" | "on-demand" | "off";
+  serviceTimings?: Record<string, number>;
+  /** Settlement offsets, not start offsets. */
+  serviceTimingOffsets?: Record<string, number>;
+  structuralTimings?: Record<string, number>;
+  structuralTimingOffsets?: Record<string, number>;
+  cacheHit?: boolean;
+  cacheLayer?: string | null;
   pdbId?: string | null;
   pdbSource?: string | null;
   /**

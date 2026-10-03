@@ -2,6 +2,7 @@ import { PdbHomolog, NearestResidue } from "../../types";
 import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
 import { TraceContext, PipelineStructureSink } from "./types";
 import type { StructureFetchResult } from "../../api/structureApi";
+import { registerStructureRefForPdb, resolveStructureRefForPdb } from "../../api/structureRefRegistry";
 
 export async function fetchPdbCoordinates(
   targetGene: string,
@@ -47,6 +48,19 @@ export async function fetchPdbCoordinates(
   return getDeduplicatedPromise(pdbKey, () =>
     fetchAction()
       .then((res: any) => {
+        /**
+         * Remember the reference the server issued for these exact bytes.
+         *
+         * This is the ONLY place the association can be captured: the pocket/nearest helpers are
+         * handed nothing but `pdbText` by the orchestrator, so without this registration the
+         * reference would be lost and every later call would re-upload the structure — or, on the
+         * nearest path, re-resolve the accession into a possibly different template than the one
+         * being displayed.
+         */
+        const resolvedText = typeof res === "string" ? res : res?.pdbText;
+        const resolvedRef = typeof res === "object" && res !== null ? res.structureRef : undefined;
+        registerStructureRefForPdb(resolvedText, resolvedRef);
+
         const durationMs = Math.round(performance.now() - pdbStart);
         const offsetMs = traceContext ? Math.max(0, Math.round(pdbStart - traceContext.traceStart)) : 0;
         if (traceContext?.activeTraceId) {
@@ -58,7 +72,17 @@ export async function fetchPdbCoordinates(
             offsetMs,
             durationMs,
             status: "success",
-            cached: durationMs < 40
+            /**
+             * NOT `durationMs < 40`.
+             *
+             * That threshold was a guess dressed as evidence: a small model, a warm connection or an
+             * empty cache all return in under 40 ms, and a genuinely cached half-megabyte PDB can
+             * still take longer than that to read and parse — so the flag was wrong in both
+             * directions, and the trace asserted a cache hit the pipeline had not observed. Only the
+             * API can say whether it served a cache hit, so the flag is set when it says so and
+             * omitted otherwise.
+             */
+            ...(res?.cached === true ? { cached: true } : {})
           });
         }
         return res;
@@ -182,10 +206,20 @@ export async function fetchBindingPocket(
   try {
     const pocketParams: any = { targetIndex: residueIndex, mutIndex: residueIndex };
     if (uniprotNorm) {
+      // Kept for the route's documented AlphaFold fallback when the target residue is absent from
+      // the supplied structure. It is NOT what identifies the structure to compute on: the exact
+      // reference (or the exact text) below takes precedence on the server.
       pocketParams.pdbRef = uniprotNorm;
       pocketParams.uniprotId = uniprotNorm;
     }
+    const structureRef = resolveStructureRefForPdb(pdbNorm);
+    if (structureRef) {
+      // Same bytes the server already returned: name them instead of uploading them again.
+      pocketParams.structureRef = structureRef;
+    }
     if (hasValidPdb) {
+      // Retained as the caller's own copy: the API layer drops it when the reference is sent, and
+      // re-sends it (once) if the server reports the reference as no longer resolvable.
       pocketParams.pdbText = pdbNorm;
     }
     if (targetChain) {
@@ -256,14 +290,29 @@ export async function fetchNearestResidues(
 
   pendingResiduesSet.add(cacheKey);
   try {
+    const pdbNorm = (pdbText || "").trim();
+    const hasValidPdb = pdbNorm.includes("ATOM") || pdbNorm.includes("HETATM");
     const residuesParams: any = {
       targetIndex: residueIndex,
       distanceThreshold: 5
     };
-    if (targetUniprot) {
+    const structureRef = resolveStructureRefForPdb(pdbNorm);
+    if (structureRef) {
+      residuesParams.structureRef = structureRef;
+    }
+    if (hasValidPdb) {
+      /**
+       * Send the exact bytes the reader is looking at.
+       *
+       * This used to be `pdbRef: targetUniprot` INSTEAD of the text whenever an accession was known,
+       * which let the server re-resolve the accession through its 3-tier ladder: the contact map
+       * could then be measured on an experimental entry or a homolog while the viewer showed the
+       * AlphaFold model. The accession is no longer sent at all — the exact structure is what the
+       * distances mean, and a resolver result is not that structure.
+       */
+      residuesParams.pdbText = pdbNorm;
+    } else if (targetUniprot) {
       residuesParams.pdbRef = targetUniprot;
-    } else {
-      residuesParams.pdbText = pdbText;
     }
     const validatedData = await apiClient.getNearestResidues(residuesParams, signal);
 

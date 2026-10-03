@@ -54,6 +54,22 @@
 .ptb-section__head > h2.eyebrow { margin: 0; }
 .ptb-section__meta { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 
+/* ── Header primer ──────────────────────────────────────────── */
+.ptb-header { display: flex; flex-direction: column; gap: 6px; }
+.ptb-primer { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: 92ch; }
+.ptb-primer > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 24px; color: var(--cs-text-accent); border-radius: 4px;
+}
+.ptb-primer > summary::-webkit-details-marker { display: none; }
+.ptb-primer > summary:hover { text-decoration: underline; }
+.ptb-primer > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.ptb-primer ul {
+  margin: 6px 0 0; padding: 12px 16px 12px 32px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5;
+  border: 1px solid var(--cs-border-subtle); border-radius: 10px; background: var(--cs-surface);
+}
+.ptb-primer strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+
 /* ── Finding ────────────────────────────────────────────────── */
 .ptb-hero__body { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 20px; }
 .ptb-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -112,17 +128,20 @@
 .ptb-model__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ptb-model__name { font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ptb-model__served { font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ptb-model__rank { display: flex; align-items: baseline; gap: 4px; margin-top: 4px; }
-.ptb-model__rank b { font-family: var(--cs-font-mono); font-size: 18px; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); font-variant-numeric: tabular-nums; }
-.ptb-model__rank span { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+/* The card leads with the model's direction (its call), then its own odds; the rank is context. */
+.ptb-model__call { margin-top: 6px; font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.ptb-model[data-direction="flat"] .ptb-model__call { color: var(--cs-text-muted); }
+.ptb-model__odds { min-height: 1.5em; font-size: var(--cs-font-size-caption); font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
 .ptb-model__pips { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 1px; height: 6px; margin-top: 6px; }
 .ptb-model__pips > i { border-radius: 1px; background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent); }
+.ptb-model__pips > i[data-native] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--cs-text-primary); }
 .ptb-model__pips > i[data-here] { background: var(--cs-accent-clay); }
+.ptb-model__pips[data-flat] > i[data-here] { background: var(--cs-text-muted); }
 .ptb-model__foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ptb-model__foot .ptb-mono { color: var(--cs-text-secondary); }
 .ptb-model[data-state="absent"],
 .ptb-model[data-state="failed"] { border-style: dashed; background: transparent; }
-.ptb-model[data-state="pending"] .ptb-model__rank b { color: var(--cs-text-muted); }
+.ptb-model[data-state="pending"] .ptb-model__call { color: var(--cs-text-muted); }
 @container (max-width: 560px) { .ptb-models { grid-template-columns: minmax(0, 1fr); } }
 
 /* ── Readings table ─────────────────────────────────────────── */
@@ -209,7 +228,8 @@
 }
 .ptb-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .ptb-legend__tick { display: inline-block; width: 0; height: 12px; border-left: 1.5px dashed var(--cs-text-secondary); }
-.ptb-legend__marker { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--cs-text-primary); }
+.ptb-legend__marker { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--cs-accent-clay); }
+.ptb-legend__native { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--cs-text-primary); box-sizing: border-box; }
 .ptb-legend__band { display: inline-flex; width: 28px; height: 8px; border-radius: 4px; overflow: hidden; }
 .ptb-legend__band > i { flex: 1; background: var(--cs-text-secondary); }
 .ptb-legend__band > i:nth-child(1) { opacity: 0.06; }
@@ -243,7 +263,16 @@
   position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
   background: var(--cs-text-primary); box-shadow: 0 0 0 2px var(--cs-surface);
 }
-.ptb-ruler__marker[data-off-scale] { background: var(--cs-surface); border: 2px solid var(--cs-text-primary); box-sizing: border-box; }
+.ptb-ruler__marker[data-role="variant"] { background: var(--cs-accent-clay); }
+.ptb-ruler__marker[data-off-scale] { background: var(--cs-surface); border: 2px solid var(--cs-accent-clay); box-sizing: border-box; }
+/* The native residue: a hollow ink ring, so the variant's place reads against it. */
+.ptb-ruler__native {
+  position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+  background: var(--cs-surface); border: 2px solid var(--cs-text-primary); box-sizing: border-box;
+}
+/* A flat distribution has no preference to read: bands and marker step back. */
+.ptb-ruler[data-flat] .ptb-ruler__bands { opacity: 0.4; }
+.ptb-ruler[data-flat] .ptb-ruler__marker { opacity: 0.45; }
 .ptb-ruler__axis {
   display: flex; justify-content: space-between; margin-top: 4px;
   font-family: var(--cs-font-mono); font-size: 10px; font-variant-numeric: tabular-nums; color: var(--cs-text-muted);
@@ -277,6 +306,10 @@
 .ptb-detail__grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .ptb-detail__grid > * { padding: 16px 20px 18px; min-width: 0; }
 .ptb-detail__grid > * + * { border-left: 1px solid var(--cs-border-subtle); }
+.ptb-detail__grid[data-single] { grid-template-columns: minmax(0, 1fr); }
+.ptb-detail__grid[data-single] .ptb-prefs { max-width: 820px; }
+.ptb-detail__absent { margin: 0; padding: 10px 20px; border-bottom: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.ptb-detail__absent strong { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-medium); }
 @container (max-width: 760px) {
   .ptb-detail__grid { grid-template-columns: minmax(0, 1fr); }
   .ptb-detail__grid > * + * { border-left: 0; border-top: 1px solid var(--cs-border-subtle); }
@@ -313,7 +346,7 @@
 .ptb-trace__label[data-site] { fill: var(--cs-text-primary); font-weight: 600; }
 .ptb-empty { margin: 0; padding: 12px 0; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); max-width: 52ch; }
 .ptb-empty strong { display: block; margin-bottom: 2px; color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-medium); }
-.ptb-detail__sentence { margin: 0; padding: 12px 20px 16px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: 92ch; }
+.ptb-detail__sentence { margin: 0; padding: 12px max(20px, calc(100% - 92ch)) 16px 20px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 
 /* ============================================================
    RAIL (inspector)
@@ -352,6 +385,8 @@
 .ptb-step__list li { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .ptb-step__list li > :first-child { white-space: nowrap; color: var(--cs-text-muted); }
 .ptb-step__list li > :last-child { text-align: right; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+/* Short served names and direction words fit one line; long provenance strings stay in the title. */
+.ptb-step__list li > :last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .ptb-cuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ptb-cuts__title { margin: 6px 0 2px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-medium); }

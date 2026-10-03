@@ -102,6 +102,9 @@ describe("Variant narrative route wiring", () => {
         // The run's per-source outcomes. The prompt needs them to tell "ClinVar holds nothing" from
         // "the ClinVar query failed" — both arrive as a null record. No `serviceStatus` in this
         // request body, so the route forwards null rather than omitting the argument.
+        null,
+        // The deep-model observations. This request carries none, so the synthesis is given the fast
+        // evidence set exactly as before — and the prompt renders no deep block for it.
         null
       );
       expect(responseBody().analysis).toBe("Resolved narrative output");

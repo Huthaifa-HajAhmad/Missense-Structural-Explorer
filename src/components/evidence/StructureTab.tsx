@@ -96,7 +96,7 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
         <h2 className="eyebrow" id="rsx-finding-title">Structural context · not an ACMG input</h2>
         <span className="ev-tier" data-tone="muted">Informational</span>
       </div>
-      <div className="rsx-hero__body">
+      <div className="rsx-hero__body rsx-hero__body--split">
         <div className="rsx-pair">
           <span className="rsx-pair__fig" data-testid="residue-pair">
             {pair.wildType || "?"}
@@ -164,8 +164,8 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
                   <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
                   <td className="rsx-num">{row.mutantNative ?? row.mutantValue}</td>
                   <td className="rsx-num">
-                    {row.direction === "unchanged" ? "0%" : `${Math.round(row.absoluteDelta)}%`}
-                    <span className="rsx-note">{row.plainChange}</span>
+                    <span className="rsx-shift">{row.plainChange}</span>
+                    <span className="rsx-note">{row.direction === "unchanged" ? "0%" : `${Math.round(row.absoluteDelta)}%`} of the scale</span>
                   </td>
                 </tr>
               ))}
@@ -242,19 +242,12 @@ function Environment({
             <tr className="rsx-group">
               <td colSpan={4}>
                 <span className="rsx-label">Burial</span>
-                <span className="rsx-reason">{burial ? burial.structure : "No structure reading"}</span>
+                <span className="rsx-reason">
+                  {burial ? burial.structure : `${ENGINE_STATE_LABELS["no-result"]} · the structure step returned no accessibility or packing reading`}
+                </span>
               </td>
             </tr>
-            {!burial ? (
-              <tr>
-                <td colSpan={4}>
-                  <p className="rsx-statement">
-                    <strong>{ENGINE_STATE_LABELS["no-result"]}</strong>
-                    <span>The structure step returned no burial or packing reading for this residue.</span>
-                  </p>
-                </td>
-              </tr>
-            ) : (
+            {!burial ? null : (
               <>
                 <tr data-testid="burial-rsa-row">
                   <td>
@@ -333,6 +326,9 @@ function Environment({
                   <button type="button" className="rsx-info" onClick={() => onExplain("p2rank")} aria-label="Explain P2Rank">
                     <Info className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
+                </span>
+                <span className="rsx-caption">
+                  Finds cavity geometry on one static structure, not function. Its probability is calibrated per profile and does not compare across profiles.
                 </span>
               </td>
             </tr>

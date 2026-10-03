@@ -37,8 +37,8 @@ describe("StructureTab", () => {
     expect(screen.getByTestId("residue-finding-text")).toHaveTextContent(
       "The side chain loses its negative charge and becomes less polar, 23.1 Å from the nearest predicted pocket."
     );
-    expect(screen.getByText("Engine record")).toBeInTheDocument();
-    expect(screen.getByText("No ACMG criterion reads this tab")).toBeInTheDocument();
+    expect(screen.getByText(/not an ACMG input/i)).toBeInTheDocument();
+    expect(screen.getByText("Pocket confidence")).toBeInTheDocument();
   });
 
   it("draws each property on its published scale, in native units, largest shift first", () => {

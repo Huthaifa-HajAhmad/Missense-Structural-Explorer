@@ -214,7 +214,7 @@ export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
     ],
   };
   const refRange =
-    `Reference: strong loss-of-function intolerance below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut, the same one the Score thresholds tab uses), tolerant at or above ${constrained.toFixed(2)}.`;
+    `Reference: strong loss-of-function intolerance below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut, the same one the Score thresholds tab uses); at or above ${constrained.toFixed(2)} the gene is not shown to be constrained, which is not the same as tolerating loss of function.`;
 
   const v = typeof loeuf === "number" ? loeuf : null;
 
@@ -238,7 +238,13 @@ export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
       ? { tone: "path" as VhTone, verdict: "Strong LoF intolerance", why: "below the decile-1 intolerance threshold" }
       : v < constrained
         ? { tone: "warn" as VhTone, verdict: "LoF constrained", why: `below gnomAD's suggested constraint cut of ${constrained.toFixed(2)}` }
-        : { tone: "good" as VhTone, verdict: "LoF tolerant", why: "at or above gnomAD's suggested constraint cut" };
+        /*
+         * `good` is the BAND's tone for this range (drawn green like every other track's
+         * unconstrained side), so the reading keeps it rather than sitting grey inside its own band.
+         * The verdict carries the honesty: at or above the suggested cut the gene is NOT shown to be
+         * constrained, and the tooltip refuses the stronger word "tolerant" that the old verdict used.
+         */
+        : { tone: "good" as VhTone, verdict: "Not LoF constrained", why: "at or above gnomAD's suggested constraint cut; this does not show the gene tolerates loss of function" };
 
   return {
     key: "loeuf",

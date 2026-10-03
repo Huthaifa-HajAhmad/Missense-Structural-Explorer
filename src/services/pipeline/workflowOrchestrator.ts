@@ -14,6 +14,9 @@ import {
   fetchProgressiveMultimer
 } from "./biophysicalService";
 import { generateClinicalNarrative } from "./narrativeService";
+import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence } from "./resultMerge";
+import { createAnalysisCacheContext, narrativeModeOf } from "./analysisContext";
+import { narrativeFreshness } from "../../shared/narrativeEvidence";
 import {
   StructuredPipelineOptions,
   TraceContext
@@ -163,9 +166,38 @@ export async function executeFullAnalysisWorkflow({
   fetchHomologs,
   fetchPocketData,
   mutantFoldAbortRef
-}: WorkflowOrchestratorParams): Promise<void> {
+}: WorkflowOrchestratorParams): Promise<"completed" | "failed" | "aborted"> {
   const { fetchWithAuth, apiClient, settings, userDirections, numberingBasis, sinks } = options;
   const { search: searchSink, analysis: analysisSink, biophysical: biophysicalSink, structure: structureSink } = sinks;
+  const runMetadata: Record<string, unknown> = { pipelineRunId: `${requestId}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}:${Math.random()}`}` };
+  const initialStages: Record<string, string> = {};
+  let acceptingEvidence = true;
+  let outcome: "completed" | "failed" = "completed";
+  const markCoreFailure = () => {
+    outcome = "failed";
+    for (const stage of Object.keys(initialStages)) if (initialStages[stage] === "running") initialStages[stage] = "skipped";
+    initialStages.core = "error";
+  };
+  const dispatchAnalysisState = analysisSink.setAnalysisState;
+  const decorateState = (next: any) => !next?.result ? next : { ...next, result: { ...next.result, metadata: {
+    ...next.result.metadata, ...runMetadata,
+    pipelineStages: { ...initialStages, ...next.result.metadata?.pipelineStages }
+  } } };
+  const setAnalysisState = (updater: any) => {
+    if (!acceptingEvidence || activeSignal.aborted || getActiveRequestId() !== requestId) return;
+    if (typeof updater !== "function") return dispatchAnalysisState(decorateState(updater));
+    dispatchAnalysisState((prev: any) => !acceptingEvidence || activeSignal.aborted || getActiveRequestId() !== requestId ? prev : decorateState(updater(prev)));
+  };
+  const runAnalysisSink = { ...analysisSink, setAnalysisState };
+  const getCurrentEvidenceForRun = () => {
+    try {
+      const snapshot = options.getCurrentEvidence?.();
+      return snapshot?.result?.metadata?.pipelineRunId === runMetadata.pipelineRunId ? snapshot : null;
+    } catch (error) {
+      console.warn("[Pipeline] Current evidence snapshot unavailable:", error);
+      return null;
+    }
+  };
 
   let targetGene = targetGeneArg.trim();
   let targetVariant = targetVariantArg.trim();
@@ -177,7 +209,7 @@ export async function executeFullAnalysisWorkflow({
   let residueIndex: number | undefined;
 
   if (activeSignal.aborted || getActiveRequestId() !== requestId) {
-    return;
+    return "aborted";
   }
 
   try {
@@ -191,7 +223,7 @@ export async function executeFullAnalysisWorkflow({
         apiClient,
         activeSignal,
         {
-          setAnalysisState: analysisSink.setAnalysisState,
+          setAnalysisState: setAnalysisState,
           setLoadingStep: analysisSink.setLoadingStep
         },
         getTraceContext()
@@ -213,7 +245,7 @@ export async function executeFullAnalysisWorkflow({
       } catch (geneErr) {
         console.warn("[WorkflowOrchestrator] Gene resolution error:", geneErr);
       }
-      if (activeSignal.aborted || getActiveRequestId() !== requestId) return;
+      if (activeSignal.aborted || getActiveRequestId() !== requestId) return "aborted";
     }
 
     /**
@@ -270,8 +302,45 @@ export async function executeFullAnalysisWorkflow({
       transcriptMeta
     };
 
-    // Check high-fidelity client variant snapshot cache
-    const cached = getCachedVariant(targetGene, targetVariant);
+    const pipelineContext = createAnalysisCacheContext(targetUniprot, settings, transcriptMeta ?? {}, userDirections, numberingBasis);
+    runMetadata.pipelineContext = pipelineContext;
+    const requestParams = () => ({
+      gene: targetGene, variant: targetVariant, uniprotId: targetUniprot,
+      pipelineRunId: String(runMetadata.pipelineRunId),
+      acmgWeighting: pipelineContext.acmgWeighting as "standard" | "conservative" | "strict-structural",
+      saprotEngine: settings.saprotEngine,
+      ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {}),
+      ...(transcriptMeta?.genomicCoordinates && transcriptMeta?.assembly ? { genomicCoordinates: transcriptMeta.genomicCoordinates } : {}),
+      ...(transcriptMeta?.resolvedAssembly ? { resolvedAssembly: transcriptMeta.resolvedAssembly } : {}),
+      ...(transcriptMeta?.liftedGenomicCoordinates ? { liftedGenomicCoordinates: transcriptMeta.liftedGenomicCoordinates } : {}),
+      ...(numberingBasis ? { numberingBasis } : {})
+    });
+    const mode = narrativeModeOf(settings);
+    const seedState = () => {
+      const state = createPlaceholderAnalysisState(baseParams);
+      return { ...state, result: { ...state.result, metadata: { ...state.result.metadata, ...runMetadata } } };
+    };
+    // Protein artifacts are reusable; interpretation must match all scientific inputs.
+    const hasActiveGemini = Boolean(
+      (settings?.geminiSessionId && settings?.geminiSessionExpiresAt && settings.geminiSessionExpiresAt > Date.now()) ||
+      settings?.geminiApiKey || settings?.serverGeminiReady || options?.serverGeminiReady
+    );
+    const cached = getCachedVariant(targetGene, targetVariant, pipelineContext);
+    if (cached && cached.biophysicsContext !== pipelineContext.simulationConditions) {
+      biophysicalSink.setMutantPdb(null);
+      biophysicalSink.setFoldxWtPdb?.(null);
+      biophysicalSink.setFoldedResidueIndex(null);
+      biophysicalSink.setFoldingDdG(null);
+      biophysicalSink.setFoldingEnergetics(null);
+      biophysicalSink.setFoldingStatus(null);
+      biophysicalSink.setDynamut2JobId(null);
+      biophysicalSink.setDynamut2Status(null);
+      biophysicalSink.setDdmutJobId(null);
+      biophysicalSink.setDdmutStatus(null);
+      biophysicalSink.setThermompnnJobId(null);
+      biophysicalSink.setThermompnnStatus(null);
+      biophysicalSink.setThermompnnError(null);
+    }
 
     /**
      * The store's view of the remote engines, RESOLVED — one value, shared by BOTH dispatch sites.
@@ -308,8 +377,8 @@ export async function executeFullAnalysisWorkflow({
        * verdict. This site paints too (the pre-flight only covers the caller that reads the cache
        * before starting), so both are checked or the stale state returns through the other door.
        */
-      if (cached.analysisResult && !isBuildDegradedResult(cached.analysisResult)) {
-        analysisSink.setAnalysisState({
+      if (hasReusableCoreEvidence(cached.analysisResult) && !isBuildDegradedResult(cached.analysisResult)) {
+        setAnalysisState({
           isLoading: false,
           error: null,
           result: cached.analysisResult
@@ -404,20 +473,22 @@ export async function executeFullAnalysisWorkflow({
         cached.analysisResult?.isFallback,
         cached.analysisResult?.fallbackReason
       );
-      const hasActiveGemini = Boolean(
-        (settings?.geminiSessionId && settings?.geminiSessionExpiresAt && settings.geminiSessionExpiresAt > Date.now()) ||
-        settings?.geminiApiKey ||
-        settings?.serverGeminiReady ||
-        options?.serverGeminiReady
-      );
-      const needsNarrativeBackfill = isFallback && hasActiveGemini;
+      const needsNarrativeBackfill = mode === "automatic" && (isFallback || !cached.analysisResult?.analysis) && hasActiveGemini;
 
-      // If cached bundle contains a complete analysis and no custom user instructions were requested,
-      // and does not require a narrative backfill/upgrade, short-circuit downstream re-fetches.
+      /*
+       * If the cached bundle contains a complete analysis and does not require a narrative backfill or
+       * upgrade, short-circuit the downstream re-fetches.
+       *
+       * Custom user instructions are NOT tested here, and that is deliberate: `pipelineContext` carries
+       * `userDirections` into the cache read above (`getCachedVariant(targetGene, targetVariant,
+       * pipelineContext)`), and `variantCache` drops `analysisResult` when the context does not match.
+       * So a run whose directions changed cannot reach this branch at all — it misses the cache and
+       * performs a full run and synthesis — while a re-run of the SAME directions short-circuits
+       * instead of paying for a model call to reproduce a narrative it already has.
+       */
       const hasCompleteAnalysis = Boolean(
-        cached.analysisResult?.analysis &&
-        !cached.analysisResult.analysis.includes("in progress") &&
-        !needsNarrativeBackfill &&
+        cached.analysisResult &&
+        hasReusableCoreEvidence(cached.analysisResult) &&
         /**
          * A result that carries numbering CHOICES or a BUILD HINT is an unanswered refusal, not a
          * completed analysis. Caching one (the report bar re-synthesises whatever is on screen) and
@@ -434,10 +505,13 @@ export async function executeFullAnalysisWorkflow({
          * short-circuit has to decline it.
          */
         !isBuildDegradedResult(cached.analysisResult) &&
-        (cached.analysisResult.predictorData || cached.analysisResult.insights)
+        (cached.analysisResult.metadata?.pipelineStages?.core === "complete" || cached.analysisResult.predictorData || cached.analysisResult.ruleBasedInsights || cached.analysisResult.clinvar || cached.analysisResult.insights)
       );
 
-      if (hasCompleteAnalysis && (!userDirections || !userDirections.trim())) {
+      if (hasCompleteAnalysis) {
+        // Explicitly claim this valid snapshot for the new run before guarded progressive cache writes.
+        setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: decorateState({ result: cached.analysisResult }).result });
+        const cachedTasks: Promise<unknown>[] = [];
         searchSink.addToHistory(targetGene, targetVariant, targetUniprot, historyQuery());
         if (residueIndex != null) {
           searchSink.setSelectedResidueIndex(residueIndex);
@@ -460,28 +534,7 @@ export async function executeFullAnalysisWorkflow({
             apiClient,
             activeSignal,
             getTraceContext()
-          ).then((pdb: any) => {
-            if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
-              const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
-              const provenance = pdb?.provenance || (typeof pdb === "string" ? (pdb as any).provenance : null);
-              structureSink.setPdbText(pdbString);
-              if (provenance && structureSink.setPdbTextProvenance) {
-                structureSink.setPdbTextProvenance(provenance);
-              }
-              if (residueIndex && (!cached?.computedPocket || cached.computedPocket.status === "unavailable")) {
-                fetchPocketData(
-                  targetUniprot,
-                  residueIndex,
-                  pdbString,
-                  apiClient,
-                  structureSink.setIsPocketLoading,
-                  structureSink.setPocketError,
-                  structureSink.setComputedPocket,
-                  activeSignal
-                );
-              }
-            }
-          });
+          ).then(installStructure);
         }
 
         /**
@@ -513,7 +566,7 @@ export async function executeFullAnalysisWorkflow({
           Date.now() - (getBiophysicsAttemptedAt(targetGene, targetVariant) ?? 0) > BIOPHYSICS_RETRY_COOLDOWN_MS;
 
         const needsBiophysicsBackfill =
-          (snapshotIncomplete || retryableFailure) && retryCooldownElapsed;
+          !foldxStructurallyUnavailable && (snapshotIncomplete || retryableFailure) && retryCooldownElapsed;
 
         if (needsBiophysicsBackfill && posMatch && targetUniprot) {
           // Recorded BEFORE dispatch, so an abort or a crash still starts the cooldown rather
@@ -554,31 +607,54 @@ export async function executeFullAnalysisWorkflow({
           });
         }
 
-        // Backfill multimer data if missing from cached snapshot
-        if (!cached.analysisResult?.multimerData && targetUniprot) {
-          fetchProgressiveMultimer(
-            { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot },
-            fetchWithAuth,
-            activeSignal,
-            analysisSink.setAnalysisState,
-            requestId,
-            getActiveRequestId
-          );
+        // Resume only unfinished enrichments, never re-run healthy core to repair optional prose.
+        if (targetUniprot) {
+          const stages = cached.analysisResult?.metadata?.pipelineStages;
+          if (!cached.analysisResult?.multimerData) cachedTasks.push(fetchProgressiveMultimer(requestParams(), fetchWithAuth, activeSignal, setAnalysisState, requestId, getActiveRequestId));
+          if (!cached.analysisResult?.landscapeData || stages?.landscape === "running" || stages?.landscape === "error") {
+            cachedTasks.push(fetchProgressiveLandscape(requestParams(), apiClient, activeSignal, setAnalysisState, requestId, getActiveRequestId));
+          }
+          if (["running", "error", "degraded"].includes(stages?.structural ?? "") || (!stages?.structural && !cached.analysisResult?.esm2Eval && !cached.analysisResult?.saprotEval)) {
+            cachedTasks.push(fetchProgressiveStructuralAssessments(requestParams(), apiClient, activeSignal, setAnalysisState, requestId, getActiveRequestId, getTraceContext(), analysisSink.setIsStructuralLoading));
+          }
         }
-
-        return;
+        if (needsNarrativeBackfill || mode !== "automatic") cachedTasks.push(triggerNarrative(cached.analysisResult));
+        await Promise.allSettled(cachedTasks);
+        await refreshNarrativeOnce();
+        return activeSignal.aborted || getActiveRequestId() !== requestId ? "aborted" : "completed";
       }
     } else {
       structureSink.resetViewerState();
     }
 
-    fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
+    void fetchHomologs(targetUniprot, apiClient, activeSignal, residueIndex ?? undefined);
+
+    // Independent enrichment starts after intake, not behind the slowest core source.
+    // Results seed the workspace only when real evidence lands; final core merges by ownership.
+    const enrichmentTasks: Promise<unknown>[] = [];
+    let enrichmentStarted = false;
+    const setEnrichmentState = (updater: any) => setAnalysisState((prev: any) =>
+      typeof updater === "function" ? updater(prev?.result ? prev : seedState()) : updater
+    );
+    const startEnrichment = () => {
+      if (enrichmentStarted || !targetUniprot || activeSignal.aborted) return;
+      enrichmentStarted = true;
+      Object.assign(initialStages, { landscape: "running", structural: "running", multimer: "running" });
+      const params = requestParams();
+      enrichmentTasks.push(Promise.resolve(fetchProgressiveLandscape(params, apiClient, activeSignal, setEnrichmentState, requestId, getActiveRequestId)));
+      enrichmentTasks.push(fetchProgressiveStructuralAssessments(
+        { ...params, saprotEngine: settings.saprotEngine }, apiClient, activeSignal,
+        setEnrichmentState, requestId, getActiveRequestId, getTraceContext(), analysisSink.setIsStructuralLoading
+      ));
+      enrichmentTasks.push(fetchProgressiveMultimer(params, fetchWithAuth, activeSignal, setEnrichmentState, requestId, getActiveRequestId));
+    };
 
     // Stage 2: 3D Structure Fetch
     if (!cached?.pdbText) {
-      analysisSink.setLoadingStep("Step 2/4: Fetching AlphaFold & PDB 3D structures...");
+      analysisSink.setLoadingStep("Fetching protein structure...");
     }
-    const pdbWarmupPromise = fetchPdbCoordinates(
+    const initialStructureAccession = targetUniprot;
+    const pdbWarmupPromise = targetUniprot ? fetchPdbCoordinates(
       targetGene,
       targetVariant,
       targetUniprot,
@@ -586,113 +662,53 @@ export async function executeFullAnalysisWorkflow({
       apiClient,
       activeSignal,
       getTraceContext()
-    );
+    ) : Promise.resolve(null);
 
-    // Stage 3: Concurrent FoldX Simulation Pipeline
-    const foldKey = `${targetUniprot}_${targetVariant}`;
-    if (biophysicalSink.lastFetchedFoldRef.current !== foldKey && posMatch) {
+    // Stage 3: Concurrent FoldX. Missing intake accessions are deferred until core resolves them.
+    const startFolding = () => {
+      if (!targetUniprot || !posMatch || activeSignal.aborted || getActiveRequestId() !== requestId) return;
+      const foldKey = `${targetUniprot}_${targetVariant}_${pipelineContext.simulationConditions}`;
+      const structurallyUnavailable = Boolean(cached?.foldingEnergetics?.foldxBinaryMissing || cached?.foldingEnergetics?.foldxRepairFailed);
+      const healthyBiophysics = Boolean(cached?.mutantPdb && cached?.foldingEnergetics && cached.foldingStatus !== "failed");
+      const retryCoolingDown = cached?.foldingStatus === "failed" && Date.now() -
+        (getBiophysicsAttemptedAt(targetGene, targetVariant) ?? cached.biophysicsAttemptedAt ?? 0) <= BIOPHYSICS_RETRY_COOLDOWN_MS;
+      if (biophysicalSink.lastFetchedFoldRef.current === foldKey || structurallyUnavailable || healthyBiophysics || retryCoolingDown) return;
+      recordBiophysicsAttempt(targetGene, targetVariant, targetUniprot);
       biophysicalSink.lastFetchedFoldRef.current = foldKey;
-
-      if (mutantFoldAbortRef.current) {
-        try {
-          mutantFoldAbortRef.current.abort();
-        } catch (e) {
-          console.error("[Pipeline] Failed to abort previous mutant fold request", e);
-        }
-      }
+      mutantFoldAbortRef.current?.abort();
       const foldController = new AbortController();
       mutantFoldAbortRef.current = foldController;
       const onParentAbort = () => foldController.abort();
       activeSignal.addEventListener("abort", onParentAbort, { once: true });
-
-      /**
-       * No absolute watchdog here any more.
-       *
-       * A timer armed before submission cannot tell a *queued* job from a *running* one, so it fired
-       * while the job was still legitimately waiting for a concurrency slot — reporting a timeout for
-       * work the server went on to complete, and orphaning the result. `foldxService` bounds each
-       * phase itself (queue wait, execution, and every individual poll), which it can do because it
-       * observes the job's state as it polls.
-       */
-      executeFoldxPipeline({
-        gene: targetGene,
-        uniprotId: targetUniprot,
-        variant: targetVariant,
-        residueIndex: residueIndex ?? null,
-        conditions: settings.biophysicsConditions,
-        fetchWithAuth,
-        sink: biophysicalSink,
-        signal: foldController.signal,
-        requestId,
-        getActiveRequestId,
+      // foldxService owns queue/execution/poll budgets. An absolute watchdog would orphan queued work.
+      void executeFoldxPipeline({
+        gene: targetGene, uniprotId: targetUniprot, variant: targetVariant,
+        residueIndex: residueIndex ?? null, conditions: settings.biophysicsConditions,
+        fetchWithAuth, sink: biophysicalSink, signal: foldController.signal, requestId, getActiveRequestId,
+        // FoldX records its own span; the run's trace context is what lets it land in the waterfall.
         traceContext: getTraceContext(),
-        /**
-         * The SAME seed the backfill dispatch passes — and it IS load-bearing, which a correction to an
-         * earlier record needs to state plainly.
-         *
-         * I removed this once, on the strength of a mutation check that dropped the seed and left every
-         * test passing. That inference was wrong, and wrong in the exact way this audit is about: the
-         * fixture used to test it (`HEALTHY_SNAPSHOT`, whose bundle carries a complete analysis) returns
-         * EARLIER, inside `if (hasCompleteAnalysis && !userDirections)` — so the test could never reach
-         * this dispatch, and its silence proved nothing about it. A cached bundle with no
-         * `analysisResult` does fall through to here, and `variantCache` deliberately persists exactly
-         * those bundles.
-         *
-         * Without the seed this path settles from this attempt's responses alone, so an engine the store
-         * is already polling is marked unavailable and its live poller is torn down — the defect F4
-         * fixed, re-opened by my own "refutation".
-         */
+        // Preserve this variant's live remote-job IDs when a new submission fails before returning IDs.
         initialRemoteState: restoredRemoteState
-      }).finally(() => {
-        activeSignal.removeEventListener("abort", onParentAbort);
-      });
-    }
+      }).catch(error => {
+        if (foldController.signal.aborted || getActiveRequestId() !== requestId) return;
+        biophysicalSink.setFoldingError(error?.message || "Biophysical simulation failed");
+        biophysicalSink.setFoldingStatus("failed");
+        biophysicalSink.setIsFolding(false);
+      }).finally(() => activeSignal.removeEventListener("abort", onParentAbort));
+    };
+    startFolding();
 
     // Stage 4: Multi-Model Biophysics Suite
-    analysisSink.setLoadingStep("Step 3/4: Computing AI biophysical assessment...");
+    analysisSink.setLoadingStep("Assessing clinical and computational evidence...");
     const biophysicalPromise = fetchBiophysicalAnalysis(
-      // `assembly` comes from the notation-translation step, which is the only place the
-      // build is known (it is parsed from an inline annotation, or defaults to GRCh38).
-      // Forwarding it lets the server route build-aware sources and skip the GRCh38-only
-      // ones instead of handing them another build's coordinates.
-      {
-        gene: targetGene,
-        variant: targetVariant,
-        uniprotId: targetUniprot,
-        ...(transcriptMeta?.assembly ? { assembly: transcriptMeta.assembly } : {}),
-        // Forward the coordinate the user's notation resolved to, but ONLY together with its
-        // declared build — the server refuses a coordinate whose build was not stated, because
-        // a defaulted GRCh38 label over a GRCh37 position is the wrong-locus hazard itself.
-        ...(transcriptMeta?.genomicCoordinates && transcriptMeta?.assembly
-          ? { genomicCoordinates: transcriptMeta.genomicCoordinates }
-          : {}),
-        /**
-         * The CANONICAL pair, forwarded BESIDE the submitted pair above rather than replacing it.
-         *
-         * When a submitted GRCh37 coordinate was lifted onto GRCh38 and reverse-verified, the
-         * predictors must be given the build they actually query: Ensembl VEP is asked BY POSITION,
-         * so a GRCh37 coordinate is re-lifted downstream (or refused outright by a GRCh38-only
-         * source), while the verified canonical locus is already on the required build and cannot
-         * disagree with the annotation that produced the protein substitution. A coordinate paired
-         * with the wrong build is the wrong-locus hazard.
-         *
-         * The DECISION RECORD is deliberately not forwarded: the analysis route derives it from
-         * these facts (`deriveCoordinateLift`), because a disclosure a caller can assert is
-         * decoration, not evidence.
-         */
-        ...(transcriptMeta?.resolvedAssembly ? { resolvedAssembly: transcriptMeta.resolvedAssembly } : {}),
-        ...(transcriptMeta?.liftedGenomicCoordinates
-          ? { liftedGenomicCoordinates: transcriptMeta.liftedGenomicCoordinates }
-          : {}),
-        // Carries the reader's answer to the ambiguity prompt to the route that raised it, so the
-        // canonical reading can be chosen (re-submitting the bare notation alone is refused again).
-        ...(numberingBasis ? { numberingBasis } : {})
-      },
+      // Same scientific inputs for every branch. Submitted and lifted coordinate/build pairs stay
+      // separate; the server validates their lift rather than trusting a caller-authored decision.
+      requestParams(),
       apiClient,
       activeSignal,
       (chunkData: any) => {
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
-        analysisSink.setAnalysisState((prev: any) => {
+        setAnalysisState((prev: any) => {
           /**
            * Seed a result object on the FIRST chunk that carries data, rather than waiting for the
            * structure warm-up below.
@@ -708,23 +724,14 @@ export async function executeFullAnalysisWorkflow({
            * would claim the analysis had started producing evidence while the fast triage was still
            * in flight. The placeholder appears with the first real data and not before.
            */
-          const seed = prev?.result ? prev : createPlaceholderAnalysisState(baseParams);
-          const base = seed.result;
-          return {
-            ...seed,
-            result: {
-              ...base,
-              ...chunkData,
-              metadata: {
-                ...(base.metadata || {}),
-                ...(chunkData.metadata || {})
-              }
-            }
-          };
+          return mergeResultPatch(prev?.result ? prev : seedState(), chunkData, baseParams, "core", "running");
         });
       },
       getTraceContext()
     );
+
+    // Prefer the stream as shared-core owner; enrichment still starts before any response is awaited.
+    startEnrichment();
 
     /**
      * The structure warm-up is what paints the 3D viewer, and on the NON-streaming fallback path
@@ -732,9 +739,10 @@ export async function executeFullAnalysisWorkflow({
      * result object. On the streaming path the chunk merge above has usually seeded one already,
      * and this call is then a no-op by design.
      */
-    pdbWarmupPromise.then((pdb: any) => {
-      if (pdb && getActiveRequestId() === requestId && !activeSignal.aborted) {
+    function installStructure(pdb: any) {
+      if (pdb && acceptingEvidence && getActiveRequestId() === requestId && !activeSignal.aborted) {
         const pdbString = typeof pdb === "string" ? pdb : pdb?.pdbText;
+        if (typeof pdbString !== "string" || !pdbString.trim()) return;
         const provenance = pdb?.provenance || (typeof pdb === "string" ? (pdb as any).provenance : null);
         structureSink.setPdbText(pdbString);
         if (provenance && structureSink.setPdbTextProvenance) {
@@ -752,38 +760,56 @@ export async function executeFullAnalysisWorkflow({
             activeSignal
           );
         }
-        analysisSink.setAnalysisState((prev: any) => {
+        setAnalysisState((prev: any) => {
           if (prev.result) return prev;
           return createPlaceholderAnalysisState(baseParams);
         });
       }
-    });
+    }
+    void pdbWarmupPromise.then(installStructure);
 
-    const triggerNarrative = (bpResult: any) => {
-      generateClinicalNarrative(
+    function triggerNarrative(bpResult: any) {
+      if (activeSignal.aborted || getActiveRequestId() !== requestId) return Promise.resolve();
+      if (mode !== "automatic") {
+        searchSink.addToHistory(targetGene, targetVariant, targetUniprot);
+        if (residueIndex != null) searchSink.setSelectedResidueIndex(residueIndex);
+        analysisSink.setIsNarrativeLoading(false);
+        setAnalysisState((prev: any) => mergeResultPatch(prev, { metadata: { narrativeMode: mode } }, baseParams, "narrative", "skipped"));
+        return Promise.resolve();
+      }
+      return generateClinicalNarrative(
         {
           gene: targetGene,
           variant: targetVariant,
           uniprotId: targetUniprot,
           userDirections,
           settings,
-          bpResult
+          bpResult,
+          getCurrentEvidence: getCurrentEvidenceForRun
         },
         apiClient,
         {
           addToHistory: (g: string, v: string, u: string) => searchSink.addToHistory(g, v, u, historyQuery()),
           setSelectedResidueIndex: searchSink.setSelectedResidueIndex
         },
-        analysisSink,
+        runAnalysisSink,
         activeSignal,
         requestId,
         getActiveRequestId,
         getTraceContext()
       );
-    };
+    }
 
-    biophysicalPromise
-      .then((resResult: any) => {
+    async function refreshNarrativeOnce() {
+      const snapshot = getCurrentEvidenceForRun();
+      if (mode === "automatic" && hasActiveGemini && snapshot && narrativeFreshness(snapshot.result, snapshot.context) === "outdated") {
+        // One refresh after the initial fan-out, never a loop driven by long-lived engine polling.
+        await triggerNarrative(snapshot.result);
+      }
+    }
+
+    await biophysicalPromise
+      .then(async (resResult: any) => {
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
         analysisSink.setIsBiophysicalLoading(false);
         analysisSink.setIsClinicalLoading(false);
@@ -795,53 +821,30 @@ export async function executeFullAnalysisWorkflow({
             baseParams.uniprotId = targetUniprot;
           }
 
-          analysisSink.setAnalysisState(createCompletedAnalysisState(resResult, baseParams));
-          triggerNarrative(resResult);
-
-          // Progressive query for Landscape Data
-          fetchProgressiveLandscape(
-            { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot },
-            apiClient,
-            activeSignal,
-            analysisSink.setAnalysisState,
-            requestId,
-            getActiveRequestId
-          );
-
-          // Progressive query for Deep Structural Models (ESM3, ESMC, ESM2-3B, SaProt)
-          fetchProgressiveStructuralAssessments(
-            {
-              gene: targetGene,
-              variant: targetVariant,
-              uniprotId: targetUniprot,
-              acmgWeighting: settings.acmgWeighting,
-              saprotEngine: settings.saprotEngine
-            },
-            apiClient,
-            activeSignal,
-            analysisSink.setAnalysisState,
-            requestId,
-            getActiveRequestId,
-            getTraceContext(),
-            analysisSink.setIsStructuralLoading
-          );
-
-          // Progressive query for Quaternary Multimer Assembly
-          fetchProgressiveMultimer(
-            { gene: targetGene, variant: targetVariant, uniprotId: targetUniprot },
-            fetchWithAuth,
-            activeSignal,
-            analysisSink.setAnalysisState,
-            requestId,
-            getActiveRequestId
-          );
+          pipelineContext.uniprotId = targetUniprot.toUpperCase();
+          if (!initialStructureAccession && targetUniprot) {
+            void fetchPdbCoordinates(targetGene, targetVariant, targetUniprot, residueIndex, apiClient, activeSignal, getTraceContext()).then(installStructure);
+          }
+          startFolding();
+          setAnalysisState((prev: any) => mergeCompletedCore(prev, createCompletedAnalysisState(resResult, baseParams), baseParams));
+          // Cache core evidence even when optional AI is disabled or deferred.
+          setAnalysisState((prev: any) => {
+            if (prev?.result) setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: prev.result });
+            return prev;
+          });
+          analysisSink.setLoadingStep("Evidence ready · Background enrichment continues");
+          startEnrichment();
+          // Awaiting here owns telemetry completion, never navigation or workspace readiness.
+          await Promise.allSettled([...enrichmentTasks, triggerNarrative(resResult)]);
+          await refreshNarrativeOnce();
         } else {
           throw new Error("Biophysical result payload empty.");
         }
       })
-      .catch((err: any) => {
+      .catch(async (err: any) => {
         if (getActiveRequestId() !== requestId || activeSignal.aborted) return;
         console.error("[WorkflowOrchestrator] Biophysical analysis error:", err);
+        markCoreFailure();
         analysisSink.setIsBiophysicalLoading(false);
         analysisSink.setIsStructuralLoading(false);
         analysisSink.setIsClinicalLoading(false);
@@ -849,11 +852,11 @@ export async function executeFullAnalysisWorkflow({
 
         const fallbackKey = `${targetGene}_${targetVariant}`;
         if (FALLBACK_ANALYSES[fallbackKey] || FALLBACK_INSIGHTS[fallbackKey]) {
-          analysisSink.setAnalysisState(
+          setAnalysisState(
             createDemoFallbackAnalysisState(FALLBACK_ANALYSES[fallbackKey], FALLBACK_INSIGHTS[fallbackKey] || null, baseParams)
           );
         } else {
-          analysisSink.setAnalysisState(
+          setAnalysisState(
             createBiophysicalErrorAnalysisState(
               err?.message || "Biophysical analysis failed",
               baseParams,
@@ -863,10 +866,13 @@ export async function executeFullAnalysisWorkflow({
             )
           );
         }
+        acceptingEvidence = false;
+        await Promise.allSettled(enrichmentTasks);
       });
   } catch (err: any) {
     if (getActiveRequestId() === requestId && !activeSignal.aborted) {
       console.error("[WorkflowOrchestrator] Top-level pipeline error:", err);
+      markCoreFailure();
       // Defensive: when notation translation fails, `targetVariant` is still a genomic
       // coordinate and this helper throws. Letting that escape would skip the error-state
       // assignment below and leave the UI stuck on a loading spinner with no message, so
@@ -891,13 +897,15 @@ export async function executeFullAnalysisWorkflow({
        * UI can offer them.
        */
       const refusalExtra = refusalAttachmentsFromError(err, targetVariant);
-      analysisSink.setAnalysisState(
+      setAnalysisState(
         createTopLevelErrorAnalysisState(err?.message || "Unknown error", baseParams, refusalExtra)
       );
       analysisSink.setIsBiophysicalLoading(false);
       analysisSink.setIsStructuralLoading(false);
       analysisSink.setIsClinicalLoading(false);
       analysisSink.setIsNarrativeLoading(false);
+      acceptingEvidence = false;
     }
   }
+  return activeSignal.aborted || getActiveRequestId() !== requestId ? "aborted" : outcome;
 }

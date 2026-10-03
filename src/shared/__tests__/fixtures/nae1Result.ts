@@ -1,5 +1,5 @@
 /**
- * NAE1 p.Asp116Gly for the Score thresholds tab — the values on the owner's 2026-09-29 screenshots.
+ * NAE1 p.Asp116Gly for the Predictors tab and its strength ladder — the values on the owner's 2026-09-29 screenshots.
  * oe_mis and pLI were not on screen; they are set so the PP2 rule has both inputs.
  */
 export const NAE1_RESULT: any = {

@@ -1,12 +1,15 @@
 import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
 import type { CoordinateLiftRecord } from "../../shared/contracts";
 import { TraceContext } from "./types";
-import { getCachedVariant, setCachedVariant } from "./variantCache";
+import { getCachedVariant, setCachedVariant, type CachedVariantBundle } from "./variantCache";
+import { mergeResultPatch } from "./resultMerge";
+import { deepModelEvidenceFor } from "../../shared/deepModelEvidence";
 
 export interface BiophysicalAnalysisParams {
   gene: string;
   variant: string;
   uniprotId: string;
+  acmgWeighting?: "standard" | "conservative" | "strict-structural";
   /**
    * Build the user's notation was expressed in, carried from the notation translation
    * step. Most coordinate-based evidence sources on the server are single-build, so this
@@ -32,6 +35,12 @@ export interface BiophysicalAnalysisParams {
   resolvedAssembly?: "GRCh37" | "GRCh38";
   /** The reader's answer to an ambiguity refusal: these residue numbers ARE canonical. */
   numberingBasis?: string;
+  /** Client-only ownership guard for progressive cache writes. */
+  pipelineRunId?: string;
+}
+
+function ownsCachedAnalysis(cached: CachedVariantBundle | null, params: BiophysicalAnalysisParams): cached is CachedVariantBundle & { analysisResult: any } {
+  return Boolean(cached?.analysisResult && (!params.pipelineRunId || cached.analysisResult.metadata?.pipelineRunId === params.pipelineRunId));
 }
 
 export async function fetchBiophysicalAnalysis(
@@ -43,13 +52,15 @@ export async function fetchBiophysicalAnalysis(
 ): Promise<any> {
   const { gene, variant, uniprotId, assembly, genomicCoordinates, numberingBasis } = params;
   const { liftedGenomicCoordinates, resolvedAssembly } = params;
-  const bpKey = `biophysical_${gene}_${variant}_${uniprotId}`;
+  // Same protein notation can carry different verified loci or interpretation settings.
+  const bpKey = `biophysical_${JSON.stringify(params)}`;
   const bpStart = performance.now();
 
   const requestBody = {
     gene,
     variant,
     uniprotId,
+    ...(params.acmgWeighting ? { acmgWeighting: params.acmgWeighting } : {}),
     ...(assembly ? { assembly } : {}),
     ...(genomicCoordinates && assembly ? { genomicCoordinates } : {}),
     /**
@@ -94,18 +105,20 @@ export async function fetchBiophysicalAnalysis(
         if (traceContext?.activeTraceId) {
           traceContext.addTraceSpan({
             traceId: traceContext.activeTraceId,
-            name: "Multi-Model Biophysics Suite (ESM-2, SaProt, ClinVar, gnomAD)",
+            name: "Core evidence sources",
             stage: "biophysics",
             startTime: Date.now() - durationMs,
             offsetMs,
             durationMs,
             status: "success",
-            meta: { gene, variant }
+            ...(typeof (res?.metadata?.cacheHit ?? res?.cacheHit) === "boolean" ? { cached: res.metadata?.cacheHit ?? res.cacheHit } : {}),
+            meta: { gene, variant, cacheLayer: res?.metadata?.cacheLayer ?? res?.cacheLayer ?? null }
           });
 
           // Feed granular server task sub-spans into the Waterfall
           const timings = res?.serviceTimings || res?.metadata?.serviceTimings;
           const statuses = res?.serviceStatus || res?.metadata?.serviceStatus;
+          const timingOffsets = res?.serviceTimingOffsets || res?.metadata?.serviceTimingOffsets;
           if (timings && typeof timings === "object") {
             const serviceLabels: Record<string, { name: string; stage: "structure" | "biophysics" | "clinical" }> = {
               pdbMapping: { name: "3D Structure Homology Search (RCSB PDB / AlphaFold)", stage: "structure" },
@@ -131,12 +144,14 @@ export async function fetchBiophysicalAnalysis(
                 if (isFail || isUnavailable) {
                   console.warn(`[Service] ${labelInfo.name}: ${serviceState}`);
                 }
+                // Server offsets describe SETTLEMENT, not start. Duration recovers the relative start.
+                const taskOffset = typeof timingOffsets?.[key] === "number" ? Math.max(0, timingOffsets[key] - taskDurationMs) : 0;
                 traceContext.addTraceSpan({
                   traceId: traceContext.activeTraceId,
                   name: `↳ ${labelInfo.name}`,
                   stage: labelInfo.stage,
-                  startTime: Date.now() - durationMs,
-                  offsetMs,
+                  startTime: Date.now() - durationMs + taskOffset,
+                  offsetMs: offsetMs + taskOffset,
                   durationMs: taskDurationMs,
                   status: isFail ? "failed" : isUnavailable ? "unavailable" : "success",
                   meta: { serviceKey: key, status: statuses?.[key] || "ok" }
@@ -153,7 +168,7 @@ export async function fetchBiophysicalAnalysis(
         if (traceContext?.activeTraceId) {
           traceContext.addTraceSpan({
             traceId: traceContext.activeTraceId,
-            name: "Multi-Model Biophysics Suite (ESM-2, SaProt, ClinVar, gnomAD)",
+            name: "Core evidence sources",
             stage: "biophysics",
             startTime: Date.now() - durationMs,
             offsetMs,
@@ -177,35 +192,32 @@ export function fetchProgressiveLandscape(
   setAnalysisState: (fn: any) => void,
   requestId: number,
   getActiveRequestId: () => number
-): void {
-  apiClient
+): Promise<void> {
+  if (typeof apiClient.getLandscapeData !== "function") {
+    setAnalysisState((prev: any) => mergeResultPatch(prev, {}, undefined, "landscape", "skipped"));
+    return Promise.resolve();
+  }
+  return apiClient
     .getLandscapeData(params, signal)
     .then((landscapeRes: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return;
-      setAnalysisState((prev: any) => {
-        if (!prev.result) return prev;
-        return {
-          ...prev,
-          result: {
-            ...prev.result,
-            landscapeData: landscapeRes.landscapeData,
-            landscapeMeta: landscapeRes.landscapeMeta ?? null
-          }
-        };
-      });
+      setAnalysisState((prev: any) => mergeResultPatch(prev, {
+        landscapeData: landscapeRes.landscapeData,
+        landscapeMeta: landscapeRes.landscapeMeta ?? null
+      }, undefined, "landscape", "complete"));
       const cached = getCachedVariant(params.gene, params.variant);
-      if (cached?.analysisResult) {
+      if (ownsCachedAnalysis(cached, params)) {
         setCachedVariant(params.gene, params.variant, params.uniprotId, {
-          analysisResult: {
-            ...cached.analysisResult,
+          analysisResult: mergeResultPatch({ result: cached.analysisResult }, {
             landscapeData: landscapeRes.landscapeData,
             landscapeMeta: landscapeRes.landscapeMeta ?? null
-          }
+          }, undefined, "landscape", "complete").result
         });
       }
     })
     .catch((landErr: any) => {
-      if (!signal.aborted) {
+      if (!signal.aborted && getActiveRequestId() === requestId) {
+        setAnalysisState((prev: any) => mergeResultPatch(prev, {}, undefined, "landscape", "error"));
         console.warn("[BiophysicalService Warning] Progressive landscape fetch failed:", landErr);
       }
     });
@@ -240,30 +252,19 @@ export function fetchProgressiveMultimer(
     .then((data: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return data;
       if (data) {
-        setAnalysisState((prev: any) => {
-          if (!prev.result) return prev;
-          return {
-            ...prev,
-            result: {
-              ...prev.result,
-              multimerData: data
-            }
-          };
-        });
+        setAnalysisState((prev: any) => mergeResultPatch(prev, { multimerData: data }, undefined, "multimer", "complete"));
         const cached = getCachedVariant(gene, variant);
-        if (cached?.analysisResult) {
+        if (ownsCachedAnalysis(cached, params)) {
           setCachedVariant(gene, variant, uniprotId, {
-            analysisResult: {
-              ...cached.analysisResult,
-              multimerData: data
-            }
+            analysisResult: mergeResultPatch({ result: cached.analysisResult }, { multimerData: data }, undefined, "multimer", "complete").result
           });
         }
       }
       return data;
     })
     .catch((err: any) => {
-      if (!signal.aborted && err.name !== "AbortError") {
+      if (!signal.aborted && err.name !== "AbortError" && getActiveRequestId() === requestId) {
+        setAnalysisState((prev: any) => mergeResultPatch(prev, {}, undefined, "multimer", "error"));
         console.warn("[BiophysicalService Warning] Progressive multimer fetch failed:", err);
       }
       return null;
@@ -280,51 +281,60 @@ export function fetchProgressiveStructuralAssessments(
   traceContext?: TraceContext,
   setIsStructuralLoading?: (loading: boolean) => void
 ): Promise<void> {
+  if (typeof apiClient.getStructuralAssessments !== "function") {
+    setIsStructuralLoading?.(false);
+    setAnalysisState((prev: any) => mergeResultPatch(prev, {}, undefined, "structural", "skipped"));
+    return Promise.resolve();
+  }
   setIsStructuralLoading?.(true);
+  const structuralStart = performance.now();
+  const addStructuralSpan = (status: "success" | "failed" | "unavailable", error?: string) => {
+    if (!traceContext?.activeTraceId) return;
+    const durationMs = Math.round(performance.now() - structuralStart);
+    traceContext.addTraceSpan({
+      traceId: traceContext.activeTraceId, name: "Deep Language Models (ESM3, ESMC, ESM-2, SaProt)",
+      stage: "biophysics", startTime: Date.now() - durationMs,
+      offsetMs: Math.max(0, Math.round(structuralStart - traceContext.traceStart)), durationMs, status, ...(error ? { error } : {})
+    });
+  };
   return apiClient
     .getStructuralAssessments(params, signal)
     .then((structRes: any) => {
-      if (
-        getActiveRequestId() !== requestId ||
-        signal.aborted ||
-        !structRes ||
-        typeof structRes !== "object"
-      ) {
-        return;
-      }
+      if (getActiveRequestId() !== requestId || signal.aborted) return;
+      if (!structRes || typeof structRes !== "object") throw new Error("Structural evaluation returned no result");
       setIsStructuralLoading?.(false);
 
-      if (traceContext?.activeTraceId) {
-        traceContext.addTraceSpan({
-          traceId: traceContext.activeTraceId,
-          name: "Deep Language Models (ESM3, ESMC, SaProt)",
-          stage: "biophysics",
-          startTime: Date.now() - 50,
-          offsetMs: 0,
-          durationMs: 50,
-          status: "success"
-        });
-      }
-
-      // DevConsole diagnostics: inspect each structural model and emit clear diagnostic warnings/errors
-      const modelEntries: [string, any][] = [
-        ["SaProt", structRes.saprotEval],
-        ["ESM-2 650M", structRes.esm2Eval],
-        ["ESMC-6B / VESM-150M", structRes.esmcEval],
-        ["ESM3", structRes.esm3Eval]
-      ];
-
+      // Reuse the scientific projection's actual computed/absent outcome, not HTTP 200 or a token placeholder.
+      const observations = deepModelEvidenceFor(structRes, { saprotEngine: params.saprotEngine }).observations;
+      const modelEntries = [
+        ["saprot", "saprot", structRes.saprotEval], ["esm2Eval", "esm2", structRes.esm2Eval],
+        ["esmc", "esmc", structRes.esmcEval], ["esm3", "esm3", structRes.esm3Eval]
+      ] as const;
       const failedModels: string[] = [];
-      for (const [modelName, evalResult] of modelEntries) {
-        if (!evalResult) {
-          failedModels.push(`${modelName} (no data returned)`);
-          console.warn(`[StructuralModel] ${modelName}: No evaluation data returned (likely offline).`);
-        } else if ("error" in evalResult && evalResult.error) {
-          failedModels.push(`${modelName} (${evalResult.status || "error"}: ${evalResult.error})`);
-          console.warn(`[StructuralModel] ${modelName} failed (${evalResult.status || "error"}): ${evalResult.error}`);
+      const timings = structRes.structuralTimings ?? structRes.metadata?.structuralTimings;
+      const offsets = structRes.structuralTimingOffsets ?? structRes.metadata?.structuralTimingOffsets;
+      for (const [key, id, evaluation] of modelEntries) {
+        const observation = observations.find(item => item.id === id)!;
+        const computed = observation.state === "computed";
+        const outcome = structRes.serviceStatus?.[key] ?? evaluation?.status ?? observation.state;
+        if (!computed) {
+          failedModels.push(`${observation.source} (${outcome})`);
+          console.warn(`[StructuralModel] ${observation.source}: ${evaluation?.error || outcome}`);
         }
-        // Successes need no log line: the payload is rendered by the structure panel.
+        const durationMs = timings?.[key];
+        if (traceContext?.activeTraceId && Number.isFinite(durationMs) && durationMs >= 0) {
+          const startOffset = Number.isFinite(offsets?.[key]) ? Math.max(0, offsets[key] - durationMs) : 0;
+          const clientOffset = Math.max(0, structuralStart - traceContext.traceStart);
+          traceContext.addTraceSpan({
+            traceId: traceContext.activeTraceId, name: `↳ ${observation.source}`, stage: "biophysics",
+            startTime: Date.now() - (performance.now() - structuralStart) + startOffset,
+            offsetMs: Math.round(clientOffset + startOffset), durationMs,
+            status: computed ? "success" : outcome === "error" || outcome === "timeout" ? "failed" : "unavailable",
+            meta: { serviceKey: key, status: outcome, modelProvenance: observation.provenance }
+          });
+        }
       }
+      addStructuralSpan(failedModels.length === modelEntries.length ? "unavailable" : "success");
 
       if (failedModels.length === modelEntries.length) {
         console.error(
@@ -335,50 +345,24 @@ export function fetchProgressiveStructuralAssessments(
         );
       }
 
-      setAnalysisState((prev: any) => {
-        if (!prev.result) return prev;
-        const mergedServiceStatus = {
-          ...(prev.result.serviceStatus || prev.result.metadata?.serviceStatus || {}),
-          ...(structRes.serviceStatus || {})
-        };
-        return {
-          ...prev,
-          result: {
-            ...prev.result,
-            esm3Eval: structRes.esm3Eval,
-            esmcEval: structRes.esmcEval,
-            esm2Eval: structRes.esm2Eval,
-            saprotEval: structRes.saprotEval,
-            serviceStatus: mergedServiceStatus,
-            metadata: {
-              ...(prev.result.metadata || {}),
-              serviceStatus: mergedServiceStatus
-            },
-            ruleBasedInsights: structRes.ruleBasedInsights || prev.result.ruleBasedInsights
-          }
-        };
-      });
+      setAnalysisState((prev: any) => mergeResultPatch(prev, {
+        esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
+        esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
+        metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
+        serviceStatus: structRes.serviceStatus ?? {},
+        ...(structRes.ruleBasedInsights ? { ruleBasedInsights: structRes.ruleBasedInsights } : {})
+      }, undefined, "structural", failedModels.length ? "degraded" : "complete"));
 
       const cached = getCachedVariant(params.gene, params.variant);
-      if (cached?.analysisResult) {
-        const mergedServiceStatus = {
-          ...(cached.analysisResult.serviceStatus || cached.analysisResult.metadata?.serviceStatus || {}),
-          ...(structRes.serviceStatus || {})
-        };
+      if (ownsCachedAnalysis(cached, params)) {
         setCachedVariant(params.gene, params.variant, params.uniprotId, {
-          analysisResult: {
-            ...cached.analysisResult,
-            esm3Eval: structRes.esm3Eval,
-            esmcEval: structRes.esmcEval,
-            esm2Eval: structRes.esm2Eval,
-            saprotEval: structRes.saprotEval,
-            serviceStatus: mergedServiceStatus,
-            metadata: {
-              ...(cached.analysisResult.metadata || {}),
-              serviceStatus: mergedServiceStatus
-            },
-            ruleBasedInsights: structRes.ruleBasedInsights || cached.analysisResult.ruleBasedInsights
-          }
+          analysisResult: mergeResultPatch({ result: cached.analysisResult }, {
+            esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
+            esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
+            metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
+        serviceStatus: structRes.serviceStatus ?? {},
+            ...(structRes.ruleBasedInsights ? { ruleBasedInsights: structRes.ruleBasedInsights } : {})
+          }, undefined, "structural", failedModels.length ? "degraded" : "complete").result
         });
       }
     })
@@ -397,13 +381,14 @@ export function fetchProgressiveStructuralAssessments(
         ? "Structural evaluation timed out (server busy) — click Check & Retry to resume."
         : (structErr.message || "Failed");
 
+      addStructuralSpan("failed", errMessage);
       console.error("[BiophysicalService Error] Progressive structural assessments fetch failed:", structErr);
       setAnalysisState((prev: any) => {
         if (!prev.result) return prev;
         const failureStatus: Record<string, string> = {
           esm3: isTimeout ? "timeout" : "error",
           esmc: isTimeout ? "timeout" : "error",
-          esm2: isTimeout ? "timeout" : "error",
+          esm2Eval: isTimeout ? "timeout" : "error",
           saprot: isTimeout ? "timeout" : "error"
         };
         const mergedServiceStatus = {
@@ -421,7 +406,8 @@ export function fetchProgressiveStructuralAssessments(
             serviceStatus: mergedServiceStatus,
             metadata: {
               ...(prev.result.metadata || {}),
-              serviceStatus: mergedServiceStatus
+              serviceStatus: mergedServiceStatus,
+              pipelineStages: { ...prev.result.metadata?.pipelineStages, structural: "error" }
             }
           }
         };

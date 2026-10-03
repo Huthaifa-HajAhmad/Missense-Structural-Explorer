@@ -40,6 +40,11 @@ import {
   describeFallbackReason,
 } from "../../../src/shared/narrativeFallback.ts";
 import { NARRATIVE_PROMPT_SCHEMA_VERSION } from "../../../src/shared/narrativeSynthesis.ts";
+import {
+  buildNarrativeEvidenceContract,
+  canonicalNarrativeEvidence,
+} from "../../../src/shared/narrativeEvidence.ts";
+import { deepModelEvidenceSchema } from "../../../src/shared/contracts.ts";
 import { CLINVAR_ABSENCE_SENTENCE, clinvarPresence } from "../../../src/shared/clinvarPresence.ts";
 import {
   getFromCache,
@@ -79,6 +84,16 @@ const analyzeVariantNarrativeSchema = z.object({
    * confirmed absence, and the report asserted absence.
    */
   serviceStatus: z.record(z.string(), z.string()).optional(),
+  /**
+   * The deep-model observations the synthesis is to be given.
+   *
+   * Validated by the SHARED schema (`src/shared/contracts.ts`) rather than by a shape written here: it
+   * is interpolated into a clinical prompt, so its model ids, state vocabulary, numeric bounds and text
+   * lengths are the app's own contract, and a payload describing a model this app does not have is
+   * refused instead of paraphrased. Absent from a client that predates the deep-evidence integration,
+   * which then simply gets the fast evidence set.
+   */
+  deepEvidence: deepModelEvidenceSchema.nullable().optional(),
 });
 
 export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: any): void {
@@ -126,7 +141,10 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
 
-      const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures, sequence, aouFrequency, aouLookup, serviceStatus } = req.body;
+      const { clinvar, predictorData, conservationData, stringInteractions, gnomadConstraint, gnomadFrequency, uniprotFeatures, sequence, aouFrequency, serviceStatus } = req.body;
+      // Read from the VALIDATED body, not `req.body`: the schema is what bounds and normalizes it.
+      const deepEvidence = parseResult.data.deepEvidence ?? null;
+      const aouLookup = parseResult.data.aouLookup ?? null;
 
       const mutMatch = variant.match(/([a-zA-Z]{3}|\w)\s*(\d+)\s*([a-zA-Z]{3}|\w)/);
       if (!mutMatch) {
@@ -137,16 +155,50 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       const residueIndex = mutMatch[2];
       const mutant = mutMatch[3];
 
-      const evidencePayload = {
+      /**
+       * The evidence contract, from the SHARED declaration.
+       *
+       * Both client paths (`narrativeService`, `useNarrativeResynthesis`) build their request through
+       * `planNarrativeSynthesis`, so this is the same object they canonicalize — which is what makes
+       * one run hash to one key whichever control the reader pressed.
+       *
+       * `serviceStatus` travels INSIDE the hash, not only into the prompt, and that is the fix this
+       * contract exists for: a ClinVar TIMEOUT and a ClinVar query that was never made both arrive as
+       * `clinvar: null`, so they hashed identically while producing different prompt text
+       * (`clinvarPresence` reads the status and says `unread` for one, `unqueried` for the other). A
+       * narrative written for the failed query was servable to the run that never asked — the cache
+       * asserting the model was told something it was not. `aouFrequency` is in the contract for the
+       * same class of reason: the fallback frequency sentence reads it, so a run that has none must
+       * not be served a narrative written when it was present.
+       */
+      const evidenceContract = buildNarrativeEvidenceContract({
         clinvar,
         predictorData,
         conservationData,
         stringInteractions,
         gnomadConstraint,
         gnomadFrequency,
+        aouFrequency,
+        /*
+         * `aouLookup` is evidence the prose reads, not request context: `buildFrequencyEvidence`
+         * turns it into the All of Us absence sentence and source label. It must therefore be inside
+         * the hash on BOTH sides — the client hashes it through `planNarrativeSynthesis`, so a server
+         * that omitted it would key two different evidence sets to one revision.
+         */
+        aouLookup,
         uniprotFeatures,
-        sequence
-      };
+        sequence,
+        serviceStatus,
+        /*
+         * The validated deep-model block is part of the evidence the key describes.
+         *
+         * Without it the key would be blind to the one thing the prompt gained: a run whose FoldX ΔΔG
+         * arrived after the first synthesis hashed the same as the run that never had one, so the
+         * earlier narrative — written while the engine was still pending — would be served for the
+         * later, complete evidence set.
+         */
+        deepEvidence,
+      });
       const customSessionId = req.headers["x-gemini-session-id"] as string | undefined;
       let customApiKey: string | undefined;
       if (customSessionId) {
@@ -169,7 +221,16 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       const activeApiKey = effectiveKey || "no_key";
       const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
       const model = getConfiguredGeminiModels()[0];
-      const evidenceHash = crypto.createHash("sha256").update(JSON.stringify(evidencePayload)).digest("hex");
+      /*
+       * SHA-256 over the CONTRACT's canonical string — one string, produced by the shared helper, so
+       * the key and the revision the client records are two views of the same evidence. The contract
+       * version is inside that string, so a change to what a narrative is given invalidates every
+       * cached narrative by construction rather than by someone remembering to bump a segment here.
+       */
+      const evidenceHash = crypto
+        .createHash("sha256")
+        .update(canonicalNarrativeEvidence(evidenceContract))
+        .digest("hex");
       /*
        * The `_schema:` segment is the prompt version, read from the shared constant rather than
        * written here. It is the ONLY part of this key that changes when the prompt changes; every
@@ -231,7 +292,14 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
            * a timed-out query was described to the model as "ClinVar was not queried for this run" —
            * a false statement about the run, contradicted by the Population rail on the same screen.
            */
-          serviceStatus ?? null
+          serviceStatus ?? null,
+          /*
+           * The validated deep-model observations, so the synthesis can consider the stability and
+           * language-model results the report displays beside it — under the prompt block's own rules
+           * that they are correlated predictions rather than assays, and that no ACMG criterion may be
+           * created from them.
+           */
+          deepEvidence
         );
         writeToCache(cacheKey, analysisResult);
       } catch (err: any) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSplicingEvidence, groupSpliceReadings, splicingFinding } from "../splicingEvidence.ts";
+import { buildSplicingEvidence, formatDelta, groupSpliceReadings, offsetBetweenPositions, splicingFinding } from "../splicingEvidence.ts";
 import { THRESHOLDS } from "../thresholds/constants.ts";
 import { evaluateSplicePredictor } from "../thresholds/evaluators.ts";
 import { nae1Reference } from "./fixtures/splicingReference.ts";
@@ -96,21 +96,56 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     expect(ada.call?.isCode).toBe(false);
   });
 
-  it("names the channel and shift the maximum came from", () => {
-    const ev = build({ conservationData: { spliceai: { ds_ag: 0.01, ds_al: 0.34, ds_dg: 0, ds_dl: 0.02, max_ds: 0.34, dp: { ds_ag: 3, ds_al: -12, ds_dg: 0, ds_dl: 40 } } } });
-    expect(ev.rule.maxChannel).toBe("ds_al");
-    expect(ev.rule.maxShift).toBe(-12);
-    expect(splicingFinding(ev).headline).toBe("SpliceAI predicts a splicing change (acceptor loss at −12 bp)");
-    const rows = groupSpliceReadings(ev.readings);
+  it("names the channel and shift the maximum came from, in transcript direction", () => {
+    // SpliceAI's DP is genomic. NAE1 is a reverse-strand gene, so a genomic −12 is 12 bases DOWNSTREAM
+    // in the transcript; the tab speaks one direction everywhere, so it prints +12.
+    const rev = build({ conservationData: { spliceai: { ds_ag: 0.01, ds_al: 0.34, ds_dg: 0, ds_dl: 0.02, max_ds: 0.34, dp: { ds_ag: 3, ds_al: -12, ds_dg: 0, ds_dl: 40 } } } });
+    expect(rev.rule.maxChannel).toBe("ds_al");
+    expect(rev.rule.maxShift).toBe(12);
+    expect(splicingFinding(rev).headline).toBe("SpliceAI predicts a splicing change (acceptor loss at +12 bp)");
+    const rows = groupSpliceReadings(rev.readings);
     expect(rows.map(g => g.group)).toEqual(["rule", "channels", "context"]);
     expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.call?.label).toBe("Maximum");
+    expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at +12 bp");
+    // A forward-strand gene keeps the sign.
+    const fwd = build({ conservationData: { spliceProximity: { strand: "+" }, spliceai: { ds_ag: 0, ds_al: 0.34, ds_dg: 0, ds_dl: 0, max_ds: 0.34, dp: { ds_al: -12 } } } });
+    expect(fwd.rule.maxShift).toBe(-12);
+    // No strand: the genomic number is kept and labelled, never silently flipped or presented as transcript direction.
+    const unk = build({ conservationData: { spliceProximity: { strand: null }, spliceai: { ds_ag: 0, ds_al: 0.34, ds_dg: 0, ds_dl: 0, max_ds: 0.34, dp: { ds_al: -12 } } } });
+    expect(unk.readings.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at −12 bp (genomic)");
+  });
+
+  it("gives no location for a score that is indistinguishable from zero", () => {
+    const ev = build({ conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0.001, ds_dl: 0, max_ds: 0.001, dp: { ds_ag: -360, ds_al: 93, ds_dg: -208, ds_dl: -18 } } } });
+    expect(ev.readings.find(r => r.key === "spliceai-ds_dg")!.sub).toBeNull();
+    expect(splicingFinding(ev).headline).toBe("SpliceAI predicts no splicing change");
+    expect(splicingFinding(ev).predicate).toMatch(/\(donor gain\) is below 0\.1/);
   });
 
   it("marks the band the score sits in on the ruler", () => {
     const ev = build({ conservationData: { spliceai: sai(0.03) } });
     const r = ev.readings.find(x => x.key === "spliceai")!;
     expect(r.scale!.bands.find(b => b.active)!.side).toBe("benign");
-    expect(r.call).toEqual({ label: "BP4 (splicing)", tone: "good", isCode: true });
+    expect(r.call).toEqual({ label: "BP4 · splicing", tone: "good", isCode: true, unapplied: true });
+  });
+
+  it("prints a delta score one way everywhere, never 0.00 for a non-zero score or 0.10 inside BP4", () => {
+    expect(formatDelta(0)).toBe("0.00");
+    expect(formatDelta(0.001)).toBe("< 0.01");
+    expect(formatDelta(0.34)).toBe("0.34");
+    expect(formatDelta(0.0996)).toBe("0.100");
+    expect(formatDelta(0.1)).toBe("0.10");
+    expect(formatDelta(0.1996)).toBe("0.200");
+    const ev = build({ conservationData: { spliceai: sai(0.001) } });
+    expect(ev.readings.find(x => x.key === "spliceai")!.scoreText).toBe("< 0.01");
+    expect(splicingFinding(ev).predicate).toMatch(/^a max Δ under 0\.01/);
+  });
+
+  it("keeps two scored dbscSNV models as two rows", () => {
+    const ev = build({ conservationData: { dbscsnv: { ada_score: 0.9, rf_score: 0.4 } } });
+    const ctx = groupSpliceReadings(ev.readings).find(g => g.group === "context")!.rows.map(r => r.key);
+    expect(ctx).toContain("dbscsnv-ada");
+    expect(ctx).toContain("dbscsnv-rf");
   });
 
   it("is pending, not absent, while SpliceAI is in flight", () => {
@@ -242,5 +277,145 @@ describe("AlphaGenome splicing attribution is the AlphaGenome tab's reading", ()
     const ev = live(null);
     expect(ev.alphagenome.share).toBeNull();
     expect(ev.alphagenome.availability.reason).toMatch(/no feature attributions/);
+  });
+});
+
+describe("splice map", () => {
+  // BRCA1 exon 3 (ENST00000357654, reverse strand, 54 bp), variant at chr17:43115729 — the 4th exonic
+  // base from the donor. Live SpliceAI (Broad, 2026-10-02) put the donor at DP −3 and the exon's
+  // acceptor at DP +50, in GENOMIC coordinates; both must land on this exon's ends once the strand
+  // flips them into transcript direction.
+  const brca1 = (strand: "+" | "-" | null, ds: Record<string, number>, dp: Record<string, number>) =>
+    build({
+      conservationData: {
+        spliceProximity: { distance: 3, junctionType: "donor", regionType: "exonic", exonNumber: 3, totalExons: 24, exonLength: 54, strand },
+        spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: Math.max(0, ...Object.values(ds)), ...ds, dp: { ds_ag: 50, ds_al: 0, ds_dg: -3, ds_dl: 1, ...dp } },
+      },
+    });
+
+  it("converts the two numberings across the missing zero", () => {
+    expect(offsetBetweenPositions(-7, 8)).toBe(14);
+    expect(offsetBetweenPositions(-7, -3)).toBe(4);
+    expect(offsetBetweenPositions(5, -1)).toBe(-5);
+  });
+
+  it("puts the junction, the exon and both annotated sites where the variant says", () => {
+    const m = brca1("-", {}, {}).map!;
+    expect(m.junctionOffset).toBe(3.5);
+    expect(m.exon).toEqual({ start: -50.5, end: 3.5 });
+    expect(m.sites).toEqual([
+      { type: "acceptor", offset: -50, far: true },
+      { type: "donor", offset: 3, far: false },
+    ]);
+  });
+
+  it("flips SpliceAI's genomic delta positions on a reverse-strand gene and lands them on the exon's sites", () => {
+    const m = brca1("-", { ds_ag: 0.4, ds_dg: 0.3 }, {}).map!;
+    const byKey = Object.fromEntries(m.predictions.map(x => [x.key, x]));
+    expect(byKey.ds_dg.offset).toBe(3);
+    expect(byKey.ds_dg.atSite).toBe("donor");
+    expect(byKey.ds_ag.offset).toBe(-50);
+    expect(byKey.ds_ag.atSite).toBe("acceptor");
+  });
+
+  it("does not flip them on a forward-strand gene", () => {
+    const m = brca1("+", { ds_dg: 0.3 }, {}).map!;
+    expect(m.predictions[0].offset).toBe(-3);
+    expect(m.predictions[0].atSite).toBeNull();
+  });
+
+  it("places nothing, and says why, when the strand is not resolved", () => {
+    const m = brca1(null, { ds_dg: 0.3 }, {}).map!;
+    expect(m.predictions).toEqual([]);
+    expect(m.predictionsNote).toMatch(/strand is not resolved/);
+  });
+
+  it("leaves out scores indistinguishable from zero, and counts them", () => {
+    const m = brca1("-", { ds_dg: 0.3 }, {}).map!;
+    expect(m.predictions.map(x => x.key)).toEqual(["ds_dg"]);
+    expect(m.belowFloor).toBe(3);
+  });
+
+  it("widens the window to hold a distant prediction and the far junction, never past 2 kb", () => {
+    expect(brca1("-", {}, {}).map!.halfWidth).toBe(50);
+    expect(brca1("-", { ds_al: 0.5 }, { ds_al: 180 }).map!.halfWidth).toBe(200);
+    expect(brca1("-", { ds_al: 0.5 }, { ds_al: 480 }).map!.halfWidth).toBe(1000);
+    expect(brca1("-", { ds_al: 0.5 }, { ds_al: 9000 }).map!.halfWidth).toBe(2000);
+  });
+
+  it("is null when the variant cannot be placed at a donor or acceptor", () => {
+    expect(build({ conservationData: { spliceProximity: { distance: 12, junctionType: "terminal", regionType: "exonic" } } }).map).toBeNull();
+  });
+
+  it("says in the channel row when a delta lands on an annotated site", () => {
+    const ev = brca1("-", { ds_dg: 0.3 }, {});
+    expect(ev.readings.find(x => x.key === "spliceai-ds_dg")!.note).toBe("Lands on the annotated donor");
+  });
+});
+
+describe("splice map — neighbouring exons", () => {
+  // Reverse strand, variant at genomic 1000 in exon 3 (genomic 960–1010, so its donor is at the LOW
+  // end); exon 4 lies downstream in the transcript (genomic 700–760), exon 2 upstream (1100–1180).
+  const withExons = (extra: Record<string, any> = {}) =>
+    build({
+      conservationData: {
+        spliceProximity: {
+          distance: 10, junctionType: "acceptor", regionType: "exonic", exonNumber: 3, totalExons: 6, exonLength: 51, strand: "-", genomicPos: 1000,
+          nearbyExons: [
+            { number: 4, start: 700, end: 760 },
+            { number: 3, start: 960, end: 1010 },
+            { number: 2, start: 1100, end: 1180 },
+          ],
+        },
+        ...extra,
+      },
+    });
+
+  it("takes every exon's bounds from the resolver's list, flipped into transcript direction", () => {
+    const m = withExons().map!;
+    // Exon 3: genomic 960–1010 around pos 1000 → transcript offsets [−10.5, +40.5].
+    expect(m.exon).toEqual({ start: -10.5, end: 40.5 });
+    expect(m.neighbours).toEqual([
+      { number: 2, start: -180.5, end: -99.5 },
+      { number: 4, start: 239.5, end: 300.5 },
+    ]);
+    expect(m.totalExons).toBe(6);
+  });
+
+  it("adds the neighbours' annotated sites, so a delta can land on them", () => {
+    const m = withExons({ spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0.5, ds_dl: 0, max_ds: 0.5, dp: { ds_dg: -240 } } }).map!;
+    // Genomic −240 on a reverse strand is transcript +240: exon 4's acceptor base (start 239.5 + 0.5)… which is an ACCEPTOR,
+    // so a donor gain there is NOT on a site of its type.
+    expect(m.sites.filter(x => x.far).length).toBeGreaterThanOrEqual(4);
+    expect(m.predictions[0].offset).toBe(240);
+    expect(m.predictions[0].atSite).toBeNull();
+    const ac = withExons({ spliceai: { ds_ag: 0.5, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: 0.5, dp: { ds_ag: -240 } } }).map!;
+    expect(ac.predictions[0].atSite).toBe("acceptor");
+  });
+
+  it("falls back to the nearest exon alone when the payload predates the list", () => {
+    const m = build({ conservationData: { spliceProximity: { distance: 10, junctionType: "acceptor", regionType: "exonic", exonNumber: 3, totalExons: 6, exonLength: 51, strand: "-", genomicPos: 1000 } } }).map!;
+    expect(m.neighbours).toEqual([]);
+    expect(m.exon.start).not.toBeNull();
+  });
+});
+
+describe("why SpliceAI has no score", () => {
+  const missed = (kind: string, extra: Record<string, any> = {}) =>
+    build({ conservationData: { spliceai: null, spliceaiFailure: { kind, httpStatus: null, detail: null, ...extra } } });
+
+  it("names a rate limit, a refused coordinate and a timeout, and labels the state", () => {
+    const rl = missed("rate-limited", { httpStatus: 429 });
+    expect(rl.spliceai.availability.reason).toMatch(/limits interactive use/);
+    expect(rl.spliceai.availability.label).toBe("Provider busy");
+    const rej = missed("coordinate-rejected", { httpStatus: 400, detail: "REF does not match" });
+    expect(rej.spliceai.availability.reason).toMatch(/reference base does not match/);
+    expect(rej.spliceai.availability.reason).toMatch(/REF does not match/);
+    expect(rej.spliceai.availability.label).toBe("Coordinate rejected");
+    expect(missed("timeout").spliceai.availability.reason).toMatch(/did not answer/);
+  });
+
+  it("falls back to the cautious wording when the payload predates the field", () => {
+    expect(build().spliceai.availability.reason).toMatch(/does not record why/);
   });
 });

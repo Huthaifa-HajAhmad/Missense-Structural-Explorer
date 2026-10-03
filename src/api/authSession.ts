@@ -169,7 +169,8 @@ export function useAuthSession() {
     tamarindApiKey,
     gpnApiUrl,
     alphagenomeApiKey,
-    alphagenomeApiUrl
+    alphagenomeApiUrl,
+    spliceaiWindow
   } = settings;
 
   const fetchWithAuth: FetchWithAuth = useCallback(async (
@@ -435,6 +436,10 @@ export function useAuthSession() {
         if (alphagenomeApiUrl) {
           headers["x-alphagenome-url"] = alphagenomeApiUrl;
         }
+        // Not a credential: the reporting window of the SpliceAI score this analysis will carry.
+        if (spliceaiWindow) {
+          headers["x-spliceai-distance"] = String(spliceaiWindow);
+        }
       }
 
       // `deadlineAt` tells the retry utility which whole-call deadline the watchdog above is
@@ -518,6 +523,7 @@ export function useAuthSession() {
     gpnApiUrl,
     alphagenomeApiKey,
     alphagenomeApiUrl,
+    spliceaiWindow,
     updateSetting
   ]);
 

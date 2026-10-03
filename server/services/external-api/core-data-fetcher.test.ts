@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fetchCoreVariantData } from "./core-data-fetcher.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
@@ -421,6 +421,16 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       // The final payload is the authority, and the previews never contradicted it.
       expect(result.serviceStatus.stringInteractions).toBe("ok");
       expect(previews[previews.length - 1].serviceStatus.stringInteractions).toBe("ok");
+
+      /**
+       * The offset is REAL. STRING was held behind a gate for at least 20 ms, so the settle offset
+       * reported for it cannot be smaller than that — and it is not the same number as the duration
+       * by construction, because they are measured from two different starts (the source's attach
+       * point and the run's start). A fabricated 0, or a duration reused as an offset, fails here.
+       */
+      const settledString = previews[previews.length - 1];
+      expect(settledString.serviceTimingOffsets.stringInteractions).toBeGreaterThanOrEqual(20);
+      expect(typeof settledString.serviceTimingOffsets.stringInteractions).toBe("number");
     });
 
     it("publishes a total status map: every source is pending until it answers", async () => {
@@ -453,6 +463,140 @@ describe("Core Data Fetcher Service Unit Tests", () => {
       const result = await fetchCoreVariantData(baseContext, 2000);
       expect(result.clinvar?.classification).toBe("Pathogenic");
       expect(result.serviceStatus.clinvar).toBe("ok");
+    });
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * RACE BUDGETS, REAL TIMINGS, AND THE RUNNING VERDICT
+   * ─────────────────────────────────────────────────────────────────────────────
+   */
+  describe("timeout budgets and per-source timings", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("leaves no armed race timer behind once the run completes", async () => {
+      vi.useFakeTimers();
+
+      await fetchCoreVariantData(baseContext, 2000);
+
+      /**
+       * The defect this pins: the budgets were two `setTimeout` promises shared by twelve races, and
+       * neither was ever cleared — so a run that answered in 20 ms still held a 45 s and a 15 s timer,
+       * per request. `vi.getTimerCount()` was 2 here before the fix.
+       */
+      expect(vi.getTimerCount(), "a completed run must keep no budget timer armed").toBe(0);
+    });
+
+    it("times a PREFETCHED source from its own start, and places it on this run's clock", async () => {
+      const { fetchClinVarData } = await import("./clinvar.ts");
+      vi.mocked(fetchClinVarData).mockImplementationOnce(async () => {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        return { classification: "Pathogenic", conditions: null, reviewStatus: null, lastEvaluated: null } as any;
+      });
+
+      /**
+       * A source the caller started 300 ms before this fetch — the shape the stream's fast triage
+       * produces. Attaching a clock HERE would report only the ~30 ms tail as the source's whole
+       * latency; the real start is handed down instead, so the reported duration covers all of it.
+       * The OFFSET is measured from this run's start, which is why it must be the smaller of the two:
+       * they are different quantities, and both are measured rather than reconstructed.
+       */
+      const startedAt = performance.now() - 300;
+      const prefetched = {
+        clinvarPromise: fetchClinVarData(baseContext.gene, baseContext.variant, baseContext.originalNotation) as any,
+        clinvarStartedAt: startedAt
+      };
+
+      const result = await fetchCoreVariantData(baseContext, 2000, prefetched as any);
+
+      expect(result.serviceTimings!.clinvar).toBeGreaterThanOrEqual(300);
+      expect(result.serviceTimingOffsets!.clinvar).toBeGreaterThanOrEqual(0);
+      expect(result.serviceTimingOffsets!.clinvar).toBeLessThan(result.serviceTimings!.clinvar);
+      // Every settled source is placed on the timeline, not just the prefetched one.
+      for (const key of Object.keys(result.serviceStatus)) {
+        expect(typeof result.serviceTimingOffsets![key]).toBe("number");
+      }
+    });
+
+    it("carries a recomputed, clinically safe ACMG verdict on every preview", async () => {
+      const previews: any[] = [];
+      await fetchCoreVariantData(baseContext, 2000, undefined, partial => previews.push(partial));
+
+      expect(previews.length).toBeGreaterThan(0);
+
+      for (const preview of previews) {
+        expect(preview.data.ruleBasedInsights, "a preview must carry a verdict, not a blank").toBeTruthy();
+        expect(typeof preview.data.ruleBasedInsights.acmgVerdict).toBe("string");
+
+        /**
+         * THE SAFETY INVARIANT. A preview's verdict is computed from the preview's OWN statuses, so a
+         * source that has not answered withholds its criterion instead of inventing one: PM2 may not
+         * be awarded while gnomAD is anything other than a measured answer. Getting this wrong is the
+         * defect `ServiceFetchStatus` was created for — "not asked" read as "confirmed absent".
+         */
+        const gnomadStatus = preview.serviceStatus.gnomadFrequency;
+        const codes = preview.data.ruleBasedInsights.acmgCriteria.map((c: any) => c.code);
+        if (gnomadStatus === "pending" || gnomadStatus === "timeout" || gnomadStatus === "error" || gnomadStatus === "unsupported-build") {
+          expect(codes, `PM2 must be withheld while gnomAD is ${gnomadStatus}`).not.toContain("PM2");
+        }
+      }
+    });
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * THE FAST-TRIAGE HAND-OUT — what a joining route is allowed to reuse
+   * ─────────────────────────────────────────────────────────────────────────────
+   * A route that joins this run (the stream arriving after the structural tab opened it) builds its
+   * first frame from these two answers. They must therefore be the SAME data and the SAME verdict the
+   * final payload will carry, or the two surfaces would describe ClinVar differently — and the
+   * verdict must be this pipeline's own derivation, including the outage/absence distinction.
+   */
+  describe("fast-triage hand-out", () => {
+    it("hands out ClinVar and predictors, synchronously, with the status the payload will report", async () => {
+      let handedOut: any = null;
+      let handedOutBeforeFirstAwait = false;
+
+      const run = fetchCoreVariantData(
+        baseContext,
+        2000,
+        undefined,
+        undefined,
+        triage => {
+          handedOut = triage;
+          // Called before this function's first await, so a caller that joins in the same tick sees it.
+          handedOutBeforeFirstAwait = true;
+        }
+      );
+
+      expect(handedOutBeforeFirstAwait, "the hand-out must be synchronous").toBe(true);
+      expect(handedOut?.clinvar).toBeInstanceOf(Promise);
+      expect(handedOut?.predictorData).toBeInstanceOf(Promise);
+
+      const result = await run;
+      const [clinvar, predictors] = await Promise.all([handedOut.clinvar, handedOut.predictorData]);
+
+      // The same data the payload carries...
+      expect(clinvar.data).toEqual(result.clinvar);
+      expect(predictors.data).toEqual(result.predictorData);
+      // ...and the same STATUS, derived once by the same rules.
+      expect(clinvar.status).toBe(result.serviceStatus.clinvar);
+      expect(predictors.status).toBe(result.serviceStatus.predictorData);
+    });
+
+    it("reports an outage to a joining route as an error, never as a measured absence", async () => {
+      const { fetchClinVarData } = await import("./clinvar.ts");
+      vi.mocked(fetchClinVarData).mockRejectedValueOnce(new Error("ClinVar network timeout"));
+
+      let handedOut: any = null;
+      const run = fetchCoreVariantData(baseContext, 2000, undefined, undefined, triage => { handedOut = triage; });
+      await run;
+
+      const clinvar = await handedOut.clinvar;
+      expect(clinvar.data).toBeNull();
+      expect(clinvar.status, "a failed query is not a confirmed absence").toBe("error");
     });
   });
 });

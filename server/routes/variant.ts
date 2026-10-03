@@ -12,6 +12,7 @@ import { registerTranslationRoutes } from "./variant/translation.ts";
 import { registerGeneRoutes } from "./variant/gene.ts";
 import { registerLiteratureRoutes } from "./variant/literature.ts";
 import { registerAlphaGenomeRoutes } from "./variant/alphagenome.ts";
+import { registerSpliceAiRoutes } from "./variant/spliceai.ts";
 
 export function registerVariantRoutes(apiRouter: Router, jsonParserRegular: any): void {
   registerAnalysisRoutes(apiRouter, jsonParserRegular);
@@ -20,4 +21,5 @@ export function registerVariantRoutes(apiRouter: Router, jsonParserRegular: any)
   registerGeneRoutes(apiRouter, jsonParserRegular);
   registerLiteratureRoutes(apiRouter);
   registerAlphaGenomeRoutes(apiRouter, jsonParserRegular);
+  registerSpliceAiRoutes(apiRouter, jsonParserRegular);
 }

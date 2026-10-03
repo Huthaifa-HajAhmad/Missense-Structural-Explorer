@@ -51,6 +51,8 @@ export interface UserSettings {
   autoZoomOnSelect: boolean;
   showAtomInteractions: boolean;
   acmgWeighting: "standard" | "conservative" | "strict-structural";
+  /** AI is optional; it never determines workspace readiness. */
+  narrativeMode?: "automatic" | "on-demand" | "off";
   energyUnit: "kcal/mol" | "kJ/mol";
   seqColorScheme: "chemical" | "hydrophobic" | "minimal";
   seqScrollStep: number; // e.g., 21, 31, 41
@@ -63,5 +65,10 @@ export interface UserSettings {
   defaultPerturbationModel: "saprot" | "esm2" | "esmc";
   defaultStructureModel: "alphafold" | "esmfold";
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf";
+  /**
+   * SpliceAI's reporting window (-D): how far from the variant a gained or lost splice site may be
+   * reported. Sent with each analysis; the server clamps it to the service's 50–10,000 bp range.
+   */
+  spliceaiWindow?: number;
   biophysicsConditions: BiophysicsConditions;
 }

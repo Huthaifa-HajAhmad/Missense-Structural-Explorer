@@ -12,6 +12,7 @@ import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import type { FoldxPhase } from "../shared/foldxPhase";
 import { useSettings } from "../context/SettingsContext";
+import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { isApplePlatform } from "../shared/platform";
 
 export type MasterView =
@@ -167,7 +168,6 @@ export const EVIDENCE_SUB_ITEMS = [
   { id: "perturbation", label: "Structural perturbation"  },
   { id: "multimers",    label: "Multimer assembly"        },
   { id: "interactions", label: "Protein interactions"     },
-  { id: "guidelines",   label: "Score thresholds"         },
 ];
 
 export const STRUCTURE_SUB_ITEMS: { id: MasterView; label: string }[] = [
@@ -516,6 +516,7 @@ function MasterSidebar({
     />
   );
 
+  const loadedPdb = useVariantAnalysisStore(s => s.pdbText);
   const stageOf = (id: MasterView) =>
     getWorkflowStageStatus({
       view: id,
@@ -530,6 +531,7 @@ function MasterSidebar({
       dynamut2Status,
       ddmutStatus,
       isNarrativeLoading,
+      hasStructureCoordinates: Boolean(loadedPdb),
     });
 
   return (

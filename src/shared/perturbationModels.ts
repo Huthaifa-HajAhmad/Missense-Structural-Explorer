@@ -26,7 +26,7 @@ export interface PerturbationModelMeta {
   familyLabel: string;
   /** Full display name as shown on the model card. */
   cardLabel: string;
-  /** What the model is, in one line. */
+  /** What the model reads, in one plain line for a reader new to language models. */
   description: string;
   /** Settings key holding the credential this model needs. */
   tokenSettingKey: "hfToken" | "biohubApiToken";
@@ -38,7 +38,7 @@ export const PERTURBATION_MODELS: PerturbationModelMeta[] = [
     id: "saprot",
     familyLabel: "SaProt",
     cardLabel: "SaProt 650M AF2",
-    description: "Structure-aware residue and conformation predictor",
+    description: "Reads the sequence plus the local 3D shape at each residue (Foldseek 3Di letters).",
     tokenSettingKey: "hfToken",
     tokenName: "Hugging Face Access Token"
   },
@@ -46,7 +46,7 @@ export const PERTURBATION_MODELS: PerturbationModelMeta[] = [
     id: "esm2",
     familyLabel: "ESM-2",
     cardLabel: "ESM-2 650M",
-    description: "Evolutionary-scale masked language model",
+    description: "Reads the sequence only; trained on millions of natural protein sequences.",
     tokenSettingKey: "hfToken",
     tokenName: "Hugging Face Access Token"
   },
@@ -54,7 +54,7 @@ export const PERTURBATION_MODELS: PerturbationModelMeta[] = [
     id: "esmc",
     familyLabel: "ESMC",
     cardLabel: "ESMC 6B / VESM-150M",
-    description: "Evolutionary-scale foundation model",
+    description: "Reads the sequence only; a newer, larger model trained the same way as ESM-2.",
     tokenSettingKey: "biohubApiToken",
     tokenName: "Biohub API Token"
   }

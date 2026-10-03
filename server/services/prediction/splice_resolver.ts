@@ -141,6 +141,25 @@ export async function fetchExonsFromUcsc(
   return null;
 }
 
+/**
+ * How far from the variant an exon is still carried on the payload. It matches the widest window the
+ * splice map draws (2 kb) with margin, and bounds the payload: a long gene has hundreds of exons.
+ */
+export const NEARBY_EXON_REACH_BP = 2500;
+
+/** Exons whose span reaches within `reach` of `pos`, numbered in transcript order. Pure, for tests. */
+export function nearbyExonsOf(
+  exons: Array<{ start: number; end: number }>,
+  pos: number,
+  isReverse: boolean,
+  reach = NEARBY_EXON_REACH_BP
+): Array<{ number: number; start: number; end: number }> {
+  const total = exons.length;
+  return exons
+    .map((e, i) => ({ number: isReverse ? total - i : i + 1, start: e.start, end: e.end }))
+    .filter(e => e.end >= pos - reach && e.start <= pos + reach);
+}
+
 export interface SpliceProximityResult {
   distance: number;
   isNearSpliceSite: boolean;
@@ -160,6 +179,8 @@ export interface SpliceProximityResult {
   exonStart?: number | null;
   exonEnd?: number | null;
   exonLength?: number | null;
+  /** Exons within `NEARBY_EXON_REACH_BP` of the variant, in transcript numbering. See `nearbyExons` in the contract. */
+  nearbyExons?: Array<{ number: number; start: number; end: number }>;
   intronNumber?: number | null;
   junctionType?: "donor" | "acceptor" | "terminal" | null;
   adjacentIntronNumber?: number | null;
@@ -463,6 +484,7 @@ export async function resolveSpliceProximity(
     exonStart,
     exonEnd,
     exonLength,
+    nearbyExons: nearbyExonsOf(exons, genomicPos, isReverse),
     intronNumber,
     junctionType,
     adjacentIntronNumber,

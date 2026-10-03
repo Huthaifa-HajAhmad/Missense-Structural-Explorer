@@ -159,9 +159,9 @@ function resultProvenance(
  */
 export function createAnalysisVersion(): AnalysisVersionInfo {
   return {
-    thresholds: "ACMG v1.0.0-concordance",
-    geminiModel: "gemini-3.5-flash",
-    foldxVersion: "FoldX 5.0",
+    thresholds: "Not recorded",
+    geminiModel: "Not recorded",
+    foldxVersion: "Not recorded",
     timestamp: new Date().toISOString()
   };
 }
@@ -176,7 +176,7 @@ export function createPlaceholderAnalysisState(params: PipelineStateBaseParams) 
     isLoading: false,
     error: null,
     result: {
-      analysis: "Biophysical analysis in progress...",
+      analysis: "",
       insights: null,
       isDemoData: false,
       ruleBasedInsights: null,
@@ -224,7 +224,8 @@ export function createCompletedAnalysisState(resResult: any, params: PipelineSta
     isLoading: false,
     error: null,
     result: {
-      analysis: resResult.analysis || "Analysis completed.",
+      // Core evidence is not AI-authored prose. Optional synthesis owns this field.
+      analysis: resResult.analysis || "",
       insights: resResult.insights || null,
       isDemoData: false,
       ruleBasedInsights: resResult.ruleBasedInsights || null,

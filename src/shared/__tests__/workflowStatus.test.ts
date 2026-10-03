@@ -66,8 +66,9 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       /* ddmutStatus */ "pending"
     );
 
-    expect(status.status).toBe("complete");
-    expect(status.desc).toContain("Biophysical stability models active");
+    // Available qualitative evidence does not make still-running engines complete.
+    expect(status.status).toBe("progress");
+    expect(status.desc).toContain("Assessment available");
   });
 
   it("P1-12: energetics gate shows progress only while the initial biophysical call is in flight and nothing has resolved", () => {
@@ -125,8 +126,8 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(insightsStatus.status).toBe("complete");
 
     const litStatus = getWorkflowStageStatus("literature", cachedResult, false, false, false, false, undefined, false, null, null, false);
-    expect(litStatus.status).toBe("complete");
-    expect(litStatus.desc).toContain("citations indexed");
+    expect(litStatus.status).toBe("pending");
+    expect(litStatus.desc).toContain("Open Literature");
 
     const reportStatus = getWorkflowStageStatus("report", cachedResult, false, false, false, false, undefined, false, null, null, false);
     expect(reportStatus.status).toBe("complete");
@@ -146,7 +147,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(evidenceStatus.status).toBe("progress");
 
     const structureStatus = getWorkflowStageStatus("structure", placeholderResult, true, true, true);
-    expect(structureStatus.status).toBe("progress");
+    expect(structureStatus.status).toBe("pending");
 
     const energeticsStatus = getWorkflowStageStatus("energetics", placeholderResult, true, true, true);
     expect(energeticsStatus.status).toBe("progress");
@@ -160,7 +161,7 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(insightsStatus.status).not.toBe("complete");
 
     const literatureStatus = getWorkflowStageStatus("literature", placeholderResult, true, true, true);
-    expect(literatureStatus.status).toBe("progress");
+    expect(literatureStatus.status).toBe("pending");
     expect(literatureStatus.status).not.toBe("complete");
 
     const reportStatus = getWorkflowStageStatus("report", placeholderResult, true, true, true);
@@ -182,7 +183,8 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
       view: "structure",
       result: warmupResult,
       isFolding: false,
-      isPocketLoading: false
+      isPocketLoading: false,
+      hasStructureCoordinates: true
     });
     expect(structureStatus.status).toBe("complete");
     expect(structureStatus.desc).toContain("coordinates ready");

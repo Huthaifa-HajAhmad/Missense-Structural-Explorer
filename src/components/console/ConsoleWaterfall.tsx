@@ -79,7 +79,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
             runs.map((r) => (
               <option key={r.traceId} value={r.traceId}>
                 {r.query} — {formatClock(r.timestamp)} ({formatDuration(r.totalDurationMs)}
-                {r.status === "failed" ? ", issues" : r.status === "running" ? ", running" : ""})
+                {r.status === "failed" ? ", issues" : r.status === "cancelled" ? ", cancelled" : r.status === "running" ? ", running" : ""})
               </option>
             ))
           )}

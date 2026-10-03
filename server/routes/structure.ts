@@ -22,6 +22,8 @@ import {
   fetchEntryForVariant,
 } from "../services/external.ts";
 import { resolveStructure } from "../services/structure-resolver.ts";
+import { registerStructureReference, type StructureReferenceIdentity } from "../services/structure/structure-reference-store.ts";
+import { STRUCTURE_REF_HEADER } from "../../src/shared/structureRefs.ts";
 import { fetchEsm3StructureEval } from "../services/esm3_forge.ts";
 import { foldSequenceWithProvenance } from "../services/esmfold.ts";
 import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
@@ -33,6 +35,19 @@ import { analyzeMultimerStructure } from "../services/multimer.ts";
 import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
+
+  /**
+   * Publishes the reference for the text this route is about to serve.
+   *
+   * Every PDB route that answers with coordinates announces which exact bytes it sent, so a later
+   * pocket/nearest call can name them instead of uploading half a megabyte again — and, more
+   * importantly, so that call cannot be answered from a different structure via the UniProt ladder.
+   * The header is additive: a reader that ignores it keeps working exactly as before.
+   */
+  const publishStructureRef = (res: any, pdbText: string | null | undefined, identity: StructureReferenceIdentity): void => {
+    const ref = registerStructureReference(pdbText, identity);
+    if (ref) res.setHeader(STRUCTURE_REF_HEADER, ref);
+  };
 
   apiRouter.get(["/homologs", "/homologs/"], async (_req, res) => {
     res.json({ homologs: [] });
@@ -77,6 +92,15 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         if (entry.mapping) res.setHeader("X-Entry-Mapping", entry.mapping);
         if (entry.unmappedResidues) res.setHeader("X-Entry-Unmapped", String(entry.unmappedResidues));
         if (entry.reason) res.setHeader("X-Entry-Reason", encodeURIComponent(entry.reason));
+        publishStructureRef(res, entry.pdbText, {
+          origin: "server",
+          uniprotId,
+          source: "experimental",
+          pdbId,
+          chainId: entry.chainId ?? undefined,
+          numbering: entry.numbering,
+          pos,
+        });
         res.send(entry.pdbText);
       } catch (err: any) {
         console.error(`[PDB Entry Route] Error resolving ${pdbId} for ${uniprotId}:`, err);
@@ -95,6 +119,12 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       res.setHeader("X-Template-Source", "experimental");
       res.setHeader("X-Template-PdbId", pdbId);
       res.setHeader("X-Entry-Numbering", "author");
+      publishStructureRef(res, pdbText, {
+        origin: "server",
+        source: "experimental",
+        pdbId,
+        numbering: "author",
+      });
       res.send(pdbText);
     } catch (err: any) {
       console.error(`[PDB Entry Route] Error fetching ${pdbId}:`, err);
@@ -194,6 +224,15 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       if (provenance.method)      res.setHeader("X-Template-Method",      provenance.method);
       if (provenance.identity != null)
                                   res.setHeader("X-Template-Identity",    String(provenance.identity));
+      publishStructureRef(res, pdbText, {
+        origin: "server",
+        uniprotId: validatedUniprot,
+        source: provenance.source,
+        pdbId: provenance.pdbId,
+        chainId: provenance.chainId,
+        afdbVersion: provenance.afdbVersion,
+        pos,
+      });
       res.send(pdbText);
     } catch (err: any) {
       console.error("PDB Proxy error:", err);
@@ -220,6 +259,12 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       res.setHeader("Content-Type", "text/plain");
       res.setHeader("X-Template-Source", "alphafold");
       res.setHeader("X-Template-AfdbVersion", afdbVersion);
+      publishStructureRef(res, afData, {
+        origin: "server",
+        uniprotId: validatedUniprot,
+        source: "alphafold",
+        afdbVersion,
+      });
       res.send(afData);
     } catch (err: any) {
       console.error("[AlphaFold Route] Error:", err);

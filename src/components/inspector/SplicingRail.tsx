@@ -5,7 +5,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { THRESHOLDS, formatEvidenceCode } from "../../shared/thresholds";
-import { SPLICE_CHANNEL_NAME, SPLICING_SOURCES, buildSplicingEvidence } from "../../shared/splicingEvidence";
+import { SPLICE_CHANNEL_NAME, SPLICING_SOURCES, buildSplicingEvidence, formatDelta } from "../../shared/splicingEvidence";
 
 /**
  * SplicingRail — the Evidence Lineage inspector for the RNA Splicing tab.
@@ -53,15 +53,15 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
   const engineWarn = ev.relation === "conflict" || ev.relation === "bp4-unchecked";
 
   const bands: Array<{ key: string; code: string | null; rule: string; label: string; tone: "danger" | "good" | "neutral" }> = [
-    { key: "pp3", code: "PP3", rule: `≥ ${S.splicingPp3.toFixed(2)}`, label: "PP3 · splicing", tone: "danger" },
-    { key: "between", code: null, rule: `${S.splicingBp4Below.toFixed(2)}–${S.splicingPp3.toFixed(2)}`, label: "Neither", tone: "neutral" },
-    { key: "bp4", code: "BP4", rule: `< ${S.splicingBp4Below.toFixed(2)}`, label: "BP4 · splicing", tone: "good" },
+    { key: "pp3", code: "PP3", rule: `≥ ${S.splicingPp3.toFixed(1)}`, label: "PP3 · splicing", tone: "danger" },
+    { key: "between", code: null, rule: `${S.splicingBp4Below.toFixed(1)}–${S.splicingPp3.toFixed(1)}`, label: "Neither", tone: "neutral" },
+    { key: "bp4", code: "BP4", rule: `< ${S.splicingBp4Below.toFixed(1)}`, label: "BP4 · splicing", tone: "good" },
   ];
 
   const md: any = (analysisResult as any).metadata ?? {};
   const sources: Array<[string, string]> = [];
   if (md.genomicCoordinates) sources.push(["Coordinate", `${md.genomicCoordinates}${md.assembly ? ` · ${md.assembly}` : ""}`]);
-  sources.push(["SpliceAI", ev.spliceai.sourceText]);
+  sources.push(["SpliceAI", rule.maxDs !== null ? ev.spliceai.sourceText : ev.spliceai.availability.label ?? "No score"]);
   if (rule.maxDs !== null) {
     sources.push(["Reporting window", ev.spliceai.windowText]);
     sources.push(["Scores", ev.spliceai.maskText]);
@@ -83,7 +83,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
               <span>{ENGINE_STATE_LABELS.running}</span>
             ) : rule.maxDs !== null ? (
               <span>
-                <span className="spl-mono">{rule.maxDs.toFixed(3)}</span> max Δ
+                <span className="spl-mono">{formatDelta(rule.maxDs)}</span> max Δ
                 {rule.maxChannel ? ` · ${SPLICE_CHANNEL_NAME[rule.maxChannel].toLowerCase()}` : ""}
               </span>
             ) : (
@@ -93,9 +93,9 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           </Step>
           <Step n={2} label="Splicing rule · Walker 2023" state={rule.code ? "done" : "idle"}>
             <span>
-              {rule.state === "pp3" ? "≥ 0.20 → supports PP3"
-                : rule.state === "bp4" ? "< 0.10 → supports BP4"
-                : rule.state === "between" ? "Between 0.10 and 0.20 → neither"
+              {rule.state === "pp3" ? `≥ ${S.splicingPp3.toFixed(1)} → supports PP3`
+                : rule.state === "bp4" ? `< ${S.splicingBp4Below.toFixed(1)} → supports BP4`
+                : rule.state === "between" ? `Between ${S.splicingBp4Below.toFixed(1)} and ${S.splicingPp3.toFixed(1)} → neither`
                 : "Not applied — needs a SpliceAI score"}
             </span>
             <span className="spl-step__sub">SpliceAI decides it alone. Distance and dbscSNV do not.</span>
@@ -168,12 +168,12 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <ul>
             <li>
               The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for predicted splicing impact at a SpliceAI
-              max Δ ≥ 0.2, and BP4 below 0.1. This app&apos;s engine does not apply either: its PP3/BP4 comes from the
+              max Δ ≥ {S.splicingPp3}, and BP4 below {S.splicingBp4Below}. This app&apos;s engine does not apply either: its PP3/BP4 comes from the
               missense vote only, so the splicing reading here is shown beside it, never as a recorded code.
             </li>
             <li>
               A delta score is the change in the model&apos;s splice-site probability, not the probability that splicing
-              is disrupted. The authors&apos; 0.2 / 0.5 / 0.8 are recall–precision operating points, not strengths.
+              is disrupted. The authors&apos; {S.authorsHighRecall} / {S.authorsRecommended} / {S.authorsHighPrecision} are recall–precision operating points, not strengths.
             </li>
             <li>
               A missing SpliceAI score is not a benign result. SpliceAI scores every single-nucleotide change in an

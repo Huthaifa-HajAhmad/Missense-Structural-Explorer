@@ -43,6 +43,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "path";
 import fs from "fs";
 import Redis from "ioredis";
+import { CONFIG } from "../config.ts";
 
 export const activeBackgroundTasks: BackgroundTask[] = [];
 
@@ -209,6 +210,33 @@ if (redisSub) {
   });
 }
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * IN-FLIGHT PREWARM CLAIMS — one key, one owner, one TTL derived from the queue
+ * ─────────────────────────────────────────────────────────────────────────────
+ * `add()` is the atomic claim (Redis `SET … NX`, SQLite `INSERT OR IGNORE`); `has()` exists for
+ * inspection, not as a gate before `add()`. A caller that wants mutual exclusion must use `add()`'s
+ * return value — `has()` followed by `add()` is two round trips and admits two owners.
+ *
+ * RELEASE BY OWNER: a claim may carry a token, and `delete(key, token)` releases it only while that
+ * token still holds it. Without this, a claim whose TTL had expired could be re-claimed by a second
+ * caller and then deleted by the FIRST caller's cleanup, silently admitting a third.
+ */
+export const PREWARM_CLAIM_TTL_MARGIN_MS = 60_000;
+
+/**
+ * How long a claim lives.
+ *
+ * DERIVED, not a literal: a claim must outlive the longest wait its holder is allowed to perform,
+ * which is the queue's own stale-queued lease plus its stale-running lease (`prewarm-manager.ts`
+ * gives up at exactly those). The previous value was a flat 30 minutes, which was EXACTLY
+ * `CONFIG.timeouts.foldxQueuedLeaseMs` — so a claim could expire while its job was still
+ * legitimately queued, and two prewarms for one variant could run at once. The margin covers the
+ * gap between the holder's deadline check and its own release.
+ */
+export const PREWARM_CLAIM_TTL_MS =
+  CONFIG.timeouts.foldxQueuedLeaseMs + CONFIG.timeouts.foldxReaperLeaseMs + PREWARM_CLAIM_TTL_MARGIN_MS;
+
 class SqliteInFlightPrewarms {
   private db: DatabaseSync | null = null;
   /**
@@ -222,7 +250,6 @@ class SqliteInFlightPrewarms {
   private get dbPath(): string {
     return process.env.SHARED_STATE_DB_PATH ?? path.join(process.cwd(), "data", "shared_state.sqlite");
   }
-  private TTL = 30 * 60 * 1000; // 30 minutes
 
   constructor() {
     try {
@@ -247,28 +274,79 @@ class SqliteInFlightPrewarms {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS inflight_prewarms (
           key TEXT PRIMARY KEY,
-          expires_at INTEGER NOT NULL
+          expires_at INTEGER NOT NULL,
+          token TEXT
         );
       `);
+      /**
+       * `token` is a later addition, and this file is opened by every deployment without a
+       * migration step. Adding the column to an existing table is the whole migration; a table that
+       * already has it (or was just created with it) throws, which is the expected path.
+       */
+      try {
+        this.db.exec("ALTER TABLE inflight_prewarms ADD COLUMN token TEXT;");
+      } catch (alterErr: any) {
+        /**
+         * "duplicate column name" is the expected path — the table already had it, or was just
+         * created with it. Anything else means claims cannot carry a token, which silently degrades
+         * owner-checked release, so it is reported rather than swallowed.
+         */
+        if (!/duplicate column/i.test(alterErr?.message ?? "")) {
+          console.error("[SharedState] Could not add the prewarm claim token column:", alterErr.message);
+        }
+      }
     } catch (err: any) {
       console.error("[SharedState] Failed to initialize SQLite database for state, using in-memory fallback:", err.message);
       this.db = null;
     }
   }
 
-  private inMemorySet = new Set<string>();
-  private inMemoryExpirations = new Map<string, number>();
+  /**
+   * The fallback store, used when the database could not be opened or a write failed.
+   *
+   * A Map rather than the previous `Set` + separate expirations Map: one entry holds both facts, so
+   * the claim decision is a single read-and-set with no `has()` call in front of it and no window
+   * between two containers.
+   */
+  private inMemoryClaims = new Map<string, { expiresAt: number; token: string | null }>();
+
+  /** One check-and-set. Synchronous by construction: nothing can interleave between the read and the write. */
+  private claimInMemory(key: string, token: string | null, expiresAt: number, now: number): boolean {
+    const existing = this.inMemoryClaims.get(key);
+    if (existing && existing.expiresAt > now) {
+      return false;
+    }
+    this.inMemoryClaims.set(key, { expiresAt, token });
+    return true;
+  }
+
+  private releaseInMemory(key: string, token: string | undefined, now: number): boolean {
+    const claim = this.inMemoryClaims.get(key);
+    if (!claim) return false;
+    if (claim.expiresAt <= now) {
+      this.inMemoryClaims.delete(key);
+      return false;
+    }
+    if (token !== undefined && claim.token !== token) {
+      return false;
+    }
+    return this.inMemoryClaims.delete(key);
+  }
+
+  private hasInMemory(key: string, now: number): boolean {
+    const claim = this.inMemoryClaims.get(key);
+    if (!claim) return false;
+    if (claim.expiresAt <= now) {
+      this.inMemoryClaims.delete(key);
+      return false;
+    }
+    return true;
+  }
 
   has(key: string): boolean {
     const now = Date.now();
     if (!this.db) {
-      const exp = this.inMemoryExpirations.get(key);
-      if (exp && exp > now) {
-        return true;
-      }
-      this.inMemorySet.delete(key);
-      this.inMemoryExpirations.delete(key);
-      return false;
+      return this.hasInMemory(key, now);
     }
 
     try {
@@ -278,54 +356,61 @@ class SqliteInFlightPrewarms {
       return !!row;
     } catch (err: any) {
       console.error("[SharedState] Error querying SQLite state:", err.message);
-      const exp = this.inMemoryExpirations.get(key);
-      if (exp && exp > now) {
-        return true;
-      }
-      this.inMemorySet.delete(key);
-      this.inMemoryExpirations.delete(key);
-      return false;
+      return this.hasInMemory(key, now);
     }
   }
 
-  add(key: string): boolean {
+  /**
+   * Claims `key`, atomically, for `token` when one is given.
+   *
+   * Returns true only for the caller that actually created the claim. This return value IS the
+   * mutual exclusion; a caller that ignores it has no exclusion at all.
+   */
+  add(key: string, token?: string): boolean {
     const now = Date.now();
-    const expiresAt = now + this.TTL;
+    const expiresAt = now + PREWARM_CLAIM_TTL_MS;
 
     if (!this.db) {
-      if (this.has(key)) return false;
-      this.inMemorySet.add(key);
-      this.inMemoryExpirations.set(key, expiresAt);
-      return true;
+      return this.claimInMemory(key, token ?? null, expiresAt, now);
     }
 
     try {
       // Clean up expired locks first
       this.db.prepare("DELETE FROM inflight_prewarms WHERE expires_at < ?").run(now);
       // Try atomic insert
-      const result = this.db.prepare("INSERT OR IGNORE INTO inflight_prewarms (key, expires_at) VALUES (?, ?)").run(key, expiresAt);
+      const result = this.db.prepare("INSERT OR IGNORE INTO inflight_prewarms (key, expires_at, token) VALUES (?, ?, ?)")
+        .run(key, expiresAt, token ?? null);
       return (result.changes ?? 0) > 0;
     } catch (err: any) {
       console.error("[SharedState] Error inserting into SQLite state:", err.message);
-      if (this.has(key)) return false;
-      this.inMemorySet.add(key);
-      this.inMemoryExpirations.set(key, expiresAt);
-      return true;
+      /**
+       * The database is unusable for this write, so the in-memory claim is the best available
+       * answer. It deliberately does NOT re-query the database first: that query is the operation
+       * that just failed, and re-running it is how the previous implementation turned a failed write
+       * into a silent double claim.
+       */
+      return this.claimInMemory(key, token ?? null, expiresAt, now);
     }
   }
 
-  delete(key: string): boolean {
+  /**
+   * Releases `key`. With a token, only the claim's own owner can release it — a stale owner's
+   * cleanup must not delete the claim a later caller now holds.
+   */
+  delete(key: string, token?: string): boolean {
+    const now = Date.now();
     if (!this.db) {
-      this.inMemoryExpirations.delete(key);
-      return this.inMemorySet.delete(key);
+      return this.releaseInMemory(key, token, now);
     }
 
     try {
-      const result = this.db.prepare("DELETE FROM inflight_prewarms WHERE key = ?").run(key);
+      const result = token === undefined
+        ? this.db.prepare("DELETE FROM inflight_prewarms WHERE key = ?").run(key)
+        : this.db.prepare("DELETE FROM inflight_prewarms WHERE key = ? AND token = ?").run(key, token);
       return (result.changes ?? 0) > 0;
     } catch (err: any) {
       console.error("[SharedState] Error deleting from SQLite state:", err.message);
-      return this.inMemorySet.delete(key);
+      return this.releaseInMemory(key, token, now);
     }
   }
 }
@@ -333,7 +418,21 @@ class SqliteInFlightPrewarms {
 const sqlitePrewarms = new SqliteInFlightPrewarms();
 
 class RedisInFlightPrewarms {
-  private TTL = 30 * 60; // 30 minutes in seconds
+  /** Seconds, because Redis `EX` takes seconds; derived from the same millisecond constant. */
+  private TTL = Math.ceil(PREWARM_CLAIM_TTL_MS / 1000);
+
+  /**
+   * Compare-and-delete, so a release can only remove the claim its caller still owns.
+   *
+   * `GET` then `DEL` would be two round trips with a window between them: a claim that expired and
+   * was re-claimed inside that window would be deleted by the previous owner.
+   */
+  private static readonly RELEASE_IF_OWNER_SCRIPT = `
+    if redis.call('get', KEYS[1]) == ARGV[1] then
+      return redis.call('del', KEYS[1])
+    end
+    return 0
+  `;
 
   async has(key: string): Promise<boolean> {
     if (redisClient) {
@@ -347,28 +446,37 @@ class RedisInFlightPrewarms {
     return sqlitePrewarms.has(key);
   }
 
-  async add(key: string): Promise<boolean> {
+  async add(key: string, token?: string): Promise<boolean> {
     if (redisClient) {
       try {
-        const res = await redisClient.set(`prewarm:${key}`, "1", "EX", this.TTL, "NX");
+        const res = await redisClient.set(`prewarm:${key}`, token ?? "1", "EX", this.TTL, "NX");
         return res === "OK";
       } catch (err: any) {
         console.error("[Redis] Error adding prewarm lock:", err.message);
       }
     }
-    return sqlitePrewarms.add(key);
+    return sqlitePrewarms.add(key, token);
   }
 
-  async delete(key: string): Promise<boolean> {
+  async delete(key: string, token?: string): Promise<boolean> {
     if (redisClient) {
       try {
-        const res = await redisClient.del(`prewarm:${key}`);
-        return res > 0;
+        if (token === undefined) {
+          const res = await redisClient.del(`prewarm:${key}`);
+          return res > 0;
+        }
+        const res = await redisClient.eval(
+          RedisInFlightPrewarms.RELEASE_IF_OWNER_SCRIPT,
+          1,
+          `prewarm:${key}`,
+          token
+        );
+        return Number(res) > 0;
       } catch (err: any) {
         console.error("[Redis] Error deleting prewarm lock:", err.message);
       }
     }
-    return sqlitePrewarms.delete(key);
+    return sqlitePrewarms.delete(key, token);
   }
 }
 

@@ -15,15 +15,32 @@ function pct(value: number, min: number, max: number) {
   return Math.max(0, Math.min(100, ((value - min) / span) * 100));
 }
 
-/** The mutant's within-model rank on 1 (most preferred) … 20 (least), bands by preference. */
-export function RankRuler({ rank, band, label }: { rank: number; band: RankBand | null; label: string }) {
+/**
+ * The variant's within-model rank on 1 (the model's top residue) … 20, with the native residue's rank
+ * drawn beside it as a hollow ring. Without the native, "rank 3" read as "preferred" even where the
+ * native held ~99% of the probability (SLC12A4 p.Gln867His, ESMC).
+ */
+export function RankRuler({
+  rank,
+  band,
+  label,
+  nativeRank = null,
+  flat = false
+}: {
+  rank: number;
+  band: RankBand | null;
+  label: string;
+  nativeRank?: number | null;
+  flat?: boolean;
+}) {
   // Rank r occupies the cell [r-1, r] of a 0–20 axis, so 1 and 20 sit inside the track.
   const cell = (r: number) => ((r - 0.5) / 20) * 100;
   return (
     <div
       className="ptb-ruler"
+      data-flat={flat || undefined}
       role="img"
-      aria-label={`${label}: rank ${rank} of 20, ${band ? RANK_BANDS.find(b => b.band === band)!.label.toLowerCase() : "no band"}; app-defined bands`}
+      aria-label={`${label}: variant rank ${rank} of 20${nativeRank !== null ? `, native rank ${nativeRank}` : ""}${flat ? "; the distribution is near-flat, so the rank is not read" : ""}; app-defined bands`}
     >
       <div className="ptb-ruler__track">
         <span className="ptb-ruler__bands">
@@ -32,16 +49,19 @@ export function RankRuler({ rank, band, label }: { rank: number; band: RankBand 
               key={b.band}
               className="ptb-ruler__band"
               data-band={b.band}
-              data-active={b.band === band || undefined}
+              data-active={(!flat && b.band === band) || undefined}
               style={{ left: `${((b.from - 1) / 20) * 100}%`, width: `${((b.to - b.from + 1) / 20) * 100}%` }}
               title={`${b.label}: rank ${b.from}–${b.to}`}
             />
           ))}
         </span>
-        <span className="ptb-ruler__marker" style={{ left: `${cell(rank)}%` }} />
+        {nativeRank !== null && nativeRank !== rank && (
+          <span className="ptb-ruler__native" style={{ left: `${cell(nativeRank)}%` }} />
+        )}
+        <span className="ptb-ruler__marker" data-role="variant" style={{ left: `${cell(rank)}%` }} />
       </div>
       <div className="ptb-ruler__axis" aria-hidden="true">
-        <span>1 · most preferred</span>
+        <span>1 · model&apos;s top residue</span>
         <span>20</span>
       </div>
     </div>
@@ -75,7 +95,7 @@ export function MarkRuler({
         {marks.map(m => (
           <span key={m.value} className="ptb-ruler__tick" style={{ left: `${pct(m.value, min, max)}%` }} title={m.label} />
         ))}
-        <span className="ptb-ruler__marker" data-off-scale={off || undefined} style={{ left: `${pct(value, min, max)}%` }} />
+        <span className="ptb-ruler__marker" data-role="variant" data-off-scale={off || undefined} style={{ left: `${pct(value, min, max)}%` }} />
       </div>
       <div className="ptb-ruler__axis" aria-hidden="true">
         <span>{format(min)}</span>

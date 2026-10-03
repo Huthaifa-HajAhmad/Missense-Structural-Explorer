@@ -31,8 +31,8 @@ const MUTATIONS = [
   {
     id: "scale-offset",
     file: LAYOUT,
-    from: "const x = (r: number) => x0 + ((Math.min(",
-    to: "const x = (r: number) => 3 + x0 + ((Math.min(",
+    from: "const x = (r: number) => x0 + ((Math.min(Math.max(r, win.start)",
+    to: "const x = (r: number) => 3 + x0 + ((Math.min(Math.max(r, win.start)",
     expect: "every mark sits at its residue / the variant is drawn at its residue",
   },
   {
@@ -76,6 +76,41 @@ const MUTATIONS = [
     from: ".fnd-subject__btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 0; }",
     to: ".fnd-subject__btn:focus-visible { outline: none; }",
     expect: "keyboard focus shows a 2px ring",
+  },
+  {
+    id: "ss-strip-always",
+    file: LAYOUT,
+    from: "const hasSS = ev.secondaryStructure.length > 0 && span <= SECONDARY_MAX_SPAN;",
+    to: "const hasSS = ev.secondaryStructure.length > 0;",
+    expect: "the helix / strand strip is drawn only in a window of 300 residues or fewer",
+  },
+  {
+    id: "membrane-bars-widened",
+    file: LAYOUT,
+    from: "\"im\" : \"tm\";\n      const w = Math.max(3, b - a);",
+    to: "\"im\" : \"tm\";\n      const w = Math.max(3, b - a) + 5;",
+    expect: "transmembrane bars and topology rails sit at their residues",
+  },
+  {
+    id: "lane-over-the-axis",
+    file: LAYOUT,
+    from: "const axisY = (membrane ? membrane.bottom : sitesBottom) + 18;",
+    to: "const axisY = sitesBottom + 18;",
+    expect: "the topology lane sits between the site marks and the axis",
+  },
+  {
+    id: "overview-window-off",
+    file: LAYOUT,
+    from: "window: { x: x(win.start), width:",
+    to: "window: { x: x(win.start) + 8, width:",
+    expect: "the overview strip brackets the window",
+  },
+  {
+    id: "label-never-flips",
+    file: LAYOUT,
+    from: "const flip = !above && labelled && px + 10 + lw > W - 4;",
+    to: "const flip = false;",
+    expect: "every label is inside the drawing (a mark just inside the right edge of a zoomed window)",
   },
 ];
 

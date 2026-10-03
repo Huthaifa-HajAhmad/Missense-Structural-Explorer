@@ -381,7 +381,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
   });
   calibratedVoter("am", "AlphaMissense", "alphaMissense", am, 3, {
     description: "Protein language and structure model, weakly labelled from primate and human population variants.",
-    note: amClass ? `Authors' class: ${amClass.replace(/_/g, " ")}` : null,
+    note: amClass ? `AlphaMissense's own label: ${amClass.replace(/_/g, " ")}` : null,
     source: vepSource,
     knowledgeKey: "am",
   });
@@ -814,7 +814,6 @@ export function groupReadings(readings: PredictorReading[]): Array<{ group: Pred
  */
 export function predictorFinding(evidence: PredictorEvidence): { headline: string; predicate: string } {
   const { vote } = evidence;
-  const n = (k: number, word: string) => `${k} ${word}`;
   const tail = vote.nIndeterminate > 0 ? `, with ${vote.nIndeterminate} indeterminate` : "";
   switch (vote.direction) {
     case "no-votes":
@@ -824,11 +823,11 @@ export function predictorFinding(evidence: PredictorEvidence): { headline: strin
       };
     case "tie":
       return {
-        headline: vote.nPathogenic === 0 ? "No voting tool reached a call" : "Pathogenic and benign calls are tied",
+        headline: vote.nPathogenic === 0 ? "No voting tool reached a call" : "The vote is split",
         predicate:
           vote.nPathogenic === 0
             ? `all ${vote.nVoting} scored voting tools sit in their indeterminate range, so neither PP3 nor BP4 is supported`
-            : `${n(vote.nPathogenic, "each")}${tail}, so the rule supports neither PP3 nor BP4`,
+            : `${vote.nPathogenic} pathogenic against ${vote.nBenign} benign${tail}, so the rule supports neither PP3 nor BP4`,
       };
     case "pathogenic":
       return {
@@ -905,7 +904,7 @@ export function predictorSummary(evidence: PredictorEvidence): PredictorSummary 
               joinable: null,
               sentence: `${ref} reads ${band} on its own, which the vote does not reflect.`,
               disagrees: true,
-              advice: "ClinGen advises one pre-specified calibrated tool over a count of correlated ones.",
+              advice: "With the vote split, read that one calibrated tool by itself, as ClinGen advises, rather than counting correlated ones.",
             }
           : { joinable: null, sentence: `${ref} also sits between its bands.`, disagrees: false, advice: null };
         break;
@@ -976,6 +975,73 @@ function noCriterion(vote: InsilicoVoteOutcome): string {
     return `No PP3 or BP4: all ${vote.nVoting} scored voting ${vote.nVoting === 1 ? "tool sits" : "tools sit"} in their indeterminate range`;
   }
   const tail = vote.nIndeterminate > 0 ? `, with ${vote.nIndeterminate} indeterminate` : "";
-  return `No PP3 or BP4: pathogenic and benign calls are tied, ${vote.nPathogenic} each${tail}`;
+  return `No PP3 or BP4: the vote is split, ${vote.nPathogenic} pathogenic against ${vote.nBenign} benign${tail}`;
 }
 
+
+// ── Informational models: what they are, why they do not vote ────────────────────────────────
+//
+// The three non-voting families used to appear only as grouped rows in the readings table, with a
+// four-word note ("Informational · not counted"). A researcher who has not met a protein language
+// model or a Phred-scaled composite had no way to learn what the number means or why it is not in the
+// vote. Each family now states (a) what it measures, (b) why it is outside PP3/BP4, and (c) how to
+// read it — in plain words, from the same readings the table renders.
+
+export type InformationalGroup = Exclude<PredictorGroup, "vote">;
+
+export const INFORMATIONAL_FAMILY: Record<InformationalGroup, { what: string; why: string; read: string }> = {
+  "protein-lm": {
+    what: "Trained on millions of natural protein sequences to learn which amino acids evolution tolerates at each position. The score is a log-likelihood ratio (LLR): how much less likely the substituted residue is than the original.",
+    why: "Only ESM1b has a published evidence calibration, and ClinGen has not adopted any language model for PP3/BP4, so none is counted.",
+    read: "More negative means the change is less expected by the model. Scores from different models are not on the same scale.",
+  },
+  genome: {
+    what: "Models that score a variant from DNA context rather than protein sequence alone: a rank of regulatory and splicing impact, a language model over a vertebrate alignment, or a combination of existing annotations.",
+    why: "They are ranks or unsupervised combinations, not probabilities, and no ClinGen calibration exists. Some already contain predictors that vote, so counting them would count the same evidence twice.",
+    read: "Compare a score with its own axis only. A high rank says the variant stands out among all possible changes, not that it causes disease.",
+  },
+  conservation: {
+    what: "How strongly evolution has kept this position the same across species. A conserved base or residue is under selective constraint.",
+    why: "Constraint is not pathogenicity, and ClinGen caps PP3 and PM1 together at Strong because a predictor already scores the position a critical site sits in.",
+    read: "Higher means more conserved. A conserved site makes a harmful change more plausible but does not show that this substitution is harmful.",
+  },
+};
+
+export interface InformationalFamilySummary {
+  group: InformationalGroup;
+  label: string;
+  what: string;
+  why: string;
+  read: string;
+  readings: PredictorReading[];
+  scored: number;
+  total: number;
+  /** One factual line: how many scored, and how many carry a published call. */
+  headline: string;
+}
+
+export function informationalSummary(evidence: PredictorEvidence): InformationalFamilySummary[] {
+  const groups: InformationalGroup[] = ["protein-lm", "genome", "conservation"];
+  return groups
+    .map(group => {
+      const readings = evidence.readings.filter(r => r.group === group);
+      const scored = readings.filter(r => r.score !== null).length;
+      const withCall = readings.filter(r => r.score !== null && r.calibrated !== null).length;
+      const tail =
+        scored === 0
+          ? "no score reached this variant"
+          : withCall === 0
+            ? "none has a published cut-point, so none makes a call"
+            : `${withCall} ${withCall === 1 ? "has" : "have"} a published cut-point`;
+      return {
+        group,
+        label: PREDICTOR_GROUP_LABEL[group],
+        ...INFORMATIONAL_FAMILY[group],
+        readings,
+        scored,
+        total: readings.length,
+        headline: `${scored} of ${readings.length} scored · ${tail}`,
+      };
+    })
+    .filter(f => f.total > 0);
+}

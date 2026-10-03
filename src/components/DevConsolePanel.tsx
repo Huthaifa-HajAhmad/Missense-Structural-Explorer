@@ -307,6 +307,11 @@ export default function DevConsolePanel() {
               onClick={() => toggleImpact("recoverable")}
               ariaLabel={`Recoverable: ${impacts.recoverable}. Toggle filter`}
             />
+            {/*
+              A run that was superseded, or cut off by a page reload, is not a CLEAN run — "clean" would
+              claim an analysis that never finished — and it is not a failure either, so the run's own
+              word is used rather than a verdict this tile never measured.
+            */}
             <Tile
               label="Pipeline operations"
               value={pipelineProblems}
@@ -314,9 +319,11 @@ export default function DevConsolePanel() {
               sub={
                 !latestRun
                   ? "No run recorded"
-                  : pipelineProblems === 0
-                  ? "Latest run clean"
-                  : `${latestSummary.failed} failed · ${latestSummary.unavailable} unavailable — open Waterfall`
+                  : pipelineProblems > 0
+                  ? `${latestSummary.failed} failed · ${latestSummary.unavailable} unavailable — open Waterfall`
+                  : latestRun.status === "cancelled"
+                  ? "Latest run cancelled"
+                  : "Latest run clean"
               }
               onClick={latestRun ? () => selectStream("tracing") : undefined}
               ariaLabel={`Pipeline operations with problems in the latest run: ${pipelineProblems}. Open waterfall`}

@@ -3,8 +3,8 @@ import { BookOpen, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { resolveResidueShiftModel } from "../../lib/residueShiftModel";
 import { THRESHOLDS } from "../../shared/thresholds/constants";
-import { ENTROPY_MARKS, RANK_BANDS } from "../../shared/modelCalibration";
-import { buildPerturbationEvidence } from "../../shared/perturbationEvidence";
+import { ENTROPY_MARKS, EVEN_ODDS_LLR, RANK_BANDS } from "../../shared/modelCalibration";
+import { buildPerturbationEvidence, oddsText, type LmReading } from "../../shared/perturbationEvidence";
 import type { PerturbationModelId } from "../../shared/perturbationModels";
 
 /**
@@ -23,7 +23,24 @@ import type { PerturbationModelId } from "../../shared/perturbationModels";
  *   • showed embedding widths from the settings engine (SaProt 35M as 1280-dim).
  *
  * Built from the same `buildPerturbationEvidence` object as the column.
+ *
+ * 2026-10 (SLC12A4 p.Gln867His): step 3 read "within-model rank" and said "The models fall in
+ * different bands" for three models that all rated the native residue higher; it now traces each
+ * model's direction with its own odds. Step 1 printed full provenance strings in a right-aligned mono
+ * column that wrapped mid-name; it uses the short served name. The flat and even-odds marks are
+ * listed with the others, and ΔLLR uses the tab's two decimals.
  */
+
+/** "Favours Gln · 384×" — the same words the tab's Reading column uses. */
+function directionText(l: LmReading, wt: string, mut: string): string {
+  switch (l.direction) {
+    case "favours-native": return `Favours ${wt} · ${l.odds !== null ? oddsText(l.odds) : "—"}`;
+    case "favours-variant": return `Favours ${mut} · ${l.odds !== null ? oddsText(1 / l.odds) : "—"}`;
+    case "even": return "Near even · within 2×";
+    case "flat": return "No preference · flat";
+    default: return "no ΔLLR";
+  }
+}
 
 type StepState = "done" | "warn" | "idle";
 
@@ -56,7 +73,10 @@ export function PerturbationRail({
   saprotEngine = null,
   foldingEnergetics,
   structuralDiff,
-  metrics
+  metrics,
+  isFolding = false,
+  foldingStatus = null,
+  foldingError = null
 }: {
   analysisResult: AnalysisResult | null;
   activePerturbationModel?: PerturbationModelId;
@@ -64,6 +84,9 @@ export function PerturbationRail({
   foldingEnergetics?: any;
   structuralDiff?: any;
   metrics?: any;
+  isFolding?: boolean;
+  foldingStatus?: "success" | "failed" | "unavailable" | null;
+  foldingError?: string | null;
 }) {
   const r = analysisResult as any;
   const evidence = useMemo(() => {
@@ -75,9 +98,12 @@ export function PerturbationRail({
       foldingEnergetics,
       structuralDiff,
       metrics,
-      saprotEngine
+      saprotEngine,
+      isFolding,
+      foldingStatus,
+      foldingError
     });
-  }, [r, foldingEnergetics, structuralDiff, metrics, saprotEngine]);
+  }, [r, foldingEnergetics, structuralDiff, metrics, saprotEngine, isFolding, foldingStatus, foldingError]);
 
   if (!evidence) {
     return <p className="ptb-empty">The trace appears once a variant has been analysed.</p>;
@@ -85,7 +111,9 @@ export function PerturbationRail({
 
   const selected =
     evidence.lms.find(l => l.id === activePerturbationModel && l.availability.state === "computed") ?? evidence.scored[0] ?? null;
-  const { scored, lms, scale, consensus, physical, engine } = evidence;
+  const { scored, lms, scale, direction, physical, engine } = evidence;
+  const wt = evidence.residues.wtLabel || "native";
+  const mut = evidence.residues.mutLabel || "variant";
   const vdw = physical.readings.find(x => x.key === "vdw");
   const clashMark = THRESHOLDS.vdwClash.significantClash;
   const drift = THRESHOLDS.esm3Drift;
@@ -108,7 +136,7 @@ export function PerturbationRail({
               {lms.map(l => (
                 <li key={l.id}>
                   <span>{l.family}</span>
-                  <span className="ptb-mono">{l.availability.state === "computed" ? (l.servedBy ?? "model not named") : l.availability.label}</span>
+                  <span title={l.servedBy ?? undefined}>{l.availability.state === "computed" ? (l.servedShort || "model not named") : l.availability.label}</span>
                 </li>
               ))}
             </ul>
@@ -124,19 +152,22 @@ export function PerturbationRail({
                   ? `${scale.families.length} model families → no shared scale`
                   : "One model family"}
             </span>
-            <span className="ptb-step__sub">ΔLLR is never averaged or pooled; models are compared by within-model rank.</span>
+            <span className="ptb-step__sub">ΔLLR is never averaged or pooled; each model is read on its own output.</span>
           </Step>
-          <Step n={3} label="Within-model rank" state={consensus.nRanked === 0 ? "idle" : "done"}>
-            <ul className="ptb-step__list">
+          <Step n={3} label="Direction, model by model" state={scored.length === 0 ? "idle" : direction.nFlat > 0 ? "warn" : "done"}>
+            <ul className="ptb-step__list" data-testid="perturbation-direction-trace">
               {scored.map(l => (
                 <li key={l.id}>
                   <span>{l.family}</span>
-                  <span className="ptb-mono">{l.rank !== null ? `${l.rank}/20 · ${l.bandLabel}` : "no rank"}</span>
+                  <span>{directionText(l, wt, mut)}</span>
                 </li>
               ))}
             </ul>
             <span className="ptb-step__sub">
-              {consensus.nRanked === 0 ? "No rank to read." : consensus.agree ? "All ranked models fall in the same band." : "The models fall in different bands."}
+              {scored.length === 0
+                ? "No model to read."
+                : `${direction.nFavourNative} favour ${wt}, ${direction.nFavourVariant} favour ${mut}` +
+                  `${direction.nEven ? `, ${direction.nEven} near even` : ""}${direction.nFlat ? `, ${direction.nFlat} flat (not read)` : ""}.`}
             </span>
           </Step>
           <Step n={4} label="Physical model" state={physical.available ? "done" : "idle"}>
@@ -175,7 +206,7 @@ export function PerturbationRail({
               <li key={b.band} className="ptb-cut" data-active={active || undefined}>
                 <span className="ptb-cut__name">{b.label}</span>
                 <span className="ptb-cut__rule">rank {b.from}–{b.to}</span>
-                {active && <span className="ptb-cut__here">this variant · {selected!.rank}/20</span>}
+                {active && <span className="ptb-cut__here">{mut} · {selected!.rank}/20{selected!.direction === "flat" ? " · not read" : ""}</span>}
               </li>
             );
           })}
@@ -191,6 +222,16 @@ export function PerturbationRail({
             <span className="ptb-cut__name">Entropy</span>
             <span className="ptb-cut__rule">≤{ENTROPY_MARKS.constrained} · ≥{ENTROPY_MARKS.tolerant} bits</span>
             {selected?.entropy != null && <span className="ptb-cut__here">{selected.entropy.toFixed(2)}</span>}
+          </li>
+          <li className="ptb-cut" data-active={selected?.direction === "flat" || undefined}>
+            <span className="ptb-cut__name">Flat distribution</span>
+            <span className="ptb-cut__rule">≥{ENTROPY_MARKS.flat.toFixed(2)} bits</span>
+            {selected?.direction === "flat" && <span className="ptb-cut__here">not read</span>}
+          </li>
+          <li className="ptb-cut" data-active={selected?.direction === "even" || undefined}>
+            <span className="ptb-cut__name">Even odds</span>
+            <span className="ptb-cut__rule">|ΔLLR| &lt; {EVEN_ODDS_LLR.toFixed(2)} (2×)</span>
+            {selected?.direction === "even" && <span className="ptb-cut__here">near even</span>}
           </li>
           <li className="ptb-cut">
             <span className="ptb-cut__name">ESM3 drift</span>
@@ -215,7 +256,8 @@ export function PerturbationRail({
             <div className="ptb-kv__row"><dt>Registry row</dt><dd>{selected.calibration?.label ?? "—"}{selected.served.inferred ? " (from settings)" : ""}</dd></div>
             <div className="ptb-kv__row"><dt>Cut-point</dt><dd>None published</dd></div>
             <div className="ptb-kv__row"><dt>Embedding width</dt><dd>{selected.embedding.dim ? `${selected.embedding.dim}-dim` : "unknown"}</dd></div>
-            <div className="ptb-kv__row"><dt>ΔLLR</dt><dd className="ptb-mono">{selected.llr !== null ? `${signed(selected.llr, 3)} nats` : "—"}</dd></div>
+            <div className="ptb-kv__row"><dt>ΔLLR</dt><dd className="ptb-mono">{selected.llr !== null ? `${signed(selected.llr, 2)} nats` : "—"}</dd></div>
+            <div className="ptb-kv__row"><dt>Reading</dt><dd>{directionText(selected, wt, mut)}</dd></div>
           </dl>
           {selected.calibration && <p className="ptb-kv__note">{selected.calibration.note}</p>}
         </section>
@@ -235,8 +277,18 @@ export function PerturbationRail({
               each model, so the same variant can differ by several nats between models without disagreement.
             </li>
             <li>
-              Rank is where the variant falls among the 20 residues inside one model. It is scale-free, so it is
-              the one statement that compares across models. It is not a probability of pathogenicity.
+              The odds restate ΔLLR: a ΔLLR of −5.95 means the model rates the native residue e<sup>5.95</sup> ≈ 380× as
+              likely as the variant. The cross-model statement is the direction each model reads; magnitudes are
+              given per model and never compared across rows.
+            </li>
+            <li>
+              Rank is where the variant falls among the 20 residues inside one model, and it is always read beside
+              the native&apos;s rank. When the native holds most of the probability, a high rank for the variant only
+              orders the leftovers. It is not a probability of pathogenicity.
+            </li>
+            <li>
+              A model whose entropy is at least 95% of the 4.32-bit maximum is flat: it spreads its probability almost
+              evenly and has no preference to read. Its rank is set aside.
             </li>
             <li>
               Remote scoring renormalises the engine&apos;s top returned tokens over the 20 residues; a residue it
@@ -279,6 +331,10 @@ export function PerturbationRail({
             <li>
               ESM3 drift is the largest per-residue cosine distance between wild-type and mutant sequence
               embeddings. No structure is generated or refined for it.
+            </li>
+            <li>
+              A single substitution normally changes its own residue&apos;s embedding most. The tab gives the drift at the
+              variant and how far the peak sits from it; a distant peak on near-zero values is noise.
             </li>
             <li>The confidence beside it is the input structure&apos;s pLDDT/B-factor at the site, not ESM3&apos;s.</li>
             <li>

@@ -26,9 +26,9 @@ describe("pipelineStateFactory", () => {
 
   it("creates standard analysis version metadata", () => {
     const version = createAnalysisVersion();
-    expect(version.thresholds).toBe("ACMG v1.0.0-concordance");
-    expect(version.geminiModel).toBe("gemini-3.5-flash");
-    expect(version.foldxVersion).toBe("FoldX 5.0");
+    expect(version.thresholds).toBe("Not recorded");
+    expect(version.geminiModel).toBe("Not recorded");
+    expect(version.foldxVersion).toBe("Not recorded");
     expect(typeof version.timestamp).toBe("string");
   });
 
@@ -36,7 +36,7 @@ describe("pipelineStateFactory", () => {
     const state = createPlaceholderAnalysisState(baseParams);
     expect(state.isLoading).toBe(false);
     expect(state.error).toBeNull();
-    expect(state.result.analysis).toBe("Biophysical analysis in progress...");
+    expect(state.result.analysis).toBe(""); // A loading shell is not an AI narrative.
     expect(state.result.metadata.gene).toBe("PAH");
     expect(state.result.metadata.wildType).toBe("Arg");
     expect(state.result.transcriptId).toBe("ENST00000335062");
@@ -68,7 +68,7 @@ describe("pipelineStateFactory", () => {
     expect(state.result.metadata.wildType).toBe("Arg");
     expect(state.result.metadata.mutant).toBe("Trp");
     expect(state.result.metadata.customAnnotation).toBe("ClinVar Verified");
-    expect(state.result.metadata.analysisVersion.geminiModel).toBe("gemini-3.5-flash");
+    expect(state.result.metadata.analysisVersion.geminiModel).toBe("Not recorded");
     // Verify deep model evaluation flags
     expect(state.result.esm3Eval).toEqual({ loading: true });
     expect(state.result.esmcEval).toEqual({ loading: true });

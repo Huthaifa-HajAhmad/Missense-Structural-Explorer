@@ -3,6 +3,12 @@ import { apiRouter } from "../routes.ts";
 import * as externalServices from "../services/external.ts";
 import { PUBLIC_ENDPOINTS } from "./state.ts";
 import { CONFIG } from "../config.ts";
+import {
+  clearStructureReferences,
+  registerStructureReference,
+  resolveStructureReference,
+} from "../services/structure/structure-reference-store.ts";
+import { isStructureRef, STRUCTURE_REF_HEADER, STRUCTURE_REF_MAX_PDB_CHARS } from "../../src/shared/structureRefs.ts";
 
 describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
   beforeEach(() => {
@@ -178,8 +184,75 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
     });
   });
 
-  describe("GET /sidecar-health", () => {
-    const route = apiRouter.stack.find(s => s.route && s.route.path === "/sidecar-health");
+  describe("structure references issued with served PDB text", () => {
+    beforeEach(() => {
+      clearStructureReferences();
+    });
+
+    const mockPdb = "ATOM      1  N   VAL A 429      12.120  15.340  -5.210  1.00 25.00           N\n";
+
+    it("announces a reference on /pdb/:uniprotId that resolves to exactly the served bytes", async () => {
+      const resolver = await import("../services/structure-resolver.ts");
+      vi.spyOn(resolver, "resolveStructure").mockResolvedValue({
+        pdbText: mockPdb,
+        provenance: { source: "experimental", pdbId: "6N7E", chainId: "A" },
+      } as any);
+
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/pdb/:uniprotId");
+      expect(route).toBeDefined();
+      const handler = route!.route!.stack[route!.route!.stack.length - 1].handle;
+
+      const headers: Record<string, string> = {};
+      let sentBody = "";
+      const req: any = { params: { uniprotId: "P00439" }, query: {} };
+      const res: any = {
+        setHeader(name: string, value: string) { headers[name] = value; return this; },
+        send(body: any) { sentBody = body; return this; },
+      };
+
+      await handler(req, res, () => {});
+
+      const ref = headers[STRUCTURE_REF_HEADER];
+      expect(isStructureRef(ref)).toBe(true);
+      // The reference names the bytes that were actually sent — that is what makes a later
+      // pocket/nearest call about the same structure, with no upload and no re-resolution.
+      expect(resolveStructureReference(ref)?.pdbText).toBe(mockPdb);
+      expect(sentBody).toBe(mockPdb);
+    });
+
+    it("announces a reference on /alphafold-pdb/:uniprotId", async () => {
+      vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue(mockPdb);
+      vi.spyOn(externalServices, "getResolvedAlphafoldVersion").mockReturnValue("v6");
+
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/alphafold-pdb/:uniprotId");
+      const handler = route!.route!.stack[route!.route!.stack.length - 1].handle;
+
+      const headers: Record<string, string> = {};
+      const req: any = { params: { uniprotId: "Q9H8M5" } };
+      const res: any = {
+        setHeader(name: string, value: string) { headers[name] = value; return this; },
+        send() { return this; },
+      };
+
+      await handler(req, res, () => {});
+
+      const ref = headers[STRUCTURE_REF_HEADER];
+      expect(isStructureRef(ref)).toBe(true);
+      expect(resolveStructureReference(ref)?.pdbText).toBe(mockPdb);
+      expect(resolveStructureReference(ref)?.identity.afdbVersion).toBe("v6");
+    });
+
+    it("refuses to mint a reference for text that cannot be referenced", () => {
+      // Empty text, and text past the same 5 MB ceiling the routes enforce: a reference that named
+      // either would be useless at best, and at worst an unbounded retention of a rejected payload.
+      expect(registerStructureReference("", { origin: "server" })).toBeNull();
+      expect(
+        registerStructureReference("A".repeat(STRUCTURE_REF_MAX_PDB_CHARS + 1), { origin: "server" })
+      ).toBeNull();
+    });
+  });
+
+  describe("GET /sidecar-health", () => {    const route = apiRouter.stack.find(s => s.route && s.route.path === "/sidecar-health");
     expect(route).toBeDefined();
     const handler = route!.route!.stack[route!.route!.stack.length - 1].handle;
 

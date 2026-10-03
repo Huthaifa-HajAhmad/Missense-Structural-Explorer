@@ -59,6 +59,52 @@ and `inspector/PerturbationRail.tsx` (which replaces `PerturbationInspector`). T
 - The FoldX parser's comment calls identical runs "failed minimisation". For a glycine they are expected; the flag deserves a softer name.
 - VESM's citation in the registry ("Ntranos Lab 2024") should be updated to the published preprint.
 
+## Second audit (2026-10-02) — SLC12A4 p.Gln867His
+
+Reference variant: **SLC12A4 p.Gln867His** (NM_005072.5, 16-67946177-C-G, Q9UP95). The engine is unchanged
+(the language models stay informational, and no FoldX or ESM3 output reaches it), so no decision was needed from the owner.
+
+| # | Severity | What was wrong | Evidence | Fix |
+|---|---|---|---|---|
+| 1 | High | The hero read the substitution the wrong way round. It led with "**0 of 3** models rank His in the dispreferred half", and its cards said "Upper half" and "Most preferred". ESM-2 (ΔLLR −5.95) and ESMC (−6.98) give native Gln ~384× and ~1,075× the probability of His. A rank orders what is left after the native residue, so it says nothing about how strongly the model expects the native. | Screenshot: ESMC "3 / 20 · most preferred" beside ΔLLR −6.98. | The cross-model statement is now the **direction** each model reads: the sign of its own ΔLLR, beyond an even-odds mark of ln 2 (2×). Magnitudes are given per model as odds ("Gln 384× as likely as His in ESM-2"), which restates that model's ΔLLR and pools nothing. The hero now reads "2 of 3 models favour native Gln over His". |
+| 2 | High | A near-uniform distribution was read like any other. SaProt (sequence-only, 4.23 of 4.32 bits, every residue within a point of the amino-acid background) contributed "rank 10 · Upper half" to the headline count. | Residue detail: P(Gln) 4.93 %, P(His) 4.96 %, L 9.31 % top. | New `flat` reading (entropy ≥ 95 % of log₂20 = 4.10 bits, an app-defined mark listed in the rail). A flat model is named as having no preference and is left out of the direction count and the band agreement. Its rank is drawn faded with "not read". |
+| 3 | Medium | "The models disagree" fired whenever two models fell in different rank bands. Here all three put His above the dispreferred half. | Hero sentence. | "Split" is now said only when the models' directions differ. |
+| 4 | Medium | The ranks were shown without the native's rank, so "3 / 20" had nothing to be read against. The band labels made preference claims ("Most preferred", "Dispreferred"). | Cards and ruler. | Every rank reads "His 3rd of 20 · Gln 1st". The ruler draws the native as a hollow ink ring and the variant in clay. Bands are positional: Top 3 / Upper middle / Lower middle / Bottom 3. When the native holds ≥ 50 % of the probability, the rank sentence says so. |
+| 5 | Medium | A failed FoldX run read "No FoldX mutant model was built". The tab and rail never received `foldingStatus` or `foldingError`. | Fact strip and FoldX row. | Reasons now resolve in the Energetics engine's order (running → binary missing → repair failed → failed with its error → not configured). The rail gets the same props, and the FoldX row links to Energetics. |
+| 6 | Medium | ESM3 printed "at sequence index 4" for a variant at residue 867, with no drift at the variant itself and no distance to the peak. | Readings row. | The row now gives the drift at the variant and how far the peak is from it, and flags "Peak away from the variant" when the gap is more than 10 residues. The VESM fallback's −1 sentinels are excluded from the max. |
+| 7 | Low | The site-context pLDDT (87.4) had no reading, and the drift chip said "None · local band". | Readings row. | It now carries AlphaFold DB's published band ("Confident"). The drift chip names the marks it sits between ("Below 0.08 mark"). |
+| 8 | Low | The engine status appeared four times in the hero (subtitle, eyebrow, chip, fact strip), and "Not counted" was repeated on every row. | Hero, table. | The chip and the fact strip keep it. A row says "Counted in PP3/BP4" only when that is true. |
+| 9 | Low | Dead zone: with no embedding window (every remote engine), half the residue panel held a lone "No shift window" note. | Residue detail. | The absence is one line under the facts, and the distribution uses the full width. "101% of native" became the model's own odds. |
+| 10 | Low | Rail step 1 printed full provenance strings in a right-aligned mono column that wrapped mid-name. ΔLLR used 3 decimals in the rail and 2 in the tab. | Rail. | The rail uses the short served name (the full string is in the title) and 2 decimals. Step 3 traces direction and odds per model. The flat and even-odds marks are listed with the other marks. |
+| 11 | Low | A reader new to the field had no way in: ΔLLR, nats, rank bands and 3Di with no explanation on the page. | Whole tab. | Added a collapsed "How to read this tab" primer and plain one-line model descriptions in the table. The registry notes stay in the rail. |
+
+### What the screen shows now (SLC12A4)
+
+"**2 of 3** models favour native Gln over His at residue 867 — **ESM-2 and ESMC favour native Gln over His** — Gln 384× as
+likely as His in ESM-2, Gln 1,075× as likely as His in ESMC — each on its own model's scale; SaProt spreads its probability
+almost evenly here, so it has no preference to read. None of this is calibrated pathogenicity evidence." One callout covers
+SaProt's caveats (no structure token, flat). The engine record is unchanged: informational.
+
+### Follow-ups not done (server side; out of this tab's code)
+
+- **SaProt's near-background output.** The structure token was "#" at a residue the input model calls confident (pLDDT 87.4),
+  so 3Di encoding either did not run or did not align (`encode_pdb_to_3di` matches by `difflib` on the 510-residue crop). Check
+  whether `wtPdb` reached the remote call for this variant. Separately, the remote parser takes the **max** score per residue
+  across 3Di pair tokens when the `targets` call falls back to `top_k`. The marginal is the **sum**.
+- **ESM3 drift peaking 863 residues from the variant at 0.004.** A substitution normally changes its own embedding most. Check
+  that the Forge `logits(...).embeddings` array has no BOS/EOS offset, and that the sequence sent matches the PDB numbering.
+  The route's length check only runs when a PDB is supplied.
+- The floating action button in the shell overlaps the rail's right-hand values (seen on the "ESM3 drift" mark). That is a
+  shell-level layout issue, not part of this tab.
+- The flat (95 % of max entropy) and even-odds (ln 2) marks are app-defined. A ProteinGym check of how often flat
+  sites occur per model would show whether 95 % is the right mark.
+
+### Verification
+
+`npm run lint` (boundaries, focus indicators, verify parity, tsc) is clean. Full `vitest run`: 260 files and 3,322 tests pass
+(5 skipped). New fixture `src/shared/__tests__/fixtures/slc12a4Perturbation.ts` pins the model contract and the screen. Rendered in light,
+dark and an 820 px column.
+
 ## Sources
 
 - Meier J, et al. Language models enable zero-shot prediction of the effects of mutations on protein function. NeurIPS 2021. doi:10.1101/2021.07.09.450648

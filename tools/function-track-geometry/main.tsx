@@ -91,6 +91,41 @@ const CROWDED: UniprotFeaturesData = {
   ],
 } as UniprotFeaturesData;
 
+/**
+ * SLC12A4 / Q9UP95 (1085 aa), p.Gln867His — a 12-helix membrane transporter. Topology and TM positions are
+ * the UniProt feature table as shown on the tab; sites are a subset. The variant sits in the cytoplasmic
+ * C-terminal domain, between helices 855–866 and 869–871 of PDB 6KKR.
+ */
+const E = (id: string): Array<{ code: string; source: string; id: string }> => [{ code: "ECO:0000269", source: "PubMed", id }];
+const TM_SPANS: Array<[number, number]> = [[120, 141], [150, 172], [197, 225], [249, 271], [272, 297], [420, 440], [451, 473], [505, 531], [555, 575], [576, 598], [613, 635], [636, 651]];
+const TOPO: Array<[string, number, number]> = [["Cytoplasmic", 1, 119], ["Extracellular", 142, 149], ["Cytoplasmic", 173, 196], ["Extracellular", 226, 248], ["Extracellular", 298, 419], ["Cytoplasmic", 441, 450], ["Extracellular", 474, 504], ["Cytoplasmic", 532, 554], ["Cytoplasmic", 599, 612], ["Cytoplasmic", 652, 1085]];
+const SLC12A4: UniprotFeaturesData = {
+  geneName: "SLC12A4",
+  sequenceLength: 1085,
+  reviewed: true,
+  domainMatchesStatus: "ok",
+  domainMatches: [
+    { database: "Pfam", accession: "PF03522", interpro: { id: "IPR018491", name: "SLC12A transporter, C-terminal" }, locations: [{ start: 709, end: 824 }, { start: 840, end: 1085 }] },
+    { database: "Pfam", accession: "PF00324", interpro: { id: "IPR004841", name: "Amino acid permease/SLC12A domain" }, locations: [{ start: 124, end: 300 }, { start: 418, end: 695 }] },
+    { database: "Gene3D", accession: "G3DSA:1.20.1740.10", interpro: null, locations: [{ start: 118, end: 666 }] },
+  ],
+  secondaryStructure: [
+    { kind: "helix", start: 855, end: 866, pdb: "6KKR" },
+    { kind: "helix", start: 869, end: 871, pdb: "6KKR" },
+  ],
+  features: [
+    ...TOPO.map(([d, a, b]) => ({ type: "Topological domain", description: d, start: a, end: b, evidence: E("31649201") })),
+    ...TM_SPANS.map(([a, b], i) => ({ type: "Transmembrane", description: i === 0 ? "Discontinuously helical; Name=1" : `Helical; Name=${i + 1}`, start: a, end: b, evidence: E("31649201") })),
+    ...[131, 132, 216].map((r) => ({ type: "Binding site", description: "Ligand: K(+)", start: r, end: r, evidence: E("31649201") })),
+    { type: "Binding site", description: "Ligand: chloride", start: 433, end: 433, evidence: [{ code: "ECO:0000305", source: "PubMed", id: "31649201" }] },
+    { type: "Mutagenesis", description: "V135A: Decrease in Cl(-) efflux", start: 135, end: 135, change: { from: "V", to: ["A"] }, evidence: E("35759661") },
+    { type: "Mutagenesis", description: "I136A: Decrease in Cl(-) efflux", start: 136, end: 136, change: { from: "I", to: ["A"] }, evidence: E("35759661") },
+    { type: "Modified residue", description: "Phosphoserine", start: 24, end: 24, evidence: [{ code: "ECO:0007744", source: "PubMed", id: "23186163" }] },
+    { type: "Modified residue", description: "Phosphoserine", start: 834, end: 834, evidence: [{ code: "ECO:0007744", source: "PubMed", id: "23186163" }] },
+    { type: "Modified residue", description: "Phosphoserine", start: 916, end: 916, evidence: [{ code: "ECO:0007744", source: "PubMed", id: "23186163" }] },
+  ],
+} as UniprotFeaturesData;
+
 interface Case {
   id: string;
   label: string;
@@ -102,6 +137,10 @@ interface Case {
   width: number;
   dark?: boolean;
   zoom?: boolean;
+  /** Press "Whole protein" before measuring, for the cases written against the whole-protein drawing. */
+  whole?: boolean;
+  /** Membrane-topology lane: transmembrane bars and topological-domain rails the drawing must carry. */
+  membrane?: { tm: number; rails: number };
   engine: string[];
   /** Hand-written from the fixture and the PM1 rule. */
   expect: { verdict: string; pins: number; domains: number; hiddenLabels: "none" | "some" };
@@ -115,9 +154,13 @@ const CASES: Case[] = [
   { id: "nae1-narrow", label: "NAE1 p.Asp116Gly — phone width", data: NAE1_UNIPROT, uniprotId: "Q13564", residue: 116, wt: "D", mut: "G", width: 380, engine: ["PM2", "PP3"], expect: { verdict: "PM1 not met", pins: 9, domains: 1, hiddenLabels: "some" } },
   { id: "nae1-dark", label: "NAE1 p.Asp116Gly — dark theme", data: NAE1_UNIPROT, uniprotId: "Q13564", residue: 116, wt: "D", mut: "G", width: 1010, dark: true, engine: ["PM2", "PP3"], expect: { verdict: "PM1 not met", pins: 9, domains: 1, hiddenLabels: "none" } },
   // CNNM2: 3 UniProt domains; the phosphoserine is the one pin; TM helices are regions.
-  { id: "cnnm2", label: "CNNM2 p.Ser489Cys — inside CBS 1", data: CNNM2, uniprotId: "Q9H8M5", residue: 489, wt: "S", mut: "C", width: 1010, engine: ["PP3"], expect: { verdict: "PM1 not met", pins: 1, domains: 3, hiddenLabels: "none" } },
+  { id: "cnnm2", label: "CNNM2 p.Ser489Cys — inside CBS 1", whole: true, membrane: { tm: 3, rails: 0 }, data: CNNM2, uniprotId: "Q9H8M5", residue: 489, wt: "S", mut: "C", width: 1010, engine: ["PP3"], expect: { verdict: "PM1 not met", pins: 1, domains: 3, hiddenLabels: "none" } },
   // GZF1: 1 domain; 2 mutagenesis + 1 phospho = 3 pins; ten adjacent zinc-finger labels cannot all fit.
-  { id: "gzf1", label: "GZF1 p.Arg591Trp — ten adjacent zinc fingers", data: GZF1, uniprotId: "Q9H116", residue: 591, wt: "R", mut: "W", width: 1010, engine: [], expect: { verdict: "PM1 not met", pins: 3, domains: 1, hiddenLabels: "some" } },
+  { id: "gzf1", label: "GZF1 p.Arg591Trp — ten adjacent zinc fingers", whole: true, data: GZF1, uniprotId: "Q9H116", residue: 591, wt: "R", mut: "W", width: 1010, engine: [], expect: { verdict: "PM1 not met", pins: 3, domains: 1, hiddenLabels: "some" } },
+  // SLC12A4 opened as the tab opens it (1085 aa > 600, so 817–917): sites S834p and S916p = 2 pins; Pfam segments 709–824 and 840–1085 = 2 boxes; helices 855–871 in the window so the strip is drawn; the cytoplasmic rail only.
+  { id: "slc12a4", label: "SLC12A4 p.Gln867His — opens on 867 ± 50", data: SLC12A4, uniprotId: "Q9UP95", residue: 867, wt: "Q", mut: "H", width: 1010, membrane: { tm: 0, rails: 1 }, engine: ["PM2"], expect: { verdict: "PM1 not met", pins: 2, domains: 2, hiddenLabels: "none" } },
+  // The same protein across its whole length: 12 helices and 10 topological spans; 9 point sites (K+ x3, Cl-, V135A, I136A, S24p, S834p, S916p); 4 Pfam segments; no helix/strand strip.
+  { id: "slc12a4-whole", label: "SLC12A4 p.Gln867His — whole protein", whole: true, data: SLC12A4, uniprotId: "Q9UP95", residue: 867, wt: "Q", mut: "H", width: 1010, membrane: { tm: 12, rails: 10 }, engine: ["PM2"], expect: { verdict: "PM1 not met", pins: 9, domains: 4, hiddenLabels: "some" } },
   // CROWDED: 6 point sites + the disulfide drawn as its two cysteines, 180 and 230 = 8 marks.
   { id: "crowded", label: "synthetic crowded cluster, PM1 met", data: CROWDED, uniprotId: "P00000", residue: 204, wt: "H", mut: "A", width: 1010, engine: ["PM1", "PP3"], expect: { verdict: "PM1 met", pins: 8, domains: 1, hiddenLabels: "some" } },
 ];
@@ -225,17 +268,18 @@ const centreX = (el: SVGGraphicsElement) => {
 
 /* ── Families ─────────────────────────────────────────────────────────────────── */
 
-const FAMILY_SIZE = { marks: 4, labels: 3, stems: 1, contrast: 2, targets: 1, focus: 1, selection: 2, verdict: 1, zoom: 1, selfCheck: 1 } as const;
+const FAMILY_SIZE = { opens: 1, marks: 4, labels: 3, stems: 1, contrast: 2, targets: 1, focus: 1, selection: 2, verdict: 1, zoom: 1, view: 2, membrane: 3, selfCheck: 1 } as const;
 type Family = keyof typeof FAMILY_SIZE;
-type PerCase = Exclude<Family, "selfCheck">;
+type PerCase = Exclude<Family, "selfCheck" | "opens">;
 
 function family(name: Family, produced: Check[]): Check[] {
   if (produced.length === FAMILY_SIZE[name]) return produced;
   return [...produced, { name: `harness: ${name} produced ${produced.length} assertions, expected ${FAMILY_SIZE[name]}`, pass: false, detail: "update FAMILY_SIZE if deliberate" }];
 }
 
-const planFamilies = (c: Case): PerCase[] => ["marks", "labels", "stems", "contrast", "targets", "focus", "selection", "verdict", ...(c.zoom ? (["zoom"] as PerCase[]) : [])];
-const expectedCheckCount = () => CASES.reduce((n, c) => n + planFamilies(c).reduce((m, f) => m + FAMILY_SIZE[f], 0), 0) + FAMILY_SIZE.selfCheck;
+const planFamilies = (c: Case): PerCase[] => ["marks", "labels", "stems", "contrast", "targets", "focus", "selection", "verdict", "view", ...(c.zoom ? (["zoom"] as PerCase[]) : []), ...(c.membrane ? (["membrane"] as PerCase[]) : [])];
+// "opens" runs once per case, before any button is pressed, so it is outside planFamilies.
+const expectedCheckCount = () => CASES.reduce((n, c) => n + FAMILY_SIZE.opens + planFamilies(c).reduce((m, f) => m + FAMILY_SIZE[f], 0), 0) + FAMILY_SIZE.selfCheck;
 
 function checkMarks(c: Case, s: Schematic): Check[] {
   const off: string[] = [];
@@ -424,6 +468,99 @@ async function checkZoom(c: Case, host: HTMLElement): Promise<Check[]> {
   return [{ name: `${c.id}: the zoom shows ${want.start}–${want.end} and only marks inside it`, pass: ok && outside.length === 0, detail: typeof s === "string" ? s : `window ${s.window.start}–${s.window.end}${outside.length ? `; outside: ${outside.join(", ")}` : ""}` }];
 }
 
+/** The window a case must be showing, from the fixture and the rule written in the tab, not read back from the layout. */
+function windowOf(c: Case, near: boolean): { start: number; end: number } {
+  const len = c.data.sequenceLength ?? 0;
+  return near ? { start: Math.max(1, c.residue - 50), end: Math.min(len, c.residue + 50) } : { start: 1, end: len };
+}
+
+/** The tab opens on the variant's neighbourhood above 600 residues and on the whole protein at or below it. */
+function checkOpens(c: Case, host: HTMLElement): Check[] {
+  const s = readSchematic(host);
+  const want = windowOf(c, (c.data.sequenceLength ?? 0) > 600);
+  const ok = typeof s !== "string" && s.window.start === want.start && s.window.end === want.end;
+  return [{ name: `${c.id}: opens on ${want.start}–${want.end}`, pass: ok, detail: typeof s === "string" ? s : `opened on ${s.window.start}–${s.window.end}` }];
+}
+
+function checkView(c: Case, s: Schematic, host: HTMLElement): Check[] {
+  const len = c.data.sequenceLength ?? 0;
+  const w = s.window;
+  const span = w.end - w.start;
+  const ssIn = (c.data.secondaryStructure ?? []).some((e) => e.kind !== "turn" && e.end >= w.start && e.start <= w.end);
+  const wantStrip = ssIn && span <= 300;
+  const strips = s.svg.querySelectorAll(".fnd-arch__helix, .fnd-arch__strand").length;
+  const stripCheck: Check = {
+    name: `${c.id}: the helix / strand strip is drawn only in a window of 300 residues or fewer`,
+    pass: wantStrip ? strips > 0 : strips === 0,
+    detail: `window ${span + 1} residues, ${ssIn ? "structure in window" : "no structure in window"}, ${strips} strip shapes (expected ${wantStrip ? "some" : "none"})`,
+  };
+  const wantOverview = !(w.start === 1 && w.end === len);
+  const ov = host.querySelector<SVGSVGElement>('[data-testid="arch-overview"]');
+  let detail = wantOverview ? "no overview strip" : "none (whole protein)";
+  let pass = wantOverview ? false : !ov;
+  if (wantOverview && ov) {
+    const track = ov.querySelector<SVGLineElement>(".fnd-arch__ov-track")!;
+    const tx0 = Number(track.getAttribute("x1"));
+    const tx1 = Number(track.getAttribute("x2"));
+    const at = (r: number) => tx0 + ((r - 1) / (len - 1)) * (tx1 - tx0);
+    const win = bbox(ov.querySelector<SVGGraphicsElement>('[data-testid="arch-overview-window"]')!);
+    const dot = ov.querySelector<SVGCircleElement>(".fnd-arch__ov-query");
+    const dotOk = !!dot && Math.abs(Number(dot.getAttribute("cx")) - at(c.residue)) <= 0.5;
+    pass = Math.abs(win.left - at(w.start)) <= 0.75 && Math.abs(win.right - at(w.end)) <= 0.75 && dotOk;
+    detail = `bracket ${px(win.left)}–${px(win.right)}, expected ${px(at(w.start))}–${px(at(w.end))}${dotOk ? "" : "; variant dot off its residue"}`;
+  }
+  return [stripCheck, { name: `${c.id}: the overview strip ${wantOverview ? "brackets the window" : "is absent for the whole protein"}`, pass, detail }];
+}
+
+function checkMembrane(c: Case, s: Schematic): Check[] {
+  const lane = s.svg.querySelector<SVGGElement>('[data-testid="arch-membrane"]');
+  if (!lane) return [0, 1, 2].map((i) => ({ name: `${c.id}: membrane lane (${i + 1})`, pass: false, detail: "no membrane lane drawn" }));
+  const clip = (r: number) => Math.min(Math.max(r, s.window.start), s.window.end);
+  const bars = Array.from(lane.querySelectorAll<SVGGElement>('[data-testid="arch-tm"]')).filter((g) => g.getAttribute("data-kind") === "tm");
+  const rails = Array.from(lane.querySelectorAll<SVGLineElement>(".fnd-arch__rail"));
+  const off: string[] = [];
+  for (const g of bars) {
+    const a = Number(g.getAttribute("data-start"));
+    const e = Number(g.getAttribute("data-end"));
+    const b = bbox(g.querySelector<SVGGraphicsElement>("rect")!);
+    if (Math.abs(b.left - expectedX(s, clip(a))) > 0.75 || Math.abs(b.right - expectedX(s, clip(e))) > 0.75) off.push(`${a}–${e}`);
+  }
+  for (const r of rails) {
+    const a = Number(r.getAttribute("data-start"));
+    const e = Number(r.getAttribute("data-end"));
+    if (Math.abs(Number(r.getAttribute("x1")) - expectedX(s, clip(a))) > 0.75 || Math.abs(Number(r.getAttribute("x2")) - expectedX(s, clip(e))) > 0.75) off.push(`rail ${a}–${e}`);
+  }
+  const want = c.membrane!;
+  const geometry: Check = {
+    name: `${c.id}: transmembrane bars and topology rails sit at their residues`,
+    pass: bars.length === want.tm && rails.length === want.rails && off.length === 0,
+    detail: off.length ? `off: ${off.join(", ")}` : `${bars.length} bars (expected ${want.tm}), ${rails.length} rails (expected ${want.rails})`,
+  };
+
+  // The lane sits under every site mark and its label, and above the axis.
+  const laneBox = bbox(lane);
+  const pinBottom = Math.max(0, ...s.pins.map((p) => bbox(p).bottom));
+  const axisY = Number(s.svg.querySelector<SVGLineElement>(".fnd-arch__axis line")?.getAttribute("y1") ?? 0);
+  const placement: Check = {
+    name: `${c.id}: the topology lane sits between the site marks and the axis`,
+    pass: laneBox.top >= pinBottom - 0.5 && laneBox.bottom <= axisY + 0.5,
+    detail: `lane ${px(laneBox.top)}–${px(laneBox.bottom)}, lowest mark ${px(pinBottom)}, axis ${px(axisY)}`,
+  };
+
+  const tick = lane.querySelector<SVGLineElement>(".fnd-arch__membrane-query");
+  const railYs = rails.map((r) => Number(r.getAttribute("y1")));
+  const tickOk =
+    !!tick &&
+    Math.abs(Number(tick.getAttribute("x1")) - expectedX(s, c.residue)) <= 0.5 &&
+    (railYs.length === 0 || (Number(tick.getAttribute("y1")) <= Math.min(...railYs) && Number(tick.getAttribute("y2")) >= Math.max(...railYs)));
+  const tickCheck: Check = {
+    name: `${c.id}: the variant's tick runs through the topology lane at its residue`,
+    pass: tickOk,
+    detail: tick ? `x ${px(Number(tick.getAttribute("x1")))}, expected ${px(expectedX(s, c.residue))}` : "no tick",
+  };
+  return [geometry, placement, tickCheck];
+}
+
 async function runFamily(name: PerCase, c: Case, host: HTMLElement): Promise<Check[]> {
   const s = readSchematic(host);
   if (typeof s === "string") return family(name, Array.from({ length: FAMILY_SIZE[name] }, () => ({ name: `${c.id}: ${name}`, pass: false, detail: s })));
@@ -437,6 +574,8 @@ async function runFamily(name: PerCase, c: Case, host: HTMLElement): Promise<Che
     case "selection": return family(name, await checkSelection(c, host));
     case "verdict": return family(name, checkVerdict(c, host));
     case "zoom": return family(name, await checkZoom(c, host));
+    case "view": return family(name, checkView(c, s, host));
+    case "membrane": return family(name, checkMembrane(c, s));
     default: {
       const unhandled: never = name;
       return [{ name: `harness: ${String(unhandled)} has no runner`, pass: false, detail: "declared but not wired" }];
@@ -488,6 +627,13 @@ function App(): React.ReactElement {
           if (!host) {
             checks.push({ name: `${c.id}: harness host`, pass: false, detail: "case never rendered" });
             continue;
+          }
+          checks.push(...family("opens", checkOpens(c, host)));
+          if (c.whole) {
+            const btn = Array.from(host.querySelectorAll<HTMLButtonElement>(".fnd-seg > button")).find((b) => /Whole/.test(b.textContent || ""));
+            btn?.click();
+            await nextFrame();
+            await nextFrame();
           }
           if (c.zoom) {
             const btn = Array.from(host.querySelectorAll<HTMLButtonElement>(".fnd-seg > button")).find((b) => /±/.test(b.textContent || ""));
