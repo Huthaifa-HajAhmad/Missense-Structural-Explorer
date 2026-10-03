@@ -75,6 +75,23 @@ describe("SpliceWindowControl", () => {
     expect(screen.getByRole("radio", { name: "±500" }).getAttribute("aria-checked")).toBe("true");
   });
 
+  it("is one tab stop, and arrows move focus without choosing (choosing is a request)", () => {
+    renderControl(scored(500));
+    const radios = screen.getAllByRole("radio") as HTMLButtonElement[];
+    expect(radios.filter(r => r.tabIndex === 0).map(r => r.textContent)).toEqual(["±500"]);
+    radios[2].focus();
+    fireEvent.keyDown(radios[2], { key: "ArrowRight" });
+    expect(document.activeElement).toBe(radios[3]);
+    fireEvent.keyDown(radios[3], { key: "End" });
+    expect(document.activeElement).toBe(radios[4]);
+    fireEvent.keyDown(radios[4], { key: "ArrowRight" });
+    expect(document.activeElement).toBe(radios[0]); // wraps
+    fireEvent.keyDown(radios[0], { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(radios[4]);
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+    expect(radios[2].getAttribute("aria-checked")).toBe("true");
+  });
+
   it("does nothing without a genomic coordinate to re-score", () => {
     renderControl(nae1Reference({ metadata: { genomicCoordinates: null } }));
     expect((screen.getByRole("radio", { name: "±1000" }) as HTMLButtonElement).disabled).toBe(true);

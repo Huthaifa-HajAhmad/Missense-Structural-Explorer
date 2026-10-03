@@ -254,6 +254,17 @@ export interface SpliceMap {
 
 /** SpliceAI delta scores below this are not drawn on the map: they are indistinguishable from zero. */
 export const SPLICE_MAP_FLOOR = 0.01;
+/**
+ * The SpliceAI reporting windows a reader can choose (Settings and the inline control share this list).
+ * 50 is Illumina's published default, 500 the Broad Lookup's; 2000 is the widest the map draws.
+ */
+export const SPLICEAI_WINDOWS = [50, 200, 500, 1000, 2000] as const;
+
+/**
+ * The map's own zoom steps. NOT the same list as `SPLICEAI_WINDOWS`: the map picks the smallest step that
+ * holds what is drawn (a prediction 70 bases out gets 100, though ±100 is not a selectable window), so
+ * it has finer steps than the reader's choices.
+ */
 const SPLICE_MAP_STEPS = [50, 100, 200, 500, 1000, 2000];
 
 /** Bases from splice-site position `from` to `to` (no 0 in the numbering, so crossing it costs one). */

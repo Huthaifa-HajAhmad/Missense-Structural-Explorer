@@ -37,6 +37,7 @@
 import { z } from "zod";
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
+import type { ConservationData } from "../../../src/shared/contracts.ts";
 
 /** Cloud Run services, one per genome build. Selected by `-comprehensive` suffix upstream. */
 const SPLICEAI_BASE_URLS = {
@@ -88,21 +89,13 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30;
  *   unreadable         a 2xx whose body did not match the contract
  *   no-transcript      a clean answer with no scored transcript (outside any gene)
  */
-export type SpliceAiFailureKind =
-  | "rate-limited"
-  | "coordinate-rejected"
-  | "upstream-error"
-  | "timeout"
-  | "network"
-  | "unreadable"
-  | "no-transcript";
-
-export interface SpliceAiFailure {
-  kind: SpliceAiFailureKind;
-  httpStatus: number | null;
-  /** The service's own words when it gave any, trimmed. */
-  detail: string | null;
-}
+/**
+ * Derived from the payload contract (`conservationData.spliceaiFailure`), not restated: the server
+ * can only record what the contract allows, and a new kind added in one place is a type error in the other.
+ * `detail` is the service's own words when it gave any, trimmed.
+ */
+export type SpliceAiFailure = NonNullable<ConservationData["spliceaiFailure"]>;
+export type SpliceAiFailureKind = SpliceAiFailure["kind"];
 
 export interface SpliceAiOutcome {
   record: SpliceAiScoreRecord | null;

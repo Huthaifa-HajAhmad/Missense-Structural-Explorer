@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import { useSettings } from "../../../context/SettingsContext";
 import { useApiClient } from "../../../apiClient";
 import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
-import { describeSpliceAiFailure, type SplicingEvidence } from "../../../shared/splicingEvidence";
+import { SPLICEAI_WINDOWS, describeSpliceAiFailure, type SplicingEvidence } from "../../../shared/splicingEvidence";
 import type { AnalysisResult } from "../../../types";
 
 /**
@@ -17,8 +17,6 @@ import type { AnalysisResult } from "../../../types";
  * What it will not do: replace a score with a failure. If the re-score fails, the score on screen
  * stays, labelled with the window it was actually computed under, and the control says why.
  */
-
-export const SPLICEAI_WINDOWS = [50, 200, 500, 1000, 2000] as const;
 
 export interface SpliceAiScoreResponse {
   distance: number;
@@ -66,6 +64,7 @@ export function SpliceWindowControl({
     target ?? (scoredWindow !== null && (SPLICEAI_WINDOWS as readonly number[]).includes(scoredWindow) ? scoredWindow : settings.spliceaiWindow ?? 500);
   const busy = target !== null;
   const unavailable = !coordinates || Boolean(disabled);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const choose = async (distance: number) => {
     if (busy || distance === selected || unavailable) return;
@@ -99,13 +98,33 @@ export function SpliceWindowControl({
     }
   };
 
+  // WAI-ARIA radiogroup keys: arrows (and Home/End) MOVE focus along the options; Space/Enter choose. Choosing
+  // is a network request, so selection does not follow focus the way a free radio would.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = SPLICEAI_WINDOWS.length - 1;
+    const next =
+      e.key === "ArrowRight" || e.key === "ArrowDown" ? (index + 1) % (last + 1)
+      : e.key === "ArrowLeft" || e.key === "ArrowUp" ? (index + last) % (last + 1)
+      : e.key === "Home" ? 0
+      : e.key === "End" ? last
+      : null;
+    if (next === null) return;
+    e.preventDefault();
+    optionRefs.current[next]?.focus();
+  };
+  // One tab stop for the group: the selected option, or the first when none is.
+  const stop = Math.max(0, (SPLICEAI_WINDOWS as readonly number[]).indexOf(selected));
+
   return (
     <div className="spl-window" data-testid="splice-window">
       <span className="spl-window__label" id="spl-window-label">SpliceAI window</span>
       <div className="spl-window__group" role="radiogroup" aria-labelledby="spl-window-label" aria-busy={busy}>
-        {SPLICEAI_WINDOWS.map(w => (
+        {SPLICEAI_WINDOWS.map((w, i) => (
           <button
             key={w}
+            ref={el => { optionRefs.current[i] = el; }}
+            tabIndex={i === stop ? 0 : -1}
+            onKeyDown={e => onKeyDown(e, i)}
             type="button"
             role="radio"
             aria-checked={w === selected}
