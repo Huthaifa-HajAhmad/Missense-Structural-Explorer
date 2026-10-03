@@ -155,8 +155,8 @@ export const MASTER_VIEW_ITEMS: NavItem[] = [
 /**
  * Evidence sub-tabs, in reading order: curated evidence first (population, then the domain context a
  * curator reads before any prediction), then sequence and RNA predictions, then structure from the
- * residue outward (residue → fold → assembly → partners), and the reference table last. Multimer
- * assembly sits beside Protein interactions because the interactions view reuses its complex.
+ * residue outward (residue → fold → interfaces and partners). Interfaces & PPI merged the former
+ * Multimer assembly and Protein interactions tabs, which answered one question twice.
  */
 export const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population data"          },
@@ -166,8 +166,7 @@ export const EVIDENCE_SUB_ITEMS = [
   { id: "splicing",     label: "RNA splicing"             },
   { id: "structure",    label: "Residue shifts & pockets" },
   { id: "perturbation", label: "Structural perturbation"  },
-  { id: "multimers",    label: "Multimer assembly"        },
-  { id: "interactions", label: "Protein interactions"     },
+  { id: "interfaces",   label: "Interfaces & PPI"         },
 ];
 
 export const STRUCTURE_SUB_ITEMS: { id: MasterView; label: string }[] = [

@@ -866,6 +866,14 @@ describe("isStaleCachedPayload — SpliceAI window", () => {
     expect(isStaleCachedPayload(payload("broad-lookup", 500), ctx(undefined))).toBe(false);
   });
 
+  it("treats a requested window of null the same as none", () => {
+    expect(isStaleCachedPayload(payload("broad-lookup", 500), { spliceaiDistance: null } as any)).toBe(false);
+  });
+
+  it("leaves a live score with no recorded window alone: nothing to compare", () => {
+    expect(isStaleCachedPayload(payload("broad-lookup", null), ctx(2000))).toBe(false);
+  });
+
   it("leaves a frozen table alone: it states no window to compare", () => {
     expect(isStaleCachedPayload(payload("precomputed-dbnsfp", null), ctx(2000))).toBe(false);
   });

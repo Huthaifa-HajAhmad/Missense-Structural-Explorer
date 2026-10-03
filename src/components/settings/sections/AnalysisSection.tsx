@@ -3,6 +3,7 @@ import { useSettings } from "../../../context/SettingsContext";
 import { DEFAULT_UI_BIOPHYSICS_CONDITIONS } from "../../../shared/biophysicsConditions";
 import { SegmentedControl } from "../ui/SegmentedControl";
 import { SettingsBlock, SettingsRow, SettingsSection } from "../ui/Section";
+import { SPLICEAI_WINDOWS } from "../../../shared/splicingEvidence";
 
 const CONDITION_FIELDS = [
   { key: "ph" as const, label: "pH", unit: "", step: 0.1, min: 0, max: 14 },
@@ -30,7 +31,6 @@ const ACMG_DESCRIPTIONS: Record<string, string> = {
  * used); 500 is the Broad Lookup's default and this app's. Wider windows reach cryptic sites deeper in
  * an intron at the cost of more reported positions and a slower request.
  */
-const SPLICEAI_WINDOWS = [50, 200, 500, 1000, 2000] as const;
 const SPLICEAI_DESCRIPTIONS: Record<number, string> = {
   50: "Illumina's published default. Reports only sites within 50 bp of the variant.",
   200: "A middle reach: catches most cryptic sites in the neighbouring intron.",

@@ -1096,6 +1096,22 @@ export const alphaGenomeRegionSaturationRequestSchema = z.object({
 });
 export type AlphaGenomeRegionSaturationRequest = z.infer<typeof alphaGenomeRegionSaturationRequestSchema>;
 
+/** The range the Broad SpliceAI Lookup accepts for its reporting window (-D); its own limit is 10,000. */
+export const SPLICEAI_DISTANCE_RANGE = { min: 50, max: 10_000 } as const;
+
+/**
+ * `POST /spliceai/score` — re-score ONE variant under a chosen reporting window. Shared by the route and
+ * by the RNA splicing tab's inline window control, so what the client sends is checked against what the
+ * server accepts by the same definition.
+ */
+export const spliceAiScoreRequestSchema = z.object({
+  /** `chrom-pos-ref-alt`, the form `metadata.genomicCoordinates` carries. */
+  coordinates: z.string().min(5).max(200),
+  assembly: z.enum(["GRCh37", "GRCh38"]).default("GRCh38"),
+  distance: z.number().int().min(SPLICEAI_DISTANCE_RANGE.min).max(SPLICEAI_DISTANCE_RANGE.max),
+});
+export type SpliceAiScoreRequest = z.input<typeof spliceAiScoreRequestSchema>;
+
 export const alphaGenomeSaturationVariantSchema = z.object({
   alt: z.enum(["A", "C", "G", "T"]),
   phred: z.number().nullable(),
@@ -2076,21 +2092,52 @@ export interface PpiInteractionSite {
   containsVariant: boolean;
 }
 
+/**
+ * How IntAct records one binary interaction: the detection methods and the studies behind it.
+ * UniProt's "experiments" count is assay runs, often several assay versions in ONE paper (HuRI ran
+ * three yeast two-hybrid versions), so it is never shown as independent replication.
+ */
+export interface IntactEvidence {
+  /** Detection method names as IntAct gives them ("validated two hybrid", "anti tag coimmunoprecipitation"). */
+  methods: string[];
+  /** Distinct PubMed ids. */
+  pubmed: string[];
+  /** Every method is a two-hybrid variant: a binary screen, no co-purification or structure. */
+  twoHybridOnly: boolean;
+}
+
 /** A binary interaction UniProt curates from IntAct. */
 export interface PpiCuratedInteraction {
   accession: string;
   gene: string | null;
   experiments: number | null;
+  /** From IntAct itself; null when IntAct was not read or lists nothing for the pair. */
+  evidence?: IntactEvidence | null;
 }
 
-/** Interface residues seen in solved structures, per partner (PDBe-KB). */
-export interface PpiObservedInterface {
+/**
+ * Interface residues seen in solved structures for one partner (PDBe-KB), with the support for each.
+ *
+ * `pdbEntries` are the structures that contain this pair; `support[i]` is in how many of them
+ * `residues[i]` is at the interface. A residue at the interface in one of eight structures is a
+ * conformation- or crystal-dependent contact, not the same evidence as one seen in all eight; the
+ * screen states the fraction and never collapses it to "at the interface".
+ */
+export interface ObservedInterface {
   accession: string;
   name: string;
+  /** Interface residues on THIS protein, UniProt numbering, sorted. */
   residues: number[];
-  pdbEntries: number;
+  /** Entries in which each residue is at the interface; same order as `residues`. */
+  support: number[];
+  /** Structures that contain this pair (lower-case PDB ids). */
+  pdbEntries: string[];
   homomeric: boolean;
+  /** A construct partner (fusion or crystallisation tag such as MBP or T4 lysozyme), never biological. */
+  artefact: string | null;
   variantAtInterface: boolean;
+  /** Entries in which the variant residue itself is at this interface. */
+  variantEntries: string[];
 }
 
 export type PpiLookupStatus = "ok" | "failed" | "skipped";
@@ -2109,15 +2156,27 @@ export interface PpiBindingData {
   uniprotId?: string;
   /** Variant residue number, UniProt numbering; null when the variant could not be parsed. */
   position?: number | null;
-  /** STRING's functional network: the query's strongest partners by combined score. */
+  /** STRING's functional network: the query's strongest partners by combined score (legacy field). */
   stringPartners: Array<{ partner: string; score: number }>;
+  /**
+   * STRING partners at or above `minScore`: the physical sub-network (evidence that the proteins
+   * bind) and the functional network (any association). `limit` is how many rows were asked for:
+   * when a list is that long, a partner missing from it is "not among the top N", not "no association".
+   */
+  string?: {
+    physical: Array<{ partner: string; score: number }> | null;
+    functional: Array<{ partner: string; score: number }> | null;
+    limit: number;
+    minScore: number;
+  };
   /** STRING release that answered, when STRING reported one. */
   stringVersion?: string | null;
   /** UniProt SUBUNIT text, verbatim. */
   subunitComment?: string | null;
   curatedInteractions?: PpiCuratedInteraction[];
   interactionSites?: PpiInteractionSite[];
-  observedInterfaces?: PpiObservedInterface[];
+  /** Written by the earlier service; solved interfaces are now read from `MultimerData.experimental`. */
+  observedInterfaces?: unknown[];
   sequenceLength?: number | null;
   /**
    * Outcome of each independent upstream lookup, so a consumer can tell an empty answer from no
@@ -2125,6 +2184,8 @@ export interface PpiBindingData {
    */
   lookups?: {
     stringPartners?: "ok" | "failed";
+    stringPhysical?: "ok" | "failed";
+    intact?: PpiLookupStatus;
     uniprot?: PpiLookupStatus;
     pdbe?: "ok" | "none" | "failed" | "skipped";
     /** Payloads written before the UniProt sites rewrite. */
@@ -2140,9 +2201,10 @@ export interface PpiBindingData {
 /**
  * Predicted change in binding energy (`POST /api/v1/ppi/binding-shift`).
  *
- * DDMut-PPI scores a substitution against a WILD-TYPE complex. The complex the Multimer tab models
- * carries the variant, so it cannot serve; this request models the same chains again, all wild type,
- * and scores the substitution on chain A.
+ * DDMut-PPI scores a substitution against a WILD-TYPE complex, and was trained on experimental
+ * wild types. The wild type is therefore a SOLVED complex in which the variant residue is at the
+ * interface, best resolution first; only when none exists are the chains modelled, all wild type,
+ * with Boltz-2. The variant complex is never used: it already carries the substitution.
  *
  * Sign: DDMut-PPI's own convention (Zhou et al., NAR 2024): ΔΔG ≤ 0 is reduced binding affinity.
  */
@@ -2156,10 +2218,19 @@ export interface PpiBindingShift {
   predictor: string;
   /** The wild-type complex the value was computed on. */
   wildType: {
-    source: "boltz-2-model";
+    source: "experimental" | "boltz-2-model";
     provenance: string;
+    /** Model only. */
     ipTm: number | null;
     chains: Array<{ id: string; accession: string; gene: string | null }>;
+    /** Experimental only: the entry, its method and resolution, and the variant's residue there. */
+    pdbId?: string | null;
+    method?: string | null;
+    resolution?: number | null;
+    /** Chain carrying the variant, author naming. */
+    chain?: string | null;
+    /** The variant residue's author number in that entry (may differ from UniProt numbering). */
+    authorResidue?: number | null;
   } | null;
   mutation: string | null;
   reason?: string;
@@ -2173,7 +2244,17 @@ export interface PpiBindingShift {
  * ("not-modelled", with `notModelledReason`), and the provider failed ("failed", with `error`).
  * "No SUBUNIT record" is "not-modelled"/"unstated" — never "monomeric".
  */
-export type MultimerStatus = "success" | "monomeric" | "not-modelled" | "failed";
+export type MultimerStatus = "success" | "monomeric" | "not-modelled" | "failed" | "not-requested" | "running";
+
+/**
+ * Why a complex prediction returned no model. Kept apart because they mean different things to a
+ * reader: a timeout or a network fault is worth trying again; a rejection is a property of the input.
+ */
+export interface MultimerModelFailure {
+  kind: "timeout" | "http" | "rejected" | "network" | "no-model" | "job-failed";
+  httpStatus?: number | null;
+  detail?: string | null;
+}
 
 export type MultimerNotModelledReason =
   | "unstated"
@@ -2200,6 +2281,20 @@ export interface MultimerAssemblyRecord {
   sentence: string | null;
   alsoStated: string[];
   partners: MultimerAssemblyPartner[];
+  /** UniProt's evidence qualifier on the deciding sentence ("Probable", "By similarity"), verbatim. */
+  qualifier?: string | null;
+  /** Every assembly statement in the record, in order, each with its own qualifier. */
+  statements?: SubunitStatementRecord[];
+}
+
+export interface SubunitStatementRecord {
+  kind: "monomer" | "homomer" | "heteromer" | "complex";
+  label: string;
+  qualifier: string | null;
+  sentence: string;
+  partnerGenes: string[];
+  /** A partner named as a family, not a gene ("other K-Cl cotransporters"); never resolved by guessing. */
+  family: string | null;
 }
 
 export interface MultimerChain {
@@ -2210,15 +2305,7 @@ export interface MultimerChain {
   carriesVariant: boolean;
 }
 
-export interface MultimerExperimentalPartner {
-  accession: string;
-  name: string;
-  /** Interface residues on THIS protein, UniProt numbering. */
-  residues: number[];
-  pdbEntries: string[];
-  homomeric: boolean;
-  variantAtInterface: boolean;
-}
+export type MultimerExperimentalPartner = ObservedInterface;
 
 export interface MultimerExperimentalInterfaces {
   status: "ok" | "none" | "error";
@@ -2251,6 +2338,10 @@ export interface MultimerData {
   /** True when the variant residue itself makes a contact in the model; null with no model. */
   variantAtInterface?: boolean | null;
   experimental?: MultimerExperimentalInterfaces;
+  /** Why the model is missing, when it was requested and did not come back. */
+  failure?: MultimerModelFailure | null;
+  /** Provider job still running (status "running"): ask again and the server resumes it. */
+  jobId?: string | null;
 }
 
 export type UniprotFeatureType = 

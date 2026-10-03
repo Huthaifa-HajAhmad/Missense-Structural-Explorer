@@ -5,8 +5,11 @@
  *   1. What UniProt's curated SUBUNIT record states (`parseSubunitAssembly`, shared with the client).
  *   2. A Boltz-2 complex model via JapanFold, for the assemblies this app can build: homomers of up to
  *      MAX_MODELLED_CHAINS copies, and heterodimers whose partner the record names and UniProt resolves.
- *      Chain A carries the variant; every other chain is wild type.
- *   3. Interface residues observed in solved PDB structures (PDBe-KB), which need no model at all.
+ *      Chain A carries the variant; every other chain is wild type. ON REQUEST ONLY (`model: true`):
+ *      the pipeline asks for the lookups alone, so no GPU job starts for a tab nobody opened, and a
+ *      job that outlives one request is resumed by the next ("running"), never submitted twice.
+ *   3. Interface residues observed in solved PDB structures (PDBe-KB), which need no model at all,
+ *      with per-residue support (in how many of the pair's structures each residue is interfacial).
  *
  * DEFECTS THIS REPLACED (doc/MULTIMER_TAB_REVIEW.md)
  *   • No SUBUNIT text (always, because of a parsing bug in uniprot.ts) became status "monomeric".
@@ -20,13 +23,14 @@
  */
 
 import { fetchUniprotSequence, fetchUniprotFeatures, resolveGeneToUniprot } from "../external-api/uniprot.ts";
-import { queryBoltz2Multimer } from "../external-api/japanfold-client.ts";
-import { fetchPdbeInterfaces } from "../external-api/pdbe-interfaces.ts";
+import { runBoltz2Multimer } from "../external-api/japanfold-client.ts";
+import { fetchPdbeInterfaces, observedFor } from "../external-api/pdbe-interfaces.ts";
 import { parseMutationParam } from "../../utils/mutation.ts";
 import { sanitizeErrorMessage } from "../../utils/security.ts";
 import {
   MAX_MODELLED_CHAINS,
   parseSubunitAssembly,
+  subunitStatements,
   variantContacts,
   type SubunitAssembly,
 } from "../../../src/shared/multimerAssembly.ts";
@@ -82,22 +86,13 @@ async function readExperimental(
       ? { status: "error", reason: lookup.reason, partners: [] }
       : { status: "none", partners: [] };
   }
-  const own = uniprotId.toUpperCase().replace(/-\d+$/, "");
-  return {
-    status: "ok",
-    partners: lookup.partners.map(p => ({
-      accession: p.accession,
-      name: p.name,
-      residues: p.residues,
-      pdbEntries: p.pdbEntries,
-      homomeric: p.accession.toUpperCase().replace(/-\d+$/, "") === own,
-      variantAtInterface: position !== null && p.residues.includes(position),
-    })),
-  };
+  return { status: "ok", partners: lookup.partners.map(p => observedFor(p, uniprotId, position)) };
 }
 
-function toRecord(assembly: SubunitAssembly, partners: MultimerAssemblyPartner[]): MultimerAssemblyRecord {
+function toRecord(assembly: SubunitAssembly, partners: MultimerAssemblyPartner[], subunitComment: string | null, gene: string): MultimerAssemblyRecord {
   return {
+    qualifier: assembly.qualifier,
+    statements: subunitStatements(subunitComment, gene),
     kind: assembly.kind,
     label: assembly.label,
     copies: assembly.copies,
@@ -108,11 +103,25 @@ function toRecord(assembly: SubunitAssembly, partners: MultimerAssemblyPartner[]
   };
 }
 
+/** One sentence per failure kind: the reader learns which of the possible faults happened. */
+export function failureSentence(f: { kind: string; httpStatus?: number | null; detail?: string | null }): string {
+  const detail = f.detail ? ` ${f.detail.replace(/\.?$/, ".")}` : "";
+  switch (f.kind) {
+    case "timeout": return `Boltz-2 did not answer in time.${detail}`;
+    case "network": return "Boltz-2 could not be reached.";
+    case "rejected": return `Boltz-2 refused this complex (HTTP ${f.httpStatus}).${detail}`;
+    case "http": return `Boltz-2 answered HTTP ${f.httpStatus}.${detail}`;
+    case "job-failed": return `The Boltz-2 job failed.${detail}`;
+    default: return `Boltz-2 returned no model.${detail}`;
+  }
+}
+
 export async function analyzeMultimerStructure(
   gene: string,
   variant: string,
   uniprotId: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  { model = false, waitMs }: { model?: boolean; waitMs?: number } = {}
 ): Promise<MultimerAnalysisResult> {
   const parsedMut = parseMutationParam(variant);
   const position = parsedMut?.posNum && parsedMut.posNum > 0 ? parsedMut.posNum : null;
@@ -141,7 +150,7 @@ export async function analyzeMultimerStructure(
     const subunitComment = features?.subunitComment ?? null;
     const assembly = parseSubunitAssembly(subunitComment, gene);
     const partners = await resolvePartners(assembly, features?.interactionPartners ?? []);
-    const record = toRecord(assembly, partners);
+    const record = toRecord(assembly, partners, subunitComment, gene);
     const experimental = await experimentalTask;
 
     const common = { ...base, subunitComment, assembly: record, experimental, oligomericState: assembly.label };
@@ -197,19 +206,23 @@ export async function analyzeMultimerStructure(
 
     const chains: MultimerChain[] = chainSpecs.map(({ sequence: _s, ...c }, i) => ({ ...c, id: CHAIN_LETTERS[i] }));
     const chainIds = chains.map(c => c.id);
-    const boltz = await queryBoltz2Multimer(
+    const modelled = { ...common, chainCount: chains.length, chainIds, chains, provenance: "Boltz-2 via JapanFold" };
+
+    // The assembly can be modelled; whether it is, is the reader's choice.
+    if (!model) return { ...modelled, status: "not-requested" };
+
+    const outcome = await runBoltz2Multimer(
       chainSpecs.map((c, i) => ({ chainId: CHAIN_LETTERS[i], sequence: c.sequence })),
-      signal
+      signal,
+      waitMs ? { waitMs } : undefined
     );
 
-    if (boltz && boltz.status === "success") {
+    if (outcome.status === "done") {
+      const boltz = outcome.result;
       const homomeric = assembly.kind === "homomer";
       return {
-        ...common,
+        ...modelled,
         status: "success",
-        chainCount: chains.length,
-        chainIds,
-        chains,
         complexPdb: boltz.complexPdb,
         ipTm: boltz.ipTm,
         pTm: boltz.pTm,
@@ -218,16 +231,10 @@ export async function analyzeMultimerStructure(
         provenance: boltz.provenance,
       };
     }
-
-    return {
-      ...common,
-      status: "failed",
-      chainCount: chains.length,
-      chainIds,
-      chains,
-      provenance: "Boltz-2 via JapanFold",
-      error: "The Boltz-2 complex prediction did not return a model (the service was unreachable, refused the request or timed out).",
-    };
+    if (outcome.status === "running") {
+      return { ...modelled, status: "running", jobId: outcome.jobId };
+    }
+    return { ...modelled, status: "failed", failure: outcome.failure, error: failureSentence(outcome.failure) };
   } catch (err: any) {
     if (err?.name === "AbortError") throw err;
     return {

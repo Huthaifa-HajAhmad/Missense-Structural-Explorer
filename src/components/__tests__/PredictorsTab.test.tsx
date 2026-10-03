@@ -211,4 +211,12 @@ describe("PredictorsTab", () => {
     expect(screen.getByTestId("predictor-revel").textContent).toMatch(/PP3 ≥ 0\.644 · 0\.773 · 0\.932/);
     expect(screen.getByTestId("predictor-metarnn").textContent).toMatch(/≥ 0\.5/);
   });
+  it("tints a direction-only side red or green only for a tool the engine counts, and says why they differ to a screen reader", () => {
+    renderTab(gzf1());
+    const ladder = screen.getByTestId("strength-ladder");
+    expect(ladder.getAttribute("aria-label")).toMatch(/direction only have just their authors' cut-point/);
+    const here = ladder.querySelectorAll(".prd-ladder__side[data-here]");
+    expect(here.length).toBe(3);
+    for (const cell of Array.from(here)) expect(cell.hasAttribute("data-votes")).toBe(true);
+  });
 });

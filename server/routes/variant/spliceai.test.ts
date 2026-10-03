@@ -54,12 +54,36 @@ describe("POST /spliceai/score", () => {
     expect(res.body.spliceaiFailure).toMatchObject({ kind: "coordinate-rejected" });
   });
 
-  it("refuses a malformed coordinate and an out-of-range window before asking the service", async () => {
-    for (const body of [{ coordinates: "not-a-coordinate", distance: 500 }, { coordinates: "16-67946177-C-G", distance: 10 }, { coordinates: "16-67946177-C-G" }]) {
+  it("refuses a malformed coordinate, an out-of-range window and a missing window, each for its own reason, before asking the service", async () => {
+    const cases: Array<[any, RegExp]> = [
+      [{ coordinates: "not-a-coordinate", distance: 500 }, /chrom-pos-ref-alt/],
+      [{ coordinates: "16-67946177-C-G", distance: 10 }, /distance/i],
+      [{ coordinates: "16-67946177-C-G", distance: 10001 }, /distance/i],
+      [{ coordinates: "16-67946177-C-G" }, /distance/i],
+    ];
+    for (const [body, reason] of cases) {
       const { req, res } = harness(body);
       await handler()(req, res);
       expect(res.statusCode).toBe(400);
+      expect(JSON.stringify(res.body)).toMatch(reason);
     }
     expect(fetchSpliceAiBroadOutcome).not.toHaveBeenCalled();
+  });
+
+  it("accepts the window range's own edges", async () => {
+    vi.mocked(fetchSpliceAiBroadOutcome).mockResolvedValue({ record: record(50), failure: null });
+    for (const distance of [50, 10000]) {
+      const { req, res } = harness({ coordinates: "16-67946177-C-G", distance });
+      await handler()(req, res);
+      expect(res.statusCode).toBe(200);
+    }
+  });
+
+  it("reports the window the service actually computed under, not merely the one asked for", async () => {
+    vi.mocked(fetchSpliceAiBroadOutcome).mockResolvedValue({ record: record(2000), failure: null });
+    const { req, res } = harness({ coordinates: "16-67946177-C-G", distance: 1000 });
+    await handler()(req, res);
+    // The inline control selects its option from this provenance, so it must be the truth.
+    expect(res.body.spliceai.provenance.distanceBp).toBe(2000);
   });
 });

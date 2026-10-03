@@ -3,7 +3,7 @@
  * one rule for whether a variant residue sits at a modelled interface.
  *
  * Pure; imported by the server (`services/structure/multimer.ts`, `external-api/uniprot.ts`) and by
- * the client model (`multimerEvidence.ts`), so the assembly the server modelled and the assembly the
+ * the client model (`interfacesEvidence.ts`), so the assembly the server modelled and the assembly the
  * screen names come from one parser.
  *
  * DEFECTS THIS REPLACED (doc/MULTIMER_TAB_REVIEW.md)
@@ -56,6 +56,20 @@ export interface SubunitAssembly {
   sentence: string | null;
   /** Other assembly words later in the record ("Homotetramer" after "Homodimer. …"). */
   alsoStated: string[];
+  /** UniProt's evidence qualifier on the deciding sentence ("Probable", "By similarity"); null when none. */
+  qualifier: string | null;
+}
+
+/** One sentence of the record that states an assembly, with its own evidence qualifier. */
+export interface SubunitStatement {
+  kind: "monomer" | "homomer" | "heteromer" | "complex";
+  label: string;
+  /** "Probable", "By similarity", "Potential": UniProt's evidence qualifier, verbatim; null when none. */
+  qualifier: string | null;
+  sentence: string;
+  partnerGenes: string[];
+  /** A partner named as a family rather than a gene ("other K-Cl cotransporters"). */
+  family: string | null;
 }
 
 const COUNT_PREFIX: Record<string, number> = {
@@ -68,6 +82,14 @@ const COMPLEX_RE = /\b(component|subunit|part) of (?:the |a |an )?[^.;]*\bcomple
 const INTERACTS_RE = /\b(interacts?|binds?|associates?) with\b|\bbinds\b/i;
 
 /** Tokens that look like gene symbols but are not. */
+/** UniProt's evidence qualifiers, as they appear in free-text comments: "(Probable)", "(By similarity)". */
+const QUALIFIER_RE = /\((Probable|By similarity|Potential)\)/i;
+
+export function qualifierOf(sentence: string): string | null {
+  const m = QUALIFIER_RE.exec(sentence);
+  return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : null;
+}
+
 const NOT_GENES = new Set([
   "ATP", "ADP", "GTP", "GDP", "DNA", "RNA", "MRNA", "TRNA", "RRNA", "NAD", "NADH", "NADP", "NADPH",
   "FAD", "FMN", "CAMP", "CGMP", "SH2", "SH3", "PDZ", "WD", "II", "III", "IV", "MHC", "HLA", "PH",
@@ -105,7 +127,7 @@ function partnerTokens(sentence: string, ownGene: string | null | undefined): st
 export function parseSubunitAssembly(text: string | null | undefined, ownGene?: string | null): SubunitAssembly {
   const base: SubunitAssembly = {
     kind: "unstated", label: "Not stated", copies: null, homoAssumed: false,
-    partnerGenes: [], sentence: null, alsoStated: [],
+    partnerGenes: [], sentence: null, alsoStated: [], qualifier: null,
   };
   const clean = (text ?? "").replace(/\s+/g, " ").trim();
   if (!clean) return base;
@@ -133,19 +155,20 @@ export function parseSubunitAssembly(text: string | null | undefined, ownGene?: 
           partnerGenes: hetero ? partnerTokens(sentence, ownGene) : [],
           sentence,
           alsoStated: [],
+          qualifier: qualifierOf(sentence),
         };
         // A monomer named later in the same sentence ("Homodimer and monomer") is kept, not lost.
         if (monoIdx > oligIdx) decided.alsoStated.push("Monomer");
         continue;
       }
       if (monoIdx >= 0) {
-        decided = { ...base, kind: "monomer", label: "Monomer", copies: 1, sentence };
+        decided = { ...base, kind: "monomer", label: "Monomer", copies: 1, sentence, qualifier: qualifierOf(sentence) };
         if (olig) decided.alsoStated.push(titleCase(olig[0]));
         continue;
       }
       if (COMPLEX_RE.test(sentence)) {
         decided = {
-          ...base, kind: "complex", label: "Complex subunit", sentence,
+          ...base, kind: "complex", label: "Complex subunit", sentence, qualifier: qualifierOf(sentence),
           partnerGenes: partnerTokens(sentence, ownGene),
         };
         continue;
@@ -169,6 +192,39 @@ export function parseSubunitAssembly(text: string | null | undefined, ownGene?: 
     return { ...base, kind: "interactions-only", label: "Interactions only", sentence: sentences[0] ?? null };
   }
   return base;
+}
+
+/**
+ * Every sentence that states an assembly, in record order, each with its qualifier. "Homodimer (…).
+ * Heterodimer with other K-Cl cotransporters (Probable)" gives two statements; the second names a
+ * family, not a gene, so it is carried as `family` and is never resolved to genes by guessing.
+ */
+export function subunitStatements(text: string | null | undefined, ownGene?: string | null): SubunitStatement[] {
+  const clean = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const out: SubunitStatement[] = [];
+  for (const sentence of splitSentences(clean)) {
+    OLIGOMER_RE.lastIndex = 0;
+    const olig = OLIGOMER_RE.exec(sentence);
+    const monoIdx = sentence.search(MONOMER_RE);
+    const qualifier = qualifierOf(sentence);
+    if (olig && (monoIdx < 0 || olig.index < monoIdx)) {
+      const hetero = olig[1]?.toLowerCase() === "hetero";
+      const label = titleCase(`${olig[1] ? olig[1].toLowerCase() : "homo"}${olig[2].toLowerCase()}mer`);
+      const partnerGenes = hetero ? partnerTokens(sentence, ownGene) : [];
+      let family: string | null = null;
+      if (hetero && partnerGenes.length === 0) {
+        const m = /\bwith\s+(.+?)(?:\s*\(|[.;]|$)/i.exec(sentence.slice(olig.index));
+        family = m ? m[1].trim() : null;
+      }
+      out.push({ kind: hetero ? "heteromer" : "homomer", label, qualifier, sentence, partnerGenes, family });
+    } else if (monoIdx >= 0) {
+      out.push({ kind: "monomer", label: "Monomer", qualifier, sentence, partnerGenes: [], family: null });
+    } else if (COMPLEX_RE.test(sentence)) {
+      out.push({ kind: "complex", label: "Complex subunit", qualifier, sentence, partnerGenes: partnerTokens(sentence, ownGene), family: null });
+    }
+  }
+  return out;
 }
 
 /** Whether the annotation states more than one chain: the one `isMultimer` rule. */

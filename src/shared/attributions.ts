@@ -358,7 +358,7 @@ const MODEL_SOURCES: AttributionEntry[] = [
     name: "Boltz-2",
     provider: "Boltz team (MIT Jameel Clinic) with Recursion",
     kind: "model",
-    role: "Complex structure prediction: the variant complex on the Multimer tab and the wild-type complex that DDMut-PPI scores on the Protein interactions tab. Run on the JapanFold execution tier.",
+    role: "Complex structure prediction on the Interfaces & PPI tab, run on request: the variant complex, and, only when no solved complex of the protein exists, the wild-type complex that DDMut-PPI scores. Run on JapanFold.",
     url: "https://github.com/jwohlwend/boltz",
     release: null,
     citation:
@@ -563,7 +563,7 @@ const ENGINE_SOURCES: AttributionEntry[] = [
     name: "DDMut and DDMut-PPI",
     provider: "Ascher laboratory (Biosig), University of Queensland",
     kind: "service",
-    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; one of the engines counted in the Energetics agreement (not independent of the others: same template, overlapping training data). DDMut-PPI scores the change in binding energy across the interface on the Protein interactions tab.",
+    role: "Graph-plus-transformer ΔΔG prediction, submitted to the remote service and polled; one of the engines counted in the Energetics agreement (not independent of the others: same template, overlapping training data). DDMut-PPI scores the change in binding energy across the interface on the Interfaces & PPI tab, on a solved complex where one has the residue at the interface.",
     url: "https://biosig.lab.uq.edu.au/ddmut/",
     release: null,
     citation:
@@ -675,7 +675,7 @@ const SYNTHESIS_SOURCES: AttributionEntry[] = [
     name: "JapanFold (Boltz-2, ESMC, SaProt)",
     provider: "Tenstorrent Galaxy™ execution tier",
     kind: "service",
-    role: "Primary remote execution for the structure-aware models: Boltz-2 models complexes (the variant complex on the Multimer tab, the wild-type complex DDMut-PPI scores on the Protein interactions tab), ESMC and SaProt supply structure-conditioned likelihoods.",
+    role: "Primary remote execution for the structure-aware models: Boltz-2 models complexes on request (the variant complex on the Interfaces & PPI tab, and a wild-type complex for DDMut-PPI when no solved one exists), ESMC and SaProt supply structure-conditioned likelihoods.",
     url: "https://api.japanfold.aiand.com",
     release: "Live endpoint configured by JAPANFOLD_URL",
     citation: null,

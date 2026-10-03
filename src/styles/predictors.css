@@ -480,9 +480,9 @@
 }
 .prd-ladder__divider > span { font-weight: 400; letter-spacing: 0; text-transform: none; font-size: var(--cs-font-size-caption); }
 .prd-ladder__side { position: relative; height: 22px; margin: 0 1px; border-radius: 3px; background: color-mix(in srgb, var(--cs-text-secondary) 9%, transparent); }
-.prd-ladder__side[data-side="pathogenic"][data-here] { background: color-mix(in srgb, var(--cs-text-danger) 18%, transparent); }
-.prd-ladder__side[data-side="benign"][data-here] { background: color-mix(in srgb, var(--cs-text-success) 18%, transparent); }
-.prd-ladder__side[data-side="between"][data-here] { background: color-mix(in srgb, var(--cs-text-secondary) 18%, transparent); }
+.prd-ladder__side[data-side="pathogenic"][data-here][data-votes] { background: color-mix(in srgb, var(--cs-text-danger) 18%, transparent); }
+.prd-ladder__side[data-side="benign"][data-here][data-votes] { background: color-mix(in srgb, var(--cs-text-success) 18%, transparent); }
+.prd-ladder__side[data-here] { background: color-mix(in srgb, var(--cs-text-secondary) 18%, transparent); }
 
 .prd-rcuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .prd-rcut {

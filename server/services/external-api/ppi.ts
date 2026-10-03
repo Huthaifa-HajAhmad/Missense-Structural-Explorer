@@ -1,11 +1,18 @@
 /**
  * server/services/external-api/ppi.ts — partners, mapped binding sites and the binding energy change
- * for one variant (the Protein interactions tab).
+ * for one variant (the Interfaces & PPI tab).
  *
  * Two requests, because they cost very different amounts:
- *   • `analyzePpiBinding`  — lookups only: STRING's functional network, UniProt's curated partners
- *     (SUBUNIT, IntAct) and mapped interaction sites, and PDBe-KB interfaces in solved structures.
- *   • `analyzeBindingShift` — a Boltz-2 model of the WILD-TYPE complex and a DDMut-PPI job on it.
+ *   • `analyzePpiBinding`  — lookups only: STRING's physical and functional networks, UniProt's
+ *     curated partners (SUBUNIT, IntAct) with IntAct's methods and studies, and mapped interaction
+ *     sites. Solved-structure interfaces are read once, by the assembly service (`multimer.ts`).
+ *   • `analyzeBindingShift` — DDMut-PPI on a WILD-TYPE complex: a solved one where the residue is at
+ *     the interface, else (no solved complex at all) a Boltz-2 model of the assembly's chains.
+ *
+ * Also replaced (doc/INTERFACES_AUDIT.md): STRING cut to its functional top five, so curated partners
+ * read "not in STRING's top five" and STRING was never asked about them; IntAct "experiments" shown as
+ * replication when they were assay versions in one screen; a predicted wild type when eight solved
+ * complexes existed; the binding change blocked until the variant model succeeded.
  *
  * DEFECTS THIS REPLACED (doc/INTERACTIONS_TAB_REVIEW.md)
  *   • DDMut-PPI was handed the Multimer tab's complex as its wild type. That complex carries the
@@ -20,19 +27,22 @@
  *     reported as "no residue-level interface annotation". Ranges were reduced to their start and
  *     the list was capped at five.
  */
-import { fetchStringInteractionsWithStatus, type StringInteraction } from "./string.ts";
+import { fetchStringPartnerLists } from "./string.ts";
 import { fetchUniprotFeatures, fetchUniprotSequence } from "./uniprot.ts";
-import { fetchPdbeInterfaces } from "./pdbe-interfaces.ts";
-import { queryBoltz2Multimer } from "./japanfold-client.ts";
+import { fetchPdbeInterfaces, observedFor } from "./pdbe-interfaces.ts";
+import { fetchEntryExperiment, fetchPdbFormat, locateResidue } from "./pdbe-entries.ts";
+import { fetchIntactEvidence } from "./intact.ts";
+import { runBoltz2Multimer } from "./japanfold-client.ts";
 import { evaluateDdmutPpi } from "../stability/ddmut-ppi.ts";
+import { analyzeMultimerStructure, failureSentence } from "../structure/multimer.ts";
 import { parseMutationParam } from "../../utils/mutation.ts";
 import type {
+  IntactEvidence,
   PpiBindingData,
   PpiBindingShift,
   PpiCuratedInteraction,
   PpiInteractionSite,
   PpiLookupStatus,
-  PpiObservedInterface,
 } from "../../../src/shared/contracts.ts";
 import { MAX_MODELLED_CHAINS } from "../../../src/shared/multimerAssembly.ts";
 
@@ -85,9 +95,9 @@ export async function analyzePpiBinding(
   const parsed = parseMutationParam(variant);
   const position = parsed?.posNum && parsed.posNum > 0 ? parsed.posNum : null;
 
-  const stringTask = fetchStringInteractionsWithStatus(gene).catch((err: any) => {
+  const stringTask = fetchStringPartnerLists(gene).catch((err: any) => {
     console.warn(`[PPI Service] STRING lookup threw for ${gene}:`, err?.message);
-    return { partners: [] as StringInteraction[], status: "failed" as const };
+    return null;
   });
 
   const uniprotTask = (async () => {
@@ -101,35 +111,19 @@ export async function analyzePpiBinding(
     }
   })();
 
-  const pdbeTask = (async (): Promise<{ status: "ok" | "none" | "failed" | "skipped"; partners: PpiObservedInterface[] }> => {
-    if (!uniprotId) return { status: "skipped", partners: [] };
-    try {
-      const lookup = await fetchPdbeInterfaces(uniprotId, signal);
-      if (lookup.status !== "ok") return { status: lookup.status === "none" ? "none" : "failed", partners: [] };
-      const own = uniprotId.toUpperCase().replace(/-\d+$/, "");
-      return {
-        status: "ok",
-        partners: lookup.partners.map(p => ({
-          accession: p.accession,
-          name: p.name,
-          residues: p.residues,
-          pdbEntries: p.pdbEntries.length,
-          homomeric: p.accession.toUpperCase().replace(/-\d+$/, "") === own,
-          variantAtInterface: position !== null && p.residues.includes(position),
-        })),
-      };
-    } catch (err: any) {
-      if (err?.name === "AbortError") throw err;
-      return { status: "failed", partners: [] };
-    }
+  const intactTask = (async (): Promise<{ status: PpiLookupStatus; byPartner: Map<string, IntactEvidence> }> => {
+    if (!uniprotId) return { status: "skipped", byPartner: new Map() };
+    const r = await fetchIntactEvidence(uniprotId, signal);
+    return { status: r.status === "ok" ? "ok" : "failed", byPartner: r.byPartner };
   })();
 
-  const [stringRes, uniprotRes, pdbeRes] = await Promise.all([stringTask, uniprotTask, pdbeTask]);
+  const [lists, uniprotRes, intactRes] = await Promise.all([stringTask, uniprotTask, intactTask]);
   const f = uniprotRes.features;
   const curated: PpiCuratedInteraction[] = (f?.interactionPartners ?? []).map(p => ({
     accession: p.accession,
     gene: p.gene,
     experiments: p.experiments,
+    evidence: intactRes.byPartner.get(p.accession.toUpperCase().replace(/-\d+$/, "")) ?? null,
   }));
 
   return {
@@ -138,16 +132,19 @@ export async function analyzePpiBinding(
     variant,
     uniprotId,
     position,
-    stringPartners: stringRes.partners,
+    // The legacy field keeps the functional top five for older readers.
+    stringPartners: (lists?.functional ?? []).slice(0, 5),
+    string: lists ? { physical: lists.physical, functional: lists.functional, limit: lists.limit, minScore: lists.minScore } : undefined,
+    stringVersion: lists?.version ?? null,
     subunitComment: f?.subunitComment ?? null,
     curatedInteractions: curated,
     interactionSites: f ? readInteractionSites(f.features ?? [], position) : [],
-    observedInterfaces: pdbeRes.partners,
     sequenceLength: f?.sequenceLength ?? null,
     lookups: {
-      stringPartners: stringRes.status,
+      stringPartners: lists?.functional ? "ok" : "failed",
+      stringPhysical: lists?.physical ? "ok" : "failed",
+      intact: intactRes.status,
       uniprot: uniprotRes.status,
-      pdbe: pdbeRes.status,
     },
   };
 }
@@ -159,10 +156,64 @@ export interface BindingShiftChain {
 }
 
 const DDMUT_PPI = "DDMut-PPI";
+/** Solved entries tried, best resolution first, before giving up on an experimental wild type. */
+const MAX_ENTRIES_TRIED = 4;
+
+type Experimental =
+  | { kind: "found"; pdbText: string; pdbId: string; chain: string; authorResidue: number; method: string | null; resolution: number | null; partners: Array<{ accession: string; name: string }> }
+  | { kind: "not-interfacial"; reason: string }
+  | { kind: "none"; reason: string };
 
 /**
- * ΔΔG_bind for the substitution on chain A of a WILD-TYPE model of `chains` (the chains the Multimer
- * tab modelled). Chain A must be the analysed protein.
+ * The solved complex to score on: an entry in which the variant residue is at the interface with a
+ * biological partner (construct tags excluded), observed, carrying the reference residue, and
+ * available in PDB format. Best resolution first.
+ */
+async function experimentalWildType(uniprotId: string, position: number, wtLetter: string, signal?: AbortSignal): Promise<Experimental> {
+  const lookup = await fetchPdbeInterfaces(uniprotId, signal);
+  if (lookup.status !== "ok") {
+    return { kind: "none", reason: lookup.status === "none" ? "No solved complex of this protein is in the PDB." : "Solved complexes could not be read from PDBe." };
+  }
+  const biological = lookup.partners.filter(p => !p.artefact).map(p => ({ p, view: observedFor(p, uniprotId, position) }));
+  const hits = biological.filter(x => x.view.variantAtInterface);
+  if (!hits.length) {
+    return biological.length
+      ? { kind: "not-interfacial", reason: `The residue is not at the interface in any of the ${new Set(biological.flatMap(x => x.p.pdbEntries)).size} solved complexes, so no binding change is estimated.` }
+      : { kind: "none", reason: "Only construct partners (fusion or crystallisation tags) are in the solved structures." };
+  }
+  const entries = [...new Set(hits.flatMap(x => x.view.variantEntries))];
+  const withExp = await Promise.all(entries.map(async id => ({ id, exp: await fetchEntryExperiment(id, signal) })));
+  withExp.sort((a, b) => (a.exp?.resolution ?? 99) - (b.exp?.resolution ?? 99));
+
+  for (const { id, exp } of withExp.slice(0, MAX_ENTRIES_TRIED)) {
+    const loc = await locateResidue(id, uniprotId, position, signal);
+    if (!loc || loc.residueLetter !== wtLetter.toUpperCase()) continue;
+    const pdbText = await fetchPdbFormat(id, signal);
+    if (!pdbText) continue;
+    return {
+      kind: "found",
+      pdbText,
+      pdbId: id,
+      chain: loc.chain,
+      authorResidue: loc.authorResidue,
+      method: exp?.method ?? null,
+      resolution: exp?.resolution ?? null,
+      partners: hits.filter(x => x.view.variantEntries.includes(id)).map(x => ({ accession: x.p.accession, name: x.p.name })),
+    };
+  }
+  return { kind: "none", reason: `None of the ${entries.length} solved complexes with this residue at the interface could be used (not observed there, a different residue, or only available as mmCIF).` };
+}
+
+/**
+ * ΔΔG_bind for the substitution, on a WILD-TYPE complex.
+ *
+ * Wild type, in order:
+ *   1. A solved complex in which the residue is at the interface (DDMut-PPI was trained on
+ *      experimental wild types). The mutation is written in that entry's AUTHOR numbering.
+ *   2. Only when no solved complex of the protein exists: the assembly's chains modelled by Boltz-2,
+ *      all wild type (`chains`, or the chains the curated assembly gives).
+ * When solved complexes exist and none has the residue at an interface, nothing is estimated: a
+ * model would contradict the observation.
  */
 export async function analyzeBindingShift(
   gene: string,
@@ -186,50 +237,82 @@ export async function analyzeBindingShift(
   if (!parsed?.posNum || !parsed.wtLetter || !parsed.mutLetter) {
     return { ...base, reason: "The variant could not be read as a single amino-acid substitution." };
   }
-  if (chains.length < 2) {
-    return { ...base, reason: "A binding change needs a complex of at least two chains." };
+  const wt = parsed.wtLetter.toUpperCase();
+  const mut = parsed.mutLetter.toUpperCase();
+  const uniprotMutation = `${wt}${parsed.posNum}${mut}`;
+
+  const ownSeq = await fetchUniprotSequence(uniprotId).catch(() => "");
+  if (!ownSeq) return { ...base, status: "failed", mutation: uniprotMutation, reason: "The UniProt sequence could not be read." };
+  if ((ownSeq[parsed.posNum - 1] ?? "").toUpperCase() !== wt) {
+    return { ...base, mutation: uniprotMutation, reason: "The variant's reference residue does not match the UniProt sequence at that position." };
   }
-  if (chains.length > MAX_MODELLED_CHAINS) {
-    return { ...base, reason: `This app models at most ${MAX_MODELLED_CHAINS} chains.` };
+
+  // 1. Experimental.
+  const exp = await experimentalWildType(uniprotId, parsed.posNum, wt, signal);
+  if (exp.kind === "found") {
+    const mutation = `${wt}${exp.authorResidue}${mut}`;
+    const wildType: PpiBindingShift["wildType"] = {
+      source: "experimental",
+      provenance: `PDB ${exp.pdbId.toUpperCase()}${exp.method ? `, ${exp.method.toLowerCase()}` : ""}${exp.resolution ? ` ${exp.resolution.toFixed(2)} Å` : ""}`,
+      ipTm: null,
+      chains: exp.partners.map(p => ({ id: "", accession: p.accession, gene: p.name })),
+      pdbId: exp.pdbId,
+      method: exp.method,
+      resolution: exp.resolution,
+      chain: exp.chain,
+      authorResidue: exp.authorResidue,
+    };
+    const outcome = await evaluateDdmutPpi(exp.pdbText, exp.chain, mutation, 20000, signal);
+    if (outcome.status === "done") return { ...base, status: "ok", ddgBind: outcome.result.ddgBind, wildType, mutation, predictor: outcome.result.provenance };
+    if (outcome.status === "running") return { ...base, status: "running", wildType, mutation, reason: "DDMut-PPI is still computing. Ask again shortly; the job is kept." };
+    return { ...base, status: "failed", wildType, mutation, reason: outcome.reason };
+  }
+  if (exp.kind === "not-interfacial") return { ...base, mutation: uniprotMutation, reason: exp.reason };
+
+  // 2. Boltz-2, only with no solved complex to use.
+  let complex = chains;
+  if (complex.length < 2) {
+    const assembly = await analyzeMultimerStructure(gene, variant, uniprotId, signal, { model: false });
+    complex = (assembly.chains ?? []).map(c => ({ id: c.id, accession: c.accession, gene: c.gene }));
+  }
+  if (complex.length < 2) {
+    return { ...base, mutation: uniprotMutation, reason: `${exp.reason} The curated assembly gives no complex to model instead.` };
+  }
+  if (complex.length > MAX_MODELLED_CHAINS) {
+    return { ...base, mutation: uniprotMutation, reason: `${exp.reason} This app models at most ${MAX_MODELLED_CHAINS} chains.` };
   }
   const own = uniprotId.toUpperCase().replace(/-\d+$/, "");
-  if (chains[0].id !== "A" || chains[0].accession.toUpperCase().replace(/-\d+$/, "") !== own) {
-    return { ...base, reason: "Chain A of the complex is not the analysed protein." };
+  if (complex[0].id !== "A" || complex[0].accession.toUpperCase().replace(/-\d+$/, "") !== own) {
+    return { ...base, mutation: uniprotMutation, reason: "Chain A of the complex is not the analysed protein." };
   }
-
-  const mutation = `${parsed.wtLetter.toUpperCase()}${parsed.posNum}${parsed.mutLetter.toUpperCase()}`;
   let sequences: string[];
   try {
-    sequences = await Promise.all(chains.map(c => fetchUniprotSequence(c.accession)));
+    sequences = await Promise.all(complex.map((c, i) => (i === 0 ? Promise.resolve(ownSeq) : fetchUniprotSequence(c.accession))));
   } catch {
-    return { ...base, status: "failed", mutation, reason: "A chain's UniProt sequence could not be read." };
+    return { ...base, status: "failed", mutation: uniprotMutation, reason: "A chain's UniProt sequence could not be read." };
   }
   if (sequences.some(s => !s)) {
-    return { ...base, status: "failed", mutation, reason: "A chain's UniProt sequence could not be read." };
-  }
-  const ref = sequences[0][parsed.posNum - 1];
-  if (!ref || ref.toUpperCase() !== parsed.wtLetter.toUpperCase()) {
-    return { ...base, mutation, reason: "The variant's reference residue does not match the UniProt sequence at that position." };
+    return { ...base, status: "failed", mutation: uniprotMutation, reason: "A chain's UniProt sequence could not be read." };
   }
 
-  // Every chain wild type: this is the structure DDMut-PPI mutates.
-  const model = await queryBoltz2Multimer(chains.map((c, i) => ({ chainId: c.id, sequence: sequences[i] })), signal);
-  if (!model || model.status !== "success" || !model.complexPdb) {
-    return { ...base, status: "failed", mutation, reason: "The wild-type complex could not be modelled (Boltz-2 did not return a model)." };
+  const outcome = await runBoltz2Multimer(complex.map((c, i) => ({ chainId: c.id, sequence: sequences[i] })), signal);
+  if (outcome.status === "running") {
+    return { ...base, status: "running", mutation: uniprotMutation, reason: "The wild-type complex is still being modelled by Boltz-2. Ask again shortly; the job is kept." };
   }
+  if (outcome.status === "failed") {
+    return { ...base, status: "failed", mutation: uniprotMutation, reason: `The wild-type complex could not be modelled. ${failureSentence(outcome.failure)}` };
+  }
+  const model = outcome.result;
   const wildType: PpiBindingShift["wildType"] = {
     source: "boltz-2-model",
     provenance: model.provenance,
     ipTm: model.ipTm,
-    chains: chains.map(c => ({ id: c.id, accession: c.accession, gene: c.gene ?? null })),
+    chains: complex.map(c => ({ id: c.id, accession: c.accession, gene: c.gene ?? null })),
+    chain: "A",
+    authorResidue: parsed.posNum,
   };
-
-  const outcome = await evaluateDdmutPpi(model.complexPdb, "A", mutation, 20000, signal);
-  if (outcome.status === "done") {
-    return { ...base, status: "ok", ddgBind: outcome.result.ddgBind, wildType, mutation, predictor: outcome.result.provenance };
-  }
-  if (outcome.status === "running") {
-    return { ...base, status: "running", wildType, mutation, reason: "DDMut-PPI is still computing. Ask again shortly; the job is kept." };
-  }
-  return { ...base, status: "failed", wildType, mutation, reason: outcome.reason };
+  const ddmut = await evaluateDdmutPpi(model.complexPdb, "A", uniprotMutation, 20000, signal);
+  if (ddmut.status === "done") return { ...base, status: "ok", ddgBind: ddmut.result.ddgBind, wildType, mutation: uniprotMutation, predictor: ddmut.result.provenance };
+  if (ddmut.status === "running") return { ...base, status: "running", wildType, mutation: uniprotMutation, reason: "DDMut-PPI is still computing. Ask again shortly; the job is kept." };
+  return { ...base, status: "failed", wildType, mutation: uniprotMutation, reason: ddmut.reason };
 }

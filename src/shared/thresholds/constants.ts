@@ -338,7 +338,7 @@ export const THRESHOLDS = {
   },
 
   /**
-   * Complex-prediction interface confidence (ipTM), read on the Multimer assembly tab.
+   * Complex-prediction interface confidence (ipTM), read on the Interfaces & PPI tab.
    *
    * AUTHORS' GUIDANCE, NOT A CALIBRATION. EMBL-EBI's AlphaFold course ("Confidence scores in
    * AlphaFold-Multimer"): "Values higher than 0.8 represent confident high-quality predictions",

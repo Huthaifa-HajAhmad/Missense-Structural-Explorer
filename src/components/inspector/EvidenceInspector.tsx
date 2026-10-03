@@ -9,7 +9,7 @@ import {
   ArrowRight,
   Gauge
 } from "lucide-react";
-import { AnalysisResult, EnergeticsData } from "../../types";
+import { AnalysisResult } from "../../types";
 import {
   THRESHOLDS,
   STRING_CONFIDENCE_BANDS,
@@ -18,8 +18,7 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 import { FunctionRail } from "./FunctionRail";
 import { PopulationRail } from "./PopulationRail";
-import { MultimerRail } from "./MultimerRail";
-import { InteractionsRail } from "./InteractionsRail";
+import { InterfacesRail } from "./InterfacesRail";
 import { PredictorsRail } from "./PredictorsRail";
 import { normalizeEvidenceTab } from "../evidence/types";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
@@ -27,18 +26,11 @@ import { AlphaGenomeRail } from "./AlphaGenomeRail";
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
   activeEvidenceTab?: string;
-  onSelectEvidenceTab?: (tab: string) => void;
-  foldingDdG?: number | null;
-  /** ΔΔG engine results backing the Thresholds pane's live match roll-up. */
-  foldingEnergetics?: EnergeticsData | null;
 }
 
 export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   analysisResult,
   activeEvidenceTab = "clinical",
-  onSelectEvidenceTab,
-  foldingDdG = null,
-  foldingEnergetics = null
 }) => {
   if (!analysisResult) {
     return (
@@ -58,9 +50,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
   return (
     <div className="flex flex-col gap-4 text-xs font-sans">
       {/* ── 1. Dynamic Tab-Aware Contextual Intelligence ── */}
-      {tab === "interactions" && <InteractionsRail analysisResult={analysisResult} />}
-
-      {tab === "multimers" && <MultimerRail analysisResult={analysisResult} />}
+      {tab === "interfaces" && <InterfacesRail analysisResult={analysisResult} />}
 
       {tab === "function" && <FunctionRail analysisResult={analysisResult} />}
 
@@ -71,7 +61,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {tab === "alphagenome" && <AlphaGenomeRail analysisResult={analysisResult} />}
 
       {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interactions" && tab !== "multimers" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && (
+      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && (
         <div className="flex flex-col gap-3">
           <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />

@@ -1,3 +1,8 @@
+> **Superseded.** The Multimer assembly tab no longer exists. It was merged with its sibling into
+> **Interfaces & PPI** (`interfaces`; the old ids `multimers` and `interactions` redirect to it).
+> See [INTERFACES_AUDIT.md](INTERFACES_AUDIT.md) for what changed and why. The findings below are kept
+> as the record of the earlier tabs; the files, classes and functions they name are gone.
+
 # Multimer assembly tab: review and redesign
 
 Reference variant: NAE1 p.Asp116Gly (UniProt Q13564). UniProt's SUBUNIT record for Q13564 reads

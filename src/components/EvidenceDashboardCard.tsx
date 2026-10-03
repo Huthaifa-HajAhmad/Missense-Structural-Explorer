@@ -8,8 +8,8 @@ import { SplicingTab } from "./evidence/SplicingTab";
 import { PredictorsTab } from "./evidence/PredictorsTab";
 import { StructureTab } from "./evidence/StructureTab";
 import { PerturbationTab } from "./evidence/PerturbationTab";
-import { MultimersTab } from "./evidence/MultimersTab";
-import { FunctionTab, InteractionsTab } from "./evidence/FunctionInteractionsTabs";
+import { InterfacesTab } from "./evidence/InterfacesTab";
+import { FunctionTab } from "./evidence/FunctionInteractionsTabs";
 import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
 
@@ -252,11 +252,8 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "alphagenome" && <AlphaGenomeTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}
         {activeTab === "perturbation" && <PerturbationTab {...tabProps} />}
-        <div style={{ display: activeTab === "multimers" ? "block" : "none" }}>
-          <MultimersTab {...tabProps} />
-        </div>
         {activeTab === "function" && <FunctionTab {...tabProps} />}
-        {activeTab === "interactions" && <InteractionsTab {...tabProps} />}
+        {activeTab === "interfaces" && <InterfacesTab {...tabProps} />}
         {activeTab === "splicing" && <SplicingTab {...tabProps} />}
 
         <MetricExplanationModal 
