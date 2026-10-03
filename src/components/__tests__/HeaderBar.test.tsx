@@ -72,18 +72,40 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.getByRole("button", { name: /switch to light mode/i })).toBeInTheDocument();
   });
 
-  /* The chip is the only surviving entry point to the quick-query surface, and it is the
-     one thing in the header whose handler lives in another component — so its wiring is
-     asserted rather than assumed. */
-  it("should expose a command palette trigger that calls onOpenPalette", () => {
+  /* The search icon in the right actions cluster expands into the search bar, which opens the palette. */
+  it("should expose an expandable search trigger that calls onOpenPalette and can collapse", () => {
     const onOpenPalette = vi.fn();
     render(<HeaderBar {...base} onOpenPalette={onOpenPalette} />);
-    const chip = screen.getByRole("button", { name: /open command palette/i });
-    // The trigger now says what it opens; the chord is still printed, as a kbd hint.
-    expect(chip).toHaveTextContent(/Search views or run a variant/);
-    expect(chip.querySelector("kbd")).toHaveTextContent(/^(⌘K|Ctrl K)$/);
-    fireEvent.click(chip);
+    const searchIconBtn = screen.getByRole("button", { name: /search views or run a variant/i });
+    expect(searchIconBtn).toBeInTheDocument();
+
+    // Click the search icon to expand the search bar
+    fireEvent.click(searchIconBtn);
+
+    const paletteBar = screen.getByRole("button", { name: /open command palette/i });
+    expect(paletteBar).toHaveTextContent(/Search views or run a variant/);
+    expect(paletteBar.querySelector("kbd")).toHaveTextContent(/^(⌘K|Ctrl K)$/);
+
+    // Clicking the expanded search bar triggers the command palette
+    fireEvent.click(paletteBar);
     expect(onOpenPalette).toHaveBeenCalledTimes(1);
+
+    // Closing the search bar collapses it back to the icon button
+    const closeBtn = screen.getByRole("button", { name: /close search/i });
+    fireEvent.click(closeBtn);
+    expect(screen.queryByRole("button", { name: /open command palette/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /search views or run a variant/i })).toBeInTheDocument();
+  });
+
+  it("should collapse the search bar on Escape key press", () => {
+    render(<HeaderBar {...base} />);
+    const searchIconBtn = screen.getByRole("button", { name: /search views or run a variant/i });
+    fireEvent.click(searchIconBtn);
+    expect(screen.getByRole("button", { name: /open command palette/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: /open command palette/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /search views or run a variant/i })).toBeInTheDocument();
   });
 
   it("should render onboarding tour button and trigger onOpenOnboarding when clicked", () => {
@@ -100,6 +122,22 @@ describe("HeaderBar Component Tests (C-7)", () => {
   it("should not render a quick-search dropdown trigger", () => {
     render(<HeaderBar {...base} />);
     expect(screen.queryByRole("button", { name: /quick search/i })).not.toBeInTheDocument();
+  });
+
+  it("names the page, not just the section, as a breadcrumb", () => {
+    const { rerender } = render(<HeaderBar {...base} activeEvidenceTab="clinical" />);
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(crumb).toHaveTextContent("Evidence");
+    expect(screen.getByText("Population data")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Evidence")).not.toHaveAttribute("aria-current");
+
+    rerender(<HeaderBar {...base} masterView="structure_alphafold" />);
+    expect(screen.getByText("3D structure")).toBeInTheDocument();
+    expect(screen.getByText("AlphaFold2")).toHaveAttribute("aria-current", "page");
+
+    // A section with no sub-pages is a single, current crumb
+    rerender(<HeaderBar {...base} masterView="literature" />);
+    expect(screen.getByText("Literature")).toHaveAttribute("aria-current", "page");
   });
 
   it("names the current view from the sidebar's registry and stays quiet on Search", () => {

@@ -4,9 +4,14 @@ import "@fontsource-variable/source-sans-3";
 import "@fontsource-variable/source-code-pro";
 import "@fontsource-variable/lora";
 import "@fontsource-variable/lora/wght-italic.css";
-import "../../src/index.css";
+import "./preview.css";
+import { ClinicalTab } from "../../src/components/evidence/ClinicalTab";
+import { PopulationRail } from "../../src/components/inspector/PopulationRail";
 import VariantHeader from "../../src/components/VariantHeader";
+import { VariantIdentity } from "../../src/components/header/VariantIdentity";
+import { buildVariantHeaderModel } from "../../src/components/header/variantHeaderModel";
 import type { AnalysisResult } from "../../src/types";
+import { LOCUS_POLICY_VERSION } from "../../src/shared/locusResolution";
 
 /**
  * Geometry assertions for the global variant header.
@@ -83,6 +88,55 @@ const CASES: Array<{ id: string; width: number; gene: string; variant: string; u
   { id: "maco1-narrow", width: 375, gene: "MACO1", variant: "p.Glu433Lys", uniprot: "Q9NSG2", result: maco1 },
 ];
 
+/** The one-line form the header collapses to on scroll. */
+/** MACO1 again, with the GRCh38 lookup fallen back to hg19: the run-state slot must fit too. */
+const maco1Fallback = {
+  ...maco1,
+  coordinateLift: { status: "not-needed", fromAssembly: "GRCh38", toAssembly: "GRCh38" },
+  predictorData: {
+    gnomadVariantId: "1-25810749-G-A",
+    gnomadVariantAssembly: "GRCh37",
+    locusResolution: { route: "fallback", canonicalBy: null, retryable: true, steps: [] },
+  },
+} as unknown as AnalysisResult;
+
+/** SLC12A4 Q867H: an input requirement, not a provider outage or an inferred allele. */
+const ambiguousAllele = {
+  ...maco1,
+  metadata: { gene: "SLC12A4", variant: "Q867H", populationPolicyVersion: LOCUS_POLICY_VERSION },
+  transcriptId: "NM_005072.5",
+  serviceStatus: { gnomadFrequency: "unsupported-build" },
+  gnomadFrequency: null, aouFrequency: null, aouLookup: null,
+  ruleBasedInsights: { acmgCriteria: [] },
+  // Synthetic layout values, not a live constraint reading for the reference variant.
+  gnomadConstraint: { missense_z: 1.35, loeuf: 0.68, isPP2Constrained: false, hasRegionalData: false },
+  predictorData: {
+    gnomadVariantId: null,
+    gnomadVariantAssembly: null,
+    locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "ambiguous-allele", policyVersion: LOCUS_POLICY_VERSION, steps: [] },
+  },
+} as unknown as AnalysisResult;
+const RECOVERY_CASES = [
+  { id: "allele-large", width: 1440 },
+  { id: "allele-desktop", width: 1200 },
+  { id: "allele-wide", width: 1000 },
+  { id: "allele-mid", width: 820 },
+  { id: "allele-narrow", width: 375 },
+];
+const POPULATION_CASES = [
+  { id: "population-wide", width: 820, dark: false },
+  { id: "population-narrow", width: 375, dark: false },
+  { id: "population-dark", width: 375, dark: true },
+];
+
+/** The top-bar identity at the widths its zone takes as the bar narrows. */
+const IDENTITY_CASES: Array<{ id: string; width: number; expect: string[] }> = [
+  { id: "identity-900", width: 900, expect: ["transcript", "coordinate", "uniprot"] },
+  { id: "identity-700", width: 700, expect: ["transcript", "coordinate"] },
+  { id: "identity-500", width: 500, expect: ["transcript"] },
+  { id: "identity-380", width: 380, expect: [] },
+];
+
 const px = (n: number): number => Math.round(n * 10) / 10;
 const rect = (el: Element): DOMRect => el.getBoundingClientRect();
 
@@ -132,6 +186,8 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
   const spills: string[] = [];
   header.querySelectorAll<HTMLElement>("*").forEach((el) => {
     if (el.classList.contains("vh-sr-only") || el.classList.contains("vh-icon-btn")) return;
+    // A row that scrolls sideways by design (the strip's chips at narrow widths) is not a spill.
+    if (getComputedStyle(el).overflowX === "auto") return;
     const overflow = el.scrollWidth - el.clientWidth;
     if (overflow > 1) {
       const hitAreaOnly = overflow <= 4 && el.querySelector(".vh-icon-btn") !== null;
@@ -171,32 +227,66 @@ function checkCase(host: HTMLElement, id: string, width: number): GeometryCheck[
   return checks;
 }
 
-/** There is no caption line above the rows anymore: the bare list owns the
-   rail. This check keeps a future regression from re-introducing the strip. */
-function checkStackedStrip(host: HTMLElement, id: string): GeometryCheck {
+/** The scope caption is the rail's first child, and its axis legend spans exactly the track
+   column of the rows below it — the legend names that column's direction, so it must sit over it. */
+function checkRailCaption(host: HTMLElement, id: string): GeometryCheck[] {
   const rail = host.querySelector(".vh-rail");
-  const stray = host.querySelector(".vh-rail-meta");
+  const head = host.querySelector(".vh-rail-head");
   const list = host.querySelector(".vh-metrics");
-  if (!rail || !list) {
-    return { name: `${id}: rail is a bare list`, pass: false, detail: "missing rail/list" };
+  if (!rail || !head || !list) {
+    return [{ name: `${id}: rail opens with its scope caption`, pass: false, detail: "missing rail/caption/list" }];
   }
-  return {
-    name: `${id}: rail is a bare list`,
-    pass: stray === null && rail.firstElementChild === list,
-    detail: stray ? "stray .vh-rail-meta caption still rendered" : "list is the rail's only child",
-  };
+  const checks: GeometryCheck[] = [{
+    name: `${id}: rail opens with its scope caption`,
+    pass: rail.firstElementChild === head && head.nextElementSibling === list,
+    detail: "caption, then list",
+  }];
+  const axis = host.querySelector(".vh-rail-axis");
+  const scale = host.querySelector("li.vh-metric .vh-scale");
+  if (axis && scale && getComputedStyle(axis).display !== "none") {
+    const a = rect(axis);
+    const t = rect(scale);
+    const off = Math.max(Math.abs(a.left - t.left), Math.abs(a.right - t.right));
+    checks.push({
+      name: `${id}: axis legend spans the track column`,
+      pass: off <= 1,
+      detail: `max edge offset ${px(off)}px`,
+    });
+  }
+  return checks;
 }
 
-function checkWrapped(host: HTMLElement, id: string, expectWrapped: boolean): GeometryCheck {
-  const identity = host.querySelector(".variant-header-top");
-  const rail = host.querySelector(".vh-rail");
-  if (!identity || !rail) return { name: `${id}: wrap state`, pass: false, detail: "missing identity or rail" };
-  const wrapped = rect(rail).top >= rect(identity).bottom - 1;
-  return {
-    name: `${id}: group ${expectWrapped ? "wraps under" : "sits beside"} the identity`,
-    pass: wrapped === expectWrapped,
-    detail: `rail top ${px(rect(rail).top)}, identity bottom ${px(rect(identity).bottom)}`,
-  };
+/** The strip is one line by construction: 44px, whatever the width. */
+function checkStripOneLine(host: HTMLElement, id: string): GeometryCheck {
+  const strip = host.querySelector(".variant-header");
+  if (!strip) return { name: `${id}: strip is one line`, pass: false, detail: "no strip" };
+  const h = rect(strip).height;
+  return { name: `${id}: strip is one line`, pass: h <= 48, detail: `strip ${px(h)}px tall` };
+}
+
+/** The identity drops identifiers in a fixed order as its zone narrows, and never wraps. */
+function checkIdentity(host: HTMLElement, id: string, expected: string[]): GeometryCheck[] {
+  const vid = host.querySelector(".vid");
+  if (!vid) return [{ name: `${id}: identity renders`, pass: false, detail: "no .vid" }];
+  const visible = ["transcript", "coordinate", "uniprot"].filter((k) => {
+    const el = vid.querySelector(`.vid-chip--${k}`);
+    return el !== null && getComputedStyle(el).display !== "none";
+  });
+  const title = vid.querySelector(".vid-title");
+  const oneLine = rect(vid).height <= (title ? rect(title).height + 4 : 30);
+  return [
+    {
+      name: `${id}: shows ${expected.join(", ") || "the title only"}`,
+      pass: visible.join(",") === expected.join(","),
+      detail: `visible: ${visible.join(", ") || "none"}`,
+    },
+    { name: `${id}: identity is one line`, pass: oneLine, detail: `${px(rect(vid).height)}px tall` },
+    {
+      name: `${id}: identity does not overflow its zone`,
+      pass: (vid as HTMLElement).scrollWidth - (vid as HTMLElement).clientWidth <= 1 || visible.length === 0,
+      detail: `${(vid as HTMLElement).scrollWidth} vs ${(vid as HTMLElement).clientWidth}`,
+    },
+  ];
 }
 
 // ── Contrast ──
@@ -262,7 +352,11 @@ function effectiveBackground(el: Element, pageBackground: Rgb): Rgb {
 function checkContrast(host: HTMLElement, id: string, pageBackgroundHex: string): GeometryCheck[] {
   const page = parseColor(pageBackgroundHex);
   if (!page) return [];
-  const selectors = [".vh-metric-label", ".vh-axis-label", ".vh-chip-key", ".vh-metric-value", ".vh-verdict"];
+  const selectors = [
+    ".vh-metric-label", ".vh-axis-label", ".vh-metric-value", ".vh-verdict",
+    ".vh-rail-source", ".vh-rail-axis",
+    ".vcs-chip-label", ".vcs-chip-value", ".vcs-chip-verdict", ".vcs-source", ".vcs-details",
+  ];
   const checks: GeometryCheck[] = [];
   selectors.forEach((selector) => {
     const el = host.querySelector(selector);
@@ -283,34 +377,103 @@ function App(): React.ReactElement {
   const [report, setReport] = React.useState<GeometryReport | null>(null);
 
   React.useEffect(() => {
-    const checks: GeometryCheck[] = [];
-    const heights: Record<string, number> = {};
+    // Open every Details panel: the full tracks are what the row/marker/numeral checks measure.
+    document.querySelectorAll<HTMLButtonElement>(".vcs-details").forEach((b) => b.click());
+    const timer = window.setTimeout(() => {
+      const checks: GeometryCheck[] = [];
+      const heights: Record<string, number> = {};
 
-    CASES.forEach((c) => {
-      const host = document.getElementById(`host-${c.id}`);
-      if (!host) return;
-      checks.push(...checkCase(host, c.id, c.width));
-      const header = host.querySelector(".variant-header");
-      if (header) heights[c.id] = px(rect(header).height);
-      checks.push(checkWrapped(host, c.id, c.width < 909));
-      if (c.width <= 600) checks.push(checkStackedStrip(host, c.id));
-    });
+      CASES.forEach((c) => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (!host) return;
+        checks.push(...checkCase(host, c.id, c.width));
+        checks.push(...checkRailCaption(host, c.id));
+        checks.push(checkStripOneLine(host, c.id));
+        const strip = host.querySelector(".variant-header");
+        if (strip) heights[c.id] = px(rect(strip).height);
+      });
 
-    // Contrast in both themes, composited from the real computed colours.
-    const lightHost = document.getElementById("host-maco1-wide");
-    const darkHost = document.getElementById("host-maco1-dark");
-    if (lightHost) checks.push(...checkContrast(lightHost, "light", "#F9F8F6"));
-    if (darkHost) checks.push(...checkContrast(darkHost, "dark", "#191816"));
+      const fallbackHost = document.getElementById("host-fallback");
+      if (fallbackHost) {
+        checks.push(checkStripOneLine(fallbackHost, "fallback-1000"));
+        const state = fallbackHost.querySelector(".vcs-runstate");
+        checks.push({
+          name: "fallback-1000: run state is shown and fits",
+          pass: Boolean(state) && (state as HTMLElement).scrollWidth - (state as HTMLElement).clientWidth <= 1,
+          detail: state ? `${(state as HTMLElement).scrollWidth} vs ${(state as HTMLElement).clientWidth}` : "missing",
+        });
+      }
 
-    const result: GeometryReport = { ok: checks.every((c) => c.pass), checks, heights };
-    setReport(result);
+      RECOVERY_CASES.forEach(c => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (!host) return;
+        const state = host.querySelector<HTMLElement>(".vcs-runstate");
+        const action = state?.querySelector<HTMLButtonElement>("button");
+        checks.push({
+          name: `${c.id}: original-allele action is legible without a false retry`,
+          pass: Boolean(action) && action!.textContent?.includes("Provide nucleotide allele") === true &&
+            !state?.textContent?.includes("Re-run") && action!.scrollWidth <= action!.clientWidth + 1,
+          detail: action ? `${action.textContent}: ${action.scrollWidth} vs ${action.clientWidth}` : "missing action",
+        });
+        checks.push({
+          name: `${c.id}: recovery chrome has no horizontal spill`,
+          pass: Boolean(state) && state!.scrollWidth <= state!.clientWidth + 1,
+          detail: state ? `${state.scrollWidth} vs ${state.clientWidth}` : "missing state",
+        });
+        if (c.width >= 820) {
+          const chips = host.querySelector<HTMLElement>(".vcs-chips");
+          const details = host.querySelector<HTMLElement>(".vcs-details");
+          const right = chips ? chips.getBoundingClientRect().left + chips.scrollWidth : Infinity;
+          const left = details?.getBoundingClientRect().left ?? -Infinity;
+          checks.push({
+            name: `${c.id}: constraint readings do not overprint Details or recovery`,
+            pass: Boolean(chips && details) && right <= left + 1,
+            detail: `${right.toFixed(1)} vs ${left.toFixed(1)}`,
+          });
+        }
+      });
 
-    const sink = document.getElementById("geometry-result");
-    if (sink) {
+      POPULATION_CASES.forEach(c => {
+        const host = document.getElementById(`host-${c.id}`);
+        const action = host?.querySelector<HTMLButtonElement>(".pop-callout__action");
+        const box = host?.getBoundingClientRect();
+        const buttonBox = action?.getBoundingClientRect();
+        checks.push({
+          name: `${c.id}: population card and lineage have no horizontal spill`,
+          pass: Boolean(host) && host!.scrollWidth <= host!.clientWidth + 1,
+          detail: host ? `${host.scrollWidth} vs ${host.clientWidth}` : "missing host",
+        });
+        checks.push({
+          name: `${c.id}: allele-entry action is inside the card and legible`,
+          pass: Boolean(action && box && buttonBox) && action!.scrollWidth <= action!.clientWidth + 1 &&
+            buttonBox!.left >= box!.left && buttonBox!.right <= box!.right + 1 &&
+            (c.width > 560 || buttonBox!.height >= 44),
+          detail: buttonBox ? `${buttonBox.width.toFixed(1)} x ${buttonBox.height.toFixed(1)}` : "missing action",
+        });
+      });
+
+      IDENTITY_CASES.forEach((c) => {
+        const host = document.getElementById(`host-${c.id}`);
+        if (host) checks.push(...checkIdentity(host, c.id, c.expect));
+      });
+
+      const lightHost = document.getElementById("host-maco1-wide");
+      const darkHost = document.getElementById("host-maco1-dark");
+      if (lightHost) checks.push(...checkContrast(lightHost, "light", "#F9F8F6"));
+      if (darkHost) checks.push(...checkContrast(darkHost, "dark", "#191816"));
+
+      const result: GeometryReport = { ok: checks.every((c) => c.pass), checks, heights };
+      setReport(result);
+      const sink = document.getElementById("geometry-result");
       // base64 so --dump-dom cannot mangle the JSON through HTML escaping
-      sink.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
-    }
+      if (sink) sink.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+    }, 150);
+    return () => window.clearTimeout(timer);
   }, []);
+
+  const strip = (gene: string, variant: string, uniprot: string, result: AnalysisResult) => (
+    <VariantHeader gene={gene} variant={variant} uniprotId={uniprot} analysisResult={result} onProvideAllele={() => {}} />
+  );
 
   return (
     <div>
@@ -321,23 +484,36 @@ function App(): React.ReactElement {
           </div>
         ))}
       </div>
+      {/* Each host reserves room under the strip for its open Details panel. */}
       {CASES.map((c) => (
-        <div key={c.id} style={{ width: c.width, marginBottom: 12 }}>
-          <div id={`host-${c.id}`}>
-            <VariantHeader
-              gene={c.gene}
-              variant={c.variant}
-              uniprotId={c.uniprot}
-              analysisResult={c.result}
-            />
-          </div>
+        <div key={c.id} style={{ width: c.width, marginBottom: c.width <= 600 ? 380 : 230 }}>
+          <div id={`host-${c.id}`}>{strip(c.gene, c.variant, c.uniprot, c.result)}</div>
         </div>
       ))}
-      {/* Same header on the dark theme, for the contrast assertions. */}
-      <div className="dark" style={{ width: 1000, background: "var(--cs-bg)" }}>
-        <div id="host-maco1-dark">
-          <VariantHeader gene="MACO1" variant="p.Glu433Lys" uniprotId="Q9NSG2" analysisResult={maco1} />
+      <div style={{ width: 1000, marginBottom: 230 }}>
+        <div id="host-fallback">{strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1Fallback)}</div>
+      </div>
+      {RECOVERY_CASES.map(c => (
+        <div key={c.id} style={{ width: c.width, marginBottom: 230 }}>
+          <div id={`host-${c.id}`}>{strip("SLC12A4", "p.Gln867His", "Q9UP95", ambiguousAllele)}</div>
         </div>
+      ))}
+      {POPULATION_CASES.map(c => (
+        <div key={c.id} id={`host-${c.id}`} className={`${c.dark ? "dark " : ""}font-mono text-xs`} style={{ width: c.width, background: "var(--cs-bg)", marginBottom: 20 }}>
+          <ClinicalTab {...({ analysisState: { result: ambiguousAllele, isLoading: false }, onNavigateToView: () => {} } as any)} />
+          <PopulationRail analysisResult={ambiguousAllele} />
+        </div>
+      ))}
+      {IDENTITY_CASES.map((c) => (
+        <div key={c.id} id={`host-${c.id}`} className="vid-zone" style={{ width: c.width, marginBottom: 12 }}>
+          <VariantIdentity
+            model={buildVariantHeaderModel({ gene: "BRAF", variant: "p.Val600Glu", uniprotId: "P15056", analysisResult: braf })}
+          />
+        </div>
+      ))}
+      {/* Same strip on the dark theme, for the contrast assertions. */}
+      <div className="dark" style={{ width: 1000, background: "var(--cs-bg)", paddingBottom: 230 }}>
+        <div id="host-maco1-dark">{strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1)}</div>
       </div>
     </div>
   );

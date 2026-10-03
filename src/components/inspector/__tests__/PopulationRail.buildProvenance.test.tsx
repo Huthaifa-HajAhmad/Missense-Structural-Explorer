@@ -203,4 +203,14 @@ describe("buildAssemblyLiftNote", () => {
     expect(note).toContain("Coordinate verified on the GRCh38 / hg38 reference");
     expect(note).toContain("1-1321072-C-A");
   });
+
+  it("displays gnomAD v4 and local table not installed in sources section", () => {
+    renderRail({
+      gnomadFrequency: null,
+      serviceStatus: { gnomadFrequency: "not_found" } as any,
+      aouLookup: { localTable: "not-installed", remoteDbnsfp: "not-reported" },
+    });
+    expect(screen.getByText("v4")).toBeTruthy();
+    expect(screen.getByText("local table not installed")).toBeTruthy();
+  });
 });

@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import {
-  Dna, BarChart2, Layers, Activity, Map,
+  BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
   PanelLeftClose, PanelLeftOpen, BookOpen, Info, X,
 } from "lucide-react";
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
+import { BrandMark } from "./ui/BrandMark";
 import { AnalysisResult } from "../types";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import type { FoldxPhase } from "../shared/foldxPhase";
@@ -562,7 +563,7 @@ function MasterSidebar({
               className="ms-brand-mark group"
               data-expander="true"
             >
-              <Dna className="w-4 h-4 stroke-[2.2] transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
+              <BrandMark size={32} className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0" />
               <PanelLeftOpen className="absolute w-4 h-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </button>
           ) : (
@@ -573,7 +574,7 @@ function MasterSidebar({
               title="Go to Search"
               aria-label="Missense & Fold — go to Search"
             >
-              <Dna className="w-4 h-4 stroke-[2.2]" />
+              <BrandMark size={32} />
             </button>
           )}
 

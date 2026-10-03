@@ -91,6 +91,10 @@ vi.mock("./genos_web.ts", () => ({
   queryGenosWebservice: vi.fn(async () => null)
 }));
 
+vi.mock("../prediction/landscape.ts", () => ({
+  fetchLocalPopulationFrequencies: vi.fn(async () => null),
+}));
+
 vi.mock("../prediction/dbnsfp_local.ts", () => ({
   isLocalDbnsfpAvailable: vi.fn(() => false)
 }));
@@ -239,6 +243,113 @@ describe("Core Data Fetcher Service Unit Tests", () => {
      * never asked about**.
      */
     expect(result.serviceStatus.gnomadFrequency).toBe("unsupported-build");
+  });
+
+  describe("allele-bound local population evidence", () => {
+    it.each(["ambiguous-allele", "incomplete-evidence", "transient-provider"])("withholds local and conservation AoU/gnomAD on %s without awarding frequency criteria", async (failureKind) => {
+      const { fetchPredictorData, fetchConservationDataProgressive } = await import("../prediction/index.ts");
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      // A matching protein row exists locally, but its allele is not established by VEP.
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({
+        gnomad: { maxAF: 0, genomeAC: 0, genomeAN: 100000 },
+        aou: { aouAC: 0, aouAN: 100000, aouHet: 0, aouHom: 0 },
+      });
+      vi.mocked(fetchPredictorData).mockResolvedValueOnce({
+        available: true, amPathogenicity: 0.8, caddPhred: null,
+        gnomadVariantId: null, gnomadVariantAssembly: null,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: failureKind === "transient-provider", failureKind, policyVersion: 2, steps: [] },
+      } as any);
+      vi.mocked(fetchConservationDataProgressive).mockResolvedValueOnce({
+        revel: null, gerp: null, phylop: null,
+        aouFrequency: { aouAC: 0, aouAN: 100000, aouHet: 0, aouHom: 0 },
+      } as any);
+      const previews: any[] = [];
+      const result = await fetchCoreVariantData({ ...baseContext, variant: "p.Gln867His", pos: 867 }, 2000, undefined, partial => previews.push(partial));
+      expect(fetchLocalPopulationFrequencies).not.toHaveBeenCalled();
+      expect(fetchGnomadVariantFrequency).not.toHaveBeenCalled();
+      expect(result.gnomadFrequency).toBeNull();
+      expect(result.aouFrequency).toBeNull();
+      expect(result.aouLookup).toBeNull(); // withheld is not local absence or an installation failure
+      expect(result.conservationData?.aouFrequency).toBeNull();
+      expect(result.serviceStatus.gnomadFrequency).toBe("unsupported-build");
+      expect(result.ruleBasedInsights).not.toBeNull();
+      expect(result.ruleBasedInsights!.acmgCriteria.some(c => ["PM2", "BA1", "BS1", "BS2"].includes(c.code))).toBe(false);
+      expect(previews.some(p => p.data.aouFrequency || p.data.conservationData?.aouFrequency)).toBe(false);
+      // The withheld lookup never consumed this queued value.
+      vi.mocked(fetchLocalPopulationFrequencies).mockReset();
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValue(null);
+    });
+
+    it("uses local counts only after passing the canonical verified allele into the lookup", async () => {
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      const local = { gnomad: { maxAF: 0.01, genomeAC: 10, genomeAN: 1000, dataset: "gnomad_r4_local" }, aou: { aouAC: 3, aouAN: 1000, aouHet: 3, aouHom: 0 } };
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce(local);
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(fetchLocalPopulationFrequencies).toHaveBeenCalledWith("PAH", 408, "p.Arg408Trp", { chrom: "12", pos: 102845012, ref: "G", alt: "A", assembly: "GRCh38" });
+      expect(result.gnomadFrequency).toEqual(local.gnomad);
+      expect(result.aouFrequency).toEqual(local.aou);
+      expect(result.aouLookup?.localTable).toBe("found");
+      expect(fetchGnomadVariantFrequency).not.toHaveBeenCalled();
+    });
+
+    it("never binds protein-selected ALT A AoU to a healthy explicit ALT B, including partial frames", async () => {
+      const { fetchPredictorData, fetchConservationDataProgressive } = await import("../prediction/index.ts");
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce(null);
+      vi.mocked(fetchPredictorData).mockResolvedValueOnce({
+        available: true, amPathogenicity: 0.8, caddPhred: 24,
+        gnomadVariantId: "12-102845012-G-T", gnomadVariantAssembly: "GRCh38",
+        locusResolution: { route: "vep-coordinate", canonicalBy: "vep", retryable: false, steps: [] },
+      } as any);
+      vi.mocked(fetchConservationDataProgressive).mockResolvedValueOnce({
+        revel: null, gerp: null, phylop: null,
+        aouFrequency: { aouAC: 100, aouAN: 1000, aouHet: 0, aouHom: 50 },
+      } as any);
+      const previews: any[] = [];
+      const result = await fetchCoreVariantData({ ...baseContext, assembly: "GRCh38", genomicCoordinates: "12-102845012-G-T" },
+        2000, undefined, partial => previews.push(partial));
+      expect(fetchLocalPopulationFrequencies).toHaveBeenCalledWith("PAH", 408, "p.Arg408Trp",
+        { chrom: "12", pos: 102845012, ref: "G", alt: "T", assembly: "GRCh38" });
+      expect(result.aouFrequency).toBeNull();
+      expect(result.conservationData?.aouFrequency).toBeNull();
+      expect(result.aouLookup?.remoteDbnsfp).toBe("not-reported");
+      expect(result.ruleBasedInsights!.acmgCriteria.some(c => c.code === "BS2")).toBe(false);
+      expect(previews.some(p => p.data.aouFrequency || p.data.conservationData?.aouFrequency)).toBe(false);
+    });
+
+    it("retries remote gnomAD after invalid local counts and does not describe invalid AoU as absent", async () => {
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({ gnomad: null, aou: null, aouInvalidCounts: true });
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith("12-102845012-G-A", { assembly: "GRCh38" });
+      expect(result.gnomadFrequency?.maxAF).toBe(0.00002);
+      expect(result.aouFrequency).toBeNull();
+      expect(result.aouLookup).toBeNull();
+    });
+
+    it("does not let an all-null local object suppress the remote gnomAD lookup", async () => {
+      const { fetchLocalPopulationFrequencies } = await import("../prediction/landscape.ts");
+      const { isLocalDbnsfpAvailable } = await import("../prediction/dbnsfp_local.ts");
+      const { fetchGnomadVariantFrequency } = await import("./gnomad.ts");
+      vi.mocked(isLocalDbnsfpAvailable).mockReturnValueOnce(true);
+      vi.mocked(fetchLocalPopulationFrequencies).mockResolvedValueOnce({
+        gnomad: { maxAF: null, groupMaxAF: null, genomeAC: null, genomeAN: null, nHomozygous: null }, aou: null,
+      });
+      const result = await fetchCoreVariantData(baseContext, 2000);
+      expect(fetchGnomadVariantFrequency).toHaveBeenCalledWith("12-102845012-G-A", { assembly: "GRCh38" });
+      expect(result.gnomadFrequency?.maxAF).toBe(0.00002);
+    });
   });
 
   it("should handle service errors gracefully and report status as error/not_found without throwing", async () => {

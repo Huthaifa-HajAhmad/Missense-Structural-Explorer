@@ -1,0 +1,380 @@
+/**
+ * constraintMetrics.ts — the gnomAD v2 gene-constraint metrics the variant header shows.
+ *
+ * Pure: no React. Each builder turns one gnomAD signal into a `VhMetric` — value, tone, verdict, the
+ * reference track (domain, direction, bands, ticks) and the full sentences for tooltips and assistive
+ * tech. Moved out of `VariantHeader.tsx` unchanged when the header split into a top-bar identity and a
+ * one-line context strip, so both the strip's micro-tracks and the Details panel's full tracks read the
+ * same metric objects.
+ */
+import { THRESHOLDS } from "../../shared/thresholds";
+import type { AnalysisResult } from "../../types";
+
+// ─────────────────────────────────────────────
+// Display constants
+// ─────────────────────────────────────────────
+
+/** Em dash used wherever a metric has no measured value. */
+const VH_NO_VALUE = "—";
+
+/**
+ * Reference domains for the threshold tracks. Each domain is the *display* window
+ * for that metric — it is not a claim about the metric's maximum, and markers are
+ * clamped into the track so an out-of-window value still renders on-scale.
+ */
+const MISSENSE_Z_DOMAIN: readonly [number, number] = [0, 5];
+const LOEUF_DOMAIN: readonly [number, number] = [0, 1.5];
+const RMC_DOMAIN: readonly [number, number] = [0, 1.5];
+
+export type VhTone = "path" | "warn" | "good" | "muted";
+
+export interface VhBand {
+  from: number;
+  to: number;
+  tone: VhTone;
+}
+
+export interface VhTick {
+  at: number;
+  label: string;
+}
+
+/** One metric rendered as a threshold track inside the constraint rail. */
+export interface VhMetric {
+  key: string;
+  /** Compact visual label; the full metric name lives in `tooltip`/`detail`. */
+  label: string;
+  value: string;
+  tone: VhTone;
+  verdict: string;
+  domain: readonly [number, number];
+  /**
+   * Draw the axis high-to-low. Every track reads tolerant on the left and constrained on the
+   * right; LOEUF and O/E fall as constraint rises, so their axes run backwards. Without this the
+   * Missense Z row ran green-to-red and the LOEUF row under it red-to-green, and the reader had to
+   * flip the meaning of "right" between adjacent rows.
+   */
+  reversed: boolean;
+  bands: VhBand[];
+  ticks: VhTick[];
+  /** Raw metric value plotted on the track, or null when unmeasured. */
+  marker: number | null;
+  tooltip: string;
+  detail: string;
+}
+
+// ─────────────────────────────────────────────
+// Pure helpers
+// ─────────────────────────────────────────────
+
+/** Percentage position of a value inside a display domain. */
+export function vhPct(value: number, [lo, hi]: readonly [number, number]): number {
+  return ((value - lo) / (hi - lo)) * 100;
+}
+
+/** Position of a value on a metric's track, honouring the axis direction. */
+export function vhPos(value: number, metric: Pick<VhMetric, "domain" | "reversed">): number {
+  const pct = vhPct(value, metric.domain);
+  return metric.reversed ? 100 - pct : pct;
+}
+
+/** Marker position, clamped so the dot never falls off either end of the track. */
+export function vhMarkerPct(value: number, metric: Pick<VhMetric, "domain" | "reversed">): number {
+  return Math.max(2.5, Math.min(97.5, vhPos(value, metric)));
+}
+
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/**
+ * Compact p-value. gnomAD RMC p-values run to ~20 significant characters, which is
+ * unreadable in a header row, so tiny values collapse to `6.6×10⁻⁶`.
+ *
+ * Two rounding traps this avoids:
+ *  - `toFixed(3)` across the 0.001–0.01 band turns 0.0015 into "0.002" and 0.00149
+ *    into "0.001", i.e. it can display a p-value as meeting a 0.001 significance
+ *    line that the true value does not meet. That band keeps a fourth decimal.
+ *  - rounding the mantissa after taking `Math.log10` can carry it to 10.0
+ *    (9.99e-6 → "10.0×10⁻⁶"), which is not valid scientific notation.
+ *    `toExponential` normalises the carry into the exponent.
+ */
+export function formatPValue(p: number | null): string | null {
+  if (p === null || !Number.isFinite(p) || p <= 0) return null;
+  if (p >= 0.01) return p.toFixed(3);
+  if (p >= 0.001) return String(Number(p.toFixed(4)));
+  const [mantissa, exponent] = p.toExponential(1).split("e");
+  const digits = String(Math.abs(Number(exponent)))
+    .split("")
+    .map((d) => SUPERSCRIPT[Number(d)])
+    .join("");
+  return `${mantissa}×10⁻${digits}`;
+}
+
+/** "Gln199 to Met555" → "Gln199–Met555" */
+function compactRegion(regionText: string | null): string | null {
+  if (!regionText) return null;
+  return regionText.replace(/\s+to\s+/i, "–").trim();
+}
+
+function signed(value: number): string {
+  return value > 0 ? `+${value.toFixed(2)}` : value.toFixed(2);
+}
+
+// ─────────────────────────────────────────────
+// Metric builders — one per gnomAD v2 signal
+// ─────────────────────────────────────────────
+
+/**
+ * @param missenseZ gnomAD v2 missense Z
+ * @param isPP2Constrained the server's own PP2 call, which additionally requires
+ *   missense O/E < 0.6. The header must not re-derive PP2 from the Z threshold
+ *   alone: it would claim ClinGen PP2 for genes the pipeline's flag says do not meet it.
+ */
+export function buildMissenseZMetric(
+  missenseZ: number | null | undefined,
+  isPP2Constrained: boolean
+): VhMetric {
+  const domains = {
+    domain: MISSENSE_Z_DOMAIN,
+    reversed: false,
+    bands: [
+      { from: 0, to: 2.0, tone: "good" as VhTone },
+      { from: 2.0, to: 3.09, tone: "warn" as VhTone },
+      { from: 3.09, to: 5, tone: "path" as VhTone },
+    ],
+    ticks: [
+      { at: 2.0, label: "2.0" },
+      { at: 3.09, label: "3.09" },
+    ],
+  };
+  const refRange =
+    "Reference: tolerant below 2.0, constrained from 2.0, severe intolerance at or above 3.09.";
+  const pp2Clause = isPP2Constrained
+    ? " ClinGen PP2 is met (Z ≥ 3.09 and missense O/E < 0.6)."
+    : " ClinGen PP2 is not met (it also requires missense O/E < 0.6).";
+
+  const z = typeof missenseZ === "number" ? missenseZ : null;
+
+  if (z === null || !Number.isFinite(z)) {
+    return {
+      key: "missense-z",
+      label: "Missense Z",
+      value: VH_NO_VALUE,
+      tone: "muted",
+      verdict: "No data",
+      marker: null,
+      ...domains,
+      tooltip: "gnomAD v2 Missense Z score — not available for this gene.",
+      detail: `Not measured for this gene. ${refRange}`,
+    };
+  }
+
+  const value = signed(z);
+  const tier =
+    z >= 3.09
+      ? {
+          tone: "path" as VhTone,
+          verdict: "Severe intolerance",
+          why: isPP2Constrained
+            ? "severe missense intolerance, ClinGen PP2 met"
+            : "severe missense intolerance (ClinGen PP2 not met: missense O/E not below 0.6)",
+        }
+      : z >= 2.0
+        ? { tone: "warn" as VhTone, verdict: "Constrained", why: "above the tolerant reference range" }
+        : { tone: "good" as VhTone, verdict: "Tolerant", why: "within the tolerant reference range" };
+
+  return {
+    key: "missense-z",
+    label: "Missense Z",
+    value,
+    tone: tier.tone,
+    verdict: tier.verdict,
+    marker: z,
+    ...domains,
+    tooltip: `gnomAD v2 Missense Z score ${value} — ${tier.why}. ${refRange}${z >= 3.09 ? pp2Clause : ""}`,
+    // Reference-only: the label, value and verdict are already announced as visible text.
+    detail: `${refRange}${z >= 3.09 ? pp2Clause : ""}`,
+  };
+}
+
+export function buildLoeufMetric(loeuf: number | null | undefined): VhMetric {
+  // One source for the cut-points: the Score thresholds tab and this header must not disagree.
+  const strong = THRESHOLDS.loeuf.pathogenicStrong;
+  const constrained = THRESHOLDS.loeuf.pathogenicSupporting;
+  const domains = {
+    domain: LOEUF_DOMAIN,
+    reversed: true,
+    bands: [
+      { from: 0, to: strong, tone: "path" as VhTone },
+      { from: strong, to: constrained, tone: "warn" as VhTone },
+      { from: constrained, to: LOEUF_DOMAIN[1], tone: "good" as VhTone },
+    ],
+    ticks: [
+      { at: strong, label: String(strong) },
+      { at: constrained, label: constrained.toFixed(1) },
+    ],
+  };
+  const refRange =
+    `Reference: strong loss-of-function intolerance below ${strong}, constrained below ${constrained.toFixed(2)} (gnomAD's suggested cut, the same one the Score thresholds tab uses); at or above ${constrained.toFixed(2)} the gene is not shown to be constrained, which is not the same as tolerating loss of function.`;
+
+  const v = typeof loeuf === "number" ? loeuf : null;
+
+  if (v === null || !Number.isFinite(v)) {
+    return {
+      key: "loeuf",
+      label: "LOEUF",
+      value: VH_NO_VALUE,
+      tone: "muted",
+      verdict: "No data",
+      marker: null,
+      ...domains,
+      tooltip: "gnomAD v2 loss-of-function observed/expected upper bound fraction (LOEUF) — not available for this gene.",
+      detail: `Not measured for this gene. ${refRange}`,
+    };
+  }
+
+  const value = v.toFixed(2);
+  const tier =
+    v < strong
+      ? { tone: "path" as VhTone, verdict: "Strong LoF intolerance", why: "below the decile-1 intolerance threshold" }
+      : v < constrained
+        ? { tone: "warn" as VhTone, verdict: "LoF constrained", why: `below gnomAD's suggested constraint cut of ${constrained.toFixed(2)}` }
+        /*
+         * `good` is the BAND's tone for this range (drawn green like every other track's
+         * unconstrained side), so the reading keeps it rather than sitting grey inside its own band.
+         * The verdict carries the honesty: at or above the suggested cut the gene is NOT shown to be
+         * constrained, and the tooltip refuses the stronger word "tolerant" that the old verdict used.
+         */
+        : { tone: "good" as VhTone, verdict: "Not LoF constrained", why: "at or above gnomAD's suggested constraint cut; this does not show the gene tolerates loss of function" };
+
+  return {
+    key: "loeuf",
+    label: "LOEUF",
+    value,
+    tone: tier.tone,
+    verdict: tier.verdict,
+    marker: v,
+    ...domains,
+    tooltip: `gnomAD v2 loss-of-function observed/expected upper bound fraction (LOEUF) ${value} — ${tier.why}. ${refRange}`,
+    detail: refRange,
+  };
+}
+
+export function buildRmcMetric(
+  hasRegionalData: boolean,
+  regional: { isConstrained: boolean; oeRatio: number | null; pValue: number | null; regionText: string | null } | null
+): VhMetric {
+  // No invented cutoffs here: gnomAD RMC is a tested sub-region call, so the track
+  // carries only the neutral O/E = 1.0 baseline and the observed ratio.
+  const domains = {
+    domain: RMC_DOMAIN,
+    reversed: true,
+    bands: [] as VhBand[],
+    ticks: [{ at: 1.0, label: "1.0" }],
+  };
+  const refRange = "Reference: unconstrained at O/E ≈ 1.0.";
+
+  if (!regional) {
+    // `regional` is null in two different situations, and they mean opposite things:
+    // the gene has no RMC blocks at all, or it has blocks but this variant had no
+    // residue position to look up. The verdict already distinguished them; the copy
+    // must too, or it tells the reader the gene is unstudied when it is not.
+    const noCall = hasRegionalData
+      ? {
+          verdict: "No data",
+          reason: "no sub-regional call was returned for this residue",
+          sentence:
+            "No sub-regional call was returned for this residue, so RMC is not assessed here. This is not a statement about the gene.",
+        }
+      : {
+          verdict: "No gnomAD blocks",
+          reason: "this gene has no gnomAD constraint blocks",
+          sentence: "The gene has no gnomAD constraint blocks, so no sub-regional call was made.",
+        };
+    return {
+      key: "regional-oe",
+      label: "Regional O/E",
+      value: VH_NO_VALUE,
+      tone: "muted",
+      verdict: noCall.verdict,
+      marker: null,
+      ...domains,
+      tooltip: `gnomAD v2 Regional Missense Constraint (RMC) — ${noCall.reason}.`,
+      detail: `${noCall.sentence} ${refRange}`,
+    };
+  }
+
+  const oe = typeof regional.oeRatio === "number" && Number.isFinite(regional.oeRatio) ? regional.oeRatio : null;
+  const value = oe === null ? VH_NO_VALUE : oe.toFixed(2);
+  const pText = formatPValue(regional.pValue);
+  const region = compactRegion(regional.regionText);
+
+  const regionDetail = region ? `Constrained block ${region.replace("–", " to ")}` : "Constrained sub-region";
+  // sr-only: the verdict already announces "Subgenic constrained", so the
+  // detail names the block without repeating the verdict word.
+  const regionSr = region ? `RMC block ${region.replace("–", " to ")}` : "RMC sub-region";
+  // The block span and its p-value are facts about the RMC window, not about
+  // this residue, so they are tooltip / sr-only provenance. A visible footnote
+  // would hand the third row a second text line the other rows don't have,
+  // breaking the row rhythm. The p-value is a likelihood-ratio statistic on
+  // the window, so it is labelled as the approximate window LRT it is.
+  const pClause = pText ? `, window LRT p = ${pText} (approximate)` : "";
+
+  if (regional.isConstrained) {
+    return {
+      key: "regional-oe",
+      label: "Regional O/E",
+      value,
+      tone: "path",
+      verdict: "Subgenic constrained",
+      marker: oe,
+      ...domains,
+      tooltip: `gnomAD v2 Regional Missense Constraint (RMC): ${regionDetail}${pClause}. Observed/expected ratio ${value} against a neutral baseline of 1.0.`,
+      detail: `${regionSr}${pText ? `, window LRT p = ${pText}` : ""}. ${refRange}`,
+    };
+  }
+
+  // The server gates the constrained call on the window's own significance, so a
+  // non-constrained result with a span means "matched a candidate window that did
+  // not clear it" — say that, instead of the copy below, which is only true when
+  // no window matched at all (region is null then).
+  if (region) {
+    return {
+      key: "regional-oe",
+      label: "Regional O/E",
+      value,
+      tone: "muted",
+      verdict: "Sub-threshold window",
+      marker: oe,
+      ...domains,
+      tooltip: `gnomAD v2 Regional Missense Constraint (RMC): the residue lies in candidate window ${region.replace(
+        "–",
+        " to "
+      )}${pText ? ` (window LRT p = ${pText})` : ""}, which did not reach significance — not a constrained call.`,
+      detail: `Candidate RMC window ${region.replace("–", " to ")} below significance. ${refRange}`,
+    };
+  }
+
+  return {
+    key: "regional-oe",
+    label: "Regional O/E",
+    value,
+    tone: oe === null ? "muted" : "good",
+    verdict: "Expected variation",
+    marker: oe,
+    ...domains,
+    tooltip: `gnomAD v2 Regional Missense Constraint (RMC): the residue sits outside every constrained sub-region (observed/expected ${value}).`,
+    // The "outside every constrained sub-region" clause is tooltip-only otherwise.
+    detail: `Residue outside every constrained sub-region. ${refRange}`,
+  };
+}
+
+/** The three metrics for a result, in display order, or none when gnomAD constraint is absent. */
+export function buildConstraintMetrics(analysisResult: AnalysisResult | null | undefined): VhMetric[] {
+  const gnomad = analysisResult?.gnomadConstraint;
+  if (!gnomad) return [];
+  return [
+    buildMissenseZMetric(gnomad.missense_z, gnomad.isPP2Constrained ?? false),
+    buildLoeufMetric(gnomad.loeuf),
+    buildRmcMetric(gnomad.hasRegionalData ?? false, gnomad.regionalConstraint ?? null),
+  ];
+}

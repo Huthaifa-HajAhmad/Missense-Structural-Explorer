@@ -65,8 +65,16 @@ import {
  * Version 2 adds the DEEP-MODEL evidence block (see `src/shared/deepModelEvidence.ts`): a synthesis now
  * records whether it was given the stability and language-model observations, so a narrative written
  * before an engine settled cannot be served as though it had seen it.
+ *
+ * Version 3 adds `aouLookup`. `buildFrequencyEvidence` reads that record for the All of Us absence
+ * sentence and its source label (`aouAbsenceReason`, `aouSourceLabel`), so it belongs with the evidence
+ * rather than beside it: the contract is the union of what the two narrative kinds read, and
+ * under-inclusion is the only dangerous direction. The AI path does not receive the field today, so no
+ * cached synthesis can yet differ from another that shares its revision — the rule is kept so that it
+ * cannot start to. Both sides must hash it (the client through `planNarrativeSynthesis`, the route
+ * through its own field list), or one run acquires two identities.
  */
-export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 2;
+export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 3;
 
 /**
  * The evidence the narrative synthesis is given, in the order the request states it.
@@ -84,6 +92,7 @@ export const NARRATIVE_EVIDENCE_FIELDS = [
   "gnomadConstraint",
   "gnomadFrequency",
   "aouFrequency",
+  "aouLookup",
   "uniprotFeatures",
   "sequence",
 ] as const;
@@ -263,6 +272,7 @@ export function narrativeEvidenceSourceFromResult(
     gnomadConstraint: result?.gnomadConstraint ?? null,
     gnomadFrequency: result?.gnomadFrequency ?? null,
     aouFrequency: result?.aouFrequency ?? null,
+    aouLookup: result?.aouLookup ?? null,
     uniprotFeatures: result?.uniprotFeatures ?? null,
     sequence: result?.metadata?.sequence ?? result?.sequence ?? null,
     serviceStatus: result?.serviceStatus ?? result?.metadata?.serviceStatus ?? null,

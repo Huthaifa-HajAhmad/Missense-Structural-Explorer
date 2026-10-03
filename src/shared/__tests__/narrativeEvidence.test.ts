@@ -36,6 +36,7 @@ const EVIDENCE: NarrativeEvidenceSourceInput = {
   gnomadConstraint: { pli: 0.98 },
   gnomadFrequency: { groupMaxAF: 0.00001 },
   aouFrequency: { aouAC: 3, aouAN: 100000 },
+  aouLookup: { localTable: "found", remoteDbnsfp: "not-reported" },
   uniprotFeatures: { features: [] },
   sequence: "MSTAVL",
 };
@@ -101,8 +102,14 @@ describe("narrativeEvidence — the contract", () => {
       acmgWeighting: "strict-structural",
     });
 
-    // What the server does with the body: `buildNarrativeEvidenceContract(req.body)`. The body has
-    // been through JSON, so this is exactly the value the route holds.
+    /*
+     * The request survives JSON unchanged, so the revision the client stamps is the revision its
+     * evidence describes.
+     *
+     * The ROUTE hashes a hand-written list of the contract's fields rather than the body wholesale,
+     * so the list must name every field `NARRATIVE_EVIDENCE_FIELDS` declares. That side is pinned
+     * where it can fail: `server/routes/variant/narrativeEvidenceHash.test.ts`.
+     */
     const received = buildNarrativeEvidenceContract(JSON.parse(JSON.stringify(plan.request)));
 
     expect(narrativeEvidenceRevision(received)).toBe(plan.revision);

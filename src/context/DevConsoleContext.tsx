@@ -14,6 +14,7 @@ import {
   SessionContext
 } from "../types/devConsole";
 import { isConnectionFailureText } from "../shared/fetch-retry";
+import { classifyLogSource } from "./logSource";
 
 const ERROR_STORAGE_KEY = "devConsoleErrors";
 const LIVE_STORAGE_KEY = "devConsoleLive";
@@ -31,7 +32,7 @@ function loadInitialStreamEntries(key: string): ConsoleEntry[] {
       return parsed;
     }
   } catch (e) {
-    console.error(`Failed to load entries from sessionStorage for key ${key}:`, e);
+    console.warn(`[DevConsole] Could not restore saved entries for ${key}:`, e);
   }
   return [];
 }
@@ -99,7 +100,6 @@ const initialTraces = loadInitialTraces();
 const initialState: DevConsoleState = {
   errorState: createInitialStreamState(ERROR_STORAGE_KEY),
   liveState: createInitialStreamState(LIVE_STORAGE_KEY),
-  telemetrySpans: [],
   traceRuns: initialTraces,
   activeTraceRun: initialTraces.length > 0 ? initialTraces[0] : null,
   activeTab: "error",
@@ -388,24 +388,6 @@ function devConsoleReducer(state: DevConsoleState, action: DevConsoleAction): De
         ...state,
         traceRuns: [],
         activeTraceRun: null,
-        telemetrySpans: [],
-      };
-    }
-    case "ADD_TELEMETRY_SPAN": {
-      const newSpan = {
-        ...action.span,
-        timestamp: Date.now(),
-      };
-      const updated = [newSpan, ...state.telemetrySpans].slice(0, 50);
-      return {
-        ...state,
-        telemetrySpans: updated,
-      };
-    }
-    case "CLEAR_TELEMETRY": {
-      return {
-        ...state,
-        telemetrySpans: [],
       };
     }
     default:
@@ -422,68 +404,10 @@ export interface DevConsoleContextValue {
   addTraceSpan: (span: Omit<TraceSpan, "id">) => void;
   updateTraceSpan: (traceId: string, spanName: string, updates: Partial<TraceSpan>) => void;
   finishTraceRun: (traceId: string, status?: TraceRunFinishStatus) => void;
-  exportErrorEntries: () => void;
-  exportLiveEntries: () => void;
   exportTraceRuns: () => void;
 }
 
 const DevConsoleContext = createContext<DevConsoleContextValue | null>(null);
-
-function detectSourceFromArgs(args: any[]): LogSource {
-  const firstArg = args[0];
-  if (typeof firstArg === "string") {
-    const s = firstArg.toLowerCase();
-    if (
-      s.startsWith("[dynamut2]") ||
-      s.startsWith("[ddmut]") ||
-      s.startsWith("[thermompnn]") ||
-      s.startsWith("[foldx]") ||
-      s.startsWith("[stabilityoracle]") ||
-      s.startsWith("[esm-2]") ||
-      s.startsWith("[esm-3]") ||
-      s.startsWith("[esmc]") ||
-      s.startsWith("[saprot]") ||
-      s.startsWith("[biophysical") ||
-      s.startsWith("[comparison")
-    ) {
-      return "biophysics";
-    }
-    if (s.startsWith("[vep]") || s.startsWith("[mane]") || s.startsWith("[splice]") || s.startsWith("[genomic]")) {
-      return "genomics";
-    }
-    if (
-      s.startsWith("[pdb]") ||
-      s.startsWith("[alphafold]") ||
-      s.startsWith("[pocket]") ||
-      s.startsWith("[mol*]") ||
-      s.startsWith("[structure")
-    ) {
-      return "structure-3d";
-    }
-    if (s.startsWith("[gemini]") || s.startsWith("[narrative]") || s.startsWith("[acmg]") || s.startsWith("[clinical]")) {
-      return "ai-narrative";
-    }
-    if (s.startsWith("[pubmed]") || s.startsWith("[litrag]") || s.startsWith("[literature]")) {
-      return "literature";
-    }
-    if (s.startsWith("[errorboundary:")) {
-      return "component";
-    }
-    if (s.startsWith("[notification")) {
-      return "notification";
-    }
-    if (s.startsWith("[cache]") || s.startsWith("[worker]") || s.startsWith("[webgl]")) {
-      return "system";
-    }
-    if (s.startsWith("[retry]") || s.startsWith("[pipeline]")) {
-      return "workflow";
-    }
-    if (s.startsWith("[network]") || s.startsWith("[http]") || s.startsWith("[fetch]")) {
-      return "network";
-    }
-  }
-  return "console";
-}
 
 function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "debug", message: string, status?: number): ErrorImpact {
   if (level === "info" || level === "debug") return "info";
@@ -498,6 +422,10 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
    * fetch) was reported to the operator as a fatal error when a retry recovers it.
    */
   if (isConnectionFailureText(message)) return "recoverable";
+  // "Fatal" means a result is blocked. A biophysics engine failing never blocks the clinical result —
+  // the other engines and every evidence tab still report — so it is degraded, not fatal. Checked
+  // BEFORE the HTTP 500 rule so a 500 from a biophysics endpoint cannot escalate past it.
+  if (source === "biophysics") return "degraded";
   if (status === 500 || level === "error" && (source === "runtime" || source === "component" || message.includes("Variant analysis failed"))) {
     return "fatal";
   }
@@ -505,6 +433,16 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
     return "degraded";
   }
   return level === "error" ? "fatal" : "degraded";
+}
+
+/** Captures small JSON/string request bodies so "Copy cURL" can replay the call. */
+function readRequestBody(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== "string" || body.length > 4096) return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
 }
 
 function formatArgsMessage(args: any[]): { message: string; detail?: string } {
@@ -539,7 +477,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       try {
         if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify(state.errorState.entries.slice(-100)));
+          sessionStorage.setItem(ERROR_STORAGE_KEY, JSON.stringify(state.errorState.entries.slice(0, 100)));
         }
       } catch (e) {}
     }, 500);
@@ -550,7 +488,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       try {
         if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(state.liveState.entries.slice(-100)));
+          sessionStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(state.liveState.entries.slice(0, 100)));
         }
       } catch (e) {}
     }, 500);
@@ -561,7 +499,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       try {
         if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(TRACE_STORAGE_KEY, JSON.stringify(state.traceRuns.slice(-50)));
+          sessionStorage.setItem(TRACE_STORAGE_KEY, JSON.stringify(state.traceRuns.slice(0, 50)));
         }
       } catch (e) {}
     }, 500);
@@ -600,17 +538,6 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
 
   const addTraceSpan = useCallback((span: Omit<TraceSpan, "id">) => {
     dispatch({ type: "ADD_TRACE_SPAN", span });
-    // Also push to legacy telemetry spans for backwards compatibility
-    if (span.status !== "running" && span.status !== "unavailable") {
-      dispatch({
-        type: "ADD_TELEMETRY_SPAN",
-        span: {
-          name: span.name,
-          durationMs: span.durationMs,
-          status: span.status === "failed" ? "failed" : "success",
-        },
-      });
-    }
   }, []);
 
   const updateTraceSpan = useCallback((traceId: string, spanName: string, updates: Partial<TraceSpan>) => {
@@ -627,26 +554,6 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "FINISH_TRACE_RUN", traceId, status });
   }, []);
 
-  const exportErrorEntries = useCallback(() => {
-    const blob = new Blob([JSON.stringify(state.errorState.entries, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `error-console-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state.errorState.entries]);
-
-  const exportLiveEntries = useCallback(() => {
-    const blob = new Blob([JSON.stringify(state.liveState.entries, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `live-console-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [state.liveState.entries]);
-
   const exportTraceRuns = useCallback(() => {
     const blob = new Blob([JSON.stringify(state.traceRuns, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -661,6 +568,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const origLog = console.log.bind(console);
     const origInfo = console.info.bind(console);
+    const origDebug = console.debug.bind(console);
     const origError = console.error.bind(console);
     const origWarn = console.warn.bind(console);
     const origFetch = window.fetch.bind(window);
@@ -668,7 +576,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.log = (...args: any[]) => {
       origLog(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushLiveEntry({ level: "info", source, message, detail });
       }
@@ -677,16 +585,25 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.info = (...args: any[]) => {
       origInfo(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushLiveEntry({ level: "info", source, message, detail });
+      }
+    };
+
+    console.debug = (...args: any[]) => {
+      origDebug(...args);
+      if (!isInternalCapturingRef.current) {
+        const source = classifyLogSource(args);
+        const { message, detail } = formatArgsMessage(args);
+        pushLiveEntry({ level: "debug", source, message, detail });
       }
     };
 
     console.error = (...args: any[]) => {
       origError(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushErrorEntry({ level: "error", source, message, detail });
       }
@@ -695,7 +612,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     console.warn = (...args: any[]) => {
       origWarn(...args);
       if (!isInternalCapturingRef.current) {
-        const source = detectSourceFromArgs(args);
+        const source = classifyLogSource(args);
         const { message, detail } = formatArgsMessage(args);
         pushErrorEntry({ level: "warn", source, message, detail });
       }
@@ -757,6 +674,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       const init = args[1];
       const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const requestBody = readRequestBody(init?.body);
       const startTime = performance.now();
 
       try {
@@ -804,6 +722,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
                 status: response.status,
                 statusText: response.statusText,
                 durationMs,
+                requestBody,
                 responseBody: parsedError || responseBody,
               },
               meta: { url, status: response.status, statusText: response.statusText, method, durationMs },
@@ -814,7 +733,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
               source: "network",
               impact: "info",
               message: `HTTP ${method} ${url} → ${response.status} OK (${durationMs}ms)`,
-              httpMeta: { url, method, status: response.status, statusText: "OK", durationMs },
+              httpMeta: { url, method, status: response.status, statusText: "OK", durationMs, requestBody },
               meta: { url, status: response.status, method, durationMs },
             });
           }
@@ -833,7 +752,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
             impact,
             message: `Fetch failed: ${method} ${url}`,
             detail: err?.stack || String(err),
-            httpMeta: { url, method, status: 0, durationMs },
+            httpMeta: { url, method, status: 0, durationMs, requestBody },
             meta: { url, method, durationMs },
           });
         }
@@ -844,6 +763,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
     return () => {
       console.log = origLog;
       console.info = origInfo;
+      console.debug = origDebug;
       console.error = origError;
       console.warn = origWarn;
       window.fetch = origFetch;
@@ -864,8 +784,6 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
         addTraceSpan,
         updateTraceSpan,
         finishTraceRun,
-        exportErrorEntries,
-        exportLiveEntries,
         exportTraceRuns,
       }}
     >

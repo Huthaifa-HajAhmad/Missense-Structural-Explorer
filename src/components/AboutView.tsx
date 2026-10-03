@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Compass,
   Copy,
-  Dna,
   ExternalLink,
   GitBranch,
   Info,
@@ -16,6 +15,7 @@ import {
   ShieldAlert,
   X
 } from "lucide-react";
+import { BrandMark } from "./ui/BrandMark";
 import { motion } from "motion/react";
 import { useSettings } from "../context/SettingsContext";
 import { useDiagnostics } from "../hooks/useDiagnostics";
@@ -656,7 +656,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
         <header className="about-hero">
           <div className="about-hero-main">
             <div className="about-mark" aria-hidden="true">
-              <Dna className="w-6 h-6 text-white stroke-[2.2]" />
+              <BrandMark size={48} />
             </div>
             <div className="min-w-0">
               <h1 className="about-title">About Missense &amp; Fold</h1>

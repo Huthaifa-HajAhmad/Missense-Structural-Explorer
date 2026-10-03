@@ -36,9 +36,9 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
       </DevConsoleProvider>
     );
 
-    expect(screen.getByText("Error Diagnostics")).toBeInTheDocument();
-    expect(screen.getByText("Live Events")).toBeInTheDocument();
-    expect(screen.getByText("Pipeline Waterfall")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /errors/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /live events/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /waterfall/i })).toBeInTheDocument();
     expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
   });
 
@@ -49,7 +49,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
       </DevConsoleProvider>
     );
 
-    const liveBtn = screen.getByText("Live Events");
+    const liveBtn = screen.getByRole("tab", { name: /live events/i });
     fireEvent.click(liveBtn);
 
     expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
@@ -62,10 +62,10 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
       </DevConsoleProvider>
     );
 
-    const waterfallBtn = screen.getByText("Pipeline Waterfall");
+    const waterfallBtn = screen.getByRole("tab", { name: /waterfall/i });
     fireEvent.click(waterfallBtn);
 
-    expect(screen.getByText(/Pipeline Stage \/ Operation|No Active Trace Recorded/i)).toBeInTheDocument();
+    expect(screen.getByText(/No Active Trace Recorded/i)).toBeInTheDocument();
   });
 
   it("captures errors, displays impact badges, and opens diagnostic inspector", () => {
@@ -101,10 +101,16 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     const entryButton = screen.getByText(/FoldX calculation failed/i);
     fireEvent.click(entryButton);
 
-    expect(screen.getByText("Overview & Payload")).toBeInTheDocument();
-    expect(screen.getByText("Stack Trace")).toBeInTheDocument();
-    expect(screen.getByText("HTTP Details")).toBeInTheDocument();
+    const inspector = screen.getByRole("complementary", { name: /entry detail inspector/i });
+    expect(inspector).toBeInTheDocument();
+    expect(screen.getByText("HTTP exchange")).toBeInTheDocument();
+    expect(screen.getByText("Stack trace / detail")).toBeInTheDocument();
+    expect(screen.getByText("Response body")).toBeInTheDocument();
     expect(screen.getByText("Copy Report")).toBeInTheDocument();
+
+    // Escape closes the inspector.
+    fireEvent.keyDown(inspector, { key: "Escape" });
+    expect(screen.queryByRole("complementary", { name: /entry detail inspector/i })).not.toBeInTheDocument();
   });
 
   it("renders pipeline Gantt waterfall with parallel spans and stage headers", () => {
@@ -147,11 +153,85 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
       </DevConsoleProvider>
     );
 
-    expect(screen.getByText("Stage 1: Genomic & cDNA Notation Translation")).toBeInTheDocument();
-    expect(screen.getByText("Stage 2: Structural Retrieval & Cavity Detection")).toBeInTheDocument();
-    expect(screen.getByText("Stage 3: Multi-Model Biophysics Suite")).toBeInTheDocument();
+    expect(screen.getByText(/Stage 1: Genomic & cDNA notation/)).toBeInTheDocument();
+    expect(screen.getByText(/Stage 2: Structure retrieval & cavities/)).toBeInTheDocument();
+    expect(screen.getByText(/Stage 3: Multi-model biophysics/)).toBeInTheDocument();
     expect(screen.getByText("Genomic & cDNA Notation Translation (VEP)")).toBeInTheDocument();
     expect(screen.getByText("PDB / AlphaFold 3D Coordinates Fetch")).toBeInTheDocument();
+  });
+
+  it("shows unavailable spans as warnings, and points the empty Errors tab at pipeline problems", () => {
+    render(
+      <DevConsoleProvider>
+        <TestConsoleHarness
+          onMount={({ startTraceRun, addTraceSpan, finishTraceRun }) => {
+            const traceId = startTraceRun("TP53 R175H");
+            addTraceSpan({
+              traceId,
+              name: "DDMUT Biophysical Job Execution",
+              stage: "biophysics",
+              startTime: Date.now() - 400,
+              offsetMs: 0,
+              durationMs: 400,
+              status: "unavailable",
+            });
+            addTraceSpan({
+              traceId,
+              name: "DYNAMUT2 Biophysical Job Execution",
+              stage: "biophysics",
+              startTime: Date.now() - 400,
+              offsetMs: 0,
+              durationMs: 300,
+              status: "failed",
+              error: "HTTP 502",
+            });
+            finishTraceRun(traceId);
+          }}
+        />
+      </DevConsoleProvider>
+    );
+
+    // The error stream is empty, but the panel must not claim everything is fine.
+    expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /2 pipeline operations failed or unavailable/i }));
+
+    expect(screen.getByRole("button", { name: /DDMUT Biophysical Job Execution.*unavailable/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /DYNAMUT2 Biophysical Job Execution.*failed/i })).toBeInTheDocument();
+  });
+
+  it("impact tiles count each entry once and toggle the impact filter", () => {
+    render(
+      <DevConsoleProvider>
+        <TestConsoleHarness
+          onMount={({ pushErrorEntry }) => {
+            pushErrorEntry({ level: "error", source: "runtime", impact: "fatal", message: "Fatal one" });
+            pushErrorEntry({ level: "warn", source: "system", impact: "degraded", message: "Degraded one" });
+            pushErrorEntry({ level: "warn", source: "network", impact: "recoverable", message: "Retried one" });
+          }}
+        />
+      </DevConsoleProvider>
+    );
+
+    const fatalTile = screen.getByRole("button", { name: /fatal: 1/i });
+    expect(screen.getByRole("button", { name: /degraded: 1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /recoverable: 1/i })).toBeInTheDocument();
+
+    fireEvent.click(fatalTile);
+    expect(fatalTile).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Fatal one")).toBeInTheDocument();
+    expect(screen.queryByText("Degraded one")).not.toBeInTheDocument();
+  });
+
+  it("announces paused capture instead of silently dropping events", () => {
+    render(
+      <DevConsoleProvider>
+        <DevConsolePanel />
+      </DevConsoleProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: /pause error capture/i }));
+    expect(screen.getByRole("status")).toHaveTextContent(/capture paused/i);
+    fireEvent.click(screen.getByRole("button", { name: /^resume$/i }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("exposes stream switcher as a tablist and switches streams with arrow keys", () => {
@@ -163,7 +243,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
 
     const tablist = screen.getByRole("tablist", { name: /console streams/i });
     expect(tablist).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /error diagnostics/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /errors/i })).toHaveAttribute(
       "aria-selected",
       "true"
     );
@@ -177,7 +257,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
 
     fireEvent.keyDown(tablist, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: /error diagnostics/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /errors/i })).toHaveAttribute(
       "aria-selected",
       "true"
     );
@@ -215,7 +295,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
       </DevConsoleProvider>
     );
 
-    fireEvent.click(screen.getByText("Live Events"));
+    fireEvent.click(screen.getByRole("tab", { name: /live events/i }));
     const log = screen.getByRole("log");
     const entries = screen.getAllByRole("button").filter((b) => b.className.includes("dev-console-entry"));
     expect(entries.length).toBe(2);
@@ -260,7 +340,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     expect(screen.getByText(/from pipeline initiation/i)).toBeInTheDocument();
 
     const stageHeader = screen.getByRole("button", {
-      name: /Stage 1: Genomic & cDNA Notation Translation/i
+      name: /Stage 1: Genomic & cDNA notation/i
     });
     expect(stageHeader).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(stageHeader);
@@ -307,10 +387,10 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     fireEvent.click(screen.getByRole("button", { name: /confirm clear all/i }));
     expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Live Events"));
+    fireEvent.click(screen.getByRole("tab", { name: /live events/i }));
     expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Pipeline Waterfall"));
+    fireEvent.click(screen.getByRole("tab", { name: /waterfall/i }));
     expect(screen.getByText("No Active Trace Recorded")).toBeInTheDocument();
   });
 });

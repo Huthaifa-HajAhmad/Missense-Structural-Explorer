@@ -33,7 +33,7 @@ export function useBiophysicalModeling(
   apiClient: any,
   fetchWithAuth: (url: string, options?: any) => Promise<Response>
 ) {
-  const { dispatch, addTraceSpan, state: consoleState } = useDevConsole();
+  const { addTraceSpan, state: consoleState } = useDevConsole();
   const [mutantPdb, setMutantPdb] = useState<string | null>(null);
   const [foldedResidueIndex, setFoldedResidueIndex] = useState<number | null>(null);
   const [isFolding, setIsFolding] = useState(false);
@@ -102,17 +102,9 @@ export function useBiophysicalModeling(
             startTime: Date.now() - durationMs,
             offsetMs: Math.max(0, Date.now() - durationMs - consoleState.activeTraceRun.timestamp),
             durationMs,
-            status: status === "done" ? "success" : "failed"
+            status: status === "done" ? "success" : status === "unavailable" ? "unavailable" : "failed"
           });
         }
-        dispatch({
-          type: "ADD_TELEMETRY_SPAN",
-          span: {
-            name: `${name.toUpperCase()} Job Execution`,
-            durationMs,
-            status: status === "done" ? "success" : "failed"
-          }
-        });
         delete jobTimersRef.current[name];
       }
     };
@@ -120,7 +112,7 @@ export function useBiophysicalModeling(
     checkJobEnd("dynamut2", dynamut2Status);
     checkJobEnd("ddmut", ddmutStatus);
     checkJobEnd("thermompnn", thermompnnStatus);
-  }, [dynamut2Status, ddmutStatus, thermompnnStatus, addTraceSpan, consoleState.activeTraceRun, dispatch]);
+  }, [dynamut2Status, ddmutStatus, thermompnnStatus, addTraceSpan, consoleState.activeTraceRun]);
 
   const dynamutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);
   const ddmutPollIntervalRef = useRef<NodeJS.Timeout | number | null>(null);

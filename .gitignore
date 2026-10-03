@@ -103,3 +103,10 @@ impeccable-detect.*
 tools/graft/
 
 .empryo
+
+# brand-mark rasteriser profile
+tools/brand-mark/.browser-profile/
+
+# Container-local worker role and host-local deployment journal
+.deployment-role*
+/deploy/runtime/

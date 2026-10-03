@@ -37,7 +37,7 @@ import { variantNumberingView } from "./numbering.ts";
 import { formatEvidenceCode } from "./thresholds.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildEnergeticsEvidence, energeticsSummary } from "./energeticsEvidence.ts";
-import { buildFrequencyEvidence, formatAlleleFrequency, frequencySourceLabel } from "./frequencyEvidence.ts";
+import { buildFrequencyEvidence, formatAlleleFrequency, frequencySourceLabel, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
 import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
 import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
 import { PROVENANCE_DATA_SOURCES, APP_REPOSITORY } from "./provenance.ts";
@@ -545,18 +545,10 @@ function computationalExtras(b: ReportBlock, input: ReportDocumentInput) {
 function populationExtras(b: ReportBlock, input: ReportDocumentInput) {
   const { result } = input;
   if (!result) return;
-  const fe = buildFrequencyEvidence({
-    gnomadFrequency: result.gnomadFrequency ?? null,
-    aouFrequency: result.aouFrequency ?? null,
-    serviceStatus: result.serviceStatus ?? result.metadata?.serviceStatus ?? null,
-    clinvar: result.clinvar
-      ? { classification: result.clinvar.classification, alleleFrequencies: result.clinvar.alleleFrequencies }
-      : null,
-    assembly: result.predictorData?.gnomadVariantAssembly ?? null,
-    pli: result.gnomadConstraint?.pli ?? null,
+  // The report reads only the rule engine's criteria (not the narrative's), so that stays explicit.
+  const fe = buildFrequencyEvidence(frequencyEvidenceInputFromResult(result, {
     engineCriteria: result.ruleBasedInsights?.acmgCriteria ?? null,
-    acmgWeighting: result.metadata?.acmgWeighting ?? null,
-  });
+  }));
   const c = fe.criterion;
   if (c.absent) {
     b.facts.push({ label: "Allele frequency", value: "Not observed" });

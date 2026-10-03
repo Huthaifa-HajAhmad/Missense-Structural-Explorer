@@ -47,7 +47,15 @@ import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
 import { resolveEvidenceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { sourceSupportsAssembly, describeAssemblyRefusal, type AssemblyAwareSource } from "./assembly.ts";
 import type { GenomeAssembly } from "./variantNotation.ts";
-import type { AouFrequencyData, GnomadFrequencyData } from "./contracts.ts";
+import type { AouFrequencyData, AouLookup, GnomadFrequencyData } from "./contracts.ts";
+import {
+  isFallbackLocus,
+  locusFailureKind,
+  locusRecoveryAction,
+  fallbackLocusSentence,
+  fallbackCause,
+  type LocusResultLike,
+} from "./locusResolution.ts";
 
 /**
  * The gnomAD source key, as `assembly.ts` spells it.
@@ -92,6 +100,8 @@ export interface FrequencyObservation {
   heterozygotes: number | null;
   /** Whether a value exists, and if not, the classified cause. */
   availability: EvidenceAvailability;
+  /** False when locus resolution prevented this source from being queried. */
+  queried?: boolean;
 }
 
 /** Which ACMG/AMP frequency criterion the reading supports. */
@@ -197,6 +207,13 @@ export interface FrequencyEvidence {
    */
   gnomadHomozygotes: number | null;
   /**
+   * True when re-running the analysis could change what this view shows: a source failed for a
+   * transient reason, or the locus is a retryable fallback. Drives the "Re-run analysis" action.
+   */
+  retryable: boolean;
+  /** The next safe user action; ambiguity requires input, never another automatic candidate. */
+  recoveryAction: "retry" | "provide-allele" | null;
+  /**
    * True when a source failed to deliver for a reason that has nothing to do with this variant —
    * a provider timeout or an error. A query merely in flight is `hasPendingSource`, and a build the
    * source does not serve is neither: it is a coverage fact.
@@ -244,6 +261,74 @@ export interface FrequencyEvidenceInput {
   engineCriteria?: ReadonlyArray<{ code?: string | null }> | null;
   /** The ACMG weighting this run used (`metadata.acmgWeighting`), for the suppression note. */
   acmgWeighting?: string | null;
+  /**
+   * The slice of the result that says how the locus was found. When it is a FALLBACK locus (the
+   * GRCh38 lookup failed on this run), gnomAD's refusal is a retryable lookup failure, not the build
+   * gate's coverage fact, and is worded and classified as one (`src/shared/locusResolution.ts`).
+   */
+  locus?: LocusResultLike | null;
+  /** What the All of Us lookup consulted (`analysisResult.aouLookup`), so an empty row names its absence. */
+  aouLookup?: AouLookup | null;
+}
+
+/** The structural slice of an analysis result `frequencyEvidenceInputFromResult` reads. */
+export interface FrequencyResultLike extends LocusResultLike {
+  gnomadFrequency?: GnomadFrequencyData | null;
+  aouFrequency?: AouFrequencyData | null;
+  aouLookup?: AouLookup | null;
+  serviceStatus?: Record<string, string> | null;
+  metadata?: { serviceStatus?: Record<string, string> | null; acmgWeighting?: string | null } | null;
+  clinvar?: {
+    classification?: string | null;
+    alleleFrequencies?: ReadonlyArray<{ source?: string | null; value?: unknown }> | null;
+  } | null;
+  gnomadConstraint?: { pli?: number | null } | null;
+  ruleBasedInsights?: { acmgCriteria?: ReadonlyArray<{ code?: string | null }> | null } | null;
+  insights?: { acmgCriteria?: ReadonlyArray<{ code?: string | null }> | null } | null;
+}
+
+/**
+ * The input every surface builds from an analysis result, in ONE place.
+ *
+ * Four surfaces (Population tab, its rail, Insights, the report) each spelled these eleven fields out
+ * by hand and had already drifted: two read `insights.acmgCriteria` as a fallback and two did not, so
+ * the same payload could report different engine criteria on different screens. New inputs — the locus
+ * trail, the All of Us lookup — would have had to be added four times; now they are added here.
+ */
+export function frequencyEvidenceInputFromResult(
+  result: FrequencyResultLike,
+  overrides: Partial<FrequencyEvidenceInput> = {},
+): FrequencyEvidenceInput {
+  return {
+    gnomadFrequency: result.gnomadFrequency ?? null,
+    aouFrequency: result.aouFrequency ?? null,
+    aouLookup: result.aouLookup ?? null,
+    serviceStatus: result.serviceStatus ?? result.metadata?.serviceStatus ?? null,
+    clinvar: result.clinvar
+      ? { classification: result.clinvar.classification, alleleFrequencies: result.clinvar.alleleFrequencies }
+      : null,
+    assembly: result.predictorData?.gnomadVariantAssembly ?? null,
+    pli: result.gnomadConstraint?.pli ?? null,
+    engineCriteria: result.ruleBasedInsights?.acmgCriteria ?? result.insights?.acmgCriteria ?? null,
+    acmgWeighting: result.metadata?.acmgWeighting ?? null,
+    locus: { predictorData: result.predictorData ?? null, coordinateLift: result.coordinateLift ?? null },
+    ...overrides,
+  };
+}
+
+/** gnomAD's display name in the fallback sentence. */
+const GNOMAD_DISPLAY = "gnomAD r4";
+
+/**
+ * Whether gnomAD was refused because the run's locus is a fallback, and the sentence that says so.
+ * Null when the locus is not a fallback — the build gate's own wording then stands, and is true.
+ */
+function fallbackRefusal(input: FrequencyEvidenceInput): { sentence: string; retryable: boolean; recoveryAction: FrequencyEvidence["recoveryAction"] } | null {
+  if (!isFallbackLocus(input.locus)) return null;
+  const recoveryAction = locusRecoveryAction(input.locus);
+  const retryable = recoveryAction === "retry";
+  const failureKind = locusFailureKind(input.locus);
+  return { sentence: fallbackLocusSentence(GNOMAD_DISPLAY, input.assembly ?? null, { retryable, failureKind: failureKind ?? undefined }), retryable, recoveryAction };
 }
 
 /** Percentage formatting for criterion sentences: `0.0001` → `"0.01%"`. */
@@ -441,6 +526,18 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
   // 0. A build the source cannot serve. Tested first because the status this leaves behind is
   //    `not_found` — indistinguishable from a confirmed absence — so any later test would read it.
   const status = serviceStatus?.gnomadFrequency;
+  // 0a. …and when that build is a FALLBACK (the GRCh38 lookup failed), say so: it is a lookup failure
+  //     a re-run can fix, not a fact about the variant. Still withheld — nothing was queried.
+  const locusFallback = fallbackRefusal(input);
+  if (locusFallback) {
+    return {
+      ...base,
+      code: "withheld",
+      af: null,
+      sourceId: null,
+      statement: `Population-frequency evidence was withheld: ${locusFallback.sentence} No frequency criterion (PM2, BS1 or BA1) was applied.`,
+    };
+  }
   const buildRefusal =
     assembly && !sourceSupportsAssembly(GNOMAD_SOURCE, assembly)
       ? describeAssemblyRefusal(GNOMAD_SOURCE, assembly)
@@ -755,6 +852,86 @@ function clinvarAvailability(
 }
 
 /**
+ * Why the All of Us row is empty, bounded to what the run actually established.
+ *
+ * The previous sentence — "The local All of Us frequency table holds no entry for this variant" — was
+ * printed for every empty row, including deployments with no local table and lookups that never
+ * finished. Each branch below states only what `aouLookup` recorded; a payload without the record gets
+ * the one sentence that claims nothing about a table.
+ */
+export function aouAbsenceReason(lookup: AouLookup | null): { reason: string; fault: boolean } {
+  if (!lookup) return { reason: "No All of Us frequency was returned for this variant.", fault: false };
+  const remote = lookup.remoteDbnsfp === "not-reported" ? " and the dbNSFP record carried no All of Us counts" : "";
+  switch (lookup.localTable) {
+    case "absent":
+      return { reason: `The local All of Us frequency table holds no entry for this variant${remote}.`, fault: false };
+    case "not-installed":
+      return {
+        reason: `No All of Us frequency was returned: no local All of Us table is installed in this deployment${remote}.`,
+        fault: false,
+      };
+    case "timed-out":
+      return { reason: "The local All of Us lookup timed out on this run, so the table was not read — re-run to retry.", fault: true };
+    case "failed":
+      return { reason: "The local All of Us lookup failed on this run, so the table was not read — re-run to retry.", fault: true };
+    default:
+      return { reason: "No All of Us frequency was returned for this variant.", fault: false };
+  }
+}
+
+/** Source lineage for All of Us, shared by observation datasets and the inspector rail.
+ * Counts establish a reading, not which deployment/provider served it. An unbound fallback
+ * cannot turn a legacy protein-row lookup into verified nucleotide-specific provenance.
+ */
+export function aouSourceLabel(lookup: AouLookup | null | undefined, locus?: LocusResultLike | null): string {
+  const unbound = isFallbackLocus(locus) && !locus?.predictorData?.gnomadVariantId;
+  if (!lookup || unbound) return "source not reported";
+  if (lookup.localTable === "found") return "local frequency table";
+  if (lookup.remoteDbnsfp === "found") return "remote dbNSFP";
+  if (lookup.localTable === "absent") return "local frequency table (no entry)";
+  if (lookup.localTable === "failed" || lookup.localTable === "timed-out") return "local frequency table (not read)";
+  if (lookup.localTable === "not-installed") return "local table not installed";
+  return "source not reported";
+}
+
+/** The one-line summary above the Source readings table when nothing was observed. */
+export interface ReadingsSummary {
+  kind: "none-observed" | "none-queried" | "partly-queried" | "pending";
+  text: string;
+}
+
+/**
+ * Summarise the empty Source readings card without overclaiming.
+ *
+ * The card used to print "No source reported this allele." whenever nothing was OBSERVED — whether or
+ * not any source was asked. On a fallback-locus run gnomAD was never queried, and the line asserted an
+ * absence nobody had looked for. Only a source that answered and held no record (`no-result`) counts
+ * as having "reported" nothing; refused, failed and in-flight sources are counted apart.
+ *
+ * Returns null when at least one source has a value: the table then speaks for itself.
+ */
+export function summariseReadings(observations: ReadonlyArray<FrequencyObservation>): ReadingsSummary | null {
+  if (observations.some(o => o.availability.hasValue)) return null;
+  const answered = observations.filter(o => o.availability.state === "no-result" && o.queried !== false && o.availability.action !== "provide-allele").length;
+  const pending = observations.filter(o => o.availability.state === "pending").length;
+  const unqueried = observations.length - answered - pending;
+  if (pending > 0 && answered === 0) {
+    return { kind: "pending", text: "Population sources are still being queried." };
+  }
+  if (answered === 0) {
+    return { kind: "none-queried", text: "No source could be queried for this allele, so population frequency was not assessed." };
+  }
+  if (unqueried > 0 || pending > 0) {
+    const notRead = unqueried + pending;
+    return {
+      kind: "partly-queried",
+      text: `No queried source reported this allele; ${notRead} ${notRead === 1 ? "source was" : "sources were"} not read.`,
+    };
+  }
+  return { kind: "none-observed", text: "No source reported this allele." };
+}
+
+/**
  * Build the whole view: per-source observations, what the frequency supports, and what the engine did.
  */
 export function buildFrequencyEvidence(input: FrequencyEvidenceInput): FrequencyEvidence {
@@ -767,12 +944,18 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   } = input;
 
   const gnomadStatus = serviceStatus?.gnomadFrequency;
-  const dataset = gnomadReleaseLabel(gnomadFrequency?.dataset);
-  const isLocalIngest = gnomadFrequency?.dataset === LOCAL_GNOMAD_DATASET;
   const buildRefusal =
     assembly && !sourceSupportsAssembly(GNOMAD_SOURCE, assembly)
       ? describeAssemblyRefusal(GNOMAD_SOURCE, assembly)
       : null;
+  const fallback = fallbackRefusal(input);
+  const rawDataset = gnomadFrequency?.dataset ?? (
+    (gnomadStatus === "not_found" || gnomadStatus === "ok") && !buildRefusal && !fallback
+      ? "gnomad_r4"
+      : null
+  );
+  const dataset = gnomadReleaseLabel(rawDataset);
+  const isLocalIngest = rawDataset === LOCAL_GNOMAD_DATASET;
 
   const gnomadObservation = (
     id: FrequencyObservation["id"],
@@ -793,9 +976,17 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
       an: finite(an),
       homozygotes: null,
       heterozygotes: null,
+      queried: !fallback,
       availability: hasValue
         ? resolveEvidenceAvailability({ value: finite(af) })
-        : gnomadAbsence(gnomadStatus, label.toLowerCase(), buildRefusal),
+        : fallback
+          // Only a temporary lookup failure is a provider fault. Ambiguity needs input.
+          ? resolveEvidenceAvailability({
+              status: fallback.retryable ? "unavailable" : "live",
+              message: fallback.sentence,
+              inputRequired: fallback.recoveryAction === "provide-allele",
+            })
+          : gnomadAbsence(gnomadStatus, label.toLowerCase(), buildRefusal),
     };
   };
 
@@ -835,10 +1026,10 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   /**
    * All of Us.
    *
-   * The pipeline records no per-source status for this cohort, so absence here cannot be attributed
-   * to a provider fault and must not be worded as one. The claim is bounded to what is actually
-   * known — the local frequency table holds no entry — rather than the stronger, unprovable "absent
-   * from the All of Us population".
+   * Only actual counts or a recorded lookup establish that this cohort was read. A missing lookup
+   * must not count as an answered source or imply a local table exists; explicit failures retain
+   * their fault/retry semantics. An input-required fallback explains the missing allele instead
+   * of inventing an absence from a table that could not be queried.
    *
    * The frequency is derived from the counts, which is the only place in the payload it can come
    * from: the contract carries AC/AN/Het/Hom and no `af`. Every shape the contract permits is named
@@ -851,9 +1042,22 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
   const aouAF = aouAC !== null && aouAN !== null && aouAN > 0 ? aouAC / aouAN : null;
   const aouHasEntry = aouAC !== null || aouAN !== null || aouHet !== null || aouHom !== null;
 
+  const aouLookup = input.aouLookup ?? null;
+  const aouUnbound = isFallbackLocus(input.locus) && !input.locus?.predictorData?.gnomadVariantId;
+  const aouNeedsAllele = !aouHasEntry && aouUnbound && fallback?.recoveryAction === "provide-allele";
+  const aouQueried = aouHasEntry || (!aouNeedsAllele && (
+    aouLookup?.localTable === "found" || aouLookup?.localTable === "absent" || aouLookup?.remoteDbnsfp === "found"
+  ));
+
   let aouReason: string;
+  /** A lookup that did not finish is a fault with a remedy, not an absence. */
+  let aouFault = false;
   if (!aouHasEntry) {
-    aouReason = "The local All of Us frequency table holds no entry for this variant.";
+    const said = aouAbsenceReason(aouLookup);
+    aouFault = said.fault;
+    aouReason = aouNeedsAllele && !aouFault
+      ? `All of Us frequency was not assessed: ${fallbackCause(assembly, false, locusFailureKind(input.locus))}`
+      : said.reason;
   } else if (aouAC === null && aouAN === null) {
     aouReason =
       "All of Us reports genotype counts for this variant but no allele count or allele number, so no frequency can be derived.";
@@ -871,7 +1075,8 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     key: "all-of-us",
     id: "all-of-us",
     label: "All of Us",
-    dataset: "All of Us (local frequency table)",
+    dataset: `All of Us (${aouSourceLabel(aouLookup, input.locus)})`,
+    queried: aouQueried,
     af: aouAF,
     ac: aouAC,
     an: aouAN,
@@ -880,7 +1085,7 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     availability:
       aouAF !== null
         ? resolveEvidenceAvailability({ value: aouAF })
-        : resolveEvidenceAvailability({ status: "live", message: aouReason }),
+        : resolveEvidenceAvailability({ status: aouFault ? "unavailable" : "live", message: aouReason, inputRequired: aouNeedsAllele && !aouFault }),
   });
 
   /**
@@ -926,6 +1131,10 @@ export function buildFrequencyEvidence(input: FrequencyEvidenceInput): Frequency
     contributing,
     gnomadHomozygotes: finite(gnomadFrequency?.nHomozygous),
     hasProviderFault: runStates.includes("upstream-error"),
+    retryable: runStates.includes("upstream-error") || Boolean(fallback?.retryable),
+    recoveryAction: fallback?.recoveryAction === "provide-allele"
+      ? "provide-allele"
+      : runStates.includes("upstream-error") || fallback?.retryable ? "retry" : null,
     hasPendingSource: runStates.includes("pending"),
     homozygoteCriterion: {
       code: "BS2",

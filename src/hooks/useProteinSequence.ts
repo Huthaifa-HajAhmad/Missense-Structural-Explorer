@@ -71,7 +71,7 @@ export function useProteinSequence(
         if (active) publish(typeof data?.sequence === "string" ? data.sequence : "");
       } catch (err) {
         if (!active) return;
-        console.warn("Unable to fetch UniProt sequence:", err);
+        console.warn("[UniProt] Unable to fetch sequence:", err);
         publish("");
         setError("UniProt sequence data unavailable. Check network or server connection.");
       } finally {

@@ -459,10 +459,10 @@ describe("frequencyEvidence — source attribution", () => {
 
   it("bounds the All of Us absence claim to what the pipeline knows", () => {
     const aou = observation({ gnomadFrequency: GZF1_GNOMAD }, "all-of-us");
-    // No per-source status exists for this cohort, so the sentence must not claim the cohort lacks
-    // the variant — only that our table does.
-    expect(observationAbsence(aou)).toContain("frequency table holds no entry");
-    expect(observationAbsence(aou)).not.toMatch(/absent from/i);
+    // A payload without `aouLookup` records nothing about which table was read, so the sentence
+    // claims neither that the cohort lacks the variant nor that a table was searched.
+    expect(observationAbsence(aou)).toBe("No All of Us frequency was returned for this variant.");
+    expect(observationAbsence(aou)).not.toMatch(/absent from|holds no entry/i);
   });
 
   it("reports the local dbNSFP ingest as one combined reading, not as an exome reading", () => {

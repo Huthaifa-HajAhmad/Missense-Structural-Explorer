@@ -53,6 +53,7 @@
  * populates via `describeAssemblyRefusal` (see assembly.ts).
  */
 import { ENGINE_STATE_LABELS, type EngineState, type EngineTone } from "./engineStatus.ts";
+import type { LocusFailureKind } from "./locusResolution.ts";
 import type { AssemblyRefusalSource } from "./assembly.ts";
 
 /** The five ways a source can have no value, plus the one way it does. */
@@ -181,6 +182,8 @@ export interface EvidenceAvailabilityInput {
   message?: string | null;
   /** A request is in flight for this source. */
   pending?: boolean;
+  /** Original nucleotide allele is needed before this source can be queried. Not a provider fault. */
+  inputRequired?: boolean;
 }
 
 export interface EvidenceAvailability {
@@ -193,7 +196,7 @@ export interface EvidenceAvailability {
   /** Whether the user can do anything about the absence. Gate every call-to-action on this bit. */
   userActionable: boolean;
   /** Where to send the user, or `null` when there is nowhere to go. */
-  action: "configure-credentials" | "retry" | null;
+  action: "configure-credentials" | "retry" | "provide-allele" | null;
   /** True when a value exists and the surface should render it. */
   hasValue: boolean;
 }
@@ -231,6 +234,9 @@ export function resolveEvidenceAvailability(input: EvidenceAvailabilityInput): E
 
   // 2. In flight, with a route to completion.
   if (pending || status === "pending") return build("pending", null, false, null);
+
+  // Input ambiguity is actionable, but cannot be fixed by retrying a provider.
+  if (input.inputRequired) return build("no-result", providerMessage, true, "provide-allele");
 
   // 3. The build gate declined the coordinate. Nothing anyone can do.
   if (recordedRefusal) return build("not-covered", recordedRefusal, false, null);
@@ -296,11 +302,31 @@ export function refusalReasonFor(
  */
 export function resolveSourceAvailability(
   input: Omit<EvidenceAvailabilityInput, "refusal"> & {
-    refusals: ReadonlyArray<{ source: string; reason: string }> | null | undefined;
+    refusals: ReadonlyArray<{ source: string; reason: string; retryable?: boolean; inputRequired?: boolean; failureKind?: LocusFailureKind }> | null | undefined;
     source: AssemblyRefusalSource;
   },
 ): EvidenceAvailability {
   const { refusals, source, ...rest } = input;
+  /**
+   * Recorded fallback outcomes outrank inferred build coverage: ambiguity needs the original allele,
+   * temporary failures need a retry, and definitive no-match needs neither. Unflagged build refusals
+   * retain their coverage semantics. Values and in-flight requests still win in the resolver.
+   */
+  const record = refusals?.find(r => r.source === source);
+  const inputRequired = record?.inputRequired || record?.failureKind === "ambiguous-allele" ||
+    record?.failureKind === "incomplete-evidence" || record?.failureKind === "invalid-notation";
+  if (record && (inputRequired || record.retryable === false)) {
+    return resolveEvidenceAvailability({
+      ...rest,
+      status: rest.status === "pending" ? "pending" : "live",
+      configured: undefined,
+      message: humaniseRefusal(source, record.reason),
+      inputRequired: Boolean(inputRequired),
+    });
+  }
+  if (record?.retryable) {
+    return resolveEvidenceAvailability({ ...rest, status: rest.status === "pending" ? "pending" : "unavailable", message: humaniseRefusal(source, record.reason) });
+  }
   return resolveEvidenceAvailability({ ...rest, refusal: refusalReasonFor(refusals, source) });
 }
 

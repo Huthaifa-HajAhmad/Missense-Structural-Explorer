@@ -18,6 +18,7 @@ import { VariantAnalysisProvider, useVariantAnalysisStore } from "./context/Vari
 import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 import { useVariantUrlSync } from "./hooks/useVariantUrlSync";
+import { invalidateCachedVariant } from "./services/pipeline/variantCache";
 
 export default function App() {
   const { actions } = useVariantAnalysis();
@@ -50,6 +51,31 @@ export default function App() {
 
   const { removeNotification } = actions;
 
+  /**
+   * Re-run requests. Any surface can ask (`requestRerun()` — the Population card, the header's
+   * run-state slot); App owns the pipeline, so it answers. The stored bundle is dropped first: the
+   * reader is asking because the stored answer is incomplete, and restoring it would be no re-run.
+   * The submission is replayed as it was made (`SearchHistoryItem.query`).
+   */
+  const rerunNonce = useVariantAnalysisStore(s => s.rerunNonce);
+  useEffect(() => {
+    if (rerunNonce === 0) return;
+    const { gene: g, variant: v, uniprotId: u, history, analysisState: st } = useVariantAnalysisStore.getState();
+    if (!g || !v) return;
+    const prior = history.find(h => h.gene === g && (h.variant === v || h.query === v));
+    for (const key of new Set([v, prior?.variant, st.result?.metadata?.variant].filter(Boolean) as string[])) {
+      invalidateCachedVariant(g, key);
+    }
+    actions.handleSelectHistoryItem({
+      gene: g,
+      variant: prior?.variant ?? v,
+      uniprotId: u,
+      ...(prior?.query ? { query: prior.query } : {}),
+    });
+    // Keyed on the request alone: re-running must not be re-triggered by the run it starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerunNonce]);
+
   const [masterView, setMasterView] = useState<MasterView>("search");
   const [metricMode, setMetricMode] = useState<"mean" | "max">("mean");
   const [windowSize, setWindowSize] = useState<number>(() => settings.seqScrollStep || 31);
@@ -76,6 +102,11 @@ export default function App() {
   const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+
+  /* The variant chrome — identity in the top bar, context strip under it — appears on every
+     analysis view. Not on Search (the page's own form names the variant) or About (app-level chrome,
+     where a leftover variant would read as if the guide were about it). */
+  const showVariantChrome = Boolean(gene) && masterView !== "search" && masterView !== "about";
 
   /* First visit: offer the tour once the shell has settled. Only on Search — a shared link that
      opens straight into a result view should show that result, not be pulled away from it. */
@@ -238,6 +269,7 @@ export default function App() {
             masterView={masterView}
             isBiophysicalLoading={isBiophysicalLoading}
             isOffline={isOffline}
+            activeEvidenceTab={activeEvidenceTab}
             showNavToggle={isNarrowViewport}
             onToggleNavDrawer={() => setIsNavDrawerOpen((open) => !open)}
             onOpenPalette={() => setIsPaletteOpen(true)}
@@ -247,17 +279,21 @@ export default function App() {
             onToggleTheme={toggleTheme}
             onOpenSettings={() => setIsSettingsOpen(true)}
             onOpenOnboarding={openTour}
+            variant={showVariantChrome ? { gene, variant, uniprotId, analysisResult: analysisState.result } : null}
           />
 
-          {/* ── Global Variant Header — hidden on the Search workspace and the
-              About view: About is app-level chrome, and a leftover variant banner
-              above it would read as if the guide were about that variant. ── */}
-          {gene && masterView !== "search" && masterView !== "about" && (
+          {/* ── Variant context strip: gene constraint, notes and the run's state ── */}
+          {showVariantChrome && (
             <VariantHeader
               gene={gene}
               variant={variant}
               uniprotId={uniprotId}
               analysisResult={analysisState.result}
+              onProvideAllele={() => {
+                actions.setCustomGene(gene);
+                actions.setShowCustomInputs(true);
+                navigate("search");
+              }}
             />
           )}
 

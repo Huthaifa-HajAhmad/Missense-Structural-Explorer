@@ -56,7 +56,7 @@ export interface TraceSpan {
   startTime: number;
   offsetMs: number;
   durationMs: number;
-  /** Unavailable is no measurement, not a successful computation or a code failure. */
+  /** `unavailable` = the backend declined or could not run it (not a code failure). */
   status: "success" | "failed" | "running" | "unavailable";
   cached?: boolean;
   error?: string;
@@ -89,14 +89,6 @@ export interface TraceRun {
   spans: TraceSpan[];
 }
 
-/** Legacy TelemetrySpan for backwards compatibility */
-export interface TelemetrySpan {
-  name: string;
-  durationMs: number;
-  status: "success" | "failed";
-  timestamp: number;
-}
-
 /** A single log entry */
 export interface ConsoleEntry {
   id: string;                      // crypto.randomUUID()
@@ -127,7 +119,6 @@ export interface StreamState {
 export interface DevConsoleState {
   errorState: StreamState;
   liveState: StreamState;
-  telemetrySpans: TelemetrySpan[]; // legacy list
   traceRuns: TraceRun[];           // full multi-stage trace executions
   activeTraceRun: TraceRun | null; // currently running or inspected trace
   activeTab: LogStream;
@@ -151,6 +142,4 @@ export type DevConsoleAction =
   | { type: "UPDATE_TRACE_SPAN"; traceId: string; spanName: string; updates: Partial<TraceSpan> }
   | { type: "FINISH_TRACE_RUN"; traceId: string; status?: TraceRunFinishStatus }
   | { type: "SET_ACTIVE_TRACE_RUN"; traceId: string }
-  | { type: "CLEAR_TRACES" }
-  | { type: "ADD_TELEMETRY_SPAN"; span: Omit<TelemetrySpan, "timestamp"> }
-  | { type: "CLEAR_TELEMETRY" };
+  | { type: "CLEAR_TRACES" };

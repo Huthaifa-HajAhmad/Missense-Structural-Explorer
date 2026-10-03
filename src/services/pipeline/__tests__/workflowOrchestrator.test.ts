@@ -303,7 +303,7 @@ describe("workflowOrchestrator biophysics backfill gate", () => {
      *
      * `analysisResult: undefined` is the point of this fixture, not incidental. The invariant is about
      * EVERY dispatch, and the one that matters is Stage 3. With a complete analysis the orchestrator
-     * returns at `if (hasCompleteAnalysis && !userDirections)` BEFORE Stage 3 — so a fixture built on
+     * returns at `if (hasCompleteAnalysis)` BEFORE Stage 3 — so a fixture built on
      * HEALTHY_SNAPSHOT alone can only ever exercise the backfill, and this loop would pass without ever
      * observing the path it is named for. A record-integrity review caught exactly that: the first
      * version asserted the invariant with a fixture that could not reach the dispatch whose missing seed

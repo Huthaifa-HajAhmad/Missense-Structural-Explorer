@@ -7,7 +7,11 @@ import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
+import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38 } from "./locus-resolver.ts";
+import { LOCUS_POLICY_VERSION, type LocusResolution, type LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
+import { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
+export { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
 import {
   type GenomeAssembly,
   buildForwardStrandGenomicId,
@@ -45,6 +49,20 @@ export const vepResponseSchema = z.array(z.object({
 })).min(1);
 
 type VepParsed = z.infer<typeof vepResponseSchema>;
+type FailureKind = NonNullable<LocusResolution["failureKind"]>;
+
+// Predictor-local provenance generation: old canonical fallback entries may have promoted an
+// arbitrary allele from an incomplete query. Keep healthy VEP entries; retire only that policy.
+export function isUsablePredictorResult(res: PredictorData, variant?: string, coord?: AssemblyTaggedCoordinate | null, gene?: string): boolean {
+  if (!res || res.gnomadVariantAssembly === "GRCh37" || res.locusResolution?.retryable) return false;
+  if (variant && !coord && isIntrinsicallyAmbiguousProteinChange(variant, gene) && (res.gnomadVariantId || res.caddPhred != null)) return false;
+  const fallback = res.locusResolution?.route === "fallback" || /Fallback|MyVariant|dbNSFP/i.test(res.source ?? "");
+  return !fallback || res.locusResolution?.policyVersion === LOCUS_POLICY_VERSION;
+}
+
+function isAlleleAmbiguity(message: string): boolean {
+  return /could not uniquely determine nucleotide|ambiguous.*(?:nucleotide|allele)|multiple.*nucleotide changes/i.test(message);
+}
 
 /**
  * Consequence selection, in the platform's documented preference order:
@@ -160,8 +178,8 @@ function buildPredictorFromVep(
  *   3. substitution: some consequence must state the requested WT→MUT change, and — when the
  *      protein position parsed — at that position on some transcript (the platform's numbering
  *      is canonical-isoform, so the match is sought across transcripts, not only the selected one).
- * Any failure returns null and the ladder runs unchanged; a coordinate that cannot prove it is
- * this variant's locus is worth exactly nothing here.
+ * Any failure returns null. The caller retains submitted identity, without claiming a successful
+ * VEP binding or replacing the allele via the protein-HGVS ladder.
  */
 async function fetchPredictorsViaCoordinate(
   lifted: { chrom: string; pos: number; ref: string; alt: string },
@@ -182,7 +200,9 @@ async function fetchPredictorsViaCoordinate(
     const strand = first.strand;
     const isNegative = strand === -1 || strand === "-1" || strand === "-";
     const echoRef = (isNegative ? reverseComplementDna(rawRef) : rawRef).toUpperCase();
-    if (echoChrom !== lifted.chrom.toUpperCase() || first.start !== lifted.pos || echoRef !== lifted.ref.toUpperCase()) {
+    const rawAlt = (alleles[1] ?? "").toUpperCase();
+    const echoAlt = (isNegative ? reverseComplementDna(rawAlt) : rawAlt).toUpperCase();
+    if (alleles.length !== 2 || echoAlt !== lifted.alt.toUpperCase() || echoChrom !== lifted.chrom.toUpperCase() || first.start !== lifted.pos || echoRef !== lifted.ref.toUpperCase()) {
       return null;
     }
 
@@ -205,7 +225,36 @@ async function fetchPredictorsViaCoordinate(
   }
 }
 
-export async function fetchPredictorsFallback(gene: string, variant: string, uniprotId?: string): Promise<PredictorData> {
+/**
+ * A failure another attempt could change: an outage, a timeout, a dropped connection or an open
+ * circuit breaker — as opposed to Ensembl stating something about the notation itself (a 400 such as
+ * "Could not uniquely determine nucleotide change"), which a retry will only repeat.
+ */
+export function isTransientLookupFailure(message: string): boolean {
+  return /\b(5\d\d|429)\b|timed? ?out|timeout|abort|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|fetch failed|network|circuit|unavailable/i.test(message);
+}
+
+/**
+ * The fallback branch: MyVariant.info / dbNSFP scores and locus, then recovery of the GRCh38 locus.
+ *
+ * @param prior  what the ladder already attempted, carried into the payload's `locusResolution` so the
+ *               trail names every rung, and whether any of those failures was transient.
+ */
+export async function fetchPredictorsFallback(
+  gene: string,
+  variant: string,
+  uniprotId?: string,
+  prior: { steps: LocusResolutionStep[]; transient: boolean; failureKind?: FailureKind; coordinate?: AssemblyTaggedCoordinate } = { steps: [], transient: false }
+): Promise<PredictorData> {
+  const steps: LocusResolutionStep[] = [...prior.steps];
+  let transient = prior.transient;
+  const intrinsicAmbiguity = !prior.coordinate && isIntrinsicallyAmbiguousProteinChange(variant, gene);
+  let failureKind = intrinsicAmbiguity ? "ambiguous-allele" as const : prior.failureKind;
+  const knownAmbiguity = failureKind === "ambiguous-allele";
+  if (intrinsicAmbiguity) steps.push({ step: "vep-hgvs", outcome: "failed", detail: "standard nuclear genetic code permits multiple single-base alleles for every possible reference codon" });
+  // Explicit input already identifies the allele. Protein fallback may supply protein scores,
+  // but cannot override that identity or provide another allele's CADD.
+  const coordinateOnly = Boolean(prior.coordinate);
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   
@@ -230,6 +279,8 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
   let amClass: string | null = null;
   let caddPhred: number | null = null;
   let gnomadVariantId: string | null = null;
+  /** dbNSFP's own GRCh38 position for the matched record — the independent recovery route. */
+  let dbnsfpGrch38: DbnsfpGrch38 | null = null;
 
   // 1. Check local dbNSFP first if available
   if (pos !== null) {
@@ -240,15 +291,17 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
           amPathogenicity = safeParseFloat(localData.alphamissense);
           amClass = amPathogenicity !== null ? (amPathogenicity >= 0.564 ? "likely_pathogenic" : amPathogenicity <= 0.34 ? "likely_benign" : "ambiguous") : null;
         }
-        if (localData.cadd !== undefined && localData.cadd !== null) {
-          caddPhred = safeParseFloat(localData.cadd);
-        }
+        // Local protein-row CADD is allele-specific and has not been bound to a verified
+        // genomic identity. Only the matched, fully queried MyVariant allele may supply it.
       }
     } catch (_) {}
   }
 
-  // 2. Query MyVariant.info for AlphaMissense & CADD
-  if (amPathogenicity === null || caddPhred === null) {
+  // 2. Query MyVariant.info for AlphaMissense & CADD — and ALWAYS for the locus.
+  //    The local ingest can supply both scores, and this branch used to be skipped then, leaving the
+  //    run with no genomic locus at all: every coordinate-keyed source (gnomAD r4 first) then refused
+  //    a coordinate that was never looked up, and the refusal read as a build problem.
+  {
     try {
       const cleanVarLower = cleanVar.toLowerCase();
       const mutMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
@@ -257,7 +310,7 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
       const queryStr = pos !== null
         ? `dbnsfp.genename:${normGene} AND (dbnsfp.hgvsp:"p.${cleanVar}" OR dbnsfp.aa.pos:${pos})`
         : `dbnsfp.genename:${normGene} AND dbnsfp.hgvsp:"p.${cleanVar}"`;
-      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd.phred,cadd_phred,dbnsfp.hgvsp,dbnsfp.aa.pos&limit=50`;
+      const url = `https://myvariant.info/v1/query?q=${encodeURIComponent(queryStr)}&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd.phred,cadd_phred,dbnsfp.hgvsp,dbnsfp.aa.pos,dbnsfp.hg38,dbnsfp.chrom,dbnsfp.ref,dbnsfp.alt&limit=50`;
       const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000 }, 1);
       if (res.ok) {
         const data = await res.json() as any;
@@ -270,8 +323,8 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
            * Previously the first match's `_id` was adopted and the build gate merely refused it;
            * now that the fallback lifts, a coincidental locus would be promoted to TRUSTED
            * GRCh38 evidence. So: scan every hit, and if more than one distinct locus matches,
-           * refuse the coordinate entirely — the substitution-level values (AM/CADD) stay, the
-           * locus-keyed ones (geometry, gnomAD, AlphaGenome) honestly decline, mirroring the
+           * refuse the coordinate entirely — protein-level AlphaMissense stays, allele-level
+           * CADD and locus-keyed evidence (geometry, gnomAD, AlphaGenome) decline, mirroring the
            * AMBIGUOUS_PROTEIN_NUMBERING policy of the translate route.
            */
           const matchedLoci = new Set<string>();
@@ -302,42 +355,96 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
                 if (m) {
                   const locusId = `${m[1]}-${m[2]}-${m[3]}-${m[4]}`;
                   matchedLoci.add(locusId);
-                  if (gnomadVariantId === null) gnomadVariantId = locusId;
+                  if (gnomadVariantId === null) {
+                    gnomadVariantId = locusId;
+                    dbnsfpGrch38 = readDbnsfpGrch38(hit);
+                  }
                 }
               }
             }
           }
-          if (matchedLoci.size > 1) {
+          // MyVariant returns a bounded page. A single hit is not proof of uniqueness if
+          // more records exist (or the response explicitly reports truncation).
+          const incomplete = data.truncated === true || data.has_more === true ||
+            data.next != null || data.next_page != null ||
+            (data.total != null && (typeof data.total !== "number" || !Number.isInteger(data.total) || data.total < 0 || data.total !== data.hits.length)) ||
+            (data.total == null && data.hits.length >= 50);
+          if (coordinateOnly) {
+            gnomadVariantId = null;
+            dbnsfpGrch38 = null;
+            caddPhred = null;
+            steps.push({ step: "myvariant", outcome: "skipped", detail: "protein scores only; database alleles cannot replace the submitted coordinate" });
+          } else if (matchedLoci.size > 1 || knownAmbiguity) {
+            failureKind = "ambiguous-allele";
             console.warn(`[VEP Fallback] ${matchedLoci.size} distinct MyVariant loci match ${normGene} ${cleanVar} by notation; refusing the coordinate as ambiguous.`);
             gnomadVariantId = null;
+            dbnsfpGrch38 = null;
+            caddPhred = null;
+            steps.push({ step: "myvariant", outcome: "failed", detail: knownAmbiguity ? "canonical/MANE HGVS already proved allele ambiguity; database hits cannot establish uniqueness" : `${matchedLoci.size} distinct alleles match this notation; refused as ambiguous` });
+          } else if (incomplete) {
+            failureKind = "incomplete-evidence";
+            gnomadVariantId = null;
+            dbnsfpGrch38 = null;
+            caddPhred = null;
+            steps.push({ step: "myvariant", outcome: "failed", detail: "truncated MyVariant results cannot establish a unique allele" });
+          } else if (gnomadVariantId) {
+            steps.push({ step: "myvariant", outcome: "ok", detail: `dbNSFP record at GRCh37 ${gnomadVariantId}` });
+          } else {
+            steps.push({ step: "myvariant", outcome: "failed", detail: "no dbNSFP record matched this gene and substitution" });
           }
+        } else {
+          steps.push({ step: "myvariant", outcome: "failed", detail: "MyVariant.info answered with no hits" });
         }
+      } else {
+        transient ||= isTransientLookupFailure(`HTTP ${res.status}`);
+        steps.push({ step: "myvariant", outcome: "failed", detail: `MyVariant.info answered HTTP ${res.status}` });
       }
-    } catch (_) {}
+    } catch (err: any) {
+      transient = true;
+      steps.push({ step: "myvariant", outcome: "failed", detail: `MyVariant.info unreachable (${String(err?.message ?? err).slice(0, 80)})` });
+    }
   }
 
   /**
-   * Lift the hg19 `_id` onto the canonical build (unmapping defect F-3, at its producer).
+   * Recover the GRCh38 locus for the hg19 `_id` (unmapping defect F-3, at its producer).
    *
-   * The MyVariant `_id` is GRCh37, and its query service has no assembly parameter at all. The
-   * coordinate used to be returned tagged GRCh37 and left there — honest, but terminal: every
-   * GRCh38-only source (splice geometry, AlphaGenome, PopEVE, GPN-Star, gnomAD r4) then refused
-   * the variant for two weeks at a time. Lifting HERE, once, with the three-fold verification
-   * the liftover module performs, gives every downstream consumer the canonical-build locus of
-   * the SAME variant. A failed lift keeps the GRCh37 tag: refusal then reads "not assessed",
-   * which is true, and is never coerced.
+   * The MyVariant `_id` is GRCh37 and its query service has no assembly parameter. A GRCh37 locus is
+   * honest but terminal: every GRCh38-only source refuses it. `recoverCanonicalLocus` tries the
+   * verified Ensembl lift and then dbNSFP's own GRCh38 position checked against the UCSC reference —
+   * two routes on two different hosts, because the Ensembl one shares the breaker with the very VEP
+   * queries whose failure brought the run here. A locus neither route can verify stays GRCh37, tagged.
    */
-  let gnomadVariantAssembly: GenomeAssembly | null = gnomadVariantId ? "GRCh37" : null;
-  if (gnomadVariantId) {
-    const parsed = parseGenomicCoordinateString(gnomadVariantId);
-    if (parsed) {
-      const lifted = await liftCoordinateToCanonical({ ...parsed, assembly: "GRCh37" }).catch(() => null);
-      if (lifted) {
-        gnomadVariantId = `${lifted.chrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`;
-        gnomadVariantAssembly = "GRCh38";
-      }
-    }
+  let gnomadVariantAssembly: GenomeAssembly | null = null;
+  let canonicalBy: LocusResolution["canonicalBy"] = null;
+  if (knownAmbiguity || failureKind === "ambiguous-allele" || coordinateOnly) {
+    gnomadVariantId = null;
+    dbnsfpGrch38 = null;
+    caddPhred = null;
   }
+  if (prior.coordinate) {
+    const c = prior.coordinate;
+    // The input identity remains in the request/trail, not in queryable evidence IDs:
+    // a failed gene/substitution binding must not authorize unrelated cohort evidence.
+    steps.push({ step: "vep-coordinate", outcome: "failed", detail: `retained submitted ${c.assembly} ${c.chrom}:${c.pos}${c.ref}>${c.alt}; no verified gene/substitution binding` });
+  } else if (gnomadVariantId) {
+    const recovered = await recoverCanonicalLocus(gnomadVariantId, dbnsfpGrch38);
+    gnomadVariantId = recovered.id;
+    gnomadVariantAssembly = recovered.assembly;
+    canonicalBy = recovered.canonicalBy;
+    steps.push(...recovered.steps);
+    transient ||= recovered.retryable;
+  }
+  if (!gnomadVariantId) caddPhred = null;
+  const definitive = failureKind === "ambiguous-allele" || failureKind === "incomplete-evidence";
+  const retryable = canonicalBy === null && !definitive && transient;
+  const locusResolution: LocusResolution = {
+    route: "fallback",
+    canonicalBy,
+    retryable,
+    ...(canonicalBy === null ? { failureKind: definitive ? failureKind : retryable ? "transient-provider" as const : failureKind ?? "not-found" as const } : {}),
+    policyVersion: LOCUS_POLICY_VERSION,
+    steps: steps.slice(-12),
+  };
 
   const hasAnyData = amPathogenicity !== null || caddPhred !== null || Boolean(transcriptId);
   return {
@@ -347,6 +454,7 @@ export async function fetchPredictorsFallback(gene: string, variant: string, uni
     caddPhred,
     gnomadVariantId,
     gnomadVariantAssembly,
+    locusResolution,
     transcriptId,
     maneRefSeqId,
     canonicalEnsemblId,
@@ -374,6 +482,7 @@ export async function fetchPredictorData(
   // (p.Lys272Asn from C>A and from C>G — same codon, different nucleotide, different
   // CADD/SpliceAI/gnomAD answer). Keying without it lets one request's locus serve another's.
   const cacheKey = buildPredictorsKey(gene, variant, uniprotId, coord ?? null);
+  const intrinsicAmbiguity = !coord && isIntrinsicallyAmbiguousProteinChange(variant, gene);
 
   return getCachedOrFetch({
     key: cacheKey,
@@ -385,11 +494,12 @@ export async function fetchPredictorData(
      *
      * The fallback coordinate is what the build gate refuses; caching it behind a key that has
      * no build dimension turned a TRANSIENT VEP/liftover outage into a two-week blind panel for
-     * every user of the same variant. A result whose coordinate is canonical (or absent) is
-     * stable reference data and keeps the long TTL; a GRCh37-tagged one is retried next request,
-     * by which time the lift may well succeed.
+     * every user of the same variant. A healthy canonical result or a definitive refusal keeps
+     * the long TTL. Retryable failures (including null IDs) and GRCh37 entries are rejected on
+     * BOTH writes and reads. Legacy fallback policy entries cannot prove allele uniqueness.
      */
-    shouldCache: (res) => !(res?.gnomadVariantId && res?.gnomadVariantAssembly === "GRCh37"),
+    shouldCache: res => isUsablePredictorResult(res, variant, coord, gene),
+    isUsable: res => isUsablePredictorResult(res, variant, coord, gene),
     fetcher: async () => {
       let transcriptRefseqId: string | null = null;
       let transcriptEnsemblId: string | null = null;
@@ -402,6 +512,22 @@ export async function fetchPredictorData(
           canonicalEnsemblId = transcripts.canonicalEnsemblId ?? null;
         } catch (_) {}
       }
+
+      /** The locus trail for this run, carried onto whichever branch answers. */
+      const steps: LocusResolutionStep[] = [];
+      if (intrinsicAmbiguity) steps.push({ step: "vep-hgvs", outcome: "failed", detail: "standard nuclear genetic code permits multiple single-base alleles for every possible reference codon" });
+      let transient = false;
+      const withTrail = (data: PredictorData, route: LocusResolution["route"]): PredictorData => ({
+        ...data,
+        ...(intrinsicAmbiguity ? { caddPhred: null, gnomadVariantId: null, gnomadVariantAssembly: null } : {}),
+        locusResolution: {
+          route,
+          canonicalBy: !intrinsicAmbiguity && data.gnomadVariantAssembly === "GRCh38" ? "vep" : null,
+          retryable: false,
+          ...(intrinsicAmbiguity ? { failureKind: "ambiguous-allele" as const, policyVersion: LOCUS_POLICY_VERSION } : {}),
+          steps: steps.slice(-12),
+        },
+      });
 
       // ── Coordinate-first: one unambiguous query beats a ladder of lossy ones ──
       if (coord) {
@@ -423,10 +549,21 @@ export async function fetchPredictorData(
         const lifted = await liftCoordinateToCanonical(coord, { deadlineAt: coordDeadline }).catch(() => null);
         if (lifted) {
           const viaCoordinate = await fetchPredictorsViaCoordinate(lifted, canonicalEnsemblId, expect, coordDeadline);
-          if (viaCoordinate) return viaCoordinate;
+          if (viaCoordinate) {
+            steps.push({ step: "vep-coordinate", outcome: "ok", detail: `region ${lifted.chrom}:${lifted.pos}` });
+            return withTrail(viaCoordinate, "vep-coordinate");
+          }
+          steps.push({ step: "vep-coordinate", outcome: "failed", detail: "the region query did not answer or did not bind to this gene and substitution" });
           // A coordinate that cannot prove it is this variant's locus falls through to the
           // ladder; it is never coerced, and the ladder's own fallback keeps the honest build tag.
+        } else {
+          steps.push({ step: "vep-coordinate", outcome: "skipped", detail: "the submitted coordinate could not be placed on GRCh38" });
         }
+        // The submitted allele must not be replaced by a protein-HGVS or database guess
+        // when its region lookup is unavailable. Keep its identity and only protein scores.
+        return fetchPredictorsFallback(gene, variant, uniprotId, {
+          steps, transient: true, coordinate: lifted ? { ...lifted, assembly: "GRCh38" } : coord,
+        });
       }
 
       let queryTargets: string[] = [];
@@ -457,9 +594,27 @@ export async function fetchPredictorData(
       queryTargets.push(`${normGene}:p.${cleanVar}`);
 
       let parsedData: VepParsed | null = null;
-      let errorMsg = "";
+      const errors: string[] = [];
+      let ambiguousAllele = false;
+      const cleanId = (id: string | null) => id?.split(".")[0] ?? null;
+      const canonicalTarget = cleanId(canonicalEnsemblId);
+      const maneMatchesCanonical = canonicalTarget && canonicalTarget === cleanId(transcriptEnsemblId);
+      // The input protein numbering belongs to canonical. An unrelated MANE isoform's
+      // ambiguity cannot veto a successfully bound canonical target.
+      const authoritativeIds = new Set((canonicalTarget
+        ? [canonicalEnsemblId, ...(maneMatchesCanonical ? [transcriptRefseqId] : [])]
+        : [transcriptRefseqId, transcriptEnsemblId])
+        .filter((id): id is string => Boolean(id)).map(id => id.split(".")[0]));
+      const recordFailure = (target: string, message: string) => {
+        errors.push(`${target}: ${message}`);
+        transient ||= isTransientLookupFailure(message);
+        // Gene-symbol HGVS has no guaranteed isoform numbering. Only explicit MANE /
+        // canonical transcript targets can make a definitive statement about this allele.
+        if (authoritativeIds.has(target.split(":")[0].split(".")[0]) && isAlleleAmbiguity(message)) ambiguousAllele = true;
+        steps.push({ step: "vep-hgvs", outcome: "failed", detail: `${target}: ${message}`.slice(0, 300) });
+      };
 
-      for (const target of queryTargets) {
+      for (const target of [...new Set(queryTargets)]) {
         const url = `https://rest.ensembl.org/vep/human/hgvs/${encodeURIComponent(target)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
         try {
           console.log(`[VEP Fetch] Querying target: ${target}`);
@@ -470,34 +625,41 @@ export async function fetchPredictorData(
           if (res.ok) {
             const data = await res.json() as any;
             parsedData = vepResponseSchema.parse(data);
-            if (parsedData.length > 0 && parsedData[0].transcript_consequences) {
+            const targetIsAligned = !canonicalTarget || authoritativeIds.has(target.split(":")[0].split(".")[0]);
+            if (parsedData.length > 0 && parsedData[0].transcript_consequences && !ambiguousAllele && targetIsAligned &&
+                buildPredictorFromVep(parsedData, "GRCh38", "Ensembl VEP API", canonicalEnsemblId, normGene)) {
               console.log(`[VEP Fetch] Successfully resolved predictors via target: ${target}`);
               break;
             }
+            parsedData = null;
+            recordFailure(target, "no bound transcript consequence for this notation");
           } else {
             const errText = await res.text().catch(() => "");
-            errorMsg = `Status ${res.status}: ${errText}`;
-            if (res.status === 503 || res.status === 502) {
-              console.warn(`[VEP Fetch] Ensembl REST returned HTTP ${res.status}, failing fast to secondary fallback.`);
-              break;
-            }
+            recordFailure(target, `Status ${res.status}: ${errText}`);
           }
         } catch (err: any) {
-          errorMsg = err.message || String(err);
+          recordFailure(target, err.message || String(err));
         }
       }
 
       try {
         if (parsedData && parsedData.length > 0 && parsedData[0].transcript_consequences) {
           const resVal = buildPredictorFromVep(parsedData, "GRCh38", "Ensembl VEP API", canonicalEnsemblId, normGene);
-          if (resVal) return resVal;
+          if (resVal) {
+            steps.push({ step: "vep-hgvs", outcome: "ok" });
+            return withTrail(resVal, "vep-hgvs");
+          }
         }
       } catch (err: any) {
         console.warn(`[Predictors Fetch Error] Failed to parse VEP predictors response: ${err.message}`);
       }
 
-      console.log(`[VEP Fallback] Ensembl VEP unavailable or incomplete for ${normGene} ${cleanVar}; falling back to MyVariant & UniProt`);
-      return await fetchPredictorsFallback(gene, variant, uniprotId);
+      const ladderFailure = errors.join("; ") || "no transcript consequence for this notation";
+      if (!errors.length) steps.push({ step: "vep-hgvs", outcome: "failed", detail: ladderFailure });
+      console.log(`[VEP Fallback] Ensembl VEP unavailable or incomplete for ${normGene} ${cleanVar} (${ladderFailure.slice(0, 120)}); falling back to MyVariant & UniProt`);
+      return await fetchPredictorsFallback(gene, variant, uniprotId, {
+        steps, transient, ...(ambiguousAllele ? { failureKind: "ambiguous-allele" as const } : {}),
+      });
     }
   });
 }

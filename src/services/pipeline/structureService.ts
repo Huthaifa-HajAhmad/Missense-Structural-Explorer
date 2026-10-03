@@ -338,7 +338,7 @@ export async function fetchNearestResidues(
     }
   } catch (err: any) {
     if (!signal?.aborted) {
-      console.error("Error fetching nearest residues:", err);
+      console.error("[StructureService] Error fetching nearest residues:", err);
     }
   } finally {
     pendingResiduesSet.delete(cacheKey);

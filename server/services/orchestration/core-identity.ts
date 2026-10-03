@@ -335,7 +335,7 @@ export function structuralIdentityRecordOf(context: ParsedVariantContext): Paylo
 
 export interface PayloadCompatibility {
   compatible: boolean;
-  /** False when the payload predates the guard: treated as compatible, and reported so callers can say so. */
+  /** Whether the payload recorded an identity at all. False means it predates the guard and is REFUSED. */
   recorded: boolean;
   /** Which dimension refused the payload, or why it was accepted. Never contains credential material. */
   reason: string | null;

@@ -1,5 +1,6 @@
 import React from "react";
-import { AlertTriangle, Database, ExternalLink, Gauge, Scale, Star } from "lucide-react";
+import { AlertTriangle, Database, ExternalLink, Gauge, Search, RotateCw, Scale, Star } from "lucide-react";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { TabComponentProps } from "./types";
 import {
   buildFrequencyEvidence,
@@ -10,8 +11,7 @@ import {
   observationAbsence,
   type FrequencyApplication,
   type FrequencyCriterion,
-  type FrequencyObservation,
-} from "../../shared/frequencyEvidence";
+  type FrequencyObservation, frequencyEvidenceInputFromResult, summariseReadings } from "../../shared/frequencyEvidence";
 import type { EvidenceAvailabilityState } from "../../shared/evidenceAvailability";
 import { THRESHOLDS } from "../../shared/thresholds";
 import { FrequencyScale, type ScaleReading } from "./population/FrequencyScale";
@@ -198,22 +198,21 @@ function Stars({ count }: { count: number }) {
   );
 }
 
-export function ClinicalTab({ analysisState }: TabComponentProps) {
+export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentProps) {
+  const requestRerun = useVariantAnalysisStore(s => s.requestRerun);
+  const setCustomGene = useVariantAnalysisStore(s => s.setCustomGene);
+  const setShowCustomInputs = useVariantAnalysisStore(s => s.setShowCustomInputs);
   const result = analysisState.result;
   if (!result) return null;
 
-  const evidence = buildFrequencyEvidence({
-    gnomadFrequency: result.gnomadFrequency ?? null,
-    aouFrequency: result.aouFrequency ?? null,
-    serviceStatus: result.serviceStatus ?? result.metadata?.serviceStatus ?? null,
-    clinvar: result.clinvar
-      ? { classification: result.clinvar.classification, alleleFrequencies: result.clinvar.alleleFrequencies }
-      : null,
-    assembly: result.predictorData?.gnomadVariantAssembly ?? null,
-    pli: result.gnomadConstraint?.pli ?? null,
-    engineCriteria: result.ruleBasedInsights?.acmgCriteria ?? result.insights?.acmgCriteria ?? null,
-    acmgWeighting: result.metadata?.acmgWeighting ?? null,
-  });
+  const provideAllele = () => {
+    // Keep the current notation and gene context; never choose or submit a candidate allele.
+    if (result.metadata?.gene) setCustomGene?.(result.metadata.gene);
+    setShowCustomInputs?.(true);
+    onNavigateToView?.("search");
+  };
+
+  const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(result));
 
   const { criterion, applied, clinvar } = evidence;
   const FREQ = THRESHOLDS.populationFrequency;
@@ -306,6 +305,7 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
   const observedLines = allLines.filter(l => hasFigure(l.observation));
   const noReadingLines = allLines.filter(l => !hasFigure(l.observation));
   const readingsHaveRuleDot = observedLines.some(l => l.ruleInput);
+  const readingsSummary = summariseReadings(evidence.observations);
 
   return (
     <div className="pop-screen @container">
@@ -384,15 +384,30 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
           </p>
         )}
 
-        {(evidence.hasProviderFault || evidence.hasPendingSource) && (
+        {(evidence.hasProviderFault || evidence.hasPendingSource || evidence.recoveryAction === "provide-allele") && (
           <div role="status" className="pop-callout pop-callout--banner" data-tone="warning">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span>
-              {evidence.hasProviderFault
+              {evidence.recoveryAction === "provide-allele"
+                ? "Coordinate-based evidence needs the original nucleotide allele before it can be queried."
+                : evidence.hasProviderFault
                 ? "At least one source did not deliver a reading for this run, so the figures above may be incomplete."
                 : "At least one source is still being queried, so the figures above may be incomplete."}{" "}
               The affected rows are marked below.
             </span>
+            {/* Offered only when another attempt could change the answer, never for a coverage fact. */}
+            {evidence.recoveryAction === "provide-allele" && onNavigateToView && (
+              <button type="button" className="pop-callout__action" onClick={provideAllele}>
+                <Search className="w-3.5 h-3.5" aria-hidden="true" />
+                Provide nucleotide allele
+              </button>
+            )}
+            {evidence.recoveryAction === "retry" && !evidence.hasPendingSource && (
+              <button type="button" className="pop-callout__action" onClick={requestRerun}>
+                <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+                Re-run analysis
+              </button>
+            )}
           </div>
         )}
       </section>
@@ -427,9 +442,10 @@ export function ClinicalTab({ analysisState }: TabComponentProps) {
                   <span className="pop-card__head-label">Source</span>
                   <span className="pop-card__head-label">Reading</span>
                 </div>
-                <p className="pop-readings__empty">
+                {/* Bounded to what was actually asked: "reported nothing" only for sources that answered. */}
+                <p className="pop-readings__empty" data-kind={readingsSummary?.kind}>
                   <span className="pop-readings__empty-mark" aria-hidden="true" />
-                  <strong>No source reported this allele.</strong>
+                  <strong>{readingsSummary?.text ?? "No source reported this allele."}</strong>
                 </p>
               </>
             )}

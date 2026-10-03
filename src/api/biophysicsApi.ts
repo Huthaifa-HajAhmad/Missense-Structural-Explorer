@@ -189,7 +189,10 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         let parsed: any;
         try {
           parsed = JSON.parse(buffer);
-        } catch (_) {}
+        } catch (err) {
+          // A cut-off final frame can carry the payload; losing it silently leaves a partial result.
+          console.warn("[Stream Parse Warning] The final stream frame was not valid JSON and was dropped:", err);
+        }
         if (parsed) {
           if (parsed.type === "error") {
             throw new Error(parsed.error || "Stream error");

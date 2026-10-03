@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { AuditLogger } from "./audit-logger.ts";
+import { initialDeploymentPaused } from "../deployment-role.ts";
 
 /**
  * Starts a background janitor that runs periodically to delete job directories in temp_jobs/
@@ -14,6 +15,7 @@ export function runTempJobsJanitor(): void {
   const RUN_INTERVAL = 5 * 60 * 1000; // run every 5 minutes (M-4)
 
   setInterval(async () => {
+    if (initialDeploymentPaused()) return;
     // 1. Sweep temp jobs
     try {
       if (fs.existsSync(tempJobsDir)) {
