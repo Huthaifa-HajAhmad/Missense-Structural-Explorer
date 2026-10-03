@@ -110,3 +110,7 @@ tools/brand-mark/.browser-profile/
 # Container-local worker role and host-local deployment journal
 .deployment-role*
 /deploy/runtime/
+
+# Machine-local agent/tooling config (paths are absolute to one checkout)
+/.codex/config.toml
+/.dsh-validate-yaml.cjs
