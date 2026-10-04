@@ -20,6 +20,10 @@ describe("predictStructuralDisruption (Geometric & Secondary Structure Rules)", 
     expect(result.level).toBe("high");
     expect(result.reason).toContain("Proline introduced at position 2");
     expect(result.reason).toContain("helix");
+    // This executes the real sidecar through tools/.venv rather than a mocked
+    // subprocess, guarding the deployment path that previously returned no RSA.
+    expect(result.rsa).toEqual(expect.any(Number));
+    expect(result.sasaUnavailableReason).toBeUndefined();
   }, 15000);
 
   it("predicts low disruption for conservative substitution in a helix", async () => {

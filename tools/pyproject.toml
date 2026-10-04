@@ -13,6 +13,7 @@ dependencies = [
   "scipy>=1.11.0",
   "pandas>=2.0.0",
   "biopython>=1.83",
+  "biotite>=1.7.1",
   "esm @ git+https://github.com/Biohub/esm.git@main",
   "mini3di"
 ]
@@ -34,5 +35,4 @@ torch = { index = "pytorch-cpu" }
 # deployment never started. Restoring the resolution to the explicitly declared PyPI
 # dependency keeps the build reproducible without shipping a credential.
 override-dependencies = ["transformers==4.57.6"]
-
 
