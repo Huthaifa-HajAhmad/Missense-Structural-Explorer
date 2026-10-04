@@ -37,18 +37,18 @@ export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry): s
   const [winFrom, winTo] = site === "donor" ? [-THRESHOLDS.dbscsnv.window.donor.exonic, THRESHOLDS.dbscsnv.window.donor.intronic] : [-THRESHOLDS.dbscsnv.window.acceptor.intronic, THRESHOLDS.dbscsnv.window.acceptor.exonic];
   const preds = map.predictions.length
     ? ` SpliceAI places ${map.predictions
-        .map(x => `${x.name.toLowerCase()} ${formatDelta(x.ds)} at ${signed(x.offset)} bases from the variant in transcript direction${x.atSite ? `, on the annotated ${x.atSite}` : ""}`)
+        .map(x => `${x.name.toLowerCase()} ${formatDelta(x.ds)} at ${signed(x.offset)} bases from the variant in transcript direction${x.atSite ? `, on the annotated ${x.atSite}` : ""}${Math.abs(x.offset) > map.halfWidth ? ", outside the map view" : ""}`)
         .join("; ")}.`
     : map.predictionsNote ?? " No predicted site is drawn; inspect the channel readings for scores.";
-  return `Variant at position ${signed(map.position)} of the ${site}, ${geometry.regionType}. dbscSNV's window here runs ${signed(winFrom)} to ${signed(winTo)}; the variant is ${geometry.inDbscsnvWindow ? "inside" : "outside"} it.${preds}`;
+  return `Variant at position ${signed(map.position)} of the ${site}, ${geometry.regionType}. dbscSNV's window here runs ${signed(winFrom)} to ${signed(winTo)}; the variant is ${geometry.inDbscsnvWindow ? "inside" : "outside"} it.${preds}${map.predictions.length > 0 && map.predictionsNote ? ` ${map.predictionsNote}` : ""}`;
 }
 
 export function SpliceMap({ map: sourceMap, geometry }: { map: SpliceMapModel; geometry: SpliceGeometry }) {
   const [zoom, setZoom] = React.useState<number | null>(null);
   const [focusedScore, setFocusedScore] = React.useState(false);
   const map = { ...sourceMap, halfWidth: zoom ?? sourceMap.halfWidth };
-  // A focused scale is explicitly labelled and only available when all values fit.
-  const canFocus = map.predictions.every(p => p.ds <= 0.3);
+  // Include scores with missing positions: a focused view must not obscure the highest signal.
+  const canFocus = map.maxScore !== null && map.maxScore <= 0.3 && map.predictions.every(p => p.ds <= 0.3);
   const scoreMax = focusedScore && canFocus ? 0.3 : 1;
   const scoreY = (score: number) => yBase - score / scoreMax * LANE_H;
   const scale = HALF_PX / map.halfWidth;
@@ -249,8 +249,9 @@ export function SpliceMap({ map: sourceMap, geometry }: { map: SpliceMapModel; g
       </g>
     </svg>
     <details className="spl-notes">
-      <summary>Predicted site details ({map.predictions.length})</summary>
+      <summary>Predicted site details ({map.predictions.length + map.missingPositions.length})</summary>
       <ul>{map.predictions.map(pr => <li key={pr.key}>{pr.name}: Δ {pr.ds}; {signed(pr.offset)} bp from the variant (transcript direction). {pr.atSite ? `Coincides with an annotated ${pr.atSite} within 1 bp.` : "No matching annotated site of this type in the supplied geometry."} {Math.abs(pr.offset) > map.halfWidth ? "Outside the map view." : ""}</li>)}</ul>
+      {map.missingPositions.length > 0 && <ul>{map.missingPositions.map(pr => <li key={pr.key}>{pr.name}: Δ {pr.ds}; delta position not returned. This score contributes to the maximum, but its location cannot be plotted.</li>)}</ul>}
     </details>
     </div>
   );

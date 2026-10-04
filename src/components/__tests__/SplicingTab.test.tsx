@@ -95,6 +95,38 @@ describe("SplicingTab — splice map", () => {
       conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: Math.max(...Object.values(ds)), ...ds, dp } },
     });
 
+  it("retains an unpositioned maximum and prevents a focused axis from hiding it", () => {
+    renderTab(withScores({ ds_ag: 0.9, ds_dl: 0.05 }, { ds_dl: 40 }));
+    expect((screen.getByRole("option", { name: "0–0.3 (focused range)" }) as HTMLOptionElement).disabled).toBe(true);
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
+    expect(screen.getByTestId("map-note").textContent).toMatch(/no delta position/);
+    expect(screen.getByText(/Acceptor gain: Δ 0.9; delta position not returned/)).toBeTruthy();
+    expect(screen.getByTestId("splicing-finding").textContent).toContain("0.90");
+    expect(screen.queryByTestId("map-ds_ag")).toBeNull();
+  });
+
+  it("resets zoom and focus for a new transcript but retains them when re-scoring the same transcript", () => {
+    const result = withScores({ ds_dl: 0.05 }, { ds_dl: 40 });
+    const { rerender } = renderTab(result);
+    fireEvent.change(screen.getByLabelText("Map view"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("SpliceAI delta axis"), { target: { value: "focused" } });
+    const update = (next: any) => rerender(<SplicingTab {...({ analysisState: { result: next, isLoading: false } } as any)} />);
+    update(withScores({ ds_dl: 0.06 }, { ds_dl: 40 }));
+    expect((screen.getByLabelText("Map view") as HTMLSelectElement).value).toBe("50");
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("focused");
+    update({ ...result, maneRefSeqId: "NM_999999.1" });
+    expect((screen.getByLabelText("Map view") as HTMLSelectElement).value).toBe("auto");
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
+  });
+
+  it("forces the full axis when a same-transcript re-score exceeds the focused range", () => {
+    const { rerender } = renderTab(withScores({ ds_dl: 0.05 }, { ds_dl: 40 }));
+    fireEvent.change(screen.getByLabelText("SpliceAI delta axis"), { target: { value: "focused" } });
+    rerender(<SplicingTab {...({ analysisState: { result: withScores({ ds_dl: 0.9 }, { ds_dl: 40 }), isLoading: false } } as any)} />);
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
+    expect(screen.getByText("SpliceAI Δ · 0–1")).toBeTruthy();
+  });
+
   it("separates map zoom from scoring and shows off-view positions honestly", () => {
     renderTab(withScores({ ds_dl: 0.62 }, { ds_dl: 400 }));
     fireEvent.change(screen.getByLabelText("Map view"), { target: { value: "50" } });

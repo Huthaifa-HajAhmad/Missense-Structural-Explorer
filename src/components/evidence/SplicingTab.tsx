@@ -427,6 +427,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
                       <span>Display filter: {showSmallSignals ? "Δ > 0" : `Δ ≥ ${SPLICE_MAP_FLOOR}`} · scores remain in the readings</span>
                     </div>
                     <div className="spl-geo__figure">
+                      {/* Reset geometry-specific view state on transcript changes; re-scoring the same transcript retains it. */}
                       <SpliceMap key={g.transcriptId ?? "unresolved"} map={map} geometry={g} />
                     </div>
                     <MapLegend map={map} />

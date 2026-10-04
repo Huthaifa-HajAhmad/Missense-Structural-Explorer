@@ -242,6 +242,10 @@ export interface SpliceMap {
   /** dbscSNV's window as [from, to] in offsets (edges of the bases it covers). */
   dbscWindow: [number, number];
   predictions: SpliceMapPrediction[];
+  /** All available delta scores, including channels that cannot be positioned. */
+  maxScore: number | null;
+  /** Non-zero signals without delta positions; never silently treated as absent scores. */
+  missingPositions: Array<{ key: SpliceChannelKey; name: string; ds: number }>;
   /** Channels scored below the plotting floor, so the figure can say nothing was left out silently. */
   belowFloor: number;
   /** Why predictions are not placed, when they cannot be. */
@@ -391,6 +395,11 @@ export function resolveJunctionOrientation(
   result: AnalysisResult | null | undefined,
   distance: number | null
 ): { isDonor: boolean; isAcceptor: boolean; junctionType: string } {
+  // A single-exon transcript has no intron-spanning junction, even if a legacy payload
+  // mislabels its terminus as a donor/acceptor. Keep it out of splice-site geometry.
+  if (result?.conservationData?.spliceProximity?.totalExons === 1) {
+    return { isDonor: false, isAcceptor: false, junctionType: "Transcript terminus (not a splice junction)" };
+  }
   const raw = result?.conservationData?.spliceProximity?.junctionType;
   const isAcceptor = raw === "acceptor";
   const isDonor = raw === "donor" || (raw === undefined && distance !== null);
@@ -411,6 +420,7 @@ function buildSpliceMap({
   genomicPos,
   nearby,
   showSmallSignals,
+  maxDs,
 }: {
   geometry: SpliceGeometry;
   channels: Array<{ key: SpliceChannelKey; ds: number | null; dp: number | null }>;
@@ -418,6 +428,7 @@ function buildSpliceMap({
   genomicPos: number | null;
   nearby: Array<{ number: number; start: number; end: number }> | null;
   showSmallSignals: boolean;
+  maxDs: number | null;
 }): SpliceMap | null {
   const p = g.position;
   if (p === null || (g.junction !== "donor" && g.junction !== "acceptor") || g.regionType === null) return null;
@@ -477,6 +488,7 @@ function buildSpliceMap({
   const dbscWindow: [number, number] = [offsetBetweenPositions(p, qa) - 0.5, offsetBetweenPositions(p, qb) + 0.5];
 
   const predictions: SpliceMapPrediction[] = [];
+  const missingPositions: SpliceMap["missingPositions"] = [];
   let belowFloor = 0;
   let predictionsNote: string | null = null;
   const scored = channels.filter(c => c.ds !== null);
@@ -489,7 +501,10 @@ function buildSpliceMap({
         belowFloor += 1;
         continue;
       }
-      if (c.dp === null) continue;
+      if (c.dp === null) {
+        missingPositions.push({ key: c.key, name: SPLICE_CHANNEL_NAME[c.key], ds });
+        continue;
+      }
       const offset = strand === "-" ? -c.dp : c.dp;
       const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
       const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
@@ -504,6 +519,9 @@ function buildSpliceMap({
         inPp3Band: ds >= THRESHOLDS.spliceai.splicingPp3,
       });
     }
+  }
+  if (missingPositions.length > 0) {
+    predictionsNote = `${missingPositions.length === 1 ? "One scored channel has" : `${missingPositions.length} scored channels have`} no delta position, so ${missingPositions.length === 1 ? "it is" : "they are"} not placed on the map. Exact scores are retained in predicted site details.`;
   }
 
   // The window grows to hold what is drawn: every plotted prediction, and the junction when the
@@ -526,6 +544,8 @@ function buildSpliceMap({
     exonNumber: g.exonNumber,
     dbscWindow,
     predictions: predictions.sort((a, b) => a.offset - b.offset),
+    maxScore: scored.length > 0 || maxDs !== null ? Math.max(maxDs ?? 0, ...scored.map(c => c.ds!)) : null,
+    missingPositions,
     belowFloor,
     predictionsNote,
     halfWidth,
@@ -626,7 +646,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const regionType: "exonic" | "intronic" | null = sp?.regionType ?? null;
   const rawJunction = sp?.junctionType;
   const { isDonor, isAcceptor, junctionType } = resolveJunctionOrientation(result, distance);
-  const junction: SpliceGeometry["junction"] = isDonor ? "donor" : isAcceptor ? "acceptor" : rawJunction === "terminal" ? "terminal" : "unresolved";
+  const junction: SpliceGeometry["junction"] = isDonor ? "donor" : isAcceptor ? "acceptor" : rawJunction === "terminal" || sp?.totalExons === 1 ? "terminal" : "unresolved";
   // Legacy payloads carry no regionType; placement then follows the old exonic default, but no
   // position is claimed for them.
   const oriented = (junction === "donor" || junction === "acceptor") && distance !== null && regionType !== null;
@@ -808,7 +828,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         score: c.ds,
         scoreText: c.ds !== null ? formatDelta(c.ds) : "—",
         // A position is only a location when there is a signal to locate.
-        sub: c.dp !== null && ((c.ds ?? 0) >= SPLICE_MAP_FLOOR || (showSmallSignals && (c.ds ?? 0) > 0)) ? `at ${fmtBp(orient(c.dp) as number)} from variant${strandKnown ? "" : " (genomic)"}` : null,
+        sub: c.dp !== null && ((c.ds ?? 0) >= SPLICE_MAP_FLOOR || (showSmallSignals && (c.ds ?? 0) > 0)) ? `at ${fmtBp(orient(c.dp) as number)} from the variant${strandKnown ? "" : " (genomic)"}` : null,
         scale: c.ds !== null ? spliceAiScale(c.ds, false) : null,
         scaleSource: null,
         call: c.ds === null ? null : c.key === maxChannel ? { label: "Maximum", tone: "accent", isCode: false } : null,
@@ -892,7 +912,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   });
 
   // ── Splice map ──
-  const map = buildSpliceMap({ geometry, channels, strand: geometry.strand, genomicPos: finite(sp?.genomicPos), nearby: sp?.nearbyExons ?? null, showSmallSignals });
+  const map = buildSpliceMap({ geometry, channels, strand: geometry.strand, genomicPos: finite(sp?.genomicPos), nearby: sp?.nearbyExons ?? null, showSmallSignals, maxDs });
   if (map) {
     // A channel whose delta position lands on the annotated site of its type says so in the table.
     for (const pr of map.predictions) {

@@ -23,7 +23,11 @@ Use the evidence-tab-refactor skill and its `references/data-visualization.md` c
 - Exon termini distinguished from splice junctions; no inferred AG/GT motif labels.
 - Four channel dot plots share a linear 0–1 scale beside the positional map.
 - Variant-centred transcript-direction positions are labelled separately from donor/acceptor numbering.
-- Taller labelled SpliceAI delta lane, full 0–1 range and optional explicit 0–0.3 focus.
+- Taller labelled SpliceAI delta lane, full 0–1 range and optional explicit 0–0.3 focus, permitted
+  only when all available scores (including unpositioned channels) fit.
+- Scores without delta positions remain in exact-value details and have an explicit omission notice.
+- Zoom/focus resets when the transcript changes; same-transcript re-scoring retains view settings
+  while forcing a full score axis if the focused range cannot contain the new scores.
 - Independent map zoom; directional arrows and exact offsets for predictions outside the view.
 - Explicit default display filter (delta >= 0.01), optional inspection of smaller non-zero signals.
 - Exact-value tooltips with keyboard-accessible native details.

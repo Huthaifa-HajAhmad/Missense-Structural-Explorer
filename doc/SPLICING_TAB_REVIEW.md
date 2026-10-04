@@ -180,6 +180,28 @@ records this provenance rather than implying that its earlier contents were reco
 Final affected-suite rerun: 77 tests passed; production client build passed (dependency annotation
 and existing bundle-size warnings only).
 
+## Independent DeepSeek review resolution — 4 October 2026
+
+Reviewed by `opencode-go/deepseek-v4.1-flash` against commit `86cd200`. The first model entry,
+`opencode/deepseek-v4.1-flash`, was unavailable. The reviewer independently ran 64 affected tests
+and returned request-changes; the findings were checked against the implementation and resolver.
+
+| Finding | Disposition |
+|---|---|
+| F1: focused axis could clip an unpositioned maximum | The claimed plotted clipping was not reproduced: plotted scores already gate focus. Hardened the gate to include every available score, including the payload maximum. Missing delta positions now have an omission notice and exact-value details. Regression tests cover mixed positioned/unpositioned scores and a re-score that exceeds the focused range. |
+| F2: single-exon transcript requires a donor at its end | Rejected the proposed donor: a transcript terminus is not an internal splice junction. The server resolver already labels both ends terminal. Added model tests for single-exon transcripts, including contradictory legacy donor/acceptor labels; the client now normalizes these to terminal geometry without altering the SpliceAI rule or engine. |
+| F3: transcript changes discard map view settings | Intentional reset of geometry-specific state, now documented and tested. Same-transcript re-scoring preserves zoom/focus unless scores require the full axis. |
+| F4: coordinate wording differs between surfaces | Standardized channel positions to “from the variant”; zero remains unsigned. |
+| F5: obsolete channels-row and canonical-mark CSS | Removed both unused selectors. |
+
+The review's proposed single-exon donor must not be restored. No engine criteria or score
+thresholds changed. Unknown locations are named as unknown rather than fabricated or hidden.
+
+Resolution validation: lint/TypeScript and production client build passed; full Vitest suite
+passed 3688 tests in 279 files (5 tests / 2 files skipped), including 84 affected tests.
+The high-score/missing-position case was reviewed in light/dark themes and a narrow main column;
+the focused option is disabled and the unpositioned 0.9 score remains in accessible details.
+
 ### Sources (existing audit)
 
 - Walker LC, et al. Using the ACMG/AMP framework to capture evidence related to predicted and observed impact on splicing: recommendations from the ClinGen SVI Splicing Subgroup. *Am J Hum Genet* 2023;110:1046–1067. doi:10.1016/j.ajhg.2023.06.002

@@ -106,13 +106,13 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     const rows = groupSpliceReadings(rev.readings);
     expect(rows.map(g => g.group)).toEqual(["rule", "channels", "context"]);
     expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.call?.label).toBe("Maximum");
-    expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at +12 bp from variant");
+    expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at +12 bp from the variant");
     // A forward-strand gene keeps the sign.
     const fwd = build({ conservationData: { spliceProximity: { strand: "+" }, spliceai: { ds_ag: 0, ds_al: 0.34, ds_dg: 0, ds_dl: 0, max_ds: 0.34, dp: { ds_al: -12 } } } });
     expect(fwd.rule.maxShift).toBe(-12);
     // No strand: the genomic number is kept and labelled, never silently flipped or presented as transcript direction.
     const unk = build({ conservationData: { spliceProximity: { strand: null }, spliceai: { ds_ag: 0, ds_al: 0.34, ds_dg: 0, ds_dl: 0, max_ds: 0.34, dp: { ds_al: -12 } } } });
-    expect(unk.readings.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at −12 bp from variant (genomic)");
+    expect(unk.readings.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at −12 bp from the variant (genomic)");
   });
 
   it("gives no location for a score that is indistinguishable from zero", () => {
@@ -439,6 +439,27 @@ describe("splice map — terminal boundaries and display filters", () => {
     const result = sod1();
     Object.assign(result.conservationData.spliceProximity, { exonNumber: 5, junctionType: "acceptor" });
     expect(buildSplicingEvidence({ result }).map!.sites.map(s => s.type)).toEqual(["acceptor"]);
+  });
+
+  it.each(["terminal", "donor", "acceptor"])("does not invent a junction for a single-exon transcript labelled %s", junctionType => {
+    const result = sod1();
+    Object.assign(result.conservationData.spliceProximity, { totalExons: 1, junctionType });
+    const ev = buildSplicingEvidence({ result });
+    expect(ev.geometry.junction).toBe("terminal");
+    expect(ev.geometry.position).toBeNull();
+    expect(ev.map).toBeNull();
+    expect(ev.rule.state).toBe("between");
+  });
+
+  it("retains high signals without positions and uses them for the score-axis limit", () => {
+    const result = sod1();
+    Object.assign(result.conservationData.spliceai, { ds_ag: 0.9, max_ds: 0.9, dp: { ds_ag: null, ds_dg: -2 } });
+    const ev = buildSplicingEvidence({ result });
+    expect(ev.map!.maxScore).toBe(0.9);
+    expect(ev.map!.predictions.map(p => p.ds)).toEqual([0.14]);
+    expect(ev.map!.missingPositions).toEqual([{ key: "ds_ag", name: "Acceptor gain", ds: 0.9 }]);
+    expect(ev.map!.predictionsNote).toMatch(/no delta position/);
+    expect(ev.rule.state).toBe("pp3");
   });
 
   it("makes small non-zero channels inspectable without changing evidence or the engine record", () => {
