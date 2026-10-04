@@ -33,6 +33,14 @@ describe("ResidueShiftInspector", () => {
     expect(steps[4]).toHaveTextContent("No ACMG criterion reads this tab");
   });
 
+  it("renders the trace before the model narrative it explains", () => {
+    render(<ResidueShiftInspector analysisResult={NAE1_RESULT} computedPocket={NAE1_POCKET} />);
+    const trace = screen.getByTestId("residue-trace");
+    const narrative = screen.getByTestId("residue-narrative");
+    // DOCUMENT_POSITION_FOLLOWING is set when `narrative` comes after `trace` in the DOM.
+    expect(trace.compareDocumentPosition(narrative) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("lists every cut-point as the app's own and marks this variant's band", () => {
     render(<ResidueShiftInspector analysisResult={NAE1_RESULT} computedPocket={NAE1_POCKET} />);
     const cuts = screen.getByTestId("residue-cuts");
@@ -42,6 +50,18 @@ describe("ResidueShiftInspector", () => {
       "> 29 largelargest shift",
       "> 12 Å distalthis variant"
     ]);
+  });
+
+  it("draws cut-points as a flat definition list, with the active row marked in words", () => {
+    render(<ResidueShiftInspector analysisResult={NAE1_RESULT} computedPocket={NAE1_POCKET} />);
+    const cuts = screen.getByTestId("residue-cuts");
+    expect(cuts.querySelectorAll("dl.rsx-cuts__list").length).toBeGreaterThan(0);
+    expect(cuts.querySelectorAll("dt.rsx-cut__rule").length).toBeGreaterThan(0);
+    // The active row is identified by its visible marker text, not a fill or a pill.
+    const active = cuts.querySelector("[data-active]");
+    expect(active).not.toBeNull();
+    expect(active).toHaveTextContent(/largest shift|this variant/);
+    expect(active!.querySelector("dd.rsx-cut__here")).not.toBeNull();
   });
 
   it("labels the narrative as model-written and checks it against the scales", () => {

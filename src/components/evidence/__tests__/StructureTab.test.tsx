@@ -70,13 +70,61 @@ describe("StructureTab", () => {
   it("reports burial as not measured and does not show the stored packing word as a finding", () => {
     renderTab();
     const rsa = screen.getByTestId("burial-rsa-row");
+    // The failure is named as the state, and burial stays "Not measured" — no packing estimate.
+    expect(rsa).toHaveTextContent("Accessibility didn’t run");
     expect(rsa).toHaveTextContent("Not measured");
-    expect(rsa).toHaveTextContent("No result");
     const packing = screen.getByTestId("burial-packing-row");
     expect(packing).toHaveTextContent("a reading only");
     expect(packing).toHaveTextContent("9");
     expect(screen.getByText(/earlier engine estimated from packing density/)).toBeInTheDocument();
     expect(screen.queryByText("Boundary")).not.toBeInTheDocument();
+  });
+
+  it("offers a structure retry when accessibility did not run", () => {
+    const onRetryStructural = vi.fn();
+    renderTab({ onRetryStructural });
+    const rsa = screen.getByTestId("burial-rsa-row");
+    fireEvent.click(within(rsa).getByRole("button", { name: /Run the structure step again/ }));
+    expect(onRetryStructural).toHaveBeenCalledTimes(1);
+  });
+
+  it("draws each property scale with the two residues and no filled connecting segment", () => {
+    const { container } = renderTab();
+    expect(container.querySelectorAll(".rsx-track__span")).toHaveLength(0);
+    const size = screen.getByTestId("property-row-size");
+    expect(size.querySelectorAll(".rsx-track__wt")).toHaveLength(1);
+    expect(size.querySelectorAll(".rsx-track__mut")).toHaveLength(1);
+  });
+
+  it("keeps both residues visible when their values coincide on a scale", () => {
+    // Ala → Gly carries no charge on either side, so both markers land on the same spot.
+    renderTab({
+      analysisState: {
+        result: { ...NAE1_RESULT, metadata: { ...NAE1_RESULT.metadata, wildType: "Ala", mutant: "Gly", variant: "p.Ala116Gly" } },
+        isLoading: false
+      }
+    });
+    const charge = screen.getByTestId("property-row-charge");
+    expect(charge.querySelector(".rsx-track__wt")).toHaveAttribute("data-coincident");
+    expect(charge.querySelector(".rsx-track__mut")).not.toBeNull();
+  });
+
+  it("ends prose-only environment rows on their content, not an empty cell", () => {
+    renderTab();
+    for (const id of ["pocket-score-row", "pocket-volume-row", "burial-packing-row"]) {
+      const row = screen.getByTestId(id);
+      const cells = Array.from(row.querySelectorAll("td"));
+      expect(cells.length).toBeGreaterThan(0);
+      for (const cell of cells) {
+        expect(cell.textContent?.trim()).not.toBe("");
+      }
+    }
+  });
+
+  it("keeps the decorative pair arrow out of the accessible name and at control size", () => {
+    renderTab();
+    const arrow = screen.getByTestId("residue-pair").querySelector(".rsx-pair__arrow");
+    expect(arrow).toHaveAttribute("aria-hidden", "true");
   });
 
   it("prints one pocket distance, a probability on 0–1, and no invented volume", () => {

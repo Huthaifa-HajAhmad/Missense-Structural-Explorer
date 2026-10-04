@@ -147,7 +147,43 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 
   return (
     <div className="rsx-rail" data-testid="residue-shift-rail">
-      {/* ── 1. Model narrative (first: the sentence a reader wants) ── */}
+      {/* ── 1. Trace (the method, before the model's reading of it) ── */}
+      <section
+        className="rsx-rsec"
+        id={INSPECTOR_SECTIONS.residueShiftPocket}
+        tabIndex={-1}
+        aria-labelledby="rsx-rail-trace"
+      >
+        <h3 className="eyebrow" id="rsx-rail-trace">
+          <span>
+            <GitBranch className="w-4 h-4" aria-hidden="true" />
+            Trace
+          </span>
+          <button type="button" className="rsx-info" onClick={handleCopy} title={copyHint} aria-label={copyHint}>
+            {copyState === "copied" ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
+          </button>
+        </h3>
+        <ol className="rsx-steps" data-testid="residue-trace">
+          {model.trace.map((step, i) => (
+            <Step key={step.label} n={i + 1} {...step} />
+          ))}
+        </ol>
+        {canRetryPocket && (
+          <button
+            type="button"
+            className="rsx-button"
+            disabled={isPocketLoading}
+            onClick={() => {
+              void onRetryPocket!();
+            }}
+          >
+            <RotateCw className="w-4 h-4" aria-hidden="true" />
+            Retry pocket detection
+          </button>
+        )}
+      </section>
+
+      {/* ── 2. Model narrative (below the trace: how the readings were reached) ── */}
       <section
         className="rsx-rsec"
         id={INSPECTOR_SECTIONS.residueShiftNarrative}
@@ -156,7 +192,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
       >
         <h3 className="eyebrow" id="rsx-rail-narrative">
           <span>
-            <MessageSquareText className="w-3.5 h-3.5" aria-hidden="true" />
+            <MessageSquareText className="w-4 h-4" aria-hidden="true" />
             Model narrative
           </span>
         </h3>
@@ -192,7 +228,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
                   void onRetryNarrative();
                 }}
               >
-                <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
+                <RotateCw className="w-4 h-4" aria-hidden="true" />
                 Write the narrative again
               </button>
             )}
@@ -200,61 +236,30 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
         )}
       </section>
 
-      {/* ── 2. Trace ── */}
-      <section
-        className="rsx-rsec"
-        id={INSPECTOR_SECTIONS.residueShiftPocket}
-        tabIndex={-1}
-        aria-labelledby="rsx-rail-trace"
-      >
-        <h3 className="eyebrow" id="rsx-rail-trace">
-          <span>
-            <GitBranch className="w-3.5 h-3.5" aria-hidden="true" />
-            Trace
-          </span>
-          <button type="button" className="rsx-info" onClick={handleCopy} title={copyHint} aria-label={copyHint}>
-            {copyState === "copied" ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
-          </button>
-        </h3>
-        <ol className="rsx-steps" data-testid="residue-trace">
-          {model.trace.map((step, i) => (
-            <Step key={step.label} n={i + 1} {...step} />
-          ))}
-        </ol>
-        {canRetryPocket && (
-          <button
-            type="button"
-            className="rsx-button"
-            disabled={isPocketLoading}
-            onClick={() => {
-              void onRetryPocket!();
-            }}
-          >
-            <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
-            Retry pocket detection
-          </button>
-        )}
-      </section>
-
       {/* ── 3. Cut-points ── */}
       <section className="rsx-rsec" aria-labelledby="rsx-rail-cuts">
         <h3 className="eyebrow" id="rsx-rail-cuts">
           <span>
-            <Ruler className="w-3.5 h-3.5" aria-hidden="true" />
+            <Ruler className="w-4 h-4" aria-hidden="true" />
             Cut-points · this app&apos;s own
           </span>
         </h3>
         <div className="rsx-cuts" data-testid="residue-cuts">
           {Object.entries(cutGroups).map(([group, cuts]) => (
-            <div className="rsx-cuts__group" key={group}>
-              <span className="rsx-cuts__title">{group}</span>
-              {cuts.map(cut => (
-                <div className="rsx-cut" key={cut.rule} data-active={cut.active || undefined}>
-                  <span className="rsx-cut__rule">{cut.rule}</span>
-                  {cut.here ? <span className="rsx-cut__here">{cut.here}</span> : null}
-                </div>
-              ))}
-            </div>
+            <section className="rsx-cuts__group" key={group}>
+              <h4 className="rsx-cuts__title">{group}</h4>
+              {/* A flat definition list: the threshold expression is the term, the band and
+                  "this variant" the reading. No pill, no fill; the active row is heavier and
+                  carries the marker in words. */}
+              <dl className="rsx-cuts__list">
+                {cuts.map(cut => (
+                  <div className="rsx-cut" key={cut.rule} data-active={cut.active || undefined}>
+                    <dt className="rsx-cut__rule">{cut.rule}</dt>
+                    {cut.here ? <dd className="rsx-cut__here">{cut.here}</dd> : null}
+                  </div>
+                ))}
+              </dl>
+            </section>
           ))}
           <p className="rsx-cuts__foot">None of these is a published classification; they are drawn dashed on the tab.</p>
         </div>
@@ -264,7 +269,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
       <section className="rsx-rsec" aria-labelledby="rsx-rail-method">
         <h3 className="eyebrow" id="rsx-rail-method">
           <span>
-            <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
+            <BookOpen className="w-4 h-4" aria-hidden="true" />
             Method
           </span>
         </h3>
@@ -281,7 +286,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
           <summary>
             <h3 className="eyebrow" id="rsx-rail-sources">
               <span>
-                <Database className="w-3.5 h-3.5" aria-hidden="true" />
+                <Database className="w-4 h-4" aria-hidden="true" />
                 Sources ({model.sources.length})
               </span>
             </h3>
