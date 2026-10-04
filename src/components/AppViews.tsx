@@ -480,10 +480,13 @@ export function AppViews({
                         onModeChange={setViewMode}
                         onAlignmentScopeChange={handleAlignmentScopeChange}
                         onSwitchToAlphaFold={() => setMasterView("structure_alphafold")}
+                        onSwitchToEsmFold={() => setMasterView("structure_esmfold")}
                         onOpenPocketTab={() => {
                           setActiveEvidenceTab("structure");
                           setMasterView("evidence");
                         }}
+                        onRetryPocket={handleRetryPocket}
+                        onRetryStructural={actions?.retryStructuralAnalysis}
                         heightClass="h-full"
                       />
                     </Suspense>

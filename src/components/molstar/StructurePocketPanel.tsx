@@ -16,24 +16,29 @@ export function StructurePocketPanel({
   pocket,
   variantPosition,
   showOnStructure,
+  canShowOnStructure,
   onToggleShow,
   onFocusResidue,
   onOpenTab,
+  onRetry,
   onClose,
 }: {
   pocket: PocketNarrative;
   variantPosition: number | null;
   showOnStructure: boolean;
+  /** Pocket coordinates can be shown only on their matching pipeline structure. */
+  canShowOnStructure: boolean;
   onToggleShow: () => void;
   onFocusResidue: (index: number) => void;
   onOpenTab?: () => void;
+  onRetry?: () => void;
   onClose: () => void;
 }) {
   const residues = pocket.lining.byDistance.slice(0, 10);
   return (
     <section className="s3d-pocket" aria-label="Predicted ligand pocket" data-testid="structure-pocket">
       <div className="s3d-pocket__head">
-        <h3 className="s3d-label">Predicted pocket · P2Rank</h3>
+        <h3 className="s3d-label">Predicted pocket · {pocket.status === "fallback_engine" ? "fpocket fallback" : "P2Rank"}</h3>
         <button type="button" className="s3d-legend__toggle" onClick={onClose} aria-label="Close the pocket panel">
           <X className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
@@ -96,9 +101,16 @@ export function StructurePocketPanel({
                 </ul>
               </>
             )}
-            <button type="button" className="s3d-btn" aria-pressed={showOnStructure} onClick={onToggleShow}>
+            <button
+              type="button"
+              className="s3d-btn"
+              aria-pressed={showOnStructure}
+              disabled={!canShowOnStructure}
+              title={!canShowOnStructure ? "This pocket was detected on pipeline coordinates, not the entry on the canvas." : undefined}
+              onClick={onToggleShow}
+            >
               {showOnStructure ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-              {showOnStructure ? "Hide on the structure" : "Show on the structure"}
+              {!canShowOnStructure ? "Pocket belongs to pipeline coordinates" : showOnStructure ? "Hide on the structure" : "Show on the structure"}
             </button>
           </>
         ) : (
@@ -107,6 +119,9 @@ export function StructurePocketPanel({
             {pocket.plainLanguage}
           </p>
         )}
+        {onRetry && (pocket.status === "error" || pocket.status === "unavailable") && (
+          <button type="button" className="s3d-btn" onClick={onRetry}>Retry pocket detection</button>
+        )}
         {onOpenTab && (
           <button type="button" className="s3d-link" onClick={onOpenTab}>
             Residue shifts and pockets
@@ -114,7 +129,7 @@ export function StructurePocketPanel({
           </button>
         )}
       </div>
-      <div className="s3d-pocket__foot">P2Rank ran on the pipeline's wild-type structure. No ACMG criterion reads the pocket.</div>
+      <div className="s3d-pocket__foot">{pocket.status === "fallback_engine" ? "fpocket" : "P2Rank"} ran on the pipeline's wild-type structure. No ACMG criterion reads the pocket.</div>
     </section>
   );
 }

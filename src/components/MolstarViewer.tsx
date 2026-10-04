@@ -28,7 +28,10 @@ export interface MolstarViewerProps {
   onModeChange: (mode: ViewMode) => void;
   onAlignmentScopeChange?: (scope: AlignmentScope) => void;
   onSwitchToAlphaFold?: () => void;
+  onSwitchToEsmFold?: () => void;
   onOpenPocketTab?: () => void;
+  onRetryPocket?: () => void;
+  onRetryStructural?: () => void;
   heightClass?: string;
 }
 
@@ -51,10 +54,13 @@ export default function MolstarViewer({
   onModeChange,
   onAlignmentScopeChange,
   onSwitchToAlphaFold,
+  onSwitchToEsmFold,
   onOpenPocketTab,
+  onRetryPocket,
+  onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
-  const { theme, settings, showPolarContacts, setIsSettingsOpen } = useSettings();
+  const { theme, settings, showPolarContacts, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
 
@@ -108,7 +114,17 @@ export default function MolstarViewer({
     () => derivePocketNarrative(computedPocket as any, { isLoading: isPocketLoading, error: pocketError, variantResidueIndex: variantPosition, variantResidueChain: chain }),
     [computedPocket, isPocketLoading, pocketError, variantPosition, chain]
   );
-  const pocketIndices = useMemo(() => (pocket.status === "success" ? pocket.lining.byDistance.map(r => r.index) : []), [pocket]);
+  // Pocket lining comes from the pipeline's AlphaFold wild-type run. It is not transferable to a
+  // de novo fold or experimental entry simply because their residue numbers happen to coincide.
+  const canDrawPocketOnCanvas = !customPdbUrl && model.canvas.primary?.origin === "afdb" && model.site.canAddressVariantSite;
+  const pocketIndices = useMemo(
+    () => (canDrawPocketOnCanvas && pocket.status === "success" ? pocket.lining.byDistance.map(r => r.index) : []),
+    [canDrawPocketOnCanvas, pocket]
+  );
+
+  useEffect(() => {
+    if (!canDrawPocketOnCanvas) setShowPocket(false);
+  }, [canDrawPocketOnCanvas]);
 
   const structure = useMolstarStructure({
     pluginRef: plugin.pluginRef,
@@ -124,6 +140,7 @@ export default function MolstarViewer({
     plddtScale: model.plddtFilter.available ? model.plddtFilter.scale : null,
     esm3Scores: model.representation === "esm3" ? esm3Scores : null,
     variantPosition,
+    canAddressVariantSite: model.site.canAddressVariantSite,
     selectedResidue,
     showPolarContacts,
     show3DLabels: settings.show3DLabels !== false,
@@ -172,7 +189,7 @@ export default function MolstarViewer({
           plddtFilter={plddtFilter}
           onPlddtFilterChange={setPlddtFilter}
           onAlignmentScopeChange={onAlignmentScopeChange}
-          onFocusSite={() => variantPosition && structure.focusResidue(variantPosition)}
+          onFocusSite={() => model.site.canAddressVariantSite && variantPosition && structure.focusResidue(variantPosition)}
           onBackToSite={() => onResidueClick(variantPosition)}
           pocketOpen={pocketOpen}
           onTogglePocket={() => {
@@ -187,6 +204,8 @@ export default function MolstarViewer({
           onCopy={async () => setCopyState((await plugin.handleCopyCapture()) ? "copied" : "failed")}
           copyState={copyState}
           onOpenGuide={() => actions.setIsHowToInspectOpen(true)}
+          onSwitchToAlphaFold={onSwitchToAlphaFold}
+          onSwitchToEsmFold={onSwitchToEsmFold}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
         />
@@ -194,9 +213,7 @@ export default function MolstarViewer({
         {warnings.length > 0 && (
           <div className="s3d-banner" role="note">
             <AlertTriangle aria-hidden="true" />
-            <span>
-              <strong>{warnings[0].title}.</strong> {warnings[0].body}
-            </span>
+            <div>{warnings.map(warning => <p key={warning.key}><strong>{warning.title}.</strong> {warning.body}</p>)}</div>
           </div>
         )}
 
@@ -208,9 +225,11 @@ export default function MolstarViewer({
               pocket={pocket}
               variantPosition={variantPosition}
               showOnStructure={showPocket}
-              onToggleShow={() => setShowPocket(s => !s)}
+              canShowOnStructure={canDrawPocketOnCanvas}
+              onToggleShow={() => canDrawPocketOnCanvas && setShowPocket(s => !s)}
               onFocusResidue={structure.focusResidue}
               onOpenTab={onOpenPocketTab}
+              onRetry={onRetryPocket}
               onClose={() => {
                 setPocketOpen(false);
                 setShowPocket(false);
@@ -230,7 +249,8 @@ export default function MolstarViewer({
             customEntryLoaded={Boolean(customPdbUrl)}
             onSwitchToAlphaFold={onSwitchToAlphaFold}
             onClearEntry={() => actions.setCustomPdbUrl(null)}
-            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenSettings={() => openSettingsTab("connections")}
+            onRetryStructural={onRetryStructural}
           />
         </div>
       </div>

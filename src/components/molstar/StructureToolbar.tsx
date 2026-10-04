@@ -33,6 +33,8 @@ export interface StructureToolbarProps {
   onCopy: () => void;
   copyState: "idle" | "copied" | "failed";
   onOpenGuide: () => void;
+  onSwitchToAlphaFold?: () => void;
+  onSwitchToEsmFold?: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
 }
@@ -69,6 +71,12 @@ export function StructureToolbar(props: StructureToolbarProps) {
             <Crosshair aria-hidden="true" />
             {site.substitution}
           </button>
+        )}
+        {props.onSwitchToAlphaFold && props.onSwitchToEsmFold && (
+          <div className="s3d-family" role="group" aria-label="Structure family">
+            <button type="button" className="s3d-family__btn" aria-pressed={model.family === "alphafold"} onClick={props.onSwitchToAlphaFold}>AlphaFold</button>
+            <button type="button" className="s3d-family__btn" aria-pressed={model.family === "esmfold"} onClick={props.onSwitchToEsmFold}>ESMFold</button>
+          </div>
         )}
         {props.selectedResidue !== null && props.selectedResidue !== props.variantPosition && (
           <button type="button" className="s3d-site" data-kind="selected" onClick={props.onBackToSite} title="Clear the selection and return to the variant site">
