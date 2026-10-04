@@ -29,9 +29,9 @@ import { SpliceWindowControl } from "./splicing/SpliceWindowControl";
  *   1. THE FINDING — what the splicing rule supports (drawn dashed: the engine does not apply it),
  *      SpliceAI's max Δ on its bands, the finding sentence, and the engine's own in-silico record
  *      beside it with any tension between the two stated in words.
- *   2. READINGS — one table: SpliceAI, its four channels, then the context that is never counted
+ *   3. READINGS — one table: SpliceAI and context that is never counted
  *      (dbscSNV on its authors' cut-point, AlphaGenome's splicing attribution).
- *   3. WHERE IT SITS — the splice map: the exon and its annotated sites on one axis from the variant,
+ *   2. WHERE IT SITS — the splice map: the exon and its annotated sites on one axis from the variant,
  *      SpliceAI's predicted gains and losses at their delta positions, dbscSNV's real window, and the
  *      transcript facts behind it.
  *
@@ -148,33 +148,34 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
  * SpliceAI's four channels as one row of four cells. They were four table rows, each a lone name
  * in a wide column and a ruler that — with no bands on it — said only what the number beside it
  * said; at the usual near-zero scores that was four identical dots. The maximum's ruler is the
- * hero's; here the question is only which channel and where.
+ * hero's; here a shared 0-1 dot plot compares channels beside their positional map.
  */
-function ChannelsRow({ rows }: { rows: SpliceReading[] }) {
+function ChannelsList({ rows }: { rows: SpliceReading[] }) {
+  if (rows.length === 0) return null;
   return (
-    <tr className="spl-channels-row">
-      <td colSpan={4}>
-        <ul className="spl-channels" aria-label="SpliceAI delta score per channel">
-          {rows.map(r => {
-            const isMax = r.call?.label === "Maximum";
-            return (
-              <li key={r.key} className="spl-channel" data-max={isMax || undefined} data-testid={`splice-${r.key}`}>
-                <span className="spl-channel__name">
-                  {r.name}
-                  {isMax && <span className="ev-tier" data-tone="accent">Maximum</span>}
-                </span>
-                <span className="spl-channel__value">
-                  <span className="spl-mono">{r.scoreText}</span>
-                  {r.sub && <span className="spl-channel__pos">{r.sub}</span>}
-                </span>
-                <span className="spl-channel__desc">{r.description}</span>
-                {r.note && <span className="spl-channel__site">{r.note}</span>}
-              </li>
-            );
-          })}
-        </ul>
-      </td>
-    </tr>
+    <ul className="spl-channels" aria-label="SpliceAI delta score per channel">
+      {rows.map(r => {
+        const isMax = r.call?.label === "Maximum";
+        return (
+          <li key={r.key} className="spl-channel" data-max={isMax || undefined} data-testid={`splice-${r.key}`} title={r.score !== null ? `${r.name}: Δ ${r.score}${r.sub ? `; ${r.sub}` : ""}` : r.availability.reason ?? undefined}>
+            <span className="spl-channel__name">
+              {r.name}
+              {isMax && <span className="ev-tier" data-tone="accent">Maximum</span>}
+            </span>
+            <span className="spl-channel__value">
+              <span className="spl-mono">{r.scoreText}</span>
+              {r.sub && <span className="spl-channel__pos">{r.sub}</span>}
+            </span>
+            {r.score !== null && <div className="spl-channel-plot" role="img" aria-label={`${r.name}: delta ${r.score}, on a shared 0 to 1 scale`}>
+              <div className="spl-channel-plot__track"><i style={{ left: `${Math.max(0, Math.min(1, r.score)) * 100}%` }} /></div>
+              <div className="spl-channel-plot__axis"><span>0</span><span>SpliceAI Δ</span><span>1</span></div>
+            </div>}
+            <span className="spl-channel__desc">{r.description}</span>
+            {r.note && <span className="spl-channel__site">{r.note}</span>}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -288,7 +289,7 @@ function MapNote({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
   else if (map.predictions.length === 0 && map.belowFloor === 0) parts.push("SpliceAI returned no score for this variant, so no predicted site is drawn.");
   else if (map.predictions.length === 0) parts.push(`No SpliceAI channel reaches ${SPLICE_MAP_FLOOR} anywhere in its window, so no predicted site is drawn.`);
   else if (map.belowFloor > 0) parts.push(`${map.belowFloor === 1 ? "One channel scores" : `${map.belowFloor} channels score`} below ${SPLICE_MAP_FLOOR} and ${map.belowFloor === 1 ? "is" : "are"} not drawn.`);
-  if (map.predictions.some(x => x.atSite)) parts.push("A predicted change on an annotated site is that site weakening or strengthening; one in open sequence is a cryptic site.");
+  if (map.predictions.some(x => x.atSite)) parts.push("Coincidence with an annotated site is positional context (within 1 bp), not experimental confirmation of a splicing effect.");
   if (map.exon.start === null || map.exon.end === null) parts.push("The exon's length was not resolved, so it runs off the edge.");
   if (parts.length === 0) return null;
   return <p className="spl-geo__note" data-testid="map-note">{parts.join(" ")}</p>;
@@ -297,6 +298,7 @@ function MapNote({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
 export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }: TabComponentProps) {
   const { settings } = useSettings();
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
+  const [showSmallSignals, setShowSmallSignals] = useState(false);
   const result = analysisState.result;
   if (!result) return null;
 
@@ -305,6 +307,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
     isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
     // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
+    showSmallSignals,
   });
   const finding = splicingFinding(ev);
   const { geometry: g, rule } = ev;
@@ -397,7 +400,69 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
         )}
       </section>
 
-      {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
+      <section className="spl-section" aria-labelledby="spl-geometry-title">
+        <h2 className="eyebrow" id="spl-geometry-title">
+          <MapPin className="w-3.5 h-3.5" />
+          Where the variant sits
+        </h2>
+        <div className="spl-card spl-geo">
+          <div className="spl-geo__main">
+            {g.position !== null ? (
+              <div className="spl-geo__drawing">
+                <p className="spl-geo__lead">
+                  <strong>{positionText} from the {g.junction}</strong> — {g.positionPhrase}.{" "}
+                  {g.isCanonicalDinucleotide
+                    ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
+                    : g.inDbscsnvWindow
+                    ? "Inside dbscSNV's window."
+                    : "Outside dbscSNV's window and the canonical dinucleotide."}{" "}
+                  Distance from a junction is context; it is not evidence for or against a splicing effect.
+                </p>
+                {map ? (
+                  <>
+                    <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />
+                    <div className="spl-map-controls">
+                      <span>Reporting window: {ev.spliceai.windowText}</span>
+                      <label><input type="checkbox" checked={showSmallSignals} onChange={e => setShowSmallSignals(e.target.checked)} /> Show non-zero signals below {SPLICE_MAP_FLOOR}</label>
+                      <span>Display filter: {showSmallSignals ? "Δ > 0" : `Δ ≥ ${SPLICE_MAP_FLOOR}`} · scores remain in the readings</span>
+                    </div>
+                    <div className="spl-geo__figure">
+                      <SpliceMap key={g.transcriptId ?? "unresolved"} map={map} geometry={g} />
+                    </div>
+                    <MapLegend map={map} />
+                    <MapNote map={map} />
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <>
+              <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />
+              <p className="spl-geo__lead" data-testid="geometry-absent">
+                {g.distance === null
+                  ? ev.pending
+                    ? "Junction geometry is still being resolved."
+                    : g.refusal ?? "The splice resolver returned no junction distance, region or exon bounds for this variant, so nothing is drawn. The SpliceAI score above does not depend on it."
+                  : g.junction === "terminal"
+                  ? `The nearest boundary, ${g.distance} bp away, is a transcript terminus, not a splice junction, so no splice-site position applies.`
+                  : `The variant is ${g.distance} bp from an exon boundary whose orientation was not resolved, so no splice-site position or window is drawn.`}
+              </p>
+              </>
+            )}
+
+            <dl className="spl-kv" data-testid="geometry-facts">
+              <div><dt>Transcript</dt><dd className="spl-mono" title={g.ensemblTranscriptId && g.ensemblTranscriptId !== g.transcriptId ? `Ensembl: ${g.ensemblTranscriptId}` : undefined}>{g.transcriptId ?? "Not resolved"}</dd></div>
+              <div><dt>Exon</dt><dd>{g.exonLabel}{g.exonLength !== null ? <span className="spl-dim"> · {g.exonLength.toLocaleString()} bp</span> : null}</dd></div>
+              <div><dt>Adjacent intron</dt><dd>{g.intronLabel}</dd></div>
+              <div><dt>Strand</dt><dd>{g.strandLabel}</dd></div>
+              <div><dt>Nearest boundary</dt><dd>{g.junctionLabel}</dd></div>
+              {g.exonStart !== null && g.exonEnd !== null && (
+                <div><dt>Exon bounds</dt><dd className="spl-mono">{g.exonStart.toLocaleString()}–{g.exonEnd.toLocaleString()}</dd></div>
+              )}
+            </dl>
+          </div>
+        </div>
+      </section>
+
       <section className="spl-section" aria-labelledby="spl-readings-title">
         <div className="spl-section__head">
           <h2 className="eyebrow" id="spl-readings-title">
@@ -422,7 +487,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
                 <th scope="col" className="spl-status">Reading</th>
               </tr>
             </thead>
-            {groupSpliceReadings(ev.readings).map(({ group, rows }) => (
+            {groupSpliceReadings(ev.readings).filter(g => g.group !== "channels").map(({ group, rows }) => (
               <tbody key={group} data-group={group}>
                 <tr className="spl-group">
                   <th colSpan={4} scope="rowgroup">
@@ -432,11 +497,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
                     </span>
                   </th>
                 </tr>
-                {group === "channels" ? (
-                  <ChannelsRow rows={rows} />
-                ) : (
-                  rows.map(r => <ReadingRow key={r.key} reading={r} onKnowledge={setKnowledgeKey} onTabChange={onTabChange} />)
-                )}
+                {rows.map(r => <ReadingRow key={r.key} reading={r} onKnowledge={setKnowledgeKey} onTabChange={onTabChange} />)}
               </tbody>
             ))}
           </table>
@@ -449,60 +510,6 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
         </div>
       </section>
 
-      {/* ── 3. Where it sits ───────────────────────────────────────────────────────────────── */}
-      <section className="spl-section" aria-labelledby="spl-geometry-title">
-        <h2 className="eyebrow" id="spl-geometry-title">
-          <MapPin className="w-3.5 h-3.5" />
-          Where the variant sits
-        </h2>
-        <div className="spl-card spl-geo">
-          <div className="spl-geo__main">
-            {g.position !== null ? (
-              <div className="spl-geo__drawing">
-                <p className="spl-geo__lead">
-                  <strong>{positionText} from the {g.junction}</strong> — {g.positionPhrase}.{" "}
-                  {g.isCanonicalDinucleotide
-                    ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
-                    : g.inDbscsnvWindow
-                    ? "Inside dbscSNV's window."
-                    : "Outside dbscSNV's window and the canonical dinucleotide."}{" "}
-                  Distance from a junction is context; it is not evidence for or against a splicing effect.
-                </p>
-                {map ? (
-                  <>
-                    <div className="spl-geo__figure">
-                      <SpliceMap map={map} geometry={g} />
-                    </div>
-                    <MapLegend map={map} />
-                    <MapNote map={map} />
-                  </>
-                ) : null}
-              </div>
-            ) : (
-              <p className="spl-geo__lead" data-testid="geometry-absent">
-                {g.distance === null
-                  ? ev.pending
-                    ? "Junction geometry is still being resolved."
-                    : g.refusal ?? "The splice resolver returned no junction distance, region or exon bounds for this variant, so nothing is drawn. The SpliceAI score above does not depend on it."
-                  : g.junction === "terminal"
-                  ? `The nearest boundary, ${g.distance} bp away, is a transcript terminus, not a splice junction, so no splice-site position applies.`
-                  : `The variant is ${g.distance} bp from an exon boundary whose orientation was not resolved, so no splice-site position or window is drawn.`}
-              </p>
-            )}
-
-            <dl className="spl-kv" data-testid="geometry-facts">
-              <div><dt>Transcript</dt><dd className="spl-mono" title={g.ensemblTranscriptId && g.ensemblTranscriptId !== g.transcriptId ? `Ensembl: ${g.ensemblTranscriptId}` : undefined}>{g.transcriptId ?? "Not resolved"}</dd></div>
-              <div><dt>Exon</dt><dd>{g.exonLabel}{g.exonLength !== null ? <span className="spl-dim"> · {g.exonLength.toLocaleString()} bp</span> : null}</dd></div>
-              <div><dt>Adjacent intron</dt><dd>{g.intronLabel}</dd></div>
-              <div><dt>Strand</dt><dd>{g.strandLabel}</dd></div>
-              <div><dt>Nearest boundary</dt><dd>{g.junctionLabel}</dd></div>
-              {g.exonStart !== null && g.exonEnd !== null && (
-                <div><dt>Exon bounds</dt><dd className="spl-mono">{g.exonStart.toLocaleString()}–{g.exonEnd.toLocaleString()}</dd></div>
-              )}
-            </dl>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

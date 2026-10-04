@@ -150,7 +150,37 @@ genomic (reverse-strand genes flip) and the annotated sites sit at `junction −
   PMC rate-limited). Its SpliceAI bands were verified via the ClinGen Criteria Specification
   Registry, which quotes them ("a score equal to or >0.2" / "based on a score <0.1").
 
-## Sources
+## Visualization follow-up — 4 October 2026
+
+Addressed the SOD1 p.Ala5Val screenshots (SpliceAI maximum 0.14, donor gain at variant -2 bp,
+variant at donor -59, exon 1 of 5). Classification remains unchanged: the engine still uses
+missense predictors; the splicing score supports neither PP3 nor BP4.
+
+| Finding | Resolution |
+|---|---|
+| Transcript start drawn as an AG acceptor | Shared map model excludes terminal splice sites, including neighbouring exons. The map names transcript start/end and annotated donor/acceptor without asserting sequence motifs. |
+| Channel prose asserted an observed biological event | Descriptions explicitly identify model predictions; BP4 wording identifies a score below a threshold rather than claiming no biological change. |
+| Mixed coordinate references | Variant marker names its donor/acceptor position; predicted-site labels and details use offsets from the variant in transcript direction. |
+| Compressed score lane | 140-unit labelled score lane with full 0–1 range; optional 0–0.3 focus only when every plotted value fits. |
+| Reporting window confused with map extent | Reporting window and map zoom are separately labelled; zoom never requests a new score. |
+| Off-view predictions drawn as ordinary edge dots | Directional arrows, actual offsets and off-view text; native details retain exact scores and locations. |
+| Channels hard to compare and far from map | Four shared 0–1 dot plots appear beside the map, including when geometry is unavailable. |
+| Drawing floor implied negligible biological effect | Explicit display filter and optional small non-zero signals; zero is never given a plotted location. |
+| Hero crowded by secondary operating points | Hero labels evidence ranges; authors' 0.5/0.8 marks remain in readings and the rail. |
+| Accessible inspection | SVG titles plus native keyboard-accessible details; controls have visible focus indicators. |
+
+Added regression coverage for terminal exon boundaries, small-signal invariance, focused score
+axes, and off-view arrows. Updated the visualization plan and the local evidence-tab-refactor
+skill with reusable coordinate, scale, display-state and accessibility contracts.
+
+Validation: native Windows lint/TypeScript checks pass. Full Vitest suite: 279 files passed,
+2 skipped; 3681 tests passed, 5 skipped. Fixture tab and rail reviewed in light/dark themes
+and an approximately 800 px main column. The original charting plan was absent; the new plan
+records this provenance rather than implying that its earlier contents were recovered.
+Final affected-suite rerun: 77 tests passed; production client build passed (dependency annotation
+and existing bundle-size warnings only).
+
+### Sources (existing audit)
 
 - Walker LC, et al. Using the ACMG/AMP framework to capture evidence related to predicted and observed impact on splicing: recommendations from the ClinGen SVI Splicing Subgroup. *Am J Hum Genet* 2023;110:1046–1067. doi:10.1016/j.ajhg.2023.06.002
 - ClinGen Criteria Specification Registry, SVI splicing criteria text citing Walker 2023: https://erepo.clinicalgenome.org/cspec/ui/svi/doc/643243096?version=2.0.0

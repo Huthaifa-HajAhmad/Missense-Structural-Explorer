@@ -166,6 +166,19 @@
 .spl-channel__pos { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-variant-numeric: tabular-nums; }
 .spl-channel__desc { font-size: var(--cs-font-size-badge); line-height: 1.4; color: var(--cs-text-muted); }
 .spl-channel__site { font-size: var(--cs-font-size-badge); line-height: 1.4; font-weight: var(--cs-font-weight-medium); color: var(--cs-text-accent); }
+.spl-channel-plot { margin: 8px 4px 4px; }
+.spl-channel-plot__track { position: relative; height: 2px; background: var(--cs-border); }
+.spl-channel-plot__track i { position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--cs-text-primary); transform: translateX(-50%); }
+.spl-channel-plot__axis { display: flex; justify-content: space-between; margin-top: 5px; color: var(--cs-text-muted); font-size: var(--cs-font-size-badge); }
+.spl-ruler__labels { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 6px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.spl-map-panel { display: flex; flex-direction: column; gap: 12px; }
+.spl-map-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+.spl-map-controls label { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; }
+.spl-map-controls select { font: inherit; color: var(--cs-text-primary); background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: 5px; padding: 4px 8px; min-height: 28px; }
+.spl-map-controls input { width: 16px; height: 16px; accent-color: var(--cs-accent-clay); }
+.spl-map-controls select:focus-visible, .spl-map-controls input:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.spl-map-controls > span { color: var(--cs-text-muted); }
+.spl-map__offscale { fill: none; stroke: var(--cs-text-primary); stroke-width: 2; }
 @container (max-width: 760px) {
   .spl-channels { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
   .spl-channel:nth-child(3) { padding-left: 0; border-left: 0; }
