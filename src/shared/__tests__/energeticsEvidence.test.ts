@@ -84,6 +84,13 @@ describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
     expect(foldx.caveats).toContain("unrepaired-template");
   });
 
+  it("shows the run range when BuildModel's runs disagree, so a bimodal ensemble is visible", () => {
+    // SOD1 p.Ala5Val on a repaired template: two rotamer outcomes, three runs near 1.6 and two near 2.9.
+    const ev = nae1({ foldingEnergetics: { ...NAE1, foldxMean: 2.12, foldxSd: 0.74, rawDdGs: [2.95, 1.55, 1.61, 2.9, 1.58] } });
+    const foldx = ev.readings.find(r => r.key === "foldx")!;
+    expect(foldx.note).toBe("Mean of 5 BuildModel runs (+1.55 to +2.95 kcal/mol); run-to-run spread 0.74 kcal/mol, not an error bar.");
+  });
+
   it("does not apply an AlphaFold pLDDT caveat to an experimental structure", () => {
     const ev = nae1();
     expect(ev.lowPlddt).toBeNull();

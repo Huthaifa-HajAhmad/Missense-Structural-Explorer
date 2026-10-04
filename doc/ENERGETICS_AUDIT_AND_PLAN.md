@@ -1201,6 +1201,12 @@ is not reworking the same files twice.
 - **FoldX ensemble size.** The budgets now allow a run to finish, but `logs/foldx_cache` is empty, so
   there is no local evidence this binary completes a 5-run ensemble in 1020 s. Until one real run is
   observed, "make `--numberOfRuns` size-dependent" is a guess. *Needs: one observed run.*
+  *Update 2026-10-04:* native Windows x64 runs are now observed with `npm run foldx:timing`: 5-run
+  BuildModel takes 2.3 s (154 residues) and 4.7 s (875 residues), about 0.5 s per extra run, so on
+  native hardware the ensemble size is not the cost. On the OCI host (ARM64, Box64, 2 vCPU) the
+  same command measured SLC12A4 (1,085 residues) at 167.2 s for 5 runs (13.3 s fixed + 30.8 s per
+  run), against a flat 180 s cap. The cap is now sized to structure and host (`foldx/budget.ts`);
+  ensemble size stays at 5 until Box64 tuning has been tried.
 - **RaSP coverage.** The index is now correct for the bundled data (1,345 proteins). Going
   proteome-wide is data sourcing, not code. *Needs: an answer on whether a larger snapshot exists.*
 - **StabilityOracle.** Either ship the Python sidecar (and document the `SIDECAR_SECRET` handshake)

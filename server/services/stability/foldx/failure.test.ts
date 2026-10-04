@@ -11,6 +11,12 @@ describe("FoldX failure diagnostics", () => {
     expect(diagnostic).not.toContain("unknown cause");
     expect(diagnostic).toContain("does not establish that the PDB is invalid");
   });
+  it("classifies our own budget kill as a timeout even when Box64 prints a signal on the way down", () => {
+    const killedByBudget = { ...crash, killed: true, signal: "SIGTERM" };
+    expect(classifyFoldxFailure(killedByBudget)).toBe("timeout");
+    expect(describeFoldxFailure(killedByBudget, false)).toContain("exceeded its execution budget");
+    expect(describeFoldxFailure(killedByBudget, false)).not.toContain("native process crash");
+  });
   it("does not retry a process crash on another template", () => {
     expect(canRetryFoldxAfterRepair(true, crash)).toBe(false);
   });
@@ -28,6 +34,16 @@ describe("FoldX failure diagnostics", () => {
   it("reports missing output and execution timeout explicitly", () => {
     expect(classifyFoldxFailure(new Error("BuildModel completed without producing a mutant PDB"))).toBe("missing-output");
     expect(describeFoldxFailure({ signal: "SIGTERM", message: "killed" }, false)).toContain("execution budget");
+  });
+  it("states the budget, size, template and emulation in a timeout, so it can be diagnosed from the log", () => {
+    const timeout = { killed: true, signal: "SIGTERM", message: "Command failed: /usr/local/bin/box64 foldx --command=BuildModel" };
+    const text = describeFoldxFailure(timeout, false, {
+      budgetMs: 180000, residueCount: 1085, numberOfRuns: 5, template: "unrepaired (AlphaFold model)", emulated: true
+    });
+    expect(text).toBe(
+      "FoldX BuildModel exceeded its execution budget (180 s budget; 1085 residues, unrepaired (AlphaFold model) template, " +
+      "5 runs, emulated through Box64): Command failed: /usr/local/bin/box64 foldx --command=BuildModel"
+    );
   });
   it("captures a reproducible crash context without logging coordinates", () => {
     const context = foldxCrashContext({ binary: "/usr/local/bin/box64", jobDir: "/tmp/job", pdbText: ["ATOM  1", "ATOM  2", "HETATM 3"].join("\n"), mutation: "QA867H;", args: ["--command=BuildModel"] });

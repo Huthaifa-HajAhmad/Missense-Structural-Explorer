@@ -2,7 +2,8 @@ import os from "os";
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
-import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext } from "./failure.ts";
+import { buildModelBudgetMs, FOLDX_REPAIR_MAX_RESIDUES } from "./budget.ts";
+import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext, type FoldxRunContext } from "./failure.ts";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
 import { CONFIG } from "../../../config.ts";
@@ -346,13 +347,22 @@ export async function generateMutantPdbInternal(
   let foldxRepairSkippedReason: "large-structure" | "alphafold-plddt" | undefined;
   let foldxRepairCached = false;
   const residueCount = pdbResidues.length;
-  // AlphaFold structures use pLDDT as B-factor (0-100 scale), which confuses
-  // RepairPDB. Skip repair for AF structures to avoid constant failures.
+  /**
+   * AlphaFold structures skip RepairPDB. The original rationale — pLDDT in the B-factor column
+   * "confuses RepairPDB" and causes "constant failures" — is UNVERIFIED and did not reproduce:
+   * RepairPDB completed on AF-P00441 (SOD1, 154 residues, 48 s native) and moved p.Ala5Val's ΔΔG
+   * from 2.81 to 2.12 kcal/mol. The guard is kept until a benchmark against experimental ΔΔG shows
+   * whether repairing small AlphaFold models helps; the skip is disclosed via
+   * `foldxRepairSkippedReason`, so the UI says the template was not repaired and why.
+   */
   const isAlphaFoldPdb = /ALPHAFOLD|DBREF.*AF\-/i.test(wtPdb) || 
     /^REMARK.*ALPHAFOLD/mi.test(wtPdb) ||
     /^HEADER.*PREDICTED/mi.test(wtPdb) ||
     detectBFactorProvenance(wtPdb).source === "alphafold";
-  const shouldRepair = residueCount <= 400 && !isAlphaFoldPdb;
+  const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES && !isAlphaFoldPdb;
+  const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
+  /** Sized to this structure and host (see budget.ts): a flat 180 s killed working Box64 runs. */
+  const buildModelBudget = buildModelBudgetMs({ residueCount, numberOfRuns: 5, emulated: foldxEmulated });
 
   if (isAlphaFoldPdb) {
     console.log(`[Biophysical Modeling] Detected AlphaFold structure — skipping RepairPDB (pLDDT B-factors would cause false repairs).`);
@@ -450,7 +460,7 @@ export async function generateMutantPdbInternal(
     }
 
     // 2. Run FoldX BuildModel with 5 stochastic runs for publication-grade statistics (H1)
-    console.log(`[Biophysical Modeling] Executing FoldX BuildModel (5 runs): ${foldxBin}...`);
+    console.log(`[Biophysical Modeling] Executing FoldX BuildModel (5 runs, ${residueCount} residues, budget ${(buildModelBudget / 1000).toFixed(0)} s${foldxEmulated ? ", Box64" : ""}): ${foldxBin}...`);
     await onPhase?.("modelling");
     let stdout = "", stderr = "";
     try {
@@ -461,7 +471,7 @@ export async function generateMutantPdbInternal(
         "--numberOfRuns=5",
         ...extraArgs
       ], {
-        timeout: CONFIG.timeouts.foldxBuildModelMs,   // counted against the queue's whole-job cap
+        timeout: buildModelBudget,   // counted against the queue's whole-job cap
         cwd: jobDir,
         signal
       });
@@ -505,9 +515,21 @@ export async function generateMutantPdbInternal(
     console.warn(`[Biophysical Modeling] FoldX execution failed:`, foldxErr.message);
     if (foldxErr.stdout) console.log(`[FoldX Failure STDOUT]:`, foldxErr.stdout);
     if (foldxErr.stderr) console.error(`[FoldX Failure STDERR]:`, foldxErr.stderr);
-    if (classifyFoldxFailure(foldxErr) === "runtime-crash") {
-      // jobDir still holds the exact wt.pdb, individual_list.txt and parameter links: rerun it by hand.
-      console.error(`[FoldX Crash Context]:`, JSON.stringify(foldxCrashContext({
+    const failureKind = classifyFoldxFailure(foldxErr);
+    const runContext = (budgetMs: number): FoldxRunContext => ({
+      budgetMs,
+      residueCount,
+      numberOfRuns: 5,
+      template: foldxRepairCached ? "repaired (reused)"
+        : foldxRepairSkipped ? `unrepaired (${foldxRepairSkippedReason === "alphafold-plddt" ? "AlphaFold model" : "over 400 residues"})`
+        : foldxRepairFailed ? "unrepaired (repair failed)"
+        : "repaired",
+      emulated: foldxEmulated
+    });
+    if (failureKind === "runtime-crash" || failureKind === "timeout") {
+      // jobDir still holds the exact wt.pdb, individual_list.txt and parameter links: rerun it by hand,
+      // or time it with `npm run foldx:timing -- --pdb <jobDir>/wt.pdb --mut <WT><pos><MUT>`.
+      console.error(`[FoldX ${failureKind === "timeout" ? "Timeout" : "Crash"} Context]:`, JSON.stringify(foldxCrashContext({
         binary: foldxBin, jobDir, pdbText: await fs.promises.readFile(fullWtPath, "utf8").catch(() => cleanedWt),
         mutation: await fs.promises.readFile(fullMutPath, "utf8").then(text => text.trim()).catch(() => ""),
         args: ["--command=BuildModel", "--pdb=wt.pdb", "--mutant-file=individual_list.txt", "--numberOfRuns=5", ...extraArgs]
@@ -564,7 +586,7 @@ export async function generateMutantPdbInternal(
         throw new Error(
           `FoldX BuildModel failed after two attempts. ` +
           `Attempt 1 (cleaned PDB after RepairPDB): ${foldxErr.message}. ` +
-          `Attempt 2 (original PDB): ${describeFoldxFailure(secondErr, foldxRepairFailed)}. ` +
+          `Attempt 2 (original PDB): ${describeFoldxFailure(secondErr, foldxRepairFailed, runContext(CONFIG.timeouts.foldxBuildModelRetryMs))}. ` +
           `Check that the FoldX binary is accessible and parameter files (molecules/, rotabase.txt) are in place.`
         );
       }
@@ -572,7 +594,7 @@ export async function generateMutantPdbInternal(
 
     // If we got here and still haven't succeeded, surface the original error
     if (!foldxSuccess) {
-      throw new Error(describeFoldxFailure(foldxErr, foldxRepairFailed));
+      throw new Error(describeFoldxFailure(foldxErr, foldxRepairFailed, runContext(buildModelBudget)));
     }
   }
 
