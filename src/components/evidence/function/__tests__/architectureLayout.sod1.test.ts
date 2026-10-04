@@ -86,6 +86,13 @@ describe("layoutArchitecture - SOD1 pointer targets and narrow binning", () => {
     expect(alone.hit.x1 - alone.hit.x0).toBeCloseTo(24, 5);
   });
 
+  it("does not collapse coincident marks (twins at the same residue) to zero hit width", () => {
+    const L = layoutArchitecture(sod, 994, all, null);
+    for (const p of L.pins) {
+      expect(p.hit.x1 - p.hit.x0).toBeGreaterThan(0.5);
+    }
+  });
+
   it("bins two residues per bar at phone width without losing or double-counting a variant", () => {
     const L = layoutArchitecture(sod, 380, all, null);
     const bars = L.density!.bars;

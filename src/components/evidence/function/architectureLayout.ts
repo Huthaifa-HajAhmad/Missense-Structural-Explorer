@@ -121,7 +121,6 @@ export interface ArchBond {
   y: number;
   selected: boolean;
   title: string;
-  label: ArchLabel | null;
 }
 
 export interface ArchMotif {
@@ -673,20 +672,21 @@ export function layoutArchitecture(
         y: (host ? host.y : lanesBottom) - 9,
         selected: isSelected(r),
         title: `${r.name}, cysteines ${r.start} and ${r.end}`,
-        label: null,
       });
     }
   }
 
   // Pointer targets tile: neighbours in one row (a bar track, a lane, a tier) split the gap between them instead of each
   // claiming 24px, which at 6px per residue sent every click to the neighbour drawn later (residue 7 selected 8).
+  // Coincident marks (twins at the same residue) share the space between their closest distinct neighbours rather than
+  // collapsing to zero width.
   const tileRow = <T,>(items: T[], centre: (t: T) => number, set: (t: T, x0: number, x1: number) => void, reach: (t: T) => [number, number]) => {
     const sorted = [...items].sort((a, b) => centre(a) - centre(b));
     sorted.forEach((it, i) => {
       const [lo, hi] = reach(it);
       const c = centre(it);
-      const prev = sorted[i - 1];
-      const next = sorted[i + 1];
+      const prev = sorted.slice(0, i).reverse().find((o) => c - centre(o) > 0.01);
+      const next = sorted.slice(i + 1).find((o) => centre(o) - c > 0.01);
       set(it, prev ? Math.max(lo, (centre(prev) + c) / 2) : lo, next ? Math.min(hi, (c + centre(next)) / 2) : hi);
     });
   };

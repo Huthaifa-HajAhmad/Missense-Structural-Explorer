@@ -89,9 +89,29 @@ function Legend({
     motifs: ev.motifs.length,
     structure: showSS ? ev.secondaryStructure.filter((e) => e.kind !== "turn").length : 0,
   };
+  const hasHelix = ev.secondaryStructure.some((e) => e.kind === "helix");
+  const hasStrand = ev.secondaryStructure.some((e) => e.kind === "strand");
+  const structureLabel =
+    hasHelix && hasStrand
+      ? "Helices and strands"
+      : hasStrand
+        ? "Strands"
+        : hasHelix
+          ? "Helices"
+          : "Helices and strands";
   const layers = (Object.keys(LAYER_LABEL) as LayerKey[]).filter((l) => counts[l] > 0);
   const swatch = (layer: LayerKey) =>
-    layer === "variants" ? "disease" : layer === "motifs" ? "motif" : layer === "structure" ? "helix" : mode.lanes ? `lane-${layer}` : "site";
+    layer === "variants"
+      ? "disease"
+      : layer === "motifs"
+        ? "motif"
+        : layer === "structure"
+          ? hasHelix && !hasStrand
+            ? "helix"
+            : "strand"
+          : mode.lanes
+            ? `lane-${layer}`
+            : "site";
   const off = (layer: LayerKey) => hidden.has(layer);
   return (
     <ul className="fnd-legend" aria-label="Legend and layers">
@@ -99,8 +119,15 @@ function Legend({
       {layers.map((layer) => (
         <li key={layer}>
           <button type="button" className="fnd-layer" aria-pressed={!off(layer)} onClick={() => onToggle(layer)} data-testid={`layer-${layer}`}>
-            <i className="fnd-key" data-kind={swatch(layer)} />
-            {LAYER_LABEL[layer]}
+            {layer === "structure" && hasHelix && hasStrand ? (
+              <>
+                <i className="fnd-key" data-kind="helix" />
+                <i className="fnd-key" data-kind="strand" />
+              </>
+            ) : (
+              <i className="fnd-key" data-kind={swatch(layer)} />
+            )}
+            {layer === "structure" ? structureLabel : LAYER_LABEL[layer]}
             <span className="fnd-layer__n">{counts[layer]}</span>
           </button>
         </li>

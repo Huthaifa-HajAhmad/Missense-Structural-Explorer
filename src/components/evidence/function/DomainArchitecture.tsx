@@ -333,7 +333,6 @@ export function DomainArchitecture({
           <g key={b.key} className="fnd-arch__bond" data-selected={b.selected || undefined} data-lit={lit(b.rowKey)} onClick={() => onSelect(b.rowKey)} {...hoverProps(b.rowKey)} data-testid="arch-bond">
             <title>{b.title}</title>
             <path d={`M${b.x1} ${b.y + 4} V${b.y} H${b.x2} V${b.y + 4}`} />
-            {b.label && <Label l={b.label} />}
           </g>
         ))}
 
