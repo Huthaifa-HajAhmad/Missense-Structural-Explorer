@@ -359,3 +359,9 @@
   font-weight: var(--cs-font-weight-table-header) !important;
   color: var(--cs-text-secondary) !important;
 }
+
+/* Paragraphs fill their card. A per-class measure cap (60 to 92ch) left the right half of a wide card empty and cut
+   sentences mid-line; the card's own width is the measure. `pretty` only stops a one-word last line. */
+p { text-wrap: pretty; }
+/* A numeric range ("helices 109–114") is one unit; see components/ui/Prose.tsx. */
+.nb { white-space: nowrap; }

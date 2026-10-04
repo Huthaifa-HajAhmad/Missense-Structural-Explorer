@@ -280,7 +280,7 @@ const centreX = (el: SVGGraphicsElement) => {
 
 /* ── Families ─────────────────────────────────────────────────────────────────── */
 
-const FAMILY_SIZE = { opens: 1, marks: 4, labels: 3, stems: 1, contrast: 2, targets: 1, focus: 1, selection: 2, verdict: 1, zoom: 1, view: 2, membrane: 3, dense: 5, interact: 5, selfCheck: 1 } as const;
+const FAMILY_SIZE = { opens: 1, marks: 4, labels: 3, stems: 1, contrast: 2, targets: 1, focus: 1, selection: 2, verdict: 1, zoom: 1, view: 2, membrane: 3, dense: 5, interact: 5, prose: 2, selfCheck: 1 } as const;
 type Family = keyof typeof FAMILY_SIZE;
 type PerCase = Exclude<Family, "selfCheck" | "opens" | "interact">;
 
@@ -289,7 +289,7 @@ function family(name: Family, produced: Check[]): Check[] {
   return [...produced, { name: `harness: ${name} produced ${produced.length} assertions, expected ${FAMILY_SIZE[name]}`, pass: false, detail: "update FAMILY_SIZE if deliberate" }];
 }
 
-const planFamilies = (c: Case): PerCase[] => ["marks", "labels", "stems", "contrast", "targets", "focus", "selection", "verdict", "view", ...(c.zoom ? (["zoom"] as PerCase[]) : []), ...(c.membrane ? (["membrane"] as PerCase[]) : []), ...(c.dense ? (["dense"] as PerCase[]) : [])];
+const planFamilies = (c: Case): PerCase[] => ["marks", "labels", "stems", "contrast", "targets", "focus", "selection", "verdict", "view", ...(c.zoom ? (["zoom"] as PerCase[]) : []), ...(c.membrane ? (["membrane"] as PerCase[]) : []), ...(c.dense ? (["dense"] as PerCase[]) : []), "prose"];
 // "opens" runs once per case, before any button is pressed, and "interact" once at the end (it changes the window),
 // so both are outside planFamilies.
 const expectedCheckCount = () =>
@@ -747,6 +747,32 @@ async function checkInteract(c: Case, host: HTMLElement): Promise<Check[]> {
   return out;
 }
 
+/**
+ * The finding paragraph fills its card (a 76ch cap left the right half of a wide card empty) and never splits a numeric
+ * range across two lines ("helices 109–114" ending a line on "109–").
+ */
+function checkProse(c: Case, host: HTMLElement): Check[] {
+  const p = host.querySelector<HTMLElement>('[data-testid="function-finding-sentence"]');
+  if (!p) return [0, 1].map((i) => ({ name: `${c.id}: finding paragraph (${i + 1})`, pass: false, detail: "no finding paragraph" }));
+  const hero = p.parentElement!;
+  const cs = getComputedStyle(hero);
+  const inner = hero.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const width = p.getBoundingClientRect().width;
+  const first: Check = {
+    name: `${c.id}: the finding paragraph fills its card`,
+    pass: width >= inner - 1,
+    detail: `paragraph ${px(width)}px of ${px(inner)}px`,
+  };
+  const ranges = Array.from(p.querySelectorAll<HTMLElement>(".nb"));
+  const split = ranges.filter((r) => r.getClientRects().length > 1).map((r) => r.textContent);
+  const second: Check = {
+    name: `${c.id}: no numeric range in the finding is split across lines`,
+    pass: split.length === 0,
+    detail: split.length ? `split: ${split.join(", ")}` : `${ranges.length} range${ranges.length === 1 ? "" : "s"} kept whole`,
+  };
+  return [first, second];
+}
+
 async function runFamily(name: PerCase, c: Case, host: HTMLElement): Promise<Check[]> {
   const s = readSchematic(host);
   if (typeof s === "string") return family(name, Array.from({ length: FAMILY_SIZE[name] }, () => ({ name: `${c.id}: ${name}`, pass: false, detail: s })));
@@ -763,6 +789,7 @@ async function runFamily(name: PerCase, c: Case, host: HTMLElement): Promise<Che
     case "view": return family(name, checkView(c, s, host));
     case "membrane": return family(name, checkMembrane(c, s));
     case "dense": return family(name, checkDense(c, s, host));
+    case "prose": return family(name, checkProse(c, host));
     default: {
       const unhandled: never = name;
       return [{ name: `harness: ${String(unhandled)} has no runner`, pass: false, detail: "declared but not wired" }];

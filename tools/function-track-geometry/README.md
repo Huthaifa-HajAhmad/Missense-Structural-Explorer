@@ -53,7 +53,7 @@ CNNM2 and GZF1 are the real feature tables the earlier track harness used.
   residue.
 
 Each family declares its size in `FAMILY_SIZE`; the run fails if a family produced a different
-number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (219). `TRACK_H=12000`
+number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (241). `TRACK_H=12000`
 with `TRACK_SHOT=1` makes the screenshot tall enough to show every case.
 
 ## Mutation-tested
@@ -94,3 +94,8 @@ Set `GEOMETRY_BROWSER=/path/to/chrome` if discovery fails. `TRACK_SHOT=1` also w
 The browser must be focused for the focus-ring assertions (`:focus-visible` does not match in an unfocused tab). Where
 `msedge --headless --dump-dom` prints nothing (observed on one Windows machine), serve `dist/` with
 `python -m http.server` and read `#geometry-result` from any open page.
+
+## Prose family (every case)
+
+- The finding paragraph is as wide as its card's content box, so a wide card has no empty right half.
+- No numeric range in the finding ("109–114") is split across two lines.

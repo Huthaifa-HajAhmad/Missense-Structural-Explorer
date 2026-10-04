@@ -6,6 +6,7 @@ import type { ResidueContextEvidence } from "../../shared/residueContextEvidence
 import { RESIDUE_SCALE_SOURCES, formatNativeResidueValue } from "../../shared/residueScales";
 import type { BiochemicalContrastRow } from "../../shared/residueShiftEvidence";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+import { Prose } from "../ui/Prose";
 
 /**
  * Residue Shifts & Pockets — the tab.
@@ -116,9 +117,9 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
             )}
           </span>
         </div>
-        <p className="rsx-finding" data-testid="residue-finding-text">
+        <Prose className="rsx-finding" data-testid="residue-finding-text">
           <strong>{model.finding.headline}</strong> {model.finding.detail}
-        </p>
+        </Prose>
       </div>
       <dl className="rsx-facts">
         {model.facts.map(fact => (

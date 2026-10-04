@@ -15,6 +15,7 @@ import {
   type VariantProbe,
 } from "../shared/literatureEvidence";
 import { PaperTable } from "./literature/PaperTable";
+import { Prose } from "./ui/Prose";
 
 export type { Citation };
 
@@ -329,11 +330,11 @@ export default function LiteratureView({
               <span className="lit-hero__figure-label">{finding.figureLabel}</span>
             </div>
 
-            <p className="detail-prose lit-hero__finding">
+            <Prose className="detail-prose lit-hero__finding">
               <strong>{finding.headline}</strong>
               {" "}
               {finding.predicate}.
-            </p>
+            </Prose>
 
             {faults.map(fault => (
               <p key={fault} role="status" className="lit-callout" data-tone="warning">

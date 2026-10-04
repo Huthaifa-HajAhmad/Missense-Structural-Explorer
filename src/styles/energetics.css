@@ -48,7 +48,7 @@
 
 .nrg-header { display: flex; flex-direction: column; gap: 4px; }
 .nrg-header .screen-title { margin: 0; }
-.nrg-header .screen-tab-description { margin: 0; max-width: 72ch; }
+.nrg-header .screen-tab-description { margin: 0; max-width: none; }
 
 .nrg-card {
   background: var(--cs-surface);
@@ -84,7 +84,7 @@
   padding: 10px 16px 14px; border-bottom: 1px solid var(--cs-border-subtle);
   max-width: none;
 }
-.nrg-summary > span { max-width: 88ch; }
+.nrg-summary > span { max-width: none; }
 .nrg-summary strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .nrg-summary__icon { flex: none; align-self: flex-start; margin-top: 3px; color: var(--cs-text-warning); }
 .nrg-summary__dot {
@@ -237,7 +237,7 @@
 .nrg-subject__line { display: flex; align-items: center; gap: 2px; min-height: 24px; }
 .nrg-subject__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .nrg-subject__note {
-  display: block; margin-top: 1px; max-width: 60ch;
+  display: block; margin-top: 1px; max-width: none;
   font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted);
 }
 .nrg-subject__fact { color: var(--cs-text-secondary); }
@@ -392,7 +392,7 @@
 .nrg-missing > li:first-child { border-top: 0; padding-top: 0; }
 .nrg-missing__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .nrg-missing__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.nrg-missing__reason { margin: 2px 0 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: 60ch; }
+.nrg-missing__reason { margin: 2px 0 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: none; }
 
 .nrg-notes { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .nrg-notes > summary {

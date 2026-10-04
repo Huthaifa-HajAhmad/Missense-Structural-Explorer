@@ -19,6 +19,7 @@ import { useInterfacesData } from "./interfaces/useInterfacesData";
 import { InterfaceTrack } from "./interfaces/InterfaceTrack";
 import { AssemblyDiagram } from "./interfaces/AssemblyDiagram";
 import { BindingRuler, IptmRuler } from "./interfaces/Rulers";
+import { Prose } from "../ui/Prose";
 
 /**
  * Interfaces & PPI.
@@ -227,10 +228,10 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                 {iface.observed ? `solved structures place ${ev.residueLabel} at the interface · PDBe-KB` : iface.support}
               </span>
             </div>
-            <p className="ifc-hero__finding" data-testid="interfaces-finding-sentence">
+            <Prose className="ifc-hero__finding" data-testid="interfaces-finding-sentence">
               <strong>{ev.finding.headline}</strong> {ev.finding.predicate}.
-            </p>
-            {ev.finding.context && <p className="ifc-hero__context">{ev.finding.context}</p>}
+            </Prose>
+            {ev.finding.context && <Prose className="ifc-hero__context">{ev.finding.context}</Prose>}
           </div>
           <figure className="ifc-hero__diagram">
             <AssemblyDiagram ev={ev} />

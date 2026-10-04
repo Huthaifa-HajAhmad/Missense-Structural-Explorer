@@ -76,7 +76,7 @@
   color: var(--cs-text-primary);
 }
 .fnd-hero__sub { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.fnd-hero__finding { margin: 0; max-width: 76ch; }
+.fnd-hero__finding { margin: 0; max-width: none; }
 .fnd-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 .fnd-verdict { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); padding: 3px 10px; }

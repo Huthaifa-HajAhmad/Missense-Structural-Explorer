@@ -460,7 +460,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-cs-text-muted mt-0.5 max-w-3xl">
+            <p className="text-[11px] text-cs-text-muted mt-0.5">
               Each cell is one possible SNV, shaded by its genome-wide rank on AlphaGenome's composite AVI score
               (Phred 10 = top 10%, 20 = top 1%). A rank, not a probability and not an ACMG band; AlphaMissense is one of
               the AVI's inputs, so this panel is not independent of the AM row above. Columns are nucleotides, not
@@ -504,7 +504,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
               <div className="text-xs font-semibold text-cs-danger">
                 AlphaGenome Regional Saturation Unavailable
               </div>
-              <p className="text-[11px] text-cs-text-muted max-w-md">
+              <p className="text-[11px] text-cs-text-muted">
                 {error}
               </p>
               <div className="flex items-center gap-2 mt-1">
@@ -537,7 +537,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
               <div className="text-xs font-semibold text-cs-text-primary">
                 No genomic interval for this variant
               </div>
-              <p className="text-[11px] text-cs-text-muted max-w-md">
+              <p className="text-[11px] text-cs-text-muted">
                 Saturation is queried by genomic window, and neither a chromosome coordinate nor an exon
                 interval was resolved for this variant, so no region request was issued.
               </p>
@@ -556,7 +556,7 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
               <div className="text-xs font-semibold text-cs-text-primary">
                 {`Regional saturation — ${ENGINE_STATE_LABELS["no-result"]}`}
               </div>
-              <p className="text-[11px] text-cs-text-muted max-w-md">
+              <p className="text-[11px] text-cs-text-muted">
                 {data?.message ||
                   "No saturation profile was returned for this region, and no cause was recorded for the absence. Under the strict no-heuristics protocol no scores are synthesised in its place. The live Atlas locus viewer below shows the underlying tracks:"}
               </p>

@@ -115,7 +115,7 @@
 }
 .pop-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 
-.pop-hero__finding { margin: 0; color: var(--cs-text-secondary); max-width: 70ch; }
+.pop-hero__finding { margin: 0; color: var(--cs-text-secondary); max-width: none; }
 .pop-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 .pop-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
@@ -335,7 +335,7 @@
 
 .pop-subject__line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .pop-subject__name { color: var(--cs-text-primary); }
-.pop-subject__note { display: block; margin-top: 1px; max-width: 60ch; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
+.pop-subject__note { display: block; margin-top: 1px; max-width: none; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
 
 .pop-num {
   width: 1%;
@@ -416,7 +416,7 @@
 /* No record: a titled statement on the card itself, not a dashed box floating in it. */
 .pop-clinvar__empty { margin: 0; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
 .pop-clinvar__empty-title { margin: 0; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.pop-clinvar__empty-body { margin: 0; max-width: 60ch; color: var(--cs-text-secondary); line-height: 1.55; }
+.pop-clinvar__empty-body { margin: 0; max-width: none; color: var(--cs-text-secondary); line-height: 1.55; }
 .pop-clinvar__rows { margin: 0; padding: 0; display: flex; flex-direction: column; }
 .pop-clinvar__rows > div {
   display: grid;

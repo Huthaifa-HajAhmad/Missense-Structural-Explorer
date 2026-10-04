@@ -6,6 +6,7 @@ import { DomainArchitecture } from "./DomainArchitecture";
 import { functionEvidenceInputFrom } from "./functionInput";
 import { drawingMode, layerOf, SECONDARY_MAX_SPAN, type LayerKey } from "./architectureLayout";
 import { FND_SELECTION_PARAM, FND_WINDOW_PARAM, parseFndView, withFndParams, type FndView } from "./viewUrlState";
+import { Prose } from "../../ui/Prose";
 
 /**
  * Functional domains.
@@ -332,11 +333,11 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
             <span className="fnd-figure fnd-mono">{ev.headline.figure}</span>
             <span className="fnd-hero__sub">{ev.headline.sub}</span>
           </div>
-          <p className="fnd-hero__finding" data-testid="function-finding-sentence" role={ok ? undefined : "status"}>
+          <Prose className="fnd-hero__finding" data-testid="function-finding-sentence" role={ok ? undefined : "status"}>
             <strong>{ev.finding.lead}</strong>
             {ev.finding.rest ? ` ${ev.finding.rest}` : ""}
             {!ok && ev.availability.reason ? ` ${ev.availability.reason}` : ""}
-          </p>
+          </Prose>
         </div>
 
         {ok && (

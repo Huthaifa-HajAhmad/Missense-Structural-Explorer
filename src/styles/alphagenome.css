@@ -100,7 +100,7 @@ p.ag-card__foot > span { display: inline; }
 /* An empty state is a statement on the card: a bold title over the reason. */
 .ag-statement { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 16px; }
 .ag-statement__title { margin: 0; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.ag-statement__body { margin: 0; max-width: 60ch; color: var(--cs-text-secondary); }
+.ag-statement__body { margin: 0; max-width: none; color: var(--cs-text-secondary); }
 .ag-statement .ag-actions { margin-top: 8px; }
 
 /* ── Finding ────────────────────────────────────────────────── */
@@ -128,7 +128,7 @@ p.ag-card__foot > span { display: inline; }
   margin: 2px 0 0;
   padding: 8px 12px;
   border-radius: 8px;
-  max-width: 78ch;
+  max-width: none;
   font-size: var(--cs-font-size-caption);
   line-height: 1.5;
   color: var(--cs-text-secondary);

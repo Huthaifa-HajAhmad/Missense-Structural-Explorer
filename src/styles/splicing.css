@@ -85,7 +85,7 @@
 }
 .spl-figure[data-empty] { color: var(--cs-text-muted); }
 .spl-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.spl-hero__finding { margin: 0; max-width: 72ch; color: var(--cs-text-secondary); }
+.spl-hero__finding { margin: 0; max-width: none; color: var(--cs-text-secondary); }
 .spl-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 /* Full width: capped at 560px it left the right half of the card empty and crowded 0, 0.1 and
    0.2 into the first sixty pixels — the very band edges the finding turns on. */
@@ -96,7 +96,7 @@
 .spl-verdict--unapplied { border-style: dashed !important; }
 
 .spl-callout {
-  display: flex; align-items: flex-start; gap: 8px; margin: 0; max-width: 88ch;
+  display: flex; align-items: flex-start; gap: 8px; margin: 0; max-width: none;
   padding: 9px 12px; border-radius: 8px;
   font-size: var(--cs-font-size-prose); line-height: 1.5;
 }
@@ -180,7 +180,7 @@
 .spl-subject__line { display: flex; align-items: center; gap: 2px; min-height: 24px; }
 .spl-subject__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .spl-subject__note {
-  display: block; margin-top: 1px; max-width: 60ch;
+  display: block; margin-top: 1px; max-width: none;
   font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted);
 }
 .spl-subject__fact { color: var(--cs-text-secondary); }
@@ -270,7 +270,7 @@
 .spl-geo { padding: 18px 20px 20px; }
 .spl-geo__main { display: flex; flex-direction: column; gap: 14px; }
 .spl-geo__drawing { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.spl-geo__lead { margin: 0; max-width: 80ch; }
+.spl-geo__lead { margin: 0; max-width: none; }
 .spl-geo__lead strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 /* The map's labels are 10–12px at its natural width; below ~640px they shrink past reading, so the card scrolls instead. */
 .spl-geo__figure {
@@ -321,7 +321,7 @@
 .spl-map__variant line { stroke: var(--cs-text-primary); stroke-width: 1.25; }
 .spl-map__variant circle { fill: var(--cs-text-primary); stroke: var(--cs-surface-2); stroke-width: 2.5; }
 .spl-map__variant text { font-family: var(--cs-font-mono); font-size: 12px; font-weight: 600; fill: var(--cs-text-primary); }
-.spl-geo__note { margin: 0; max-width: 80ch; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); }
+.spl-geo__note { margin: 0; max-width: none; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); }
 
 .spl-kv {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 24px;
