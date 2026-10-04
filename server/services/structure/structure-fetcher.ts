@@ -386,7 +386,7 @@ export async function fetchPdbFromRcsb(
   }
 ): Promise<string | null> {
   const chainUpper = (chainId || "A").toUpperCase();
-  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_unp_${unpStart || 0}_struct_${structStart || 0}_pos_${validationContext?.pos || 0}`;
+  const cacheKey = `pdb_rcsb_${pdbId.toLowerCase()}_chain_${chainUpper}_unp_${unpStart || 0}_struct_${structStart || 0}_pos_${validationContext?.pos || 0}_acc_${validationContext?.uniprotId || ""}_wt_${validationContext?.expectedWt1 || ""}`;
 
   return singleFlightPdb(cacheKey, async () => {
     const url = `https://files.rcsb.org/download/${pdbId.toUpperCase()}.pdb`;

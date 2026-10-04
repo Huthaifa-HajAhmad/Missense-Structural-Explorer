@@ -39,6 +39,8 @@ export interface UseMolstarStructureOptions {
   plddtScale: 1 | 100 | null;
   esm3Scores: number[] | null;
   variantPosition: number | null;
+  /** The displayed coordinates use verified UniProt numbering at the variant site. */
+  canAddressVariantSite: boolean;
   /** A residue the reader clicked, when it is not the variant's. */
   selectedResidue: number | null;
   showPolarContacts: boolean;
@@ -118,6 +120,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     plddtScale,
     esm3Scores,
     variantPosition,
+    canAddressVariantSite,
     selectedResidue,
     showPolarContacts,
     show3DLabels,
@@ -147,7 +150,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   onEntryLoadedRef.current = onEntryLoaded;
 
   const colourKey = JSON.stringify(colour);
-  const scoresKey = esm3Scores ? esm3Scores.length : 0;
+  // A length-only key left an existing ESM3 heatmap stale after a same-length rerun.
+  const scoresKey = esm3Scores ? JSON.stringify(esm3Scores) : "";
   const filterCut = plddtScale && plddtFilter !== "none" ? Number(plddtFilter) / (plddtScale === 1 ? 100 : 1) : null;
 
   /* ── Load and draw ───────────────────────────────────────────────────── */
@@ -346,7 +350,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         const loci: any[] = [];
         const superposed = !!structure2 && stillInTree(plugin, structure2.ref);
 
-        if (variantPosition) {
+        if (variantPosition && canAddressVariantSite) {
           const site = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residueExpression(variantPosition), "variant-site", { label: `Variant site ${variantPosition}` });
           if (!active) return;
           if (site) {
@@ -418,7 +422,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
 
         // A clicked residue is shown as a selection — never relabelled as the mutated residue.
-        if (selectedResidue && selectedResidue !== variantPosition) {
+        if (selectedResidue && selectedResidue !== variantPosition && canAddressVariantSite) {
           const picked = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residueExpression(selectedResidue), "selected-residue", { label: `Selected residue ${selectedResidue}` });
           if (!active) return;
           if (picked) {
@@ -470,10 +474,11 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, variantPosition, selectedResidue, showPolarContacts, show3DLabels, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, showPolarContacts, show3DLabels, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
 
   /** Frames one residue without changing any selection. */
   const focusResidue = (index: number) => {
+    if (!canAddressVariantSite) return;
     const plugin = pluginRef.current;
     const struct = structureRef.current;
     if (!plugin || !struct) return;

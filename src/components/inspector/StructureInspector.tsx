@@ -134,7 +134,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, 
       {/* ── 3. Comparison ── */}
       <section className="s3d-rsec" aria-labelledby="s3d-rail-compare">
         <h3 className="eyebrow" id="s3d-rail-compare">
-          <span><Ruler className="w-3.5 h-3.5" aria-hidden="true" />Wild type against variant</span>
+          <span><Ruler className="w-3.5 h-3.5" aria-hidden="true" />Coordinate comparison</span>
           {comparison.fit && <span className="s3d-rsec__meta">{model.alignment.scope === "global" ? "whole-chain fit" : "local fit"}</span>}
         </h3>
         {comparison.state === "ready" && readings.length > 0 ? (
