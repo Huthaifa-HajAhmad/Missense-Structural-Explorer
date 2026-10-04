@@ -1690,10 +1690,10 @@ function VariantSearchPanel({
                   return (
                     <div
                       role="status"
-                      className="relative shrink-0 flex items-start gap-2.5 px-3 py-2.5 rounded-[var(--cs-radius-card)] border border-cs-accent-clay/25 bg-cs-accent-clay/[0.06] cs-fade-in"
+                      className="shrink-0 flex items-start gap-2.5 px-3 py-2.5 rounded-[var(--cs-radius-card)] border border-cs-accent-clay/25 bg-cs-accent-clay/[0.06] cs-fade-in"
                     >
                       <Compass className="w-3.5 h-3.5 mt-0.5 text-cs-text-accent shrink-0" aria-hidden="true" />
-                      <p className="m-0 text-[11px] leading-snug text-cs-text-secondary">
+                      <p className="m-0 flex-1 text-[11px] leading-snug text-cs-text-secondary">
                         <span className="font-medium text-cs-text-primary">No need to wait —</span>{" "}
                         {readyList ? (
                           <>the workspace is already live: <span className="text-cs-text-primary">{readyList}</span>{remaining} are ready to explore.</>
@@ -1709,7 +1709,7 @@ function VariantSearchPanel({
                         }}
                         title="Dismiss notice"
                         aria-label="Dismiss notice"
-                        className="absolute top-1.5 right-1.5 p-1 rounded-[var(--cs-radius-badge)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                        className="-mr-1 -mt-0.5 shrink-0 p-1 rounded-[var(--cs-radius-badge)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
                       >
                         <X className="w-3 h-3" aria-hidden="true" />
                       </button>
