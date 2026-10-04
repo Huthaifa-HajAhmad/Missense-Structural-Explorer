@@ -1791,7 +1791,7 @@ export function isPdbSource(value: unknown): value is PdbSource {
   return typeof value === "string" && (PDB_SOURCES as readonly string[]).includes(value);
 }
 
-export type AnalysisPipelineStage = "core" | "coordinates" | "landscape" | "structural" | "multimer" | "narrative" | "literature";
+export type AnalysisPipelineStage = "core" | "coordinates" | "landscape" | "structural" | "multimer" | "ppi" | "narrative" | "literature";
 export type AnalysisStageOutcome = "running" | "complete" | "degraded" | "error" | "skipped";
 export type AnalysisPipelineStages = Partial<Record<AnalysisPipelineStage, AnalysisStageOutcome>>;
 
@@ -2148,9 +2148,11 @@ export interface ObservedInterface {
   artefact: string | null;
   /**
    * "fibril": the pair as seen only in amyloid fibril structures, where every chain stacks on the next;
-   * "native": every other structure. Absent on payloads written before the split (re-read, not shown).
+   * "crystal": the pair as seen only in entries whose biological assembly is a monomer, so the contact
+   * is crystal packing; "native": every other structure. Absent on payloads written before the split
+   * (re-read, not shown).
    */
-  context?: "native" | "fibril";
+  context?: "native" | "fibril" | "crystal";
   /** The partner's UniProt gene name, when read. */
   gene?: string | null;
   /** The partner's organism when it is not human (UniProt common name); null for human. */
@@ -2333,6 +2335,8 @@ export interface MultimerExperimentalInterfaces {
   partners: MultimerExperimentalPartner[];
   /** "failed": RCSB was not read, so amyloid fibril entries could not be told apart from native ones. */
   entryKinds?: "ok" | "failed";
+  /** True when the biological-assembly check answered, so crystal-packing entries were told apart. */
+  crystalChecked?: boolean;
 }
 
 export interface MultimerData {

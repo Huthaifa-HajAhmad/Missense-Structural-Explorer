@@ -10,8 +10,11 @@ import {
   INTERFACES_SOURCES,
   IPTM_BAND_LABEL,
   buildInterfacesEvidence,
+  isStaleAssembly,
+  isStalePpi,
   type IptmBand,
 } from "../../shared/interfacesEvidence";
+import { useInterfacesLive } from "../evidence/interfaces/interfacesLive";
 
 /**
  * InterfacesRail — the Evidence Lineage inspector for the Interfaces & PPI tab.
@@ -26,19 +29,37 @@ import {
 export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const r = analysisResult as any;
   const md = r.metadata ?? {};
+  const live = useInterfacesLive();
+  const key = md.gene && md.variant ? `${md.gene}|${md.variant}` : null;
+  const liveForVariant = key !== null && live.key === key;
+
   const ppi = (r.ppiBindingData ?? null) as PpiBindingData | null;
   const shift = (r.ppiBindingShift ?? null) as PpiBindingShift | null;
   const ppiForVariant = ppi && ppi.gene === md.gene && ppi.variant === md.variant ? ppi : null;
+  const shiftForVariant = shift && shift.gene === md.gene && shift.variant === md.variant ? shift : null;
+  const storedAsm = (r.multimerData ?? null) as MultimerData | null;
+
+  // The tab's `useInterfacesData` publishes the LIVE status it renders from; the rail reads the same
+  // source, so it never says "Running" when the tab's data has landed, and never says "Running" for
+  // a lookup that failed (a failure is not written to the store). With no live status (rail rendered
+  // alone, e.g. in tests) it falls back to the stored result, applying the tab's staleness rules.
+  const assemblyStatus = liveForVariant ? live.assemblyStatus : storedAsm && !isStaleAssembly(storedAsm) ? "ready" : "loading";
+  const ppiStatus = liveForVariant ? live.ppiStatus : ppiForVariant && !isStalePpi(ppiForVariant) ? "ready" : "loading";
   const ev = buildInterfacesEvidence({
     result: analysisResult,
-    assembly: (r.multimerData ?? null) as MultimerData | null,
-    // The rail reads what the tab stored; until then it says the readings are pending, as the tab does.
-    assemblyStatus: r.multimerData ? "ready" : "loading",
+    assembly: storedAsm,
+    assemblyStatus,
+    assemblyError: liveForVariant ? live.assemblyError : null,
+    modelRequested: liveForVariant ? live.modelRequested : false,
     ppi: ppiForVariant,
-    ppiStatus: ppiForVariant ? "ready" : "loading",
-    shift: shift && shift.gene === md.gene && shift.variant === md.variant ? shift : null,
-    shiftLoading: false,
+    ppiStatus,
+    ppiError: liveForVariant ? live.ppiError : null,
+    shift: shiftForVariant,
+    shiftLoading: liveForVariant ? live.shiftLoading : false,
+    shiftError: liveForVariant ? live.shiftError : null,
   });
+  const assemblyPending = assemblyStatus === "loading";
+  const lookupsPending = ppiStatus === "loading";
   const C = THRESHOLDS.complexConfidence;
   const bands: Array<{ key: IptmBand; rule: string }> = [
     { key: "confident", rule: `> ${C.iptmConfident}` },
@@ -51,7 +72,7 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
   if (ev.uniprotId) sources.push(["Curation", `UniProtKB ${ev.uniprotId} · SUBUNIT, INTERACTION, features`]);
   if (ev.observed.availability.state === "ok" || ev.observed.availability.state === "empty") {
     sources.push(["Solved interfaces", "PDBe-KB"]);
-    sources.push(["Entry kinds", ev.observed.fibrilsChecked ? "RCSB PDB keywords and titles" : "RCSB PDB not read"]);
+    sources.push(["Entry kinds", ev.observed.fibrilsChecked ? "RCSB PDB keywords, titles and assemblies" : "RCSB PDB not read"]);
   }
   if (ev.sections.intact.state === "ok") sources.push(["Methods and studies", "IntAct (PSICQUIC)"]);
   if (ev.sections.stringPhysical.state === "ok" || ev.sections.stringPhysical.state === "empty") sources.push(["Network", `STRING${ev.string.version ? ` ${ev.string.version}` : ""}, Homo sapiens`]);
@@ -68,17 +89,20 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
           <GitBranch className="w-3.5 h-3.5" />
           Trace
         </h3>
-        {(!r.multimerData || !ppiForVariant) && (
+        {(assemblyPending || lookupsPending) && (
           <p className="ifc-rail__note">
-            {ENGINE_STATE_LABELS["no-result"]}: {!r.multimerData ? "the assembly and solved structures" : "the partner lookups"} have not answered for this variant yet.
+            {ENGINE_STATE_LABELS.running}: {assemblyPending ? "the assembly and solved structures" : "the partner lookups"} are being read for this variant.
           </p>
         )}
         <ol className="ifc-steps" data-testid="interfaces-trace">
           {ev.trace.map((s, i) => (
-            <li key={s.label} className="ifc-step" data-state={s.warn ? "warn" : "done"}>
+            <li key={s.label} className="ifc-step" data-state={s.state}>
               <span className="ifc-step__n" aria-hidden="true">{i + 1}</span>
               <div className="ifc-step__body">
-                <span className="ifc-step__label">{s.label}</span>
+                <span className="ifc-step__label">
+                  {s.label}
+                  {s.state === "pending" && <span className="ifc-step__pending">Reading…</span>}
+                </span>
                 <span className="ifc-step__value">{s.value}</span>
                 {s.sub && <span className="ifc-step__sub">{s.sub}</span>}
               </div>

@@ -135,7 +135,7 @@
 .ifc-diagram__variant[data-partial] .ifc-diagram__half { fill: var(--cs-accent-clay); stroke: none; }
 
 /* ── Sequence track ─────────────────────────────────────────── */
-.ifc-track { --ifc-track-label: 168px; --ifc-track-readout: 56px; padding: 14px 16px 16px; }
+.ifc-track { --ifc-track-label: 168px; --ifc-track-readout: 56px; padding: 12px 16px 14px; }
 .ifc-track__body { position: relative; display: flex; flex-direction: column; }
 .ifc-track__row {
   display: grid; grid-template-columns: var(--ifc-track-label) minmax(0, 1fr) var(--ifc-track-readout); align-items: center;
@@ -226,7 +226,7 @@
 }
 .ifc-table td,
 .ifc-table tbody th {
-  padding: 11px 16px; text-align: left; vertical-align: top; font-weight: inherit;
+  padding: 10px 16px; text-align: left; vertical-align: top; font-weight: inherit;
   border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-secondary);
 }
 .ifc-table tbody:last-of-type tr:last-child > * { border-bottom: 0; }
@@ -237,7 +237,7 @@
   .ifc-table tbody tr > *,
   .ifc-track__row { transition: background-color 120ms ease; }
 }
-.ifc-group > th { padding: 16px 16px 8px !important; background: transparent !important; }
+.ifc-group > th { padding: 13px 16px 6px !important; background: transparent !important; }
 .ifc-table tbody + tbody .ifc-group > th { border-top: 1px solid var(--cs-border); }
 .ifc-group__inner { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
 .ifc-group__meta { font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); text-transform: none; letter-spacing: 0; }
@@ -252,7 +252,7 @@
 .ifc-inline-action { display: block; margin-top: 8px; }
 .ifc-evidence { font-size: var(--cs-font-size-caption); line-height: 1.5; min-width: 220px; }
 .ifc-qualifier { margin-left: 8px; }
-.ifc-scale { min-width: 180px; padding-top: 14px !important; }
+.ifc-scale { min-width: 180px; padding-top: 12px !important; }
 .ifc-num {
   text-align: right !important; white-space: nowrap;
   font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
@@ -381,7 +381,14 @@
   color: var(--cs-text-muted); background: var(--cs-surface); border: 1px solid var(--cs-border);
 }
 .ifc-step:last-child .ifc-step__n { color: var(--cs-surface); background: var(--cs-text-primary); border-color: transparent; }
-.ifc-step[data-state="warn"] .ifc-step__n { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); border-color: transparent; }
+.ifc-step[data-state="warn"] .ifc-step__n,
+.ifc-step[data-state="failed"] .ifc-step__n { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); border-color: transparent; }
+/* A source that has not answered yet: a hollow ring, no animation (reduced-motion safe by construction). */
+.ifc-step[data-state="pending"] .ifc-step__n { color: var(--cs-text-accent); border-color: var(--cs-accent-clay); background: var(--cs-surface); }
+.ifc-step__pending {
+  margin-left: 8px; font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-medium);
+  letter-spacing: 0.04em; color: var(--cs-text-accent); text-transform: none;
+}
 .ifc-step__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ifc-step__label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 20px; }
 .ifc-step__value { color: var(--cs-text-primary); overflow-wrap: anywhere; }
@@ -431,18 +438,34 @@
 
 /* ── Partners: tier chart, search, folds ────────────────────── */
 .ifc-partners__head {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 24px; align-items: start;
-  padding: 14px 16px; border-bottom: 1px solid var(--cs-border-subtle);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 20px; align-items: start;
+  padding: 12px 16px; border-bottom: 1px solid var(--cs-border-subtle);
 }
-.ifc-tiers { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.ifc-tiers__band { display: flex; flex-direction: column; gap: 2px; }
+/* The track is capped so the longest bar ends near the card's edge: without it a 1fr track stretched
+   the whole card and left a long empty run of pixels to the right of every short bar. */
+.ifc-tiers { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 620px; }
+.ifc-tiers__band {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 5px 8px; margin: 0 -8px; border-radius: 8px;
+}
+.ifc-tiers__band + .ifc-tiers__band { margin-top: 2px; border-top: 1px solid var(--cs-border); padding-top: 7px; }
+.ifc-tiers__band[data-band="association"] { background: var(--cs-surface-2); }
+.ifc-tiers__band-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 3px;
+}
 .ifc-tiers__band-title {
   font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
   letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted);
 }
+.ifc-tiers__band[data-band="binding"] .ifc-tiers__band-title { color: var(--cs-text-secondary); }
+.ifc-tiers__band-count {
+  font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary);
+}
+.ifc-tiers__band-meta { flex: 1 1 100%; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ifc-tier {
-  display: grid; grid-template-columns: 196px minmax(80px, 1fr) 52px; align-items: center; gap: 12px;
-  min-height: 26px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none;
+  display: grid; grid-template-columns: 176px minmax(60px, 1fr) 52px; align-items: center; gap: 10px;
+  min-height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none;
   font: inherit; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); text-align: left; cursor: pointer;
 }
 .ifc-tier:hover { background: color-mix(in srgb, var(--cs-text-secondary) 6%, transparent); }
@@ -450,14 +473,19 @@
 .ifc-tier[aria-pressed="true"] { background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent); color: var(--cs-text-primary); }
 .ifc-tier[data-dim] { opacity: 0.55; }
 .ifc-tier__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ifc-tiers__band[data-band="binding"] .ifc-tier__label { color: var(--cs-text-primary); }
+.ifc-tiers__band[data-band="association"] .ifc-tier__label { color: var(--cs-text-muted); }
 .ifc-tier__bar { position: relative; height: 8px; border-radius: 2px; background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); }
-.ifc-tier__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--cs-text-secondary); }
+/* Binding evidence carries the stronger ink, association the muted ink: the band a reader must not
+   confuse is legible before the label is read. */
+.ifc-tiers__band[data-band="binding"] .ifc-tier__fill { background: var(--cs-text-primary); }
+.ifc-tiers__band[data-band="association"] .ifc-tier__fill { background: var(--cs-text-muted); }
 .ifc-tier[aria-pressed="true"] .ifc-tier__fill { background: var(--cs-accent-clay); }
 .ifc-tier__count {
   justify-self: end; font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
   font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary);
 }
-.ifc-partners__tools { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.ifc-partners__tools { display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px; }
 .ifc-search {
   display: inline-flex; align-items: center; gap: 6px; width: 200px; min-height: 32px; padding: 0 10px;
   border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input, 8px); background: var(--cs-surface); color: var(--cs-text-muted);
@@ -468,6 +496,27 @@
   font: inherit; font-size: var(--cs-font-size-caption); color: var(--cs-text-primary);
 }
 .ifc-search input::placeholder { color: var(--cs-text-muted); }
+.ifc-search__clear {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--cs-text-muted); cursor: pointer;
+}
+.ifc-search__clear:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent); }
+.ifc-search__clear:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+/* Collapsed search: a square icon button that expands into the input. */
+.ifc-search--toggle { width: 32px; padding: 0; justify-content: center; cursor: pointer; }
+.ifc-search--toggle:hover { background: color-mix(in srgb, var(--cs-text-secondary) 6%, var(--cs-surface)); color: var(--cs-text-secondary); }
+.ifc-search--toggle:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+
+/* Band label row in the partner grid: the same hierarchy as the tier chart, carried below it. */
+.ifc-band > th { padding: 14px 16px 4px !important; background: transparent !important; }
+.ifc-band[data-band="association"] > th { background: var(--cs-surface-2) !important; }
+.ifc-band__title {
+  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-secondary);
+}
+.ifc-band[data-band="association"] .ifc-band__title { color: var(--cs-text-muted); }
+.ifc-band__meta { margin-left: 10px; font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
 .ifc-species { margin-left: 2px; font-family: var(--cs-font-sans); font-weight: 400; }
 
 .ifc-fold > td { padding-top: 9px; padding-bottom: 9px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
@@ -485,9 +534,9 @@
 
 @container (max-width: 720px) {
   .ifc-partners__head { grid-template-columns: 1fr; }
-  .ifc-partners__tools { align-items: stretch; }
-  .ifc-search { width: auto; }
-  .ifc-tier { grid-template-columns: 132px minmax(60px, 1fr) 44px; }
+  .ifc-partners__tools { justify-content: flex-start; }
+  .ifc-tier { grid-template-columns: 128px minmax(56px, 1fr) 44px; gap: 8px; }
+  .ifc-tiers__band-meta { display: none; }
 }
 @media print {
   .ifc-partners__tools, .ifc-fold__toggle { display: none; }

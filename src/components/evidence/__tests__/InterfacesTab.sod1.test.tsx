@@ -85,6 +85,18 @@ describe("InterfacesTab — SOD1 partners", () => {
     expect(within(tiers).getByRole("button", { name: /Functional association only\s*369\+/ })).toBeInTheDocument();
   });
 
+  it("heads each band with its running total and marks binding apart from association", () => {
+    renderTab();
+    const tiers = screen.getByTestId("partner-tiers");
+    const binding = within(tiers).getByRole("group", { name: "Binding evidence" });
+    const assoc = within(tiers).getByRole("group", { name: "Association only" });
+    expect(binding.querySelector(".ifc-tiers__band-count")?.textContent).toMatch(/^\d+\+? entries$/);
+    // STRING's functional list is capped, so the association band's total carries the plus.
+    expect(assoc.querySelector(".ifc-tiers__band-count")?.textContent).toMatch(/\+\s*entries$/);
+    expect(tiers.querySelector('.ifc-tiers__band[data-band="binding"]')).toBeTruthy();
+    expect(tiers.querySelector('.ifc-tiers__band[data-band="association"]')).toBeTruthy();
+  });
+
   it("folds the 63-row screen tail behind one line and lists names on request", () => {
     renderTab();
     const grid = screen.getByTestId("partner-grid");
@@ -137,6 +149,6 @@ describe("InterfacesRail — SOD1", () => {
     expect(trace).toHaveTextContent("Amyloid fibrils read apart: SOD1 fibril, 15 entries.");
     expect(trace).toHaveTextContent("Set aside, not biological: NB1 (antibody or nanobody, a tool binder); Other (chain with no UniProt record).");
     expect(trace).toHaveTextContent("Not at the interface in any of 142 native structures");
-    expect(screen.getByTestId("interfaces-rail")).toHaveTextContent("RCSB PDB keywords and titles");
+    expect(screen.getByTestId("interfaces-rail")).toHaveTextContent("RCSB PDB keywords, titles and assemblies");
   });
 });

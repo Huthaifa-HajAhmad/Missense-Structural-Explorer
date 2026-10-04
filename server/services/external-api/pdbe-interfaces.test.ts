@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { clearPdbeInterfaceCache, fetchPdbeInterfaces, isFibrilEntry, observedFor, parsePdbeInterfaces, splitFibrilEntries } from "./pdbe-interfaces.ts";
+import { clearPdbeInterfaceCache, fetchPdbeInterfaces, isFibrilEntry, observedFor, parsePdbeInterfaces, splitEntryContexts, splitFibrilEntries } from "./pdbe-interfaces.ts";
 import { clearAllCaches } from "../infra/cache.ts";
 
 const res = (body: unknown, status = 200) =>
@@ -80,6 +80,24 @@ describe("splitFibrilEntries", () => {
   });
 });
 
+describe("splitEntryContexts — crystal packing", () => {
+  it("sets a monomeric-assembly entry aside from the native interface", () => {
+    const parsed = parsePdbeInterfaces(SOD1_IFACE, "P00441");
+    const split = splitEntryContexts(parsed, { fibrils: new Set(["7vzf", "9jbo"]), crystals: new Set(["1spd"]) });
+    const self = split.filter(p => p.accession === "P00441");
+    expect(self.map(p => p.context)).toEqual(["native", "fibril", "crystal"]);
+    const crystal = self.find(p => p.context === "crystal")!;
+    expect(crystal.pdbEntries).toEqual(["1spd"]);
+    expect(crystal.residues).toEqual([6]);
+    // Ala5 is not at the crystal contact; Val6 is.
+    expect(observedFor(crystal, "P00441", 5)).toMatchObject({ variantAtInterface: false, context: "crystal" });
+    expect(observedFor(crystal, "P00441", 6)).toMatchObject({ variantAtInterface: true, context: "crystal" });
+    // A fibril entry is never re-classed as a crystal contact even when its assembly is monomeric.
+    const fibrilWithMonomer = splitEntryContexts(parsed, { fibrils: new Set(["7vzf"]), crystals: new Set(["7vzf"]) });
+    expect(fibrilWithMonomer.filter(p => p.accession === "P00441").every(p => p.context !== "crystal")).toBe(true);
+  });
+});
+
 describe("fetchPdbeInterfaces", () => {
   beforeEach(() => {
     clearAllCaches(true);
@@ -120,11 +138,48 @@ describe("fetchPdbeInterfaces", () => {
     expect(lookup.status).toBe("ok");
     if (lookup.status !== "ok") return;
     expect(lookup.entryKinds).toBe("ok");
+    expect(lookup.crystalChecked).toBe(true);
     expect(graphql[0]).toMatch(/7VZF/);
     const self = lookup.partners.filter(p => p.accession === "P00441");
     expect(self.map(p => [p.context, p.pdbEntries.length])).toEqual([["native", 2], ["fibril", 2]]);
     expect(lookup.partners.find(p => p.accession === "P08228")).toMatchObject({ gene: "Sod1", organism: "Mouse" });
     expect(self[0]).toMatchObject({ gene: "SOD1", organism: null });
+  });
+
+  it("sets a crystal-packing entry aside when its biological assembly is a monomer", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u: any, init: any) => {
+      const s = typeof u === "string" ? u : u.toString();
+      if (s.includes("interface_residues/P00441")) return res(SOD1_IFACE);
+      if (s.includes("data.rcsb.org/graphql")) {
+        return res({
+          data: {
+            entries: [
+              { rcsb_id: "7VZF", struct: { title: "amyloid fibril" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+              { rcsb_id: "9JBO", struct: { title: "amyloid filament" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+              { rcsb_id: "1SPD", struct: { title: "SOD1" }, struct_keywords: { pdbx_keywords: "OXIDOREDUCTASE" } },
+              { rcsb_id: "2C9V", struct: { title: "SOD1" }, struct_keywords: { pdbx_keywords: "OXIDOREDUCTASE" } },
+            ],
+            assemblies: [
+              { rcsb_id: "1SPD-1", pdbx_struct_assembly: { oligomeric_details: "monomeric" }, rcsb_assembly_info: { polymer_entity_instance_count: 1 } },
+              { rcsb_id: "2C9V-1", pdbx_struct_assembly: { oligomeric_details: "dimeric" }, rcsb_assembly_info: { polymer_entity_instance_count: 2 } },
+            ],
+          },
+        });
+      }
+      if (s.includes("rest.uniprot.org/uniprotkb/accessions")) return res({ results: [] });
+      return res({}, 500);
+    });
+
+    const lookup = await fetchPdbeInterfaces("P00441");
+    expect(lookup.status).toBe("ok");
+    if (lookup.status !== "ok") return;
+    expect(lookup.crystalChecked).toBe(true);
+    const self = lookup.partners.filter(p => p.accession === "P00441");
+    expect(self.map(p => [p.context, p.pdbEntries])).toEqual([
+      ["native", ["2c9v"]],
+      ["fibril", ["7vzf", "9jbo"]],
+      ["crystal", ["1spd"]],
+    ]);
   });
 
   it("says when RCSB could not be read, and does not cache an unchecked answer", async () => {

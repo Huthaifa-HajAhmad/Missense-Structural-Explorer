@@ -5,6 +5,7 @@ import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore
 import { getDeduplicatedPromise } from "../../../variantAnalysisUtils";
 import { setCachedVariant } from "../../../services/pipeline/variantCache";
 import { isStaleAssembly, isStalePpi, type LoadState } from "../../../shared/interfacesEvidence";
+import { publishInterfacesLive } from "./interfacesLive";
 
 /**
  * useInterfacesData — the three requests behind the Interfaces & PPI tab, each scoped to the
@@ -106,18 +107,19 @@ export function useInterfacesData(result: any) {
       if (!gene || !variant || !key) return;
       setPpi(prev => ({ key, status: "loading", data: prev?.key === key ? prev.data : null }));
       try {
-        const response = await fetchWithAuth("/api/v1/ppi/binding-affinity", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ gene, variant, uniprotId }),
-          signal,
-        });
-        if (signal?.aborted) return;
-        if (!response.ok) {
-          setPpi({ key, status: "error", data: null, message: await extractErrorMessage(response, "The interaction lookups did not answer.") });
-          return;
-        }
-        const data = (await response.json()) as PpiBindingData;
+        const run = async () => {
+          const response = await fetchWithAuth("/api/v1/ppi/binding-affinity", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ gene, variant, uniprotId }),
+            signal,
+          });
+          if (!response.ok) throw new Error(await extractErrorMessage(response, "The interaction lookups did not answer."));
+          return (await response.json()) as PpiBindingData;
+        };
+        // Shares the pipeline prefetch's key (`fetchProgressivePpi`), so a tab opened while the
+        // prefetch is still in flight joins that request instead of issuing a second one.
+        const data = await getDeduplicatedPromise(`ppi_${gene}_${variant}_${uniprotId}`, run, signal);
         if (signal?.aborted) return;
         setPpi({ key, status: "ready", data });
         patchResult(gene, variant, { ppiBindingData: data });
@@ -190,17 +192,32 @@ export function useInterfacesData(result: any) {
 
   const activePpi = ppi && ppi.key === key ? ppi : null;
 
+  const assemblyStatus = (activeAsm?.status ?? (freshStoredAsm ? "ready" : "loading")) as LoadState;
+  const assemblyError = activeAsm?.status === "error" ? activeAsm.message ?? null : null;
+  const ppiStatus = (activePpi?.status ?? (freshStoredPpi ? "ready" : "loading")) as LoadState;
+  const ppiError = activePpi?.status === "error" ? activePpi.message ?? null : null;
+  const shiftLoading = activeShift?.status === "loading";
+  const shiftError = activeShift?.status === "error" ? activeShift.message ?? null : null;
+  const modelRequestedForKey = modelRequested === key;
+
+  // Publish the LIVE status the tab is rendering from, so the rail reads the same readiness instead
+  // of inferring it from the stored result (see `interfacesLive.ts`). Errors are published too: a
+  // failed lookup is never written to the store, and the rail must say failed, not "Running" forever.
+  useEffect(() => {
+    publishInterfacesLive({ key, assemblyStatus, assemblyError, ppiStatus, ppiError, shiftLoading, shiftError, modelRequested: modelRequestedForKey });
+  }, [key, assemblyStatus, assemblyError, ppiStatus, ppiError, shiftLoading, shiftError, modelRequestedForKey]);
+
   return {
     assembly: asmData,
-    assemblyStatus: (activeAsm?.status ?? (freshStoredAsm ? "ready" : "loading")) as LoadState,
-    assemblyError: activeAsm?.status === "error" ? activeAsm.message ?? null : null,
-    modelRequested: modelRequested === key,
+    assemblyStatus,
+    assemblyError,
+    modelRequested: modelRequestedForKey,
     ppi: activePpi?.data ?? freshStoredPpi,
-    ppiStatus: (activePpi?.status ?? (freshStoredPpi ? "ready" : "loading")) as LoadState,
-    ppiError: activePpi?.status === "error" ? activePpi.message ?? null : null,
+    ppiStatus,
+    ppiError,
     shift: shiftData,
-    shiftLoading: activeShift?.status === "loading",
-    shiftError: activeShift?.status === "error" ? activeShift.message ?? null : null,
+    shiftLoading,
+    shiftError,
     requestModel: () => void fetchAssembly(true),
     retryAssembly: () => void fetchAssembly(false),
     retryLookups: () => void fetchLookups(),
