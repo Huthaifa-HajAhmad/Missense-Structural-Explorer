@@ -719,6 +719,8 @@ export interface UniprotInteractionPartner {
   accession: string;
   gene: string | null;
   experiments: number | null;
+  /** UniProt's flag: the partner is from another species. */
+  organismDiffer?: boolean;
 }
 
 /** Feature types we care about for clinical/functional/domain annotation */
@@ -1020,6 +1022,7 @@ export async function fetchUniprotFeatures(
               accession: acc,
               gene: typeof two?.geneName === "string" ? two.geneName : null,
               experiments: Number.isFinite(it?.numberOfExperiments) ? it.numberOfExperiments : null,
+              ...(it?.organismDiffer === true ? { organismDiffer: true } : {}),
             });
           }
         }

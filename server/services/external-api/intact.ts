@@ -28,7 +28,7 @@ function acc(field: string): string | null {
 /** Parse MITAB 2.5 rows into evidence per partner accession. Exported for tests. */
 export function parseIntactMitab(text: string, accession: string): Map<string, IntactEvidence> {
   const self = accession.toUpperCase().replace(/-\d+$/, "");
-  const work = new Map<string, { methods: Set<string>; pubmed: Set<string> }>();
+  const work = new Map<string, { methods: Set<string>; pubmed: Set<string>; organism: string | null }>();
   for (const line of text.split("\n")) {
     const cols = line.split("\t");
     if (cols.length < 9) continue;
@@ -36,9 +36,12 @@ export function parseIntactMitab(text: string, accession: string): Map<string, I
     const b = acc(cols[1]);
     const partner = a === self ? b : b === self ? a : null;
     if (!partner) continue;
-    const entry = work.get(partner) ?? { methods: new Set<string>(), pubmed: new Set<string>() };
+    const entry = work.get(partner) ?? { methods: new Set<string>(), pubmed: new Set<string>(), organism: null };
     for (const m of cols[6].matchAll(/\(([^)]+)\)/g)) entry.methods.add(m[1].trim());
     for (const m of cols[8].matchAll(/pubmed:(\d+)/gi)) entry.pubmed.add(m[1]);
+    // Column 10 is A's taxon, 11 B's: "taxid:10090(mouse)|taxid:10090(Mus musculus)".
+    const taxon = /taxid:(-?\d+)(?:\(([^)]+)\))?/.exec(cols[partner === a ? 9 : 10] ?? "");
+    if (taxon && taxon[1] !== "9606" && Number(taxon[1]) > 0) entry.organism = taxon[2]?.trim() || `taxon ${taxon[1]}`;
     work.set(partner, entry);
   }
   const out = new Map<string, IntactEvidence>();
@@ -48,6 +51,7 @@ export function parseIntactMitab(text: string, accession: string): Map<string, I
       methods,
       pubmed: [...e.pubmed].sort(),
       twoHybridOnly: methods.length > 0 && methods.every(m => /two hybrid/i.test(m)),
+      ...(e.organism ? { organism: e.organism } : {}),
     });
   }
   return out;

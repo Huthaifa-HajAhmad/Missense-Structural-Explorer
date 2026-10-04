@@ -49,7 +49,10 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
 
   const sources: Array<[string, string]> = [];
   if (ev.uniprotId) sources.push(["Curation", `UniProtKB ${ev.uniprotId} · SUBUNIT, INTERACTION, features`]);
-  if (ev.observed.availability.state === "ok" || ev.observed.availability.state === "empty") sources.push(["Solved interfaces", "PDBe-KB"]);
+  if (ev.observed.availability.state === "ok" || ev.observed.availability.state === "empty") {
+    sources.push(["Solved interfaces", "PDBe-KB"]);
+    sources.push(["Entry kinds", ev.observed.fibrilsChecked ? "RCSB PDB keywords and titles" : "RCSB PDB not read"]);
+  }
   if (ev.sections.intact.state === "ok") sources.push(["Methods and studies", "IntAct (PSICQUIC)"]);
   if (ev.sections.stringPhysical.state === "ok" || ev.sections.stringPhysical.state === "empty") sources.push(["Network", `STRING${ev.string.version ? ` ${ev.string.version}` : ""}, Homo sapiens`]);
   if (ev.model.state === "built" && ev.model.provenance) sources.push(["Complex model", ev.model.provenance]);
@@ -139,7 +142,15 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
               PDBe-KB lists, for each residue, the solved structures in which it is at the interface. A residue seen in one of eight
               structures is a conformation- or construct-dependent contact; the support is shown, not hidden behind &ldquo;at an interface&rdquo;.
             </li>
-            <li>Interfaces with fusion or crystallisation tags (maltose-binding protein, T4 lysozyme …) are construct artefacts and are not counted.</li>
+            <li>
+              Amyloid fibril structures (RCSB keyword &ldquo;protein fibril&rdquo;, or &ldquo;amyloid&rdquo; or &ldquo;fibril&rdquo; in the title) are read apart:
+              in a fibril every chain stacks on the next, so most of the core touches another copy. That contact is not the native interface,
+              is never the verdict, and is never a wild type for the binding change.
+            </li>
+            <li>
+              Interfaces with fusion or crystallisation tags (maltose-binding protein, T4 lysozyme …), antibodies and nanobodies, and chains
+              with no UniProt record are not biological partners and are not counted. A partner from another species is named with it.
+            </li>
             <li>Contact is not disruption. Whether binding changes is the separate DDMut-PPI estimate.</li>
           </ul>
         </details>

@@ -203,9 +203,17 @@ export function subunitStatements(text: string | null | undefined, ownGene?: str
   const clean = (text ?? "").replace(/\s+/g, " ").trim();
   if (!clean) return [];
   const out: SubunitStatement[] = [];
+  const SIZE = ["di", "tri", "tetra", "penta", "hexa", "hepta", "octa", "nona", "deca", "dodeca"];
   for (const sentence of splitSentences(clean)) {
+    // The largest assembly a sentence states: "The heterodimer CCS:SOD1 interacts with SLC31A1; this
+    // heterotrimer …" states a heterotrimer with CCS and SLC31A1. Reading the first word made SLC31A1 a
+    // "heterodimer" partner of SOD1.
+    let olig: RegExpExecArray | null = null;
     OLIGOMER_RE.lastIndex = 0;
-    const olig = OLIGOMER_RE.exec(sentence);
+    for (let m = OLIGOMER_RE.exec(sentence); m; m = OLIGOMER_RE.exec(sentence)) {
+      if (!olig || SIZE.indexOf(m[2].toLowerCase()) > SIZE.indexOf(olig[2].toLowerCase())) olig = m;
+    }
+    OLIGOMER_RE.lastIndex = 0;
     const monoIdx = sentence.search(MONOMER_RE);
     const qualifier = qualifierOf(sentence);
     if (olig && (monoIdx < 0 || olig.index < monoIdx)) {

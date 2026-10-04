@@ -75,6 +75,14 @@ describe("parseIntactMitab", () => {
     });
     expect(by.get("P17931")).toMatchObject({ twoHybridOnly: false, pubmed: ["33961781"] });
   });
+
+  it("names the partner's species when IntAct records it as not human (SOD1 with mouse chromogranin A)", () => {
+    const row = mitab("P00441", "P26339", "anti bait coimmunoprecipitation", "16369483").split("\t");
+    row[10] = "taxid:10090(mouse)|taxid:10090(Mus musculus)";
+    const by = parseIntactMitab([row.join("\t"), mitab("P00441", "P04406", "anti bait coimmunoprecipitation", "29128334")].join("\n"), "P00441");
+    expect(by.get("P26339")?.organism).toBe("mouse");
+    expect(by.get("P04406")).not.toHaveProperty("organism");
+  });
 });
 
 describe("analyzePpiBinding", () => {
@@ -224,6 +232,48 @@ describe("analyzeBindingShift", () => {
     ]);
     expect(shift.status).toBe("not-applicable");
     expect(shift.reason).toMatch(/not at the interface in any of the 2 solved complexes/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("never scores on an amyloid fibril: a residue at the interface only in fibrils gets no binding change", async () => {
+    // SOD1 Ala5: the plan read "DDMut-PPI on a solved complex where Ala5 is at the interface (7VZF, 9JBO, 9JBP…)",
+    // all four amyloid fibrils. A fibril is chains stacked along an axis, not a binding complex.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u: any) => {
+      const s = url(u);
+      if (s.includes("Q13564.fasta")) return res(`>sp|Q13564\n${WT}\n`);
+      if (s.includes("interface_residues")) {
+        return res({
+          Q13564: {
+            data: [
+              {
+                accession: "Q13564",
+                name: "NAE1",
+                residues: [
+                  { startIndex: 116, endIndex: 116, interactingPDBEntries: [{ pdbId: "7fib" }] },
+                  { startIndex: 120, endIndex: 120, interactingPDBEntries: [{ pdbId: "1abc" }] },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (s.includes("data.rcsb.org/graphql")) {
+        return res({
+          data: {
+            entries: [
+              { rcsb_id: "7FIB", struct: { title: "Amyloid fibril of NAE1" }, struct_keywords: { pdbx_keywords: "PROTEIN FIBRIL" } },
+              { rcsb_id: "1ABC", struct: { title: "NAE1 dimer" }, struct_keywords: { pdbx_keywords: "LIGASE" } },
+            ],
+          },
+        });
+      }
+      return res({}, 500);
+    });
+    const ddmut = await import("../stability/ddmut-ppi.ts");
+    const spy = vi.spyOn(ddmut, "evaluateDdmutPpi");
+    const shift = await analyzeBindingShift("NAE1", "p.Asp116Gly", "Q13564", []);
+    expect(shift.status).toBe("not-applicable");
+    expect(shift.reason).toMatch(/not at the interface in the one solved complex/);
     expect(spy).not.toHaveBeenCalled();
   });
 
