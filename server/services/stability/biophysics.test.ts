@@ -23,7 +23,26 @@ describe("Biophysics Service Unit Tests (M-7 Coverage)", () => {
       expect(result.stericClashWarning).toBe(false);
     });
 
-    it("should perform 2-SD outlier filtering when n >= 4 runs contain a sampling outlier", () => {
+    it("keeps a legitimate bimodal run distribution instead of discarding the minority mode", () => {
+      // Real BuildModel output: SOD1 p.Ala5Val on the repaired AlphaFold template. Two side-chain
+      // rotamer outcomes (~1.6 and ~2.9). A MAD filter scored the 2.9 pair at modified Z ~14 and
+      // reported 1.58 ± 0.03; the honest summary keeps all five runs.
+      const result = parseFoldxDifFile([
+        "Pdb\ttotal energy\tBackbone Hbond",
+        "wt_1_0.pdb\t2.95165\t-0.175699",
+        "wt_1_1.pdb\t1.55294\t-0.178762",
+        "wt_1_2.pdb\t1.61067\t-0.154488",
+        "wt_1_3.pdb\t2.9026\t-0.171324",
+        "wt_1_4.pdb\t1.58113\t-0.177132"
+      ].join("\n"));
+
+      expect(result.rawDdGs).toHaveLength(5);
+      expect(result.excludedDdGs).toEqual([]);
+      expect(result.ddG).toBeCloseTo(2.1198, 3);
+      expect(result.sd).toBeGreaterThan(0.6);
+    });
+
+    it("excludes a physically impossible run (> 20 kcal/mol) from the mean and reports it", () => {
       const mockFxOutput = [
         "PDB\ttotal energy\tVdW\tElectrostatics",
         "wt.pdb\t10.0\t2.0\t1.0",
@@ -35,8 +54,9 @@ describe("Biophysics Service Unit Tests (M-7 Coverage)", () => {
       ].join("\n");
 
       const result = parseFoldxDifFile(mockFxOutput);
-      // Outlier run should be filtered out
+      // The unphysical run is excluded, and reported rather than silently dropped.
       expect(result.rawDdGs).toHaveLength(4);
+      expect(result.excludedDdGs).toEqual([65]);
       expect(result.ddG).toBeCloseTo(5.0, 1);
     });
 

@@ -3,10 +3,16 @@ export interface FoldxParsedResult {
   sd: number;
   vdw: number;
   electrostatics: number;
+  /** Every BuildModel run that entered the mean and SD. */
   rawDdGs: number[];
+  /** Runs left out because they were physically impossible; empty in the normal case. */
+  excludedDdGs: number[];
   stericClashWarning: boolean;
   isDegenerate?: boolean;
 }
+
+/** A ΔΔG beyond this is an energy-function artefact, not a measurement (H-5). */
+const EXTREME_DDG_KCAL = 20.0;
 
 export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
   const fxLines = fxText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -102,21 +108,25 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
     calculatedRuns.push({ ddG: runDdG, vdw: runVdw, elec: runElec });
   }
 
-  let validRuns = [...calculatedRuns];
-  if (calculatedRuns.length >= 4) {
-    const rawDdGs = calculatedRuns.map(r => r.ddG);
-    const sorted = [...rawDdGs].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    const absoluteDeviations = sorted.map(val => Math.abs(val - median)).sort((a, b) => a - b);
-    const mad = absoluteDeviations[Math.floor(absoluteDeviations.length / 2)] || 0.0001;
-    // Modified Z-score (Iglewicz & Hoaglin 1993): 0.6745 * |x - median| / MAD <= 3.5
-    const filtered = calculatedRuns.filter(r => {
-      const modZ = (0.6745 * Math.abs(r.ddG - median)) / mad;
-      return modZ <= 3.5;
-    });
-    if (filtered.length >= 3) {
-      validRuns = filtered;
-    }
+  /**
+   * Only a run that is physically impossible is excluded — never a run that merely disagrees.
+   *
+   * This used to be a MAD outlier filter (modified Z > 3.5). With five runs it is the wrong tool:
+   * BuildModel's runs are not noisy draws around one value, they land in discrete side-chain
+   * rotamer states, and a 3-versus-2 split is a legitimate bimodal distribution. Measured on SOD1
+   * p.Ala5Val (repaired AlphaFold template), the runs were 1.55, 1.58, 1.61, 2.90, 2.95; the
+   * three tight ones set a MAD of 0.06, the other two scored a modified Z of ~14 and were
+   * discarded, and the result was reported as 1.58 ± 0.03. The honest summary is 2.12 ± 0.74.
+   * Across 26 SOD1 variant runs the filter fired on 8 and understated the reported SD every time.
+   *
+   * What stays excluded is the per-run version of the >20 kcal/mol artefact bound used below.
+   */
+  const physicalRuns = calculatedRuns.filter(r => Number.isFinite(r.ddG) && Math.abs(r.ddG) <= EXTREME_DDG_KCAL);
+  // If every run is unphysical keep them all, so the mean-level artefact check below still fires.
+  const validRuns = physicalRuns.length > 0 ? physicalRuns : calculatedRuns;
+  const excludedDdGs = physicalRuns.length > 0 ? calculatedRuns.filter(r => !physicalRuns.includes(r)).map(r => r.ddG) : [];
+  if (excludedDdGs.length > 0) {
+    console.warn(`[FoldX Warning] Excluded ${excludedDdGs.length} of ${calculatedRuns.length} BuildModel runs as unphysical (|ΔΔG| > ${EXTREME_DDG_KCAL} kcal/mol): ${excludedDdGs.map(v => v.toFixed(1)).join(", ")}.`);
   }
 
   const validDdGs = validRuns.map(r => r.ddG);
@@ -138,15 +148,18 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
   const stericClashWarning = meanVdw > 2.0;
 
   // H-5 Fix: Detect extreme unphysical energy artifacts (> 20 kcal/mol) or degenerate runs (SD < 0.001)
-  // If all 5 runs produced identical values, the FoldX stochastic simulation failed to explore conformation space correctly.
-  const isExtreme = Math.abs(meanDdG) > 20.0;
+  // `isDegenerate` still flags identical runs for callers that want to know, but identical runs alone
+  // are not an error (see the log below); only the extreme mean nulls the ΔΔG.
+  const isExtreme = Math.abs(meanDdG) > EXTREME_DDG_KCAL;
   const isIdentical = validDdGs.length > 1 && sd < 0.001;
   const isDegenerate = isExtreme || isIdentical;
   if (isExtreme) {
     console.warn(`[FoldX Warning] Extreme unphysical energy artifact detected (mean ΔΔG = ${meanDdG.toFixed(2)} kcal/mol > 20 kcal/mol). Excluding from consensus.`);
   }
   if (isIdentical) {
-    console.warn(`[FoldX Warning] Degenerate runs detected (SD = ${sd.toFixed(5)} < 0.001). All FoldX BuildModel runs returned identical values, indicating failed minimization.`);
+    // Not a failure: with a fixed rotabase seed, identical runs are expected when the substitution has
+    // one dominant rotamer (seen on 4 of 26 SOD1 variant runs). The UI explains it the same way.
+    console.info(`[FoldX] All ${validDdGs.length} BuildModel runs returned the same ΔΔG (SD ${sd.toFixed(5)}): no run-to-run spread to report.`);
   }
   const finalDdG = isExtreme ? null : parseFloat(meanDdG.toFixed(4));
 
@@ -156,6 +169,7 @@ export function parseFoldxDifFile(fxText: string): FoldxParsedResult {
     vdw: parseFloat(meanVdw.toFixed(4)),
     electrostatics: parseFloat(meanElec.toFixed(4)),
     rawDdGs: validDdGs,
+    excludedDdGs,
     stericClashWarning,
     isDegenerate
   };

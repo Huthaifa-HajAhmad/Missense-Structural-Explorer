@@ -33,8 +33,10 @@
 /**
  * The four states a FoldX job actually passes through, in order.
  *
- * `queued` and `repairing` are the two that can last minutes; `modelling` and `finalizing` are
- * seconds. They are DISTINCT because they are the two a reader might act on: queued means "the
+ * `queued` and `repairing` are the two that usually last minutes; `finalizing` is seconds.
+ * `modelling` is seconds on a native host but MINUTES under Box64 on a large structure (SLC12A4,
+ * 1,085 residues: 167 s on the OCI host), so it must never be presented as a quick step.
+ * They are DISTINCT because they are the two a reader might act on: queued means "the
  * server is busy with someone else's job", repairing means "your structure is being minimised".
  */
 export const FOLDX_PHASES = ["queued", "repairing", "modelling", "finalizing"] as const;

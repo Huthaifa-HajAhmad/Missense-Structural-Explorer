@@ -128,7 +128,9 @@ export function getFoldxCacheKey(
   mutation: string,
   options?: FoldxCacheKeyOptions
 ): string {
-  const FOLDX_CACHE_VERSION = "v2";
+  // v3: the run-averaging rule changed (MAD outlier filter removed, see parser.ts). A v2 entry holds
+  // a mean and SD that discarded legitimate runs, so it must not be served as the current answer.
+  const FOLDX_CACHE_VERSION = "v3";
   const seed = options?.seed !== undefined ? options.seed : 12345;
   return `${pdbHash}_${mutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${FOLDX_CACHE_VERSION}`;
 }

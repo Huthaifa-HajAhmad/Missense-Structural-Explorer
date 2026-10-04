@@ -2,8 +2,12 @@ export type FoldxFailureKind = "runtime-crash" | "timeout" | "missing-output" | 
 
 export function classifyFoldxFailure(error: any): FoldxFailureKind {
   const diagnostic = [error?.message, error?.stderr, error?.stdout, error?.signal].filter(Boolean).join(" ");
+  // Timeout FIRST: `killed` is set only when Node killed the child (its `timeout`). A process killed
+  // mid-run under Box64 can still print "Unhandled signal caught" on the way down, and checking the
+  // crash text first would report our own budget kill as a native crash with the wrong advice.
+  if (error?.killed || error?.code === "ETIMEDOUT") return "timeout";
   if (/SIGSEGV|SIGABRT|Signal (?:11|6)\b|Unhandled signal caught|segmentation fault/i.test(diagnostic)) return "runtime-crash";
-  if (error?.killed || error?.code === "ETIMEDOUT" || error?.signal === "SIGTERM") return "timeout";
+  if (error?.signal === "SIGTERM") return "timeout";
   if (/without producing a mutant PDB/i.test(diagnostic)) return "missing-output";
   return "execution-error";
 }
@@ -12,14 +16,35 @@ export function canRetryFoldxAfterRepair(repairFailed: boolean, error: any, sign
   return repairFailed && !signal?.aborted && error?.name !== "AbortError" && classifyFoldxFailure(error) === "execution-error";
 }
 
-export function describeFoldxFailure(error: any, repairFailed: boolean): string {
+/**
+ * The facts a timeout cannot be diagnosed without. "Exceeded its execution budget" alone sent one
+ * RCA chasing size and emulation for a run whose duration, size and repair state were all unknown
+ * from the log; with these in the message the next reader starts from evidence.
+ */
+export interface FoldxRunContext {
+  budgetMs: number;
+  residueCount: number;
+  numberOfRuns: number;
+  /** "repaired", "repaired (reused)", "unrepaired (<reason>)" — the template BuildModel was given. */
+  template: string;
+  emulated: boolean;
+}
+
+function describeRun(ctx: FoldxRunContext): string {
+  return `${(ctx.budgetMs / 1000).toFixed(0)} s budget; ${ctx.residueCount} residues, ${ctx.template} template, ` +
+    `${ctx.numberOfRuns} runs${ctx.emulated ? ", emulated through Box64" : ""}`;
+}
+
+export function describeFoldxFailure(error: any, repairFailed: boolean, ctx?: FoldxRunContext): string {
   const kind = classifyFoldxFailure(error);
   const diagnostic = [error?.message, error?.stderr].filter(Boolean).join("\n").replace(/\x1b\[[0-9;]*m/g, "").slice(0, 4000);
   const box64 = /box64/i.test(diagnostic) ? " through Box64" : "";
   if (kind === "runtime-crash") {
     return `FoldX BuildModel failed (native process crash${box64}): ${diagnostic}. Inspect the runtime, binary architecture and exact input structure. This does not establish that the PDB is invalid.`;
   }
-  if (kind === "timeout") return `FoldX BuildModel exceeded its execution budget: ${diagnostic}`;
+  if (kind === "timeout") {
+    return `FoldX BuildModel exceeded its execution budget${ctx ? ` (${describeRun(ctx)})` : ""}: ${diagnostic}`;
+  }
   if (kind === "missing-output") return `FoldX BuildModel returned no mutant structure: ${diagnostic}`;
   return `FoldX BuildModel failed (${repairFailed ? "RepairPDB previously failed" : "execution error"}): ${diagnostic}. Verify the input structure and FoldX parameter files.`;
 }

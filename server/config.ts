@@ -41,7 +41,9 @@ export const CONFIG = {
    *
    * Required ordering, asserted by `server/tests/foldx-timeout-budget.test.ts`:
    *
-   *   semaphoreWait + repair + buildModel + buildModelRetry   ← worst-case work
+   *   semaphoreWait + max(repair + buildModel(≤400 res), buildModelMax) + buildModelRetry
+   *                                                           ← worst-case work (repair and a long
+   *                                                             BuildModel never share a job)
    *     ≤ foldxSec                                            ← queue job cap
    *     < foldxReaperLeaseMs                                  ← stale-running reaper
    *     ≤ foldxQueuedLeaseMs                                  ← stale-queued reaper
@@ -66,8 +68,19 @@ export const CONFIG = {
     foldxSemaphoreWaitMs: parseInt(process.env.FOLDX_SEMAPHORE_WAIT_MS || "120000", 10),
     /** FoldX RepairPDB subprocess cap (up to ~400 residues rotamer repacking with missing sidechain completion). */
     foldxRepairMs: parseInt(process.env.FOLDX_REPAIR_TIMEOUT_MS || "420000", 10),
-    /** FoldX BuildModel subprocess cap (the 5-run ensemble; 1.3s on repaired structure, max 130s un-repaired). */
+    /**
+     * FoldX BuildModel subprocess cap (the 5-run ensemble) on a native host, and the FLOOR of the
+     * size-aware cap under emulation (`foldx/budget.ts`). Measured with `npm run foldx:timing`:
+     *   native Windows x64   154 res 2.3 s · 875 res 4.7 s (~0.5 s per extra run)
+     *   OCI ARM64 + Box64    1,085 res 167.2 s (13.3 s fixed + 30.8 s per run)
+     */
     foldxBuildModelMs: parseInt(process.env.FOLDX_BUILDMODEL_TIMEOUT_MS || "180000", 10),
+    /** Ceiling of the size-aware BuildModel cap. Repair is skipped at this size, so it fits `foldxSec`. */
+    foldxBuildModelMaxMs: parseInt(process.env.FOLDX_BUILDMODEL_MAX_MS || "600000", 10),
+    /** Emulated cost model, fixed part (measured 13.3 s on the OCI host). */
+    foldxEmulatedFixedMs: parseInt(process.env.FOLDX_EMULATED_FIXED_MS || "15000", 10),
+    /** Emulated cost model, per residue per run (measured 30.8 s / 1,085 residues = 28.4 ms). */
+    foldxEmulatedMsPerResidueRun: parseFloat(process.env.FOLDX_EMULATED_MS_PER_RESIDUE_RUN || "30"),
     /** Second BuildModel attempt, made only after a RepairPDB failure. */
     foldxBuildModelRetryMs: parseInt(process.env.FOLDX_BUILDMODEL_RETRY_MS || "120000", 10),
     /** Reaper lease for a job a crash left in `running`. Must exceed the job cap. */
