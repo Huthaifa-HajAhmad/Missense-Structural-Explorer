@@ -16,6 +16,7 @@ import type { EvidenceAvailabilityState } from "../../shared/evidenceAvailabilit
 import { THRESHOLDS } from "../../shared/thresholds";
 import { FrequencyScale, type ScaleReading } from "./population/FrequencyScale";
 import { classificationTone, formatClinicalDate, reviewStars } from "./population/populationFormat";
+import { Prose } from "../ui/Prose";
 
 /**
  * Population Data.
@@ -339,7 +340,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
             {leadLabel && <span className="pop-hero__figure-label">{leadLabel}</span>}
           </div>
 
-          <p className="detail-prose pop-hero__finding">
+          <Prose className="detail-prose pop-hero__finding">
             {criterion.headline !== null && criterion.predicate !== null ? (
               <>
                 <strong>{criterion.headline}</strong>
@@ -349,7 +350,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
             ) : (
               criterion.statement
             )}
-          </p>
+          </Prose>
 
           {applied.suppressed && (
             <p className="pop-callout" data-tone="warning">

@@ -196,7 +196,7 @@
 .prd-subject__line { display: flex; align-items: center; gap: 2px; min-height: 24px; }
 .prd-subject__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .prd-subject__note {
-  display: block; margin-top: 1px; max-width: 60ch;
+  display: block; margin-top: 1px; max-width: none;
   font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted);
 }
 .prd-subject__fact { color: var(--cs-text-secondary); }
@@ -333,7 +333,7 @@
 .prd-fam__name { display: block; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .prd-fam__sub { display: block; margin-top: 1px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.45; }
 .prd-fam__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.prd-fam__body p { margin: 0; max-width: 72ch; }
+.prd-fam__body p { margin: 0; max-width: none; }
 .prd-fam__body b { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .prd-fam__body .prd-fam__scores { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 2px; max-width: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .prd-fam__scores > span { display: inline-flex; gap: 6px; align-items: baseline; }

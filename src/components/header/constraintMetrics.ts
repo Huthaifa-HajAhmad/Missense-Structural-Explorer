@@ -147,7 +147,7 @@ export function buildMissenseZMetric(
     ],
   };
   const refRange =
-    "Reference: tolerant below 2.0, constrained from 2.0, severe intolerance at or above 3.09.";
+    "Reference: not constrained below 2.0 (tolerant only at Z of 0 or less), constrained from 2.0, severe intolerance at or above 3.09.";
   const pp2Clause = isPP2Constrained
     ? " ClinGen PP2 is met (Z ≥ 3.09 and missense O/E < 0.6)."
     : " ClinGen PP2 is not met (it also requires missense O/E < 0.6).";
@@ -180,7 +180,12 @@ export function buildMissenseZMetric(
         }
       : z >= 2.0
         ? { tone: "warn" as VhTone, verdict: "Constrained", why: "above the tolerant reference range" }
-        : { tone: "good" as VhTone, verdict: "Tolerant", why: "within the tolerant reference range" };
+        : z > 0
+          ? // The band is drawn green (the unconstrained side), so the tone stays; the verdict refuses "Tolerant":
+            // Z in (0, 2) only says slightly fewer missense variants than expected, below the constraint range.
+            // (Fixed in 93ee30b, lost in the header merge; header/__tests__/missenseZVerdict.test.ts pins it.)
+            { tone: "good" as VhTone, verdict: "Not constrained", why: "a positive Z means slightly fewer missense variants than expected, below the constraint range" }
+          : { tone: "good" as VhTone, verdict: "Tolerant", why: "observed missense variants at or above expectation" };
 
   return {
     key: "missense-z",

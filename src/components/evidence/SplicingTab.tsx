@@ -19,6 +19,7 @@ import {
 import { SpliceRuler } from "./splicing/SpliceRuler";
 import { SpliceMap } from "./splicing/SpliceMap";
 import { SpliceWindowControl } from "./splicing/SpliceWindowControl";
+import { Prose } from "../ui/Prose";
 
 /**
  * RNA splicing.
@@ -344,11 +345,11 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
             </span>
           </div>
 
-          <p className="spl-hero__finding">
+          <Prose className="spl-hero__finding">
             <strong>{finding.headline}</strong>
             {" — "}
             {finding.predicate}.
-          </p>
+          </Prose>
 
           {rule.maxDs !== null && (
             <div className="spl-hero__ruler">

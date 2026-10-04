@@ -17,6 +17,13 @@
  * - The helix / strand strip is drawn only when the window is narrow enough to read it (<= 300
  *   residues); across a whole large protein it is dashes that say nothing.
  * - Vertical space follows use: the label tiers below the backbone are only as many as were needed.
+ * - Density is aggregated, not drawn mark by mark: above DENSE_ABOVE distinct disease-variant residues the lollipops
+ *   become a per-residue bar track (the variant's own bar in clay), and above DENSE_BELOW point marks under the
+ *   backbone they sit in one lane per kind (binding, modifications, mutagenesis) with labels for binding sites only.
+ *   81 identical red pins and 88 dropped labels (SOD1) read as "red everywhere"; the bars show where the variant
+ *   sits in the distribution.
+ * - Conserved-site signatures (PROSITE patterns, InterPro binding-site entries) are ticks under the backbone, never
+ *   boxes nested in the domain; a structural segment spanning the whole chain is not drawn at all.
  * - Text is laid out at real pixel sizes: the SVG is drawn at its container's width, never scaled, so
  *   11px labels stay 11px on a phone.
  */
@@ -40,6 +47,23 @@ export interface ArchLabel {
   tone: "ink" | "secondary" | "muted" | "accent";
 }
 
+/** Toggleable layers of the drawing; the legend lists them with counts. */
+export type LayerKey = "variants" | "sites" | "modifications" | "mutagenesis" | "motifs" | "structure";
+
+export function layerOf(r: Pick<AnnotationRow, "group" | "lane">): LayerKey | null {
+  if (r.group === "variants") return "variants";
+  if (r.lane !== "below" && r.lane !== "none") return null;
+  if (r.group === "sites") return "sites";
+  if (r.group === "modifications") return "modifications";
+  if (r.group === "mutagenesis") return "mutagenesis";
+  return null;
+}
+
+/** Distinct disease-variant residues in view above which the lollipops become a bar track. */
+export const DENSE_ABOVE = 24;
+/** Point marks under the backbone above which they sit in one lane per kind. */
+export const DENSE_BELOW = 20;
+
 export interface ArchPin {
   key: string;
   /** The table row this mark belongs to; a disulfide's two marks share one. */
@@ -48,10 +72,69 @@ export interface ArchPin {
   x: number;
   stemFrom: number;
   y: number;
-  shape: "dot" | "diamond";
+  shape: "dot" | "diamond" | "circle" | "tick";
   tone: "disease" | "experimental" | "inferred" | "uncited";
   selected: boolean;
   label: ArchLabel | null;
+  /** Whether a stem joins the mark to the backbone; lane marks have none. */
+  stem: boolean;
+  /** Hover text: what the mark is and where. */
+  title: string;
+  /**
+   * The x-extent of its pointer target. 24px wide where there is room; where neighbours in the same lane are closer
+   * than that, the neighbours split the gap, so a click lands on the mark under the pointer and not on the next one.
+   */
+  hit: { x0: number; x1: number };
+}
+
+/** One bar of the disease-variant track: the count at a residue (or a bin of residues on a long protein). */
+export interface ArchDensityBar {
+  key: string;
+  /** The table row to select: the residue in the bin with the most variants. */
+  rowKey: string;
+  start: number;
+  end: number;
+  count: number;
+  x: number;
+  width: number;
+  h: number;
+  query: boolean;
+  selected: boolean;
+  title: string;
+  /** Pointer target: bars tile the track, so adjacent bars never share a hit area. */
+  hit: { x0: number; x1: number };
+}
+
+export interface ArchDensity {
+  baseline: number;
+  bars: ArchDensityBar[];
+  max: number;
+  /** The tallest bar's count, written once above it. */
+  label: ArchLabel | null;
+}
+
+export interface ArchBond {
+  key: string;
+  rowKey: string;
+  x1: number;
+  x2: number;
+  y: number;
+  selected: boolean;
+  title: string;
+}
+
+export interface ArchMotif {
+  key: string;
+  x: number;
+  width: number;
+  y: number;
+  covers: boolean;
+  title: string;
+}
+
+interface ArchPinRowCount {
+  count: number;
+  rowKey: string;
 }
 
 export interface ArchBox {
@@ -74,6 +157,12 @@ export interface ArchLayout {
   backbone: { y: number; h: number };
   domains: ArchBox[];
   structural: Array<{ key: string; x: number; width: number; y: number }>;
+  motifs: ArchMotif[];
+  density: ArchDensity | null;
+  /** Disulfide bonds drawn as a bracket between the two cysteines (lane mode only). */
+  bonds: ArchBond[];
+  /** True when point marks sit in lanes by kind rather than on tiers with stems. */
+  laneMode: boolean;
   regions: Array<{ key: string; x: number; width: number; y: number; h: number; selected: boolean; label: ArchLabel | null }>;
   secondary: Array<{ kind: SecondaryStructureElement["kind"]; x: number; width: number; y: number }>;
   pins: ArchPin[];
@@ -148,6 +237,8 @@ export function layoutOverview(
   };
 }
 
+const residueIn = (seg: { start: number; end: number }, r: number) => Number.isFinite(r) && r >= seg.start && r <= seg.end;
+
 const CHAR = 0.58; // approximate advance per character, as a fraction of the font size
 
 const textWidth = (text: string, size: number) => text.length * size * CHAR;
@@ -177,12 +268,45 @@ function placeTier(tiers: number[][], left: number, right: number, maxTiers: num
   return -1;
 }
 
+/** Which of the two aggregated drawings a window uses, so the caption and legend can say so. */
+export function drawingMode(
+  ev: Pick<FunctionEvidence, "rows">,
+  win: ArchWindow,
+  hidden: ReadonlySet<LayerKey> = new Set()
+): { bars: boolean; lanes: boolean } {
+  const visible = ev.rows.filter((r) => {
+    const layer = layerOf(r);
+    return !(layer && hidden.has(layer));
+  });
+  const above = new Set(visible.filter((r) => r.lane === "above" && r.start >= win.start && r.start <= win.end).map((r) => r.start));
+  const below = visible
+    .filter((r) => r.lane === "below")
+    .reduce((n, r) => n + (r.start >= win.start && r.start <= win.end ? 1 : 0) + (r.isPair && r.end !== r.start && r.end >= win.start && r.end <= win.end ? 1 : 0), 0);
+  return { bars: above.size > DENSE_ABOVE, lanes: below > DENSE_BELOW };
+}
+
+export interface ArchOptions {
+  /** Layers the reader switched off with the legend. */
+  hidden?: ReadonlySet<LayerKey>;
+}
+
 export function layoutArchitecture(
-  ev: Pick<FunctionEvidence, "length" | "residue" | "variantShort" | "domains" | "structuralDomains" | "rows" | "secondaryStructure">,
+  evIn: Pick<FunctionEvidence, "length" | "residue" | "variantShort" | "domains" | "structuralDomains" | "rows" | "secondaryStructure"> & { motifs?: DomainBox[] },
   width: number,
   win: ArchWindow,
-  selectedKey: string | null
+  selectedKey: string | null,
+  opts: ArchOptions = {}
 ): ArchLayout {
+  const hidden = opts.hidden ?? new Set<LayerKey>();
+  const ev = {
+    ...evIn,
+    rows: evIn.rows.filter((r) => {
+      const layer = layerOf(r);
+      return !(layer && hidden.has(layer));
+    }),
+    secondaryStructure: hidden.has("structure") ? [] : evIn.secondaryStructure,
+  };
+  const motifBoxes = hidden.has("motifs") ? [] : evIn.motifs ?? [];
   const W = Math.max(300, Math.round(width));
   const x0 = 22;
   const x1 = W - 22;
@@ -192,7 +316,10 @@ export function layoutArchitecture(
 
   // Vertical plan, top to bottom.
   const labelTier = 16; // px between label tiers
-  const aboveTiers = 3;
+  // Distinct disease-variant residues in view: past DENSE_ABOVE they are a bar track (two tiers of height), not pins.
+  const aboveResidues = new Set(ev.rows.filter((r) => r.lane === "above" && r.start >= win.start && r.start <= win.end).map((r) => r.start));
+  const denseAbove = aboveResidues.size > DENSE_ABOVE;
+  const aboveTiers = denseAbove ? 2 : 3;
   const queryLabelY = 14;
   const queryHeadY = queryLabelY + 14;
   const pinHeadAbove = queryHeadY + 14 + aboveTiers * labelTier; // lowest above-pin head
@@ -200,9 +327,14 @@ export function layoutArchitecture(
   const bh = 12;
   const hasStructural = ev.structuralDomains.length > 0;
   const hasSS = ev.secondaryStructure.length > 0 && span <= SECONDARY_MAX_SPAN;
-  const g3Y = bb + 21;
-  const ssY = bb + (hasStructural ? 31 : 20);
-  const belowTop = hasSS ? ssY + 16 : hasStructural ? g3Y + 12 : bb + 24;
+  const motifsInWin = motifBoxes.flatMap((m) => m.segments.filter((sg) => sg.end >= win.start && sg.start <= win.end).map((sg, i) => ({ m, sg, i })));
+  const hasMotifs = motifsInWin.length > 0;
+  // A motif lane sits right under the backbone; everything below it shifts down by its height.
+  const off = hasMotifs ? 9 : 0;
+  const motifY = bb + 21;
+  const g3Y = bb + 21 + off;
+  const ssY = bb + (hasStructural ? 31 : 20) + off;
+  const belowTop = hasSS ? ssY + 16 : hasStructural ? g3Y + 12 : bb + 24 + off;
   const belowTiers = 3;
   const belowRowY = (t: number) => belowTop + 12 + t * labelTier;
 
@@ -266,6 +398,15 @@ export function layoutArchitecture(
       .map((s, i) => ({ key: `${d.key}-${i}`, x: x(s.start), width: Math.max(2, x(s.end) - x(s.start)), y: g3Y }))
   );
 
+  const motifs: ArchMotif[] = motifsInWin.map(({ m, sg, i }) => ({
+    key: `${m.key}-${i}`,
+    x: x(sg.start),
+    width: Math.max(4, x(sg.end) - x(sg.start)),
+    y: motifY,
+    covers: residueIn(sg, ev.residue),
+    title: `${m.name} (${m.source} ${m.accession}), ${sg.start}–${sg.end}`,
+  }));
+
   const secondary = (hasSS ? ev.secondaryStructure : [])
     .filter((e) => e.kind !== "turn" && e.end >= win.start && e.start <= win.end)
     .map((e) => ({ kind: e.kind, x: x(e.start), width: Math.max(1.5, x(e.end + 1) - x(e.start)), y: ssY }));
@@ -292,6 +433,10 @@ export function layoutArchitecture(
       label: t < 0 ? null : ({ x: cx, y: bb - 20, text, anchor: "middle", size: 11, tone: "secondary" } as ArchLabel),
     };
   });
+
+  // A folded variant row stands for several marks; any of them selects it.
+  const isSelected = (r: AnnotationRow) => r.key === selectedKey || r.rowKey === selectedKey;
+  const markTitle = (r: AnnotationRow) => `${r.name}${r.note ? ` · ${r.note}` : ""} · ${r.isPair ? `cysteines ${r.residuesText}` : `residue ${r.residuesText}`}`;
 
   // Lollipops.
   const pins: ArchPin[] = [];
@@ -333,7 +478,12 @@ export function layoutArchitecture(
     }
     return -1;
   };
-  const order = [...points.filter((p) => p.r.lane === "above"), ...points.filter((p) => p.r.lane === "below").reverse()];
+  const laneMode = points.filter((p) => p.r.lane === "below").length > DENSE_BELOW;
+  // Dense disease variants are the bar track and dense point marks are lanes; neither goes through tier placement.
+  const order = [
+    ...(denseAbove ? [] : points.filter((p) => p.r.lane === "above")),
+    ...(laneMode ? [] : points.filter((p) => p.r.lane === "below").reverse()),
+  ];
   const placed = order.map((p) => {
     const px = x(p.residue);
     const above = p.r.lane === "above";
@@ -376,7 +526,7 @@ export function layoutArchitecture(
           : { x: p.px + 10, y: headY + 4, text: p.text, anchor: "start", size: p.size, mono: true, tone: "secondary" };
     pins.push({
       key: p.part === 1 ? p.r.key : `${p.r.key}#${p.part}`,
-      rowKey: p.r.key,
+      rowKey: p.r.rowKey,
       residue: p.residue,
       x: p.px,
       // Over a domain box the stem starts on the box's top edge, not inside it, so it never runs
@@ -385,9 +535,169 @@ export function layoutArchitecture(
       y: headY,
       shape: p.above ? "dot" : "diamond",
       tone: evidenceTone(p.r),
-      selected: p.r.key === selectedKey,
+      selected: isSelected(p.r),
       label,
+      stem: true,
+      title: markTitle(p.r),
+      hit: { x0: p.px - 12, x1: p.px + 12 },
     });
+  }
+
+  // Density track: one bar per residue (or per bin on a long protein), the variant's own residue in clay.
+  let density: ArchDensity | null = null;
+  if (denseAbove) {
+    const pxPerResidue = (x1 - x0) / span;
+    const binSize = Math.max(1, Math.ceil(3.5 / pxPerResidue));
+    const baseline = pinHeadAbove;
+    const maxBarH = baseline - (queryHeadY + 12);
+    const perBin = new Map<number, Map<number, ArchPinRowCount>>();
+    for (const r of ev.rows.filter((q) => q.lane === "above" && inWin(q.start))) {
+      const bin = Math.floor((r.start - win.start) / binSize);
+      const inner = perBin.get(bin) ?? new Map<number, ArchPinRowCount>();
+      const at = inner.get(r.start) ?? { count: 0, rowKey: r.rowKey };
+      at.count += 1;
+      inner.set(r.start, at);
+      perBin.set(bin, inner);
+    }
+    const counts = Array.from(perBin.values()).map((m) => Array.from(m.values()).reduce((n, v) => n + v.count, 0));
+    const max = Math.max(1, ...counts);
+    const unit = max <= 3 ? Math.min(12, maxBarH / max) : maxBarH / max;
+    const bars: ArchDensityBar[] = Array.from(perBin.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([bin, inner]) => {
+        const start = win.start + bin * binSize;
+        const end = Math.min(win.end, start + binSize - 1);
+        const count = Array.from(inner.values()).reduce((n, v) => n + v.count, 0);
+        const top = Array.from(inner.entries()).sort((a, b) => b[1].count - a[1].count || a[0] - b[0])[0];
+        const bx = x(start);
+        const bw = Math.max(2, x(Math.min(win.end, start + binSize)) - bx - 1);
+        const query = Number.isFinite(ev.residue) && ev.residue >= start && ev.residue <= end;
+        return {
+          key: `dens-${start}`,
+          rowKey: top[1].rowKey,
+          start,
+          end,
+          count,
+          x: bx,
+          width: bw,
+          h: Math.max(3, count * unit),
+          query,
+          selected: Array.from(inner.values()).some((v) => v.rowKey === selectedKey),
+          title: `${count} disease variant${count === 1 ? "" : "s"} at ${start === end ? `residue ${start}` : `residues ${start}–${end}`}`,
+          hit: { x0: bx - 12, x1: bx + bw + 12 },
+        };
+      });
+    const tallest = bars.reduce((a, b) => (b.count > a.count ? b : a), bars[0]);
+    density = {
+      baseline,
+      bars,
+      max,
+      label:
+        tallest && max >= 2
+          ? { x: tallest.x + tallest.width / 2, y: baseline - tallest.h - 4, text: String(max), anchor: "middle", size: 10.5, mono: true, tone: "muted" }
+          : null,
+    };
+  }
+
+  // Lane mode: one row per kind of point mark, in a fixed order, so the lane says what a mark is.
+  const bonds: ArchBond[] = [];
+  let lanesBottom = belowTop - 4;
+  if (laneMode) {
+    const LANES: Array<{ layer: "sites" | "modifications" | "mutagenesis"; shape: ArchPin["shape"]; labelled: boolean }> = [
+      { layer: "sites", shape: "diamond", labelled: true },
+      { layer: "modifications", shape: "circle", labelled: false },
+      { layer: "mutagenesis", shape: "tick", labelled: false },
+    ];
+    let laneY = belowTop + 12;
+    for (const lane of LANES) {
+      const marks = points.filter((p) => p.r.lane === "below" && layerOf(p.r) === lane.layer).sort((a, b) => a.residue - b.residue);
+      if (!marks.length) continue;
+      // Pass 1: where every mark goes. Marks too close to share a row stack into a second sub-row.
+      const subEnds: number[] = []; // x of the last mark in each sub-row
+      const SUB = 13; // sub-row pitch: clears a diamond and the label drawn beside the row above it
+      const laid = marks.map((m) => {
+        const px = x(m.residue);
+        let sub = subEnds.findIndex((end) => px - end >= 9);
+        if (sub < 0) sub = subEnds.length < 2 ? subEnds.length : 1;
+        subEnds[sub] = px;
+        return { m, px, sub, y: laneY + sub * SUB };
+      });
+      const subRows = Math.max(1, ...laid.map((l) => l.sub + 1));
+      // Pass 2: a label goes beside its mark when no other mark and no other label is in its way.
+      const taken: number[] = [];
+      for (const l of laid) {
+        let label: ArchLabel | null = null;
+        // A cysteine is named by its own number ("C58"); the bracket joining the pair is not labelled.
+        const text = l.m.r.isPair ? `C${l.m.residue}` : l.m.r.shortLabel;
+        if (lane.labelled && l.m.labelled) {
+          const lw = textWidth(text, 11);
+          const flip = l.px + 10 + lw > W - 4;
+          const [lo, hi] = flip ? [l.px - 10 - lw, l.px - 10] : [l.px + 10, l.px + 10 + lw];
+          const labelFree = taken.every((_, i) => i % 2 === 1 || hi + 4 <= taken[i] || lo - 4 >= taken[i + 1]);
+          const markFree = laid.every((o) => o === l || o.px < lo - 5 || o.px > hi + 5 || Math.abs(o.y - l.y) > SUB - 1);
+          if (labelFree && markFree) {
+            taken.push(lo, hi);
+            label = { x: flip ? l.px - 10 : l.px + 10, y: l.y + 4, text, anchor: flip ? "end" : "start", size: 11, mono: true, tone: "secondary" };
+          } else hiddenLabels++;
+        }
+        pins.push({
+          key: l.m.part === 1 ? l.m.r.key : `${l.m.r.key}#${l.m.part}`,
+          rowKey: l.m.r.rowKey,
+          residue: l.m.residue,
+          x: l.px,
+          stemFrom: l.y,
+          y: l.y,
+          shape: lane.shape,
+          tone: evidenceTone(l.m.r),
+          selected: isSelected(l.m.r),
+          label,
+          stem: false,
+          title: markTitle(l.m.r),
+          hit: { x0: l.px - 12, x1: l.px + 12 },
+        });
+      }
+      lanesBottom = laneY + (subRows - 1) * SUB + 10;
+      laneY += 14 + (subRows - 1) * SUB;
+    }
+    // A disulfide is one bracket over its two cysteines.
+    for (const r of ev.rows.filter((q) => q.isPair && q.lane === "below" && q.end !== q.start && q.end >= win.start && q.start <= win.end)) {
+      const a = x(Math.max(r.start, win.start));
+      const b = x(Math.min(r.end, win.end));
+      const host = pins.find((q) => q.rowKey === r.rowKey && q.residue === r.start) ?? pins.find((q) => q.rowKey === r.rowKey);
+      bonds.push({
+        key: `bond-${r.key}`,
+        rowKey: r.rowKey,
+        x1: a,
+        x2: b,
+        y: (host ? host.y : lanesBottom) - 9,
+        selected: isSelected(r),
+        title: `${r.name}, cysteines ${r.start} and ${r.end}`,
+      });
+    }
+  }
+
+  // Pointer targets tile: neighbours in one row (a bar track, a lane, a tier) split the gap between them instead of each
+  // claiming 24px, which at 6px per residue sent every click to the neighbour drawn later (residue 7 selected 8).
+  // Coincident marks (twins at the same residue) share the space between their closest distinct neighbours rather than
+  // collapsing to zero width.
+  const tileRow = <T,>(items: T[], centre: (t: T) => number, set: (t: T, x0: number, x1: number) => void, reach: (t: T) => [number, number]) => {
+    const sorted = [...items].sort((a, b) => centre(a) - centre(b));
+    sorted.forEach((it, i) => {
+      const [lo, hi] = reach(it);
+      const c = centre(it);
+      const prev = sorted.slice(0, i).reverse().find((o) => c - centre(o) > 0.01);
+      const next = sorted.slice(i + 1).find((o) => centre(o) - c > 0.01);
+      set(it, prev ? Math.max(lo, (centre(prev) + c) / 2) : lo, next ? Math.min(hi, (c + centre(next)) / 2) : hi);
+    });
+  };
+  if (density) {
+    tileRow(density.bars, (b) => b.x + b.width / 2, (b, x0, x1) => { b.hit = { x0, x1 }; }, (b) => [b.x + b.width / 2 - 12, b.x + b.width / 2 + 12]);
+  }
+  {
+    // Every mark, tiered or in a lane: two marks 13px apart on one tier used to overlap their 24px targets too.
+    const rows = new Map<number, ArchPin[]>();
+    for (const p of pins) rows.set(Math.round(p.y), [...(rows.get(Math.round(p.y)) ?? []), p]);
+    for (const row of rows.values()) tileRow(row, (p) => p.x, (p, x0, x1) => { p.hit = { x0, x1 }; }, (p) => [p.x - 12, p.x + 12]);
   }
 
   // A region label sits between the backbone and the first tier, where the upper stems run.
@@ -413,7 +723,7 @@ export function layoutArchitecture(
   // Vertical extent below the backbone follows what was drawn: only the label tiers used, then the topology
   // lane, then the axis.
   const lowerUsed = placed.filter((p) => !p.above).reduce((n, p) => Math.max(n, p.tier + 1), 0);
-  const sitesBottom = lowerUsed ? belowRowY(lowerUsed - 1) + 10 : belowTop - 4;
+  const sitesBottom = laneMode ? lanesBottom : lowerUsed ? belowRowY(lowerUsed - 1) + 10 : belowTop - 4;
 
   const membrane = layoutMembrane(ev, x, win, selectedKey, sitesBottom + 14, qx);
   const axisY = (membrane ? membrane.bottom : sitesBottom) + 18;
@@ -444,6 +754,10 @@ export function layoutArchitecture(
     backbone: { y: bb, h: bh },
     domains,
     structural,
+    motifs,
+    density,
+    bonds,
+    laneMode,
     regions,
     secondary,
     pins,

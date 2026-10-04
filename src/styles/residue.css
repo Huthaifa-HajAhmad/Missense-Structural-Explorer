@@ -76,7 +76,7 @@
 }
 .rsx-pair__arrow { margin: 0 6px; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); }
 .rsx-pair__sub { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.rsx-finding { margin: 0; max-width: 76ch; }
+.rsx-finding { margin: 0; max-width: none; }
 .rsx-finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 .rsx-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cs-border-subtle); }
@@ -114,7 +114,7 @@
 }
 .rsx-table tbody tr:not(.rsx-group):hover > td { background: color-mix(in srgb, var(--cs-bg-subtle) 60%, transparent); }
 .rsx-shift { display: block; font-family: var(--cs-font-sans); font-size: 13px; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.rsx-caption { display: block; margin-top: 2px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); text-transform: none; letter-spacing: 0; max-width: 90ch; }
+.rsx-caption { display: block; margin-top: 2px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); text-transform: none; letter-spacing: 0; max-width: none; }
 .rsx-disclosure > summary { list-style: none; cursor: pointer; min-height: 24px; display: flex; align-items: center; }
 .rsx-disclosure > summary::-webkit-details-marker { display: none; }
 .rsx-disclosure > summary::after { content: "+"; margin-left: auto; color: var(--cs-text-muted); font-family: var(--cs-font-mono); }
@@ -129,7 +129,7 @@
 .rsx-table tbody tr + tr.rsx-group > td { border-top: 1px solid var(--cs-border-subtle); }
 
 /* A statement row: a state said as a sentence, never a box. */
-.rsx-statement { display: flex; flex-direction: column; gap: 4px; max-width: 64ch; }
+.rsx-statement { display: flex; flex-direction: column; gap: 4px; max-width: none; }
 .rsx-statement strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
 /* ── Tracks: one axis per reading, the value as a dot ─────── */

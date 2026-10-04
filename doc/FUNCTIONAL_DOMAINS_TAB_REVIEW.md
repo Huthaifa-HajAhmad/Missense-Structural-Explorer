@@ -96,3 +96,19 @@ Geometry harness: 173 assertions over nine cases (adds SLC12A4 as the tab opens 
 `opens`, `view` and `membrane` families); every new guarantee has a mutation in `mutations.mjs` that turns it red.
 
 Not done: 3D distances from the loaded model (the "From N" column stays a sequence distance, labelled as one).
+
+## Follow-up audit, 2026-10-04 (SOD1 p.Ala5Val, P00441, 154 aa)
+
+The densest case yet: 118 features, 81 natural variants (3 at residue 5), eight Cu/Zn ligands recorded as
+`Binding site`, one disulfide, two PROSITE patterns beside a Pfam domain. Findings, decisions and the test behind each
+are in `doc/FUNCTIONAL_DOMAINS_PRESENTATION_AUDIT.md`. In brief: the foot denied metal binding beside eight ligands,
+the finding named A5S for a query of A5V, variants read "Experimental", PROSITE patterns were drawn as domains, a
+Trp–Trp cross-link read "W33ub", and 81 identical red pins and 88 dropped labels hid where the variant sits.
+
+Changes: model (`exactVariant`, folded variant rows, `density`, `matureNumbering`, `motifs`, entry-type routing),
+server (`DomainMatch.entryType` from InterPro, `processedChain`, features cache key `fd2`), layout (bar track above
+24 residues, lanes by kind above 20 point marks, motif ticks, disulfide bracket), drawing (linked hover, layer toggles,
+drag-to-zoom, arrow keys), tab (URL state, folded variant rows). Geometry harness: 241 assertions over 11 cases (adds
+`sod1`, `sod1-narrow`; the `dense`, `interact` and `prose` families).
+
+Not done: PM1's hot-spot reading (owner decision), 3D neighbourhood, a helix/strand cartoon.

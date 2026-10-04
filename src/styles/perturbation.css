@@ -56,7 +56,7 @@
 
 /* ── Header primer ──────────────────────────────────────────── */
 .ptb-header { display: flex; flex-direction: column; gap: 6px; }
-.ptb-primer { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: 92ch; }
+.ptb-primer { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: none; }
 .ptb-primer > summary {
   cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
   min-height: 24px; color: var(--cs-text-accent); border-radius: 4px;
@@ -84,7 +84,7 @@
   color: var(--cs-text-primary);
 }
 .ptb-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.ptb-hero__finding { margin: 0; max-width: 76ch; color: var(--cs-text-secondary); }
+.ptb-hero__finding { margin: 0; max-width: none; color: var(--cs-text-secondary); }
 .ptb-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .ptb-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
@@ -178,7 +178,7 @@
 .ptb-subject__line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-height: 24px; }
 .ptb-subject__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .ptb-subject__note {
-  display: block; margin-top: 1px; max-width: 60ch;
+  display: block; margin-top: 1px; max-width: none;
   font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted);
 }
 .ptb-subject__fact { color: var(--cs-text-secondary); }
@@ -344,7 +344,7 @@
 .ptb-trace__site { fill: var(--cs-accent-clay); stroke: var(--cs-surface); stroke-width: 2; }
 .ptb-trace__label { font-family: var(--cs-font-mono); font-size: 10px; fill: var(--cs-text-muted); }
 .ptb-trace__label[data-site] { fill: var(--cs-text-primary); font-weight: 600; }
-.ptb-empty { margin: 0; padding: 12px 0; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); max-width: 52ch; }
+.ptb-empty { margin: 0; padding: 12px 0; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); max-width: none; }
 .ptb-empty strong { display: block; margin-bottom: 2px; color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-medium); }
 .ptb-detail__sentence { margin: 0; padding: 12px max(20px, calc(100% - 92ch)) 16px 20px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 

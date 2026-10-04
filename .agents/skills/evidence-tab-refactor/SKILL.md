@@ -25,6 +25,9 @@ that asserts an unsourced cut-point is worse than the ugly one it replaced.
    and citation against the primary paper (WebSearch/WebFetch the paper or its PDF; do not trust
    memory, code comments, or "ClinGen-calibrated" labels). Record each finding: severity, what is
    wrong, evidence, fix.
+2b. **Audit data presentation** with `references/data-presentation.md`, on the densest real case for
+   the tab as well as the user's variant: what the backend should aggregate before the screen sees it,
+   the density budget, and the interaction minimum. A tab that shows every provider row is not done.
 3. **Stop for the one decision that is the owner's.** If a finding changes what the rule engine
    classifies (a criterion, a strength, which tools vote), ask with one AskUserQuestion, findings in
    the question, recommended option first. Everything else — wrong labels, wrong citations,
