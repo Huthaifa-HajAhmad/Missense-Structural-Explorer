@@ -22,6 +22,7 @@ import { InterfacesRail } from "./InterfacesRail";
 import { PredictorsRail } from "./PredictorsRail";
 import { normalizeEvidenceTab } from "../evidence/types";
 import { AlphaGenomeRail } from "./AlphaGenomeRail";
+import ResidueShiftInspector from "./ResidueShiftInspector";
 
 interface EvidenceInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -60,8 +61,10 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 
       {tab === "alphagenome" && <AlphaGenomeRail analysisResult={analysisResult} />}
 
+      {tab === "structure" && <ResidueShiftInspector analysisResult={analysisResult} />}
+
       {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && (
+      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "structure" && (
         <div className="flex flex-col gap-3">
           <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />

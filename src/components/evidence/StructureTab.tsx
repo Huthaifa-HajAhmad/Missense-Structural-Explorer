@@ -1,12 +1,14 @@
 import React from "react";
-import { Box, Info, RotateCw } from "lucide-react";
+import { Info, RotateCw } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useResidueContextEvidence } from "../../lib/useResidueContextEvidence";
 import type { ResidueContextEvidence } from "../../shared/residueContextEvidence";
-import { RESIDUE_SCALE_SOURCES, formatNativeResidueValue } from "../../shared/residueScales";
-import type { BiochemicalContrastRow } from "../../shared/residueShiftEvidence";
+import { RESIDUE_SCALE_SOURCES } from "../../shared/residueScales";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { Prose } from "../ui/Prose";
+import { ResidueGlyph } from "./residue/ResidueGlyph";
+import { PropertyDumbbell } from "./residue/PropertyDumbbell";
+import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 
 /**
  * Residue Shifts & Pockets — the tab.
@@ -25,36 +27,6 @@ import { Prose } from "../ui/Prose";
 
 function pct(value: number, max: number): string {
   return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
-}
-
-function PropertyTrack({ row, wildType, mutant }: { row: BiochemicalContrastRow; wildType: string; mutant: string }) {
-  const source = RESIDUE_SCALE_SOURCES[row.key];
-  const unit = source.unit ? ` ${source.unit}` : "";
-  const low = formatNativeResidueValue(row.key, source.min);
-  const high = formatNativeResidueValue(row.key, source.max);
-  const label =
-    `${row.label}: ${wildType} ${row.wildTypeNative ?? row.wildTypeValue}, ${mutant} ${row.mutantNative ?? row.mutantValue}` +
-    ` on a scale from ${low} to ${high}${unit}.`;
-  return (
-    <div className="rsx-track" role="img" aria-label={label}>
-      <div className="rsx-track__bar">
-        <span className="rsx-track__span" style={{ left: `${row.spanStart}%`, width: `${row.spanWidth}%` }} />
-        <span className="rsx-track__wt" style={{ left: `${row.wildTypePosition}%` }} />
-        <span className="rsx-track__mut" style={{ left: `${row.mutantPosition}%` }} />
-      </div>
-      <div className="rsx-track__axis" aria-hidden="true">
-        <span className="rsx-track__tick" data-edge="start" style={{ left: 0 }}>
-          {low} {row.lowAnchor !== low ? row.lowAnchor.toLowerCase() : ""}
-        </span>
-        {row.midpointLabel && (
-          <span className="rsx-track__tick" style={{ left: "50%" }}>{row.midpointLabel}</span>
-        )}
-        <span className="rsx-track__tick" data-edge="end" style={{ left: "100%" }}>
-          {high}{unit} {row.highAnchor !== high ? row.highAnchor.toLowerCase() : ""}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 function ValueTrack({
@@ -121,6 +93,17 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
           <strong>{model.finding.headline}</strong> {model.finding.detail}
         </Prose>
       </div>
+      {model.glyph && (
+        <div className="rsx-hero__glyph">
+          <ResidueGlyph
+            diff={model.glyph}
+            wildType={pair.wildType}
+            mutant={pair.mutant}
+            wildTypeName={pair.wildTypeName}
+            mutantName={pair.mutantName}
+          />
+        </div>
+      )}
       <dl className="rsx-facts">
         {model.facts.map(fact => (
           <div className="rsx-fact" key={fact.label}>
@@ -160,7 +143,12 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
                     <span className="rsx-note">{RESIDUE_SCALE_SOURCES[row.key].citation}{RESIDUE_SCALE_SOURCES[row.key].unit ? `, ${RESIDUE_SCALE_SOURCES[row.key].unit}` : ""}</span>
                   </td>
                   <td>
-                    <PropertyTrack row={row} wildType={pair.wildType} mutant={pair.mutant} />
+                    <PropertyDumbbell
+                      row={row}
+                      wildType={pair.wildType}
+                      mutant={pair.mutant}
+                      contextTicks={model.scaleContext[row.key]}
+                    />
                   </td>
                   <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
                   <td className="rsx-num">{row.mutantNative ?? row.mutantValue}</td>
@@ -221,10 +209,9 @@ function Environment({
   onSelectResidue?: (index: number) => void;
   onViewIn3d?: () => void;
 }) {
-  const { burial, pocket, pocketAxis } = model;
+  const { burial, pocket, pocketStrip } = model;
   const rsa = burial?.indicators.rsa;
   const packing = burial?.indicators.packing;
-  const residues = pocket.lining.byDistance.slice(0, 8);
   const canRetry = (pocket.status === "error" || pocket.status === "unavailable") && !!onRetryPocket;
 
   return (
@@ -340,18 +327,18 @@ function Environment({
                     <span className="rsx-name">Distance</span>
                     <span className="rsx-note">to {pocket.proximity.reference}</span>
                   </td>
-                  {pocketAxis.marker !== null ? (
+                  {pocketStrip && pocketStrip.centre !== null ? (
                     <>
                       <td>
                         <ValueTrack
-                          value={pocketAxis.marker}
-                          max={pocketAxis.max}
-                          marks={pocketAxis.marks}
+                          value={pocketStrip.centre.distance}
+                          max={pocketStrip.max}
+                          marks={pocketStrip.marks}
                           unit=" Å"
-                          label={`${pocketAxis.marker.toFixed(1)} Å from ${pocket.proximity.reference}; the app's marks are ${pocketAxis.marks.join(", ")} Å.`}
+                          label={`${pocketStrip.centre.distance.toFixed(1)} Å from ${pocket.proximity.reference}; the app's marks are ${pocketStrip.marks.join(", ")} Å.`}
                         />
                       </td>
-                      <td className="rsx-num">{pocketAxis.marker.toFixed(1)} Å</td>
+                      <td className="rsx-num">{pocketStrip.centre.distance.toFixed(1)} Å</td>
                     </>
                   ) : (
                     <td colSpan={2} className="rsx-reason">{pocket.proximity.detail}</td>
@@ -423,38 +410,12 @@ function Environment({
         </table>
       </div>
 
-      {pocket.status === "success" && residues.length > 0 && (
-        <>
-          <div className="rsx-head rsx-head--mid">
-            <h3 className="rsx-label">
-              Pocket residues · nearest to {model.pair.position ?? "the variant"} first
-            </h3>
-            {onViewIn3d && (
-              <button type="button" className="rsx-link" onClick={onViewIn3d}>
-                <Box className="w-3.5 h-3.5" aria-hidden="true" />
-                View in 3D
-              </button>
-            )}
-          </div>
-          <ul className="rsx-residues" data-testid="pocket-residues">
-            {residues.map(res => (
-              <li key={`${res.chain ?? ""}-${res.name}-${res.index}`}>
-                <button
-                  type="button"
-                  className="rsx-residue"
-                  onClick={() => onSelectResidue?.(res.index)}
-                  aria-label={`Select ${res.name} ${res.index}${res.chain ? ` chain ${res.chain}` : ""}, ${res.distance.toFixed(1)} Å away`}
-                >
-                  <span>
-                    {res.name.charAt(0)}{res.name.slice(1).toLowerCase()}{res.index}
-                    {res.chain ? <span className="rsx-dim"> {res.chain}</span> : null}
-                  </span>
-                  <span>{res.distance.toFixed(1)} Å</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+      {pocket.status === "success" && pocketStrip && (
+        <PocketDistanceStrip
+          strip={pocketStrip}
+          onSelectResidue={onSelectResidue}
+          onViewIn3d={onViewIn3d}
+        />
       )}
       <div className="rsx-foot">
         <span className="rsx-legend">
