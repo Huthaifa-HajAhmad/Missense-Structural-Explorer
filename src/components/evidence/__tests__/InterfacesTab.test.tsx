@@ -85,7 +85,7 @@ describe("InterfacesTab — sequence track", () => {
     expect(track).not.toHaveTextContent("No domains annotated");
     expect(within(track).getByRole("img", { name: /Gln867 at the interface in 1 of 8 solved structures/ })).toBeInTheDocument();
     const legend = screen.getByLabelText("Legend");
-    expect(legend).toHaveTextContent("darker = seen in more");
+    expect(legend).toHaveTextContent("bar height = share of the pair's structures");
     expect(legend).not.toHaveTextContent("Predicted interface");
   });
 });
@@ -124,7 +124,7 @@ describe("InterfacesTab — partners", () => {
     renderTab(RESULT);
     const grid = screen.getByTestId("partner-grid");
     expect(grid).toHaveTextContent("Binary screen only");
-    expect(grid).toHaveTextContent("Yeast two-hybrid · 1 study (PubMed 32296183)");
+    expect(grid).toHaveTextContent("Yeast two-hybrid in one study (PubMed 32296183)");
     expect(grid).toHaveTextContent("Physical association only");
     expect(grid).not.toHaveTextContent(/Curated physical interaction|top five|No curated interaction/);
     // No mapped sites for SLC12A4: the column is not drawn.

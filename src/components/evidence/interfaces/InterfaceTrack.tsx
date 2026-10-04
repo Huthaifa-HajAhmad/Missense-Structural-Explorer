@@ -9,10 +9,13 @@ import type { InterfacesEvidence, TrackLane } from "../../../shared/interfacesEv
  *   Domains & regions   UniProt Domain/Region features, named (the SLC12A4 "Scissor helix" that the
  *                        SUBUNIT record names as the dimer interface lives here);
  *   Mapped sites        "Interaction with X" regions and sites, outlined; clay when they hold the variant;
- *   one lane per solved partner — each interface residue drawn with INK WEIGHT = its support, the
- *                        share of the pair's structures in which it is at the interface. A contact seen
- *                        in 1 of 8 structures is faint beside one seen in 6 of 8: the old track drew
- *                        both as identical black ticks;
+ *   one lane per solved partner — each interface residue drawn as a BAR whose HEIGHT is its support,
+ *                        the share of the pair's structures in which it is at the interface, and the
+ *                        variant's own count ("4/15") at the lane's end. Height replaced ink weight:
+ *                        opacity is the weakest channel there is, and SOD1's 4-of-157 fibril contact
+ *                        read as dark as the dimer core;
+ *   amyloid fibril       the same pair in fibril structures, last, so stacking is never read as the
+ *                        native interface (SOD1 Ala5: 0 of 142 native, 4 of 15 fibrils);
  *   Predicted complex   residues in contact in the Boltz-2 model (clay), when one was built.
  *
  * Lanes with nothing in them are not drawn: an empty "No domains annotated" lane read as a fact about
@@ -42,11 +45,33 @@ function runs(marks: TrackLane["marks"]): Array<{ start: number; end: number; we
   return out;
 }
 
-function Lane({ lane, pct }: { lane: TrackLane; pct: (v: number) => number }) {
+interface LinkProps {
+  /** The table row key lit by hover on either side. */
+  lit?: string | null;
+  onLit?: (key: string | null) => void;
+  /** Bring the lane's table row into view. */
+  onOpen?: (key: string) => void;
+}
+
+function Lane({ lane, pct, lit, onLit, onOpen }: { lane: TrackLane; pct: (v: number) => number } & LinkProps) {
+  const linked = lane.rowKey && onOpen;
   return (
-    <div className="ifc-track__row" data-kind={lane.kind}>
+    <div
+      className="ifc-track__row"
+      data-kind={lane.kind}
+      data-fibril={lane.key.endsWith(":fibril") || undefined}
+      data-lit={(lane.rowKey && lit === lane.rowKey) || undefined}
+      onMouseEnter={lane.rowKey ? () => onLit?.(lane.rowKey) : undefined}
+      onMouseLeave={lane.rowKey ? () => onLit?.(null) : undefined}
+    >
       <div className="ifc-track__label">
-        <span className="ifc-track__name" title={lane.label}>{lane.label}</span>
+        {linked ? (
+          <button type="button" className="ifc-track__name ifc-track__open" title={`${lane.label}: show its row`} onClick={() => onOpen!(lane.rowKey!)} onFocus={() => onLit?.(lane.rowKey)} onBlur={() => onLit?.(null)}>
+            {lane.label}
+          </button>
+        ) : (
+          <span className="ifc-track__name" title={lane.label}>{lane.label}</span>
+        )}
         <span className="ifc-track__sub">{lane.sub}</span>
       </div>
       <div className="ifc-track__lane" data-kind={lane.kind} role="img" aria-label={lane.summary}>
@@ -70,18 +95,21 @@ function Lane({ lane, pct }: { lane: TrackLane; pct: (v: number) => number }) {
             style={{
               left: `${pct(m.start)}%`,
               width: `max(2px, ${pct(m.end + 1) - pct(m.start)}%)`,
-              // Ink weight = support. A floor keeps a one-structure contact visible without promoting it.
-              opacity: 0.18 + 0.72 * m.weight,
+              // Height = support. A 2px floor keeps a one-structure contact visible without promoting it.
+              height: lane.kind === "solved" ? `max(2px, ${m.weight * 100}%)` : undefined,
             }}
             title={m.title}
           />
         ))}
       </div>
+      <span className="ifc-track__readout" data-hit={(lane.readout && lane.readout.k > 0) || undefined}>
+        {lane.readout ? `${lane.readout.k}/${lane.readout.n}` : ""}
+      </span>
     </div>
   );
 }
 
-export function InterfaceTrack({ ev }: { ev: InterfacesEvidence }) {
+export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvidence } & LinkProps) {
   const maxSeen = Math.max(
     ev.position ?? 0,
     10,
@@ -90,7 +118,7 @@ export function InterfaceTrack({ ev }: { ev: InterfacesEvidence }) {
   const length = Math.max(ev.sequenceLength ?? 0, maxSeen);
   const pct = (v: number) => ((v - 1) / Math.max(1, length - 1)) * 100;
   const variantPct = ev.position ? pct(ev.position) : null;
-  const solvedHidden = ev.observed.partners.length - ev.track.filter(l => l.kind === "solved").length;
+  const solvedHidden = ev.observed.partners.length - ev.track.filter(l => l.kind === "solved" && !l.key.endsWith(":fibril")).length;
 
   return (
     <div className="ifc-track" data-testid="interface-track">
@@ -103,16 +131,17 @@ export function InterfaceTrack({ ev }: { ev: InterfacesEvidence }) {
           ))}
           <span data-edge="end" style={{ left: "100%" }}>{length}</span>
         </div>
+        <span className="ifc-track__readout ifc-track__readout--head">{ev.track.some(l => l.readout) ? ev.residueLabel : ""}</span>
       </div>
 
       <div className="ifc-track__body">
         {variantPct !== null && (
-          <div className="ifc-track__variant" style={{ left: `calc(var(--ifc-track-label) + (100% - var(--ifc-track-label)) * ${variantPct / 100})` }}>
+          <div className="ifc-track__variant" style={{ left: `calc(var(--ifc-track-label) + (100% - var(--ifc-track-label) - var(--ifc-track-readout)) * ${variantPct / 100})` }}>
             <span className="ifc-track__variant-label">{ev.residueLabel}</span>
           </div>
         )}
         {ev.track.length ? (
-          ev.track.map(l => <Lane key={l.key} lane={l} pct={pct} />)
+          ev.track.map(l => <Lane key={l.key} lane={l} pct={pct} lit={lit} onLit={onLit} onOpen={onOpen} />)
         ) : (
           <div className="ifc-track__row" data-kind="empty">
             <div className="ifc-track__label">

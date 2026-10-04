@@ -2108,6 +2108,8 @@ export interface IntactEvidence {
   pubmed: string[];
   /** Every method is a two-hybrid variant: a binary screen, no co-purification or structure. */
   twoHybridOnly: boolean;
+  /** The partner's organism as IntAct names it ("mouse"), when it is not human. */
+  organism?: string | null;
 }
 
 /** A binary interaction UniProt curates from IntAct. */
@@ -2117,6 +2119,8 @@ export interface PpiCuratedInteraction {
   experiments: number | null;
   /** From IntAct itself; null when IntAct was not read or lists nothing for the pair. */
   evidence?: IntactEvidence | null;
+  /** UniProt's flag: the partner is from another species (mouse Hspa5 for human SOD1). */
+  organismDiffer?: boolean;
 }
 
 /**
@@ -2137,8 +2141,20 @@ export interface ObservedInterface {
   /** Structures that contain this pair (lower-case PDB ids). */
   pdbEntries: string[];
   homomeric: boolean;
-  /** A construct partner (fusion or crystallisation tag such as MBP or T4 lysozyme), never biological. */
+  /**
+   * Not a biological partner: a construct tag (MBP, T4 lysozyme), a tool antibody or nanobody, or a
+   * chain with no UniProt record. Never counted.
+   */
   artefact: string | null;
+  /**
+   * "fibril": the pair as seen only in amyloid fibril structures, where every chain stacks on the next;
+   * "native": every other structure. Absent on payloads written before the split (re-read, not shown).
+   */
+  context?: "native" | "fibril";
+  /** The partner's UniProt gene name, when read. */
+  gene?: string | null;
+  /** The partner's organism when it is not human (UniProt common name); null for human. */
+  organism?: string | null;
   variantAtInterface: boolean;
   /** Entries in which the variant residue itself is at this interface. */
   variantEntries: string[];
@@ -2315,6 +2331,8 @@ export interface MultimerExperimentalInterfaces {
   status: "ok" | "none" | "error";
   reason?: string;
   partners: MultimerExperimentalPartner[];
+  /** "failed": RCSB was not read, so amyloid fibril entries could not be told apart from native ones. */
+  entryKinds?: "ok" | "failed";
 }
 
 export interface MultimerData {

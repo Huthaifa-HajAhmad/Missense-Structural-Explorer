@@ -1,24 +1,28 @@
-import React from "react";
-import { AlertTriangle, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Waypoints, Zap } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Waypoints, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { STRING_CONFIDENCE_CUTS } from "../../shared/thresholds";
 import {
   DDMUT_PPI_PERFORMANCE,
   IPTM_BAND_LABEL,
-  PARTNER_GROUP_LABEL,
   buildInterfacesEvidence,
+  filterPartnerGroups,
   rcsbUrl,
   stringNetworkUrl,
   type InterfacesEvidence,
+  type ObservedView,
   type PartnerGroup,
+  type PartnerGroupView,
   type PartnerRow,
   type StringCell,
 } from "../../shared/interfacesEvidence";
 import { useInterfacesData } from "./interfaces/useInterfacesData";
 import { InterfaceTrack } from "./interfaces/InterfaceTrack";
 import { AssemblyDiagram } from "./interfaces/AssemblyDiagram";
+import { PartnerTiers } from "./interfaces/PartnerTiers";
 import { BindingRuler, IptmRuler } from "./interfaces/Rulers";
+import { PPI_QUERY_PARAM, PPI_TIER_PARAM, parsePpiQuery, parsePpiTier, withPpiParams } from "./interfaces/viewUrlState";
 import { Prose } from "../ui/Prose";
 
 /**
@@ -29,20 +33,24 @@ import { Prose } from "../ui/Prose";
  * which answered "at an interface" twice from the same PDBe data and disagreed on the counts
  * (doc/INTERFACES_AUDIT.md). Shape, top to bottom:
  *
- *   1. THE FINDING — interface verdict with its support ("1 of 8 solved structures"), the assembly
- *      diagram, and a fact strip. The engine record is stated once, in the card's foot.
- *   2. WHERE ON THE SEQUENCE — topology, regions, mapped sites, each solved partner's interface with
- *      ink weight = support, and the model when built.
- *   3. ASSEMBLY — every SUBUNIT statement with its qualifier, the complex model (on request), and the
- *      solved structures per partner.
- *   4. PARTNERS — one grid, grouped by the kind of evidence; empty columns are not drawn.
- *   5. BINDING CHANGE — DDMut-PPI on a solved wild type first; on request.
+ *   1. THE FINDING — interface verdict with its support ("1 of 8 solved structures", or "0 of 142"
+ *      native when it is not at one), the assembly diagram, and a fact strip. Fibril stacking and
+ *      set-aside chains are stated in a callout, never in the verdict. Engine record once, in the foot.
+ *   2. WHERE ON THE SEQUENCE — topology, regions, mapped sites, each solved partner's interface as a
+ *      support profile (bar height = share of structures), fibrils last, the model when built. A lane
+ *      and its table row light together; the lane's name brings the row into view.
+ *   3. ASSEMBLY — every SUBUNIT statement with its qualifier, the solved structures per partner
+ *      (native, fibril, set aside), the complex model (on request).
+ *   4. PARTNERS — a tier chart that is also the filter, a name search, and one grid grouped by the kind
+ *      of evidence. A long single-screen or STRING tail folds behind one line (doc/INTERFACES_PPI_REVIEW.md:
+ *      SOD1 drew 120 rows, 66 of them one repeated sentence). Tier and query live in the URL.
+ *   5. BINDING CHANGE — DDMut-PPI on a solved wild type first; on request; never on a fibril.
  *
  * No permanent "Run again": cached lookups give the same answer. A section that FAILED offers "Try
  * again" in place; the GPU jobs are stated actions in their own sections.
  *
- * INVARIANTS: every sentence, state and number comes from `buildInterfacesEvidence`; this file
- * decides nothing. Nothing here is an ACMG input.
+ * INVARIANTS: every sentence, state, count and fold comes from `buildInterfacesEvidence`; this file
+ * decides nothing about the evidence. Nothing here is an ACMG input.
  */
 
 function downloadModel(pdb: string, name: string) {
@@ -107,6 +115,22 @@ function StringCellView({ cell }: { cell: StringCell }) {
   );
 }
 
+/** A partner name: a STRING link for a human gene; plain text for the query, a family or another species. */
+function PartnerName({ p, ev }: { p: PartnerRow; ev: InterfacesEvidence }) {
+  const self = !p.family && p.accession && ev.uniprotId && p.accession.toUpperCase() === ev.uniprotId.toUpperCase();
+  if (p.family || self || p.organism) {
+    return <span>{self ? `${p.gene} (other chain)` : p.gene}</span>;
+  }
+  return (
+    <>
+      <a className="ifc-partner-link" href={stringNetworkUrl(ev.gene, p.gene)} target="_blank" rel="noopener noreferrer" title={`Open ${ev.gene} and ${p.gene} on STRING (new tab)`}>
+        {p.gene}
+      </a>
+      <ExternalLink className="w-3 h-3" aria-hidden="true" />
+    </>
+  );
+}
+
 function PartnerRowView({ p, ev }: { p: PartnerRow; ev: InterfacesEvidence }) {
   const hit = p.variantInSite || p.variantAtObservedInterface;
   const self = !p.family && p.accession && ev.uniprotId && p.accession.toUpperCase() === ev.uniprotId.toUpperCase();
@@ -114,16 +138,8 @@ function PartnerRowView({ p, ev }: { p: PartnerRow; ev: InterfacesEvidence }) {
     <tr data-hit={hit || undefined} data-family={p.family || undefined}>
       <th scope="row" className="ifc-subject">
         <span className="ifc-subject__name">
-          {p.family || self ? (
-            <span>{self ? `${p.gene} (other chain)` : p.gene}</span>
-          ) : (
-            <>
-              <a className="ifc-partner-link" href={stringNetworkUrl(ev.gene, p.gene)} target="_blank" rel="noopener noreferrer" title={`Open ${ev.gene} and ${p.gene} on STRING (new tab)`}>
-                {p.gene}
-              </a>
-              <ExternalLink className="w-3 h-3" aria-hidden="true" />
-            </>
-          )}
+          <PartnerName p={p} ev={ev} />
+          {p.organism && <span className="ev-tier ifc-species" data-tone="muted">{p.organism}</span>}
         </span>
         {/* Only an accession the row actually has: a STRING-only partner has none, and the query's own is never shown on a partner. */}
         {(self || p.accession || p.family) && (
@@ -164,9 +180,95 @@ function PartnerRowView({ p, ev }: { p: PartnerRow; ev: InterfacesEvidence }) {
   );
 }
 
+/** A folded tail: one line, and on request the names as a list, each with the score it was sorted by. */
+function FoldedRows({ g, ev, colCount, open, onToggle }: { g: PartnerGroupView; ev: InterfacesEvidence; colCount: number; open: boolean; onToggle: () => void }) {
+  if (!g.folded) return null;
+  const listId = `ifc-fold-${g.id}`;
+  const scoreOf = (r: PartnerRow) => (g.id === "functional" ? r.functional.score : r.physical.score);
+  return (
+    <>
+      <tr className="ifc-fold">
+        <td colSpan={colCount}>
+          <span className="ifc-fold__summary">{g.folded.summary}</span>
+          <button type="button" className="ifc-link ifc-fold__toggle" aria-expanded={open} aria-controls={listId} onClick={onToggle}>
+            {open ? "Hide names" : `Show ${g.folded.rows.length} names`}
+          </button>
+        </td>
+      </tr>
+      {open && (
+        <tr className="ifc-fold__list-row">
+          <td colSpan={colCount}>
+            <ul className="ifc-chips" id={listId} aria-label={`${g.title}: ${g.folded.rows.length} more partners`}>
+              {g.folded.rows.map(r => {
+                const score = scoreOf(r);
+                return (
+                  <li key={r.key} className="ifc-chip">
+                    {r.organism ? (
+                      <span className="ifc-chip__name">{r.gene}</span>
+                    ) : (
+                      <a className="ifc-chip__name ifc-partner-link" href={stringNetworkUrl(ev.gene, r.gene)} target="_blank" rel="noopener noreferrer" title={`Open ${ev.gene} and ${r.gene} on STRING (new tab)`}>
+                        {r.gene}
+                      </a>
+                    )}
+                    {r.organism && <span className="ifc-chip__meta">{r.organism}</span>}
+                    {score !== null && <span className="ifc-chip__meta ifc-mono">{score.toFixed(2)}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function setAsideChip(o: ObservedView): string {
+  if (/antibody|nanobody/i.test(o.artefact ?? "")) return "Tool binder";
+  if (/no UniProt/i.test(o.artefact ?? "")) return "Unmapped";
+  return "Construct";
+}
+
 export function InterfacesTab({ analysisState }: TabComponentProps) {
   const result = analysisState.result;
   const data = useInterfacesData(result);
+
+  // ── View state: linked highlight, partner tier and query (the last two in the URL) ──
+  const [lit, setLit] = useState<string | null>(null);
+  const [tier, setTier] = useState<PartnerGroup | null>(() => (typeof window === "undefined" ? null : parsePpiTier(new URLSearchParams(window.location.search).get(PPI_TIER_PARAM))));
+  const [query, setQuery] = useState<string>(() => (typeof window === "undefined" ? "" : parsePpiQuery(new URLSearchParams(window.location.search).get(PPI_QUERY_PARAM))));
+  const [openFolds, setOpenFolds] = useState<ReadonlySet<PartnerGroup>>(new Set());
+  const variantKey = `${result?.metadata?.gene ?? ""}|${result?.metadata?.variant ?? ""}`;
+  const firstVariant = useRef(variantKey);
+  useEffect(() => {
+    // A new variant starts unfiltered: a query for one protein's partners means nothing for the next.
+    if (firstVariant.current === variantKey) return;
+    firstVariant.current = variantKey;
+    setTier(null);
+    setQuery("");
+    setOpenFolds(new Set());
+  }, [variantKey]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const next = withPpiParams(window.location.href, tier, query);
+    if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+  }, [tier, query]);
+  useEffect(
+    () => () => {
+      if (typeof window === "undefined") return;
+      const next = withPpiParams(window.location.href, null, "");
+      if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
+    },
+    []
+  );
+  const openRow = useCallback((key: string) => {
+    const row = document.getElementById(`ifc-row-${key}`);
+    if (!row) return;
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+    setLit(key);
+  }, []);
+
   if (!result) return null;
 
   const ev = buildInterfacesEvidence({
@@ -184,11 +286,21 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
   });
   const { model, binding: b, interface: iface } = ev;
   const pdb = data.assembly?.status === "success" ? data.assembly.complexPdb : null;
-  const groups = (Object.keys(PARTNER_GROUP_LABEL) as PartnerGroup[]).filter(g => ev.partners.some(p => p.group === g));
+  const visibleGroups = filterPartnerGroups(ev.groups, { tier, query });
   const colCount = 4 + (ev.columns.solved ? 1 : 0) + (ev.columns.site ? 1 : 0);
   const partnerChain = ev.chains.length === 2 ? `${ev.chains[1].id} ${ev.chains[1].label}` : "another chain";
   const assemblyFailed = ev.status.assembly === "error";
   const lookupsFailed = ev.status.lookups === "error";
+  const refPhrase = iface.reference ? (iface.reference.partner === `${ev.gene}, other chain` ? `the other ${ev.gene} chain` : iface.reference.partner) : null;
+  const callout = [iface.disagreement, iface.fibril?.sentence ?? null, iface.setAside].filter(Boolean).join(" ");
+  const solvedRows: ObservedView[] = [...ev.observed.partners, ...ev.observed.fibrils];
+  const toggleFold = (id: PartnerGroup) =>
+    setOpenFolds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const modelAction = model.canRequest ? (
     <ActionButton onClick={data.requestModel} icon={<Boxes className="w-3.5 h-3.5" aria-hidden="true" />}>
@@ -222,10 +334,14 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
             </div>
             <div className="ifc-hero__figure">
               <span className="ifc-figure" data-empty={iface.verdict === "pending" || iface.verdict === "not-measured" || undefined}>
-                {iface.observed ? `${iface.observed.k} of ${iface.observed.n}` : iface.label}
+                {iface.observed ? `${iface.observed.k} of ${iface.observed.n}` : iface.reference ? `0 of ${iface.reference.n}` : iface.label}
               </span>
               <span className="ifc-hero__figure-label">
-                {iface.observed ? `solved structures place ${ev.residueLabel} at the interface · PDBe-KB` : iface.support}
+                {iface.observed
+                  ? `solved structures place ${ev.residueLabel} at the interface · PDBe-KB`
+                  : iface.reference
+                    ? `native solved structures place ${ev.residueLabel} at the interface with ${refPhrase} · PDBe-KB`
+                    : iface.support}
               </span>
             </div>
             <Prose className="ifc-hero__finding" data-testid="interfaces-finding-sentence">
@@ -243,10 +359,10 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
           </figure>
         </div>
 
-        {(iface.disagreement || iface.setAside) && (
-          <div className="ifc-callout" data-tone="neutral">
+        {callout && (
+          <div className="ifc-callout" data-tone="neutral" data-testid="interfaces-callout">
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>{[iface.disagreement, iface.setAside].filter(Boolean).join(" ")}</span>
+            <span>{callout}</span>
           </div>
         )}
         {(assemblyFailed || lookupsFailed) && (
@@ -285,14 +401,15 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
           Where on the sequence
         </h2>
         <div className="ifc-card">
-          <InterfaceTrack ev={ev} />
+          <InterfaceTrack ev={ev} lit={lit} onLit={setLit} onOpen={openRow} />
           <div className="ifc-foot" aria-label="Legend">
             {ev.track.some(l => l.kind === "solved") && (
               <span className="ifc-legend__item">
                 <i className="ifc-key" data-kind="support" />
-                Solved interface; darker = seen in more of the pair&apos;s structures
+                Solved interface; bar height = share of the pair&apos;s structures with the residue at it
               </span>
             )}
+            {ev.observed.fibrils.length > 0 && <span className="ifc-legend__item"><i className="ifc-key" data-kind="fibril" />Amyloid fibril stacking, read apart</span>}
             {ev.track.some(l => l.kind === "predicted") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="predicted" />Predicted interface</span>}
             {ev.track.some(l => l.kind === "sites") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="site" />Mapped site, UniProt</span>}
             {ev.track.some(l => l.kind === "topology") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="membrane" />Membrane segment; cytoplasmic side below the line, outside above</span>}
@@ -365,27 +482,56 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                   </span>
                 </th>
               </tr>
-              {ev.observed.partners.length ? (
-                ev.observed.partners.map(p => (
-                  <tr key={p.accession} data-rule-input={p.variantAtInterface || undefined}>
-                    <th scope="row" className="ifc-subject">
-                      <span className="ifc-subject__name">{p.label}</span>
-                      <span className="ifc-subject__note ifc-mono">{p.accession}{p.homomeric ? " · same protein" : ""}</span>
-                    </th>
-                    <td className="ifc-reason">
-                      {p.variantAtInterface
-                        ? <>{ev.residueLabel} at the interface in {p.variantEntries.map((e, i) => <React.Fragment key={e}>{i ? ", " : ""}<a className="ifc-pdb" href={rcsbUrl(e)} target="_blank" rel="noopener noreferrer">{e.toUpperCase()}</a></React.Fragment>)}. The best-attested residues of this interface are seen in {p.maxSupport} of {p.n}.</>
-                        : `${ev.residueLabel} is not among its ${p.residues.length} interface residues.`}
-                    </td>
-                    <td className="ifc-num">
-                      {p.k} of {p.n}
-                      <span className="ifc-unit">structures</span>
-                    </td>
-                    <td className="ifc-status">
-                      <span className="ev-tier" data-tone={p.variantAtInterface ? "neutral" : "muted"}>{p.variantAtInterface ? "At interface" : "Not at it"}</span>
-                    </td>
-                  </tr>
-                ))
+              {solvedRows.length ? (
+                solvedRows.map(p => {
+                  const fibril = p.context === "fibril";
+                  return (
+                    <tr
+                      key={p.key}
+                      id={`ifc-row-${p.key}`}
+                      data-rule-input={(!fibril && p.variantAtInterface) || undefined}
+                      data-lit={lit === p.key || undefined}
+                      onMouseEnter={() => setLit(p.key)}
+                      onMouseLeave={() => setLit(null)}
+                    >
+                      <th scope="row" className="ifc-subject">
+                        <span className="ifc-subject__name">{p.label}</span>
+                        <span className="ifc-subject__note ifc-mono">
+                          {p.accession}
+                          {p.homomeric ? " · same protein" : ""}
+                          {p.organism ? ` · ${p.organism}` : ""}
+                        </span>
+                      </th>
+                      <td className="ifc-reason">
+                        {p.variantAtInterface ? (
+                          <>
+                            {ev.residueLabel} {fibril ? "touches a neighbouring fibril chain" : "at the interface"} in{" "}
+                            {p.variantEntries.map((e, i) => (
+                              <React.Fragment key={e}>
+                                {i ? ", " : ""}
+                                <a className="ifc-pdb" href={rcsbUrl(e)} target="_blank" rel="noopener noreferrer">{e.toUpperCase()}</a>
+                              </React.Fragment>
+                            ))}
+                            .{fibril ? " Stacking along a fibril, not a native interface." : ` The best-attested residues of this interface are seen in ${p.maxSupport} of ${p.n}.`}
+                          </>
+                        ) : (
+                          `${ev.residueLabel} is not among its ${p.residues.length} interface residues${fibril ? " in fibrils" : ""}.`
+                        )}
+                      </td>
+                      <td className="ifc-num">
+                        {p.k} of {p.n}
+                        <span className="ifc-unit">{fibril ? "fibril structures" : "structures"}</span>
+                      </td>
+                      <td className="ifc-status">
+                        {fibril ? (
+                          <span className="ev-tier" data-tone="muted">Fibril</span>
+                        ) : (
+                          <span className="ev-tier" data-tone={p.variantAtInterface ? "neutral" : "muted"}>{p.variantAtInterface ? "At interface" : "Not at it"}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <th scope="row" className="ifc-subject">
@@ -396,13 +542,15 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                 </tr>
               )}
               {ev.observed.artefacts.map(p => (
-                <tr key={p.accession}>
+                <tr key={p.key}>
                   <th scope="row" className="ifc-subject">
                     <span className="ifc-subject__name">{p.name}</span>
                     <span className="ifc-subject__note ifc-mono">{p.accession}</span>
                   </th>
-                  <td className="ifc-reason" colSpan={2}>A {p.artefact}: a property of the construct, not counted.</td>
-                  <td className="ifc-status"><span className="ev-tier" data-tone="muted">Construct</span></td>
+                  <td className="ifc-reason" colSpan={2}>
+                    {p.artefact ? p.artefact.charAt(0).toUpperCase() + p.artefact.slice(1) : "Not biological"}, in {p.n === 1 ? "1 structure" : `${p.n} structures`}: not a biological partner, not counted.
+                  </td>
+                  <td className="ifc-status"><span className="ev-tier" data-tone="muted">{setAsideChip(p)}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -497,36 +645,63 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
             </Statement>
           )}
           {ev.partners.length ? (
-            <div className="ifc-table-wrap" role="region" aria-label={`Interaction partners of ${ev.gene}`} tabIndex={0}>
-              <table className="ifc-table ifc-table--partners" data-testid="partner-grid">
-                <thead>
-                  <tr>
-                    <th scope="col">Partner</th>
-                    <th scope="col">Evidence</th>
-                    {ev.columns.solved && <th scope="col" className="ifc-num">Solved</th>}
-                    <th scope="col">STRING physical</th>
-                    <th scope="col">STRING functional</th>
-                    {ev.columns.site && <th scope="col" className="ifc-site">Mapped site</th>}
-                  </tr>
-                </thead>
-                {groups.map(g => (
-                  <tbody key={g} data-group={g}>
-                    <tr className="ifc-group">
-                      <th colSpan={colCount} scope="rowgroup">
-                        <span className="ifc-group__inner">
-                          <span className="ifc-group__title">{PARTNER_GROUP_LABEL[g].title}</span>
-                          <span className="ifc-group__meta">
-                            {PARTNER_GROUP_LABEL[g].meta}
-                            {ev.hiddenPartners[g] ? ` · ${ev.hiddenPartners[g]} more on STRING` : ""}
-                          </span>
-                        </span>
-                      </th>
-                    </tr>
-                    {ev.partners.filter(p => p.group === g).map(p => <PartnerRowView key={p.key} p={p} ev={ev} />)}
-                  </tbody>
-                ))}
-              </table>
-            </div>
+            <>
+              <div className="ifc-partners__head">
+                <PartnerTiers groups={ev.groups} active={tier} onToggle={id => setTier(t => (t === id ? null : id))} />
+                <div className="ifc-partners__tools">
+                  <label className="ifc-search">
+                    <Search className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span className="sr-only">Find a partner by gene or accession</span>
+                    <input
+                      type="search"
+                      value={query}
+                      placeholder="Find a partner"
+                      onChange={e => setQuery(e.target.value.slice(0, 40))}
+                      aria-controls="ifc-partner-grid"
+                    />
+                  </label>
+                  {(tier || query) && (
+                    <button type="button" className="ifc-link" onClick={() => { setTier(null); setQuery(""); }}>
+                      Show all
+                    </button>
+                  )}
+                </div>
+              </div>
+              {visibleGroups.length ? (
+                <div className="ifc-table-wrap" role="region" aria-label={`Interaction partners of ${ev.gene}`} tabIndex={0}>
+                  <table className="ifc-table ifc-table--partners" data-testid="partner-grid" id="ifc-partner-grid">
+                    <thead>
+                      <tr>
+                        <th scope="col">Partner</th>
+                        <th scope="col">Evidence</th>
+                        {ev.columns.solved && <th scope="col" className="ifc-num">Solved</th>}
+                        <th scope="col">STRING physical</th>
+                        <th scope="col">STRING functional</th>
+                        {ev.columns.site && <th scope="col" className="ifc-site">Mapped site</th>}
+                      </tr>
+                    </thead>
+                    {visibleGroups.map(g => (
+                      <tbody key={g.id} data-group={g.id}>
+                        <tr className="ifc-group">
+                          <th colSpan={colCount} scope="rowgroup">
+                            <span className="ifc-group__inner">
+                              <span className="ifc-group__title">{g.title}</span>
+                              <span className="ifc-group__meta">{g.meta}</span>
+                            </span>
+                          </th>
+                        </tr>
+                        {g.rows.map(p => <PartnerRowView key={p.key} p={p} ev={ev} />)}
+                        <FoldedRows g={g} ev={ev} colCount={colCount} open={openFolds.has(g.id)} onToggle={() => toggleFold(g.id)} />
+                      </tbody>
+                    ))}
+                  </table>
+                </div>
+              ) : (
+                <Statement title="No partner matches">
+                  {`No partner of ${ev.gene}${tier ? ` in “${ev.groups.find(g => g.id === tier)?.title ?? tier}”` : ""} has a gene or accession containing “${query.trim()}”.`}
+                </Statement>
+              )}
+            </>
           ) : (
             <Statement
               title={ev.status.lookups === "loading" ? "Reading partners" : lookupsFailed ? "Partners not retrieved" : "No partners listed"}
@@ -541,7 +716,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
             <span>
               STRING scores are association, not binding strength. Physical: evidence the two bind or share a complex; functional: any
               association (co-expression, text mining, pathways). Ticks at {STRING_CONFIDENCE_CUTS.map(c => c.min.toFixed(2)).reverse().join(", ")} are STRING&apos;s bands
-              {ev.string.version ? `; STRING ${ev.string.version}` : ""}.
+              {ev.string.version ? `; STRING ${ev.string.version}` : ""}. Proteins from another species have no score in the human network.
               {ev.sections.intact.state === "failed" ? ` ${ev.sections.intact.reason}` : ""}
             </span>
             {ev.stringUrl && (

@@ -43,7 +43,9 @@ describe("Interfaces & PPI — SLC12A4 p.Gln867His (doc/INTERFACES_AUDIT.md)", (
     const ev = slc();
     const screen = ev.partners.filter(p => p.group === "screen");
     expect(screen.map(p => p.gene).sort()).toEqual(["AP3M1", "CNFN", "CYSRT1", "KRTAP12-2", "KRTAP19-2", "MB21D2", "TMEM102", "ZNF655"]);
-    expect(screen.every(p => p.evidence === "Yeast two-hybrid · 1 study (PubMed 32296183)")).toBe(true);
+    // One study for the whole tier: said once in the group head, not on every row.
+    expect(screen.every(p => p.evidence === "Yeast two-hybrid")).toBe(true);
+    expect(ev.groups.find(g => g.id === "screen")?.meta).toBe("Yeast two-hybrid in one study (PubMed 32296183), no other method");
     expect(ev.facts.find(f => f.label === "Reported partners")).toMatchObject({ value: "8", sub: "all two-hybrid, one study (PubMed 32296183)" });
     expect(JSON.stringify(ev)).not.toMatch(/Curated physical interaction|3 experiments/);
   });
@@ -142,11 +144,11 @@ describe("Interfaces & PPI — states and staleness", () => {
   });
 
   it("sets construct tags aside and does not count them as interfaces", () => {
-    const tag = { accession: "P0AEX9", name: "Maltose-binding periplasmic protein", residues: [867], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", variantAtInterface: true, variantEntries: ["9zzz"] };
+    const tag = { accession: "P0AEX9", name: "Maltose-binding periplasmic protein", residues: [867], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native", variantAtInterface: true, variantEntries: ["9zzz"] };
     const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [tag] } } });
     expect(ev.observed.partners).toHaveLength(0);
     expect(ev.interface.verdict).toBe("not-measured");
-    expect(ev.interface.setAside).toMatch(/maltose-binding protein fusion tag .* not counted/);
+    expect(ev.interface.setAside).toMatch(/Maltose-binding .*\(maltose-binding protein fusion tag\) is not a biological interface and is not counted/);
   });
 });
 

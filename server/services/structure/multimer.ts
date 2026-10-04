@@ -86,7 +86,7 @@ async function readExperimental(
       ? { status: "error", reason: lookup.reason, partners: [] }
       : { status: "none", partners: [] };
   }
-  return { status: "ok", partners: lookup.partners.map(p => observedFor(p, uniprotId, position)) };
+  return { status: "ok", partners: lookup.partners.map(p => observedFor(p, uniprotId, position)), entryKinds: lookup.entryKinds };
 }
 
 function toRecord(assembly: SubunitAssembly, partners: MultimerAssemblyPartner[], subunitComment: string | null, gene: string): MultimerAssemblyRecord {
