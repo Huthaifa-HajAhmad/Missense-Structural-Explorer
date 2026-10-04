@@ -123,10 +123,14 @@ curator must know; (4) Sources from the payload plus DOI links. No hard-coded ve
 
 Design rules in `references/design-system.md`; copy-ready rendering harness in
 `references/preview-harness.md`.
+For positional maps, score axes, display filters and comparison plots, also apply
+`references/data-visualization.md`. These rules keep view controls separate from scientific rules.
 
 ## Verification
 
-- `node_modules` in the user's folder are Windows builds. Test in a Linux mirror:
+- Run checks in the current workspace with its native dependencies first. Windows builds are valid
+  on Windows; do not create a Linux mirror solely because the workspace uses Windows. If testing
+  from Linux against Windows dependencies, use a Linux mirror:
   `git clone <repo> ~/work/mse && npm ci --ignore-scripts` (run long installs/suites with
   `setsid nohup … &` and poll the log; a plain background job is killed when the shell call ends),
   then `rsync` `src/` and `server/` over before each run.
@@ -157,4 +161,5 @@ the environment requires it).
 | In-silico predictors | Done (reference); `doc/PREDICTORS_TAB_REVIEW.md`. Also owns the strength ladder (`predictors/StrengthLadder.tsx`, `shared/ladderEvidence.ts`); the Score thresholds tab was merged into it and its ids redirect via `normalizeEvidenceTab` |
 | AlphaGenome | Rail in progress elsewhere; still shows `acmgStrength` PP3/BP4 tiers derived from an uncalibrated rank — must become the percentile |
 | 3D structure (viewer + inspector) | Done; `doc/STRUCTURE_3D_REVIEW.md`. Model `shared/structure3dEvidence.ts`, `s3d-` CSS |
-| RNA splicing, Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions | Not yet audited with this skill |
+| RNA splicing | Reviewed; `doc/SPLICING_TAB_REVIEW.md`. Visualization follow-up: `doc/CHARTING_AND_VISUALIZATION_PLAN.md`; engine does not apply splicing criteria |
+| Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions | Consult the corresponding current review document before assuming audit status |

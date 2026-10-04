@@ -26,7 +26,6 @@ function axisValues(scale: NonNullable<SpliceReading["scale"]>, size: "row" | "h
       if (b.from > scale.min) values.add(b.from);
       if (b.to < scale.max) values.add(b.to);
     }
-    for (const t of scale.ticks) values.add(t.value);
   }
   return [...values].sort((a, b) => a - b);
 }
@@ -39,7 +38,7 @@ export function SpliceRuler({ reading, size = "row" }: { reading: SpliceReading;
   const describe = [
     `${reading.name} ${reading.scoreText} on a ${min} to ${max} axis`,
     scale.bands.length > 0 ? (active ? `in the ${active.label.split(":")[0]} band` : "between the BP4 and PP3 bands") : null,
-    scale.ticks.length > 0 ? scale.ticks.map(t => t.label).join(", ") : null,
+    size === "row" && scale.ticks.length > 0 ? scale.ticks.map(t => t.label).join(", ") : null,
   ]
     .filter(Boolean)
     .join("; ");
@@ -59,7 +58,7 @@ export function SpliceRuler({ reading, size = "row" }: { reading: SpliceReading;
             />
           ))}
         </span>
-        {scale.ticks.map(t => (
+        {(size === "hero" ? [] : scale.ticks).map(t => (
           <span key={t.label} className="spl-ruler__tick" style={{ left: `${pct(t.value, min, max)}%` }} title={t.label} />
         ))}
         <span
@@ -75,6 +74,11 @@ export function SpliceRuler({ reading, size = "row" }: { reading: SpliceReading;
           </span>
         ))}
       </div>
+      {size === "hero" && scale.bands.length > 0 && <div className="spl-ruler__labels" aria-hidden="true">
+        <span>{scale.bands[0].label}</span>
+        <span>Neither: {scale.bands[0].to}–&lt;{scale.bands[1].from}</span>
+        <span>{scale.bands[1].label}</span>
+      </div>}
     </div>
   );
 }

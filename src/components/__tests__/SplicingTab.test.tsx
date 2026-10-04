@@ -7,7 +7,7 @@
  * (NAE1 p.Asp116Gly) and on a scored one.
  */
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../context/SettingsContext", () => ({
@@ -95,10 +95,62 @@ describe("SplicingTab — splice map", () => {
       conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: Math.max(...Object.values(ds)), ...ds, dp } },
     });
 
+  it("retains an unpositioned maximum and prevents a focused axis from hiding it", () => {
+    renderTab(withScores({ ds_ag: 0.9, ds_dl: 0.05 }, { ds_dl: 40 }));
+    expect((screen.getByRole("option", { name: "0–0.3 (focused range)" }) as HTMLOptionElement).disabled).toBe(true);
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
+    expect(screen.getByTestId("map-note").textContent).toMatch(/no delta position/);
+    expect(screen.getByText(/Acceptor gain: Δ 0.9; delta position not returned/)).toBeTruthy();
+    expect(screen.getByTestId("splicing-finding").textContent).toContain("0.90");
+    expect(screen.queryByTestId("map-ds_ag")).toBeNull();
+  });
+
+  it("resets zoom and focus for a new transcript but retains them when re-scoring the same transcript", () => {
+    const result = withScores({ ds_dl: 0.05 }, { ds_dl: 40 });
+    const { rerender } = renderTab(result);
+    fireEvent.change(screen.getByLabelText("Map view"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("SpliceAI delta axis"), { target: { value: "focused" } });
+    const update = (next: any) => rerender(<SplicingTab {...({ analysisState: { result: next, isLoading: false } } as any)} />);
+    update(withScores({ ds_dl: 0.06 }, { ds_dl: 40 }));
+    expect((screen.getByLabelText("Map view") as HTMLSelectElement).value).toBe("50");
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("focused");
+    update({ ...result, maneRefSeqId: "NM_999999.1" });
+    expect((screen.getByLabelText("Map view") as HTMLSelectElement).value).toBe("auto");
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
+  });
+
+  it("forces the full axis when a same-transcript re-score exceeds the focused range", () => {
+    const { rerender } = renderTab(withScores({ ds_dl: 0.05 }, { ds_dl: 40 }));
+    fireEvent.change(screen.getByLabelText("SpliceAI delta axis"), { target: { value: "focused" } });
+    rerender(<SplicingTab {...({ analysisState: { result: withScores({ ds_dl: 0.9 }, { ds_dl: 40 }), isLoading: false } } as any)} />);
+    expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
+    expect(screen.getByText("SpliceAI Δ · 0–1")).toBeTruthy();
+  });
+
+  it("separates map zoom from scoring and shows off-view positions honestly", () => {
+    renderTab(withScores({ ds_dl: 0.62 }, { ds_dl: 400 }));
+    fireEvent.change(screen.getByLabelText("Map view"), { target: { value: "50" } });
+    const mark = screen.getByTestId("map-ds_dl");
+    expect(mark.querySelector("circle")).toBeNull();
+    expect(mark.querySelector("path")).toBeTruthy();
+    expect(mark.textContent).toMatch(/outside the map view/);
+    expect(screen.getByTestId("splicing-finding").textContent).toContain("0.62");
+  });
+
+  it("lets readers inspect small non-zero signals without changing the rule", () => {
+    renderTab(withScores({ ds_dl: 0.001 }, { ds_dl: 40 }));
+    const verdict = screen.getByTestId("splicing-verdict").textContent;
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show non-zero signals/ }));
+    expect(screen.getByTestId("map-ds_dl").querySelector("title")!.textContent).toContain("0.001");
+    expect(screen.getByTestId("splicing-verdict").textContent).toBe(verdict);
+    fireEvent.change(screen.getByLabelText("SpliceAI delta axis"), { target: { value: "focused" } });
+    expect(screen.getByText("SpliceAI Δ · 0–0.3")).toBeTruthy();
+  });
+
   it("draws a lollipop for a channel that scores, labelled and placed in transcript direction", () => {
     renderTab(withScores({ ds_dl: 0.62 }, { ds_dl: 40 }));
     const lollipop = screen.getByTestId("map-ds_dl");
-    expect(lollipop.textContent).toBe("Donor loss 0.62");
+    expect(lollipop.querySelector("text")!.textContent).toContain("Donor loss 0.62");
     // Reverse-strand gene: genomic +40 is 40 bases UPSTREAM, so the map says −40, and so does the aria label.
     expect(screen.getByRole("img", { name: /donor loss 0\.62 at −40 bases/ })).toBeTruthy();
   });

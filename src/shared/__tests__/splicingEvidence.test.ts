@@ -106,19 +106,19 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     const rows = groupSpliceReadings(rev.readings);
     expect(rows.map(g => g.group)).toEqual(["rule", "channels", "context"]);
     expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.call?.label).toBe("Maximum");
-    expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at +12 bp");
+    expect(rows[1].rows.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at +12 bp from the variant");
     // A forward-strand gene keeps the sign.
     const fwd = build({ conservationData: { spliceProximity: { strand: "+" }, spliceai: { ds_ag: 0, ds_al: 0.34, ds_dg: 0, ds_dl: 0, max_ds: 0.34, dp: { ds_al: -12 } } } });
     expect(fwd.rule.maxShift).toBe(-12);
     // No strand: the genomic number is kept and labelled, never silently flipped or presented as transcript direction.
     const unk = build({ conservationData: { spliceProximity: { strand: null }, spliceai: { ds_ag: 0, ds_al: 0.34, ds_dg: 0, ds_dl: 0, max_ds: 0.34, dp: { ds_al: -12 } } } });
-    expect(unk.readings.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at −12 bp (genomic)");
+    expect(unk.readings.find(r => r.key === "spliceai-ds_al")!.sub).toBe("at −12 bp from the variant (genomic)");
   });
 
   it("gives no location for a score that is indistinguishable from zero", () => {
     const ev = build({ conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0.001, ds_dl: 0, max_ds: 0.001, dp: { ds_ag: -360, ds_al: 93, ds_dg: -208, ds_dl: -18 } } } });
     expect(ev.readings.find(r => r.key === "spliceai-ds_dg")!.sub).toBeNull();
-    expect(splicingFinding(ev).headline).toBe("SpliceAI predicts no splicing change");
+    expect(splicingFinding(ev).headline).toBe("SpliceAI's score is below the splicing BP4 threshold");
     expect(splicingFinding(ev).predicate).toMatch(/\(donor gain\) is below 0\.1/);
   });
 
@@ -417,5 +417,59 @@ describe("why SpliceAI has no score", () => {
 
   it("falls back to the cautious wording when the payload predates the field", () => {
     expect(build().spliceai.availability.reason).toMatch(/does not record why/);
+  });
+});
+
+describe("splice map — terminal boundaries and display filters", () => {
+  const sod1 = () => nae1Reference({
+    conservationData: {
+      spliceProximity: { distance: 58, junctionType: "donor", regionType: "exonic", strand: "+", exonNumber: 1, totalExons: 5, exonLength: 149 },
+      spliceai: { ds_ag: 0.003, ds_al: 0, ds_dg: 0.14, ds_dl: 0, max_ds: 0.14, dp: { ds_ag: -90, ds_dg: -2 } },
+    },
+  });
+
+  it("does not invent an acceptor at exon 1 or match a prediction to a transcript start", () => {
+    const ev = buildSplicingEvidence({ result: sod1(), showSmallSignals: true });
+    expect(ev.map!.sites.map(s => s.type)).toEqual(["donor"]);
+    expect(ev.map!.predictions.find(p => p.key === "ds_ag")!.atSite).toBeNull();
+    expect(ev.rule.state).toBe("between");
+  });
+
+  it("excludes the last exon's end from annotated donors", () => {
+    const result = sod1();
+    Object.assign(result.conservationData.spliceProximity, { exonNumber: 5, junctionType: "acceptor" });
+    expect(buildSplicingEvidence({ result }).map!.sites.map(s => s.type)).toEqual(["acceptor"]);
+  });
+
+  it.each(["terminal", "donor", "acceptor"])("does not invent a junction for a single-exon transcript labelled %s", junctionType => {
+    const result = sod1();
+    Object.assign(result.conservationData.spliceProximity, { totalExons: 1, junctionType });
+    const ev = buildSplicingEvidence({ result });
+    expect(ev.geometry.junction).toBe("terminal");
+    expect(ev.geometry.position).toBeNull();
+    expect(ev.map).toBeNull();
+    expect(ev.rule.state).toBe("between");
+  });
+
+  it("retains high signals without positions and uses them for the score-axis limit", () => {
+    const result = sod1();
+    Object.assign(result.conservationData.spliceai, { ds_ag: 0.9, max_ds: 0.9, dp: { ds_ag: null, ds_dg: -2 } });
+    const ev = buildSplicingEvidence({ result });
+    expect(ev.map!.maxScore).toBe(0.9);
+    expect(ev.map!.predictions.map(p => p.ds)).toEqual([0.14]);
+    expect(ev.map!.missingPositions).toEqual([{ key: "ds_ag", name: "Acceptor gain", ds: 0.9 }]);
+    expect(ev.map!.predictionsNote).toMatch(/no delta position/);
+    expect(ev.rule.state).toBe("pp3");
+  });
+
+  it("makes small non-zero channels inspectable without changing evidence or the engine record", () => {
+    const result = sod1();
+    const normal = buildSplicingEvidence({ result });
+    const detailed = buildSplicingEvidence({ result, showSmallSignals: true });
+    expect(normal.map!.predictions).toHaveLength(1);
+    expect(detailed.map!.predictions).toHaveLength(2);
+    expect(detailed.rule).toEqual(normal.rule);
+    expect(detailed.engine).toEqual(normal.engine);
+    expect(detailed.map!.predictions.every(p => p.ds > 0)).toBe(true);
   });
 });
