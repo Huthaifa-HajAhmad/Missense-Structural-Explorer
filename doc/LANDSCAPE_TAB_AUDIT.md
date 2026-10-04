@@ -320,3 +320,24 @@ A full re-read of the branch found and fixed these:
 | R8 | The AlphaGenome region was memoised on `spliceProximity`'s identity, so every pipeline update re-issued the region query. This bug was inherited from the old heatmap. | Keyed on the interval's values. |
 | R9 | Overview arrow keys selected a residue on every step. A failed overview had no retry. | The strip and keys move the window only (ClinVar markers select), and a Retry button was added. |
 | R10 | Minor: an aborted window request could clear the loading flag of the next one; heatmap cells read "no score" while loading; the rail showed a stale nucleotide beside a newer selection; the ingest could not add its new columns to an existing database and counted single-transcript rows as arbitrary picks; `aa_change` was not read at the chosen transcript; the overview route skipped the audit log; the context cache was unbounded. | Each fixed. |
+
+## 11. Presentation audit on SOD1 p.Ala5Val (4 October 2026)
+
+Reviewed on the densest real case (SOD1, 154 aa, 191 ClinVar missense records, 89 gnomAD residues),
+from two screenshots of the shipped tab. Tests: `landscape.test.ts` (window query),
+`landscapeEvidence.test.ts`, `landscapePresentation.test.tsx`, `LandscapeInspector.test.tsx`.
+
+| # | Severity | Finding | Fix | Pinned by |
+|---|---|---|---|---|
+| P1 | Critical | **The window query dropped residues.** `dbnsfp.aa.pos:[1 TO 31]` is a range on a field myvariant.info indexes as text, so it compares strings: residues 4–9 sort after "31" and were never returned, while 100–199 were. On SOD1 p.Ala5Val the queried residue itself had no scores (the rail said "0 substitutions · no score" beside "this variant 0.853"). Any window whose start and end differ in digit count was affected. | One exact `aa.pos:N` term per residue, in chunks of 40 (`fetchMyVariantWindowHits`). Live check: 31 of 31 residues returned, A5V AlphaMissense 0.8401 and REVEL 0.853, matching the pipeline. | `landscape.test.ts` "asks for each residue by exact term" |
+| P2 | High | The finding counted the queried variant's own ClinVar record as "3 ClinVar P/LP missense at this residue", which makes the context circular. | Says "the queried variant is itself in ClinVar (Pathogenic) · 2 other ClinVar P/LP missense variants at this residue"; the rail marks "(queried)". | `landscapeEvidence.test.ts` |
+| P3 | High | A residue dbNSFP does not score (SOD1 V6, whose codon spans the exon 1/2 boundary in the live data) looked the same as "SNV-reachable, no score". | Own state "no dbNSFP record at this residue": grey column, finding sentence, rail sentence ("absence of data, not a benign reading"), legend entry. | `landscapePresentation.test.tsx`, `LandscapeInspector.test.tsx` |
+| P4 | High | Dead space. The heatmap used fixed 27 px columns and left a quarter of the card empty; empty `DOMAIN` and `MISSENSE O/E` rows, an AlphaGenome lane of four empty bars, and three legend blocks (~330 px of static text) filled the page. | Columns fit the measured width (18–48 px, cell height follows); rows that only say "none" are not drawn and the fact is one caption; an AlphaGenome lane with no codon in view is one sentence; the legend shows only the active tool's seven bands and the cell glyphs, the rest sits in one disclosure; the O/E toggle is disabled when the gene has no call. | `landscapePresentation.test.tsx` |
+| P5 | Medium | Interaction. Reading a cell meant a native tooltip; the grids were ~700 tab stops; the overview moved only by click. | A header readout shows both predictors for the hovered or focused cell; each grid is one tab stop with arrow keys (`useRovingGrid`); the overview drags (the window moves once, on release). | `landscapePresentation.test.tsx` |
+| P6 | Medium | 191 ClinVar records at 99 residues were drawn as overlapping lollipops. | One marker per residue in its most severe class; the tooltip lists every record. | `landscapePresentation.test.tsx` |
+| P7 | Low | Rail: the scatter title gave a residue range that disagreed with "scores loaded for residues"; method text and seven citations were always open. | Title says "scored residues a–b"; method and citations behind one disclosure. | `LandscapeInspector.test.tsx` |
+
+**Not done.** Hover-to-3D linking for the heatmap (the store already carries the hovered residue; the
+viewer does not read it from this tab). `?focus=` URL state for the window. A residue-dense overview
+(whole protein ClinVar per-class counts) beyond one marker per residue. The V6 gap is stated from the
+data as returned; the cause (split codon) is inferred, not confirmed against dbNSFP's documentation.

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import type { LandscapeResidueItem } from "../../shared/contracts";
 import {
   bandKey,
@@ -17,6 +17,8 @@ import { aviRankBand } from "../../shared/alphagenomeEvidence";
 import type { AlphaGenomeSaturationPosition } from "../../shared/contracts";
 import type { CodonNucleotide } from "./useAlphaGenomeRegion";
 import type { DomainSpan, TargetMutation, VariantScores } from "./types";
+import { useMeasuredWidth } from "./useMeasuredWidth";
+import { useRovingGrid } from "./useRovingGrid";
 
 const TOOL_NAME: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
 const LETTER_CLASS: Record<string, string> = {
@@ -26,11 +28,29 @@ const LETTER_CLASS: Record<string, string> = {
 const GUTTER = 88;
 const f3 = (n: number) => n.toFixed(3);
 
-/** Residue column width for a focus width; a multiple of 3 so each codon's bases sit under it. */
+/** Residue column width before the container is measured (and in jsdom): fixed per focus width. */
 export function columnWidthFor(width: number): number {
   if (width <= 21) return 30;
   if (width <= 31) return 27;
   return 21;
+}
+
+const MIN_COL = 18;
+const MAX_COL = 48;
+const RIGHT_PAD = 16;
+
+/**
+ * Column width that makes the residues fill the card. Fixed 27 px columns left a quarter of the
+ * card empty on a wide screen; a codon's three bases take a third each, so a fractional width is fine.
+ */
+export function fitColumnWidth(available: number, residueCount: number, fallback: number): number {
+  if (available <= 0 || residueCount <= 0) return fallback;
+  return Math.max(MIN_COL, Math.min(MAX_COL, Math.floor((available - GUTTER - RIGHT_PAD) / residueCount)));
+}
+
+/** A residue column dbNSFP has no missense record for (not a score of zero, and not "benign"). */
+export function hasNoRecord(row: LandscapeResidueItem | undefined): boolean {
+  return !row || (residueCount(row, "revel") === 0 && residueCount(row, "alphaMissense") === 0);
 }
 
 export interface NucleotidePick {
@@ -77,12 +97,46 @@ export function LandscapeFocus(props: Props) {
     onPickResidue, onPickSubstitution, onPickNucleotide, onHover
   } = props;
   const residueClass = props.residueClass ?? ((aa: string) => LETTER_CLASS[aa] ?? "hydrophobic");
-  const colW = columnWidthFor(width);
+  const [sizeRef, measured] = useMeasuredWidth<HTMLElement>();
+  const colW = fitColumnWidth(measured, residues.length, columnWidthFor(width));
+  const cellH = Math.max(14, Math.min(20, Math.round(colW * 0.55)));
   const ntW = colW / 3;
+  const [readout, setReadout] = useState<string | null>(null);
+  const heat = useRovingGrid<HTMLDivElement>();
+  const lane = useRovingGrid<HTMLDivElement>();
+  const residueRow = useRovingGrid<HTMLDivElement>();
+  const summaryRow = useRovingGrid<HTMLDivElement>();
   const end = start + residues.length - 1;
   const cols = useMemo(() => residues.map((aa, i) => ({ aa, pos: start + i })), [residues, start]);
   const statWord = mode === "mean" ? "mean" : "max";
-  const hover = (pos: number | null) => () => onHover(pos);
+  /** Hover and keyboard focus both light the residue everywhere and put the reading in the header. */
+  const track = (pos: number, text: string) => ({
+    onMouseEnter: () => (onHover(pos), setReadout(text)),
+    onMouseLeave: () => (onHover(null), setReadout(null)),
+    onFocus: () => (onHover(pos), setReadout(text)),
+    onBlur: () => (onHover(null), setReadout(null))
+  });
+
+  /** Both predictors for one substitution, the colour-by tool first, on one line. */
+  const readSubstitution = (aa: string, pos: number, alt: string, isTarget: boolean): string => {
+    const row = rows.get(pos);
+    const sub = row?.substitutions?.find((x) => x.alt === alt);
+    const order: LandscapeTool[] = colorBy === "revel" ? ["revel", "alphaMissense"] : ["alphaMissense", "revel"];
+    const scored = order
+      .map((t) => {
+        const v = sub ? (t === "revel" ? sub.revel : sub.am) : null;
+        return v !== null ? `${TOOL_NAME[t]} ${f3(v)} (${bandLabel(t, v)})` : null;
+      })
+      .filter(Boolean);
+    const reachable = reachableByPos.get(pos);
+    const why =
+      reachable && !reachable.has(alt)
+        ? "needs two or more nucleotide changes, not scored in dbNSFP"
+        : hasNoRecord(row) && !(loadingWindow && !row)
+          ? "no dbNSFP missense record at this residue"
+          : "no score";
+    return [`${aa}${pos}${alt}`, ...(scored.length ? scored : [why]), isTarget ? "the queried variant" : null].filter(Boolean).join(" · ");
+  };
 
   const focusOf = (pos: number): "target" | "selected" | "hovered" | undefined =>
     pos === target.pos ? "target" : selected?.pos === pos ? "selected" : hoveredPos === pos ? "hovered" : undefined;
@@ -97,15 +151,15 @@ export function LandscapeFocus(props: Props) {
     .filter((d) => d.end >= start && d.start <= end)
     .map((d) => ({ ...d, from: Math.max(d.start, start) - start, to: Math.min(d.end, end) - start }));
 
-  const heatmapRow = (alt: string) => (
+  const heatmapRow = (alt: string, r: number) => (
     <div key={alt} className="flex items-center">
-      <span className="ls-gutter ls-aa font-semibold !text-[11px]" data-class={LETTER_CLASS[alt] ?? "hydrophobic"} style={{ width: GUTTER, background: "transparent" }}>
+      <span className="ls-gutter ls-aa font-semibold !text-[11px]" data-class={LETTER_CLASS[alt] ?? "hydrophobic"} style={{ width: GUTTER, background: "transparent" }} aria-hidden="true">
         {alt}
       </span>
-      {cols.map(({ aa, pos }) => {
+      {cols.map(({ aa, pos }, c) => {
         if (alt === aa) {
           return (
-            <button key={pos} type="button" className="ls-sub" data-band="reference" style={{ width: colW - 1 }} onClick={() => onPickResidue(pos)} aria-label={`Reference ${aa}${pos}`} title={`Reference ${aa}${pos}`}>
+            <button key={pos} type="button" className="ls-sub" data-band="reference" data-rc={`${r}:${c}`} style={{ width: colW - 1 }} onClick={() => onPickResidue(pos)} aria-label={`Reference ${aa}${pos}`} {...track(pos, `Reference ${aa}${pos}`)}>
               ·
             </button>
           );
@@ -114,7 +168,9 @@ export function LandscapeFocus(props: Props) {
         const v = sub ? (colorBy === "revel" ? sub.revel : sub.am) : null;
         const reachable = reachableByPos.get(pos);
         const pending = loadingWindow && !rows.has(pos);
-        const band = v !== null ? bandKey(colorBy, v) : pending ? "unscored" : reachable && !reachable.has(alt) ? "unreachable" : "unscored";
+        const norecord = !pending && hasNoRecord(rows.get(pos));
+        const band =
+          v !== null ? bandKey(colorBy, v) : pending ? "unscored" : reachable && !reachable.has(alt) ? "unreachable" : norecord ? "norecord" : "unscored";
         const isTarget = pos === target.pos && alt === target.mut;
         const isSel = selected?.kind === "substitution" && selected.pos === pos && selected.alt === alt;
         const label =
@@ -125,7 +181,9 @@ export function LandscapeFocus(props: Props) {
               ? "loading"
               : band === "unreachable"
               ? "needs two or more nucleotide changes; not scored in dbNSFP"
-              : `no ${TOOL_NAME[colorBy]} score${reachable ? " (SNV-reachable)" : ""}`) +
+              : band === "norecord"
+                ? "no dbNSFP missense record at this residue"
+                : `no ${TOOL_NAME[colorBy]} score${reachable ? " (SNV-reachable)" : ""}`) +
           (isTarget ? " · the queried variant" : "");
         return (
           <button
@@ -134,43 +192,50 @@ export function LandscapeFocus(props: Props) {
             className="ls-sub"
             data-band={band}
             data-focus={isTarget ? "target" : isSel ? "selected" : undefined}
+            data-rc={`${r}:${c}`}
+            data-entry={isTarget ? "" : undefined}
             style={{ width: colW - 1 }}
             onClick={() => onPickSubstitution(pos, alt)}
-            onMouseEnter={hover(pos)}
-            onMouseLeave={hover(null)}
             aria-label={label}
-            title={label}
+            {...track(pos, readSubstitution(aa, pos, alt, isTarget))}
           />
         );
       })}
     </div>
   );
 
+
+  const laneColumns = cols.filter(({ pos }) => codons.has(pos)).length;
+  const laneEmpty = laneStatus === "ready" && laneColumns === 0;
+
   const ntLane = () => {
-    if (laneStatus !== "ready") {
+    if (laneStatus !== "ready" || laneEmpty) {
       const text =
         laneStatus === "pending"
           ? "Loading AlphaGenome nucleotide ranks…"
           : laneStatus === "error"
             ? "AlphaGenome region not loaded (see the exon panel below)."
-            : "No genomic interval was resolved for this variant, so no nucleotide lane.";
-      return <div className="text-[11px] text-cs-text-muted" style={{ paddingLeft: GUTTER }}>{text}</div>;
+            : laneEmpty
+              ? `AlphaGenome scored the exon around the variant only, and none of residues ${start}–${end} lie in it. Move the window back to the variant to see nucleotide ranks.`
+              : "No genomic interval was resolved for this variant, so no nucleotide lane.";
+      return <div className="text-[11px] text-cs-text-muted pb-1" style={{ paddingLeft: GUTTER }}>{text}</div>;
     }
     return (
-      <>
-        {["A", "C", "G", "T"].map((base) => (
+      <div ref={lane.ref} onFocus={lane.onFocus} onKeyDown={lane.onKeyDown} role="group" aria-label="AlphaGenome nucleotide ranks, one row per base, three columns per residue">
+        {["A", "C", "G", "T"].map((base, r) => (
           <div key={base} className="flex items-center mb-px">
-            <span className="ls-gutter !text-[11px] !text-cs-text-secondary" style={{ width: GUTTER }}>{base}</span>
-            {cols.map(({ aa, pos }) => {
+            <span className="ls-gutter !text-[11px] !text-cs-text-secondary" style={{ width: GUTTER }} aria-hidden="true">{base}</span>
+            {cols.map(({ aa, pos }, c) => {
               const nts = codons.get(pos);
               if (!nts) {
-                return <span key={pos} className="ls-nt" data-rank="none" style={{ width: colW }} title={`Residue ${pos}: codon outside the AlphaGenome region`} />;
+                return <span key={pos} className="ls-nt" data-rank="none" style={{ width: colW }} aria-hidden="true" />;
               }
               return nts.map((nt, k) => {
                 const codon = nts.map((n) => n.codingRef).join("");
+                const rc = `${r}:${c * 3 + k}`;
                 if (base === nt.codingRef) {
                   return (
-                    <button key={`${pos}-${k}`} type="button" className="ls-nt" data-rank="ref" style={{ width: ntW }} onClick={() => onPickResidue(pos)} aria-label={`Coding ${base}, codon ${pos} position ${k + 1} (reference)`} />
+                    <button key={`${pos}-${k}`} type="button" className="ls-nt" data-rank="ref" data-rc={rc} style={{ width: ntW }} onClick={() => onPickResidue(pos)} aria-label={`Coding ${base}, codon ${pos} position ${k + 1} (reference)`} {...track(pos, `Reference ${base}, codon ${pos} position ${k + 1} (${codon})`)} />
                   );
                 }
                 const gAlt = strand === "-" ? complementBase(base) : base;
@@ -190,12 +255,12 @@ export function LandscapeFocus(props: Props) {
                     className="ls-nt"
                     data-rank={rank ? String(rank.level) : "none"}
                     data-focus={isQuery ? "target" : isSel ? "selected" : undefined}
+                    data-rc={rc}
+                    data-entry={isQuery ? "" : undefined}
                     style={{ width: ntW }}
                     onClick={() => onPickNucleotide({ position: nt.position, genomicAlt: gAlt, codonIndex: pos, codonPosition: k + 1, phred })}
-                    onMouseEnter={hover(pos)}
-                    onMouseLeave={hover(null)}
                     aria-label={label}
-                    title={label}
+                    {...track(pos, label)}
                   />
                 );
               });
@@ -210,6 +275,7 @@ export function LandscapeFocus(props: Props) {
             return nts.map((nt, k) => (
               <span
                 key={`${pos}-${k}`}
+                aria-hidden="true"
                 className={`shrink-0 text-center font-mono text-[10px] font-semibold ${pos === target.pos ? "text-cs-accent-clay" : "text-cs-text-secondary"} ${k === 0 ? "border-l border-cs-border-subtle" : ""}`}
                 style={{ width: ntW }}
               >
@@ -218,15 +284,22 @@ export function LandscapeFocus(props: Props) {
             ));
           })}
         </div>
-      </>
+      </div>
     );
   };
 
   return (
-    <section className="ls-panel py-3 flex flex-col gap-1 overflow-x-auto scrollbar-thin" aria-label="Focus window">
+    <section
+      ref={sizeRef}
+      className="ls-panel py-3 flex flex-col gap-1 overflow-x-auto scrollbar-thin"
+      style={{ ["--ls-cell-h" as string]: `${cellH}px` }}
+      aria-label="Focus window"
+    >
       <div className="flex justify-between gap-3 px-4 pb-1 text-[12px] text-cs-text-secondary">
-        <span className="font-semibold text-cs-text-primary">Focus · residues {start}–{end} · every substitution, every nucleotide</span>
-        <span className="text-cs-text-muted">{TOOL_NAME[colorBy]} per substitution · hatched = not reachable by one SNV</span>
+        <span className="font-semibold text-cs-text-primary shrink-0">Focus · residues {start}–{end}</span>
+        <span className="font-mono text-[11px] text-cs-text-secondary truncate min-h-[16px]" aria-live="off">
+          {readout ?? <span className="text-cs-text-muted font-sans">Hover or focus a cell to read it · arrow keys move inside a grid</span>}
+        </span>
       </div>
 
       <div className="flex font-mono text-[10px] h-4 text-cs-text-muted" style={{ paddingLeft: GUTTER }} aria-hidden="true">
@@ -237,13 +310,11 @@ export function LandscapeFocus(props: Props) {
         ))}
       </div>
 
-      <div className="flex items-center">
-        <span className="ls-gutter" style={{ width: GUTTER }}>DOMAIN</span>
-        <div className="relative h-[14px] shrink-0" style={{ width: cols.length * colW }}>
-          {visibleDomains.length === 0 ? (
-            <span className="text-[10px] text-cs-text-muted">none annotated in this window</span>
-          ) : (
-            visibleDomains.map((d, i) => (
+      {visibleDomains.length > 0 && (
+        <div className="flex items-center">
+          <span className="ls-gutter" style={{ width: GUTTER }}>DOMAIN</span>
+          <div className="relative h-[14px] shrink-0" style={{ width: cols.length * colW }}>
+            {visibleDomains.map((d, i) => (
               <div
                 key={`${d.name}-${i}`}
                 className="ls-domain absolute top-[2px] overflow-hidden"
@@ -252,14 +323,14 @@ export function LandscapeFocus(props: Props) {
               >
                 <span className="px-1 text-[9px] leading-[10px] font-mono text-cs-text-primary truncate block">{d.name}</span>
               </div>
-            ))
-          )}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="flex items-center">
+      <div ref={residueRow.ref} onFocus={residueRow.onFocus} onKeyDown={residueRow.onKeyDown} role="group" aria-label="Residues in the focus window" className="flex items-center">
         <span className="ls-gutter" style={{ width: GUTTER }}>RESIDUE</span>
-        {cols.map(({ aa, pos }) => {
+        {cols.map(({ aa, pos }, c) => {
           const row = rows.get(pos);
           const mismatch = Boolean(row?.refMismatch);
           const label =
@@ -273,14 +344,12 @@ export function LandscapeFocus(props: Props) {
               data-class={residueClass(aa)}
               data-focus={focusOf(pos)}
               data-mismatch={mismatch ? "true" : undefined}
+              data-rc={`0:${c}`}
+              data-entry={pos === target.pos ? "" : undefined}
               style={{ width: colW }}
               onClick={() => onPickResidue(pos)}
-              onMouseEnter={hover(pos)}
-              onMouseLeave={hover(null)}
-              onFocus={hover(pos)}
-              onBlur={hover(null)}
               aria-label={label}
-              title={label}
+              {...track(pos, label)}
             >
               {aa}
             </button>
@@ -300,31 +369,46 @@ export function LandscapeFocus(props: Props) {
               : `Residue ${pos}: phyloP ${v.toFixed(2)}${row?.gerp != null ? `, GERP++ ${row.gerp.toFixed(2)}` : ""} (codon mean over ${row?.nucleotideCount ?? 0} nt)` +
                 (pos === target.pos && variantScores.phylop !== null ? ` · variant nucleotide phyloP ${variantScores.phylop.toFixed(2)}` : "");
           return (
-            <span key={pos} className="shrink-0 h-[20px] flex items-end justify-center" style={{ width: colW }} title={label} aria-label={label} role="img">
+            <span
+              key={pos}
+              className="shrink-0 h-[20px] flex items-end justify-center"
+              style={{ width: colW }}
+              aria-label={label}
+              role="img"
+              onMouseEnter={() => setReadout(label)}
+              onMouseLeave={() => setReadout(null)}
+            >
               <span
                 className="ls-cons block rounded-t-sm"
                 data-level={level ?? "none"}
-                style={{ width: colW - 8, height: v === null ? 2 : 3 + 15 * Math.min(1, Math.max(0, (v + 2) / 12)) }}
+                style={{ width: Math.max(8, colW - 8), height: v === null ? 2 : 3 + 15 * Math.min(1, Math.max(0, (v + 2) / 12)) }}
               />
             </span>
           );
         })}
       </div>
 
-      <div className="flex flex-col gap-px mt-1" role="group" aria-label={`Substitution heatmap, ${TOOL_NAME[colorBy]}: one row per substituted amino acid, one column per residue`}>
+      <div
+        ref={heat.ref}
+        onFocus={heat.onFocus}
+        onKeyDown={heat.onKeyDown}
+        className="flex flex-col gap-px mt-1"
+        role="group"
+        aria-label={`Substitution heatmap, ${TOOL_NAME[colorBy]}: one row per substituted amino acid, one column per residue`}
+      >
         {HEATMAP_AA_ORDER.map(heatmapRow)}
       </div>
 
-      <div className="flex items-center mt-1">
+      <div ref={summaryRow.ref} onFocus={summaryRow.onFocus} onKeyDown={summaryRow.onKeyDown} role="group" aria-label={`Residue ${statWord} of ${TOOL_NAME[colorBy]}`} className="flex items-center mt-1">
         <span className="ls-gutter" style={{ width: GUTTER }}>{statWord.toUpperCase()} (n≤9)</span>
-        {cols.map(({ pos }) => {
+        {cols.map(({ pos }, c) => {
           const row = rows.get(pos);
           const v = residueSummary(row, colorBy, mode);
           const n = residueCount(row, colorBy);
           const pending = loadingWindow && !row;
           const label =
             v === null
-              ? `Residue ${pos}: ${pending ? "loading" : `no ${TOOL_NAME[colorBy]} score`}`
+              ? `Residue ${pos}: ${pending ? "loading" : hasNoRecord(row) ? "no dbNSFP missense record" : `no ${TOOL_NAME[colorBy]} score`}`
               : `Residue ${pos} ${TOOL_NAME[colorBy]} ${statWord} ${f3(v)} over ${n} SNV-reachable substitution${n === 1 ? "" : "s"} · band ${bandLabel(colorBy, v)} (orientation only)` +
                 (pos === target.pos ? ` · this variant ${colorBy === "revel" ? variantScores.revel?.toFixed(3) ?? "—" : variantScores.am?.toFixed(3) ?? "—"}` : "");
           return (
@@ -334,10 +418,12 @@ export function LandscapeFocus(props: Props) {
               className="ls-cell ls-band !h-[22px]"
               data-band={bandKey(colorBy, v) ?? "none"}
               data-focus={pos === target.pos ? "target" : undefined}
+              data-rc={`0:${c}`}
+              data-entry={pos === target.pos ? "" : undefined}
               style={{ width: colW }}
               onClick={() => onPickResidue(pos)}
               aria-label={label}
-              title={label}
+              {...track(pos, label)}
             >
               {v !== null ? v.toFixed(2).replace(/^0/, "") : pending ? "…" : "–"}
             </button>
