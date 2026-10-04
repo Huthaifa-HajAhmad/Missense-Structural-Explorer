@@ -1,6 +1,6 @@
 import React from "react";
 import { THRESHOLDS } from "../../../shared/thresholds";
-import { formatDelta, SPLICE_MAP_STEPS, type SpliceGeometry, type SpliceMap as SpliceMapModel } from "../../../shared/splicingEvidence";
+import { formatDelta, SPLICE_MAP_FLOOR, SPLICE_MAP_STEPS, type SpliceGeometry, type SpliceMap as SpliceMapModel } from "../../../shared/splicingEvidence";
 
 /**
  * SpliceMap — where the variant sits among the splice sites, and where SpliceAI predicts a change.
@@ -19,8 +19,9 @@ import { formatDelta, SPLICE_MAP_STEPS, type SpliceGeometry, type SpliceMap as S
  *   dbscSNV      its real window (Jian 2014) as a dashed bracket, context only.
  *
  * It replaced a fixed ±40 bp ruler of one junction and the variant, which could not show where a
- * predicted change lands. Nothing is drawn for the lane when no channel reaches 0.01; the tab says
- * so in words. All geometry comes from `buildSplicingEvidence`; this file only draws it.
+ * predicted change lands. A channel below the plotting floor has no meaningful delta position, so it
+ * is never drawn on the axis; it is listed in a compact "no signal" row under it. All geometry comes
+ * from `buildSplicingEvidence`; this file only draws it.
  */
 
 const W = 760;
@@ -32,14 +33,154 @@ const LANE_TOP = 80;
 const STEP: Record<number, number> = { 50: 10, 100: 20, 200: 50, 500: 100, 1000: 200, 2000: 500 };
 const signed = (p: number) => `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p)}`;
 
+/** The gain/loss reading of a channel key, for channels whose model object carries no `kind`. */
+const channelKind = (key: string): "gain" | "loss" => (key === "ds_ag" || key === "ds_dg" ? "gain" : "loss");
+
+/**
+ * The exact delta of a below-floor channel. `formatDelta` prints "< 0.01" — honest on the map, but
+ * here the value itself is the fact, so it is printed unrounded (0, 0.004, 0.001…). `String` gives
+ * the shortest round-trip form, so 0.00999 never rounds up onto the floor it sits below.
+ */
+const exactDelta = (v: number) => String(v);
+
+interface PredictedSiteRow {
+  key: string;
+  name: string;
+  kind: "gain" | "loss" | "no-signal";
+  dsText: string;
+  position: string;
+  status: string;
+}
+
+/**
+ * Every SpliceAI channel as one row: the ones the map places (strongest Δ first), then those scored
+ * without a delta position, then those below the plotting floor. The figure draws only the first
+ * group; the rest are kept here so no channel is silently dropped.
+ */
+function predictedSiteRows(map: SpliceMapModel): PredictedSiteRow[] {
+  const placed = [...map.predictions]
+    .sort((a, b) => b.ds - a.ds)
+    .map((pr): PredictedSiteRow => ({
+      key: pr.key,
+      name: pr.name,
+      kind: pr.kind,
+      dsText: formatDelta(pr.ds),
+      position: `${signed(pr.offset)} bp`,
+      status: pr.atSite
+        ? `Coincides with annotated ${pr.atSite} (within 1 bp)${Math.abs(pr.offset) > map.halfWidth ? " · Outside the map view" : ""}`
+        : Math.abs(pr.offset) > map.halfWidth
+        ? "Outside the map view"
+        : "No matching annotated site in the supplied geometry",
+    }));
+  const missing = map.missingPositions.map((pr): PredictedSiteRow => ({
+    key: pr.key,
+    name: pr.name,
+    kind: channelKind(pr.key),
+    dsText: formatDelta(pr.ds),
+    position: "Not returned",
+    status: "Scored, but no delta position was returned — it still contributes to the maximum, and its location cannot be plotted.",
+  }));
+  const quiet = map.quiet.map((q): PredictedSiteRow => ({
+    key: q.key,
+    name: q.name,
+    kind: "no-signal",
+    dsText: exactDelta(q.ds),
+    position: "—",
+    status: "No predicted site — Δ too small for a position to mean anything",
+  }));
+  return [...placed, ...missing, ...quiet];
+}
+
+/**
+ * The section's conclusion in one sentence, computed from what the map placed. It names positions
+ * and whether they land on an annotated site — never a PP3/BP4 call, which belongs to the rule trace.
+ */
+function predictedSiteSummary(map: SpliceMapModel): string {
+  const placed = [...map.predictions].sort((a, b) => b.ds - a.ds);
+  if (placed.length > 0) {
+    const n = placed.length;
+    const items = placed.map(pr => `${pr.name.toLowerCase()} at ${signed(pr.offset)} bp (Δ ${formatDelta(pr.ds)})`);
+    const list = n === 1 ? items[0] : `${items.slice(0, -1).join(", ")} and ${items[n - 1]}`;
+    if (n === 1) {
+      return `SpliceAI places 1 predicted site: ${list}${
+        placed[0].atSite
+          ? `, which coincides with the annotated ${placed[0].atSite} (within 1 bp).`
+          : `, which does not coincide with the annotated ${placed[0].type}.`
+      }`;
+    }
+    const onSite = placed.filter(pr => pr.atSite).length;
+    const tail = onSite === 0 ? " None coincides with an annotated site (within 1 bp)." : onSite === n ? " Each coincides with an annotated site (within 1 bp)." : ` ${onSite} of ${n} coincide with an annotated site (within 1 bp).`;
+    return `SpliceAI places ${n} predicted sites: ${list}.${tail}`;
+  }
+  if (map.missingPositions.length > 0) {
+    const m = map.missingPositions.length;
+    return `SpliceAI places no predicted site on the map: ${m === 1 ? "one scored channel has no delta position" : `${m} scored channels have no delta position`}, so ${m === 1 ? "its" : "their"} location cannot be plotted.`;
+  }
+  if (map.predictionsNote) return `SpliceAI places no predicted site on the map: ${map.predictionsNote}`;
+  if (map.quiet.length > 0) {
+    const q = map.quiet.length;
+    return `SpliceAI places no predicted site; ${q === 4 ? "all four channels score" : `${q} scored channel${q === 1 ? "" : "s"} score`} below ${SPLICE_MAP_FLOOR}.`;
+  }
+  if (map.maxScore === null) return "SpliceAI returned no score for this variant, so no predicted site can be placed.";
+  return "No predicted site can be placed.";
+}
+
+/**
+ * The map's conclusion, always visible: which channels SpliceAI places on what, where each lands and
+ * whether that coincides with an annotated site — plus the channels it does not place. It replaced a
+ * collapsed `<details>`, which hid the very answer the figure is asking.
+ */
+function PredictedSites({ map }: { map: SpliceMapModel }) {
+  const headingId = React.useId();
+  const rows = predictedSiteRows(map);
+  return (
+    <section className="spl-preds" aria-labelledby={headingId} data-testid="predicted-sites">
+      <h3 className="eyebrow" id={headingId}>Predicted splice sites</h3>
+      <p className="spl-preds__summary" data-testid="predicted-sites-summary">{predictedSiteSummary(map)}</p>
+      <div className="spl-preds__wrap">
+        <table className="spl-preds__table">
+          <thead>
+            <tr>
+              <th scope="col">Channel</th>
+              <th scope="col" title="SpliceAI delta score">Δ</th>
+              <th scope="col" title="Bases from the variant, transcript direction (5′ → 3′)">Position</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(row => (
+              <tr key={row.key} data-testid={`predicted-${row.key}`} data-kind={row.kind}>
+                <th scope="row" className="spl-preds__channel">
+                  <i className="spl-key" data-kind={row.kind} aria-hidden="true" />
+                  {row.name}
+                </th>
+                <td className="spl-preds__delta spl-mono">{row.dsText}</td>
+                <td className="spl-preds__position spl-mono">{row.position}</td>
+                <td className="spl-preds__status">{row.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export function spliceMapLabel(map: SpliceMapModel, geometry: SpliceGeometry): string {
   const site = map.junction;
   const [winFrom, winTo] = site === "donor" ? [-THRESHOLDS.dbscsnv.window.donor.exonic, THRESHOLDS.dbscsnv.window.donor.intronic] : [-THRESHOLDS.dbscsnv.window.acceptor.intronic, THRESHOLDS.dbscsnv.window.acceptor.exonic];
+  const quietNames = map.quiet.map(q => `${q.name.toLowerCase()} ${formatDelta(q.ds)}`).join(", ");
+  const quietText = map.quiet.length
+    ? ` ${map.quiet.length === 1 ? "One channel is" : `${map.quiet.length} channels are`} below ${SPLICE_MAP_FLOOR} (${quietNames}); ${map.quiet.length === 1 ? "it is" : "they are"} drawn in the no-signal row below the axis, not placed on it, because a Δ this close to zero has no meaningful position.`
+    : "";
+  const fallback = map.maxScore === null
+    ? " No predicted site is drawn; inspect the channel readings for scores."
+    : ` No SpliceAI channel reaches ${SPLICE_MAP_FLOOR} anywhere in its window, so no predicted site is placed.`;
   const preds = map.predictions.length
     ? ` SpliceAI places ${map.predictions
         .map(x => `${x.name.toLowerCase()} ${formatDelta(x.ds)} at ${signed(x.offset)} bases from the variant in transcript direction${x.atSite ? `, on the annotated ${x.atSite}` : ""}${Math.abs(x.offset) > map.halfWidth ? ", outside the map view" : ""}`)
-        .join("; ")}.`
-    : map.predictionsNote ?? " No predicted site is drawn; inspect the channel readings for scores.";
+        .join("; ")}.${quietText}`
+    : (map.predictionsNote ?? fallback) + quietText;
   return `Variant at position ${signed(map.position)} of the ${site}, ${geometry.regionType}. dbscSNV's window here runs ${signed(winFrom)} to ${signed(winTo)}; the variant is ${geometry.inDbscsnvWindow ? "inside" : "outside"} it.${preds}${map.predictions.length > 0 && map.predictionsNote ? ` ${map.predictionsNote}` : ""}`;
 }
 
@@ -59,7 +200,32 @@ export function SpliceMap({ map: sourceMap, geometry }: { map: SpliceMapModel; g
   const yBase = LANE_TOP + LANE_H;
   const T = hasLane ? yBase + 20 : 18;
   const yMid = T + 38;
-  const H = yMid + 134;
+  const modelH = yMid + 134;
+  // The "no signal" row is deliberately OFF the positional axis: below-floor channels have no trustworthy
+  // delta position, so placing them on the axis would assert a site there. It is left-aligned with fixed
+  // x coordinates, so it can never collide with the lollipop lane, the variant mark, the exon bar, the
+  // ruler or the PP3 line — at the default ±100 bp view or at any zoom (zoom only changes x()).
+  const quietRows = (() => {
+    const rows: Array<Array<{ q: SpliceMapModel["quiet"][number]; cx: number; label: string }>> = [];
+    let row: Array<{ q: SpliceMapModel["quiet"][number]; cx: number; label: string }> = [];
+    let cx = left + 16;
+    for (const q of map.quiet) {
+      const label = `${q.name} ${formatDelta(q.ds)}`;
+      const width = label.length * 6.1 + 34;
+      if (row.length > 0 && cx + width > right) {
+        rows.push(row);
+        row = [];
+        cx = left + 16;
+      }
+      row.push({ q, cx, label });
+      cx += width + 16;
+    }
+    if (row.length > 0) rows.push(row);
+    return rows;
+  })();
+  const quietTop = modelH + 14;
+  const quietItemBase = quietTop + 38;
+  const H = quietRows.length > 0 ? quietItemBase + (quietRows.length - 1) * 20 + 10 : modelH;
   const clipId = React.useId().replace(/:/g, "");
 
   const vx = CX;
@@ -247,12 +413,29 @@ export function SpliceMap({ map: sourceMap, geometry }: { map: SpliceMapModel; g
         ))}
         <text className="spl-map__caption" x={right} y={yMid + 122} textAnchor="end">bases from the variant · transcript direction →</text>
       </g>
+
+      {/* No-signal row: below-floor channels, drawn off the axis because their Δ has no meaningful position. */}
+      {quietRows.length > 0 && (
+        <g className="spl-map__quiet" data-testid="map-no-signal-row">
+          <text className="spl-map__quiet-head" x={left} y={quietTop}>No signal</text>
+          <text className="spl-map__quiet-caption" x={left} y={quietTop + 16}>Δ &lt; {SPLICE_MAP_FLOOR} · no predicted site, so not placed on the axis</text>
+          {quietRows.map((row, ri) =>
+            row.map(({ q, cx, label }) => {
+              const y = quietItemBase + ri * 20;
+              return (
+                <g key={q.key} className="spl-map__quiet-item" data-kind={q.kind} data-testid={`map-quiet-${q.key}`}>
+                  <title>{`${q.name}: Δ ${q.ds}; below the ${SPLICE_MAP_FLOOR} plotting floor, so there is no meaningful delta position to place on the axis.`}</title>
+                  <line x1={cx - 9} x2={cx + 9} y1={y} y2={y} />
+                  <circle cx={cx} cy={y} r={4} />
+                  <text x={cx + 16} y={y + 4}>{label}</text>
+                </g>
+              );
+            })
+          )}
+        </g>
+      )}
     </svg>
-    <details className="spl-notes">
-      <summary>Predicted site details ({map.predictions.length + map.missingPositions.length})</summary>
-      <ul>{map.predictions.map(pr => <li key={pr.key}>{pr.name}: Δ {pr.ds}; {signed(pr.offset)} bp from the variant (transcript direction). {pr.atSite ? `Coincides with an annotated ${pr.atSite} within 1 bp.` : "No matching annotated site of this type in the supplied geometry."} {Math.abs(pr.offset) > map.halfWidth ? "Outside the map view." : ""}</li>)}</ul>
-      {map.missingPositions.length > 0 && <ul>{map.missingPositions.map(pr => <li key={pr.key}>{pr.name}: Δ {pr.ds}; delta position not returned. This score contributes to the maximum, but its location cannot be plotted.</li>)}</ul>}
-    </details>
+    <PredictedSites map={map} />
     </div>
   );
 }

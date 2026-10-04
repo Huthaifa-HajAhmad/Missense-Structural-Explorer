@@ -330,10 +330,16 @@ describe("splice map", () => {
     expect(m.predictionsNote).toMatch(/strand is not resolved/);
   });
 
-  it("leaves out scores indistinguishable from zero, and counts them", () => {
+  it("leaves out scores indistinguishable from zero, and counts them as quiet, never as lollipops", () => {
     const m = brca1("-", { ds_dg: 0.3 }, {}).map!;
     expect(m.predictions.map(x => x.key)).toEqual(["ds_dg"]);
     expect(m.belowFloor).toBe(3);
+    expect(m.quiet.map(q => q.key)).toEqual(["ds_ag", "ds_al", "ds_dl"]);
+    expect(m.quiet.every(q => q.ds === 0)).toBe(true);
+    // Gain/loss kind is carried for the row's own encoding.
+    expect(m.quiet.find(q => q.key === "ds_ag")!.kind).toBe("gain");
+    expect(m.quiet.find(q => q.key === "ds_dl")!.kind).toBe("loss");
+    expect(m.quiet.find(q => q.key === "ds_ag")!.name).toBe("Acceptor gain");
   });
 
   it("widens the window to hold a distant prediction and the far junction, never past 2 kb", () => {
@@ -471,5 +477,19 @@ describe("splice map — terminal boundaries and display filters", () => {
     expect(detailed.rule).toEqual(normal.rule);
     expect(detailed.engine).toEqual(normal.engine);
     expect(detailed.map!.predictions.every(p => p.ds > 0)).toBe(true);
+  });
+
+  it("moves non-zero sub-floor channels to lollipops when asked, but never an exactly-zero one", () => {
+    const result = sod1();
+    const normal = buildSplicingEvidence({ result });
+    const detailed = buildSplicingEvidence({ result, showSmallSignals: true });
+    // Default: the 0.003 acceptor gain is quiet alongside the zeros.
+    expect(normal.map!.quiet.map(q => q.key)).toEqual(["ds_ag", "ds_al", "ds_dl"]);
+    expect(normal.map!.belowFloor).toBe(3);
+    // Requested: the non-zero 0.003 moves to the axis; the two exact zeros stay in the no-signal row.
+    expect(detailed.map!.quiet.map(q => q.key)).toEqual(["ds_al", "ds_dl"]);
+    expect(detailed.map!.quiet.every(q => q.ds === 0)).toBe(true);
+    expect(detailed.map!.belowFloor).toBe(2);
+    expect(detailed.map!.predictions.find(p => p.key === "ds_ag")!.ds).toBe(0.003);
   });
 });

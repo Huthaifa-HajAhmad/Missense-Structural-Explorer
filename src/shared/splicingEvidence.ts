@@ -149,6 +149,14 @@ export const SPLICE_CHANNEL_NAME: Record<SpliceChannelKey, string> = {
   ds_dl: "Donor loss",
 };
 
+/**
+ * The one line the four SpliceAI channels share. It used to be appended to each channel's own
+ * description ("…; a model signal, not an observed effect."), so the same caveat printed four
+ * times; it is stated once for the group now, and each channel carries only what is unique to it.
+ */
+export const SPLICE_CHANNEL_CAPTION =
+  "Each is a model signal, not an observed effect. Gain predicts a splice site created or strengthened; loss predicts one weakened or abolished.";
+
 export interface SpliceGeometry {
   /** Resolver distance: 0 = the boundary exonic base, 1 = the first intronic base. */
   distance: number | null;
@@ -246,7 +254,14 @@ export interface SpliceMap {
   maxScore: number | null;
   /** Non-zero signals without delta positions; never silently treated as absent scores. */
   missingPositions: Array<{ key: SpliceChannelKey; name: string; ds: number }>;
-  /** Channels scored below the plotting floor, so the figure can say nothing was left out silently. */
+  /**
+   * Scored channels below the plotting floor. A Δ this close to zero has an arbitrary delta position
+   * (SpliceAI's dp is only meaningful when there is a signal), so these are never placed as lollipops.
+   * The figure draws them as a compact "no signal" row instead. A non-zero member moves to a lollipop
+   * only when the reader asks for small signals; an exactly-zero channel always stays here.
+   */
+  quiet: Array<{ key: SpliceChannelKey; name: string; kind: "gain" | "loss"; ds: number }>;
+  /** Count of channels in `quiet`, kept for surfaces that only need the number. */
   belowFloor: number;
   /** Why predictions are not placed, when they cannot be. */
   predictionsNote: string | null;
@@ -489,40 +504,45 @@ function buildSpliceMap({
 
   const predictions: SpliceMapPrediction[] = [];
   const missingPositions: SpliceMap["missingPositions"] = [];
-  let belowFloor = 0;
+  const quiet: SpliceMap["quiet"] = [];
   let predictionsNote: string | null = null;
   const scored = channels.filter(c => c.ds !== null);
+  // A channel at or below the floor is not placed: near zero SpliceAI's delta position is arbitrary, so a
+  // lollipop there would assert a predicted site the score does not support. It is retained for the
+  // no-signal row. A non-zero score leaves `quiet` only when the reader explicitly asks for small signals.
+  const belowFloorQuiet = (ds: number) => ds < SPLICE_MAP_FLOOR && !(showSmallSignals && ds > 0);
+  for (const c of scored) {
+    const ds = c.ds as number;
+    if (belowFloorQuiet(ds)) {
+      quiet.push({ key: c.key, name: SPLICE_CHANNEL_NAME[c.key], kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss", ds });
+      continue;
+    }
+    // Positions are reported in genomic coordinates; without a strand they cannot be oriented, so nothing is placed.
+    if (strand === null) continue;
+    if (c.dp === null) {
+      missingPositions.push({ key: c.key, name: SPLICE_CHANNEL_NAME[c.key], ds });
+      continue;
+    }
+    const offset = strand === "-" ? -c.dp : c.dp;
+    const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
+    const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
+    predictions.push({
+      key: c.key,
+      name: SPLICE_CHANNEL_NAME[c.key],
+      type,
+      kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss",
+      ds,
+      offset,
+      atSite: near ? type : null,
+      inPp3Band: ds >= THRESHOLDS.spliceai.splicingPp3,
+    });
+  }
   if (scored.length > 0 && strand === null) {
     predictionsNote = "The strand is not resolved, so SpliceAI's positions (reported in genomic coordinates) are not placed.";
-  } else {
-    for (const c of scored) {
-      const ds = c.ds as number;
-      if (ds < SPLICE_MAP_FLOOR && !(showSmallSignals && ds > 0)) {
-        belowFloor += 1;
-        continue;
-      }
-      if (c.dp === null) {
-        missingPositions.push({ key: c.key, name: SPLICE_CHANNEL_NAME[c.key], ds });
-        continue;
-      }
-      const offset = strand === "-" ? -c.dp : c.dp;
-      const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
-      const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
-      predictions.push({
-        key: c.key,
-        name: SPLICE_CHANNEL_NAME[c.key],
-        type,
-        kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss",
-        ds,
-        offset,
-        atSite: near ? type : null,
-        inPp3Band: ds >= THRESHOLDS.spliceai.splicingPp3,
-      });
-    }
-  }
-  if (missingPositions.length > 0) {
+  } else if (missingPositions.length > 0) {
     predictionsNote = `${missingPositions.length === 1 ? "One scored channel has" : `${missingPositions.length} scored channels have`} no delta position, so ${missingPositions.length === 1 ? "it is" : "they are"} not placed on the map. Exact scores are retained in predicted site details.`;
   }
+  const belowFloor = quiet.length;
 
   // The window grows to hold what is drawn: every plotted prediction, and the junction when the
   // variant is far from it. Never past the widest step (2 kb), which matches the widest window offered.
@@ -546,6 +566,7 @@ function buildSpliceMap({
     predictions: predictions.sort((a, b) => a.offset - b.offset),
     maxScore: scored.length > 0 || maxDs !== null ? Math.max(maxDs ?? 0, ...scored.map(c => c.ds!)) : null,
     missingPositions,
+    quiet,
     belowFloor,
     predictionsNote,
     halfWidth,
@@ -823,8 +844,9 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         key: `spliceai-${c.key}`,
         group: "channels",
         name: SPLICE_CHANNEL_NAME[c.key],
-        description:
-          `Predicted ${SPLICE_CHANNEL_NAME[c.key].toLowerCase()}; a model signal, not an observed effect.`,
+        // The shared caveat lives once on SPLICE_CHANNEL_CAPTION; nothing here is unique to a
+        // channel beyond its name, score and position, so no per-channel description is set.
+        description: "",
         score: c.ds,
         scoreText: c.ds !== null ? formatDelta(c.ds) : "—",
         // A position is only a location when there is a signal to locate.

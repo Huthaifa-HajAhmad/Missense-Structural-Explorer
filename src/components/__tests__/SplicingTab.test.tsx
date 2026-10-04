@@ -100,7 +100,10 @@ describe("SplicingTab — splice map", () => {
     expect((screen.getByRole("option", { name: "0–0.3 (focused range)" }) as HTMLOptionElement).disabled).toBe(true);
     expect((screen.getByLabelText("SpliceAI delta axis") as HTMLSelectElement).value).toBe("full");
     expect(screen.getByTestId("map-note").textContent).toMatch(/no delta position/);
-    expect(screen.getByText(/Acceptor gain: Δ 0.9; delta position not returned/)).toBeTruthy();
+    const unplaced = screen.getByTestId("predicted-ds_ag");
+    expect(unplaced.textContent).toMatch(/Acceptor gain/);
+    expect(unplaced.textContent).toMatch(/Not returned/);
+    expect(unplaced.textContent).toMatch(/delta position/);
     expect(screen.getByTestId("splicing-finding").textContent).toContain("0.90");
     expect(screen.queryByTestId("map-ds_ag")).toBeNull();
   });
@@ -155,16 +158,80 @@ describe("SplicingTab — splice map", () => {
     expect(screen.getByRole("img", { name: /donor loss 0\.62 at −40 bases/ })).toBeTruthy();
   });
 
-  it("says so in words, rather than drawing an empty lane, when no channel scores", () => {
+  it("shows the no-signal row, and says so in words, when no channel scores", () => {
     renderTab(withScores({ ds_dl: 0.001 }, { ds_dl: 40 }));
     expect(screen.queryByTestId("map-ds_dl")).toBeNull();
-    expect(screen.getByTestId("map-note").textContent).toMatch(/No SpliceAI channel reaches 0\.01/);
+    expect(screen.getByTestId("map-no-signal-row")).toBeTruthy();
+    const note = screen.getByTestId("map-note").textContent!;
+    expect(note).toMatch(/No SpliceAI channel reaches 0\.01/);
+    expect(note).toMatch(/drawn in the no-signal row/);
+  });
+
+  it("draws sub-floor channels in a no-signal row instead of leaving them out", () => {
+    renderTab(withScores({ ds_dl: 0.62 }, { ds_dl: 40, ds_ag: -30 }));
+    const row = screen.getByTestId("map-no-signal-row");
+    expect(row).toBeTruthy();
+    // Three exact zeros: acceptor gain, acceptor loss, donor gain.
+    expect(screen.getByTestId("map-quiet-ds_ag").textContent).toContain("Acceptor gain 0.00");
+    expect(screen.getByTestId("map-quiet-ds_al")).toBeTruthy();
+    expect(screen.getByTestId("map-quiet-ds_dg").textContent).toContain("Donor gain 0.00");
+    // Still not placed as lollipops.
+    expect(screen.queryByTestId("map-ds_ag")).toBeNull();
+    // The note says they are drawn in the row, and never "not drawn".
+    const note = screen.getByTestId("map-note").textContent!;
+    expect(note).toMatch(/3 scored channels are drawn in the no-signal row/);
+    expect(note).not.toMatch(/not drawn/);
+    // The map's accessible description says so too, so it is not silent to a screen reader.
+    expect(screen.getByRole("img", { name: /drawn in the no-signal row below the axis/ })).toBeTruthy();
+    // The always-visible section carries their exact scores; the old collapsed <details> is gone.
+    const section = screen.getByTestId("predicted-sites");
+    expect(section.textContent).toContain("Predicted splice sites");
+    expect(section.closest("details")).toBeNull();
+    const quietGain = screen.getByTestId("predicted-ds_ag");
+    expect(quietGain.textContent).toMatch(/Acceptor gain/);
+    expect(quietGain.textContent).toMatch(/No predicted site/);
+    expect(quietGain.querySelector(".spl-key")!.getAttribute("data-kind")).toBe("no-signal");
+  });
+
+  it("moves non-zero sub-floor channels to lollipops when asked, but never an exactly-zero one", () => {
+    renderTab(withScores({ ds_al: 0.004 }, { ds_ag: -30, ds_al: 12 }));
+    expect(screen.getByTestId("map-quiet-ds_al").textContent).toContain("Acceptor loss < 0.01");
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show non-zero signals/ }));
+    // The non-zero channel moves onto the axis…
+    expect(screen.getByTestId("map-ds_al")).toBeTruthy();
+    expect(screen.queryByTestId("map-quiet-ds_al")).toBeNull();
+    // …while the three exact zeros stay in the no-signal row.
+    expect(screen.getByTestId("map-quiet-ds_ag")).toBeTruthy();
+    expect(screen.getByTestId("map-quiet-ds_dg")).toBeTruthy();
+    expect(screen.getByTestId("map-quiet-ds_dl")).toBeTruthy();
   });
 
   it("does not claim a channel was below the floor when SpliceAI returned nothing at all", () => {
     renderTab(nae1Reference());
     expect(screen.getByTestId("map-note").textContent).toMatch(/returned no score/);
     expect(screen.getByTestId("map-note").textContent).not.toMatch(/reaches 0\.01/);
+    expect(screen.queryByTestId("map-no-signal-row")).toBeNull();
+  });
+
+  it("states the four channels' shared caveat and scale once, not once per channel", () => {
+    const { container } = renderTab(withScores({ ds_ag: 0.4, ds_al: 0.2, ds_dg: 0.1, ds_dl: 0.05 }, { ds_dg: 5 }));
+    // The caveat the four cards used to repeat now stands once for the group.
+    expect(container.textContent!.match(/not an observed effect/g)).toHaveLength(1);
+    expect(screen.getByText(/Gain predicts a splice site created or strengthened/)).toBeTruthy();
+    // One shared 0–1 axis for the group, none under the individual dot plots.
+    expect(container.querySelectorAll(".spl-channels__axis")).toHaveLength(1);
+    expect(container.querySelectorAll(".spl-channel-plot__axis")).toHaveLength(0);
+    // Each dot plot keeps its own accessible scale label.
+    expect(screen.getAllByRole("img", { name: /on a shared 0 to 1 scale/ })).toHaveLength(4);
+  });
+
+  it("labels the distance figure and sets the coverage status and caveat apart", () => {
+    renderTab(nae1Reference());
+    expect(screen.getByText("Distance to nearest splice junction")).toBeTruthy();
+    expect(screen.getByText(/\+26 from the acceptor/)).toBeTruthy();
+    expect(screen.getByText("the 26th base of exon 6 from its acceptor boundary.")).toBeTruthy();
+    expect(screen.getByText(/Outside dbscSNV's window and the canonical dinucleotide\./)).toBeTruthy();
+    expect(screen.getByText(/Distance from a junction is context/)).toBeTruthy();
   });
 
   it("names why SpliceAI has no score, in the table and with a state label that is not 'No result'", () => {
@@ -182,6 +249,90 @@ describe("SplicingTab — splice map", () => {
     expect(hero.textContent).not.toMatch(/dbscSNV/);
     expect(hero.textContent).not.toMatch(/AlphaGenome splicing/);
     expect(hero.textContent).toMatch(/Broad Lookup/);
+  });
+});
+
+describe("SplicingTab — predicted splice sites (always visible)", () => {
+  const MINUS = "\u2212";
+  const withScores = (ds: Record<string, number>, dp: Record<string, number>) =>
+    nae1Reference({
+      conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0, ds_dl: 0, max_ds: Math.max(...Object.values(ds)), ...ds, dp } },
+    });
+
+  it("renders the conclusion as a visible semantic table, not a collapsed details", () => {
+    renderTab(withScores({ ds_dg: 0.14 }, { ds_dg: 2 }));
+    const section = screen.getByTestId("predicted-sites");
+    expect(section.closest("details")).toBeNull();
+    expect(section.querySelector("table")).toBeTruthy();
+    expect([...section.querySelectorAll("thead th")].map(h => h.textContent)).toEqual(["Channel", "Δ", "Position", "Status"]);
+    expect(section.querySelectorAll('th[scope="col"]')).toHaveLength(4);
+    expect(section.querySelector('tbody th')!.getAttribute("scope")).toBe("row");
+  });
+
+  it("puts the conclusion in one sentence for a single placed prediction", () => {
+    renderTab(withScores({ ds_dg: 0.14 }, { ds_dg: 2 }));
+    expect(screen.getByTestId("predicted-sites-summary").textContent).toBe(
+      `SpliceAI places 1 predicted site: donor gain at ${MINUS}2 bp (Δ 0.14), which does not coincide with the annotated donor.`
+    );
+    const row = screen.getByTestId("predicted-ds_dg");
+    expect(row.textContent).toMatch(/Donor gain/);
+    expect(row.textContent).toContain("0.14");
+    expect(row.textContent).toContain(`${MINUS}2 bp`);
+    expect(row.textContent).toMatch(/No matching annotated site in the supplied geometry/);
+    expect(row.querySelector(".spl-key")!.getAttribute("data-kind")).toBe("gain");
+  });
+
+  it("says no site is placed when all four channels are below the floor", () => {
+    renderTab(withScores({ ds_dl: 0.001 }, { ds_dl: 40 }));
+    expect(screen.getByTestId("predicted-sites-summary").textContent).toBe(
+      "SpliceAI places no predicted site; all four channels score below 0.01."
+    );
+    // Exact Δ, not the "< 0.01" the figure prints.
+    const quietRow = screen.getByTestId("predicted-ds_dl");
+    expect(quietRow.textContent).toContain("0.001");
+    expect(quietRow.textContent).not.toContain("< 0.01");
+  });
+
+  it("orders placed predictions by descending Δ, then missing positions, then quiet channels", () => {
+    renderTab(withScores({ ds_ag: 0.2, ds_al: 0.5, ds_dg: 0.4, ds_dl: 0.05 }, { ds_ag: 25, ds_al: 100, ds_dg: -54, ds_dl: 40 }));
+    const rows = [...screen.getByTestId("predicted-sites").querySelectorAll("tbody tr")];
+    expect(rows.map(r => r.getAttribute("data-testid"))).toEqual([
+      "predicted-ds_al",
+      "predicted-ds_dg",
+      "predicted-ds_ag",
+      "predicted-ds_dl",
+    ]);
+    expect(screen.getByTestId("predicted-ds_dg").textContent).toMatch(/Coincides with annotated donor \(within 1 bp\)/);
+    expect(screen.getByTestId("predicted-ds_ag").textContent).toMatch(/Coincides with annotated acceptor \(within 1 bp\)/);
+    const summary = screen.getByTestId("predicted-sites-summary").textContent!;
+    expect(summary).toContain("SpliceAI places 4 predicted sites");
+    expect(summary).toContain("2 of 4 coincide with an annotated site");
+  });
+
+  it("lists missing-position channels before quiet ones, each with its own status", () => {
+    renderTab(withScores({ ds_ag: 0.9, ds_dl: 0.05 }, { ds_dl: 40 }));
+    const rows = [...screen.getByTestId("predicted-sites").querySelectorAll("tbody tr")];
+    expect(rows.map(r => r.getAttribute("data-testid"))).toEqual([
+      "predicted-ds_dl",
+      "predicted-ds_ag",
+      "predicted-ds_al",
+      "predicted-ds_dg",
+    ]);
+    const missing = screen.getByTestId("predicted-ds_ag");
+    expect(missing.textContent).toMatch(/Not returned/);
+    expect(missing.textContent).toMatch(/contributes to the maximum/);
+    const quiet = screen.getByTestId("predicted-ds_al");
+    expect(quiet.textContent).toMatch(/No predicted site — Δ too small/);
+    // The quiet Δ is the exact value, and its marker matches the map's no-signal key.
+    expect(quiet.querySelector(".spl-preds__delta")!.textContent).toBe("0");
+    expect(quiet.querySelector(".spl-key")!.getAttribute("data-kind")).toBe("no-signal");
+  });
+
+  it("marks a prediction outside the current map view when the reader zooms past it", () => {
+    renderTab(withScores({ ds_dl: 0.62 }, { ds_dl: 400 }));
+    expect(screen.getByTestId("predicted-ds_dl").textContent).toMatch(/No matching annotated site/);
+    fireEvent.change(screen.getByLabelText("Map view"), { target: { value: "50" } });
+    expect(screen.getByTestId("predicted-ds_dl").textContent).toMatch(/Outside the map view/);
   });
 });
 

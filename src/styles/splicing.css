@@ -163,12 +163,14 @@
 .spl-channel__value .spl-mono { font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); }
 .spl-channel[data-max] .spl-channel__value .spl-mono { font-weight: var(--cs-font-weight-semibold); }
 .spl-channel__pos { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-variant-numeric: tabular-nums; }
-.spl-channel__desc { font-size: var(--cs-font-size-badge); line-height: 1.4; color: var(--cs-text-muted); }
 .spl-channel__site { font-size: var(--cs-font-size-badge); line-height: 1.4; font-weight: var(--cs-font-weight-medium); color: var(--cs-text-accent); }
 .spl-channel-plot { margin: 8px 4px 4px; }
 .spl-channel-plot__track { position: relative; height: 2px; background: var(--cs-border); }
 .spl-channel-plot__track i { position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--cs-text-primary); transform: translateX(-50%); }
-.spl-channel-plot__axis { display: flex; justify-content: space-between; margin-top: 5px; color: var(--cs-text-muted); font-size: var(--cs-font-size-badge); }
+/* The scale and the shared caveat belong to the group of four, so they are drawn once under it. */
+.spl-channels-group { display: flex; flex-direction: column; gap: 8px; }
+.spl-channels__axis { display: flex; justify-content: space-between; margin: 2px 4px 0; color: var(--cs-text-muted); font-size: var(--cs-font-size-badge); }
+.spl-channels__caption { margin: 0; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
 .spl-ruler__labels { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; margin-top: 6px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .spl-map-panel { display: flex; flex-direction: column; gap: 12px; }
 .spl-map-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
@@ -282,8 +284,20 @@
 .spl-geo { padding: 18px 20px 20px; }
 .spl-geo__main { display: flex; flex-direction: column; gap: 14px; }
 .spl-geo__drawing { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.spl-geo__lead { margin: 0; max-width: none; }
+/* The lead holds three separate ideas — where the variant sits, whether a source covers it, and the
+   caveat that distance is not evidence — so each gets a line of its own, a named label and room. */
+.spl-geo__lead { display: flex; flex-direction: column; gap: 6px; margin: 0; max-width: none; }
+.spl-geo__lead-label {
+  margin: 0; font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--cs-text-muted);
+}
+.spl-geo__lead-position { margin: 0; font-size: 1.05em; }
 .spl-geo__lead strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.spl-geo__lead-phrase { margin: 0; color: var(--cs-text-secondary); }
+/* The phrase is a fragment ("the 59th base …"); capitalise it so it reads as the sentence it now is. */
+.spl-geo__lead-phrase::first-letter { text-transform: uppercase; }
+.spl-geo__lead-status { margin: 0; color: var(--cs-text-secondary); }
+.spl-geo__lead-note { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 /* The map's labels are 10–12px at its natural width; below ~640px they shrink past reading, so the card scrolls instead. */
 .spl-geo__figure {
   overflow-x: auto;
@@ -299,6 +313,7 @@
 .spl-key[data-kind="gain"] { width: 10px; height: 10px; border-radius: 50%; background: var(--cs-text-secondary); }
 .spl-key[data-kind="loss"] { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--cs-text-secondary); box-sizing: border-box; }
 .spl-key[data-kind="variant"] { width: 10px; height: 10px; border-radius: 50%; background: var(--cs-text-primary); }
+.spl-key[data-kind="no-signal"] { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--cs-text-muted); box-sizing: border-box; }
 
 .spl-map { display: block; width: 100%; min-width: 640px; max-width: 920px; height: auto; margin: 0 auto; overflow: visible; }
 .spl-map text { font-family: var(--cs-font-sans); font-size: 11px; fill: var(--cs-text-muted); }
@@ -332,7 +347,34 @@
 .spl-map__variant line { stroke: var(--cs-text-primary); stroke-width: 1.25; }
 .spl-map__variant circle { fill: var(--cs-text-primary); stroke: var(--cs-surface-2); stroke-width: 2.5; }
 .spl-map__variant text { font-family: var(--cs-font-mono); font-size: 12px; font-weight: 600; fill: var(--cs-text-primary); }
+/* No-signal row: off the axis, neutral and quiet so it never reads as a predicted site. */
+.spl-map__quiet line { stroke: var(--cs-text-muted); stroke-width: 1; opacity: 0.65; }
+.spl-map__quiet circle { fill: none; stroke: var(--cs-text-muted); stroke-width: 1.5; }
+.spl-map .spl-map__quiet-head { font-size: 11px; font-weight: 600; fill: var(--cs-text-secondary); }
+.spl-map .spl-map__quiet-caption { font-size: 10.5px; fill: var(--cs-text-muted); }
+.spl-map .spl-map__quiet-item text { font-size: 11px; fill: var(--cs-text-secondary); }
 .spl-geo__note { margin: 0; max-width: none; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); }
+
+/* ── Predicted splice sites: the map's own conclusion, always visible under it ── */
+.spl-preds { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--cs-border-subtle); }
+.spl-preds > h3.eyebrow { margin: 0; }
+.spl-preds__summary { margin: 0; max-width: none; font-size: var(--cs-font-size-prose); line-height: 1.5; color: var(--cs-text-secondary); }
+.spl-preds__wrap { overflow-x: auto; }
+.spl-preds__table { width: 100%; min-width: 560px; border-collapse: collapse; }
+.spl-preds__table thead th {
+  padding: 0 12px 6px 0; text-align: left; vertical-align: bottom; white-space: nowrap;
+  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted);
+  border-bottom: 1px solid var(--cs-border-subtle);
+}
+.spl-preds__table tbody th,
+.spl-preds__table tbody td { padding: 7px 12px 7px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--cs-border-subtle); }
+.spl-preds__table tbody tr:last-child > * { border-bottom: 0; }
+.spl-preds__channel { font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); white-space: nowrap; }
+.spl-preds__channel .spl-key { margin-right: 8px; vertical-align: middle; }
+.spl-preds__delta { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-medium); white-space: nowrap; }
+.spl-preds__position { color: var(--cs-text-secondary); white-space: nowrap; }
+.spl-preds__status { font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
 
 .spl-kv {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 24px;
