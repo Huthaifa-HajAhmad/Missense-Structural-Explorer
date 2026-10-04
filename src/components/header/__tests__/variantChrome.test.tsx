@@ -54,7 +54,8 @@ describe("context strip", () => {
     expect(chips).toHaveLength(3);
     expect(chips[0]).toHaveTextContent("Missense Z");
     expect(chips[0]).toHaveTextContent("+1.09");
-    expect(chips[0]).toHaveTextContent("Tolerant");
+    // +1.09 is below the constraint range but is not "tolerant": a positive Z is only slightly fewer than expected.
+    expect(chips[0]).toHaveTextContent("Not constrained");
     expect(chips[0].querySelector(".vcs-mini-dot")).not.toBeNull();
   });
 

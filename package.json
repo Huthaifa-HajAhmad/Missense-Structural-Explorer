@@ -27,6 +27,7 @@
     "verify": "npm run lint && npm run test:deployment && npm run test:coverage && npm run verify:geometry && npm run build",
     "verify:image": "tsc --noEmit",
     "benchmark:proteingym": "tsx tools/run_proteingym_benchmark.ts",
+    "foldx:timing": "tsx scripts/foldx-timing.ts",
     "review": "tsx scripts/review.ts review",
     "review:preview": "tsx scripts/review.ts review --preview",
     "review:scan": "tsx scripts/review.ts scan",

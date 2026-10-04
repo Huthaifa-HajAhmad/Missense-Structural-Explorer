@@ -78,9 +78,9 @@
 }
 .ifc-figure[data-empty] { color: var(--cs-text-muted); }
 .ifc-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.ifc-hero__finding { margin: 0; max-width: 72ch; }
+.ifc-hero__finding { margin: 0; max-width: none; }
 .ifc-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.ifc-hero__context { margin: 0; max-width: 72ch; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.ifc-hero__context { margin: 0; max-width: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .ifc-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
 .ifc-hero__diagram {
@@ -223,7 +223,7 @@
 .ifc-subject__note { display: block; margin-top: 1px; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); font-weight: 400; }
 .ifc-table--partners .ifc-subject__name { font-family: var(--cs-font-mono); }
 .ifc-table--partners tr[data-family] .ifc-subject__name { font-family: var(--cs-font-sans); }
-.ifc-quote { color: var(--cs-text-primary) !important; max-width: 64ch; }
+.ifc-quote { color: var(--cs-text-primary) !important; max-width: none; }
 .ifc-reason { font-size: var(--cs-font-size-caption); line-height: 1.5; }
 .ifc-inline-action { display: block; margin-top: 8px; }
 .ifc-evidence { font-size: var(--cs-font-size-caption); line-height: 1.5; min-width: 220px; }
@@ -287,7 +287,7 @@
 .ifc-statement { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px 16px; }
 .ifc-statement__title { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .ifc-statement__title::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--cs-text-muted); }
-.ifc-statement p { margin: 0; max-width: 60ch; }
+.ifc-statement p { margin: 0; max-width: none; }
 .ifc-statement .ifc-button { align-self: flex-start; margin-top: 8px; }
 
 /* ── Binding card ───────────────────────────────────────────── */
@@ -298,7 +298,7 @@
 .ifc-bind__body { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 18px; }
 .ifc-bind__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
 .ifc-bind__value { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
-.ifc-bind__caption { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); max-width: 72ch; }
+.ifc-bind__caption { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); max-width: none; }
 
 /* ── Rulers (ipTM, ΔΔG_bind) ────────────────────────────────── */
 .ifc-ruler { position: relative; min-width: 140px; }

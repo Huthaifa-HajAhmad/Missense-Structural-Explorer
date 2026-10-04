@@ -243,6 +243,23 @@ function medianOf(values: number[]): number | null {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+/**
+ * " (+1.55 to +2.95 kcal/mol)" when the runs differ at the displayed precision, else "".
+ *
+ * BuildModel's runs land in discrete rotamer states, so an ensemble can be bimodal: SOD1 p.Ala5Val
+ * on a repaired template gave 1.55, 1.58, 1.61, 2.90, 2.95. A mean and SD alone hide that two runs
+ * disagree with three; the range shows it. Identical runs add nothing, so they add no text.
+ */
+function runRange(raw: unknown): string {
+  const runs = Array.isArray(raw) ? raw.map(num).filter((v): v is number => v !== null) : [];
+  if (runs.length < 2) return "";
+  const lo = Math.min(...runs);
+  const hi = Math.max(...runs);
+  if (lo.toFixed(2) === hi.toFixed(2)) return "";
+  const signed = (v: number) => (v > 0 ? `+${v.toFixed(2)}` : v.toFixed(2).replace(/^-/, "−"));
+  return ` (${signed(lo)} to ${signed(hi)} kcal/mol)`;
+}
+
 /** Signed canonical ΔΔG, "+2.62" / "−0.36", for sentences. */
 export function signedDdg(v: number | null, unit: EnergyUnit = "kcal/mol"): string {
   if (v === null) return "—";
@@ -345,7 +362,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     let note: string | null = null;
     if (outcome.id === "foldx" && has) {
       const parts: string[] = [];
-      if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs`);
+      if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs${runRange(e?.rawDdGs)}`);
       if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd)}, not an error bar`);
       if (outcome.excluded) parts.push(outcome.reason);
       note = parts.length ? parts.join("; ") + "." : null;

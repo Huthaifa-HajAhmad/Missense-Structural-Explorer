@@ -43,3 +43,16 @@ createRoot(document.getElementById('root')!).render(
    default (dark), `?light=1`, and a 820px-wide viewport, `fullPage: true`. Collect `pageerror` and
    console errors.
 6. Look at every screenshot. Fix and re-shoot before calling it done. Delete the harness afterwards.
+
+## Pitfalls met while running this harness
+
+- `msedge --headless --dump-dom` printed nothing on one Windows machine, even for `data:` pages. Serve `dist/` with
+  `python -m http.server <port>`, open it in any browser tab (the T3 preview works), and read `#geometry-result`
+  (base64 JSON) with `preview_evaluate`; stop the server afterwards. The focus-ring assertions need a focused tab and
+  fail in a background one; that is the environment, not the page.
+- `mutations.mjs backup` writes to `scratch/`, which is gitignored dev scratch. Do not `rm -rf scratch` afterwards:
+  `restore` is enough, and the folder may hold someone else's files.
+- Edit files with a script that preserves line endings (`newline=''` in Python). Python text mode on Windows rewrites
+  LF files as CRLF, which breaks every mutation whose pattern contains `\n`.
+- `fetchWithRetry(url, opts, retries, delay)`: `retries` is the number of attempts, so `0` makes none and throws
+  "after 0 attempts". Use `1` for one try.

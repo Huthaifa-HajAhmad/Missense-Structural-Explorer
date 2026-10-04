@@ -302,7 +302,7 @@ describe("VariantHeader Component Tests", () => {
     // The reference sentence is the sr-only contract; the label, value and verdict are
     // already exposed as visible text, so repeating them here would double every row.
     expect(
-      panel().getByText(/Reference: tolerant below 2\.0, constrained from 2\.0, severe intolerance at or above 3\.09/)
+      panel().getByText(/Reference: not constrained below 2\.0 \(tolerant only at Z of 0 or less\), constrained from 2\.0, severe intolerance at or above 3\.09/)
     ).toBeInTheDocument();
     expect(
       panel().getByText(/Reference: strong loss-of-function intolerance below 0\.35, constrained below 0\.60/)

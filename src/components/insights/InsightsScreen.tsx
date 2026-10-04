@@ -4,6 +4,7 @@ import { TIERS } from "../../shared/insightsEvidence";
 import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
 import { NARRATIVE_PROMPT_EVIDENCE } from "../../shared/narrativeSynthesis";
 import { formatEvidenceCode } from "../../shared/thresholds";
+import { Prose } from "../ui/Prose";
 
 export interface InsightsNarrative {
   paragraphs: string[];
@@ -84,7 +85,7 @@ export function InsightsScreen({ evidence: ev, narrative, onOpenTab, onOpenRepor
         <div className="ins-hero__body">
           <span><span className="ev-tier ev-tier--lg" data-tone={tone}>Rule-engine classification</span></span>
           <p className="ins-hero__figure">{ev.verdictText ?? "Not classified"}</p>
-          <p className="ins-hero__finding"><strong>{ev.finding.headline}</strong> {ev.finding.rest}</p>
+          <Prose className="ins-hero__finding"><strong>{ev.finding.headline}</strong> {ev.finding.rest}</Prose>
         </div>
         <div className="ins-tiers">
           <span className="ins-label">ACMG five-tier scale</span>

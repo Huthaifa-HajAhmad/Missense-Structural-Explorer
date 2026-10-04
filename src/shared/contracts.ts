@@ -2393,11 +2393,24 @@ export interface DomainMatch {
   database: string;
   accession: string;
   interpro: { id: string; name: string } | null;
+  /**
+   * InterPro entry type (`domain`, `family`, `homologous_superfamily`, `conserved_site`, `binding_site`,
+   * `active_site`, `ptm`, `repeat`). Unset when InterPro did not answer or the match has no entry.
+   * It, not the database name, decides whether a match is drawn as a domain or as a site motif.
+   */
+  entryType?: string;
   locations: Array<{ start: number; end: number }>;
 }
 
 export interface UniprotFeaturesData {
   features: UniprotFeatureItem[];
+  /**
+   * UniProt's single mature `Chain` (initiator Met removed, signal peptide cleaved), when the entry has exactly one.
+   * Residues are numbered on the canonical sequence everywhere; this is only what turns residue 5 into the
+   * processed protein's residue 4 for a reader who knows the variant from older literature (SOD1 "A4V").
+   * Absent on payloads cached before it was read.
+   */
+  processedChain?: { start: number; end: number } | null;
   geneName?: string;
   subunitComment?: string | null;
   isMultimer?: boolean;
@@ -2411,6 +2424,8 @@ export interface UniprotFeaturesData {
   /** InterPro member-database matches from UniParc; `domainMatchesStatus` says whether they were read. */
   domainMatches?: DomainMatch[];
   domainMatchesStatus?: "ok" | "error" | "unsupported";
+  /** `error`: InterPro entry types were not read, so matches are routed by database convention. */
+  entryTypesStatus?: "ok" | "error";
   uniparcId?: string | null;
 }
 

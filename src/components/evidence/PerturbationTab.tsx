@@ -20,6 +20,7 @@ import {
 import type { PerturbationModelId } from "../../shared/perturbationModels";
 import { MarkRuler, RankRuler } from "./perturbation/Rulers";
 import { ResidueDetail } from "./perturbation/ResidueDetail";
+import { Prose } from "../ui/Prose";
 
 /**
  * Structural perturbation.
@@ -622,11 +623,11 @@ export function PerturbationTab({
             <span className="ptb-hero__figure-label">{figureLabel}</span>
           </div>
 
-          <p className="ptb-hero__finding">
+          <Prose className="ptb-hero__finding">
             <strong>{finding.headline}</strong>
             {" — "}
             {finding.predicate}.
-          </p>
+          </Prose>
 
           <ModelStrip evidence={evidence} selectedId={selected?.id ?? null} onSelect={setActiveModel} />
 

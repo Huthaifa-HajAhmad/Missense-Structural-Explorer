@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
+import { buildModelBudgetMs, FOLDX_REPAIR_MAX_RESIDUES } from "../services/stability/foldx/budget.ts";
 import {
   CLIENT_FOLDX_POLL_BUDGET_MS,
   CLIENT_FOLDX_POLL_REQUEST_MS,
@@ -32,21 +33,33 @@ import {
 const SEC = 1000;
 const { timeouts } = CONFIG;
 
-/** Worst-case wall-clock cost of one FoldX job, all stages serialised. */
-const WORST_CASE_WORK_MS =
+/**
+ * Worst-case wall-clock cost of one FoldX job, per PATH, all stages serialised.
+ *
+ * The BuildModel cap is sized to the structure (`foldx/budget.ts`), so the worst case is no longer
+ * the sum of every stage's ceiling. RepairPDB runs only at ≤ FOLDX_REPAIR_MAX_RESIDUES, so a job
+ * either repairs and then models a small structure, or skips repair and models a large one. Both
+ * paths can still pay the retry (it follows any RepairPDB failure, including the pre-flight one).
+ * Each path is computed under emulation, the slower host.
+ */
+const REPAIRED_PATH_MS =
   timeouts.foldxSemaphoreWaitMs +
   timeouts.foldxRepairMs +
-  timeouts.foldxBuildModelMs +
+  buildModelBudgetMs({ residueCount: FOLDX_REPAIR_MAX_RESIDUES, numberOfRuns: 5, emulated: true }) +
   timeouts.foldxBuildModelRetryMs;
+const LARGE_PATH_MS =
+  timeouts.foldxSemaphoreWaitMs +
+  buildModelBudgetMs({ residueCount: Number.MAX_SAFE_INTEGER, numberOfRuns: 5, emulated: true }) +
+  timeouts.foldxBuildModelRetryMs;
+const WORST_CASE_WORK_MS = Math.max(REPAIRED_PATH_MS, LARGE_PATH_MS);
 
 describe("FoldX timeout budgets nest", () => {
   it("budgets the whole job at least as long as the work it supervises", () => {
     const jobCapMs = timeouts.foldxSec * SEC;
     expect(
       WORST_CASE_WORK_MS,
-      `worst-case work (${WORST_CASE_WORK_MS / SEC}s = semaphore ${timeouts.foldxSemaphoreWaitMs / SEC}s ` +
-        `+ repair ${timeouts.foldxRepairMs / SEC}s + buildModel ${timeouts.foldxBuildModelMs / SEC}s ` +
-        `+ retry ${timeouts.foldxBuildModelRetryMs / SEC}s) exceeds the job cap (${timeouts.foldxSec}s), ` +
+      `worst-case work (${WORST_CASE_WORK_MS / SEC}s; repaired path ${REPAIRED_PATH_MS / SEC}s, ` +
+        `large-structure path ${LARGE_PATH_MS / SEC}s) exceeds the job cap (${timeouts.foldxSec}s), ` +
         `so a successful run would be reported as a timeout`
     ).toBeLessThanOrEqual(jobCapMs);
   });
