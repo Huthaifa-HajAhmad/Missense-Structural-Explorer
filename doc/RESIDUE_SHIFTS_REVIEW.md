@@ -54,6 +54,23 @@ buried-residue disruption rules do not fire on an estimate.
   the client handles them meanwhile by naming the stale word.
 - Find why `uv run tools/sasa_eval.py` fails in deployment; the reason is now visible.
 
+## Visualizations & Dead Space Refactor (2026-10-04)
+
+Audit and visual overhaul under `evidence-tab-refactor` and `CHARTING_AND_VISUALIZATION_PLAN.md`:
+
+| # | Severity | Was | Now |
+|---|---|---|---|
+| F1 | High | Server selected nearest pocket by centroid distance, while the tab and rail displayed and banded distance to the cavity centre. | `server/services/structure/pocket/selection.ts`: selects pocket by cavity centre distance for P2Rank (`selectPocketForResidue`), guaranteeing display and banding alignment. |
+| F2 | Medium | When wild-type and variant had identical values (e.g. net charge 0 → 0), variant marker eclipsed wild-type marker on the track. | `PropertyDumbbell.tsx`: `.rsx-track__same` renders a concentric ring with variant core dot and ARIA disclosure that both share the value. |
+| F3 | Medium | Shift magnitude bands had decimal gaps (e.g. 9 vs 9.1). Rail used "large" while model used "marked". | Model cut-points made gap-free (`> 29 marked`, `> 9 to ≤ 29 moderate`, `> 0 to ≤ 9 slight`), labels standardized. |
+| F4 | Medium | Pocket distance bands in rail inspector lacked exact inequality symbols. | Standardized to `<= 4 Å lining`, `> 4 to <= 8 Å proximal`, `> 8 to <= 12 Å peripheral`, `> 12 Å distal`. |
+| F5 | Low | Fact strip reported "Pocket confidence" while P2Rank outputs a calibrated probability. | Aligned to "Ligand-site probability" (or "P2Rank score" for rescaled raw scores), matching table row. |
+| F6 | Visual | No visual representation of side-chain differences; pure text table. | `ResidueGlyph.tsx`: 2D skeletal bond topology diff for all standard amino acids, showing atoms and bonds kept, lost, and gained on a unified coordinate frame. |
+| F7 | Visual | Property tracks had no amino-acid context; hard to see where other residues sat. | `PropertyDumbbell.tsx`: renders background tick marks for all other standard amino acids with tooltip residue codes and values. |
+| F8 | Visual | Environment section had separate distance row and 4-column residue grid; no spatial reference. | `PocketDistanceStrip.tsx`: continuous distance axis with 0 Å origin, cut-points, cavity centre marker ◆, and interactive residue buttons. |
+| F9 | Dead space | Excessive whitespace in hero finding and environment cards. | Compact multi-column hero integrating `ResidueGlyph`, dense data layout in `PocketDistanceStrip`. |
+| F10 | Architecture | Rail was dispatched only via `ViewInspector`, falling through in `EvidenceInspector`. | Directly wired in `EvidenceInspector.tsx`. |
+
 ## Sources
 
 - Grantham R. 1974. Science 185:862. doi:10.1126/science.185.4154.862
