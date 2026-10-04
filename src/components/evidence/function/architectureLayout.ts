@@ -321,7 +321,8 @@ export function layoutArchitecture(
   const denseAbove = aboveResidues.size > DENSE_ABOVE;
   const aboveTiers = denseAbove ? 2 : 3;
   const queryLabelY = 14;
-  const queryHeadY = queryLabelY + 14;
+  // With the variant outside the window nothing is drawn up there: no head, no label, so no blank band above the marks.
+  const queryHeadY = inWin(ev.residue) ? queryLabelY + 14 : 0;
   const pinHeadAbove = queryHeadY + 14 + aboveTiers * labelTier; // lowest above-pin head
   const bb = pinHeadAbove + 34; // backbone centre
   const bh = 12;
@@ -569,8 +570,11 @@ export function layoutArchitecture(
         const end = Math.min(win.end, start + binSize - 1);
         const count = Array.from(inner.values()).reduce((n, v) => n + v.count, 0);
         const top = Array.from(inner.entries()).sort((a, b) => b[1].count - a[1].count || a[0] - b[0])[0];
-        const bx = x(start);
-        const bw = Math.max(2, x(Math.min(win.end, start + binSize)) - bx - 1);
+        // Centred on the residue (or the middle of its bin): a bar drawn from x(start) sat half a bar to the right of the
+        // variant's stem, so the stem looked off its own bar by about 3px.
+        const centre = (x(start) + x(end)) / 2;
+        const bw = Math.max(2, (end - start + 1) * pxPerResidue - 1);
+        const bx = centre - bw / 2;
         const query = Number.isFinite(ev.residue) && ev.residue >= start && ev.residue <= end;
         return {
           key: `dens-${start}`,
@@ -584,19 +588,11 @@ export function layoutArchitecture(
           query,
           selected: Array.from(inner.values()).some((v) => v.rowKey === selectedKey),
           title: `${count} disease variant${count === 1 ? "" : "s"} at ${start === end ? `residue ${start}` : `residues ${start}–${end}`}`,
-          hit: { x0: bx - 12, x1: bx + bw + 12 },
+          hit: { x0: centre - 12, x1: centre + 12 },
         };
       });
-    const tallest = bars.reduce((a, b) => (b.count > a.count ? b : a), bars[0]);
-    density = {
-      baseline,
-      bars,
-      max,
-      label:
-        tallest && max >= 2
-          ? { x: tallest.x + tallest.width / 2, y: baseline - tallest.h - 4, text: String(max), anchor: "middle", size: 10.5, mono: true, tone: "muted" }
-          : null,
-    };
+    // No number above the tallest bar: a bare "5" read as a residue. The count is in the bar's tooltip and the table.
+    density = { baseline, bars, max, label: null };
   }
 
   // Lane mode: one row per kind of point mark, in a fixed order, so the lane says what a mark is.
@@ -727,7 +723,8 @@ export function layoutArchitecture(
 
   const membrane = layoutMembrane(ev, x, win, selectedKey, sitesBottom + 14, qx);
   const axisY = (membrane ? membrane.bottom : sitesBottom) + 18;
-  const height = axisY + 22;
+  // One row under the axis tick labels for the drag-to-zoom hint, which sits where the gesture is made.
+  const height = axisY + 40;
 
   // Axis.
   const step = niceStep(span, Math.max(3, Math.floor((x1 - x0) / 90)));

@@ -105,3 +105,19 @@ describe("layoutArchitecture - SOD1 pointer targets and narrow binning", () => {
     for (let i = 1; i < bars.length; i++) expect(bars[i].start).toBeGreaterThan(bars[i - 1].end);
   });
 });
+
+describe("layoutArchitecture - SOD1 bar track alignment", () => {
+  const sod = buildFunctionEvidence(SOD1_INPUT);
+
+  it("centres each bar on its residue, so the variant's stem lands in the middle of its own bar", () => {
+    const L = layoutArchitecture(sod, 994, { start: 1, end: sod.length }, null);
+    const bar = L.density!.bars.find((b) => b.query)!;
+    expect(bar.x + bar.width / 2).toBeCloseTo(L.query!.x, 5);
+    const x = (r: number) => L.x0 + ((r - 1) / (sod.length - 1)) * (L.x1 - L.x0);
+    for (const b of L.density!.bars) expect(b.x + b.width / 2).toBeCloseTo(x(b.start), 5);
+  });
+
+  it("writes no number above the tallest bar", () => {
+    expect(layoutArchitecture(sod, 994, { start: 1, end: sod.length }, null).density!.label).toBeNull();
+  });
+});

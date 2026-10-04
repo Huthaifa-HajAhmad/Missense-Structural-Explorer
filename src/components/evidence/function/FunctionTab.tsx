@@ -118,7 +118,14 @@ function Legend({
       <li><i className="fnd-key" data-kind="query" />This variant</li>
       {layers.map((layer) => (
         <li key={layer}>
-          <button type="button" className="fnd-layer" aria-pressed={!off(layer)} onClick={() => onToggle(layer)} data-testid={`layer-${layer}`}>
+          <button
+            type="button"
+            className="fnd-layer"
+            aria-pressed={!off(layer)}
+            onClick={() => onToggle(layer)}
+            data-testid={`layer-${layer}`}
+            title={layer === "variants" && mode.bars ? "Bar height is the number of UniProtKB disease variants at a residue; clay is this variant's." : mode.lanes && ["sites", "modifications", "mutagenesis"].includes(layer) ? "Each kind has its own row; hover a mark to name it." : undefined}
+          >
             {layer === "structure" && hasHelix && hasStrand ? (
               <>
                 <i className="fnd-key" data-kind="helix" />
@@ -138,29 +145,6 @@ function Legend({
       {ev.structuralDomains.length > 0 && <li><i className="fnd-key" data-kind="structural" />Gene3D segment</li>}
     </ul>
   );
-}
-
-function architectureCaption(ev: FunctionEvidence, win: { start: number; end: number }, hidden: ReadonlySet<LayerKey>): string {
-  const parts: string[] = [];
-  const mode = drawingMode(ev, win, hidden);
-  if (ev.domains.length && ev.domains[0].source !== "UniProtKB") {
-    parts.push(`Domains from InterPro (${ev.domains.map((d) => `${d.source} ${d.accession}`).join(", ")})`);
-  } else if (ev.domains.length) parts.push("Domains from UniProtKB");
-  if (ev.structuralDomains.length) parts.push(`structural segments from ${ev.structuralDomains[0].source}`);
-  if (ev.motifs.length && !hidden.has("motifs")) parts.push(`conserved-site signatures from ${Array.from(new Set(ev.motifs.map((m) => m.source))).join(", ")} as ticks under the backbone`);
-  if (ev.rows.some((r) => r.lane === "membrane")) parts.push("membrane topology from UniProtKB");
-  if (ev.secondaryStructure.length && win.end - win.start <= SECONDARY_MAX_SPAN && !hidden.has("structure")) {
-    const pdb = ev.secondaryStructure.find((e) => e.pdb)?.pdb;
-    parts.push(`helices and strands from ${pdb ? `PDB ${pdb}` : "UniProtKB"}`);
-  }
-  let text = parts.length ? `${parts.join("; ")}.` : "";
-  if (mode.bars) text += `${text ? " " : ""}Bars count UniProtKB disease variants per residue; clay is this variant's.`;
-  if (mode.lanes) text += `${text ? " " : ""}Sites, modifications and mutagenesis have a row each; hover a mark to name it.`;
-  if (!ev.rows.some((r) => r.group === "domains" && r.type === "Domain")) {
-    text += `${text ? " " : ""}UniProtKB itself annotates no domain${ev.gene ? ` for ${ev.gene}` : ""}.`;
-  }
-  if (ev.interproMissing) text += " InterPro could not be read in this run.";
-  return text;
 }
 
 function RowDetail({
@@ -370,7 +354,6 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
           </div>
           <div className="fnd-hero__figure">
             <span className="fnd-figure fnd-mono">{ev.headline.figure}</span>
-            <span className="fnd-hero__sub">{ev.headline.sub}</span>
           </div>
           <Prose className="fnd-hero__finding" data-testid="function-finding-sentence" role={ok ? undefined : "status"}>
             <strong>{ev.finding.lead}</strong>
@@ -381,18 +364,6 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
 
         {ok && (
           <figure className="fnd-figure-block">
-            <DomainArchitecture
-              ev={ev}
-              win={win}
-              selectedKey={selectedKey}
-              hoverKey={hoverKey}
-              hidden={hidden}
-              onSelect={toggle}
-              onStep={setSelectedKey}
-              onHover={setHoverKey}
-              onWindow={(w) => setZoomChoice({ key: zoomKey, view: w })}
-            />
-            <figcaption className="fnd-caption">{architectureCaption(ev, win, hidden)}</figcaption>
             <div className="fnd-figure-block__bar">
               <Legend ev={ev} win={win} hidden={hidden} onToggle={toggleLayer} />
               <div className="fnd-seg" role="group" aria-label="Zoom the schematic">
@@ -409,7 +380,17 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
                 )}
               </div>
             </div>
-            <p className="fnd-hint">Drag along the axis to zoom. Click a mark, or use the arrow keys, to open its row.</p>
+            <DomainArchitecture
+              ev={ev}
+              win={win}
+              selectedKey={selectedKey}
+              hoverKey={hoverKey}
+              hidden={hidden}
+              onSelect={toggle}
+              onStep={setSelectedKey}
+              onHover={setHoverKey}
+              onWindow={(w) => setZoomChoice({ key: zoomKey, view: w })}
+            />
           </figure>
         )}
 
