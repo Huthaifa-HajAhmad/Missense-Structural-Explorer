@@ -108,7 +108,7 @@ Trp–Trp cross-link read "W33ub", and 81 identical red pins and 88 dropped labe
 Changes: model (`exactVariant`, folded variant rows, `density`, `matureNumbering`, `motifs`, entry-type routing),
 server (`DomainMatch.entryType` from InterPro, `processedChain`, features cache key `fd2`), layout (bar track above
 24 residues, lanes by kind above 20 point marks, motif ticks, disulfide bracket), drawing (linked hover, layer toggles,
-drag-to-zoom, arrow keys), tab (URL state, folded variant rows). Geometry harness: 219 assertions over 11 cases (adds
-`sod1`, `sod1-narrow`; the `dense` and `interact` families).
+drag-to-zoom, arrow keys), tab (URL state, folded variant rows). Geometry harness: 241 assertions over 11 cases (adds
+`sod1`, `sod1-narrow`; the `dense`, `interact` and `prose` families).
 
 Not done: PM1's hot-spot reading (owner decision), 3D neighbourhood, a helix/strand cartoon.

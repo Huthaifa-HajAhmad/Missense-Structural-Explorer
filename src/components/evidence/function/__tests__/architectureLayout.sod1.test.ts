@@ -55,3 +55,46 @@ describe("layoutArchitecture - SOD1 p.Ala5Val, the dense drawing", () => {
     expect(drawingMode(sod, all)).toEqual({ bars: true, lanes: true });
   });
 });
+
+describe("layoutArchitecture - SOD1 pointer targets and narrow binning", () => {
+  const sod = buildFunctionEvidence(SOD1_INPUT);
+  const all = { start: 1, end: sod.length };
+
+  it("tiles the bars' pointer targets, so a click on one bar never lands on its neighbour", () => {
+    for (const width of [994, 380]) {
+      const bars = [...layoutArchitecture(sod, width, all, null).density!.bars].sort((a, b) => a.x - b.x);
+      for (let i = 1; i < bars.length; i++) expect(bars[i - 1].hit.x1).toBeLessThanOrEqual(bars[i].hit.x0 + 1e-6);
+      // Each target contains its own bar's centre.
+      for (const b of bars) {
+        expect(b.hit.x0).toBeLessThanOrEqual(b.x + b.width / 2);
+        expect(b.hit.x1).toBeGreaterThanOrEqual(b.x + b.width / 2);
+      }
+    }
+  });
+
+  it("tiles marks that sit closer than 24px in one row, and keeps 24px where there is room", () => {
+    const L = layoutArchitecture(sod, 994, all, null);
+    const rows = new Map<number, typeof L.pins>();
+    for (const p of L.pins) rows.set(Math.round(p.y), [...(rows.get(Math.round(p.y)) ?? []), p]);
+    for (const row of rows.values()) {
+      const sorted = [...row].sort((a, b) => a.x - b.x);
+      for (let i = 1; i < sorted.length; i++) expect(sorted[i - 1].hit.x1).toBeLessThanOrEqual(sorted[i].hit.x0 + 1e-6);
+      for (const p of sorted) expect(p.hit.x1 - p.hit.x0).toBeLessThanOrEqual(24 + 1e-6);
+    }
+    // The lone mark at residue 121 has room on both sides.
+    const alone = L.pins.find((p) => p.residue === 121 && p.shape === "diamond")!;
+    expect(alone.hit.x1 - alone.hit.x0).toBeCloseTo(24, 5);
+  });
+
+  it("bins two residues per bar at phone width without losing or double-counting a variant", () => {
+    const L = layoutArchitecture(sod, 380, all, null);
+    const bars = L.density!.bars;
+    expect(bars.reduce((n, b) => n + b.count, 0)).toBe(81);
+    expect(bars.every((b) => b.end - b.start <= 1)).toBe(true);
+    expect(bars.some((b) => b.end > b.start)).toBe(true);
+    const q = bars.filter((b) => b.query);
+    expect(q).toHaveLength(1);
+    expect(q[0].start <= 5 && 5 <= q[0].end).toBe(true);
+    for (let i = 1; i < bars.length; i++) expect(bars[i].start).toBeGreaterThan(bars[i - 1].end);
+  });
+});

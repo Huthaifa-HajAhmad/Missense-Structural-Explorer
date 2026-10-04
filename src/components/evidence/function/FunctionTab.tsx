@@ -122,7 +122,7 @@ function architectureCaption(ev: FunctionEvidence, win: { start: number; end: nu
   if (ev.structuralDomains.length) parts.push(`structural segments from ${ev.structuralDomains[0].source}`);
   if (ev.motifs.length && !hidden.has("motifs")) parts.push(`conserved-site signatures from ${Array.from(new Set(ev.motifs.map((m) => m.source))).join(", ")} as ticks under the backbone`);
   if (ev.rows.some((r) => r.lane === "membrane")) parts.push("membrane topology from UniProtKB");
-  if (ev.secondaryStructure.length && win.end - win.start <= SECONDARY_MAX_SPAN) {
+  if (ev.secondaryStructure.length && win.end - win.start <= SECONDARY_MAX_SPAN && !hidden.has("structure")) {
     const pdb = ev.secondaryStructure.find((e) => e.pdb)?.pdb;
     parts.push(`helices and strands from ${pdb ? `PDB ${pdb}` : "UniProtKB"}`);
   }
@@ -259,15 +259,27 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
 
   // The window the reader chose and the row they opened go in the address bar while the tab is mounted.
   const evLength = ev?.length ?? 0;
+  const variantKey = ev ? `${ev.uniprotId}:${ev.residue}` : "";
   useEffect(() => {
     if (typeof window === "undefined" || !evLength) return;
     try {
-      const next = withFndParams(window.location.href, zoomChoice?.view ?? parseFndView(fromUrl.fnd, evLength), selectedKey);
+      // The window written is the one the drawing shows: a choice made on the previous variant is not this variant's
+      // (a 40-100 window carried from SOD1 into a link for NAE1 opened the recipient on the wrong stretch).
+      const mine = zoomChoice && zoomChoice.key === variantKey ? zoomChoice.view : null;
+      const fromLink = variantKey === firstKey.current ? parseFndView(fromUrl.fnd, evLength) : null;
+      const next = withFndParams(window.location.href, mine ?? fromLink, selectedKey);
       if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
     } catch {
       // A sandboxed frame can refuse replaceState; the link is a convenience, never load-bearing.
     }
-  }, [zoomChoice, selectedKey, evLength, fromUrl.fnd]);
+  }, [zoomChoice, selectedKey, evLength, fromUrl.fnd, variantKey]);
+  // An open row belongs to one variant's table: a new variant starts with none.
+  const lastVariant = useRef<string | null>(null);
+  useEffect(() => {
+    if (!variantKey) return;
+    if (lastVariant.current !== null && lastVariant.current !== variantKey) setSelectedKey(null);
+    lastVariant.current = variantKey;
+  }, [variantKey]);
   useEffect(
     () => () => {
       try {

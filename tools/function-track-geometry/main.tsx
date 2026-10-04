@@ -421,11 +421,36 @@ function checkContrast(c: Case, s: Schematic, host: HTMLElement): Check[] {
 
 function checkTargets(c: Case, s: Schematic, host: HTMLElement): Check[] {
   const small: string[] = [];
-  for (const p of s.pins) {
+  // A target is 24x24 where its neighbours in the same row leave room. Where they are closer, the neighbours split the
+  // gap (so a click lands on the mark under the pointer, not the next one): then it must still be as wide as the pitch.
+  const hits = s.pins.map((p) => {
     const hit = p.querySelector<SVGGraphicsElement>(".fnd-arch__hit");
     const b = hit ? bbox(hit) : null;
-    if (!b || b.right - b.left < 24 || b.bottom - b.top < 24) small.push(`mark ${p.getAttribute("data-residue")}`);
+    return { p, b, row: b ? Math.round((b.top + b.bottom) / 2) : 0, cx: Number(p.getAttribute("data-residue")) ? centreX(headOf(p)) : 0 };
+  });
+  for (const h of hits) {
+    if (!h.b) {
+      small.push(`mark ${h.p.getAttribute("data-residue")}: no target`);
+      continue;
+    }
+    const pitch = Math.min(Infinity, ...hits.filter((o) => o !== h && o.row === h.row && Math.abs(o.cx - h.cx) > 0.01).map((o) => Math.abs(o.cx - h.cx)));
+    // A twin at the same x (two ligands on one residue) cannot both have the point; it is not held to the pitch.
+    const twin = hits.some((o) => o !== h && o.row === h.row && Math.abs(o.cx - h.cx) <= 0.01);
+    const need = twin ? 1 : Math.min(24, pitch) - 0.5;
+    if (h.b.right - h.b.left < need || h.b.bottom - h.b.top < 24) small.push(`mark ${h.p.getAttribute("data-residue")}: ${px(h.b.right - h.b.left)}x${px(h.b.bottom - h.b.top)}, needs ${px(need)} wide`);
   }
+  // No two targets in a row overlap: the later-drawn one would take the earlier one's clicks.
+  const overlapping: string[] = [];
+  for (let i = 0; i < hits.length; i++)
+    for (let j = i + 1; j < hits.length; j++) {
+      const a = hits[i];
+      const c = hits[j];
+      if (a.b && c.b && a.row === c.row && a.b.left < c.b.right - 0.5 && c.b.left < a.b.right - 0.5 && Math.abs(a.cx - c.cx) > 0.01) overlapping.push(`${a.p.getAttribute("data-residue")} x ${c.p.getAttribute("data-residue")}`);
+    }
+  if (overlapping.length) small.push(`overlapping targets: ${overlapping.slice(0, 4).join(", ")}`);
+  // Density bars tile too.
+  const bars = Array.from(s.svg.querySelectorAll<SVGGElement>('[data-testid="arch-dens-bar"]')).map((g) => bbox(g.querySelector(".fnd-arch__hit")!)).sort((a, b) => a.left - b.left);
+  for (let i = 1; i < bars.length; i++) if (bars[i].left < bars[i - 1].right - 0.5) small.push(`bar targets ${i} and ${i + 1} overlap`);
   for (const btn of Array.from(host.querySelectorAll<HTMLButtonElement>(".fnd-subject__btn, .fnd-seg > button"))) {
     const r = btn.getBoundingClientRect();
     if (r.height < 24 || r.width < 24) small.push(`button "${(btn.textContent || "").slice(0, 24)}" ${px(r.width)}×${px(r.height)}`);
@@ -618,11 +643,20 @@ function checkDense(c: Case, s: Schematic, host: HTMLElement): Check[] {
   const three = bars.find((b) => Number(b.getAttribute("data-count")) === 3);
   const ratio = one && three ? hOf(three) / hOf(one) : NaN;
   const qFill = q[0] ? parseColor(getComputedStyle(q[0].querySelector("rect")!).fill) : null;
-  const clay = parseColor(getComputedStyle(document.documentElement).getPropertyValue("--cs-accent-clay").trim() || "") ?? null;
+  // The token's own colour, resolved by the browser: a probe element, since a custom property is not a colour until used.
+  const probe = document.createElement("i");
+  probe.style.color = "var(--cs-accent-clay)";
+  document.body.appendChild(probe);
+  const clay = parseColor(getComputedStyle(probe).color);
+  probe.remove();
+  const other = bars.find((b) => !b.hasAttribute("data-query"));
+  const otherFill = other ? parseColor(getComputedStyle(other.querySelector("rect")!).fill) : null;
+  const near = (a: [number, number, number] | null, b: [number, number, number] | null) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) < 3);
+  const clayOk = near(qFill, clay) && !!otherFill && !near(otherFill, clay);
   const third: Check = {
     name: `${c.id}: the variant's own bar is clay and a bar's height is its count`,
-    pass: q.length === 1 && Number(q[0].getAttribute("data-start")) === c.residue && Math.abs(ratio - 3) < 0.15,
-    detail: `${q.length} query bar${q[0] ? ` at ${q[0].getAttribute("data-start")}` : ""}, 3-variant bar is ${px(ratio)}× a 1-variant bar${qFill && clay ? "" : ""}`,
+    pass: q.length === 1 && Number(q[0].getAttribute("data-start")) === c.residue && Math.abs(ratio - 3) < 0.15 && clayOk,
+    detail: `${q.length} query bar${q[0] ? ` at ${q[0].getAttribute("data-start")}` : ""}, 3-variant bar is ${px(ratio)}x a 1-variant bar, query fill ${clayOk ? "is clay and the others are not" : `${qFill?.map(Math.round)} vs token ${clay?.map(Math.round)}`}`,
   };
 
   const kind = (shape: string) => s.pins.filter((p) => p.getAttribute("data-shape") === shape);

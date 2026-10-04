@@ -907,6 +907,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     caveats.push({ lead: "Not annotated is not the same as not functional.", rest: "UniProtKB records what has been observed or inferred, not everything a residue does." });
   }
   if (interproMissing) caveats.push({ lead: "InterPro could not be read in this run.", rest: "Domains shown are UniProtKB's own annotation only." });
+  else if (uniprot?.entryTypesStatus === "error") {
+    caveats.push({ lead: "InterPro entry types were not read.", rest: "Matches are drawn by their member database's convention, so a family-level entry may appear as a domain." });
+  }
   if (input.numberingBasis === "unverified") {
     caveats.push({ lead: "Residue numbering is unverified.", rest: "UniProt features are numbered on the canonical isoform; an overlap shown here may not hold for the analysed transcript." });
   }

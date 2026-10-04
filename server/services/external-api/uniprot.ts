@@ -710,6 +710,8 @@ export interface UniprotFeaturesResult {
    * canonical-sequence coordinates anyway; InterPro was not read, and that is stable, so it caches.
    */
   domainMatchesStatus?: "ok" | "error" | "unsupported";
+  /** `error`: InterPro did not answer, so the matches carry no `entryType` (never cached). Absent when there are no matches. */
+  entryTypesStatus?: "ok" | "error";
   uniparcId?: string | null;
 }
 
@@ -773,37 +775,54 @@ function readEvidence(f: any): UniprotFeatureEvidence[] {
 }
 
 /**
+ * InterPro entry accession -> entry type (`domain`, `family`, `homologous_superfamily`, `binding_site`...), for one protein.
+ *
+ * An enrichment, never a gate: `ok: false` means the types are unknown (the tab then routes matches by the member
+ * database's convention and says so), not that the protein has none.
+ * - `probe: true` skips the shared `www.ebi.ac.uk` circuit breaker's gate and its failure accounting, so a flaky InterPro
+ *   cannot open the breaker that PDBe, Europe PMC and IntAct share.
+ * - It runs concurrently with the UniParc request (no dependency between them) and with a short cap, so it adds nothing
+ *   to the shared features task beyond that cap.
+ * - `page_size=200` is InterPro's maximum; a protein with more entries gets types for the first 200 only.
+ */
+async function fetchInterproEntryTypes(accession: string, options?: UniprotCacheOptions): Promise<{ types: Map<string, string>; ok: boolean }> {
+  const types = new Map<string, string>();
+  try {
+    const resp = await fetchWithRetry(
+      `https://www.ebi.ac.uk/interpro/api/entry/interpro/protein/uniprot/${encodeURIComponent(accession)}?page_size=200`,
+      { headers: { Accept: "application/json" }, timeout: 4000, cappedByCaller: true, probe: true, ...(options?.signal ? { signal: options.signal } : {}) },
+      1, // `retries` is the attempt count: one try, never a retry loop for an enrichment
+      0
+    );
+    if (!resp.ok) return { types, ok: false };
+    const json = (await resp.json()) as any;
+    for (const r of Array.isArray(json?.results) ? json.results : []) {
+      const acc = r?.metadata?.accession;
+      const type = r?.metadata?.type;
+      if (typeof acc === "string" && typeof type === "string") types.set(acc, type);
+    }
+    return { types, ok: true };
+  } catch {
+    return { types, ok: false };
+  }
+}
+
+/**
  * InterPro member-database matches for an accession's canonical sequence, from UniParc.
  *
  * WHY UNIPARC: UniProtKB's InterPro cross-references carry entry names but no residue ranges, and the
  * tab used to attach an InterPro id to a UniProt "Domain" feature by fuzzy name matching (any substring
  * either way), which could link a domain to a superfamily it merely shares a word with. UniParc's
  * `sequenceFeatures` are the InterProScan matches themselves — database, signature, InterPro entry and
- * locations — on the same host as every other UniProt call, so no new provider is involved.
+ * locations — on the same host as every other UniProt call. The one thing UniParc lacks, each entry's type, is read from
+ * the InterPro API (`fetchInterproEntryTypes`), a second host used only for that.
  */
-/** InterPro entry accession → entry type (`domain`, `family`, `homologous_superfamily`, `binding_site`…). */
-async function fetchInterproEntryTypes(accession: string, options?: UniprotCacheOptions): Promise<Map<string, string>> {
-  const resp = await fetchWithRetry(
-    `https://www.ebi.ac.uk/interpro/api/entry/interpro/protein/uniprot/${encodeURIComponent(accession)}?page_size=100`,
-    { headers: { Accept: "application/json" }, timeout: 8000, cappedByCaller: true, ...(options?.signal ? { signal: options.signal } : {}) },
-    1, // `retries` is the attempt count: one try, never a retry loop for an enrichment
-    0
-  );
-  const out = new Map<string, string>();
-  if (!resp.ok) return out;
-  const json = (await resp.json()) as any;
-  for (const r of Array.isArray(json?.results) ? json.results : []) {
-    const acc = r?.metadata?.accession;
-    const type = r?.metadata?.type;
-    if (typeof acc === "string" && typeof type === "string") out.set(acc, type);
-  }
-  return out;
-}
-
 export async function fetchUniparcDomainMatches(
   accession: string,
   options?: UniprotCacheOptions
-): Promise<{ uniparcId: string | null; matches: DomainMatch[] }> {
+): Promise<{ uniparcId: string | null; matches: DomainMatch[]; entryTypesOk: boolean }> {
+  // Started first so it overlaps the UniParc request; see fetchInterproEntryTypes.
+  const interpro = fetchInterproEntryTypes(accession, options);
   const resp = await fetchWithRetry(
     `https://rest.uniprot.org/uniparc/accession/${encodeURIComponent(accession)}?format=json`,
     {
@@ -817,10 +836,9 @@ export async function fetchUniparcDomainMatches(
   );
   if (!resp.ok) throw new Error(`UniParc lookup failed with status ${resp.status}`);
   const json = (await resp.json()) as any;
-  // The entry type (domain, family, binding_site…) decides how a match is drawn. UniParc does not carry it,
-  // so it is read from InterPro once per protein; a miss leaves `entryType` unset and the tab falls back to
-  // the database's own convention, it never fails the match list.
-  const entryTypes = await fetchInterproEntryTypes(accession, options).catch(() => new Map<string, string>());
+  // The entry type (domain, family, binding_site...) decides how a match is drawn. UniParc does not carry it, so it
+  // comes from InterPro; a miss leaves `entryType` unset and the tab falls back to the database's own convention.
+  const { types: entryTypes, ok: entryTypesOk } = await interpro;
   const matches: DomainMatch[] = [];
   for (const sf of Array.isArray(json?.sequenceFeatures) ? json.sequenceFeatures : []) {
     const database = typeof sf?.database === "string" ? sf.database : null;
@@ -839,7 +857,7 @@ export async function fetchUniparcDomainMatches(
       locations,
     });
   }
-  return { uniparcId: typeof json?.uniParcId === "string" ? json.uniParcId : null, matches };
+  return { uniparcId: typeof json?.uniParcId === "string" ? json.uniParcId : null, matches, entryTypesOk };
 }
 
 export async function fetchUniprotFeatures(
@@ -856,7 +874,9 @@ export async function fetchUniprotFeatures(
     ttlSeconds: 14 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
     // A UniParc miss is a gap in this run, not a fact about the protein: do not keep it for 14 days.
-    shouldCache: (data) => data !== null && data !== undefined && data.domainMatchesStatus !== "error",
+    // The same for the InterPro entry types: without them a family-level Pfam entry can be drawn as a domain, and a
+    // transient miss must not decide that for 14 days.
+    shouldCache: (data) => data !== null && data !== undefined && data.domainMatchesStatus !== "error" && data.entryTypesStatus !== "error",
     fetcher: async () => {
       try {
         // UniParc answers for a canonical accession only (an isoform id is a 404), and its InterPro
@@ -1039,6 +1059,8 @@ export async function fetchUniprotFeatures(
           processedChain,
           domainMatches: uniparcResult.ok ? uniparcResult.value.matches : [],
           domainMatchesStatus: uniparcResult.ok ? "ok" : uniparcResult.unsupported ? "unsupported" : "error",
+          // Only meaningful when UniParc answered: without matches there is nothing to type.
+          ...(uniparcResult.ok ? { entryTypesStatus: uniparcResult.value.entryTypesOk ? ("ok" as const) : ("error" as const) } : {}),
           uniparcId: uniparcResult.ok ? uniparcResult.value.uniparcId : null,
         };
         return result;

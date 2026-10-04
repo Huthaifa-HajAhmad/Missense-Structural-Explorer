@@ -103,7 +103,7 @@ Evidence for each row is a test that fails without the change: `src/shared/__tes
 (model), `src/components/evidence/function/__tests__/architectureLayout.sod1.test.ts` (layout),
 `src/components/evidence/__tests__/FunctionTab.sod1.test.tsx` (tab), `server/services/external-api/uniprot.entry-types.test.ts`
 (server), `src/components/header/__tests__/missenseZVerdict.test.ts` (header), and the geometry harness cases `sod1`
-and `sod1-narrow` (219 assertions in all, up from 173).
+and `sod1-narrow` (241 assertions in all, up from 173).
 
 | Finding | Status | What was done |
 |---|---|---|

@@ -48,12 +48,30 @@ describe("UniProt features - InterPro entry types and the processed chain", () =
     const res = await fetchUniprotFeatures("P00441");
     const byAcc = Object.fromEntries((res?.domainMatches ?? []).map((m) => [m.accession, m.entryType]));
     expect(byAcc).toEqual({ PS00087: "binding_site", PF00080: "domain" });
+    expect(res?.entryTypesStatus).toBe("ok");
+  });
+
+  const interproCalls = () => (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("ebi.ac.uk/interpro")).length;
+
+  it("does not cache a payload whose entry types were not read, so the next request asks InterPro again", async () => {
+    route("down");
+    await fetchUniprotFeatures("P00441");
+    await fetchUniprotFeatures("P00441");
+    expect(interproCalls()).toBe(2);
+  });
+
+  it("does cache a payload whose entry types were read", async () => {
+    route("ok");
+    await fetchUniprotFeatures("P00441");
+    await fetchUniprotFeatures("P00441");
+    expect(interproCalls()).toBe(1);
   });
 
   it("keeps the matches, with no entry type, when InterPro does not answer", async () => {
     route("down");
     const res = await fetchUniprotFeatures("P00441");
     expect(res?.domainMatchesStatus).toBe("ok");
+    expect(res?.entryTypesStatus).toBe("error");
     expect(res?.domainMatches?.map((m) => m.accession).sort()).toEqual(["PF00080", "PS00087"]);
     expect(res?.domainMatches?.every((m) => m.entryType === undefined)).toBe(true);
   });

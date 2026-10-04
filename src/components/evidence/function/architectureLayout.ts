@@ -80,6 +80,11 @@ export interface ArchPin {
   stem: boolean;
   /** Hover text: what the mark is and where. */
   title: string;
+  /**
+   * The x-extent of its pointer target. 24px wide where there is room; where neighbours in the same lane are closer
+   * than that, the neighbours split the gap, so a click lands on the mark under the pointer and not on the next one.
+   */
+  hit: { x0: number; x1: number };
 }
 
 /** One bar of the disease-variant track: the count at a residue (or a bin of residues on a long protein). */
@@ -96,6 +101,8 @@ export interface ArchDensityBar {
   query: boolean;
   selected: boolean;
   title: string;
+  /** Pointer target: bars tile the track, so adjacent bars never share a hit area. */
+  hit: { x0: number; x1: number };
 }
 
 export interface ArchDensity {
@@ -533,6 +540,7 @@ export function layoutArchitecture(
       label,
       stem: true,
       title: markTitle(p.r),
+      hit: { x0: p.px - 12, x1: p.px + 12 },
     });
   }
 
@@ -577,6 +585,7 @@ export function layoutArchitecture(
           query,
           selected: Array.from(inner.values()).some((v) => v.rowKey === selectedKey),
           title: `${count} disease variant${count === 1 ? "" : "s"} at ${start === end ? `residue ${start}` : `residues ${start}–${end}`}`,
+          hit: { x0: bx - 12, x1: bx + bw + 12 },
         };
       });
     const tallest = bars.reduce((a, b) => (b.count > a.count ? b : a), bars[0]);
@@ -645,6 +654,7 @@ export function layoutArchitecture(
           label,
           stem: false,
           title: markTitle(l.m.r),
+          hit: { x0: l.px - 12, x1: l.px + 12 },
         });
       }
       lanesBottom = laneY + (subRows - 1) * SUB + 10;
@@ -666,6 +676,28 @@ export function layoutArchitecture(
         label: null,
       });
     }
+  }
+
+  // Pointer targets tile: neighbours in one row (a bar track, a lane, a tier) split the gap between them instead of each
+  // claiming 24px, which at 6px per residue sent every click to the neighbour drawn later (residue 7 selected 8).
+  const tileRow = <T,>(items: T[], centre: (t: T) => number, set: (t: T, x0: number, x1: number) => void, reach: (t: T) => [number, number]) => {
+    const sorted = [...items].sort((a, b) => centre(a) - centre(b));
+    sorted.forEach((it, i) => {
+      const [lo, hi] = reach(it);
+      const c = centre(it);
+      const prev = sorted[i - 1];
+      const next = sorted[i + 1];
+      set(it, prev ? Math.max(lo, (centre(prev) + c) / 2) : lo, next ? Math.min(hi, (c + centre(next)) / 2) : hi);
+    });
+  };
+  if (density) {
+    tileRow(density.bars, (b) => b.x + b.width / 2, (b, x0, x1) => { b.hit = { x0, x1 }; }, (b) => [b.x + b.width / 2 - 12, b.x + b.width / 2 + 12]);
+  }
+  {
+    // Every mark, tiered or in a lane: two marks 13px apart on one tier used to overlap their 24px targets too.
+    const rows = new Map<number, ArchPin[]>();
+    for (const p of pins) rows.set(Math.round(p.y), [...(rows.get(Math.round(p.y)) ?? []), p]);
+    for (const row of rows.values()) tileRow(row, (p) => p.x, (p, x0, x1) => { p.hit = { x0, x1 }; }, (p) => [p.x - 12, p.x + 12]);
   }
 
   // A region label sits between the backbone and the first tier, where the upper stems run.

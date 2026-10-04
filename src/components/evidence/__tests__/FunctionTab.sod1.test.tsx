@@ -16,8 +16,8 @@ const sod1 = (): AnalysisResult =>
     ruleBasedInsights: { acmgCriteria: [{ code: "PM2" }] },
   }) as unknown as AnalysisResult;
 
-function renderTab(result: AnalysisResult) {
-  const props = {
+const propsFor = (result: AnalysisResult) =>
+  ({
     analysisState: { isLoading: false, error: null, result },
     energyUnit: "kcal/mol",
     formatDdGValue: () => "",
@@ -31,8 +31,10 @@ function renderTab(result: AnalysisResult) {
     classTextMute: "",
     foldingDdG: null,
     foldingStatus: null,
-  } as unknown as TabComponentProps;
-  return render(<FunctionTab {...props} />);
+  }) as unknown as TabComponentProps;
+
+function renderTab(result: AnalysisResult) {
+  return render(<FunctionTab {...propsFor(result)} />);
 }
 
 afterEach(() => window.history.replaceState(null, "", "/"));
@@ -113,6 +115,27 @@ describe("FunctionTab - window and open row in the address bar", () => {
       uniprotFeatures: NAE1_UNIPROT,
       serviceStatus: { uniprotFeatures: "ok" },
     } as unknown as AnalysisResult);
+    expect(screen.getByTestId("domain-architecture").querySelector("svg")?.getAttribute("data-window")).toBe("1-534");
+  });
+});
+
+describe("FunctionTab - a new variant does not inherit the last one's window or open row", () => {
+  it("drops the window and row from the address bar when the analysis changes", () => {
+    const nae1 = {
+      metadata: { gene: "NAE1", variant: "p.Asp116Gly", residueIndex: 116, wildType: "D", mutant: "G", uniprotId: "Q13564" },
+      uniprotFeatures: NAE1_UNIPROT,
+      serviceStatus: { uniprotFeatures: "ok" },
+    } as unknown as AnalysisResult;
+    const { rerender } = renderTab(sod1());
+    fireEvent.click(screen.getByRole("button", { name: "5 ± 50" }));
+    fireEvent.click(screen.getByRole("button", { name: /Ala5 → Ser, Thr, Val/ }));
+    let q = new URLSearchParams(window.location.search);
+    expect(q.get("fnd")).toBe("near");
+    expect(q.get("fsel")).toBe("variants-5");
+    rerender(<FunctionTab {...propsFor(nae1)} />);
+    q = new URLSearchParams(window.location.search);
+    expect(q.has("fnd")).toBe(false);
+    expect(q.has("fsel")).toBe(false);
     expect(screen.getByTestId("domain-architecture").querySelector("svg")?.getAttribute("data-window")).toBe("1-534");
   });
 });

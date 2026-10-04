@@ -2424,6 +2424,8 @@ export interface UniprotFeaturesData {
   /** InterPro member-database matches from UniParc; `domainMatchesStatus` says whether they were read. */
   domainMatches?: DomainMatch[];
   domainMatchesStatus?: "ok" | "error" | "unsupported";
+  /** `error`: InterPro entry types were not read, so matches are routed by database convention. */
+  entryTypesStatus?: "ok" | "error";
   uniparcId?: string | null;
 }
 

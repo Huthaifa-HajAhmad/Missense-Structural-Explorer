@@ -46,14 +46,14 @@ function Label({ l, className }: { l: ArchLabel; className?: string }) {
   );
 }
 
-function describe(ev: FunctionEvidence): string {
+function describe(ev: FunctionEvidence, hidden?: ReadonlySet<LayerKey>): string {
   const parts: string[] = [`Domain architecture of ${ev.gene || "the protein"}, ${ev.length} residues.`];
   if (ev.domains.length) {
     parts.push(ev.domains.map((d) => `${d.name} (${d.source}) ${d.segments.map((s) => `${s.start} to ${s.end}`).join(" and ")}`).join(". ") + ".");
   } else parts.push("No domain annotated.");
   const regions = ev.rows.filter((r) => r.lane === "region");
   if (regions.length) parts.push(regions.map((r) => `${r.name} ${r.start} to ${r.end}`).join(". ") + ".");
-  const disease = ev.rows.filter((r) => r.disease);
+  const disease = hidden?.has("variants") ? [] : ev.rows.filter((r) => r.disease);
   if (disease.length > 12) {
     parts.push(`${disease.length} disease variants at ${ev.density.residues} residues${ev.density.densest ? `, densest at ${ev.density.densest.start} to ${ev.density.densest.end}` : ""}.`);
   } else if (disease.length) parts.push(`Disease variants at ${disease.map((r) => r.start).join(", ")}.`);
@@ -121,7 +121,11 @@ export function DomainArchitecture({
     return () => ro.disconnect();
   }, []);
 
-  const L = useMemo(() => layoutArchitecture(ev, width, win, selectedKey, { hidden }), [ev, width, win, selectedKey, hidden]);
+  // Keyed on the window's ends, not the object: the parent builds a new `win` object on every render.
+  const L = useMemo(
+    () => layoutArchitecture(ev, width, { start: win.start, end: win.end }, selectedKey, { hidden }),
+    [ev, width, win.start, win.end, selectedKey, hidden]
+  );
   const bbTop = L.backbone.y - L.backbone.h / 2;
   const lit = (rowKey: string) => (hoverKey !== null && rowKey === hoverKey) || undefined;
   const hoverProps = (rowKey: string) => ({
@@ -157,10 +161,10 @@ export function DomainArchitecture({
       onStep(target.rowKey);
       onHover?.(target.rowKey);
     };
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    if (e.key === "ArrowRight") {
       e.preventDefault();
       go(current < 0 ? 0 : current + 1);
-    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       go(current < 0 ? marks.length - 1 : current - 1);
     } else if (e.key === "Home") {
@@ -218,7 +222,7 @@ export function DomainArchitecture({
       <svg
         ref={svgRef}
         role="img"
-        aria-label={describe(ev)}
+        aria-label={describe(ev, hidden)}
         width={L.width}
         height={L.height}
         viewBox={`0 0 ${L.width} ${L.height}`}
@@ -295,8 +299,8 @@ export function DomainArchitecture({
               >
                 <title>{b.title}</title>
                 <rect x={b.x} y={L.density!.baseline - b.h} width={b.width} height={b.h} rx={1} />
-                {/* A 3px bar is still a 24px target. */}
-                <rect x={b.x + b.width / 2 - 12} y={L.density!.baseline - Math.max(b.h, 24)} width={24} height={Math.max(b.h, 24)} className="fnd-arch__hit" />
+                {/* Tiled with its neighbours (see the layout): a click lands on the bar under the pointer. */}
+                <rect x={b.hit.x0} y={L.density!.baseline - Math.max(b.h, 24)} width={b.hit.x1 - b.hit.x0} height={Math.max(b.h, 24)} className="fnd-arch__hit" />
               </g>
             ))}
             {L.density.label && <Label l={L.density.label} />}
@@ -358,8 +362,8 @@ export function DomainArchitecture({
             ) : (
               <rect x={p.x - 4} y={p.y - 4} width={8} height={8} transform={`rotate(45 ${p.x} ${p.y})`} />
             )}
-            {/* A wider invisible target so a 10px mark is still a 24px hit area. */}
-            <rect x={p.x - 12} y={p.y - 12} width={24} height={24} className="fnd-arch__hit" />
+            {/* A wider invisible target so a 10px mark is still a 24px hit area (less where neighbours are closer). */}
+            <rect x={p.hit.x0} y={p.y - 12} width={p.hit.x1 - p.hit.x0} height={24} className="fnd-arch__hit" />
             {p.label && <Label l={p.label} />}
           </g>
         ))}
@@ -411,7 +415,7 @@ export function DomainArchitecture({
         )}
       </svg>
       {win.start > 1 || win.end < ev.length ? (
-        <Overview ev={ev} width={width} win={win} onWindow={onWindow} brush={brush} setBrush={setBrush} onBegin={beginBrush} onMove={moveBrush} onEnd={endBrush} />
+        <Overview ev={ev} width={width} win={win} onWindow={onWindow} brush={brush} onBegin={beginBrush} onMove={moveBrush} onEnd={endBrush} />
       ) : null}
       {L.hiddenLabels > 0 && (
         <p className="fnd-arch__hidden" data-testid="arch-hidden-labels">
@@ -441,7 +445,6 @@ function Overview({
   win: ArchWindow;
   onWindow?: (w: ArchWindow) => void;
   brush: Brush | null;
-  setBrush: (b: Brush | null) => void;
   onBegin: (e: React.PointerEvent<SVGElement>, svg: SVGSVGElement | null, x0: number, x1: number, first: number, last: number, src: Brush["src"]) => void;
   onMove: (e: React.PointerEvent<SVGElement>, svg: SVGSVGElement | null, x0: number, x1: number, first: number, last: number) => void;
   onEnd: (first: number, last: number, recenter: boolean) => void;
