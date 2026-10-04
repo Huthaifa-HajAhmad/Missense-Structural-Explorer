@@ -39,7 +39,8 @@ vi.mock("../biophysicalService", () => ({
   }),
   fetchProgressiveLandscape: vi.fn(),
   fetchProgressiveStructuralAssessments: vi.fn(),
-  fetchProgressiveMultimer: vi.fn()
+  fetchProgressiveMultimer: vi.fn(),
+  fetchProgressivePpi: vi.fn()
 }));
 
 vi.mock("../foldxService", () => ({ executeFoldxPipeline: vi.fn().mockResolvedValue(undefined) }));

@@ -95,10 +95,14 @@ mouse and yeast proteins named, 77 human partners plus 6 from other species, 34 
 
 - **Isoform/numbering check (S15 from the earlier audit)** is still open.
 - **3D linkage:** lane ↔ structure viewer highlight is not wired. The structure tab owns the viewer.
-- **Fibril classification needs RCSB.** When RCSB fails, the lookup is not cached and the trace warns
-  ("fibril entries could not be told apart"). The split cannot happen without it.
-- **Domain-swapped or crystal-packing contacts** in native entries are still counted as interface. PDBe-KB
-  does not separate biological assemblies from crystal contacts per residue; PISA assembly data would.
+- **Fibril and crystal classification need RCSB.** One batched GraphQL call reads each entry's keyword/title
+  and its primary biological assembly (`polymer_entity_instance_count`). When it fails, the lookup is not
+  cached and the trace warns that fibril and crystal-packing entries could not be told apart.
+- **Crystal contacts are now split out, by a conservative rule.** An entry whose primary biological assembly
+  is a monomer has a deposited assembly with no protein interface, so a contact PDBe-KB lists in it lies outside that assembly. This is a proxy for crystal packing, not proof (authors can deposit a monomer as assembly 1 for a true dimer; 24 of SOD1's 142 entries do):
+  it is recounted out of the native denominator and read apart in the callout and the solved-structures
+  table. A packing contact in a multi-chain assembly is *not* separated — that needs per-interface PISA
+  data, which PDBe-KB's `interface_residues` payload does not carry. The tab says "outside the deposited assembly" and never "crystal packing".
 - **IntAct names a species only by taxid text.** UniProt's `organismDiffer` without an IntAct row reads
   "other species".
 - STRING's `SOD2-2` style names come from STRING itself and are shown as given.

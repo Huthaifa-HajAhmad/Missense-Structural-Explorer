@@ -413,7 +413,9 @@ export const SLC12A4: any = {
       "7aiq"
      ]
     }
-   ]
+   ],
+   "entryKinds": "ok",
+   "crystalChecked": true
   },
   "oligomericState": "Homodimer",
   "chainCount": 2,

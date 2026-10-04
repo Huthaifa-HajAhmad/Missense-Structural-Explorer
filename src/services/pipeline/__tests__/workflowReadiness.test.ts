@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeFullAnalysisWorkflow } from "../workflowOrchestrator";
-import { fetchBiophysicalAnalysis, fetchProgressiveLandscape, fetchProgressiveStructuralAssessments } from "../biophysicalService";
+import { fetchBiophysicalAnalysis, fetchProgressiveLandscape, fetchProgressiveStructuralAssessments, fetchProgressivePpi } from "../biophysicalService";
 import { generateClinicalNarrative } from "../narrativeService";
 import { executeFoldxPipeline } from "../foldxService";
 import { fetchPdbCoordinates } from "../structureService";
@@ -10,7 +10,8 @@ import { mergeResultPatch } from "../resultMerge";
 
 vi.mock("../biophysicalService", () => ({
   fetchBiophysicalAnalysis: vi.fn(), fetchProgressiveLandscape: vi.fn().mockResolvedValue(undefined),
-  fetchProgressiveStructuralAssessments: vi.fn().mockResolvedValue(undefined), fetchProgressiveMultimer: vi.fn().mockResolvedValue(undefined)
+  fetchProgressiveStructuralAssessments: vi.fn().mockResolvedValue(undefined), fetchProgressiveMultimer: vi.fn().mockResolvedValue(undefined),
+  fetchProgressivePpi: vi.fn().mockResolvedValue(undefined)
 }));
 vi.mock("../structureService", () => ({ fetchPdbCoordinates: vi.fn().mockResolvedValue("ATOM coordinates") }));
 vi.mock("../foldxService", () => ({ executeFoldxPipeline: vi.fn().mockResolvedValue(undefined) }));
@@ -205,5 +206,19 @@ describe("foreground readiness and stage ownership", () => {
     expect(generateClinicalNarrative).toHaveBeenCalledOnce();
     expect(fetchBiophysicalAnalysis).not.toHaveBeenCalled();
     expect(executeFoldxPipeline).not.toHaveBeenCalled();
+  });
+
+  it("resumes the partner lookups for a cached run that stored the assembly but no PPI", async () => {
+    const f = fixture();
+    cacheCore(f.settings); // multimerData present by default, ppiBindingData absent
+    await f.run();
+    expect(fetchProgressivePpi).toHaveBeenCalledOnce();
+  });
+
+  it("does not re-run the partner lookups when the cached run stored them", async () => {
+    const f = fixture();
+    cacheCore(f.settings, { ppiBindingData: { status: "success" } });
+    await f.run();
+    expect(fetchProgressivePpi).not.toHaveBeenCalled();
   });
 });

@@ -175,16 +175,16 @@ async function experimentalWildType(uniprotId: string, position: number, wtLette
   if (lookup.status !== "ok") {
     return { kind: "none", reason: lookup.status === "none" ? "No solved complex of this protein is in the PDB." : "Solved complexes could not be read from PDBe." };
   }
-  // A fibril is not a binding complex: chains stacked along a fibril axis are never a DDMut-PPI wild type.
-  const biological = lookup.partners.filter(p => !p.artefact && p.context !== "fibril").map(p => ({ p, view: observedFor(p, uniprotId, position) }));
+  // A fibril or a crystal-packing contact is not a binding complex: neither is a DDMut-PPI wild type.
+  const biological = lookup.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal").map(p => ({ p, view: observedFor(p, uniprotId, position) }));
   const hits = biological.filter(x => x.view.variantAtInterface);
   if (!hits.length) {
     return biological.length
       ? { kind: "not-interfacial", reason: `The residue is not at the interface in ${((n: number) => (n === 1 ? "the one solved complex" : `any of the ${n} solved complexes`))(new Set(biological.flatMap(x => x.p.pdbEntries)).size)}, so no binding change is estimated.` }
       : {
           kind: "none",
-          reason: lookup.partners.some(p => p.context === "fibril" && !p.artefact)
-            ? "The only interfaces in solved structures are amyloid fibril stacking or non-biological partners, and neither is a binding complex."
+          reason: lookup.partners.some(p => (p.context === "fibril" || p.context === "crystal") && !p.artefact)
+            ? "The only interfaces in solved structures are amyloid fibril stacking, crystal-packing contacts or non-biological partners, and none is a binding complex."
             : "Only construct partners (fusion or crystallisation tags) are in the solved structures.",
         };
   }

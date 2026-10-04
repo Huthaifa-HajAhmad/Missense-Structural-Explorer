@@ -272,6 +272,63 @@ export function fetchProgressiveMultimer(
     });
 }
 
+/**
+ * The partner lookups (UniProt curated partners, IntAct methods and studies, STRING's physical and
+ * functional networks, mapped sites) are prefetched with the assembly, exactly like
+ * `fetchProgressiveMultimer`. Before this, the Interfaces & PPI tab alone issued the request on
+ * mount, so a reader who opened the tab long after the run finished watched "Partners / STRING /
+ * Curation" spin up cold against RCSB, UniProt, IntAct and STRING — the defect this fixes.
+ *
+ * The dedupe key is shared with `useInterfacesData`'s `fetchLookups`, so a tab opened while the
+ * prefetch is still in flight joins the same request instead of issuing a second one. DDMut-PPI and
+ * the Boltz-2 model stay on request: only the lookups are prefetched.
+ */
+export function fetchProgressivePpi(
+  params: BiophysicalAnalysisParams,
+  fetchWithAuth: (url: string, options?: any) => Promise<Response>,
+  signal: AbortSignal,
+  setAnalysisState: (fn: any) => void,
+  requestId: number,
+  getActiveRequestId: () => number
+): Promise<any> {
+  const { gene, variant, uniprotId } = params;
+  if (!gene || !variant || !uniprotId) return Promise.resolve(null);
+
+  const ppiKey = `ppi_${gene}_${variant}_${uniprotId}`;
+  return getDeduplicatedPromise(ppiKey, async () => {
+    const response = await fetchWithAuth("/api/v1/ppi/binding-affinity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gene, variant, uniprotId }),
+      signal
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch interaction lookups (${response.status})`);
+    }
+    return response.json();
+  }, signal)
+    .then((data: any) => {
+      if (getActiveRequestId() !== requestId || signal.aborted) return data;
+      if (data) {
+        setAnalysisState((prev: any) => mergeResultPatch(prev, { ppiBindingData: data }, undefined, "ppi", "complete"));
+        const cached = getCachedVariant(gene, variant);
+        if (ownsCachedAnalysis(cached, params)) {
+          setCachedVariant(gene, variant, uniprotId, {
+            analysisResult: mergeResultPatch({ result: cached.analysisResult }, { ppiBindingData: data }, undefined, "ppi", "complete").result
+          });
+        }
+      }
+      return data;
+    })
+    .catch((err: any) => {
+      if (!signal.aborted && err.name !== "AbortError" && getActiveRequestId() === requestId) {
+        setAnalysisState((prev: any) => mergeResultPatch(prev, {}, undefined, "ppi", "error"));
+        console.warn("[BiophysicalService Warning] Progressive PPI lookup fetch failed:", err);
+      }
+      return null;
+    });
+}
+
 export function fetchProgressiveStructuralAssessments(
   params: BiophysicalAnalysisParams & { acmgWeighting?: any; saprotEngine?: string },
   apiClient: any,

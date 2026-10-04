@@ -47,8 +47,12 @@ export interface PdbeInterfacePartner {
   pdbEntries: string[];
   /** Set when the partner is not biological: a construct tag, a tool antibody, a chain with no UniProt record. */
   artefact: string | null;
-  /** "fibril": this pair as seen in amyloid fibril structures only; "native": every other structure. */
-  context: "native" | "fibril";
+  /**
+   * "fibril": this pair as seen in amyloid fibril structures only; "crystal": this pair as seen only
+   * in entries whose biological assembly is a monomer, so the contact is crystal packing; "native":
+   * every other structure.
+   */
+  context: "native" | "fibril" | "crystal";
   /** UniProt gene name of the partner, when read. */
   gene: string | null;
   /** The partner's organism (UniProt common name) when it is not human; null for human or unread. */
@@ -56,8 +60,12 @@ export interface PdbeInterfacePartner {
 }
 
 export type PdbeInterfaceLookup =
-  /** `entryKinds`: whether fibril entries could be told apart (RCSB answered). */
-  | { status: "ok"; partners: PdbeInterfacePartner[]; entryKinds: "ok" | "failed" }
+  /**
+   * `entryKinds`: whether fibril entries could be told apart (RCSB answered).
+   * `crystalChecked`: whether the biological-assembly check answered, so crystal-packing entries
+   * could be told apart from native ones (same RCSB call).
+   */
+  | { status: "ok"; partners: PdbeInterfacePartner[]; entryKinds: "ok" | "failed"; crystalChecked: boolean }
   | { status: "none"; partners: [] }
   | { status: "error"; partners: []; reason: string };
 
@@ -85,11 +93,14 @@ const NON_PROTEIN_TYPES: Record<string, string> = {
 const cache = new LRUCache<string, PdbeInterfaceLookup>({ max: 500, ttl: 7 * 24 * 60 * 60 * 1000 });
 /** Per PDB id: true for an amyloid fibril entry. */
 const fibrilCache = new LRUCache<string, boolean>({ max: 20000, ttl: 30 * 24 * 60 * 60 * 1000 });
+/** Per PDB id: true when the entry's primary biological assembly is a monomer (a crystal contact). */
+const crystalCache = new LRUCache<string, boolean>({ max: 20000, ttl: 30 * 24 * 60 * 60 * 1000 });
 const speciesCache = new LRUCache<string, { gene: string | null; organism: string | null }>({ max: 5000, ttl: 30 * 24 * 60 * 60 * 1000 });
 
 export function clearPdbeInterfaceCache(): void {
   cache.clear();
   fibrilCache.clear();
+  crystalCache.clear();
   speciesCache.clear();
 }
 
@@ -157,20 +168,30 @@ export function isFibrilEntry(entry: { struct?: { title?: string | null } | null
 }
 
 /**
- * Split each partner whose structures include amyloid fibrils into a native partner and a fibril
- * partner. Support is recounted on each side, so the native denominator excludes fibrils and a
- * residue seen at the interface only in fibrils leaves the native interface. Exported for tests.
+ * Split each partner whose structures include amyloid fibrils or crystal-packing entries into a
+ * native partner and one per non-native context. Support is recounted on each side, so the native
+ * denominator excludes both and a residue seen at the interface only in fibrils (or only across a
+ * crystal-packing contact) leaves the native interface. Exported for tests.
+ *
+ * Precedence: a fibril entry is never re-classed as a crystal contact, even if its deposited
+ * assembly is monomeric.
  */
-export function splitFibrilEntries(partners: PdbeInterfacePartner[], fibrils: ReadonlySet<string>): PdbeInterfacePartner[] {
-  if (!fibrils.size) return partners;
+export function splitEntryContexts(
+  partners: PdbeInterfacePartner[],
+  kinds: { fibrils: ReadonlySet<string>; crystals: ReadonlySet<string> }
+): PdbeInterfacePartner[] {
+  if (!kinds.fibrils.size && !kinds.crystals.size) return partners;
+  const isFibril = (e: string) => kinds.fibrils.has(e);
+  const isCrystal = (e: string) => !isFibril(e) && kinds.crystals.has(e);
+  const isNative = (e: string) => !isFibril(e) && !isCrystal(e);
   const out: PdbeInterfacePartner[] = [];
   for (const p of partners) {
-    if (!p.pdbEntries.some(e => fibrils.has(e))) {
+    if (!p.pdbEntries.some(e => isFibril(e) || isCrystal(e))) {
       out.push(p);
       continue;
     }
-    for (const context of ["native", "fibril"] as const) {
-      const keep = (e: string) => (context === "fibril") === fibrils.has(e);
+    for (const context of ["native", "fibril", "crystal"] as const) {
+      const keep = context === "fibril" ? isFibril : context === "crystal" ? isCrystal : isNative;
       const pdbEntries = p.pdbEntries.filter(keep);
       if (!pdbEntries.length) continue;
       const residues: number[] = [];
@@ -178,7 +199,7 @@ export function splitFibrilEntries(partners: PdbeInterfacePartner[], fibrils: Re
       p.residues.forEach((r, i) => {
         const own = p.residueEntries[i];
         const kept = own.filter(keep);
-        // A residue listed with no entry named stays native: nothing says it came from a fibril.
+        // A residue listed with no entry named stays native: nothing says it came from a non-native entry.
         if (kept.length || (!own.length && context === "native")) {
           residues.push(r);
           residueEntries.push(kept);
@@ -190,14 +211,33 @@ export function splitFibrilEntries(partners: PdbeInterfacePartner[], fibrils: Re
   return out;
 }
 
+/** The fibril-only split, kept for callers that do not classify crystal contacts. */
+export function splitFibrilEntries(partners: PdbeInterfacePartner[], fibrils: ReadonlySet<string>): PdbeInterfacePartner[] {
+  return splitEntryContexts(partners, { fibrils, crystals: new Set() });
+}
+
 const RCSB_HEADERS = { "Content-Type": "application/json", Accept: "application/json", "User-Agent": "Missense-Structural-Explorer/1.0" };
 
-/** The fibril entries among `ids` (lower-case), or null when RCSB could not be read. */
-async function readFibrilEntries(ids: string[], signal?: AbortSignal): Promise<Set<string> | null> {
-  const unknown = ids.filter(id => !fibrilCache.has(id));
+export interface EntryKinds {
+  /** Entries that are amyloid fibrils (RCSB keyword or title). */
+  fibrils: Set<string>;
+  /** Entries whose primary biological assembly is a monomer, so any interface in them is packing. */
+  crystals: Set<string>;
+}
+
+/**
+ * The fibril and crystal-packing entries among `ids` (lower-case), or null when RCSB could not be
+ * read. One batched GraphQL request per 400 ids carries both the entry keyword/title and the primary
+ * assembly's polymer-instance count, so the crystal check adds no extra round trip.
+ */
+async function readEntryKinds(ids: string[], signal?: AbortSignal): Promise<EntryKinds | null> {
+  const unknown = ids.filter(id => !fibrilCache.has(id) || !crystalCache.has(id));
   for (let i = 0; i < unknown.length; i += 400) {
     const batch = unknown.slice(i, i + 400);
-    const query = `{entries(entry_ids:${JSON.stringify(batch.map(id => id.toUpperCase()))}){rcsb_id struct{title} struct_keywords{pdbx_keywords}}}`;
+    const upper = batch.map(id => id.toUpperCase());
+    const query =
+      `{entries(entry_ids:${JSON.stringify(upper)}){rcsb_id struct{title} struct_keywords{pdbx_keywords}}` +
+      ` assemblies(assembly_ids:${JSON.stringify(upper.map(id => `${id}-1`))}){rcsb_id pdbx_struct_assembly{oligomeric_details} rcsb_assembly_info{polymer_entity_instance_count}}}`;
     try {
       const res = await fetchWithRetry("https://data.rcsb.org/graphql", { method: "POST", headers: RCSB_HEADERS, body: JSON.stringify({ query }), timeout: 15000, signal }, 2);
       if (!res.ok) return null;
@@ -207,12 +247,26 @@ async function readFibrilEntries(ids: string[], signal?: AbortSignal): Promise<S
       for (const e of entries) if (typeof e?.rcsb_id === "string") fibrilCache.set(e.rcsb_id.toLowerCase(), isFibrilEntry(e));
       // An id RCSB does not return (obsoleted) reads as native: nothing says it is a fibril.
       for (const id of batch) if (!fibrilCache.has(id)) fibrilCache.set(id, false);
+      // The primary assembly (`-1`): a monomer means any listed interface is crystal packing.
+      const assemblies: any[] = Array.isArray(body?.data?.assemblies) ? body.data.assemblies : [];
+      for (const a of assemblies) {
+        if (typeof a?.rcsb_id !== "string") continue;
+        const id = a.rcsb_id.toLowerCase().replace(/-\d+$/, "");
+        const count = a?.rcsb_assembly_info?.polymer_entity_instance_count;
+        const oligo = a?.pdbx_struct_assembly?.oligomeric_details;
+        crystalCache.set(id, count === 1 || (typeof oligo === "string" && /monomeric/i.test(oligo)));
+      }
+      // No assembly row, or a multi-chain assembly: not a crystal contact.
+      for (const id of batch) if (!crystalCache.has(id)) crystalCache.set(id, false);
     } catch (err: any) {
       if (err?.name === "AbortError") throw err;
       return null;
     }
   }
-  return new Set(ids.filter(id => fibrilCache.get(id)));
+  return {
+    fibrils: new Set(ids.filter(id => fibrilCache.get(id))),
+    crystals: new Set(ids.filter(id => crystalCache.get(id))),
+  };
 }
 
 /** Gene and non-human organism per partner accession, from UniProt. An accession not read stays unnamed. */
@@ -254,7 +308,7 @@ export function observedFor(
   pdbEntries: string[];
   homomeric: boolean;
   artefact: string | null;
-  context: "native" | "fibril";
+  context: "native" | "fibril" | "crystal";
   gene: string | null;
   organism: string | null;
   variantAtInterface: boolean;
@@ -308,17 +362,23 @@ export async function fetchPdbeInterfaces(uniprotId: string, signal?: AbortSigna
       return none;
     }
     const bareOf = (a: string) => a.toUpperCase().replace(/-\d+$/, "");
-    const [fibrils] = await Promise.all([
-      readFibrilEntries([...new Set(parsed.flatMap(p => p.pdbEntries))], signal),
+    const [kinds] = await Promise.all([
+      readEntryKinds([...new Set(parsed.flatMap(p => p.pdbEntries))], signal),
       readSpecies([...new Set(parsed.filter(p => !p.artefact).map(p => bareOf(p.accession)))], signal),
     ]);
     const named = parsed.map(p => {
       const sp = speciesCache.get(bareOf(p.accession));
       return sp ? { ...p, gene: sp.gene, organism: sp.organism } : p;
     });
-    const result: PdbeInterfaceLookup = { status: "ok", partners: splitFibrilEntries(named, fibrils ?? new Set()), entryKinds: fibrils ? "ok" : "failed" };
-    // Cached only when the fibril check answered: an unchecked list would hide fibrils for a week.
-    if (fibrils) cache.set(accession, result);
+    const result: PdbeInterfaceLookup = {
+      status: "ok",
+      partners: splitEntryContexts(named, kinds ?? { fibrils: new Set(), crystals: new Set() }),
+      entryKinds: kinds ? "ok" : "failed",
+      crystalChecked: Boolean(kinds),
+    };
+    // Cached only when the entry-kind check answered: an unchecked list would hide fibrils and
+    // crystal contacts for a week.
+    if (kinds) cache.set(accession, result);
     return result;
   } catch (err: any) {
     if (err?.name === "AbortError") throw err;

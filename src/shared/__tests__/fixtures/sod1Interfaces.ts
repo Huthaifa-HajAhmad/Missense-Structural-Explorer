@@ -980,7 +980,8 @@ export const SOD1_INTERFACES: any = {
      "variantEntries": []
     }
    ],
-   "entryKinds": "ok"
+   "entryKinds": "ok",
+   "crystalChecked": true
   },
   "oligomericState": "Homodimer",
   "chainCount": 2,
