@@ -8,6 +8,7 @@ import {
   displayBase,
   landscapeFinding,
   landscapeKey,
+  clinvarIsQuery,
   snvReachableAminoAcids,
   translateCodon,
   legendSteps,
@@ -144,6 +145,49 @@ describe("landscapeFinding", () => {
     const f = landscapeFinding({ rows: [], window: { start: 1, end: 10 }, target: null, variantRevel: null, variantAm: null, mode: "mean", meta: null });
     expect(f.empty).toBe(true);
     expect(f.window).toMatch(/No AlphaMissense residue summaries/);
+  });
+});
+
+describe("landscapeFinding on the queried residue's own ClinVar record", () => {
+  // SOD1 p.Ala5Val: ClinVar lists Ala5Ser, Ala5Thr and Ala5Val itself, all pathogenic.
+  const clinvar = [
+    { pos: 5, cls: "plp" as const, significance: "Pathogenic", stars: 2, hgvsp: "p.Ala5Ser" },
+    { pos: 5, cls: "plp" as const, significance: "Pathogenic", stars: 2, hgvsp: "p.Ala5Thr" },
+    { pos: 5, cls: "plp" as const, significance: "Pathogenic", stars: 3, hgvsp: "p.Ala5Val" }
+  ];
+  const ctx = { clinvar, gnomad: [], regions: [], transcript: null, regionsBasis: "gnomAD v2", errors: [] };
+  const base = {
+    rows: [row(5, 0.5, { amCount: 6 })],
+    window: { start: 1, end: 31 },
+    target: { pos: 5, wt: "A", mut: "V" },
+    variantRevel: 0.853,
+    variantAm: 0.84,
+    mode: "mean" as const,
+    meta: meta(),
+    context: ctx
+  };
+
+  it("does not count the queried variant as one of the pathogenic variants at its own residue", () => {
+    const f = landscapeFinding(base);
+    expect(f.context).toContain("the queried variant is itself in ClinVar (Pathogenic)");
+    expect(f.context).toContain("2 other ClinVar P/LP missense variants at this residue");
+    expect(f.context).not.toContain("3 ClinVar P/LP");
+  });
+
+  it("recognises the query by residue and alternative, in either letter code", () => {
+    expect(clinvarIsQuery(clinvar[2], { pos: 5, mut: "V" })).toBe(true);
+    expect(clinvarIsQuery(clinvar[0], { pos: 5, mut: "V" })).toBe(false);
+    expect(clinvarIsQuery(clinvar[2], { pos: 6, mut: "V" })).toBe(false);
+    expect(clinvarIsQuery(clinvar[2], null)).toBe(false);
+  });
+});
+
+describe("landscapeFinding on a residue dbNSFP does not score", () => {
+  it("names the gap instead of silently skipping it", () => {
+    const rows = [row(5, 0.5), row(6, null), row(7, 0.2)];
+    const f = landscapeFinding({ rows, window: { start: 5, end: 7 }, target: null, variantRevel: null, variantAm: null, mode: "mean", meta: meta() });
+    expect(f.window).toMatch(/Of 2 scored residues/);
+    expect(f.window).toContain("No dbNSFP missense record for residue 6.");
   });
 });
 

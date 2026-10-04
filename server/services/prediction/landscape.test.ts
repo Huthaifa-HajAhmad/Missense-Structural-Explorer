@@ -65,6 +65,27 @@ describe("fetchLandscape", () => {
   });
 });
 
+describe("window query", () => {
+  it("asks for each residue by exact term, never a range (SOD1 p.Ala5Val lost residues 4-9)", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy.mockImplementation(async () => jsonResponse({ hits: [] }));
+    await fetchLandscape("SOD1", 1, 45);
+    const urls = fetchSpy.mock.calls.map((c) => decodeURIComponent(String(c[0])).replace(/\+/g, " "));
+    const queries = urls.filter((u) => u.includes("/v1/query"));
+    // 45 residues are split over two requests of at most 40 terms.
+    expect(queries).toHaveLength(2);
+    for (const q of queries) {
+      // myvariant.info indexes aa.pos as text: "[1 TO 31]" excludes "5" because "5" > "31".
+      expect(q).not.toMatch(/\[\d+ TO \d+\]/);
+    }
+    const terms = queries.flatMap((q) => q.match(/dbnsfp\.aa\.pos:\d+/g) ?? []);
+    expect(terms).toHaveLength(45);
+    expect(terms).toContain("dbnsfp.aa.pos:5");
+    expect(terms).toContain("dbnsfp.aa.pos:45");
+    fetchSpy.mockRestore();
+  });
+});
+
 describe("per-transcript aggregation", () => {
   // One SNV listed on three transcripts: MANE residue 116, an isoform residue 98, and a third.
   const multi = candidateFromMyVariantHit(

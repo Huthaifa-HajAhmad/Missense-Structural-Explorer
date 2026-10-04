@@ -20,8 +20,9 @@ export { fetchLocalPopulationFrequencies } from "./local-population.ts";
 /**
  * Bumped whenever the meaning of a cached row changes. v4: rows are read on one transcript and
  * count each SNV once (v3 rows pooled every isoform's residue numbers and must never be served).
+ * v5: window queries fetch each residue by exact term (v4 windows silently lacked residues whose number sorts after the window end as text).
  */
-const CACHE_SCHEMA = "schema:v4";
+const CACHE_SCHEMA = "schema:v5";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Expired rows are swept at most this often, not on every read. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -149,6 +150,27 @@ async function fetchMyVariantHits(query: string, limit: number): Promise<any[]> 
   return hits;
 }
 
+/** Residues per request: one OR-term each keeps the query string well under URL limits. */
+const WINDOW_TERMS_PER_REQUEST = 40;
+
+/**
+ * SNVs whose residue number on ANY transcript falls in [start, end], one explicit term per residue.
+ * Never a range: myvariant.info indexes `dbnsfp.aa.pos` as text, so `[1 TO 31]` compares strings
+ * and silently drops residues 4-9 (they sort after "31"), including the queried residue on SOD1
+ * p.Ala5Val, while admitting 100-199. The aggregation then keeps the chosen transcript's numbering.
+ */
+export async function fetchMyVariantWindowHits(gene: string, start: number, end: number): Promise<any[]> {
+  const byId = new Map<string, any>();
+  for (let from = start; from <= end; from += WINDOW_TERMS_PER_REQUEST) {
+    const to = Math.min(end, from + WINDOW_TERMS_PER_REQUEST - 1);
+    const terms: string[] = [];
+    for (let p = from; p <= to; p++) terms.push(`dbnsfp.aa.pos:${p}`);
+    const chunk = await fetchMyVariantHits(`dbnsfp.genename:${gene} AND (${terms.join(" OR ")})`, 2000);
+    for (const h of chunk) byId.set(typeof h?._id === "string" ? h._id : `#${byId.size}`, h);
+  }
+  return [...byId.values()];
+}
+
 async function loadReferenceSequence(gene: string, requested?: string | null): Promise<{ accession: string | null; sequence: string | null }> {
   try {
     const accession = requested || (await resolveGeneToUniprot(gene));
@@ -220,24 +242,13 @@ export async function fetchLandscape(
     }
   }
 
-  const query = windowed
-    ? `dbnsfp.genename:${normGene} AND dbnsfp.aa.pos:[${startPos} TO ${endPos}]`
-    : `dbnsfp.genename:${normGene}`;
   let hits: any[] = [];
   try {
-    hits = await fetchMyVariantHits(query, windowed ? 2000 : 10000);
+    hits = windowed
+      ? await fetchMyVariantWindowHits(normGene, startPos!, endPos!)
+      : await fetchMyVariantHits(`dbnsfp.genename:${normGene}`, 10000);
   } catch (err: any) {
-    console.warn(`[Landscape] myvariant.info range query failed: ${err.message}`);
-  }
-  if (hits.length === 0 && windowed) {
-    // Some deployments index aa.pos as a keyword, where range syntax returns nothing.
-    const terms = [];
-    for (let p = startPos!; p <= endPos!; p++) terms.push(`dbnsfp.aa.pos:${p}`);
-    try {
-      hits = await fetchMyVariantHits(`dbnsfp.genename:${normGene} AND (${terms.join(" OR ")})`, 2000);
-    } catch (err: any) {
-      console.warn(`[Landscape] myvariant.info per-position query failed: ${err.message}`);
-    }
+    console.warn(`[Landscape] myvariant.info query failed: ${err.message}`);
   }
 
   const candidates = hits.map(candidateFromMyVariantHit).filter((c): c is SnvCandidate => c !== null);
