@@ -6,6 +6,7 @@ import { ModelKnowledgeModal } from "../modals/ModelKnowledgeModal";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { THRESHOLDS, formatEvidenceCode } from "../../shared/thresholds";
 import {
+  SPLICE_CHANNEL_CAPTION,
   SPLICE_GROUP_LABEL,
   SPLICE_GROUP_NOTE,
   buildSplicingEvidence,
@@ -154,29 +155,32 @@ function Callouts({ ev }: { ev: SplicingEvidence }) {
 function ChannelsList({ rows }: { rows: SpliceReading[] }) {
   if (rows.length === 0) return null;
   return (
-    <ul className="spl-channels" aria-label="SpliceAI delta score per channel">
-      {rows.map(r => {
-        const isMax = r.call?.label === "Maximum";
-        return (
-          <li key={r.key} className="spl-channel" data-max={isMax || undefined} data-testid={`splice-${r.key}`} title={r.score !== null ? `${r.name}: Δ ${r.score}${r.sub ? `; ${r.sub}` : ""}` : r.availability.reason ?? undefined}>
-            <span className="spl-channel__name">
-              {r.name}
-              {isMax && <span className="ev-tier" data-tone="accent">Maximum</span>}
-            </span>
-            <span className="spl-channel__value">
-              <span className="spl-mono">{r.scoreText}</span>
-              {r.sub && <span className="spl-channel__pos">{r.sub}</span>}
-            </span>
-            {r.score !== null && <div className="spl-channel-plot" role="img" aria-label={`${r.name}: delta ${r.score}, on a shared 0 to 1 scale`}>
-              <div className="spl-channel-plot__track"><i style={{ left: `${Math.max(0, Math.min(1, r.score)) * 100}%` }} /></div>
-              <div className="spl-channel-plot__axis"><span>0</span><span>SpliceAI Δ</span><span>1</span></div>
-            </div>}
-            <span className="spl-channel__desc">{r.description}</span>
-            {r.note && <span className="spl-channel__site">{r.note}</span>}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="spl-channels-group">
+      <ul className="spl-channels" aria-label="SpliceAI delta score per channel">
+        {rows.map(r => {
+          const isMax = r.call?.label === "Maximum";
+          return (
+            <li key={r.key} className="spl-channel" data-max={isMax || undefined} data-testid={`splice-${r.key}`} title={r.score !== null ? `${r.name}: Δ ${r.score}${r.sub ? `; ${r.sub}` : ""}` : r.availability.reason ?? undefined}>
+              <span className="spl-channel__name">
+                {r.name}
+                {isMax && <span className="ev-tier" data-tone="accent">Maximum</span>}
+              </span>
+              <span className="spl-channel__value">
+                <span className="spl-mono">{r.scoreText}</span>
+                {r.sub && <span className="spl-channel__pos">{r.sub}</span>}
+              </span>
+              {r.score !== null && <div className="spl-channel-plot" role="img" aria-label={`${r.name}: delta ${r.score}, on a shared 0 to 1 scale`}>
+                <div className="spl-channel-plot__track"><i style={{ left: `${Math.max(0, Math.min(1, r.score)) * 100}%` }} /></div>
+              </div>}
+              {r.note && <span className="spl-channel__site">{r.note}</span>}
+            </li>
+          );
+        })}
+      </ul>
+      {/* One scale for the four tracks, and the one caveat they share — printed once, not per card. */}
+      <div className="spl-channels__axis" aria-hidden="true"><span>0</span><span>SpliceAI Δ</span><span>1</span></div>
+      <p className="spl-channels__caption">{SPLICE_CHANNEL_CAPTION}</p>
+    </div>
   );
 }
 
@@ -278,6 +282,9 @@ function MapLegend({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
           <span><i className="spl-key" data-kind="loss" />SpliceAI loss</span>
         </>
       )}
+      {map.quiet.length > 0 && (
+        <span><i className="spl-key" data-kind="no-signal" />No signal · Δ &lt; {SPLICE_MAP_FLOOR}</span>
+      )}
       <span><i className="spl-key" data-kind="variant" />This variant</span>
     </div>
   );
@@ -286,10 +293,15 @@ function MapLegend({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
 /** What the figure leaves out, and what its positions mean — in words, under it. */
 function MapNote({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
   const parts: string[] = [];
+  const quietCount = map.quiet.length;
   if (map.predictionsNote) parts.push(map.predictionsNote);
-  else if (map.predictions.length === 0 && map.belowFloor === 0) parts.push("SpliceAI returned no score for this variant, so no predicted site is drawn.");
-  else if (map.predictions.length === 0) parts.push(`No SpliceAI channel reaches ${SPLICE_MAP_FLOOR} anywhere in its window, so no predicted site is drawn.`);
-  else if (map.belowFloor > 0) parts.push(`${map.belowFloor === 1 ? "One channel scores" : `${map.belowFloor} channels score`} below ${SPLICE_MAP_FLOOR} and ${map.belowFloor === 1 ? "is" : "are"} not drawn.`);
+  else if (map.predictions.length === 0 && quietCount === 0) parts.push("SpliceAI returned no score for this variant, so no predicted site is drawn.");
+  else if (map.predictions.length === 0) parts.push(`No SpliceAI channel reaches ${SPLICE_MAP_FLOOR} anywhere in its window, so no predicted site is placed.`);
+  if (quietCount > 0) {
+    parts.push(
+      `${quietCount === 1 ? "One scored channel is" : `${quietCount} scored channels are`} drawn in the no-signal row: a Δ this close to zero has no meaningful position, so ${quietCount === 1 ? "it is" : "they are"} not placed on the axis.`
+    );
+  }
   if (map.predictions.some(x => x.atSite)) parts.push("Coincidence with an annotated site is positional context (within 1 bp), not experimental confirmation of a splicing effect.");
   if (map.exon.start === null || map.exon.end === null) parts.push("The exon's length was not resolved, so it runs off the edge.");
   if (parts.length === 0) return null;
@@ -410,15 +422,23 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
           <div className="spl-geo__main">
             {g.position !== null ? (
               <div className="spl-geo__drawing">
-                <p className="spl-geo__lead">
-                  <strong>{positionText} from the {g.junction}</strong> — {g.positionPhrase}.{" "}
-                  {g.isCanonicalDinucleotide
-                    ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
-                    : g.inDbscsnvWindow
-                    ? "Inside dbscSNV's window."
-                    : "Outside dbscSNV's window and the canonical dinucleotide."}{" "}
-                  Distance from a junction is context; it is not evidence for or against a splicing effect.
-                </p>
+                <div className="spl-geo__lead">
+                  <p className="spl-geo__lead-label">Distance to nearest splice junction</p>
+                  <p className="spl-geo__lead-position">
+                    <strong className="spl-mono">{positionText} from the {g.junction}</strong>
+                  </p>
+                  <p className="spl-geo__lead-phrase">{g.positionPhrase}.</p>
+                  <p className="spl-geo__lead-status">
+                    {g.isCanonicalDinucleotide
+                      ? "This is the canonical splice dinucleotide: a change here is assessed under PVS1, not PP3."
+                      : g.inDbscsnvWindow
+                      ? "Inside dbscSNV's window."
+                      : "Outside dbscSNV's window and the canonical dinucleotide."}
+                  </p>
+                  <p className="spl-geo__lead-note">
+                    Distance from a junction is context; it is not evidence for or against a splicing effect.
+                  </p>
+                </div>
                 {map ? (
                   <>
                     <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />
