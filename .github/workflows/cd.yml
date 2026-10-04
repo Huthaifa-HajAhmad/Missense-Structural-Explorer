@@ -105,16 +105,40 @@ jobs:
             cd Missense-Structural-Explorer || exit 1
             echo "[CD] Deploying the CI-validated commit $DEPLOY_SHA"
 
+            git fetch --all --prune
+
+            # COMMIT ORDERING PRE-CHECK: CI runs can finish out of order, so an older commit's
+            # successful run could otherwise overwrite a newer deployment. If a newer revision
+            # already reached the tip of main, skip immediately without waiting or taking the lock.
+            TIP="$(git rev-parse origin/main)"
+            if [ "$TIP" != "$DEPLOY_SHA" ]; then
+              echo "[CD] $DEPLOY_SHA is superseded by $TIP; skipping — the newer revision deploys itself."
+              exit 0
+            fi
+
             # The workflow concurrency ends before the detached build does. This host lock spans
-            # checkout, asset restoration, build, handover, and drain; a second run defers safely.
+            # checkout, asset restoration, build, handover, and drain. Wait up to 180s for an active
+            # rollout to complete handover before checking status again.
             exec 9>"$HOME/.mse-deploy.lock"
-            if ! flock -n 9; then
-              echo "[CD] DEPLOY_DEFERRED: another rollout owns the host lock; production unchanged."
+            if ! flock -w 180 9; then
+              echo "[CD] DEPLOY_DEFERRED: another rollout owns the host lock after 180s; production unchanged."
+              git fetch --all --prune
+              LATEST_TIP="$(git rev-parse origin/main)"
+              if [ "$LATEST_TIP" != "$DEPLOY_SHA" ]; then
+                echo "[CD] $DEPLOY_SHA was superseded by $LATEST_TIP while waiting; skipping cleanly."
+                exit 0
+              fi
               exit 1
             fi
             export MSE_DEPLOY_LOCK_FD=9
 
+            # Re-verify tip after acquiring lock in case a newer commit landed while waiting.
             git fetch --all --prune
+            TIP="$(git rev-parse origin/main)"
+            if [ "$TIP" != "$DEPLOY_SHA" ]; then
+              echo "[CD] $DEPLOY_SHA is superseded by $TIP; skipping — the newer revision deploys itself."
+              exit 0
+            fi
 
             # UNTRACKED-ASSET PRESERVE. FoldX (licensed), the model weights, and the deployment
             # runbook are deliberately untracked as of 2026-09-29, so that nothing licensed,
@@ -170,19 +194,6 @@ jobs:
               echo "[CD] FoldX binary present and executable"
             else
               echo "::warning::tools/foldx_linux/foldx_20261231 is missing or not executable on the VM; FoldX-backed features will degrade to unavailable"
-            fi
-
-            # COMMIT ORDERING: CI runs can finish out of order, so an older commit's successful run
-            # could otherwise overwrite a newer deployment. Deploy only while this revision is still
-            # the tip of main; a newer commit's own run deploys it. This check stays here, after the
-            # fetch, because it is the authoritative one — the API-side equivalent was measured on
-            # 2026-09-29 and dropped: the short CD runs are warm-cache deploys that really do ship
-            # (`docker compose up -d --build` is in their logs), not superseded no-ops, so a
-            # pre-flight would have saved nothing.
-            TIP="$(git rev-parse origin/main)"
-            if [ "$TIP" != "$DEPLOY_SHA" ]; then
-              echo "[CD] $DEPLOY_SHA is superseded by $TIP; skipping — the newer revision deploys itself."
-              exit 0
             fi
 
             export DOCKER_BUILDKIT=1
