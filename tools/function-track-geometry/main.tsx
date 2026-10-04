@@ -8,6 +8,7 @@ import type { AnalysisResult, AnalysisState } from "../../src/types";
 import type { TabComponentProps } from "../../src/components/evidence/types";
 import type { UniprotFeaturesData } from "../../src/shared/contracts";
 import { NAE1_UNIPROT } from "../../src/shared/__tests__/fixtures/nae1FunctionalDomains";
+import { SOD1_UNIPROT } from "../../src/shared/__tests__/fixtures/sod1FunctionalDomains";
 
 /**
  * Geometry + behaviour assertions for the Functional domains tab's domain-architecture schematic.
@@ -21,6 +22,9 @@ import { NAE1_UNIPROT } from "../../src/shared/__tests__/fixtures/nae1Functional
  * `architectureLayout.ts`'s header, never read back from the layout function: an expectation derived
  * from the implementation cannot notice the implementation being wrong. Each mark's residue comes from
  * its `data-residue` attribute and is mapped through the backbone's measured ends.
+ *
+ * SOD1 p.Ala5Val is the dense case: 81 UniProt variants (the bar track, not 81 pins), 38 point marks in lanes by
+ * kind, PROSITE patterns as ticks, and the interaction set (linked hover, layer toggle, arrow keys, drag to zoom).
  *
  * Fixtures: NAE1 (Q13564, the reference variant p.Asp116Gly, with InterPro matches via UniParc and
  * PDB secondary structure), and the real CNNM2 (Q9H8M5) and GZF1 (Q9H116) feature tables the earlier
@@ -142,6 +146,10 @@ interface Case {
   /** Membrane-topology lane: transmembrane bars and topological-domain rails the drawing must carry. */
   membrane?: { tm: number; rails: number };
   engine: string[];
+  /** The dense drawing: a bar track for the disease variants and lanes for the point marks. */
+  dense?: boolean;
+  /** Linked hover, layer toggle, arrow keys and drag-to-zoom; runs last because it changes the window. */
+  interact?: boolean;
   /** Hand-written from the fixture and the PM1 rule. */
   expect: { verdict: string; pins: number; domains: number; hiddenLabels: "none" | "some" };
 }
@@ -161,6 +169,10 @@ const CASES: Case[] = [
   { id: "slc12a4", label: "SLC12A4 p.Gln867His — opens on 867 ± 50", data: SLC12A4, uniprotId: "Q9UP95", residue: 867, wt: "Q", mut: "H", width: 1010, membrane: { tm: 0, rails: 1 }, engine: ["PM2"], expect: { verdict: "PM1 not met", pins: 2, domains: 2, hiddenLabels: "none" } },
   // The same protein across its whole length: 12 helices and 10 topological spans; 9 point sites (K+ x3, Cl-, V135A, I136A, S24p, S834p, S916p); 4 Pfam segments; no helix/strand strip.
   { id: "slc12a4-whole", label: "SLC12A4 p.Gln867His — whole protein", whole: true, data: SLC12A4, uniprotId: "Q9UP95", residue: 867, wt: "Q", mut: "H", width: 1010, membrane: { tm: 12, rails: 10 }, engine: ["PM2"], expect: { verdict: "PM1 not met", pins: 9, domains: 4, hiddenLabels: "some" } },
+  // SOD1: 38 point marks = 8 Cu/Zn ligands + 2 cysteines of the disulfide + 14 modifications + 14 mutagenesis; none is a disease pin (81 variants are bars).
+  { id: "sod1", label: "SOD1 p.Ala5Val - 81 variants, 118 features", dense: true, interact: true, data: SOD1_UNIPROT as UniprotFeaturesData, uniprotId: "P00441", residue: 5, wt: "A", mut: "V", width: 1010, engine: [], expect: { verdict: "PM1 not met", pins: 38, domains: 1, hiddenLabels: "some" } },
+  // The same protein at phone width: bars bin two residues each, lanes keep their order, labels that do not fit are dropped, never overlapped.
+  { id: "sod1-narrow", label: "SOD1 p.Ala5Val - phone width", data: SOD1_UNIPROT as UniprotFeaturesData, uniprotId: "P00441", residue: 5, wt: "A", mut: "V", width: 380, engine: [], expect: { verdict: "PM1 not met", pins: 38, domains: 1, hiddenLabels: "some" } },
   // CROWDED: 6 point sites + the disulfide drawn as its two cysteines, 180 and 230 = 8 marks.
   { id: "crowded", label: "synthetic crowded cluster, PM1 met", data: CROWDED, uniprotId: "P00000", residue: 204, wt: "H", mut: "A", width: 1010, engine: ["PM1", "PP3"], expect: { verdict: "PM1 met", pins: 8, domains: 1, hiddenLabels: "some" } },
 ];
@@ -268,18 +280,20 @@ const centreX = (el: SVGGraphicsElement) => {
 
 /* ── Families ─────────────────────────────────────────────────────────────────── */
 
-const FAMILY_SIZE = { opens: 1, marks: 4, labels: 3, stems: 1, contrast: 2, targets: 1, focus: 1, selection: 2, verdict: 1, zoom: 1, view: 2, membrane: 3, selfCheck: 1 } as const;
+const FAMILY_SIZE = { opens: 1, marks: 4, labels: 3, stems: 1, contrast: 2, targets: 1, focus: 1, selection: 2, verdict: 1, zoom: 1, view: 2, membrane: 3, dense: 5, interact: 5, selfCheck: 1 } as const;
 type Family = keyof typeof FAMILY_SIZE;
-type PerCase = Exclude<Family, "selfCheck" | "opens">;
+type PerCase = Exclude<Family, "selfCheck" | "opens" | "interact">;
 
 function family(name: Family, produced: Check[]): Check[] {
   if (produced.length === FAMILY_SIZE[name]) return produced;
   return [...produced, { name: `harness: ${name} produced ${produced.length} assertions, expected ${FAMILY_SIZE[name]}`, pass: false, detail: "update FAMILY_SIZE if deliberate" }];
 }
 
-const planFamilies = (c: Case): PerCase[] => ["marks", "labels", "stems", "contrast", "targets", "focus", "selection", "verdict", "view", ...(c.zoom ? (["zoom"] as PerCase[]) : []), ...(c.membrane ? (["membrane"] as PerCase[]) : [])];
-// "opens" runs once per case, before any button is pressed, so it is outside planFamilies.
-const expectedCheckCount = () => CASES.reduce((n, c) => n + FAMILY_SIZE.opens + planFamilies(c).reduce((m, f) => m + FAMILY_SIZE[f], 0), 0) + FAMILY_SIZE.selfCheck;
+const planFamilies = (c: Case): PerCase[] => ["marks", "labels", "stems", "contrast", "targets", "focus", "selection", "verdict", "view", ...(c.zoom ? (["zoom"] as PerCase[]) : []), ...(c.membrane ? (["membrane"] as PerCase[]) : []), ...(c.dense ? (["dense"] as PerCase[]) : [])];
+// "opens" runs once per case, before any button is pressed, and "interact" once at the end (it changes the window),
+// so both are outside planFamilies.
+const expectedCheckCount = () =>
+  CASES.reduce((n, c) => n + FAMILY_SIZE.opens + planFamilies(c).reduce((m, f) => m + FAMILY_SIZE[f], 0) + (c.interact ? FAMILY_SIZE.interact : 0), 0) + FAMILY_SIZE.selfCheck;
 
 function checkMarks(c: Case, s: Schematic): Check[] {
   const off: string[] = [];
@@ -339,7 +353,9 @@ function checkLabels(c: Case, s: Schematic, host: HTMLElement): Check[] {
 function checkStems(c: Case, s: Schematic): Check[] {
   const bad: string[] = [];
   const stems = Array.from(s.svg.querySelectorAll<SVGLineElement>(".fnd-arch__stem"));
-  s.pins.forEach((p, i) => {
+  // Lane marks (dense drawing) have no stem: the lane is their place.
+  const stemmed = s.pins.filter((p) => !p.hasAttribute("data-lane"));
+  stemmed.forEach((p, i) => {
     const stem = stems[i];
     const head = bbox(headOf(p));
     const x = centreX(headOf(p));
@@ -361,9 +377,10 @@ function checkStems(c: Case, s: Schematic): Check[] {
     if (Number(line.getAttribute("y2")) <= s.bbBottom) bad.push("the variant stem stops above the backbone");
     const qTop = bbox(s.query.querySelector("circle")!).top;
     const higher = s.pins.filter((p) => bbox(headOf(p)).top < qTop);
+    if (stems.length !== stemmed.length) bad.push(`${stems.length} stems for ${stemmed.length} stemmed marks`);
     if (higher.length) bad.push(`${higher.length} marks drawn above the variant`);
   }
-  return [{ name: `${c.id}: stems join the backbone to their heads`, pass: bad.length === 0, detail: bad.length ? bad.join("; ") : `${s.pins.length} stems; the variant is highest and crosses the backbone` }];
+  return [{ name: `${c.id}: stems join the backbone to their heads`, pass: bad.length === 0, detail: bad.length ? bad.join("; ") : `${stemmed.length} stems${stemmed.length < s.pins.length ? ` (${s.pins.length - stemmed.length} lane marks have none)` : ""}; the variant is highest and crosses the backbone` }];
 }
 
 function checkContrast(c: Case, s: Schematic, host: HTMLElement): Check[] {
@@ -561,6 +578,175 @@ function checkMembrane(c: Case, s: Schematic): Check[] {
   return [geometry, placement, tickCheck];
 }
 
+/** Feature counts straight from the fixture: the drawing's totals are checked against these, not read back from the layout. */
+function fixtureCounts(c: Case) {
+  const f = c.data.features ?? [];
+  const disease = new Map<number, number>();
+  for (const x of f) if (x.type === "Natural variant" && /^in\s+(?!dbsnp)/i.test(x.description)) disease.set(x.start, (disease.get(x.start) ?? 0) + 1);
+  return {
+    disease,
+    mutagenesis: f.filter((x) => x.type === "Mutagenesis").length,
+    modifications: f.filter((x) => ["Modified residue", "Glycosylation", "Cross-link", "Lipidation"].includes(x.type)).length,
+    // Point binding/active/metal sites plus both cysteines of each disulfide bond.
+    sites: f.filter((x) => ["Binding site", "Active site", "Metal binding", "Site"].includes(x.type) && x.start === x.end).length + 2 * f.filter((x) => x.type === "Disulfide bond").length,
+  };
+}
+
+function checkDense(c: Case, s: Schematic, host: HTMLElement): Check[] {
+  const want = fixtureCounts(c);
+  const bars = Array.from(s.svg.querySelectorAll<SVGGElement>('[data-testid="arch-dens-bar"]'));
+  const dots = s.pins.filter((p) => p.getAttribute("data-shape") === "dot").length;
+  const first: Check = {
+    name: `${c.id}: disease variants are one bar per residue, not pins`,
+    pass: bars.length === want.disease.size && dots === 0,
+    detail: `${bars.length} bars for ${want.disease.size} residues, ${dots} disease pins`,
+  };
+
+  const off: string[] = [];
+  const px1 = (s.x1 - s.x0) / (s.window.end - s.window.start);
+  for (const b of bars) {
+    const r = Number(b.getAttribute("data-start"));
+    const left = bbox(b.querySelector("rect")!).left;
+    if (Math.abs(left - expectedX(s, r)) > 0.75) off.push(`${r}: bar at ${px(left)}, expected ${px(expectedX(s, r))}`);
+    if (Number(b.getAttribute("data-count")) !== want.disease.get(r)) off.push(`${r}: count ${b.getAttribute("data-count")}, fixture ${want.disease.get(r)}`);
+  }
+  const second: Check = { name: `${c.id}: every bar sits at its residue with the fixture's count`, pass: bars.length > 0 && off.length === 0, detail: off.length ? off.slice(0, 4).join("; ") : `${bars.length} bars within 0.75px (${px(px1)}px per residue)` };
+
+  const q = bars.filter((b) => b.hasAttribute("data-query"));
+  const hOf = (b: SVGGElement) => bbox(b.querySelector("rect")!).bottom - bbox(b.querySelector("rect")!).top;
+  const one = bars.find((b) => Number(b.getAttribute("data-count")) === 1);
+  const three = bars.find((b) => Number(b.getAttribute("data-count")) === 3);
+  const ratio = one && three ? hOf(three) / hOf(one) : NaN;
+  const qFill = q[0] ? parseColor(getComputedStyle(q[0].querySelector("rect")!).fill) : null;
+  const clay = parseColor(getComputedStyle(document.documentElement).getPropertyValue("--cs-accent-clay").trim() || "") ?? null;
+  const third: Check = {
+    name: `${c.id}: the variant's own bar is clay and a bar's height is its count`,
+    pass: q.length === 1 && Number(q[0].getAttribute("data-start")) === c.residue && Math.abs(ratio - 3) < 0.15,
+    detail: `${q.length} query bar${q[0] ? ` at ${q[0].getAttribute("data-start")}` : ""}, 3-variant bar is ${px(ratio)}× a 1-variant bar${qFill && clay ? "" : ""}`,
+  };
+
+  const kind = (shape: string) => s.pins.filter((p) => p.getAttribute("data-shape") === shape);
+  const diamonds = kind("diamond");
+  const circles = kind("circle");
+  const ticks = kind("tick");
+  const yOf = (g: SVGGElement) => (bbox(headOf(g)).top + bbox(headOf(g)).bottom) / 2;
+  const maxY = (gs: SVGGElement[]) => Math.max(...gs.map(yOf));
+  const minY = (gs: SVGGElement[]) => Math.min(...gs.map(yOf));
+  const stems = s.svg.querySelectorAll(".fnd-arch__stem").length;
+  const fourth: Check = {
+    name: `${c.id}: point marks sit in one lane per kind, sites over modifications over mutagenesis, with no stems`,
+    pass:
+      diamonds.length === want.sites &&
+      circles.length === want.modifications &&
+      ticks.length === want.mutagenesis &&
+      maxY(diamonds) < minY(circles) &&
+      maxY(circles) < minY(ticks) &&
+      stems === 0,
+    detail: `${diamonds.length}/${want.sites} sites, ${circles.length}/${want.modifications} modifications, ${ticks.length}/${want.mutagenesis} mutagenesis; ${stems} stems`,
+  };
+
+  const motifs = Array.from(s.svg.querySelectorAll<SVGGElement>('[data-testid="arch-motif"]')).map((g) => bbox(g.querySelector("rect")!));
+  const wantMotifs = (c.data.domainMatches ?? []).filter((m) => m.database === "PROSITE").flatMap((m) => m.locations);
+  const motifOff = wantMotifs.filter((l) => !motifs.some((b) => Math.abs(b.left - expectedX(s, l.start)) <= 0.75 && Math.abs(b.right - expectedX(s, l.end)) <= 0.75));
+  const bond = host.querySelector('[data-testid="arch-bond"] path');
+  const dBond = bond?.getAttribute("d") ?? "";
+  const bondX = (dBond.match(/M([\d.]+)/)?.[1] ?? "NaN");
+  const bondOk = !!bond && Math.abs(Number(bondX) - expectedX(s, 58)) <= 0.75 && Math.abs(Number((/H([\d.]+)/.exec(dBond) ?? [])[1]) - expectedX(s, 147)) <= 0.75;
+  const fifth: Check = {
+    name: `${c.id}: PROSITE patterns are ticks at their residues and the disulfide is one bracket`,
+    pass: wantMotifs.length > 0 && motifs.length === wantMotifs.length && motifOff.length === 0 && bondOk,
+    detail: `${motifs.length}/${wantMotifs.length} motif ticks${motifOff.length ? `, off: ${motifOff.map((l) => `${l.start}–${l.end}`).join(", ")}` : ""}; bond ${bond ? (bondOk ? "58–147" : "off its cysteines") : "missing"}`,
+  };
+  return [first, second, third, fourth, fifth];
+}
+
+const pointer = (type: string, x: number, y: number) => new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 7, button: 0, isPrimary: true });
+
+async function checkInteract(c: Case, host: HTMLElement): Promise<Check[]> {
+  const out: Check[] = [];
+  const sNow = () => readSchematic(host);
+  let s = sNow();
+  if (typeof s === "string") return Array.from({ length: FAMILY_SIZE.interact }, (_, i) => ({ name: `${c.id}: interaction (${i + 1})`, pass: false, detail: s as string }));
+
+  // 1 + 2: hover links a mark and its table row both ways. Residue 47 is a Cu ligand, row "Binding site, 47".
+  const pin47 = s.pins.find((p) => p.getAttribute("data-residue") === "47" && p.getAttribute("data-shape") === "diamond");
+  pin47?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+  await nextFrame();
+  const litRow = host.querySelector<HTMLElement>('tr[data-testid="annotation-row"][data-lit]');
+  out.push({
+    name: `${c.id}: hovering a mark lights its table row`,
+    pass: !!pin47 && !!litRow && /^binding site-47-47-/.test(litRow.getAttribute("data-row-key") ?? ""),
+    detail: litRow ? `lit "${litRow.getAttribute("data-row-key")}"` : "no row lit",
+  });
+  pin47?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }));
+  await nextFrame();
+  const row49 = Array.from(host.querySelectorAll<HTMLElement>('tr[data-testid="annotation-row"]')).find((r) => /^binding site-49-49-/.test(r.getAttribute("data-row-key") ?? ""));
+  row49?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body }));
+  await nextFrame();
+  s = sNow();
+  const litPin = typeof s === "string" ? null : s.pins.find((p) => p.hasAttribute("data-lit"));
+  out.push({
+    name: `${c.id}: hovering a table row lights its mark`,
+    pass: !!litPin && litPin.getAttribute("data-residue") === "49",
+    detail: litPin ? `lit residue ${litPin.getAttribute("data-residue")}` : "no mark lit",
+  });
+  row49?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }));
+
+  // 3: the layer toggle takes the bars away and brings them back.
+  const toggle = host.querySelector<HTMLButtonElement>('[data-testid="layer-variants"]');
+  const barsBefore = host.querySelectorAll('[data-testid="arch-dens-bar"]').length;
+  toggle?.click();
+  await nextFrame();
+  const barsOff = host.querySelectorAll('[data-testid="arch-dens-bar"]').length;
+  const pressedOff = toggle?.getAttribute("aria-pressed");
+  toggle?.click();
+  await nextFrame();
+  const barsOn = host.querySelectorAll('[data-testid="arch-dens-bar"]').length;
+  out.push({
+    name: `${c.id}: the Disease variants layer toggle hides and restores the bars`,
+    pass: barsBefore > 0 && barsOff === 0 && pressedOff === "false" && barsOn === barsBefore,
+    detail: `${barsBefore} bars, ${barsOff} when off (aria-pressed ${pressedOff}), ${barsOn} restored`,
+  });
+
+  // 4: arrow keys step through the marks in reading order; the first is the lowest residue drawn (N-acetylalanine at 2).
+  const drawing = host.querySelector<HTMLElement>('[data-testid="domain-architecture"]');
+  drawing?.focus();
+  drawing?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+  await nextFrame();
+  const selected = host.querySelector<HTMLElement>('tr[data-testid="annotation-row"][data-selected]');
+  const status = (host.querySelector('[role="status"].sr-only')?.textContent ?? "").trim();
+  out.push({
+    name: `${c.id}: the right arrow key selects the first mark and announces it`,
+    pass: !!selected && /^modified residue-2-2-/.test(selected.getAttribute("data-row-key") ?? "") && status.length > 0,
+    detail: selected ? `selected "${selected.getAttribute("data-row-key")}", announced "${status}"` : "nothing selected",
+  });
+
+  // 5: dragging along the axis zooms to that range (40 to 100).
+  s = sNow();
+  const zone = host.querySelector<SVGRectElement>('[data-testid="arch-axis-brush"]');
+  if (typeof s !== "string" && zone) {
+    const box = s.svg.getBoundingClientRect();
+    const at = (r: number) => box.left + expectedX(s as Schematic, r);
+    const y = zone.getBoundingClientRect().top + 8;
+    // A frame between the events, as a hand has: the drag reads its state from the last render.
+    zone.dispatchEvent(pointer("pointerdown", at(40), y));
+    await nextFrame();
+    zone.dispatchEvent(pointer("pointermove", at(100), y));
+    await nextFrame();
+    zone.dispatchEvent(pointer("pointerup", at(100), y));
+    await nextFrame();
+    await nextFrame();
+  }
+  const after = sNow();
+  const custom = host.querySelector('[data-testid="zoom-custom"]')?.textContent ?? "";
+  out.push({
+    name: `${c.id}: dragging along the axis zooms to the dragged range`,
+    pass: typeof after !== "string" && Math.abs(after.window.start - 40) <= 1 && Math.abs(after.window.end - 100) <= 1 && /–/.test(custom),
+    detail: typeof after === "string" ? after : `window ${after.window.start}–${after.window.end}, button "${custom}"`,
+  });
+  return out;
+}
+
 async function runFamily(name: PerCase, c: Case, host: HTMLElement): Promise<Check[]> {
   const s = readSchematic(host);
   if (typeof s === "string") return family(name, Array.from({ length: FAMILY_SIZE[name] }, () => ({ name: `${c.id}: ${name}`, pass: false, detail: s })));
@@ -576,6 +762,7 @@ async function runFamily(name: PerCase, c: Case, host: HTMLElement): Promise<Che
     case "zoom": return family(name, await checkZoom(c, host));
     case "view": return family(name, checkView(c, s, host));
     case "membrane": return family(name, checkMembrane(c, s));
+    case "dense": return family(name, checkDense(c, s, host));
     default: {
       const unhandled: never = name;
       return [{ name: `harness: ${String(unhandled)} has no runner`, pass: false, detail: "declared but not wired" }];
@@ -642,6 +829,7 @@ function App(): React.ReactElement {
             await nextFrame();
           }
           for (const f of planFamilies(c)) checks.push(...(await runFamily(f, c, host)));
+          if (c.interact) checks.push(...family("interact", await checkInteract(c, host)));
           publish(checks);
         }
         const expected = expectedCheckCount();

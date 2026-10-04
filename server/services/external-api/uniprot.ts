@@ -701,6 +701,8 @@ export interface UniprotFeaturesResult {
   entryVersion?: number | null;
   lastAnnotationUpdate?: string | null;
   secondaryStructure?: SecondaryStructureElement[];
+  /** The entry's single mature chain, when it has exactly one (see `UniprotFeaturesData.processedChain`). */
+  processedChain?: { start: number; end: number } | null;
   domainMatches?: DomainMatch[];
   /**
    * `ok`: UniParc answered. `error`: it did not (a gap in this run, never cached). `unsupported`: the
@@ -779,6 +781,25 @@ function readEvidence(f: any): UniprotFeatureEvidence[] {
  * `sequenceFeatures` are the InterProScan matches themselves — database, signature, InterPro entry and
  * locations — on the same host as every other UniProt call, so no new provider is involved.
  */
+/** InterPro entry accession → entry type (`domain`, `family`, `homologous_superfamily`, `binding_site`…). */
+async function fetchInterproEntryTypes(accession: string, options?: UniprotCacheOptions): Promise<Map<string, string>> {
+  const resp = await fetchWithRetry(
+    `https://www.ebi.ac.uk/interpro/api/entry/interpro/protein/uniprot/${encodeURIComponent(accession)}?page_size=100`,
+    { headers: { Accept: "application/json" }, timeout: 8000, cappedByCaller: true, ...(options?.signal ? { signal: options.signal } : {}) },
+    1, // `retries` is the attempt count: one try, never a retry loop for an enrichment
+    0
+  );
+  const out = new Map<string, string>();
+  if (!resp.ok) return out;
+  const json = (await resp.json()) as any;
+  for (const r of Array.isArray(json?.results) ? json.results : []) {
+    const acc = r?.metadata?.accession;
+    const type = r?.metadata?.type;
+    if (typeof acc === "string" && typeof type === "string") out.set(acc, type);
+  }
+  return out;
+}
+
 export async function fetchUniparcDomainMatches(
   accession: string,
   options?: UniprotCacheOptions
@@ -796,6 +817,10 @@ export async function fetchUniparcDomainMatches(
   );
   if (!resp.ok) throw new Error(`UniParc lookup failed with status ${resp.status}`);
   const json = (await resp.json()) as any;
+  // The entry type (domain, family, binding_site…) decides how a match is drawn. UniParc does not carry it,
+  // so it is read from InterPro once per protein; a miss leaves `entryType` unset and the tab falls back to
+  // the database's own convention, it never fails the match list.
+  const entryTypes = await fetchInterproEntryTypes(accession, options).catch(() => new Map<string, string>());
   const matches: DomainMatch[] = [];
   for (const sf of Array.isArray(json?.sequenceFeatures) ? json.sequenceFeatures : []) {
     const database = typeof sf?.database === "string" ? sf.database : null;
@@ -810,6 +835,7 @@ export async function fetchUniparcDomainMatches(
       database,
       accession: acc,
       interpro: typeof ipr?.id === "string" ? { id: ipr.id, name: typeof ipr.name === "string" ? ipr.name : ipr.id } : null,
+      ...(typeof ipr?.id === "string" && entryTypes.has(ipr.id) ? { entryType: entryTypes.get(ipr.id) } : {}),
       locations,
     });
   }
@@ -998,6 +1024,11 @@ export async function fetchUniprotFeatures(
         const lastAnnotationUpdate = typeof json?.entryAudit?.lastAnnotationUpdateDate === "string" ? json.entryAudit.lastAnnotationUpdateDate : null;
 
         const uniparcResult = await uniparc;
+        const chainFeatures = rawFeatures.filter((f: any) => f?.type === "Chain");
+        const processedChain =
+          chainFeatures.length === 1 && Number.isFinite(chainFeatures[0]?.location?.start?.value) && Number.isFinite(chainFeatures[0]?.location?.end?.value)
+            ? { start: Number(chainFeatures[0].location.start.value), end: Number(chainFeatures[0].location.end.value) }
+            : null;
 
         const result: UniprotFeaturesResult = {
           features, geneName, subunitComment, isMultimer, sequenceLength, interactionPartners,
@@ -1005,6 +1036,7 @@ export async function fetchUniprotFeatures(
           entryVersion,
           lastAnnotationUpdate,
           secondaryStructure,
+          processedChain,
           domainMatches: uniparcResult.ok ? uniparcResult.value.matches : [],
           domainMatchesStatus: uniparcResult.ok ? "ok" : uniparcResult.unsupported ? "unsupported" : "error",
           uniparcId: uniparcResult.ok ? uniparcResult.value.uniparcId : null,

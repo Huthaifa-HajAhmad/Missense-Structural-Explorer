@@ -332,3 +332,54 @@
   .fnd-seg, .fnd-button { display: none; }
   .fnd-table-wrap { overflow: visible; }
 }
+
+/* ── Layers, density, lanes, linked hover, brush ────────────── */
+.fnd-layer {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 8px 0 4px;
+  border: 0; border-radius: 999px; background: none; cursor: pointer;
+  font: inherit; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary);
+}
+.fnd-layer:hover { background: color-mix(in srgb, var(--cs-accent) 6%, transparent); }
+.fnd-layer:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.fnd-layer[aria-pressed="false"] { color: var(--cs-text-muted); }
+.fnd-layer[aria-pressed="false"] .fnd-key { opacity: 0.35; }
+.fnd-layer__n { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+.fnd-key[data-kind="site"],
+.fnd-key[data-kind="lane-sites"] { width: 8px; height: 8px; border-radius: 1px; transform: rotate(45deg); background: var(--cs-surface); border-color: var(--cs-text-primary); }
+.fnd-key[data-kind="lane-modifications"] { width: 7px; height: 7px; background: var(--cs-text-muted); border-color: var(--cs-text-muted); }
+.fnd-key[data-kind="lane-mutagenesis"] { width: 3px; height: 10px; border: 0; border-radius: 1px; background: var(--cs-text-secondary); }
+.fnd-key[data-kind="motif"] { width: 14px; height: 4px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--cs-accent-clay) 55%, var(--cs-surface)); }
+
+.fnd-hint { margin: 0; padding: 0 20px 12px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+.fnd-arch:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 6px; }
+
+.fnd-arch__motif rect { fill: color-mix(in srgb, var(--cs-accent-clay) 55%, var(--cs-surface)); }
+.fnd-arch__motif[data-covers] rect { fill: var(--cs-accent-clay); }
+
+.fnd-arch__dens-base { stroke: var(--cs-border); stroke-width: 1; }
+.fnd-arch__dens { cursor: pointer; }
+.fnd-arch__dens rect:not(.fnd-arch__hit) { fill: color-mix(in srgb, var(--cs-text-danger) 78%, var(--cs-surface)); stroke: none; }
+.fnd-arch__dens[data-query] rect:not(.fnd-arch__hit) { fill: var(--cs-accent-clay); }
+.fnd-arch__dens[data-lit] rect:not(.fnd-arch__hit) { stroke: var(--cs-text-primary); stroke-width: 1.5; }
+.fnd-arch__dens[data-selected] rect:not(.fnd-arch__hit) { stroke: var(--cs-accent-clay); stroke-width: 2.5; }
+
+.fnd-arch__bond { cursor: pointer; }
+.fnd-arch__bond path { fill: none; stroke: var(--cs-text-muted); stroke-width: 1.25; stroke-linejoin: round; }
+.fnd-arch__bond[data-lit] path { stroke: var(--cs-text-primary); stroke-width: 1.75; }
+.fnd-arch__bond[data-selected] path { stroke: var(--cs-accent-clay); stroke-width: 2.25; }
+
+.fnd-arch__pin[data-shape="circle"][data-tone="experimental"] circle { fill: var(--cs-text-primary); stroke: var(--cs-text-primary); }
+.fnd-arch__pin[data-shape="circle"][data-tone="inferred"] circle { fill: var(--cs-surface); stroke: var(--cs-text-primary); }
+.fnd-arch__pin[data-shape="circle"][data-tone="uncited"] circle { fill: var(--cs-text-muted); stroke: var(--cs-text-muted); }
+.fnd-arch__pin[data-lit] circle,
+.fnd-arch__pin[data-lit] rect:not(.fnd-arch__hit) { stroke: var(--cs-text-primary); stroke-width: 2.5; }
+.fnd-arch__pin[data-lit] .fnd-arch__text { fill: var(--cs-text-primary); font-weight: 600; }
+.fnd-arch__region[data-lit] rect,
+.fnd-arch__tm[data-lit] rect { stroke: var(--cs-text-primary); stroke-width: 2; }
+
+.fnd-arch__brushzone { fill: transparent; cursor: ew-resize; touch-action: none; }
+.fnd-arch__brush { fill: color-mix(in srgb, var(--cs-accent-clay) 14%, transparent); stroke: var(--cs-accent-clay); stroke-width: 1; pointer-events: none; }
+.fnd-arch__overview[data-brushable] { cursor: ew-resize; touch-action: none; }
+
+.fnd-table tr[data-lit] > * { background: color-mix(in srgb, var(--cs-accent) 5%, transparent); }
+.fnd-parts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }

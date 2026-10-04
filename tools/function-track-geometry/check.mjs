@@ -24,7 +24,7 @@ const root = path.resolve(here, "../..");
 const distIndex = path.join(here, "dist", "index.html");
 const shot = path.join(here, "function-track.png");
 /** Must match expectedCheckCount() in main.tsx: a shorter report means the run did not complete. */
-const EXPECTED_ASSERTIONS = 173;
+const EXPECTED_ASSERTIONS = 219;
 
 const CANDIDATES = [
   process.env.GEOMETRY_BROWSER,

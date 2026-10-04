@@ -21,6 +21,8 @@ the tab's wording are unit-tested in vitest (`src/components/evidence/function/_
 | `gzf1` | GZF1 Q9H116 p.Arg591Trp, "Whole protein" pressed | Ten adjacent zinc-finger regions: region-label collisions |
 | `slc12a4` | SLC12A4 Q9UP95 p.Gln867His, as the tab opens | A 1085 aa transporter opens on 817–917: the overview strip, the helix strip, the inside rail alone, a site label that must flip left at the window's edge |
 | `slc12a4-whole` | same, "Whole protein" pressed | Twelve numbered helices and ten topology rails, the helix strip hidden, a domain end number the variant's stem would cross |
+| `sod1` | SOD1 P00441 p.Ala5Val, 1010px | The dense case: 81 variants as a bar track (58 residues), 38 point marks in lanes by kind, PROSITE patterns as ticks, the disulfide as a bracket, and the interaction set |
+| `sod1-narrow` | same, 380px | Phone width: bars bin two residues, lanes keep their order, labels that do not fit are dropped |
 | `crowded` | synthetic | Six sites in eleven residues (tier overflow), a disulfide drawn as its two cysteines, PM1 met |
 
 The NAE1 fixture is shared with the vitest suites (`src/shared/__tests__/fixtures/nae1FunctionalDomains.ts`).
@@ -51,7 +53,7 @@ CNNM2 and GZF1 are the real feature tables the earlier track harness used.
   residue.
 
 Each family declares its size in `FAMILY_SIZE`; the run fails if a family produced a different
-number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (173). `TRACK_H=12000`
+number, or if the total differs from `EXPECTED_ASSERTIONS` in `check.mjs` (219). `TRACK_H=12000`
 with `TRACK_SHOT=1` makes the screenshot tall enough to show every case.
 
 ## Mutation-tested
@@ -79,3 +81,16 @@ with `TRACK_SHOT=1` makes the screenshot tall enough to show every case.
 Set `GEOMETRY_BROWSER=/path/to/chrome` if discovery fails. `TRACK_SHOT=1` also writes
 `function-track.png`. Running as root (some containers), Chromium needs `--no-sandbox`, which
 `check.mjs` does not pass; run as a normal user or add the flag locally.
+
+## Dense and interaction families (SOD1)
+
+- **dense** (`sod1`): one bar per disease-variant residue with the fixture's count and no disease pins; the variant's own bar
+  clay and a 3-variant bar three times a 1-variant bar; point marks in one lane per kind (sites over modifications over
+  mutagenesis) with the fixture's counts and no stems; both PROSITE patterns as ticks and the disulfide as one bracket.
+- **interact** (`sod1`, runs last because it changes the window): hovering a mark lights its row and the reverse; the
+  Disease variants layer toggle hides and restores the bars; the right arrow key selects the first mark and announces it; a
+  drag along the axis zooms to the dragged range.
+
+The browser must be focused for the focus-ring assertions (`:focus-visible` does not match in an unfocused tab). Where
+`msedge --headless --dump-dom` prints nothing (observed on one Windows machine), serve `dist/` with
+`python -m http.server` and read `#geometry-result` from any open page.

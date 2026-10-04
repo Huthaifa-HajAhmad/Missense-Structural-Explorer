@@ -32,6 +32,7 @@ import {
   evidenceLevelOf,
   featureCoversResidue,
   isDisulfide,
+  isMetalBindingSite,
   primaryCitation,
   type EvidenceLevel,
   type Pm1Assessment,
@@ -79,6 +80,17 @@ export interface AnnotationRow {
   /** Short label for the schematic ("R85Q", "K6ac", "UBA3 binding"). */
   shortLabel: string;
   disease: boolean;
+  /** The residue change of a natural variant or mutagenesis row ("A" → ["V"]). */
+  substitution: { from: string; to: string[] } | null;
+  /** What UniProt says beyond the disease name ("Severe form; reduces structural stability…"), dbSNP ids removed. */
+  detail: string | null;
+  /**
+   * The table row this mark belongs to. Equal to `key` except for natural variants, which the table folds to one
+   * row per residue ("Ala5 → Ser, Thr, Val"); the drawing keeps one mark per variant and points it at that row.
+   */
+  rowKey: string;
+  /** For a folded variant row: the per-substitution rows it stands for. */
+  parts: AnnotationRow[];
 }
 
 export interface DomainBox {
@@ -87,6 +99,8 @@ export interface DomainBox {
   source: string;
   accession: string;
   interpro: { id: string; name: string } | null;
+  /** InterPro entry type when InterPro answered (`domain`, `conserved_site`…). */
+  entryType: string | null;
   segments: Array<{ start: number; end: number }>;
   covers: boolean;
   /** Share of the protein the domain covers, 0–1. */
@@ -109,6 +123,22 @@ export interface TraceStep {
   warn?: boolean;
 }
 
+/** Disease-variant density, so a 154-residue protein with 81 variants is read as a distribution, not 81 pins. */
+export interface VariantDensity {
+  /** UniProt disease variants (one per substitution). */
+  total: number;
+  /** Distinct residues carrying one. */
+  residues: number;
+  /** Disease variants at the query residue (all substitutions). */
+  atResidue: number;
+  /** Disease variants within `nearWindow` residues of the query. */
+  near: number;
+  nearWindow: number;
+  /** The densest `densestWindow`-residue stretch. */
+  densest: { start: number; end: number; count: number } | null;
+  densestWindow: number;
+}
+
 export interface FunctionEvidence {
   residue: number;
   residueLabel: string;
@@ -119,6 +149,8 @@ export interface FunctionEvidence {
   availability: { state: "ok" | "running" | "error"; label: string; reason: string };
   domains: DomainBox[];
   structuralDomains: DomainBox[];
+  /** Short conserved-site signatures (PROSITE patterns, InterPro binding or active site entries): ticks, not boxes. */
+  motifs: DomainBox[];
   /** InterPro could not be read in this run (UniProt was). */
   interproMissing: boolean;
   rows: AnnotationRow[];
@@ -127,6 +159,13 @@ export interface FunctionEvidence {
   secondaryStructure: SecondaryStructureElement[];
   structureContext: { value: string; sub: string; sentence: string } | null;
   nearestDiseaseVariant: AnnotationRow | null;
+  /** The UniProt natural variant that is this exact change, when there is one. */
+  exactVariant: AnnotationRow | null;
+  /** Other UniProt variants at the same residue, context only. */
+  otherVariantsHere: AnnotationRow[];
+  density: VariantDensity;
+  /** The processed protein's number for the residue, when UniProt's chain starts after residue 1. */
+  matureNumbering: { residue: number; label: string; chainStart: number } | null;
   pm1: Pm1Assessment;
   verdict: Pm1Verdict;
   verdictLabel: string;
@@ -212,12 +251,20 @@ function tidyLigand(description: string): string | null {
   return m ? `${ionText(m[1])} binding` : null;
 }
 
-/** "in NEDFIH; dbSNP:rs123" → disease note "In NEDFIH"; a dbSNP-only record is a polymorphism. */
-function variantNote(description: string): { note: string; disease: boolean } {
-  const first = description.split(";")[0].trim();
+/**
+ * "in ALS1; severe form; reduces structural stability and enzymatic activity; dbSNP:rs121912444" →
+ * note "In ALS1", detail "Severe form; reduces structural stability and enzymatic activity".
+ * The detail used to be dropped (everything after the first `;`), which threw away the one sentence UniProt
+ * has on what the change does. A dbSNP-only record is a polymorphism; cross-reference ids are not detail.
+ */
+function variantNote(description: string): { note: string; detail: string | null; disease: boolean } {
+  const clauses = description.split(";").map((c) => c.trim()).filter(Boolean);
+  const first = clauses[0] ?? "";
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   const disease = /^in\s+(?!dbsnp)/i.test(first);
-  if (disease) return { note: first.charAt(0).toUpperCase() + first.slice(1), disease: true };
-  return { note: "Polymorphism", disease: false };
+  if (!disease) return { note: "Polymorphism", detail: null, disease: false };
+  const rest = clauses.slice(1).filter((c) => !/^[A-Za-z][\w-]*:\s*\S+$/.test(c));
+  return { note: cap(first), detail: rest.length ? cap(rest.join("; ")) : null, disease: true };
 }
 
 /** The modified residue's letter, from UniProt's own residue name ("N6-acetyllysine" → K). */
@@ -227,15 +274,46 @@ const RESIDUE_WORDS: Array<[RegExp, string]> = [
   [/asparagine/, "N"], [/glutamine/, "Q"], [/proline/, "P"], [/glycine/, "G"], [/tryptophan/, "W"],
 ];
 
+const CROSSLINK_PAIR = /interchain with ([A-Z])-(\d+)/i;
+
 function ptmShort(f: UniprotFeatureItem): string {
   const d = lower(f.description);
+  // A Trp–Trp cross-link between two chains is not a ubiquitination: "W33ub" was the label.
+  if (lower(f.type) === "cross-link") {
+    const pair = CROSSLINK_PAIR.exec(f.description ?? "");
+    const aa = /\(([a-z]{3})-[a-z]{3}\)/i.exec(f.description ?? "")?.[1];
+    const letter = aa ? one(aa) : RESIDUE_WORDS.find(([re]) => re.test(d))?.[1] ?? "";
+    if (/ubiquitin/.test(d)) return `${letter}${f.start}ub`;
+    if (/sumo/.test(d)) return `${letter}${f.start}su`;
+    if (pair) return `${letter}${f.start}–${pair[1].toUpperCase()}${pair[2]}`;
+    return `${letter}${f.start}xl`;
+  }
   const aa = RESIDUE_WORDS.find(([re]) => re.test(d))?.[1] ?? "";
   if (d.includes("acetyl")) return `${aa}${f.start}ac`;
   if (d.includes("phospho")) return `${aa}${f.start}p`;
   if (d.includes("methyl")) return `${aa}${f.start}me`;
-  if (d.includes("ubiquitin") || d.includes("sumo") || lower(f.type) === "cross-link") return `${aa}${f.start}ub`;
+  if (d.includes("ubiquitin") || d.includes("sumo")) return `${aa}${f.start}ub`;
   if (lower(f.type) === "glycosylation") return `${aa}${f.start}gly`;
   return `${aa}${f.start}`;
+}
+
+/** "Cu cation" / "Zn(2+)" as the symbol the drawing can afford: Cu, Zn²⁺. */
+function ligandShort(ligand: string): string {
+  return ionText(ligand).replace(/\s*cation$/i, "").trim();
+}
+
+/**
+ * Cross-link descriptions are ChEBI strings ("1-(tryptophan-3-yl)-tryptophan (Trp-Trp) (interchain with W-33)",
+ * "Glycyl lysine isopeptide (Lys-Gly) (interchain with G-Cter in ubiquitin)"); a reader needs what is joined to what.
+ */
+function tidyCrosslink(description: string): string {
+  const pair = /\(([A-Za-z]{3}-[A-Za-z]{3})\)/.exec(description)?.[1];
+  const partner = CROSSLINK_PAIR.exec(description);
+  if (/ubiquitin/i.test(description)) return "Isopeptide link to ubiquitin";
+  const sumo = /sumo\d?/i.exec(description)?.[0];
+  if (sumo) return `Isopeptide link to ${sumo.toUpperCase()}`;
+  if (pair && partner) return `${pair} cross-link, interchain with ${partner[1].toUpperCase()}-${partner[2]}`;
+  return description;
 }
 
 function citationFor(f: UniprotFeatureItem): AnnotationRow["citation"] {
@@ -257,7 +335,7 @@ function signedDistance(f: { type?: string; start: number; end: number }, residu
   return f.start > residue ? f.start - residue : -(residue - f.end);
 }
 
-const distanceText = (d: number, covers: boolean) => (covers ? "inside" : d > 0 ? `+${d}` : `−${Math.abs(d)}`);
+const distanceText = (d: number, covers: boolean) => (covers ? "0" : d > 0 ? `+${d}` : `−${Math.abs(d)}`);
 
 function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): AnnotationRow {
   const group = groupOf(f);
@@ -272,16 +350,31 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
   let lane: SchematicLane = "below";
   let disease = false;
 
+  let substitution: AnnotationRow["substitution"] = null;
+  let detail: string | null = null;
   if (group === "variants" || group === "mutagenesis") {
     const from = f.change?.from ?? "";
-    const to = f.change?.to?.[0] ?? "";
+    const toAll = f.change?.to ?? [];
+    const to = toAll[0] ?? "";
+    substitution = f.change ? { from, to: toAll } : null;
     const fromOne = from.length === 1 ? from : "";
     const toOne = to.length === 1 ? to : "";
-    name = fromOne && toOne ? `${title3(fromOne)}${f.start}${title3(toOne)}` : `Residue ${f.start}${f.end !== f.start ? `–${f.end}` : ""}`;
-    shortLabel = fromOne && toOne ? `${fromOne}${f.start}${toOne}` : `${f.start}`;
+    // A multi-residue mutagenesis (UniProt: FG → EE at 51–52) used to read "Residue 51–52" with no substitution.
+    const multi = from.length > 1 && from.length === to.length && f.end - f.start + 1 === from.length;
+    if (fromOne && toOne) {
+      name = `${title3(fromOne)}${f.start}${title3(toOne)}`;
+      shortLabel = `${fromOne}${f.start}${toOne}`;
+    } else if (multi) {
+      name = Array.from(from).map((a, i) => `${title3(a)}${f.start + i}${title3(to[i])}`).join(", ");
+      shortLabel = `${from}${f.start}${to}`;
+    } else {
+      name = `Residue ${f.start}${f.end !== f.start ? `–${f.end}` : ""}`;
+      shortLabel = `${f.start}`;
+    }
     if (group === "variants") {
       const v = variantNote(f.description || "");
       note = v.note;
+      detail = v.detail;
       disease = v.disease;
       lane = v.disease ? "above" : "none";
     } else {
@@ -292,6 +385,7 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
   } else if (group === "modifications") {
     shortLabel = ptmShort(f);
     note = f.type === "Modified residue" ? null : f.type;
+    if (t === "cross-link") name = tidyCrosslink(f.description || "") || name;
   } else if (group === "domains") {
     lane = "domain";
     note = "UniProtKB domain";
@@ -322,7 +416,7 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
     const ligand = tidyLigand(f.description || "");
     if (ligand) {
       name = ligand;
-      if (f.start === f.end) shortLabel = ligand;
+      if (f.start === f.end) shortLabel = ligandShort(ligand.replace(/ binding$/, ""));
     }
   }
 
@@ -341,12 +435,18 @@ function rowFromFeature(f: UniprotFeatureItem, residue: number, idx: number): An
     distance,
     distanceText: distanceText(distance, covers),
     evidence: level,
-    evidenceLabel: EVIDENCE_LEVEL_LABEL[level],
+    // ECO:0000269 on a site is an observation in this protein; on a natural variant it is a publication that
+    // reports the change. "Experimental" there reads as a functional assay (PS3), which it is not.
+    evidenceLabel: group === "variants" && level !== "none" ? "Reported" : EVIDENCE_LEVEL_LABEL[level],
     citation: citationFor(f),
     evidenceCodes: Array.from(new Set((f.evidence ?? []).map((e) => e.code))),
     lane,
     shortLabel,
     disease,
+    substitution,
+    detail,
+    rowKey: `${t}-${f.start}-${f.end}-${idx}`,
+    parts: [],
   };
 }
 
@@ -354,6 +454,24 @@ function domainUrl(m: DomainMatch): string | null {
   if (m.interpro) return `https://www.ebi.ac.uk/interpro/entry/InterPro/${encodeURIComponent(m.interpro.id)}/`;
   if (m.database === "Pfam") return `https://www.ebi.ac.uk/interpro/entry/pfam/${encodeURIComponent(m.accession)}/`;
   return null;
+}
+
+/** What a match is drawn as. InterPro's entry type decides when it is known; the database is only the fallback. */
+type MatchKind = "domain" | "structural" | "motif" | "family";
+const MOTIF_ENTRY_TYPES = ["conserved_site", "binding_site", "active_site", "ptm"];
+
+export function kindOfMatch(m: Pick<DomainMatch, "database" | "accession" | "entryType">): MatchKind {
+  if (STRUCTURAL_DATABASES.includes(m.database)) return "structural";
+  if (m.entryType) {
+    if (MOTIF_ENTRY_TYPES.includes(m.entryType)) return "motif";
+    // Only a member database that models a domain is drawn as one, and only when InterPro agrees it is a domain:
+    // CDD, SUPFAM and PRINTS carry the same InterPro entry as Pfam and would draw it again.
+    return DOMAIN_DATABASES.includes(m.database) && (m.entryType === "domain" || m.entryType === "repeat") ? "domain" : "family";
+  }
+  // No entry type (InterPro unread): PROSITE patterns are PS00xxx, profiles PS50xxx. A pattern is a short signature,
+  // and was drawn as a domain box nested inside the Pfam box.
+  if (m.database === "PROSITE" && /^PS00\d{3}$/.test(m.accession)) return "motif";
+  return DOMAIN_DATABASES.includes(m.database) ? "domain" : "family";
 }
 
 function boxFromMatch(m: DomainMatch, residue: number, length: number): DomainBox {
@@ -365,6 +483,7 @@ function boxFromMatch(m: DomainMatch, residue: number, length: number): DomainBo
     source: m.database,
     accession: m.accession,
     interpro: m.interpro,
+    entryType: m.entryType ?? null,
     segments: [...m.locations].sort((a, b) => a.start - b.start || a.end - b.end),
     covers: m.locations.some((l) => residue >= l.start && residue <= l.end),
     coverage: length > 0 ? Math.min(1, covered / length) : 0,
@@ -457,11 +576,14 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // Domains: InterPro member-database matches when UniParc answered, UniProt's own Domain features always.
   const matches = uniprot?.domainMatches ?? [];
   const interproMissing = !!uniprot && uniprot.domainMatchesStatus !== "ok";
-  const domainBoxes = matches.filter((m) => DOMAIN_DATABASES.includes(m.database)).map((m) => boxFromMatch(m, residue, length));
-  const structural = matches.filter((m) => STRUCTURAL_DATABASES.includes(m.database)).map((m) => boxFromMatch(m, residue, length));
-  const familyMatches = matches
-    .filter((m) => !DOMAIN_DATABASES.includes(m.database) && !STRUCTURAL_DATABASES.includes(m.database))
-    .map((m) => boxFromMatch(m, residue, length));
+  const boxesOf = (kind: ReturnType<typeof kindOfMatch>) => matches.filter((m) => kindOfMatch(m) === kind).map((m) => boxFromMatch(m, residue, length));
+  const domainBoxes = boxesOf("domain");
+  const structural = boxesOf("structural");
+  const motifs = boxesOf("motif");
+  const familyMatches = boxesOf("family");
+  // A structural segment spanning 80% or more of the chain in one piece (Gene3D 2-154 of SOD1) places nothing; it
+  // stays in the table and is not drawn. Two segments with a gap between them (NAE1) say something and are drawn.
+  const structuralDrawn = structural.filter((b) => !b.segments.some((seg) => length > 0 && (seg.end - seg.start + 1) / length >= 0.8));
   const uniprotDomainBoxes: DomainBox[] = features
     .filter((f) => lower(f.type) === "domain")
     .map((f, i) => ({
@@ -470,6 +592,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       source: "UniProtKB",
       accession: f.interproId ?? "",
       interpro: null,
+      entryType: null,
       segments: [{ start: f.start, end: f.end }],
       covers: featureCoversResidue(f, residue),
       coverage: (f.end - f.start + 1) / length,
@@ -478,7 +601,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // Draw InterPro domain boxes when there are any; else UniProt's. Both are listed in the table.
   const domains = domainBoxes.length ? domainBoxes : uniprotDomainBoxes;
 
-  const domainRows: AnnotationRow[] = [...domainBoxes, ...structural].map((b) => {
+  const domainRows: AnnotationRow[] = [...domainBoxes, ...structural, ...motifs].map((b) => {
     const nearest = b.segments.reduce((best, s) => {
       const d = signedDistance({ start: s.start, end: s.end }, residue);
       return Math.abs(d) < Math.abs(best) ? d : best;
@@ -487,7 +610,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       key: `match-${b.key}`,
       group: "domains" as const,
       name: b.name,
-      note: `${b.interpro ? `${b.source} ${b.accession} · InterPro ${b.interpro.id}` : STRUCTURAL_DATABASES.includes(b.source) ? "Structural domain, CATH" : `${b.source} ${b.accession}`}${b.segments.length > 1 ? ` · ${b.segments.length} segments` : ""}`,
+      note: `${b.interpro ? `${b.source} ${b.accession} · InterPro ${b.interpro.id}` : STRUCTURAL_DATABASES.includes(b.source) ? "Structural domain, CATH" : `${b.source} ${b.accession}`}${motifs.includes(b) ? " · conserved-site signature" : ""}${b.segments.length > 1 ? ` · ${b.segments.length} segments` : ""}`,
       type: b.source,
       start: b.segments[0].start,
       end: b.segments[b.segments.length - 1].end,
@@ -503,13 +626,48 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       lane: "none" as const,
       shortLabel: b.name,
       disease: false,
+      substitution: null,
+      detail: null,
+      rowKey: `match-${b.key}`,
+      parts: [],
     };
   });
   const allRows = [...domainRows, ...rows];
+
+  // Natural variants: the drawing keeps one mark per variant, the table folds them to one row per residue
+  // ("Ala5 -> Ser, Thr, Val", 3 reports) so 81 variants are not 81 rows that each repeat "In ALS1" and the level.
+  const variantParts = rows.filter((r) => r.group === "variants");
+  const foldedVariants: AnnotationRow[] = [];
+  for (const at of Array.from(new Set(variantParts.map((r) => r.start))).sort((a, b) => a - b)) {
+    const parts = variantParts.filter((r) => r.start === at);
+    const first = parts[0];
+    const tos = parts.map((r) => (r.substitution?.to[0] ? title3(r.substitution.to[0]) : "")).filter(Boolean);
+    const from = first.substitution?.from;
+    const notes = Array.from(new Set(parts.map((r) => r.note).filter((n): n is string => !!n)));
+    const cites = parts.map((r) => r.citation).filter((c): c is NonNullable<AnnotationRow["citation"]> => !!c);
+    const key = `variants-${at}`;
+    const folded: AnnotationRow = {
+      ...first,
+      key,
+      rowKey: key,
+      name: from && tos.length ? `${title3(from)}${at} → ${tos.join(", ")}` : first.name,
+      note: notes.join(" · ") || null,
+      detail: null,
+      evidenceCodes: Array.from(new Set(parts.flatMap((r) => r.evidenceCodes))),
+      citation: cites.length ? { label: cites.length > 1 ? `${cites[0].label} +${cites.length - 1}` : cites[0].label, url: cites[0].url } : null,
+      shortLabel: parts.map((r) => r.shortLabel).join(", "),
+      disease: parts.some((r) => r.disease),
+      lane: "none",
+      parts,
+    };
+    foldedVariants.push(folded);
+    for (const part of parts) part.rowKey = key;
+  }
+  const tableRows = [...domainRows, ...rows.filter((r) => r.group !== "variants"), ...foldedVariants];
   const groups = GROUP_ORDER.map((g) => ({
     group: g,
     label: ANNOTATION_GROUP_LABEL[g],
-    rows: allRows.filter((r) => r.group === g).sort((a, b) => a.start - b.start || a.end - b.end),
+    rows: tableRows.filter((r) => r.group === g).sort((a, b) => a.start - b.start || a.end - b.end),
     summary: null as string | null,
   })).filter((g) => g.rows.length > 0);
 
@@ -526,7 +684,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const atResidue = allRows.filter((r) => {
     if (!r.covers) return false;
     if (r.group === "domains" && r.evidence === "match") {
-      const box = [...domainBoxes, ...structural].find((b) => `match-${b.key}` === r.key);
+      const box = [...domainBoxes, ...structural, ...motifs].find((b) => `match-${b.key}` === r.key);
       return box ? !broad(box) : true;
     }
     return r.group !== "composition";
@@ -534,7 +692,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // A topological span or region covering a third of the chain is context for the residue, not a site at it.
   const isBroadRow = (r: AnnotationRow) => r.group !== "domains" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
   const contextAtResidue = atResidue.filter(isBroadRow);
-  const specificAtResidue = atResidue.filter((r) => r.group !== "domains" && !isBroadRow(r));
+  // A natural variant is not a functional annotation of the residue, and counting the query's own variant
+  // ("Residue 5 carries 3 annotations: Ala5Ser and others") annotates the variant with itself.
+  const specificAtResidue = atResidue.filter((r) => r.group !== "domains" && r.group !== "variants" && !isBroadRow(r));
 
   const secondaryStructure = uniprot?.secondaryStructure ?? [];
   const ssContext = structureContext(secondaryStructure, residue);
@@ -543,7 +703,54 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const nearestDiseaseVariant = diseaseRows.length
     ? diseaseRows.reduce((a, b) => (Math.abs(b.distance) < Math.abs(a.distance) ? b : a))
     : null;
-  const sameResidueDisease = rows.filter((r) => r.disease && r.start === residue);
+  // The exact change, not the first variant at the position: UniProt lists A5S, A5T and A5V at SOD1 residue 5,
+  // and the finding named A5S for a query of A5V.
+  const variantsHere = rows.filter((r) => r.group === "variants" && r.start === residue);
+  const wt1 = one(input.wildType);
+  const exactVariant = mut1
+    ? variantsHere.find((r) => r.substitution?.to.includes(mut1) && (!r.substitution.from || !wt1 || r.substitution.from === wt1)) ?? null
+    : null;
+  const otherVariantsHere = variantsHere.filter((r) => r !== exactVariant);
+  const sameResidueDisease = variantsHere.filter((r) => r.disease);
+
+  // Density, so the reader sees a distribution rather than N identical marks.
+  const perResidue = new Map<number, number>();
+  for (const r of rows) if (r.disease) perResidue.set(r.start, (perResidue.get(r.start) ?? 0) + 1);
+  const DENSEST_WINDOW = 15;
+  const NEAR_WINDOW = 10;
+  let densest: VariantDensity["densest"] = null;
+  for (const start of perResidue.keys()) {
+    let count = 0;
+    for (let r2 = start; r2 < start + DENSEST_WINDOW; r2++) count += perResidue.get(r2) ?? 0;
+    if (!densest || count > densest.count || (count === densest.count && start < densest.start)) densest = { start, end: Math.min(length, start + DENSEST_WINDOW - 1), count };
+  }
+  const density: VariantDensity = {
+    total: rows.filter((r) => r.disease).length,
+    residues: perResidue.size,
+    atResidue: perResidue.get(residue) ?? 0,
+    near: Array.from(perResidue.entries()).filter(([r2]) => Math.abs(r2 - residue) <= NEAR_WINDOW).reduce((n, [, c]) => n + c, 0),
+    nearWindow: NEAR_WINDOW,
+    densest,
+    densestWindow: DENSEST_WINDOW,
+  };
+  const variantGroup = groups.find((g) => g.group === "variants");
+  if (variantGroup && density.total > 0) {
+    const poly = rows.filter((r) => r.group === "variants" && !r.disease).length;
+    variantGroup.summary = `${density.total} disease${poly ? `, ${poly} polymorphism${poly === 1 ? "" : "s"}` : ""} · ${density.near} within ${NEAR_WINDOW} of ${residue}${density.densest && density.total >= 12 ? ` · densest ${density.densest.start}–${density.densest.end} (${density.densest.count})` : ""}`;
+  }
+
+  // The processed protein's number: UniProt's chain starts after residue 1 (initiator Met removed, signal peptide
+  // cleaved), and the literature often numbers from there (SOD1 p.Ala5Val is "A4V").
+  const chains = (uniprot?.features ?? []).filter((f) => lower(f.type) === "chain");
+  const chainStart = uniprot?.processedChain?.start ?? (chains.length === 1 ? chains[0].start : 0);
+  const matureNumbering =
+    chainStart > 1 && residue >= chainStart && Number.isFinite(residue)
+      ? {
+          residue: residue - chainStart + 1,
+          label: `${wt1}${residue - chainStart + 1}${mut1}`,
+          chainStart,
+        }
+      : null;
 
   // PM1: the engine's record, cross-checked with the shared rule.
   const pp3Code = input.engineCriteria?.map((c) => c?.code ?? "").find((c) => c.toUpperCase().startsWith("PP3")) ?? null;
@@ -596,6 +803,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   } else if (coveringDomain) {
     lead = `Residue ${residue} lies ${domainPhrase}, but no site, region or modification is annotated at it.`;
     sub = `inside the ${coveringDomain.name}, nothing annotated at the residue`;
+  } else if (variantsHere.length) {
+    lead = `No site, region or modification is annotated at residue ${residue}.`;
+    sub = "natural variants only";
   } else {
     lead = `UniProtKB annotates nothing at residue ${residue}.`;
     sub = domains.length ? "outside every annotated domain" : "no domain, site or modification annotated here";
@@ -605,30 +815,62 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     const c = contextAtResidue[0];
     restParts.push(`It lies in the ${c.name.toLowerCase()} ${c.type.toLowerCase()} (${c.residuesText}), a broad span rather than a site.`);
   }
-  if (uniprot && ssContext) restParts.push(ssContext.sentence);
+  const ssSentence = uniprot && ssContext ? ssContext.sentence : null;
+  const ssAt = restParts.length;
   // D2: mutagenesis at this very residue is a different substitution, so it is named but never counted.
   const mutagenesisHere = rows.filter((r) => r.group === "mutagenesis" && r.start === residue && r.end === residue);
   if (mutagenesisHere.length) {
     const m = mutagenesisHere[0];
     restParts.push(`UniProt lists mutagenesis at this residue (${m.name}${m.note ? `: ${m.note.charAt(0).toLowerCase()}${m.note.slice(1)}` : ""}); it is a different substitution and is not counted for PM1.`);
   }
-  if (sameResidueDisease.length) restParts.push(`UniProt lists a disease variant at this same residue (${sameResidueDisease[0].name}, ${sameResidueDisease[0].note}).`);
-  else if (nearestDiseaseVariant)
+  const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+  if (exactVariant) {
+    const cite = exactVariant.citation ? `, ${exactVariant.citation.label}` : "";
+    const what = exactVariant.disease
+      ? `a disease variant (${[exactVariant.note, exactVariant.detail ? lowerFirst(exactVariant.detail) : null].filter(Boolean).join("; ")}${cite})`
+      : `a polymorphism${cite ? ` (${cite.slice(2)})` : ""}`;
+    restParts.push(`UniProt lists this exact change, ${exactVariant.name}, as ${what}.`);
+    if (otherVariantsHere.length) {
+      restParts.push(`Other changes here: ${otherVariantsHere.map((o) => o.name).join(", ")} (context, not scored).`);
+    }
+  } else if (sameResidueDisease.length) {
+    restParts.push(`UniProt lists a different disease variant at this residue (${sameResidueDisease.map((o) => o.name).join(", ")}, ${sameResidueDisease[0].note}); this exact change is not listed.`);
+  } else if (nearestDiseaseVariant)
     restParts.push(
       `The nearest known disease variant, ${nearestDiseaseVariant.name}, is ${Math.abs(nearestDiseaseVariant.distance)} residues ${nearestDiseaseVariant.distance < 0 ? "upstream" : "downstream"}.`
     );
+  // The change itself comes before the fold it sits in; the neighbourhood sentence stays first when no variant is at the residue.
+  if (ssSentence) restParts.splice(variantsHere.length ? restParts.length : ssAt, 0, ssSentence);
 
   // Facts: domain, structure, nearest disease variant, engine record.
   const facts: FunctionFact[] = [
     coveringDomain
       ? { label: "Domain", value: shortDomainName(coveringDomain.name), sub: `${coveringDomain.source} ${segText(coveringDomain)}, ${Math.round(coveringDomain.coverage * 100)}% of the protein` }
-      : { label: "Domain", value: uniprot ? "None at this residue" : "—", sub: uniprot ? (domains.length ? `${domains.length} annotated elsewhere` : interproMissing ? "UniProtKB; InterPro not read" : "UniProtKB and InterPro") : availability.label },
+      : {
+          label: "Domain",
+          value: uniprot ? "None at this residue" : "—",
+          sub: uniprot
+            ? [
+                domains.length ? `${domains.length} annotated elsewhere` : null,
+                structural.find((b) => b.covers && b.coverage >= 0.8) ? `only a whole-chain ${structural.find((b) => b.covers && b.coverage >= 0.8)!.source} segment covers it` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || (interproMissing ? "UniProtKB; InterPro not read" : "UniProtKB and InterPro")
+            : availability.label,
+        },
     ssContext
       ? { label: "Structure", value: ssContext.value, sub: ssContext.sub }
       : { label: "Structure", value: "Not annotated", sub: "no PDB-derived secondary structure" },
     nearestDiseaseVariant || sameResidueDisease.length
-      ? sameResidueDisease.length
-        ? { label: "Disease variant here", value: sameResidueDisease[0].shortLabel, sub: sameResidueDisease[0].note ?? "UniProtKB", mono: true }
+      ? exactVariant?.disease
+        ? {
+            label: "Disease variant here",
+            value: exactVariant.shortLabel,
+            sub: `${exactVariant.note ?? "UniProtKB"}${otherVariantsHere.length ? ` · ${otherVariantsHere.length} ${otherVariantsHere.length === 1 ? "other" : "others"} at ${residue}` : ""}`,
+            mono: true,
+          }
+        : sameResidueDisease.length
+        ? { label: "Same residue", value: sameResidueDisease.map((r) => r.shortLabel).join(", "), sub: `other changes, ${sameResidueDisease[0].note ?? "UniProtKB"}`, mono: true }
         : {
             label: "Nearest disease variant",
             value: nearestDiseaseVariant!.shortLabel,
@@ -674,6 +916,19 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       rest: `Its evidence is ${EVIDENCE_LEVEL_LABEL[pm1.notCounted[0].level].toLowerCase()}, not an observation in this protein.`,
     });
   }
+  if (matureNumbering) {
+    caveats.push({
+      lead: `Older literature may call this ${matureNumbering.label}.`,
+      rest: `UniProt's chain starts at residue ${matureNumbering.chainStart}, so the processed protein numbers every residue ${matureNumbering.chainStart - 1} lower (residue ${residue} is ${matureNumbering.residue}). This page and the report use the canonical numbering.`,
+    });
+  }
+  // A12: a protein dense with disease variants reads as a PM1 hot spot; PM1 here tests sites only.
+  if (uniprot && density.total >= 10) {
+    caveats.push({
+      lead: `UniProtKB lists ${density.total} disease variants across ${density.residues} residues.`,
+      rest: `${density.near} lie within ${density.nearWindow} residues of ${residue}. PM1's hot-spot reading, a cluster of pathogenic variants with no benign variation, is not tested here, so density alone is not read as PM1.`,
+    });
+  }
   // D1: PM1 asks for a region without benign variation but does not test it. Show the one population
   // measure the payload has, as context with no cut-point of its own.
   const rc = input.regionalConstraint;
@@ -696,6 +951,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     ["glycosylation", ["glycosylation"]],
     ["signal peptide", ["signal"]],
   ];
+  // Metal ligation is a `Binding site` with an ion ligand since 2022; keying on the retired `Metal binding` type
+  // told SOD1's reader "Not annotated: metal binding" beside eight Cu/Zn sites.
+  if (features.some(isMetalBindingSite)) present.add("metal binding");
   const notAnnotated = uniprot ? kinds.filter(([, types]) => !types.some((t) => present.has(t))).map(([label]) => label) : [];
   if (domains.length && notAnnotated[0] === "domains") notAnnotated.shift();
 
@@ -716,7 +974,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     uniprot
       ? specificAtResidue.length
         ? { text: `${specificAtResidue.map((r) => r.name).join(", ")} cover${specificAtResidue.length === 1 ? "s" : ""} residue ${residue}.`, strong: "" }
-        : { text: coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `Nothing covers residue ${residue}.`, strong: "" }
+        : { text: coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `No site, region or specific domain covers residue ${residue}.`, strong: "" }
       : { text: "Nothing is claimed about the residue until the record arrives.", strong: "" },
     {
       text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting only evidence observed in this protein (experimental, structure or large-scale study):`,
@@ -752,7 +1010,8 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     uniprotId: input.uniprotId ?? "",
     availability,
     domains,
-    structuralDomains: structural,
+    structuralDomains: structuralDrawn,
+    motifs,
     interproMissing,
     rows: allRows,
     groups,
@@ -760,6 +1019,10 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     secondaryStructure,
     structureContext: ssContext,
     nearestDiseaseVariant,
+    exactVariant,
+    otherVariantsHere,
+    density,
+    matureNumbering,
     pm1,
     verdict,
     verdictLabel,

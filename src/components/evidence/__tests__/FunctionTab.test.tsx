@@ -75,7 +75,7 @@ describe("FunctionTab", () => {
     const onSelectResidue = vi.fn();
     const onNavigateToView = vi.fn();
     renderTab(resultFor(), { onSelectResidue, onNavigateToView, active3dModelTab: "alphafold2" });
-    fireEvent.click(screen.getByRole("button", { name: /Arg85Gln/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Arg85 → Gln/ }));
     const detail = screen.getByTestId("annotation-detail");
     expect(detail.textContent).toMatch(/ECO:0000269/);
     expect(within(detail).getByRole("link", { name: /PubMed 36608681/ }).getAttribute("href")).toBe("https://pubmed.ncbi.nlm.nih.gov/36608681/");

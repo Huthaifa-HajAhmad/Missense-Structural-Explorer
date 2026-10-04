@@ -105,6 +105,19 @@ export function primaryCitation(evidence: UniprotFeatureEvidence[] | undefined):
 /** Levels that count as observed in this protein, and so may raise PM1. */
 export const PM1_EVIDENCE_LEVELS: ReadonlySet<EvidenceLevel> = new Set(["experimental", "structure", "proteomics"]);
 
+/**
+ * Since 2022 UniProt records metal ligation as `Binding site` with a ligand ("Ligand: Zn(2+)", "Ligand: Cu cation"),
+ * not as the retired `Metal binding` type. SOD1's eight Cu/Zn ligands were listed as sites yet the tab's foot said
+ * "Not annotated: metal binding". Ions and iron-sulfur clusters count; ATP, heme and other organic ligands do not.
+ */
+const METAL_LIGAND = /\b(?:zn|cu|fe|mg|ca|mn|co|ni|cd|hg|k|na|li|mo|w|v|pb)\s*(?:\(\d?[+-]\)|cation)|\[\d*fe-\d*s\]/i;
+
+export function isMetalBindingSite(f: { type?: string; description?: string }): boolean {
+  const t = (f.type ?? "").toLowerCase();
+  if (t === "metal binding") return true;
+  return t === "binding site" && METAL_LIGAND.test(f.description ?? "");
+}
+
 export function isDisulfide(f: { type?: string }): boolean {
   return (f.type ?? "").toLowerCase() === "disulfide bond";
 }

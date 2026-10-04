@@ -93,7 +93,9 @@ export function buildUniprotFeaturesKey(uniprotId: string): string {
   // interaction partners. Retire them without bumping every other source's schema.
   // `fd1`: entries written before evidence tags, secondary structure and UniParc domain matches were
   // read carry none of them, so the Functional domains tab would call every site "no evidence cited".
-  return `uniprot_features_${clean}_subunit2_fd1_schema:${CACHE_SCHEMA_VERSION}`;
+  // `fd2`: entries written before the InterPro entry type and the processed chain were read draw PROSITE patterns as
+  // domain boxes and cannot give the mature-chain number (SOD1 p.Ala5Val is "A4V" in the literature).
+  return `uniprot_features_${clean}_subunit2_fd2_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildUniprotSequenceKey(uniprotId: string): string {

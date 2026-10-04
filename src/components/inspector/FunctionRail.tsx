@@ -30,7 +30,9 @@ function Step({ n, warn, children }: { n: number; warn?: boolean; children: Reac
 
 export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const ev = buildFunctionEvidence(functionEvidenceInputFrom(analysisResult));
-  const levelsHere = new Set(ev.rows.filter((r) => r.evidence !== "match").map((r) => r.evidence));
+  // Natural variants are left out: ECO:0000269 on a variant is a publication reporting it, not an observation
+  // of a site, and listing it as "Experimental, counts for PM1" implied the variant rows were evidence for PM1.
+  const levelsHere = new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence));
 
   return (
     <div className="fnd-rail" data-testid="function-rail">
@@ -79,7 +81,7 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
           <BookOpen className="w-3.5 h-3.5" />
           Method
         </h3>
-        <details className="fnd-notes" open>
+        <details className="fnd-notes">
           <summary>How to read this tab</summary>
           <ul>
             <li>
@@ -89,6 +91,14 @@ export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResul
             </li>
             <li>PP3 and PM1 together are capped at Strong (Pejaver 2022). PM1 is withheld when PP3 alone already reaches Strong.</li>
             <li>A disulfide bond covers its two cysteines, not the residues between them.</li>
+            <li>
+              A natural variant&apos;s evidence is the publication that reports it, not a functional assay (PS3). The count of
+              variants near the residue is context: PM1&apos;s hot-spot reading is not tested.
+            </li>
+            <li>
+              InterPro&apos;s entry type decides how a match is drawn: a domain is a box, a conserved-site signature (a PROSITE
+              pattern) is a tick, a family or superfamily is listed below and not drawn.
+            </li>
             <li>Distances are in sequence, not in space. A residue far away in sequence can still touch a site in the fold.</li>
             <li>
               A family-level match covering most of the protein (an 80% cut) says little about one position and is not counted
