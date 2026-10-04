@@ -139,3 +139,30 @@ describe("FunctionTab - a new variant does not inherit the last one's window or 
     expect(screen.getByTestId("domain-architecture").querySelector("svg")?.getAttribute("data-window")).toBe("1-534");
   });
 });
+
+describe("FunctionTab - text and controls around the drawing", () => {
+  it("puts the zoom control above the drawing and the drag instruction on the axis, with no caption paragraphs below", () => {
+    const { container } = renderTab(sod1());
+    const figure = container.querySelector("figure")!;
+    const kids = Array.from(figure.children);
+    const bar = kids.findIndex((k) => k.classList.contains("fnd-figure-block__bar"));
+    const drawing = kids.findIndex((k) => k.getAttribute("data-testid") === "domain-architecture");
+    expect(bar).toBeGreaterThanOrEqual(0);
+    expect(bar).toBeLessThan(drawing);
+    expect(figure.querySelector(".fnd-seg")?.closest(".fnd-figure-block__bar")).not.toBeNull();
+    expect(figure.querySelector("figcaption")).toBeNull();
+    expect(figure.querySelector(".fnd-hint")).toBeNull();
+    expect(figure.querySelector("svg .fnd-arch__hint")?.textContent).toMatch(/Drag along the axis to zoom/);
+  });
+
+  it("does not repeat the finding as a second line beside the residue", () => {
+    const { container } = renderTab(sod1());
+    expect(container.querySelector(".fnd-hero__sub")).toBeNull();
+    expect(container.textContent).not.toMatch(/natural variants only/);
+  });
+
+  it("says what the variant group's two counts are", () => {
+    renderTab(sod1());
+    expect(screen.getByText(/81 disease variants at 58 residues/)).toBeTruthy();
+  });
+});

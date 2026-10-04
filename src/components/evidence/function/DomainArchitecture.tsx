@@ -387,8 +387,23 @@ export function DomainArchitecture({
             </g>
           ))}
         </g>
+        {L.hiddenLabels > 0 && (() => {
+          const full = `${L.hiddenLabels} unlabelled \u00b7 hover a mark`;
+          const short = `${L.hiddenLabels} unlabelled`;
+          const room = L.x1 - (L.x0 + 190);
+          const text = full.length * 10.5 * 0.58 < room ? full : short.length * 10.5 * 0.58 < room ? short : null;
+          return text ? (
+            <text x={L.x1} y={L.axisY + 33} textAnchor="end" className="fnd-arch__text" data-tone="muted" fontSize={10.5} data-testid="arch-hidden-labels">
+              {text}
+            </text>
+          ) : null;
+        })()}
         {onWindow && (
           <g data-testid="arch-brush">
+            {/* The instruction is on the thing it instructs: the axis row. */}
+            <text x={L.x0} y={L.axisY + 33} className="fnd-arch__text fnd-arch__hint" data-tone="muted" fontSize={10.5} aria-hidden="true">
+              {"\u2194 Drag along the axis to zoom"}
+            </text>
             {brush?.src === "axis" && (
               <rect
                 x={brushX(Math.min(brush.from, brush.to))}
@@ -402,7 +417,7 @@ export function DomainArchitecture({
               x={L.x0}
               y={L.axisY - 6}
               width={L.x1 - L.x0}
-              height={26}
+              height={44}
               className="fnd-arch__brushzone"
               data-testid="arch-axis-brush"
               onPointerDown={(e) => beginBrush(e, svgRef.current, L.x0, L.x1, win.start, win.end, "axis")}
@@ -416,11 +431,6 @@ export function DomainArchitecture({
       {win.start > 1 || win.end < ev.length ? (
         <Overview ev={ev} width={width} win={win} onWindow={onWindow} brush={brush} onBegin={beginBrush} onMove={moveBrush} onEnd={endBrush} />
       ) : null}
-      {L.hiddenLabels > 0 && (
-        <p className="fnd-arch__hidden" data-testid="arch-hidden-labels">
-          {L.hiddenLabels} label{L.hiddenLabels === 1 ? "" : "s"} left off where marks sit too close to name. Hover a mark, zoom in, or read them in the table below.
-        </p>
-      )}
       <p className="sr-only" role="status" aria-live="polite">
         {announce}
       </p>

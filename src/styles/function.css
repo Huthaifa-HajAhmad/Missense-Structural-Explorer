@@ -83,11 +83,15 @@
 .fnd-verdict[data-unconfirmed] { border-style: dashed; border-color: color-mix(in srgb, var(--cs-accent-clay) 55%, transparent); }
 
 .fnd-figure-block { margin: 0; border-top: 1px solid var(--cs-border-subtle); }
-.fnd-caption { margin: 0; padding: 0 20px 4px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+/* The controls sit above the drawing they change: layers on the left, the window on the right. */
 .fnd-figure-block__bar {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
-  padding: 6px 20px 14px;
+  padding: 10px 20px 2px;
 }
+.fnd-figure-block__bar > .fnd-legend { flex: 1 1 0; min-width: 0; }
+.fnd-figure-block__bar > .fnd-seg { flex: none; margin-left: auto; }
+.fnd-arch__hint { letter-spacing: 0.01em; }
+.fnd-arch__brushzone:hover ~ .fnd-arch__hint { fill: var(--cs-text-secondary); }
 
 .fnd-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .fnd-legend > li { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -198,7 +202,6 @@
 .fnd-arch__ov-query { fill: var(--cs-accent-clay); stroke: var(--cs-surface); stroke-width: 1.5; }
 .fnd-arch__axis line { stroke: var(--cs-border); }
 .fnd-arch__axis g line { stroke: var(--cs-text-muted); }
-.fnd-arch__hidden { margin: 0; padding: 0 20px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 /* ── Annotation table ───────────────────────────────────────── */
 .fnd-table-wrap { overflow-x: auto; }
@@ -350,7 +353,6 @@
 .fnd-key[data-kind="lane-mutagenesis"] { width: 3px; height: 10px; border: 0; border-radius: 1px; background: var(--cs-text-secondary); }
 .fnd-key[data-kind="motif"] { width: 14px; height: 4px; border: 0; border-radius: 2px; background: color-mix(in srgb, var(--cs-accent-clay) 55%, var(--cs-surface)); }
 
-.fnd-hint { margin: 0; padding: 0 20px 12px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .fnd-arch:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 6px; }
 
 .fnd-arch__motif rect { fill: color-mix(in srgb, var(--cs-accent-clay) 55%, var(--cs-surface)); }
