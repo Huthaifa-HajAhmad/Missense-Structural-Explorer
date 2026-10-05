@@ -7,7 +7,7 @@ import { RESIDUE_SCALE_SOURCES } from "../../shared/residueScales";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { Prose } from "../ui/Prose";
 import { ResidueGlyph } from "./residue/ResidueGlyph";
-import { PropertyDumbbell } from "./residue/PropertyDumbbell";
+import { PropertyDumbbell, PropertyScaleReference } from "./residue/PropertyDumbbell";
 import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 
 /**
@@ -69,7 +69,7 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
         <h2 className="eyebrow" id="rsx-finding-title">Structural context · not an ACMG input</h2>
         <span className="ev-tier" data-tone="muted">Informational</span>
       </div>
-      <div className="rsx-hero__body rsx-hero__body--split">
+      <div className={`rsx-hero__body rsx-hero__body--split${model.glyph ? "" : " rsx-hero__body--single"}`}>
         <div className="rsx-hero__copy">
           <div className="rsx-pair">
             <span className="rsx-pair__fig" data-testid="residue-pair">
@@ -149,7 +149,6 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
                       row={row}
                       wildType={pair.wildType}
                       mutant={pair.mutant}
-                      contextTicks={model.scaleContext[row.key]}
                     />
                   </td>
                   <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
@@ -191,6 +190,11 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
         <span>
           Shift is the share of each scale&apos;s range. The scales describe the two residues, not an effect on this protein.
         </span>
+        {properties && (
+          <PropertyScaleReference
+            items={properties.map(row => ({ key: row.key, label: row.label, ticks: model.scaleContext[row.key] }))}
+          />
+        )}
       </div>
     </section>
   );
@@ -307,7 +311,7 @@ function Environment({
                         />
                       </td>
                       <td className="rsx-num rsx-end">{packing.valueLabel}</td>
-                      <td className="rsx-end rsx-reason">Reading only</td>
+                      <td className="rsx-end rsx-reason">Does not decide burial</td>
                     </>
                   ) : (
                     <td colSpan={3} className="rsx-reason">Not reported.</td>
@@ -377,7 +381,7 @@ function Environment({
                         : "This result does not say whether the score is a probability"}
                   </td>
                   <td className="rsx-num rsx-end">{pocket.ranking.display ?? "Not reported"}</td>
-                  <td className="rsx-end rsx-reason">Profile-specific estimate</td>
+                  <td className="rsx-end rsx-reason">No local band</td>
                 </tr>
                 <tr data-testid="pocket-volume-row">
                   <td>
@@ -394,7 +398,7 @@ function Environment({
                         ? pocket.volume.surfacePoints
                         : "Not reported"}
                   </td>
-                  <td className="rsx-end rsx-reason">{pocket.volume.isMeasured ? pocket.volume.label : "Surface points"}</td>
+                  <td className="rsx-end rsx-reason">{pocket.volume.isMeasured ? "Measured geometry" : "Count, not volume"}</td>
                 </tr>
               </>
             ) : (

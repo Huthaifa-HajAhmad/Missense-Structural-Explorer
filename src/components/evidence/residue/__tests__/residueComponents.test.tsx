@@ -3,7 +3,7 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ResidueGlyph } from "../ResidueGlyph";
-import { PropertyDumbbell } from "../PropertyDumbbell";
+import { PropertyDumbbell, PropertyScaleReference } from "../PropertyDumbbell";
 import { PocketDistanceStrip } from "../PocketDistanceStrip";
 import { diffSideChains } from "../../../../shared/sideChainTopology";
 import type { BiochemicalContrastRow, PocketStrip, ScaleTick } from "../../../../shared/residueContextEvidence";
@@ -98,7 +98,6 @@ describe("PropertyDumbbell", () => {
         row={diffRow}
         wildType="Asp"
         mutant="Gly"
-        contextTicks={mockTicks}
       />
     );
 
@@ -107,9 +106,13 @@ describe("PropertyDumbbell", () => {
     expect(container.querySelector(".rsx-track__span")).not.toBeInTheDocument();
     expect(container.querySelector(".rsx-track__same")).not.toBeInTheDocument();
 
-    // The other amino-acid values remain exact and keyboard reachable without drawing a
-    // cut-point-like tick for every distinct value on the quantitative axis.
     expect(container.querySelectorAll(".rsx-track__context-tick")).toHaveLength(0);
+    expect(container.querySelector("details")).not.toBeInTheDocument();
+  });
+
+  it("keeps exact amino-acid reference values in one keyboard-reachable card disclosure", () => {
+    render(<PropertyScaleReference items={[{ key: "charge", label: "Net charge", ticks: mockTicks }]} />);
+
     const reference = screen.getByText("Reference values for other amino acids").closest("details");
     expect(reference).not.toBeNull();
     expect(reference).toHaveTextContent("D, E: −1");
@@ -123,7 +126,6 @@ describe("PropertyDumbbell", () => {
         row={sameRow}
         wildType="Ala"
         mutant="Val"
-        contextTicks={mockTicks}
       />
     );
 
