@@ -441,9 +441,9 @@
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 20px; align-items: start;
   padding: 12px 16px; border-bottom: 1px solid var(--cs-border-subtle);
 }
-/* The track is capped so the longest bar ends near the card's edge: without it a 1fr track stretched
-   the whole card and left a long empty run of pixels to the right of every short bar. */
-.ifc-tiers { display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 620px; }
+/* The chart spans the card like the table below it: the tier grid's 1fr bar track ends at the count
+   column, so the longest bar reaches the card's edge and no run of empty pixels is left to its right. */
+.ifc-tiers { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ifc-tiers__band {
   display: flex; flex-direction: column; gap: 1px;
   padding: 5px 8px; margin: 0 -8px; border-radius: 8px;
@@ -462,7 +462,7 @@
   font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
   font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary);
 }
-.ifc-tiers__band-meta { flex: 1 1 100%; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+.ifc-tiers__band-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ifc-tier {
   display: grid; grid-template-columns: 176px minmax(60px, 1fr) 52px; align-items: center; gap: 10px;
   min-height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none;
@@ -476,6 +476,7 @@
 .ifc-tiers__band[data-band="binding"] .ifc-tier__label { color: var(--cs-text-primary); }
 .ifc-tiers__band[data-band="association"] .ifc-tier__label { color: var(--cs-text-muted); }
 .ifc-tier__bar { position: relative; height: 8px; border-radius: 2px; background: color-mix(in srgb, var(--cs-text-secondary) 8%, transparent); }
+.ifc-tier__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
 /* Binding evidence carries the stronger ink, association the muted ink: the band a reader must not
    confuse is legible before the label is read. */
 .ifc-tiers__band[data-band="binding"] .ifc-tier__fill { background: var(--cs-text-primary); }
@@ -485,7 +486,8 @@
   justify-self: end; font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
   font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary);
 }
-.ifc-partners__tools { display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 6px; }
+/* The search is a visible field with the clear button inside it; "Show all" sits beneath. */
+.ifc-partners__tools { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .ifc-search {
   display: inline-flex; align-items: center; gap: 6px; width: 200px; min-height: 32px; padding: 0 10px;
   border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input, 8px); background: var(--cs-surface); color: var(--cs-text-muted);
@@ -503,20 +505,7 @@
 }
 .ifc-search__clear:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent); }
 .ifc-search__clear:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
-/* Collapsed search: a square icon button that expands into the input. */
-.ifc-search--toggle { width: 32px; padding: 0; justify-content: center; cursor: pointer; }
-.ifc-search--toggle:hover { background: color-mix(in srgb, var(--cs-text-secondary) 6%, var(--cs-surface)); color: var(--cs-text-secondary); }
-.ifc-search--toggle:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
-/* Band label row in the partner grid: the same hierarchy as the tier chart, carried below it. */
-.ifc-band > th { padding: 14px 16px 4px !important; background: transparent !important; }
-.ifc-band[data-band="association"] > th { background: var(--cs-surface-2) !important; }
-.ifc-band__title {
-  font-family: var(--cs-font-sans); font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
-  letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-secondary);
-}
-.ifc-band[data-band="association"] .ifc-band__title { color: var(--cs-text-muted); }
-.ifc-band__meta { margin-left: 10px; font-size: var(--cs-font-size-caption); font-weight: 400; color: var(--cs-text-muted); }
 .ifc-species { margin-left: 2px; font-family: var(--cs-font-sans); font-weight: 400; }
 
 .ifc-fold > td { padding-top: 9px; padding-bottom: 9px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
@@ -534,7 +523,8 @@
 
 @container (max-width: 720px) {
   .ifc-partners__head { grid-template-columns: 1fr; }
-  .ifc-partners__tools { justify-content: flex-start; }
+  .ifc-partners__tools { align-items: stretch; }
+  .ifc-search { width: auto; }
   .ifc-tier { grid-template-columns: 128px minmax(56px, 1fr) 44px; gap: 8px; }
   .ifc-tiers__band-meta { display: none; }
 }

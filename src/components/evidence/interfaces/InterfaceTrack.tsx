@@ -24,13 +24,13 @@ import type { InterfacesEvidence, TrackLane } from "../../../shared/interfacesEv
  * HTML with percentage positions rather than SVG, so labels stay crisp at any column width.
  */
 
-function niceTicks(length: number): number[] {
-  const steps = [50, 100, 200, 250, 500, 1000, 2000, 5000];
-  const step = steps.find(s => length / s <= 6) ?? 10000;
+function niceTicks(length: number, step: number): number[] {
   const out: number[] = [];
   for (let v = step; v < length - step * 0.4; v += step) out.push(v);
   return out;
 }
+
+const TICK_STEPS = [50, 100, 200, 250, 500, 1000, 2000, 5000];
 
 /** Consecutive residues with the same weight as one element, so a 40-residue interface is not 40 nodes. */
 function runs(marks: TrackLane["marks"]): Array<{ start: number; end: number; weight: number; title: string }> {
@@ -43,6 +43,30 @@ function runs(marks: TrackLane["marks"]): Array<{ start: number; end: number; we
     } else out.push({ start: m.residue, end: m.residue, weight: m.weight, title: m.title });
   }
   return out;
+}
+
+/**
+ * The axis ticks, given the sequence length and the variant position (or null).
+ *
+ * The ruler's label is an opaque chip sitting on the axis row from the ruler line rightwards, so a
+ * tick under it is invisible ink, not a tick (RGS9 Cys182 covered "200"). Ticks it would cover are
+ * not drawn; and if that leaves fewer than two readable ticks the axis re-reads at the next smaller
+ * step, so a long protein's axis never reads emptier than the ruler that crosses it.
+ */
+export function trackTicks(length: number, position: number | null): number[] {
+  const pct = (v: number) => ((v - 1) / Math.max(1, length - 1)) * 100;
+  const variantPct = position ? pct(position) : null;
+  const clearOfLabel = (ts: number[]) =>
+    ts.filter(t => {
+      if (variantPct === null) return true;
+      const p = pct(t);
+      return p < variantPct - 0.6 || p > variantPct + 6;
+    });
+  const i = TICK_STEPS.findIndex(s => length / s <= 6);
+  const step = i === -1 ? 10000 : TICK_STEPS[i];
+  const first = clearOfLabel(niceTicks(length, step));
+  if (variantPct !== null && first.length < 2 && i > 0) return clearOfLabel(niceTicks(length, TICK_STEPS[i - 1]));
+  return first;
 }
 
 interface LinkProps {
@@ -118,6 +142,7 @@ export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvide
   const length = Math.max(ev.sequenceLength ?? 0, maxSeen);
   const pct = (v: number) => ((v - 1) / Math.max(1, length - 1)) * 100;
   const variantPct = ev.position ? pct(ev.position) : null;
+  const ticks = trackTicks(length, ev.position ?? null);
   const solvedHidden = ev.observed.partners.length - ev.track.filter(l => l.kind === "solved" && !l.key.endsWith(":fibril")).length;
 
   return (
@@ -126,12 +151,15 @@ export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvide
         <div className="ifc-track__label" />
         <div className="ifc-track__axis">
           <span data-edge="start">1</span>
-          {niceTicks(length).map(t => (
+          {ticks.map(t => (
             <span key={t} style={{ left: `${pct(t)}%` }}>{t}</span>
           ))}
           <span data-edge="end" style={{ left: "100%" }}>{length}</span>
         </div>
-        <span className="ifc-track__readout ifc-track__readout--head">{ev.track.some(l => l.readout) ? ev.residueLabel : ""}</span>
+        {/* The variant's label rides the axis row's right end (the readout head), the design's
+            signature for "this ruler is the variant" — it showed only when a lane had a readout, so a
+            not-measured protein (RGS9) lost it and the ruler label alone carried the residue. */}
+        <span className="ifc-track__readout ifc-track__readout--head">{ev.position ? ev.residueLabel : ""}</span>
       </div>
 
       <div className="ifc-track__body">
