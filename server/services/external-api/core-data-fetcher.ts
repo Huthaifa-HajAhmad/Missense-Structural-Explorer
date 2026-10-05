@@ -288,7 +288,8 @@ async function runCoreFetch(
   /** Budget for a source on the core critical path. */
   const CORE_BUDGET_MS = coreTimeoutMs;
   /** Budget for the ESM-2 triage, which is allowed to answer later than the cheap sources. */
-  const DEEP_MODEL_BUDGET_MS = 15000;
+  /** Scaled for long proteins (>500 residues), whose CPU forward pass needs more time. */
+  const DEEP_MODEL_BUDGET_MS = sequence.length > 500 ? 25000 : 15000;
 
   let clinvarHasError = false;
   const clinvarPromise = timeTask("clinvar", (prefetched?.clinvarPromise || fetchClinVarData(gene, variant, originalNotation)).catch(err => {

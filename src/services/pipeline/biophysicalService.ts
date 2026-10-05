@@ -154,7 +154,7 @@ export async function fetchBiophysicalAnalysis(
                   offsetMs: offsetMs + taskOffset,
                   durationMs: taskDurationMs,
                   status: isFail ? "failed" : isUnavailable ? "unavailable" : "success",
-                  meta: { serviceKey: key, status: statuses?.[key] || "ok" }
+                  meta: { serviceKey: key, status: statuses?.[key] || "ok", tier: key === "esm2" ? "fast-triage" : undefined }
                 });
               }
             });
@@ -391,6 +391,13 @@ export function fetchProgressiveStructuralAssessments(
             meta: { serviceKey: key, status: outcome, modelProvenance: observation.provenance }
           });
         }
+      }
+      if ((structRes.esm2Eval?.state === "computed" || typeof structRes.esm2Eval?.llr === "number") && traceContext?.activeTraceId && traceContext.updateTraceSpan) {
+        traceContext.updateTraceSpan(traceContext.activeTraceId, "↳ Zero-Shot ESM-2 Masked Marginal Likelihood", {
+          status: "success",
+          name: "↳ Zero-Shot ESM-2 Masked Marginal Likelihood (superseded by ESM-2 650M)",
+          meta: { serviceKey: "esm2", status: "superseded", supersededBy: "esm2Eval" }
+        });
       }
       addStructuralSpan(failedModels.length === modelEntries.length ? "unavailable" : "success");
 

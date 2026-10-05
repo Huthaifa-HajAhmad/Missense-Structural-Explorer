@@ -27,6 +27,7 @@ class VesmRequest(BaseModel):
     wt: str
     mut: str
     biohubToken: str | None = None
+    includeEmbeddings: bool = True
 
 class VesmPreferenceItem(BaseModel):
     aa: str
@@ -82,7 +83,7 @@ def predict_vesm_sync(req: VesmRequest):
             protein = ESMProtein(sequence=sequence)
             protein_tensor = client.encode(protein)
             
-            config = LogitsConfig(sequence=True, return_embeddings=True)
+            config = LogitsConfig(sequence=True, return_embeddings=req.includeEmbeddings)
             logits_output = client.logits(protein_tensor, config)
             
             seq_logits = None
@@ -97,12 +98,15 @@ def predict_vesm_sync(req: VesmRequest):
             else:
                 raise ValueError("Could not find sequence logits in client response")
 
-            raw_embs = getattr(logits_output, "embeddings", None)
-            if raw_embs is not None:
-                raw_embs_tensor = torch.tensor(raw_embs) if not isinstance(raw_embs, torch.Tensor) else raw_embs
-                embeddings = raw_embs_tensor[0] if raw_embs_tensor.ndim > 2 else raw_embs_tensor
-            else:
-                raise ValueError("Could not find embeddings in client response")
+            embeddings = None
+            if req.includeEmbeddings:
+                raw_embs = getattr(logits_output, "embeddings", None)
+                if raw_embs is not None:
+                    raw_embs_tensor = torch.tensor(raw_embs) if not isinstance(raw_embs, torch.Tensor) else raw_embs
+                    embeddings = raw_embs_tensor[0] if raw_embs_tensor.ndim > 2 else raw_embs_tensor
+                else:
+                    raise ValueError("Could not find embeddings in client response")
+
             vocab_map = {}
             if hasattr(client, "tokenizer") and client.tokenizer:
                 try:
@@ -124,35 +128,38 @@ def predict_vesm_sync(req: VesmRequest):
                 logits, pos, wt, mut, vocab_map
             )
 
-            mut_seq_chars = list(sequence)
-            mut_seq_chars[pos - 1] = mut
-            mut_sequence = "".join(mut_seq_chars)
-            mut_protein = ESMProtein(sequence=mut_sequence)
-            mut_protein_tensor = client.encode(mut_protein)
-            
-            mut_logits_output = client.logits(mut_protein_tensor, config)
-            raw_mut_embs = getattr(mut_logits_output, "embeddings", None)
-            if raw_mut_embs is not None:
-                raw_mut_embs_tensor = torch.tensor(raw_mut_embs) if not isinstance(raw_mut_embs, torch.Tensor) else raw_mut_embs
-                mut_embeddings = raw_mut_embs_tensor[0] if raw_mut_embs_tensor.ndim > 2 else raw_mut_embs_tensor
-            else:
-                raise ValueError("Could not find mutant embeddings in client response")
-
-            diff = embeddings - mut_embeddings
-            distances = torch.norm(diff, p=2, dim=-1)
-            embedding_shift = round(distances[pos].item(), 4)
-            
+            embedding_shift = None
             local_shift_map = []
-            for i in range(-10, 11):
-                target_pos = pos + i
-                if 1 <= target_pos < len(sequence) - 1:
-                    shift_val = distances[target_pos].item()
-                    res_char = sequence[target_pos - 1]
-                    local_shift_map.append({
-                        "position": target_pos,
-                        "residue": res_char,
-                        "shift": round(shift_val, 4)
-                    })
+
+            if req.includeEmbeddings and embeddings is not None:
+                mut_seq_chars = list(sequence)
+                mut_seq_chars[pos - 1] = mut
+                mut_sequence = "".join(mut_seq_chars)
+                mut_protein = ESMProtein(sequence=mut_sequence)
+                mut_protein_tensor = client.encode(mut_protein)
+                
+                mut_logits_output = client.logits(mut_protein_tensor, config)
+                raw_mut_embs = getattr(mut_logits_output, "embeddings", None)
+                if raw_mut_embs is not None:
+                    raw_mut_embs_tensor = torch.tensor(raw_mut_embs) if not isinstance(raw_mut_embs, torch.Tensor) else raw_mut_embs
+                    mut_embeddings = raw_mut_embs_tensor[0] if raw_mut_embs_tensor.ndim > 2 else raw_mut_embs_tensor
+                else:
+                    raise ValueError("Could not find mutant embeddings in client response")
+
+                diff = embeddings - mut_embeddings
+                distances = torch.norm(diff, p=2, dim=-1)
+                embedding_shift = round(distances[pos].item(), 4)
+                
+                for i in range(-10, 11):
+                    target_pos = pos + i
+                    if 1 <= target_pos < len(sequence) - 1:
+                        shift_val = distances[target_pos].item()
+                        res_char = sequence[target_pos - 1]
+                        local_shift_map.append({
+                            "position": target_pos,
+                            "residue": res_char,
+                            "shift": round(shift_val, 4)
+                        })
 
             return {
                 "status": "success",
@@ -197,36 +204,42 @@ def predict_vesm_sync(req: VesmRequest):
             logits[0], token_idx, wt, mut, vocab_map
         )
 
-        wt_inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
-        mut_seq_chars = list(sequence)
-        mut_seq_chars[pos - 1] = mut
-        mut_seq = "".join(mut_seq_chars)
-        mut_inputs = models.vesm_tokenizer(mut_seq, return_tensors="pt")
-
-        with torch.no_grad():
-            wt_outputs = models.vesm_model(**wt_inputs, output_hidden_states=True)
-            mut_outputs = models.vesm_model(**mut_inputs, output_hidden_states=True)
-            
-            wt_emb = wt_outputs.hidden_states[-1][0]
-            mut_emb = mut_outputs.hidden_states[-1][0]
-            
-            seq_len = min(wt_emb.size(0), mut_emb.size(0))
-            diff = wt_emb[:seq_len] - mut_emb[:seq_len]
-            distances = torch.norm(diff, p=2, dim=-1)
-
-        embedding_shift = round(distances[pos].item(), 4)
-        
+        embedding_shift = None
         local_shift_map = []
-        for i in range(-10, 11):
-            target_pos = pos + i
-            if 1 <= target_pos < seq_len - 1:
-                shift_val = distances[target_pos].item()
-                res_char = sequence[target_pos - 1]
-                local_shift_map.append({
-                    "position": target_pos,
-                    "residue": res_char,
-                    "shift": round(shift_val, 4)
-                })
+
+        # Optimization: Only run the two expensive unmasked forward passes (WT and Mutant)
+        # when the caller actually needs embeddings. Triage evaluation (LLR only) skips them,
+        # yielding a ~3x speedup on CPU.
+        if req.includeEmbeddings:
+            wt_inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
+            mut_seq_chars = list(sequence)
+            mut_seq_chars[pos - 1] = mut
+            mut_seq = "".join(mut_seq_chars)
+            mut_inputs = models.vesm_tokenizer(mut_seq, return_tensors="pt")
+
+            with torch.no_grad():
+                wt_outputs = models.vesm_model(**wt_inputs, output_hidden_states=True)
+                mut_outputs = models.vesm_model(**mut_inputs, output_hidden_states=True)
+                
+                wt_emb = wt_outputs.hidden_states[-1][0]
+                mut_emb = mut_outputs.hidden_states[-1][0]
+                
+                seq_len = min(wt_emb.size(0), mut_emb.size(0))
+                diff = wt_emb[:seq_len] - mut_emb[:seq_len]
+                distances = torch.norm(diff, p=2, dim=-1)
+
+            embedding_shift = round(distances[pos].item(), 4)
+            
+            for i in range(-10, 11):
+                target_pos = pos + i
+                if 1 <= target_pos < seq_len - 1:
+                    shift_val = distances[target_pos].item()
+                    res_char = sequence[target_pos - 1]
+                    local_shift_map.append({
+                        "position": target_pos,
+                        "residue": res_char,
+                        "shift": round(shift_val, 4)
+                    })
 
         return {
             "status": "success",

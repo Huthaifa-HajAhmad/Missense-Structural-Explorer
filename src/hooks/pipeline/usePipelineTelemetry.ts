@@ -15,8 +15,9 @@ export function usePipelineTelemetry() {
     activeTraceId: activeTraceIdRef.current,
     traceStart: traceStartRef.current,
     addTraceSpan,
+    updateTraceSpan,
     finishTraceRun
-  }), [addTraceSpan, finishTraceRun]);
+  }), [addTraceSpan, updateTraceSpan, finishTraceRun]);
 
   const startPipelineTrace = useCallback((query: string) => {
     const traceId = startTraceRun(query || "Variant Analysis");

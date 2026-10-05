@@ -28,7 +28,9 @@ export async function runEsm2Eval(
   const cached = esm2Cache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  // Try HTTP first
+  // Try HTTP first with fast triage settings (skip unused unmasked embedding passes).
+  // Dynamically allocate budget for long sequences (>500 residues).
+  const httpTimeoutMs = seq.length > 500 ? 25000 : 15000;
   try {
     const res = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/vesm`, {
       method: "POST",
@@ -36,8 +38,8 @@ export async function runEsm2Eval(
         "Content-Type": "application/json",
         "X-Sidecar-Secret": process.env.SIDECAR_SECRET || ""
       },
-      body: JSON.stringify({ sequence: seq, position: pos, wt, mut }),
-      signal: AbortSignal.timeout(15000)
+      body: JSON.stringify({ sequence: seq, position: pos, wt, mut, includeEmbeddings: false }),
+      signal: AbortSignal.timeout(httpTimeoutMs)
     });
     if (res.ok) {
       const parsed = await res.json();
