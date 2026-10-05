@@ -41,7 +41,21 @@ export async function runSasaEval(
 
   try {
     const pythonScript = path.join(process.cwd(), "tools", "sasa_eval.py");
-    const { stdout } = await execFileAsync("python", ["-m", "uv", "run", pythonScript, pdbPath, chain, position.toString()], {
+    // The production image deliberately ships the tools virtualenv.  Calling
+    // `python -m uv` bypassed it: Debian's system Python does not have uv installed
+    // as a module, even though the `uv` executable is present.  Run the sidecar with
+    // the provisioned interpreter so Biopython/Biotite are available with no network
+    // resolution at analysis time.  Keep a uv-binary fallback for local checkouts
+    // before `uv sync` has created the virtualenv.
+    const venvPython = process.platform === "win32"
+      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
+      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+    const useVenv = fs.existsSync(venvPython);
+    const command = useVenv ? venvPython : "uv";
+    const args = useVenv
+      ? [pythonScript, pdbPath, chain, position.toString()]
+      : ["run", "--project", path.join(process.cwd(), "tools"), pythonScript, pdbPath, chain, position.toString()];
+    const { stdout } = await execFileAsync(command, args, {
       timeout: 10000
     });
     const result = JSON.parse(stdout.trim());

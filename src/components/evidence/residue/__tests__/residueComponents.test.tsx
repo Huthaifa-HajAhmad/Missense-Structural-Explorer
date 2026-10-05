@@ -92,7 +92,7 @@ describe("PropertyDumbbell", () => {
     { position: 100, native: "+1", codes: ["K", "R"] },
   ];
 
-  it("renders distinct wild-type and mutant dots with connecting span for distinct values", () => {
+  it("renders distinct wild-type and mutant dots without a connecting span", () => {
     const { container } = render(
       <PropertyDumbbell
         row={diffRow}
@@ -104,14 +104,14 @@ describe("PropertyDumbbell", () => {
 
     expect(container.querySelector(".rsx-track__wt")).toBeInTheDocument();
     expect(container.querySelector(".rsx-track__mut")).toBeInTheDocument();
-    expect(container.querySelector(".rsx-track__span")).toBeInTheDocument();
+    expect(container.querySelector(".rsx-track__span")).not.toBeInTheDocument();
     expect(container.querySelector(".rsx-track__same")).not.toBeInTheDocument();
 
     const ticks = container.querySelectorAll(".rsx-track__context-tick");
     expect(ticks.length).toBe(3);
   });
 
-  it("renders concentric split marker (F2 fix) when wild-type and mutant have identical values", () => {
+  it("keeps both residue markers visible when values are identical", () => {
     const { container } = render(
       <PropertyDumbbell
         row={sameRow}
@@ -121,10 +121,8 @@ describe("PropertyDumbbell", () => {
       />
     );
 
-    expect(container.querySelector(".rsx-track__same")).toBeInTheDocument();
-    expect(container.querySelector(".rsx-track__same-core")).toBeInTheDocument();
-    expect(container.querySelector(".rsx-track__wt")).not.toBeInTheDocument();
-    expect(container.querySelector(".rsx-track__mut")).not.toBeInTheDocument();
+    expect(container.querySelector(".rsx-track__wt")).toHaveAttribute("data-coincident", "true");
+    expect(container.querySelector(".rsx-track__mut")).toBeInTheDocument();
     expect(container.querySelector(".rsx-track__span")).not.toBeInTheDocument();
   });
 });

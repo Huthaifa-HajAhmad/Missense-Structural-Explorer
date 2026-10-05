@@ -74,7 +74,13 @@
   font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold);
   color: var(--cs-text-primary); letter-spacing: -0.01em; line-height: 1.2;
 }
-.rsx-pair__arrow { margin: 0 6px; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); }
+/* The arrow is a glyph, not a control, but it is given the 24px control box so it is never
+   rendered too small to read. */
+.rsx-pair__arrow {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; min-height: 24px; margin: 0 2px;
+  color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular);
+}
 .rsx-pair__sub { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .rsx-finding { margin: 0; max-width: none; }
 .rsx-finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
@@ -105,7 +111,6 @@
 .rsx-col-name { width: 180px; }
 .rsx-col-val { width: 72px; }
 .rsx-col-shift { width: 136px; }
-.rsx-col-chip { width: 128px; }
 
 .rsx-name { display: block; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .rsx-note {
@@ -117,7 +122,7 @@
 .rsx-caption { display: block; margin-top: 2px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); text-transform: none; letter-spacing: 0; max-width: none; }
 .rsx-disclosure > summary { list-style: none; cursor: pointer; min-height: 24px; display: flex; align-items: center; }
 .rsx-disclosure > summary::-webkit-details-marker { display: none; }
-.rsx-disclosure > summary::after { content: "+"; margin-left: auto; color: var(--cs-text-muted); font-family: var(--cs-font-mono); }
+.rsx-disclosure > summary::after { content: "+"; margin-left: auto; color: var(--cs-text-muted); font-family: var(--cs-font-mono); font-size: 14px; line-height: 1; }
 .rsx-disclosure[open] > summary::after { content: "–"; }
 .rsx-disclosure > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px; }
 .rsx-disclosure > summary > h3 { margin: 0; flex: 1; }
@@ -132,14 +137,16 @@
 .rsx-statement { display: flex; flex-direction: column; gap: 4px; max-width: none; }
 .rsx-statement strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
+/* An absent reading said as a state: a bold heading naming what did not run, then its reason.
+   Used for a failed accessibility step, so the failure is legible without dressing it as a value. */
+.rsx-state { margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
+.rsx-state:last-child { margin-bottom: 0; }
+.rsx-state__title { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.rsx-state__detail { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+
 /* ── Tracks: one axis per reading, the value as a dot ─────── */
 .rsx-track { position: relative; min-width: 140px; max-width: 440px; }
 .rsx-track__bar { position: relative; height: 8px; border-radius: 4px; background: var(--cs-bg-subtle); }
-.rsx-track__span {
-  position: absolute; top: 0; height: 100%; border-radius: 4px;
-  background: color-mix(in srgb, var(--cs-accent-clay) 28%, transparent);
-  print-color-adjust: exact; -webkit-print-color-adjust: exact;
-}
 .rsx-track__wt,
 .rsx-track__mut {
   position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
@@ -147,6 +154,9 @@
   print-color-adjust: exact; -webkit-print-color-adjust: exact;
 }
 .rsx-track__wt { background: var(--cs-surface); border: 2px solid var(--cs-text-secondary); }
+/* Identical values: the wild-type ring sits over the variant dot with a see-through interior,
+   so a 0 → 0 row still shows both residues instead of a single dot. */
+.rsx-track__wt[data-coincident] { z-index: 1; background: transparent; border-width: 3px; }
 .rsx-track__mut { background: var(--cs-accent-clay); }
 /* The app's own cut-points: dashed, per the design rule "dashed means local or unconfirmed". */
 .rsx-track__cut { position: absolute; top: -4px; height: 16px; border-left: 1px dashed var(--cs-text-muted); }
@@ -190,7 +200,7 @@
 
 /* ── Controls ───────────────────────────────────────────── */
 .rsx-link {
-  display: inline-flex; align-items: center; gap: 4px; min-height: 24px;
+  display: inline-flex; align-items: center; gap: 4px; min-height: 24px; min-width: 24px;
   padding: 0; background: none; border: 0; cursor: pointer;
   color: var(--cs-text-accent); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold);
 }
@@ -241,23 +251,24 @@
 .rsx-step__sub { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .rsx-step[data-state="warn"] .rsx-step__sub { color: var(--cs-text-warning-on-soft); }
 
-.rsx-cuts { margin: 0; display: flex; flex-direction: column; gap: 10px; }
-.rsx-cuts__group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.rsx-cuts__title { flex: 0 0 100%; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+/* Cut-points as a flat definition list, not a row of dashed pills. The rule is the term, the
+   band and "this variant" the reading; the active row is heavier and names itself in words. */
+.rsx-cuts { margin: 0; display: flex; flex-direction: column; gap: 14px; }
+.rsx-cuts__group { display: flex; flex-direction: column; gap: 2px; }
+.rsx-cuts__title {
+  margin: 0; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-text-secondary); letter-spacing: 0; text-transform: none;
+}
+.rsx-cuts__list { margin: 0; display: flex; flex-direction: column; }
 .rsx-cut {
-  display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 8px; border-radius: 6px;
-  border: 1px dashed var(--cs-border); font-size: 12px; color: var(--cs-text-muted);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;
+  padding: 3px 0; border-top: 1px solid var(--cs-border-subtle);
 }
-.rsx-cut__rule { font-family: var(--cs-font-mono); font-size: 12px; white-space: nowrap; }
-.rsx-cut[data-active] {
-  color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold);
-  background: color-mix(in srgb, var(--cs-accent-clay) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cs-accent-clay) 55%, transparent);
-  print-color-adjust: exact; -webkit-print-color-adjust: exact;
-}
-.rsx-cut__here {
-  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-}
+.rsx-cut:first-child { border-top: 0; }
+.rsx-cut__rule { margin: 0; font-family: var(--cs-font-mono); font-size: 12px; color: var(--cs-text-secondary); }
+.rsx-cut__here { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.rsx-cut[data-active] .rsx-cut__rule { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.rsx-cut[data-active] .rsx-cut__here { color: var(--cs-accent-clay); font-weight: var(--cs-font-weight-semibold); }
 .rsx-cuts__foot { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 
 .rsx-prose { margin: 0; font-size: 12.5px; }

@@ -40,38 +40,19 @@ export function PropertyDumbbell({
           />
         ))}
 
-        {/* Delta span */}
-        {!isSameValue && (
-          <span
-            className="rsx-track__span"
-            style={{ left: `${row.spanStart}%`, width: `${row.spanWidth}%` }}
-          />
-        )}
-
-        {/* Markers */}
-        {isSameValue ? (
-          /* Combined concentric/split glyph for identical values (Fix F2) */
-          <span
-            className="rsx-track__same"
-            style={{ left: `${row.wildTypePosition}%` }}
-            title={`${wildType} and ${mutant} identical at ${row.wildTypeNative ?? row.wildTypeValue}${unit}`}
-          >
-            <span className="rsx-track__same-core" />
-          </span>
-        ) : (
-          <>
-            <span
-              className="rsx-track__wt"
-              style={{ left: `${row.wildTypePosition}%` }}
-              title={`${wildType}: ${row.wildTypeNative ?? row.wildTypeValue}${unit}`}
-            />
-            <span
-              className="rsx-track__mut"
-              style={{ left: `${row.mutantPosition}%` }}
-              title={`${mutant}: ${row.mutantNative ?? row.mutantValue}${unit}`}
-            />
-          </>
-        )}
+        {/* The two residue markers are the reading. A filled connecting span made the scale
+            look like a second quantitative bar, so position and the Shift column carry the move. */}
+        <span
+          className="rsx-track__wt"
+          data-coincident={isSameValue || undefined}
+          style={{ left: `${row.wildTypePosition}%` }}
+          title={`${wildType}: ${row.wildTypeNative ?? row.wildTypeValue}${unit}`}
+        />
+        <span
+          className="rsx-track__mut"
+          style={{ left: `${row.mutantPosition}%` }}
+          title={`${mutant}: ${row.mutantNative ?? row.mutantValue}${unit}`}
+        />
       </div>
 
       <div className="rsx-track__axis" aria-hidden="true">

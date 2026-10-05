@@ -24,7 +24,18 @@ export async function runSasaEval(
   try {
     await fs.promises.writeFile(tmpFile, pdbText, "utf8");
     const scriptPath = path.join(process.cwd(), "tools", "sasa_eval.py");
-    const { stdout } = await execFileAsync("python", ["-m", "uv", "run", scriptPath, tmpFile, chain, pos.toString()], { timeout: 15000 });
+    // Use the application-managed virtualenv in production.  `python -m uv` asks
+    // the system Python for an uv module it does not own, which made this sidecar
+    // fail even though the image already contained its Biopython dependencies.
+    const venvPython = process.platform === "win32"
+      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
+      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+    const useVenv = fs.existsSync(venvPython);
+    const command = useVenv ? venvPython : "uv";
+    const args = useVenv
+      ? [scriptPath, tmpFile, chain, pos.toString()]
+      : ["run", "--project", path.join(process.cwd(), "tools"), scriptPath, tmpFile, chain, pos.toString()];
+    const { stdout } = await execFileAsync(command, args, { timeout: 15000 });
     const parsed = JSON.parse(stdout.trim());
     if (parsed.status === "success") {
       return { rsa: parsed.rsa, sse: parsed.sse, sasa: parsed.sasa };
