@@ -248,17 +248,14 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
           {Object.entries(cutGroups).map(([group, cuts]) => (
             <section className="rsx-cuts__group" key={group}>
               <h4 className="rsx-cuts__title">{group}</h4>
-              {/* A flat definition list: the threshold expression is the term, the band and
-                  "this variant" the reading. No pill, no fill; the active row is heavier and
-                  carries the marker in words. */}
-              <dl className="rsx-cuts__list">
+              <div className="rsx-cut" role="list" aria-label={`${group} bands`}>
                 {cuts.map(cut => (
-                  <div className="rsx-cut" key={cut.rule} data-active={cut.active || undefined}>
-                    <dt className="rsx-cut__rule">{cut.rule}</dt>
-                    {cut.here ? <dd className="rsx-cut__here">{cut.here}</dd> : null}
-                  </div>
+                  <span className="rsx-cut__band" role="listitem" key={cut.rule} data-active={cut.active || undefined}>
+                    <span className="rsx-cut__rule">{cut.rule}</span>
+                    {cut.here ? <span className="rsx-cut__here">{cut.here}</span> : null}
+                  </span>
                 ))}
-              </dl>
+              </div>
             </section>
           ))}
           <p className="rsx-cuts__foot">None of these is a published classification; they are drawn dashed on the tab.</p>

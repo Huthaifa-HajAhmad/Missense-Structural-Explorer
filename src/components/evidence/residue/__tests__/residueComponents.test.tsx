@@ -107,8 +107,14 @@ describe("PropertyDumbbell", () => {
     expect(container.querySelector(".rsx-track__span")).not.toBeInTheDocument();
     expect(container.querySelector(".rsx-track__same")).not.toBeInTheDocument();
 
-    const ticks = container.querySelectorAll(".rsx-track__context-tick");
-    expect(ticks.length).toBe(3);
+    // The other amino-acid values remain exact and keyboard reachable without drawing a
+    // cut-point-like tick for every distinct value on the quantitative axis.
+    expect(container.querySelectorAll(".rsx-track__context-tick")).toHaveLength(0);
+    const reference = screen.getByText("Reference values for other amino acids").closest("details");
+    expect(reference).not.toBeNull();
+    expect(reference).toHaveTextContent("D, E: −1");
+    expect(reference).toHaveTextContent("A, G, V: 0");
+    expect(reference).toHaveTextContent("K, R: +1");
   });
 
   it("keeps both residue markers visible when values are identical", () => {
