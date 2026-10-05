@@ -1,12 +1,14 @@
 import React from "react";
-import { Box, Info, RotateCw } from "lucide-react";
+import { Info, RotateCw } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useResidueContextEvidence } from "../../lib/useResidueContextEvidence";
 import type { ResidueContextEvidence } from "../../shared/residueContextEvidence";
-import { RESIDUE_SCALE_SOURCES, formatNativeResidueValue } from "../../shared/residueScales";
-import type { BiochemicalContrastRow } from "../../shared/residueShiftEvidence";
+import { RESIDUE_SCALE_SOURCES } from "../../shared/residueScales";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { Prose } from "../ui/Prose";
+import { ResidueGlyph } from "./residue/ResidueGlyph";
+import { PropertyDumbbell } from "./residue/PropertyDumbbell";
+import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 
 /**
  * Residue Shifts & Pockets — the tab.
@@ -25,40 +27,6 @@ import { Prose } from "../ui/Prose";
 
 function pct(value: number, max: number): string {
   return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
-}
-
-function PropertyTrack({ row, wildType, mutant }: { row: BiochemicalContrastRow; wildType: string; mutant: string }) {
-  const source = RESIDUE_SCALE_SOURCES[row.key];
-  const unit = source.unit ? ` ${source.unit}` : "";
-  const low = formatNativeResidueValue(row.key, source.min);
-  const high = formatNativeResidueValue(row.key, source.max);
-  const label =
-    `${row.label}: ${wildType} ${row.wildTypeNative ?? row.wildTypeValue}, ${mutant} ${row.mutantNative ?? row.mutantValue}` +
-    ` on a scale from ${low} to ${high}${unit}.`;
-  // 0 → 0 rows put both residues on one spot; without this the variant dot paints over the
-  // wild-type ring and the scale appears to hold a single residue.
-  const coincident = row.wildTypePosition === row.mutantPosition;
-  return (
-    <div className="rsx-track" role="img" aria-label={label}>
-      {/* The two markers are the reading; the filled span that used to join them read as a
-          second bar, so it is gone. Position, the Shift column and the aria-label carry the move. */}
-      <div className="rsx-track__bar">
-        <span className="rsx-track__wt" data-coincident={coincident || undefined} style={{ left: `${row.wildTypePosition}%` }} />
-        <span className="rsx-track__mut" style={{ left: `${row.mutantPosition}%` }} />
-      </div>
-      <div className="rsx-track__axis" aria-hidden="true">
-        <span className="rsx-track__tick" data-edge="start" style={{ left: 0 }}>
-          {low} {row.lowAnchor !== low ? row.lowAnchor.toLowerCase() : ""}
-        </span>
-        {row.midpointLabel && (
-          <span className="rsx-track__tick" style={{ left: "50%" }}>{row.midpointLabel}</span>
-        )}
-        <span className="rsx-track__tick" data-edge="end" style={{ left: "100%" }}>
-          {high}{unit} {row.highAnchor !== high ? row.highAnchor.toLowerCase() : ""}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 function ValueTrack({
@@ -105,8 +73,6 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
         <div className="rsx-pair">
           <span className="rsx-pair__fig" data-testid="residue-pair">
             {pair.wildType || "?"}
-            {/* Decorative: the sub-line already reads "Alanine to valine", so announcing the
-                glyph would repeat it. It is still given the 24px control-sized box. */}
             <span className="rsx-pair__arrow" aria-hidden="true">&rarr;</span>
             {pair.mutant || "?"}
           </span>
@@ -127,6 +93,17 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
           <strong>{model.finding.headline}</strong> {model.finding.detail}
         </Prose>
       </div>
+      {model.glyph && (
+        <div className="rsx-hero__glyph">
+          <ResidueGlyph
+            diff={model.glyph}
+            wildType={pair.wildType}
+            mutant={pair.mutant}
+            wildTypeName={pair.wildTypeName}
+            mutantName={pair.mutantName}
+          />
+        </div>
+      )}
       <dl className="rsx-facts">
         {model.facts.map(fact => (
           <div className="rsx-fact" key={fact.label}>
@@ -166,7 +143,12 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
                     <span className="rsx-note">{RESIDUE_SCALE_SOURCES[row.key].citation}{RESIDUE_SCALE_SOURCES[row.key].unit ? `, ${RESIDUE_SCALE_SOURCES[row.key].unit}` : ""}</span>
                   </td>
                   <td>
-                    <PropertyTrack row={row} wildType={pair.wildType} mutant={pair.mutant} />
+                    <PropertyDumbbell
+                      row={row}
+                      wildType={pair.wildType}
+                      mutant={pair.mutant}
+                      contextTicks={model.scaleContext[row.key]}
+                    />
                   </td>
                   <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
                   <td className="rsx-num">{row.mutantNative ?? row.mutantValue}</td>
@@ -231,13 +213,10 @@ function Environment({
   onSelectResidue?: (index: number) => void;
   onViewIn3d?: () => void;
 }) {
-  const { burial, pocket, pocketAxis } = model;
+  const { burial, pocket, pocketStrip } = model;
   const rsa = burial?.indicators.rsa;
   const packing = burial?.indicators.packing;
-  const residues = pocket.lining.byDistance.slice(0, 8);
   const canRetry = (pocket.status === "error" || pocket.status === "unavailable") && !!onRetryPocket;
-  // A missing accessibility reading can be re-attempted by re-running the structure step; the
-  // button re-runs it and never pretends the measurement already exists.
   const canRetryStructure = !!onRetryStructural && !!burial && burial.status === "undetermined";
 
   return (
@@ -248,8 +227,6 @@ function Environment({
             <tr>
               <th scope="col" className="rsx-col-name">Reading</th>
               <th scope="col">Value on its own axis</th>
-              {/* Value and its reading share one right-aligned column, so a row with no chip
-                  or no chart cannot leave an empty trailing cell. */}
               <th scope="col" colSpan={2} className="rsx-num rsx-end">Value · reads as</th>
             </tr>
           </thead>
@@ -269,7 +246,7 @@ function Environment({
                     <span className="rsx-name">
                       Solvent accessibility
                       <button type="button" className="rsx-info" onClick={() => onExplain("burial_status")} aria-label="Explain solvent accessibility">
-                        <Info className="w-4 h-4" aria-hidden="true" />
+                        <Info className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </span>
                     <span className="rsx-note">relative, Shrake–Rupley</span>
@@ -291,21 +268,12 @@ function Environment({
                   ) : (
                     <>
                       <td colSpan={2}>
-                        {/* The measurement did not run. The heading names the failure; the
-                            reason explains it; burial stays "Not measured". */}
                         <p className="rsx-state" role="status">
                           <strong className="rsx-state__title">Accessibility didn&rsquo;t run</strong>
                           <span className="rsx-state__detail">{burial.reason}</span>
                         </p>
                         {canRetryStructure && (
-                          <button
-                            type="button"
-                            className="rsx-button"
-                            disabled={isStructuralLoading}
-                            onClick={() => {
-                              void onRetryStructural!();
-                            }}
-                          >
+                          <button type="button" className="rsx-button" disabled={isStructuralLoading} onClick={() => void onRetryStructural!()}>
                             <RotateCw className="w-4 h-4" aria-hidden="true" />
                             Run the structure step again
                           </button>
@@ -320,7 +288,7 @@ function Environment({
                     <span className="rsx-name">
                       Cα neighbours
                       <button type="button" className="rsx-info" onClick={() => onExplain("contact_density")} aria-label="Explain Cα neighbours">
-                        <Info className="w-4 h-4" aria-hidden="true" />
+                        <Info className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </span>
                     <span className="rsx-note">within 10 Å, a reading only</span>
@@ -335,8 +303,6 @@ function Environment({
                           label={`${packing.valueLabel} Cα atoms within 10 Å. Shown as a reading; it does not decide burial.`}
                         />
                       </td>
-                      {/* A reading with no chip: the value spans the value and "reads as"
-                          columns so the row ends on its content, not an empty cell. */}
                       <td className="rsx-num rsx-end" colSpan={2}>{packing.valueLabel}</td>
                     </>
                   ) : (
@@ -357,7 +323,7 @@ function Environment({
                 <span className="rsx-reason">
                   P2Rank{pocket.ranking.profile ? ` · ${pocket.ranking.profile} profile` : ""} · the structure loaded in 3D
                   <button type="button" className="rsx-info" onClick={() => onExplain("p2rank")} aria-label="Explain P2Rank">
-                    <Info className="w-4 h-4" aria-hidden="true" />
+                    <Info className="w-3.5 h-3.5" aria-hidden="true" />
                   </button>
                 </span>
                 <span className="rsx-caption">
@@ -372,18 +338,18 @@ function Environment({
                     <span className="rsx-name">Distance</span>
                     <span className="rsx-note">to {pocket.proximity.reference}</span>
                   </td>
-                  {pocketAxis.marker !== null ? (
+                  {pocketStrip && pocketStrip.centre !== null ? (
                     <>
                       <td>
                         <ValueTrack
-                          value={pocketAxis.marker}
-                          max={pocketAxis.max}
-                          marks={pocketAxis.marks}
+                          value={pocketStrip.centre.distance}
+                          max={pocketStrip.max}
+                          marks={pocketStrip.marks}
                           unit=" Å"
-                          label={`${pocketAxis.marker.toFixed(1)} Å from ${pocket.proximity.reference}; the app's marks are ${pocketAxis.marks.join(", ")} Å.`}
+                          label={`${pocketStrip.centre.distance.toFixed(1)} Å from ${pocket.proximity.reference}; the app's marks are ${pocketStrip.marks.join(", ")} Å.`}
                         />
                       </td>
-                      <td className="rsx-num">{pocketAxis.marker.toFixed(1)} Å</td>
+                      <td className="rsx-num">{pocketStrip.centre.distance.toFixed(1)} Å</td>
                     </>
                   ) : (
                     <td colSpan={2} className="rsx-reason">{pocket.proximity.detail}</td>
@@ -391,32 +357,30 @@ function Environment({
                   <td className="rsx-end"><span className="ev-tier" data-tone="neutral">{pocket.classification.label}</span></td>
                 </tr>
                 <tr data-testid="pocket-score-row">
-                  {/* Prose only: the label and its provenance share the reading cell rather
-                      than sitting under a chart column the row does not draw. */}
-                  <td colSpan={2}>
+                  <td>
                     <span className="rsx-name">
                       {pocket.ranking.kind === "probability" ? "Ligand-site probability" : "P2Rank score"}
                     </span>
                     <span className="rsx-note">
                       {pocket.ranking.kind === "probability" ? "P2Rank, this profile only" : "not a probability"}
                     </span>
-                    <span className="rsx-note">
-                      {pocket.ranking.kind === "probability"
-                        ? "P2Rank's estimate that this cavity binds a ligand"
-                        : pocket.ranking.kind === "rescaled_raw_score"
-                          ? "The probability rounded to zero, so the runner reports a rescaled score"
-                          : "This result does not say whether the score is a probability"}
-                    </span>
+                  </td>
+                  <td colSpan={2} className="rsx-reason">
+                    {pocket.ranking.kind === "probability"
+                      ? "P2Rank's estimate that this cavity binds a ligand"
+                      : pocket.ranking.kind === "rescaled_raw_score"
+                        ? "The probability rounded to zero, so the runner reports a rescaled score"
+                        : "This result does not say whether the score is a probability"}
                   </td>
                   <td className="rsx-num rsx-end" colSpan={2}>{pocket.ranking.display ?? "Not reported"}</td>
                 </tr>
                 <tr data-testid="pocket-volume-row">
-                  <td colSpan={2}>
+                  <td>
                     <span className="rsx-name">Cavity size</span>
                     <span className="rsx-note">{pocket.volume.isMeasured ? "measured volume" : "surface points"}</span>
-                    <span className="rsx-note">
-                      {pocket.volume.isMeasured ? `${pocket.volume.label}: ${pocket.volume.detail}` : "No volume was measured, so none is quoted"}
-                    </span>
+                  </td>
+                  <td colSpan={2} className="rsx-reason">
+                    {pocket.volume.isMeasured ? `${pocket.volume.label}: ${pocket.volume.detail}` : "No volume was measured, so none is quoted"}
                   </td>
                   <td className="rsx-num rsx-end" colSpan={2}>
                     {pocket.volume.isMeasured && pocket.volume.volume !== null
@@ -430,7 +394,7 @@ function Environment({
             ) : (
               <tr data-testid="pocket-state-row">
                 <td colSpan={4}>
-                  <div className="rsx-statement" role={pocket.status === "loading" ? "status" : undefined}>
+                  <div className="rsx-statement">
                     <strong>{pocket.status === "loading" ? ENGINE_STATE_LABELS.running : pocket.headline}</strong>
                     {pocket.plainLanguage && <span>{pocket.plainLanguage}</span>}
                     {canRetry && (
@@ -443,7 +407,7 @@ function Environment({
                           void onRetryPocket!();
                         }}
                       >
-                        <RotateCw className="w-4 h-4" aria-hidden="true" />
+                        <RotateCw className="w-3.5 h-3.5" aria-hidden="true" />
                         Retry pocket detection
                       </button>
                     )}
@@ -455,38 +419,12 @@ function Environment({
         </table>
       </div>
 
-      {pocket.status === "success" && residues.length > 0 && (
-        <>
-          <div className="rsx-head rsx-head--mid">
-            <h3 className="rsx-label">
-              Pocket residues · nearest to {model.pair.position ?? "the variant"} first
-            </h3>
-            {onViewIn3d && (
-              <button type="button" className="rsx-link" onClick={onViewIn3d}>
-                <Box className="w-4 h-4" aria-hidden="true" />
-                View in 3D
-              </button>
-            )}
-          </div>
-          <ul className="rsx-residues" data-testid="pocket-residues">
-            {residues.map(res => (
-              <li key={`${res.chain ?? ""}-${res.name}-${res.index}`}>
-                <button
-                  type="button"
-                  className="rsx-residue"
-                  onClick={() => onSelectResidue?.(res.index)}
-                  aria-label={`Select ${res.name} ${res.index}${res.chain ? ` chain ${res.chain}` : ""}, ${res.distance.toFixed(1)} Å away`}
-                >
-                  <span>
-                    {res.name.charAt(0)}{res.name.slice(1).toLowerCase()}{res.index}
-                    {res.chain ? <span className="rsx-dim"> {res.chain}</span> : null}
-                  </span>
-                  <span>{res.distance.toFixed(1)} Å</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+      {pocket.status === "success" && pocketStrip && (
+        <PocketDistanceStrip
+          strip={pocketStrip}
+          onSelectResidue={onSelectResidue}
+          onViewIn3d={onViewIn3d}
+        />
       )}
       <div className="rsx-foot">
         <span className="rsx-legend">

@@ -71,7 +71,7 @@ export function AssemblyDiagram({ ev }: { ev: InterfacesEvidence }) {
   const described = [
     n === 1 ? "One chain" : `${n} chains: ${chains.map(c => `${c.id} ${c.label}${c.carriesVariant ? " with the variant" : ""}`).join(", ")}`,
     ev.model.state === "built" ? "modelled" : joined ? "interface seen in solved structures" : n > 1 ? "stated, not modelled" : null,
-    `${ev.residueLabel} ${at ? `at an interface${ev.interface.observed ? ` in ${ev.interface.support}` : ""}` : ev.interface.verdict === "not-at-interface" ? "not in contact with another chain" : "interface not measured"}`,
+    `${ev.residueLabel} ${at ? `at an interface${ev.interface.observed ? ` in ${ev.interface.support}` : ""}` : ev.interface.verdict === "not-at-interface" ? `not at a native interface${ev.interface.fibril ? " (a fibril contact is read apart)" : ""}` : "interface not measured"}`,
   ]
     .filter(Boolean)
     .join("; ");

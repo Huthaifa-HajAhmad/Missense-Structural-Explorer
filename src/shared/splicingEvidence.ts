@@ -149,6 +149,14 @@ export const SPLICE_CHANNEL_NAME: Record<SpliceChannelKey, string> = {
   ds_dl: "Donor loss",
 };
 
+/**
+ * The one line the four SpliceAI channels share. It used to be appended to each channel's own
+ * description ("…; a model signal, not an observed effect."), so the same caveat printed four
+ * times; it is stated once for the group now, and each channel carries only what is unique to it.
+ */
+export const SPLICE_CHANNEL_CAPTION =
+  "Each is a model signal, not an observed effect. Gain predicts a splice site created or strengthened; loss predicts one weakened or abolished.";
+
 export interface SpliceGeometry {
   /** Resolver distance: 0 = the boundary exonic base, 1 = the first intronic base. */
   distance: number | null;
@@ -242,7 +250,18 @@ export interface SpliceMap {
   /** dbscSNV's window as [from, to] in offsets (edges of the bases it covers). */
   dbscWindow: [number, number];
   predictions: SpliceMapPrediction[];
-  /** Channels scored below the plotting floor, so the figure can say nothing was left out silently. */
+  /** All available delta scores, including channels that cannot be positioned. */
+  maxScore: number | null;
+  /** Non-zero signals without delta positions; never silently treated as absent scores. */
+  missingPositions: Array<{ key: SpliceChannelKey; name: string; ds: number }>;
+  /**
+   * Scored channels below the plotting floor. A Δ this close to zero has an arbitrary delta position
+   * (SpliceAI's dp is only meaningful when there is a signal), so these are never placed as lollipops.
+   * The figure draws them as a compact "no signal" row instead. A non-zero member moves to a lollipop
+   * only when the reader asks for small signals; an exactly-zero channel always stays here.
+   */
+  quiet: Array<{ key: SpliceChannelKey; name: string; kind: "gain" | "loss"; ds: number }>;
+  /** Count of channels in `quiet`, kept for surfaces that only need the number. */
   belowFloor: number;
   /** Why predictions are not placed, when they cannot be. */
   predictionsNote: string | null;
@@ -252,7 +271,7 @@ export interface SpliceMap {
   exonic: boolean;
 }
 
-/** SpliceAI delta scores below this are not drawn on the map: they are indistinguishable from zero. */
+/** Local display filter, not a biological threshold. Smaller non-zero scores remain inspectable. */
 export const SPLICE_MAP_FLOOR = 0.01;
 /**
  * The SpliceAI reporting windows a reader can choose (Settings and the inline control share this list).
@@ -265,7 +284,7 @@ export const SPLICEAI_WINDOWS = [50, 200, 500, 1000, 2000] as const;
  * holds what is drawn (a prediction 70 bases out gets 100, though ±100 is not a selectable window), so
  * it has finer steps than the reader's choices.
  */
-const SPLICE_MAP_STEPS = [50, 100, 200, 500, 1000, 2000];
+export const SPLICE_MAP_STEPS = [50, 100, 200, 500, 1000, 2000] as const;
 
 /** Bases from splice-site position `from` to `to` (no 0 in the numbering, so crossing it costs one). */
 export function offsetBetweenPositions(from: number, to: number): number {
@@ -391,6 +410,11 @@ export function resolveJunctionOrientation(
   result: AnalysisResult | null | undefined,
   distance: number | null
 ): { isDonor: boolean; isAcceptor: boolean; junctionType: string } {
+  // A single-exon transcript has no intron-spanning junction, even if a legacy payload
+  // mislabels its terminus as a donor/acceptor. Keep it out of splice-site geometry.
+  if (result?.conservationData?.spliceProximity?.totalExons === 1) {
+    return { isDonor: false, isAcceptor: false, junctionType: "Transcript terminus (not a splice junction)" };
+  }
   const raw = result?.conservationData?.spliceProximity?.junctionType;
   const isAcceptor = raw === "acceptor";
   const isDonor = raw === "donor" || (raw === undefined && distance !== null);
@@ -410,12 +434,16 @@ function buildSpliceMap({
   strand,
   genomicPos,
   nearby,
+  showSmallSignals,
+  maxDs,
 }: {
   geometry: SpliceGeometry;
   channels: Array<{ key: SpliceChannelKey; ds: number | null; dp: number | null }>;
   strand: "+" | "-" | null;
   genomicPos: number | null;
   nearby: Array<{ number: number; start: number; end: number }> | null;
+  showSmallSignals: boolean;
+  maxDs: number | null;
 }): SpliceMap | null {
   const p = g.position;
   if (p === null || (g.junction !== "donor" && g.junction !== "acceptor") || g.regionType === null) return null;
@@ -459,11 +487,15 @@ function buildSpliceMap({
   }
 
   const sites: SpliceMapSite[] = [];
-  if (start !== null) sites.push({ type: "acceptor", offset: start + 0.5, far: junction === "donor" });
-  if (end !== null) sites.push({ type: "donor", offset: end - 0.5, far: junction === "acceptor" });
+  // Exon edges are not automatically splice junctions: terminal exons have only one.
+  // For legacy payloads with unknown numbering, only the resolver's known junction is asserted.
+  const hasAcceptor = (number: number | null) => number !== null && number > 1;
+  const hasDonor = (number: number | null) => number !== null && g.totalExons !== null && number < g.totalExons;
+  if (start !== null && (hasAcceptor(g.exonNumber) || (g.exonNumber === null && junction === "acceptor"))) sites.push({ type: "acceptor", offset: start + 0.5, far: junction === "donor" });
+  if (end !== null && (hasDonor(g.exonNumber) || (g.totalExons === null && junction === "donor") || (g.exonNumber === null && junction === "donor"))) sites.push({ type: "donor", offset: end - 0.5, far: junction === "acceptor" });
   for (const n of neighbours) {
-    sites.push({ type: "acceptor", offset: n.start + 0.5, far: true });
-    sites.push({ type: "donor", offset: n.end - 0.5, far: true });
+    if (hasAcceptor(n.number)) sites.push({ type: "acceptor", offset: n.start + 0.5, far: true });
+    if (hasDonor(n.number)) sites.push({ type: "donor", offset: n.end - 0.5, far: true });
   }
 
   const W = THRESHOLDS.dbscsnv.window;
@@ -471,34 +503,46 @@ function buildSpliceMap({
   const dbscWindow: [number, number] = [offsetBetweenPositions(p, qa) - 0.5, offsetBetweenPositions(p, qb) + 0.5];
 
   const predictions: SpliceMapPrediction[] = [];
-  let belowFloor = 0;
+  const missingPositions: SpliceMap["missingPositions"] = [];
+  const quiet: SpliceMap["quiet"] = [];
   let predictionsNote: string | null = null;
   const scored = channels.filter(c => c.ds !== null);
+  // A channel at or below the floor is not placed: near zero SpliceAI's delta position is arbitrary, so a
+  // lollipop there would assert a predicted site the score does not support. It is retained for the
+  // no-signal row. A non-zero score leaves `quiet` only when the reader explicitly asks for small signals.
+  const belowFloorQuiet = (ds: number) => ds < SPLICE_MAP_FLOOR && !(showSmallSignals && ds > 0);
+  for (const c of scored) {
+    const ds = c.ds as number;
+    if (belowFloorQuiet(ds)) {
+      quiet.push({ key: c.key, name: SPLICE_CHANNEL_NAME[c.key], kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss", ds });
+      continue;
+    }
+    // Positions are reported in genomic coordinates; without a strand they cannot be oriented, so nothing is placed.
+    if (strand === null) continue;
+    if (c.dp === null) {
+      missingPositions.push({ key: c.key, name: SPLICE_CHANNEL_NAME[c.key], ds });
+      continue;
+    }
+    const offset = strand === "-" ? -c.dp : c.dp;
+    const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
+    const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
+    predictions.push({
+      key: c.key,
+      name: SPLICE_CHANNEL_NAME[c.key],
+      type,
+      kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss",
+      ds,
+      offset,
+      atSite: near ? type : null,
+      inPp3Band: ds >= THRESHOLDS.spliceai.splicingPp3,
+    });
+  }
   if (scored.length > 0 && strand === null) {
     predictionsNote = "The strand is not resolved, so SpliceAI's positions (reported in genomic coordinates) are not placed.";
-  } else {
-    for (const c of scored) {
-      const ds = c.ds as number;
-      if (ds < SPLICE_MAP_FLOOR) {
-        belowFloor += 1;
-        continue;
-      }
-      if (c.dp === null) continue;
-      const offset = strand === "-" ? -c.dp : c.dp;
-      const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
-      const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
-      predictions.push({
-        key: c.key,
-        name: SPLICE_CHANNEL_NAME[c.key],
-        type,
-        kind: c.key === "ds_ag" || c.key === "ds_dg" ? "gain" : "loss",
-        ds,
-        offset,
-        atSite: near ? type : null,
-        inPp3Band: ds >= THRESHOLDS.spliceai.splicingPp3,
-      });
-    }
+  } else if (missingPositions.length > 0) {
+    predictionsNote = `${missingPositions.length === 1 ? "One scored channel has" : `${missingPositions.length} scored channels have`} no delta position, so ${missingPositions.length === 1 ? "it is" : "they are"} not placed on the map. Exact scores are retained in predicted site details.`;
   }
+  const belowFloor = quiet.length;
 
   // The window grows to hold what is drawn: every plotted prediction, and the junction when the
   // variant is far from it. Never past the widest step (2 kb), which matches the widest window offered.
@@ -520,6 +564,9 @@ function buildSpliceMap({
     exonNumber: g.exonNumber,
     dbscWindow,
     predictions: predictions.sort((a, b) => a.offset - b.offset),
+    maxScore: scored.length > 0 || maxDs !== null ? Math.max(maxDs ?? 0, ...scored.map(c => c.ds!)) : null,
+    missingPositions,
+    quiet,
     belowFloor,
     predictionsNote,
     halfWidth,
@@ -603,9 +650,11 @@ export interface SplicingEvidenceInput {
   isLoading?: boolean;
   /** Whether the browser holds an AlphaGenome key. `undefined` = cannot know. */
   alphagenomeConfigured?: boolean;
+  /** Display-only: never changes the rule or source scores; zero has no location to plot. */
+  showSmallSignals?: boolean;
 }
 
-export function buildSplicingEvidence({ result, isLoading = false, alphagenomeConfigured }: SplicingEvidenceInput): SplicingEvidence {
+export function buildSplicingEvidence({ result, isLoading = false, alphagenomeConfigured, showSmallSignals = false }: SplicingEvidenceInput): SplicingEvidence {
   const r = result as any;
   const cd = result.conservationData ?? null;
   const sp = cd?.spliceProximity ?? null;
@@ -618,7 +667,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const regionType: "exonic" | "intronic" | null = sp?.regionType ?? null;
   const rawJunction = sp?.junctionType;
   const { isDonor, isAcceptor, junctionType } = resolveJunctionOrientation(result, distance);
-  const junction: SpliceGeometry["junction"] = isDonor ? "donor" : isAcceptor ? "acceptor" : rawJunction === "terminal" ? "terminal" : "unresolved";
+  const junction: SpliceGeometry["junction"] = isDonor ? "donor" : isAcceptor ? "acceptor" : rawJunction === "terminal" || sp?.totalExons === 1 ? "terminal" : "unresolved";
   // Legacy payloads carry no regionType; placement then follows the old exonic default, but no
   // position is claimed for them.
   const oriented = (junction === "donor" || junction === "acceptor") && distance !== null && regionType !== null;
@@ -795,12 +844,13 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         key: `spliceai-${c.key}`,
         group: "channels",
         name: SPLICE_CHANNEL_NAME[c.key],
-        description:
-          c.key === "ds_ag" ? "A new acceptor is created." : c.key === "ds_al" ? "An existing acceptor is weakened or lost." : c.key === "ds_dg" ? "A new donor is created." : "An existing donor is weakened or lost.",
+        // The shared caveat lives once on SPLICE_CHANNEL_CAPTION; nothing here is unique to a
+        // channel beyond its name, score and position, so no per-channel description is set.
+        description: "",
         score: c.ds,
         scoreText: c.ds !== null ? formatDelta(c.ds) : "—",
         // A position is only a location when there is a signal to locate.
-        sub: c.dp !== null && (c.ds ?? 0) >= SPLICE_MAP_FLOOR ? `at ${fmtBp(orient(c.dp) as number)}${strandKnown ? "" : " (genomic)"}` : null,
+        sub: c.dp !== null && ((c.ds ?? 0) >= SPLICE_MAP_FLOOR || (showSmallSignals && (c.ds ?? 0) > 0)) ? `at ${fmtBp(orient(c.dp) as number)} from the variant${strandKnown ? "" : " (genomic)"}` : null,
         scale: c.ds !== null ? spliceAiScale(c.ds, false) : null,
         scaleSource: null,
         call: c.ds === null ? null : c.key === maxChannel ? { label: "Maximum", tone: "accent", isCode: false } : null,
@@ -884,7 +934,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   });
 
   // ── Splice map ──
-  const map = buildSpliceMap({ geometry, channels, strand: geometry.strand, genomicPos: finite(sp?.genomicPos), nearby: sp?.nearbyExons ?? null });
+  const map = buildSpliceMap({ geometry, channels, strand: geometry.strand, genomicPos: finite(sp?.genomicPos), nearby: sp?.nearbyExons ?? null, showSmallSignals, maxDs });
   if (map) {
     // A channel whose delta position lands on the annotated site of its type says so in the table.
     for (const pr of map.predictions) {
@@ -980,7 +1030,7 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
       };
     case "bp4":
       return {
-        headline: "SpliceAI predicts no splicing change",
+        headline: "SpliceAI's score is below the splicing BP4 threshold",
         predicate: `${deltaPhrase(rule.maxDs!)}${where} is below ${S.splicingBp4Below.toFixed(1)}, which supports BP4 for splicing impact`,
       };
     case "between":

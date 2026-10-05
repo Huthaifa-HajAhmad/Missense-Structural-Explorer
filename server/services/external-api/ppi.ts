@@ -124,6 +124,7 @@ export async function analyzePpiBinding(
     gene: p.gene,
     experiments: p.experiments,
     evidence: intactRes.byPartner.get(p.accession.toUpperCase().replace(/-\d+$/, "")) ?? null,
+    ...(p.organismDiffer ? { organismDiffer: true } : {}),
   }));
 
   return {
@@ -174,12 +175,18 @@ async function experimentalWildType(uniprotId: string, position: number, wtLette
   if (lookup.status !== "ok") {
     return { kind: "none", reason: lookup.status === "none" ? "No solved complex of this protein is in the PDB." : "Solved complexes could not be read from PDBe." };
   }
-  const biological = lookup.partners.filter(p => !p.artefact).map(p => ({ p, view: observedFor(p, uniprotId, position) }));
+  // A fibril or a crystal-packing contact is not a binding complex: neither is a DDMut-PPI wild type.
+  const biological = lookup.partners.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal").map(p => ({ p, view: observedFor(p, uniprotId, position) }));
   const hits = biological.filter(x => x.view.variantAtInterface);
   if (!hits.length) {
     return biological.length
-      ? { kind: "not-interfacial", reason: `The residue is not at the interface in any of the ${new Set(biological.flatMap(x => x.p.pdbEntries)).size} solved complexes, so no binding change is estimated.` }
-      : { kind: "none", reason: "Only construct partners (fusion or crystallisation tags) are in the solved structures." };
+      ? { kind: "not-interfacial", reason: `The residue is not at the interface in ${((n: number) => (n === 1 ? "the one solved complex" : `any of the ${n} solved complexes`))(new Set(biological.flatMap(x => x.p.pdbEntries)).size)}, so no binding change is estimated.` }
+      : {
+          kind: "none",
+          reason: lookup.partners.some(p => (p.context === "fibril" || p.context === "crystal") && !p.artefact)
+            ? "The only interfaces in solved structures are amyloid fibril stacking, crystal-packing contacts or non-biological partners, and none is a binding complex."
+            : "Only construct partners (fusion or crystallisation tags) are in the solved structures.",
+        };
   }
   const entries = [...new Set(hits.flatMap(x => x.view.variantEntries))];
   const withExp = await Promise.all(entries.map(async id => ({ id, exp: await fetchEntryExperiment(id, signal) })));

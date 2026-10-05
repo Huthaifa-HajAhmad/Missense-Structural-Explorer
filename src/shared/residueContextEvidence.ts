@@ -24,7 +24,15 @@
 
 import { BURIAL_RSA_BANDS, deriveBurialEvidence, type BurialEvidence } from "./burialEvidence.ts";
 import { PDB_SOURCE_ALPHAFOLD, PDB_SOURCE_RCSB, isPdbSource } from "./contracts.ts";
-import { granthamDistance } from "./residueScales.ts";
+import {
+  RESIDUE_SCALE_SOURCES,
+  formatNativeResidueValue,
+  granthamDistance,
+  nativeResidueValue,
+  normaliseResidueValue,
+  type ResidueScaleKey,
+} from "./residueScales.ts";
+import { diffSideChains, type SideChainDiff } from "./sideChainTopology.ts";
 import {
   POCKET_PROXIMITY_BANDS,
   SHIFT_MAGNITUDE_BANDS,
@@ -34,6 +42,7 @@ import {
   type PocketNarrative,
   type PocketProximityBand,
 } from "./residueShiftEvidence.ts";
+export type { BiochemicalContrastRow } from "./residueShiftEvidence.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
 
 /** A four-character PDB entry id, e.g. `1ABC` — the only id shape "RCSB PDB" may be fused to. */
@@ -152,6 +161,91 @@ export interface ResidueContextCut {
   here: string | null;
 }
 
+/**
+ * One tick on a published scale: every residue sharing a native value, other than the pair.
+ * Merged by value so a three-valued scale (net charge) draws three ticks, not twenty.
+ */
+export interface ScaleTick {
+  /** Position on the scale, 0–100. */
+  position: number;
+  /** Native value, formatted with the scale's precision and a true minus sign. */
+  native: string;
+  /** One-letter codes sharing this value, alphabetical. */
+  codes: string[];
+}
+
+export interface PocketStripResidue {
+  index: number;
+  chain: string | null;
+  /** e.g. "Leu131". */
+  label: string;
+  /** Å from the variant residue's centroid to this residue's centroid. */
+  distance: number;
+  /** Position on the axis, 0–100. */
+  position: number;
+  /** Row the label sits in, so neighbouring labels do not overprint. */
+  lane: number;
+}
+
+/**
+ * The pocket distance drawn as one axis: the variant residue at 0, the app's own marks, the
+ * reference the tab's distance is measured to, and the pocket's residues nearest first. All
+ * distances start at the variant residue's centroid, so they share a frame.
+ */
+export interface PocketStrip {
+  /** Axis end in Å; stretched to contain every marker, never fewer than 20. */
+  max: number;
+  /** The app's own cut-points, in Å. */
+  marks: number[];
+  /** What the distances start from, e.g. "residue 116". */
+  origin: string;
+  /** The distance the tab prints and bands, and what it is measured to. */
+  centre: { distance: number; reference: string; position: number } | null;
+  residues: PocketStripResidue[];
+  lanes: number;
+}
+
+/** Percentage points of axis a residue label needs before the next may share its lane. */
+export const POCKET_STRIP_LABEL_GAP = 10;
+
+/**
+ * Greedy lane assignment for labels on one axis. `positions` are 0–100 and ascending; each label
+ * takes the first lane whose last label is at least `minGap` away, else opens a new lane.
+ */
+export function assignLanes(positions: readonly number[], minGap: number): number[] {
+  const lastInLane: number[] = [];
+  return positions.map(position => {
+    const free = lastInLane.findIndex(last => position - last >= minGap);
+    const lane = free === -1 ? lastInLane.length : free;
+    lastInLane[lane] = position;
+    return lane;
+  });
+}
+
+const STANDARD_RESIDUES = "ACDEFGHIKLMNPQRSTVWY";
+
+function buildScaleContext(wildTypeCode: string, mutantCode: string): Record<ResidueScaleKey, ScaleTick[]> {
+  const pair = new Set([wildTypeCode.toUpperCase(), mutantCode.toUpperCase()]);
+  const out = {} as Record<ResidueScaleKey, ScaleTick[]>;
+  for (const key of Object.keys(RESIDUE_SCALE_SOURCES) as ResidueScaleKey[]) {
+    const byValue = new Map<number, string[]>();
+    for (const code of STANDARD_RESIDUES) {
+      if (pair.has(code)) continue;
+      const value = nativeResidueValue(key, code);
+      if (value === null) continue;
+      byValue.set(value, [...(byValue.get(value) ?? []), code]);
+    }
+    out[key] = [...byValue.entries()]
+      .map(([value, codes]) => ({
+        position: normaliseResidueValue(key, value),
+        native: formatNativeResidueValue(key, value),
+        codes: [...codes].sort(),
+      }))
+      .sort((a, b) => a.position - b.position);
+  }
+  return out;
+}
+
 export interface ResidueContextEvidence {
   pair: {
     wildType: string;
@@ -165,11 +259,15 @@ export interface ResidueContextEvidence {
   /** Rows largest shift first; null while the scales are unresolved. */
   properties: BiochemicalContrastRow[] | null;
   propertiesState: "ready" | "loading" | "unavailable";
+  /** Which side-chain atoms the substitution keeps, loses and gains; null for a non-standard pair. */
+  glyph: SideChainDiff | null;
+  /** The other residues on each published scale, for reading the pair against the alphabet. */
+  scaleContext: Record<ResidueScaleKey, ScaleTick[]>;
   backbone: { title: string; body: string } | null;
   burial: (BurialEvidence & { structure: string; reason: string | null }) | null;
   pocket: PocketNarrative;
-  /** The pocket distance's own axis, with the app's marks. */
-  pocketAxis: { max: number; marks: number[]; marker: number | null };
+  /** The pocket distance axis with the cavity reference and the pocket's residues; null until a result. */
+  pocketStrip: PocketStrip | null;
   finding: { headline: string; detail: string };
   facts: ResidueContextFact[];
   trace: ResidueContextStep[];
@@ -219,13 +317,33 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
       }
     : null;
 
-  // ── Pocket axis ──
+  // ── Pocket strip ──
   const distance = pocket.status === "success" ? pocket.proximity.distance : null;
-  const pocketAxis = {
-    max: Math.max(20, distance === null ? 0 : Math.ceil(distance / 5) * 5),
-    marks: [POCKET_PROXIMITY_BANDS.lining, POCKET_PROXIMITY_BANDS.proximal, POCKET_PROXIMITY_BANDS.peripheral],
-    marker: distance,
-  };
+  const pocketMarks = [POCKET_PROXIMITY_BANDS.lining, POCKET_PROXIMITY_BANDS.proximal, POCKET_PROXIMITY_BANDS.peripheral];
+  let pocketStrip: PocketStrip | null = null;
+  if (pocket.status === "success") {
+    const nearest = pocket.lining.byDistance.slice(0, 8);
+    const farthest = Math.max(distance ?? 0, ...nearest.map(r => r.distance));
+    const max = Math.max(20, Math.ceil(farthest / 5) * 5);
+    const at = (value: number) => Math.max(0, Math.min(100, (value / max) * 100));
+    const positions = nearest.map(r => at(r.distance));
+    const lanes = assignLanes(positions, POCKET_STRIP_LABEL_GAP);
+    pocketStrip = {
+      max,
+      marks: pocketMarks,
+      origin: input.position ? `residue ${input.position}` : "the variant residue",
+      centre: distance === null ? null : { distance, reference: pocket.proximity.reference, position: at(distance) },
+      residues: nearest.map((r, i) => ({
+        index: r.index,
+        chain: r.chain ?? null,
+        label: `${r.name.charAt(0)}${r.name.slice(1).toLowerCase()}${r.index}`,
+        distance: r.distance,
+        position: positions[i],
+        lane: lanes[i],
+      })),
+      lanes: lanes.length === 0 ? 0 : Math.max(...lanes) + 1,
+    };
+  }
 
   // ── Finding ──
   const large = (ranked ?? []).filter(row => row.magnitude === "marked").slice(0, 2);
@@ -283,15 +401,16 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
         }
       : { label: "Nearest pocket", value: pocket.badge || ENGINE_STATE_LABELS["no-result"], sub: pocket.status === "loading" ? "P2Rank is running" : "No distance reported" },
     // The engine record is stated by the eyebrow, the "Informational" chip and the last trace step;
-    // a fourth fact slot says how much to trust the pocket instead.
+    // a fourth fact slot says how much to trust the pocket instead. Named as the table names it:
+    // P2Rank calls this number a probability, and a rescaled raw score must not wear that word.
     pocket.status === "success" && pocket.ranking.display
       ? {
-          label: "Pocket confidence",
+          label: pocket.ranking.kind === "probability" ? "Ligand-site probability" : "P2Rank score",
           value: pocket.ranking.display,
           sub: pocket.ranking.kind === "probability" ? "P2Rank, this profile only" : "P2Rank score, not a probability",
           mono: true,
         }
-      : { label: "Pocket confidence", value: pocket.status === "loading" ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"], sub: "No P2Rank score reported" },
+      : { label: "Ligand-site probability", value: pocket.status === "loading" ? ENGINE_STATE_LABELS.running : ENGINE_STATE_LABELS["no-result"], sub: "No P2Rank score reported" },
   ];
 
   // ── Trace ──
@@ -349,20 +468,23 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
   const coreMax = (BURIAL_RSA_BANDS.coreMax * 100).toFixed(0);
   const surfaceMin = (BURIAL_RSA_BANDS.surfaceMin * 100).toFixed(0);
   const cuts: ResidueContextCut[] = [
-    { group: "Property shift, points of 0–100", rule: `> ${SHIFT_MAGNITUDE_BANDS.moderate} large`, active: shiftBand === "marked", here: shiftBand === "marked" ? "largest shift" : null },
-    { group: "Property shift, points of 0–100", rule: `${SHIFT_MAGNITUDE_BANDS.slight + 1} to ${SHIFT_MAGNITUDE_BANDS.moderate} moderate`, active: shiftBand === "moderate", here: shiftBand === "moderate" ? "largest shift" : null },
-    { group: "Property shift, points of 0–100", rule: `≤ ${SHIFT_MAGNITUDE_BANDS.slight} slight`, active: shiftBand === "slight", here: shiftBand === "slight" ? "largest shift" : null },
+    // |delta| carries one decimal, so the lower edges are strict ("> 9") rather than "10": a 9.6 is
+    // moderate. The word is the model's own ("marked"), which the tab's interpretation text uses.
+    { group: "Property shift, points of 0–100", rule: `> ${SHIFT_MAGNITUDE_BANDS.moderate} marked`, active: shiftBand === "marked", here: shiftBand === "marked" ? "largest shift" : null },
+    { group: "Property shift, points of 0–100", rule: `> ${SHIFT_MAGNITUDE_BANDS.slight} to ≤ ${SHIFT_MAGNITUDE_BANDS.moderate} moderate`, active: shiftBand === "moderate", here: shiftBand === "moderate" ? "largest shift" : null },
+    { group: "Property shift, points of 0–100", rule: `> ${SHIFT_MAGNITUDE_BANDS.unchanged} to ≤ ${SHIFT_MAGNITUDE_BANDS.slight} slight`, active: shiftBand === "slight", here: shiftBand === "slight" ? "largest shift" : null },
     { group: "Relative accessibility", rule: `≤ ${coreMax}% core`, active: rsaBand === "core", here: rsaBand === "core" ? "this variant" : null },
     { group: "Relative accessibility", rule: `${coreMax}% to ${surfaceMin}% boundary`, active: rsaBand === "boundary", here: rsaBand === "boundary" ? "this variant" : null },
     { group: "Relative accessibility", rule: `≥ ${surfaceMin}% surface`, active: rsaBand === "surface", here: rsaBand === "surface" ? "this variant" : null },
-    { group: "Pocket distance", rule: "Pocket residue: lining", active: proximity === "lining", here: proximity === "lining" ? "this variant" : null },
-    { group: "Pocket distance", rule: `≤ ${POCKET_PROXIMITY_BANDS.proximal} Å near`, active: proximity === "proximal", here: proximity === "proximal" ? "this variant" : null },
-    { group: "Pocket distance", rule: `≤ ${POCKET_PROXIMITY_BANDS.peripheral} Å rim`, active: proximity === "peripheral", here: proximity === "peripheral" ? "this variant" : null },
+    // classifyProximity: a pocket residue is lining whatever its distance, then ≤ 4, ≤ 8, ≤ 12 Å.
+    { group: "Pocket distance", rule: `Pocket residue, or ≤ ${POCKET_PROXIMITY_BANDS.lining} Å lining`, active: proximity === "lining", here: proximity === "lining" ? "this variant" : null },
+    { group: "Pocket distance", rule: `> ${POCKET_PROXIMITY_BANDS.lining} to ≤ ${POCKET_PROXIMITY_BANDS.proximal} Å near`, active: proximity === "proximal", here: proximity === "proximal" ? "this variant" : null },
+    { group: "Pocket distance", rule: `> ${POCKET_PROXIMITY_BANDS.proximal} to ≤ ${POCKET_PROXIMITY_BANDS.peripheral} Å rim`, active: proximity === "peripheral", here: proximity === "peripheral" ? "this variant" : null },
     { group: "Pocket distance", rule: `> ${POCKET_PROXIMITY_BANDS.peripheral} Å distal`, active: proximity === "distal", here: proximity === "distal" ? "this variant" : null },
   ];
 
   const notes = [
-    "A large shift is a large move on the scale, not a large effect on this protein.",
+    "A marked shift is a large move on the scale, not a large effect on this protein.",
     "Burial comes only from measured solvent accessibility; the Cα count is a reading.",
     "The pocket is computed on the structure loaded in 3D, which can differ from the one burial was measured in.",
   ];
@@ -387,10 +509,12 @@ export function buildResidueContextEvidence(input: ResidueContextInput): Residue
     },
     properties: ranked,
     propertiesState,
+    glyph: diffSideChains(input.wildTypeCode, input.mutantCode),
+    scaleContext: buildScaleContext(input.wildTypeCode, input.mutantCode),
     backbone: backboneCaveat(input.wildTypeCode, input.mutantCode),
     burial,
     pocket,
-    pocketAxis,
+    pocketStrip,
     finding: { headline, detail: detailParts.join(" ") },
     facts,
     trace,

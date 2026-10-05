@@ -38,7 +38,7 @@ describe("StructureTab", () => {
       "The side chain loses its negative charge and becomes less polar, 23.1 Å from the nearest predicted pocket."
     );
     expect(screen.getByText(/not an ACMG input/i)).toBeInTheDocument();
-    expect(screen.getByText("Pocket confidence")).toBeInTheDocument();
+    expect(within(screen.getByTestId("residue-finding")).getByText("Ligand-site probability")).toBeInTheDocument();
   });
 
   it("draws each property on its published scale, in native units, largest shift first", () => {

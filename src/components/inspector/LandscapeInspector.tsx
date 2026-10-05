@@ -7,7 +7,7 @@ import { selectResidueLetter } from "../../stores/slices/searchSlice";
 import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
-import { complementBase, bandLabel, landscapeKey, legendSteps, provenanceLine, residueCount, residueRange, residueSummary, type LandscapeTool, type SummaryMode } from "../../shared/landscapeEvidence";
+import { clinvarIsQuery, complementBase, bandLabel, landscapeKey, legendSteps, provenanceLine, residueCount, residueRange, residueSummary, type LandscapeTool, type SummaryMode } from "../../shared/landscapeEvidence";
 import LandscapeAgreementPlot from "../LandscapeAgreementPlot";
 
 interface LandscapeInspectorProps {
@@ -138,6 +138,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     }
     return [...map.values()].sort((a, b) => a.residx - b.residx);
   }, [analysisResult?.landscapeData, extraRows]);
+  const scoredRows = rows.filter((r) => residueCount(r, "revel") > 0 || residueCount(r, "alphaMissense") > 0);
+  const scatterSpan = scoredRows.length ? `scored residues ${scoredRows[0].residx}–${scoredRows[scoredRows.length - 1].residx}` : "no scored residues";
   const activeRow = activeResIndex ? rows.find((r) => r.residx === activeResIndex) : undefined;
 
   const target = React.useMemo(() => {
@@ -223,7 +225,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     if (!activeResIndex || !ctx) return [] as string[];
     const out: string[] = [];
     const cv = ctx.clinvar?.filter((c) => c.pos === activeResIndex) ?? [];
-    if (ctx.clinvar) out.push(cv.length ? `ClinVar: ${cv.map((c) => `${c.hgvsp} ${c.significance}`).join("; ")}` : "ClinVar: no missense here");
+    if (ctx.clinvar) out.push(cv.length ? `ClinVar: ${cv.map((c) => `${c.hgvsp} ${c.significance}${clinvarIsQuery(c, target.pos ? { pos: target.pos, mut: target.mut } : null) ? " (queried)" : ""}`).join("; ")}` : "ClinVar: no missense here");
     const gn = ctx.gnomad?.find((x) => x.pos === activeResIndex);
     if (ctx.gnomad) out.push(gn ? `gnomAD: ${gn.variants} missense, max AC ${gn.maxAc}` : "gnomAD: no missense here");
     const region = ctx.regions?.find((r) => activeResIndex >= r.start && activeResIndex <= r.end);
@@ -319,7 +321,18 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                     ))}
                   </div>
                 )}
-                {activeRow ? (
+                {activeRow && residueCount(activeRow, "revel") === 0 && residueCount(activeRow, "alphaMissense") === 0 ? (
+                  <div className="text-[11px] text-cs-text-muted leading-snug">
+                    dbNSFP has no missense record at residue {activeResIndex}, so there is no REVEL, AlphaMissense or conservation score to show. That is
+                    absence of data, not a benign reading.
+                    {isTarget && (variantScores.revel !== null || variantScores.alphaMissense !== null) && (
+                      <span className="block font-mono text-[10px] text-cs-accent-clay mt-1">
+                        ◆ this variant{variantScores.revel !== null ? ` REVEL ${variantScores.revel.toFixed(3)} · ${bandLabel("revel", variantScores.revel)}` : ""}
+                        {variantScores.alphaMissense !== null ? ` AlphaMissense ${variantScores.alphaMissense.toFixed(3)} · ${bandLabel("alphaMissense", variantScores.alphaMissense)}` : ""}
+                      </span>
+                    )}
+                  </div>
+                ) : activeRow ? (
                   <>
                     {toolBlock("revel")}
                     {toolBlock("alphaMissense")}
@@ -338,11 +351,11 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
         </section>
       )}
 
-      {rows.length > 0 && (
+      {scoredRows.length > 0 && (
         <section className="flex flex-col gap-2 pt-3 border-t border-cs-border-subtle">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-cs-text-muted flex items-center gap-1.5">
             <ScatterChart className="w-3.5 h-3.5 text-cs-accent-clay" />
-            REVEL × AlphaMissense · residues {rows[0].residx}–{rows[rows.length - 1].residx}
+            REVEL × AlphaMissense · {scatterSpan}
           </span>
           <div className="rounded-lg border border-cs-border-subtle bg-cs-surface-2 p-2">
             <LandscapeAgreementPlot
@@ -391,19 +404,24 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
         <div className="text-[11px] text-cs-text-secondary leading-snug flex flex-col gap-1.5">
           <span className="font-mono text-[10px]">{provenanceLine(meta)}</span>
           {meta?.window && <span>Scores loaded for residues {meta.window.start}–{meta.window.end}{meta.retrievedAt ? `, retrieved ${new Date(meta.retrievedAt).toLocaleString()}` : ""}.</span>}
-          <span>
-            Each SNV is counted once, on one transcript. REVEL and AlphaMissense are summarised over a residue's
-            missense SNVs; GERP++ and phyloP are averaged over the codon's nucleotides.
-          </span>
-          <ul className="flex flex-col gap-0.5 mt-1">
-            {SOURCES.map((s) => (
-              <li key={s.doi}>
-                <a href={`https://doi.org/${s.doi}`} target="_blank" rel="noopener noreferrer" className="text-cs-accent-clay hover:underline">
-                  {s.label}
-                </a>
-              </li>
-            ))}
-          </ul>
+          <details>
+            <summary className="cursor-pointer font-semibold text-cs-text-primary select-none w-fit rounded focus-visible:outline-2 focus-visible:outline-cs-accent-clay">Method and citations</summary>
+            <div className="flex flex-col gap-1.5 pt-2">
+              <span>
+                Each SNV is counted once, on one transcript. REVEL and AlphaMissense are summarised over a residue's
+                missense substitutions; GERP++ and phyloP are averaged over the codon's nucleotides.
+              </span>
+              <ul className="flex flex-col gap-0.5">
+                {SOURCES.map((s) => (
+                  <li key={s.doi}>
+                    <a href={`https://doi.org/${s.doi}`} target="_blank" rel="noopener noreferrer" className="text-cs-accent-clay hover:underline">
+                      {s.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </details>
         </div>
       </section>
     </div>

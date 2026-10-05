@@ -11,6 +11,8 @@ interface Props {
   width: number;
   onWidth?: (width: number) => void;
   targetPos: number;
+  /** A lane with nothing to draw (no regional constraint call for this gene) is disabled, not left lit. */
+  available?: Partial<Record<keyof LandscapeViewState["lanes"], boolean>>;
   awayFromTarget: boolean;
   onBack: () => void;
 }
@@ -50,7 +52,7 @@ function Segmented<T extends string | number>({
 }
 
 /** Controls live beside what they change; the inspector rail keeps only the selection. */
-export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, targetPos, awayFromTarget, onBack }: Props) {
+export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, targetPos, available, awayFromTarget, onBack }: Props) {
   const lanes: Array<{ key: keyof LandscapeViewState["lanes"]; label: string }> = [
     { key: "clinvar", label: "ClinVar" },
     { key: "gnomad", label: "gnomAD" },
@@ -79,21 +81,28 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
       <Segmented label="Focus width" options={[15, 21, 31, 41].map((w) => ({ value: w, label: String(w) }))} value={width} onChange={onWidth} />
       <div className="flex items-center gap-2">
         <span className="text-[11px] font-semibold text-cs-text-secondary">Lanes</span>
-        {lanes.map((l) => (
-          <button
-            key={l.key}
-            type="button"
-            aria-pressed={view.lanes[l.key]}
-            onClick={() => onView({ lanes: { ...view.lanes, [l.key]: !view.lanes[l.key] } })}
-            className={`px-2.5 py-1 rounded-md border text-[11px] cursor-pointer ${
-              view.lanes[l.key]
-                ? "bg-cs-text-primary text-cs-surface border-cs-text-primary font-semibold"
-                : "bg-cs-surface text-cs-text-secondary border-cs-border hover:text-cs-text-primary"
-            }`}
-          >
-            {l.label}
-          </button>
-        ))}
+        {lanes.map((l) => {
+          const empty = available?.[l.key] === false;
+          return (
+            <button
+              key={l.key}
+              type="button"
+              aria-pressed={view.lanes[l.key] && !empty}
+              disabled={empty}
+              title={empty ? "Nothing to draw for this gene" : undefined}
+              onClick={() => onView({ lanes: { ...view.lanes, [l.key]: !view.lanes[l.key] } })}
+              className={`px-2.5 py-1 rounded-md border text-[11px] ${
+                empty
+                  ? "bg-cs-surface text-cs-text-muted border-cs-border-subtle line-through cursor-not-allowed"
+                  : view.lanes[l.key]
+                    ? "bg-cs-text-primary text-cs-surface border-cs-text-primary font-semibold cursor-pointer"
+                    : "bg-cs-surface text-cs-text-secondary border-cs-border hover:text-cs-text-primary cursor-pointer"
+              }`}
+            >
+              {l.label}
+            </button>
+          );
+        })}
       </div>
       {awayFromTarget && (
         <button

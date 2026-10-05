@@ -2,7 +2,8 @@
  * SLC12A4 p.Gln867His (UniProtKB Q9UP95, KCC1): the reference variant of doc/INTERFACES_AUDIT.md.
  * Captured from the live services on 2026-10-02 through `analyzeMultimerStructure` (lookups only) and
  * `analyzePpiBinding`. STRING functional list (379 rows) trimmed to its top 40 plus every curated
- * partner it contains, so each partner the tests read keeps its real score.
+ * partner it contains, so each partner the tests read keeps its real score. `context`, `gene` and
+ * `organism` added 2026-10-04 for the fibril split: none of the eight entries is a fibril (RCSB).
  */
 /* eslint-disable */
 export const SLC12A4: any = {
@@ -404,12 +405,17 @@ export const SLC12A4: any = {
      ],
      "homomeric": true,
      "artefact": null,
+     "context": "native",
+     "gene": "SLC12A4",
+     "organism": null,
      "variantAtInterface": true,
      "variantEntries": [
       "7aiq"
      ]
     }
-   ]
+   ],
+   "entryKinds": "ok",
+   "crystalChecked": true
   },
   "oligomericState": "Homodimer",
   "chainCount": 2,

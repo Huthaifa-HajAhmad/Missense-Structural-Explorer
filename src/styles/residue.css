@@ -284,3 +284,123 @@
 @media print {
   .rsx-link, .rsx-info, .rsx-button { display: none; }
 }
+
+/* ── Residue Glyphs (2D side-chain skeletal diff) ────────── */
+.rsx-hero__glyph {
+  padding: 0 16px 16px;
+}
+.rsx-glyph-panel {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px; border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-sm, 8px); background: var(--cs-surface-2);
+}
+.rsx-glyph-pair {
+  display: flex; align-items: center; justify-content: space-around; gap: 16px;
+}
+.rsx-glyph-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 0;
+}
+.rsx-glyph-caption {
+  display: flex; align-items: baseline; gap: 6px; font-size: var(--cs-font-size-caption);
+}
+.rsx-glyph-code {
+  font-family: var(--cs-font-mono); font-size: 15px; font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-text-primary);
+}
+.rsx-glyph-code--mut { color: var(--cs-accent-clay); }
+.rsx-glyph-role {
+  text-transform: uppercase; font-size: 10px; font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: 0.05em; color: var(--cs-text-muted);
+}
+.rsx-glyph-name { color: var(--cs-text-secondary); }
+.rsx-glyph-frame {
+  width: 100%; max-width: 140px; height: 90px;
+  display: flex; align-items: center; justify-content: center;
+}
+.rsx-glyph-svg {
+  width: 100%; height: 100%; max-height: 90px;
+}
+.rsx-glyph-divider {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--cs-text-muted); font-size: 16px;
+}
+.rsx-glyph-arrow { font-size: 16px; }
+.rsx-glyph-summary {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  padding-top: 6px; border-top: 1px solid var(--cs-border-subtle);
+}
+.rsx-glyph-badge {
+  font-family: var(--cs-font-sans); font-size: 10px; font-weight: var(--cs-font-weight-semibold);
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--cs-text-muted);
+}
+.rsx-glyph-diff-text {
+  font-family: var(--cs-font-mono); color: var(--cs-text-primary); font-size: 12px;
+}
+
+/* ── Property Dumbbell & Context Ticks ───────────────────── */
+.rsx-track__context-tick {
+  position: absolute; top: 1px; bottom: 1px; width: 1px;
+  background: var(--cs-border-strong, var(--cs-text-muted)); opacity: 0.45;
+  pointer-events: auto; cursor: help;
+}
+.rsx-track__context-tick:hover {
+  opacity: 1; background: var(--cs-text-primary); width: 2px;
+}
+.rsx-track__same {
+  position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--cs-surface); border: 2px solid var(--cs-text-secondary);
+  display: flex; align-items: center; justify-content: center;
+  print-color-adjust: exact; -webkit-print-color-adjust: exact;
+}
+.rsx-track__same-core {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cs-accent-clay);
+}
+
+/* ── Pocket Distance Strip ───────────────────────────────── */
+.rsx-pocket-strip {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 16px;
+  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+}
+.rsx-pocket-strip__header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+}
+.rsx-pocket-strip__origin-label { font-weight: var(--cs-font-weight-medium); }
+.rsx-pocket-strip__track { position: relative; width: 100%; margin: 6px 0; }
+.rsx-pocket-strip__bar {
+  position: relative; height: 8px; border-radius: 4px; background: var(--cs-bg-subtle);
+}
+.rsx-pocket-strip__origin-marker {
+  position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
+  transform: translate(-50%, -50%); background: var(--cs-text-primary);
+}
+.rsx-pocket-strip__cut-line {
+  position: absolute; top: -6px; height: 20px; border-left: 1px dashed var(--cs-text-muted);
+}
+.rsx-pocket-strip__centre-marker {
+  position: absolute; top: 50%; width: 10px; height: 10px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--cs-accent-clay);
+  border: 1.5px solid var(--cs-surface);
+}
+.rsx-pocket-strip__res-tick {
+  position: absolute; top: -2px; height: 12px; width: 2px;
+  background: var(--cs-text-secondary); border-radius: 1px;
+}
+.rsx-pocket-strip__axis {
+  position: relative; height: 18px; margin-top: 6px; font-size: 11px; color: var(--cs-text-muted);
+}
+.rsx-pocket-strip__axis-tick {
+  position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; font-family: var(--cs-font-mono);
+}
+.rsx-pocket-strip__axis-tick--dashed { border-bottom: 1px dashed var(--cs-text-muted); }
+.rsx-pocket-strip__axis-tick--centre {
+  color: var(--cs-accent-clay); font-weight: var(--cs-font-weight-medium);
+}
+.rsx-pocket-strip__residues-wrap { margin-top: 8px; }
+.rsx-pocket-strip__residues-list {
+  background: var(--cs-surface); border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-sm, 8px); overflow: hidden;
+}

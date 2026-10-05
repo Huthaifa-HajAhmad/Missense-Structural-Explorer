@@ -43,7 +43,9 @@ describe("Interfaces & PPI — SLC12A4 p.Gln867His (doc/INTERFACES_AUDIT.md)", (
     const ev = slc();
     const screen = ev.partners.filter(p => p.group === "screen");
     expect(screen.map(p => p.gene).sort()).toEqual(["AP3M1", "CNFN", "CYSRT1", "KRTAP12-2", "KRTAP19-2", "MB21D2", "TMEM102", "ZNF655"]);
-    expect(screen.every(p => p.evidence === "Yeast two-hybrid · 1 study (PubMed 32296183)")).toBe(true);
+    // One study for the whole tier: said once in the group head, not on every row.
+    expect(screen.every(p => p.evidence === "Yeast two-hybrid")).toBe(true);
+    expect(ev.groups.find(g => g.id === "screen")?.meta).toBe("Yeast two-hybrid in one study (PubMed 32296183), no other method");
     expect(ev.facts.find(f => f.label === "Reported partners")).toMatchObject({ value: "8", sub: "all two-hybrid, one study (PubMed 32296183)" });
     expect(JSON.stringify(ev)).not.toMatch(/Curated physical interaction|3 experiments/);
   });
@@ -141,12 +143,61 @@ describe("Interfaces & PPI — states and staleness", () => {
     expect(ev.finding.predicate).toBe("Solved structures could not be read, so a contact is not ruled out");
   });
 
+  it("caps the trace: a failed lookup is failed with its reason, never pending or a zero count", () => {
+    const ev = slc({ ppi: null, ppiStatus: "error", ppiError: "HTTP 502" });
+    const partners = ev.trace.find(t => t.label === "Partners")!;
+    expect(partners.state).toBe("failed");
+    expect(partners.value).toBe("Provider error");
+    expect(partners.sub).toMatch(/UniProt did not answer/);
+    const string = ev.trace.find(t => t.label === "STRING")!;
+    expect(string.state).toBe("failed");
+    expect(JSON.stringify(ev.trace)).not.toMatch(/0 reported partners/);
+  });
+
+  it("marks a source still in flight as pending, and only that source", () => {
+    const ev = slc({ ppi: null, ppiStatus: "loading", assembly: null, assemblyStatus: "loading" });
+    const byLabel = Object.fromEntries(ev.trace.map(t => [t.label, t.state]));
+    expect(byLabel.Partners).toBe("pending");
+    expect(byLabel.STRING).toBe("pending");
+    expect(byLabel["Solved structures"]).toBe("pending");
+    expect(byLabel["Variant residue"]).toBe("pending");
+    expect(byLabel["Engine record"]).toBe("done");
+    expect(ev.trace.find(t => t.label === "Partners")?.value).toBe("Running");
+  });
+
+  it("reads a crystal-packing contact apart and never counts it as the native interface", () => {
+    const self = SLC12A4.assembly.experimental.partners[0];
+    const native = { ...self, variantAtInterface: false, variantEntries: [] };
+    const crystal = { ...self, context: "crystal" as const, pdbEntries: ["7aiq"], variantAtInterface: true, variantEntries: ["7aiq"] };
+    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [native, crystal], crystalChecked: true } } });
+    expect(ev.observed.partners).toHaveLength(1);
+    expect(ev.observed.crystals).toHaveLength(1);
+    // The verdict reads native only: no native interface has Gln867 at it.
+    expect(ev.interface.verdict).toBe("not-at-interface");
+    expect(ev.interface.crystal).toMatchObject({ k: 1, n: 1, entries: ["7aiq"] });
+    expect(ev.interface.crystal?.sentence).toMatch(/outside the deposited assembly/);
+    expect(ev.facts.find(f => f.label === "Interface support")?.sub).toMatch(/1 of 1 monomer-assembly entries/);
+    expect(ev.trace.find(t => t.label === "Solved structures")?.sub).toMatch(/Monomer-assembly entries read apart/);
+    // A crystal contact is not a partner row and not a binding wild type.
+    expect(ev.partners.some(p => p.observed?.context === "crystal")).toBe(false);
+  });
+
+  it("folds a long set-aside list behind one line", () => {
+    const base = { accession: "P0AEX9", name: "MBP", residues: [1], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native" as const, variantAtInterface: false, variantEntries: [] };
+    const partners = Array.from({ length: 6 }, (_, i) => ({ ...base, accession: `P0AEY${i}`, name: `Tag ${i}` }));
+    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners, crystalChecked: true } } });
+    expect(ev.observed.artefacts).toHaveLength(6);
+    expect(ev.observed.artefactsShown).toHaveLength(4);
+    expect(ev.observed.artefactsFold?.rows).toHaveLength(2);
+    expect(ev.observed.artefactsFold?.summary).toMatch(/2 more chains set aside/);
+  });
+
   it("sets construct tags aside and does not count them as interfaces", () => {
-    const tag = { accession: "P0AEX9", name: "Maltose-binding periplasmic protein", residues: [867], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", variantAtInterface: true, variantEntries: ["9zzz"] };
-    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [tag] } } });
+    const tag = { accession: "P0AEX9", name: "Maltose-binding periplasmic protein", residues: [867], support: [1], pdbEntries: ["9zzz"], homomeric: false, artefact: "maltose-binding protein fusion tag", context: "native", variantAtInterface: true, variantEntries: ["9zzz"] };
+    const ev = slc({ assembly: { ...SLC12A4.assembly, experimental: { status: "ok", partners: [tag], crystalChecked: true } } });
     expect(ev.observed.partners).toHaveLength(0);
     expect(ev.interface.verdict).toBe("not-measured");
-    expect(ev.interface.setAside).toMatch(/maltose-binding protein fusion tag .* not counted/);
+    expect(ev.interface.setAside).toMatch(/Maltose-binding .*\(maltose-binding protein fusion tag\) is not a biological interface and is not counted/);
   });
 });
 

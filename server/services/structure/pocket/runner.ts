@@ -13,6 +13,7 @@ import {
 import { defaultCacheRegistry } from "../../infra/cache-registry.ts";
 import { discoverJavaHome } from "./java-detector.ts";
 import { getAaPropensities, determineLikelyCofactor } from "./propensities.ts";
+import { selectPocketForResidue } from "./selection.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -431,29 +432,9 @@ export async function findBindingPocketInternal(
           }
         }
 
-        // Find pocket containing mutIndex or closest in space
-        let selectedPocket = pockets.find(p => p.residueKeys.includes(`${chainToUse}_${mutIndex}`));
-        if (!selectedPocket) {
-          selectedPocket = pockets.find(p => p.residueIndices.includes(mutIndex));
-        }
-        if (!selectedPocket && pockets.length > 0) {
-          let minDist = 999999;
-          for (const p of pockets) {
-            const pAtoms = atoms.filter(a => p.residueKeys.includes(`${a.chain}_${a.resSeq}`));
-            if (pAtoms.length > 0) {
-              let sumX = 0, sumY = 0, sumZ = 0;
-              pAtoms.forEach(a => { sumX += a.x; sumY += a.y; sumZ += a.z; });
-              const cX = sumX / pAtoms.length;
-              const cY = sumY / pAtoms.length;
-              const cZ = sumZ / pAtoms.length;
-              const dist = Math.sqrt(Math.pow(cX - mutX, 2) + Math.pow(cY - mutY, 2) + Math.pow(cZ - mutZ, 2));
-              if (dist < minDist) {
-                minDist = dist;
-                selectedPocket = p;
-              }
-            }
-          }
-        }
+        // Lining pocket first, then the nearest cavity centre: the distance the tab prints and
+        // bands. Choosing by residue centroid and printing the centre distance disagreed (selection.ts).
+        const selectedPocket = selectPocketForResidue(pockets, atoms, { x: mutX, y: mutY, z: mutZ }, mutIndex, chainToUse);
 
         if (selectedPocket) {
           const pocketResiduesMap: Record<string, any> = {};
@@ -514,9 +495,12 @@ export async function findBindingPocketInternal(
           if (!isNaN(calibratedProbability) && calibratedProbability !== 0) {
             pocketScore = calibratedProbability;
             pocketScoreSource = "probability";
-          } else {
+          } else if (Number.isFinite(selectedPocket.score)) {
             pocketScore = Math.min(98, Math.round(selectedPocket.score * 5));
             pocketScoreSource = "rescaled_raw_score";
+          } else {
+            pocketScore = 0;
+            pocketScoreSource = "unavailable";
           }
 
           /*
@@ -673,28 +657,8 @@ export async function findBindingPocketInternal(
           }
         }
 
-        let selectedPocket = pockets.find(p => p.residueKeys.includes(`${chainToUse}_${mutIndex}`));
-        if (!selectedPocket) {
-          selectedPocket = pockets.find(p => p.residueIndices.includes(mutIndex));
-        }
-        if (!selectedPocket && pockets.length > 0) {
-          let minDist = 999999;
-          for (const p of pockets) {
-            const pAtoms = atoms.filter(a => p.residueKeys.includes(`${a.chain}_${a.resSeq}`));
-            if (pAtoms.length > 0) {
-              let sumX = 0, sumY = 0, sumZ = 0;
-              pAtoms.forEach(a => { sumX += a.x; sumY += a.y; sumZ += a.z; });
-              const cX = sumX / pAtoms.length;
-              const cY = sumY / pAtoms.length;
-              const cZ = sumZ / pAtoms.length;
-              const dist = Math.sqrt(Math.pow(cX - mutX, 2) + Math.pow(cY - mutY, 2) + Math.pow(cZ - mutZ, 2));
-              if (dist < minDist) {
-                minDist = dist;
-                selectedPocket = p;
-              }
-            }
-          }
-        }
+        // fpocket reports no cavity centre, so the shared rule falls back to the residue centroid.
+        const selectedPocket = selectPocketForResidue(pockets, atoms, { x: mutX, y: mutY, z: mutZ }, mutIndex, chainToUse);
 
         if (selectedPocket) {
           const pocketResiduesMap: Record<string, any> = {};

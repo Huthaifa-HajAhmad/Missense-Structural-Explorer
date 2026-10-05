@@ -54,7 +54,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
 
   const bands: Array<{ key: string; code: string | null; rule: string; label: string; tone: "danger" | "good" | "neutral" }> = [
     { key: "pp3", code: "PP3", rule: `≥ ${S.splicingPp3.toFixed(1)}`, label: "PP3 · splicing", tone: "danger" },
-    { key: "between", code: null, rule: `${S.splicingBp4Below.toFixed(1)}–${S.splicingPp3.toFixed(1)}`, label: "Neither", tone: "neutral" },
+    { key: "between", code: null, rule: `${S.splicingBp4Below.toFixed(1)}–<${S.splicingPp3.toFixed(1)}`, label: "Neither", tone: "neutral" },
     { key: "bp4", code: "BP4", rule: `< ${S.splicingBp4Below.toFixed(1)}`, label: "BP4 · splicing", tone: "good" },
   ];
 
@@ -95,7 +95,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
             <span>
               {rule.state === "pp3" ? `≥ ${S.splicingPp3.toFixed(1)} → supports PP3`
                 : rule.state === "bp4" ? `< ${S.splicingBp4Below.toFixed(1)} → supports BP4`
-                : rule.state === "between" ? `Between ${S.splicingBp4Below.toFixed(1)} and ${S.splicingPp3.toFixed(1)} → neither`
+                : rule.state === "between" ? `≥ ${S.splicingBp4Below.toFixed(1)} and < ${S.splicingPp3.toFixed(1)} → neither`
                 : "Not applied — needs a SpliceAI score"}
             </span>
             <span className="spl-step__sub">SpliceAI decides it alone. Distance and dbscSNV do not.</span>

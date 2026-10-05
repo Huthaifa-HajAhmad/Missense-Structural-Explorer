@@ -74,4 +74,51 @@ describe("LandscapeInspector", () => {
     expect(screen.getByText("REVEL 0.231 · BP4")).toBeTruthy();
     expect(screen.getByText(/Ranks 2 of 3 scored substitutions here/)).toBeTruthy();
   });
+
+  it("says a residue has no dbNSFP record instead of printing '0 substitutions · no score' twice", () => {
+    act(() => useVariantAnalysisStore.setState({ selectedResidueIndex: 6, landscapeSelection: { key: KEY, kind: "residue", pos: 6 } } as any));
+    const gap: any = {
+      ...result,
+      landscapeData: [{ residx: 6, amMean: null, amCount: 0, revelMean: null, revelCount: 0, gerp: null, phylop: null, nucleotideCount: 0 }]
+    };
+    render(<LandscapeInspector analysisResult={gap} />);
+    expect(screen.getByText(/dbNSFP has no missense record at residue 6/)).toBeTruthy();
+    expect(screen.getByText(/absence of data, not a benign reading/)).toBeTruthy();
+    expect(screen.queryByText("no score")).toBeNull();
+    expect(screen.queryByText(/0 substitutions/)).toBeNull();
+    // Nothing to plot, so no scatter.
+    expect(screen.queryByText(/REVEL × AlphaMissense/)).toBeNull();
+  });
+
+  it("marks the queried variant in the residue's ClinVar list", () => {
+    act(() =>
+      useVariantAnalysisStore.setState({
+        landscapeOverview: {
+          key: KEY,
+          status: "ready",
+          error: null,
+          data: {
+            positions: [],
+            meta: {} as any,
+            context: {
+              clinvar: [
+                { pos: 116, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Gly" },
+                { pos: 116, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Val" }
+              ],
+              gnomad: [], regions: [], transcript: null, regionsBasis: "gnomAD v2", errors: []
+            }
+          }
+        }
+      } as any)
+    );
+    render(<LandscapeInspector analysisResult={result} />);
+    expect(screen.getByText("ClinVar: p.Asp116Gly Pathogenic (queried); p.Asp116Val Pathogenic")).toBeTruthy();
+  });
+
+  it("keeps the method and citations behind one disclosure", () => {
+    const { container } = render(<LandscapeInspector analysisResult={result} />);
+    const d = container.querySelector("details")!;
+    expect(d.open).toBe(false);
+    expect(d.textContent).toContain("Pejaver et al.");
+  });
 });

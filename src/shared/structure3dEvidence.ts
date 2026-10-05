@@ -299,6 +299,8 @@ export interface SiteContext {
   region: string | null;
   burial: string | null;
   selected: number | null;
+  /** True only when the canvas uses verified UniProt residue numbering. */
+  canAddressVariantSite: boolean;
 }
 
 export interface TraceStep {
@@ -531,8 +533,9 @@ export function identifyFromProvenance(
       detail: methodLine(prov),
       href: id ? `https://www.rcsb.org/structure/${id}` : null,
       channel: temperatureChannel(),
-      // The resolver renumbers a mapped chain to UniProt; a homolog keeps its own numbering.
-      numbering: homolog ? "entry" : "uniprot",
+      // `/pdb/:accession` provenance lacks the residue-level validation marker returned by
+      // `/pdb/entry`; an experimental source alone is not enough to address a UniProt site.
+      numbering: "unknown",
     };
   }
   if (source === "client-provided") {
@@ -847,7 +850,9 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const plddtLegend = (inherited: boolean, scale: 1 | 100 | null): Legend => ({
     title: inherited ? "Template pLDDT, copied onto the variant" : "pLDDT",
     provenance: "published",
-    provenanceNote: `AlphaFold DB bands (Jumper 2021; Varadi 2022)${scale === 1 ? " · file stores 0–1, read ×100" : ""}`,
+    provenanceNote: isAf
+      ? `AlphaFold DB bands (Jumper 2021; Varadi 2022)${scale === 1 ? " · file stores 0–1, read ×100" : ""}`
+      : `pLDDT bands used as a display convention; this de novo engine's confidence is not AlphaFold DB confidence${scale === 1 ? " · file stores 0–1, read ×100" : ""}`,
     entries: STRUCTURE_COLOUR_BANDS.plddt.map(b => ({ label: b.label, range: b.range, color: b.color })),
   });
   const quartileLegend = (inherited: boolean): Legend => ({
@@ -910,7 +915,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     legend = {
       title: "ESM3 embedding shift (cosine distance)",
       provenance: "app-defined",
-      provenanceNote: "The engine's own bands (thresholds.esm3Drift); a language-model distance, not allostery",
+      provenanceNote: "App-defined display bands (thresholds.esm3Drift); a language-model distance, not allostery",
       entries: [
         { label: `< ${d.none}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[0] },
         { label: `${d.none}–${d.minor}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[1] },
@@ -1099,9 +1104,17 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   /* ── Site ─────────────────────────────────────────────────────────────── */
   const siteStructure = isAf ? input.wildType.site : deNovo.site;
   const siteIdentity = canvasWildType;
+  const canAddressVariantSite = siteIdentity?.numbering === "uniprot";
   const expected = wt3 ? wt3.toUpperCase() : null;
   let check: SiteContext["check"];
-  if (!siteStructure) {
+  if (!canAddressVariantSite && siteIdentity && siteStructure && expected && siteStructure.resName !== expected) {
+    check = {
+      state: "mismatch",
+      text: `The structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at ${position}, not ${wt3}: its numbering does not follow UniProt here, so the highlighted residue is not the variant's.`,
+    };
+  } else if (!canAddressVariantSite && siteIdentity) {
+    check = { state: "unknown", text: `${siteIdentity.name} keeps entry numbering, so the variant's UniProt residue is not highlighted or compared.` };
+  } else if (!siteStructure) {
     check = siteIdentity
       ? { state: "absent", text: `Residue ${position ?? "?"} is not in ${siteIdentity.name}.` }
       : { state: "unknown", text: "No wild-type coordinates loaded." };
@@ -1119,14 +1132,16 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   let confidence: SiteContext["confidence"] = { kind: "none", value: null, text: "Not read", note: "No wild-type coordinates at the site." };
   const siteB = siteStructure?.caBFactor ?? null;
   const channel = siteIdentity?.channel;
-  if (siteB !== null && channel?.kind === "plddt") {
+  if (siteB !== null && canAddressVariantSite && channel?.kind === "plddt") {
     const value = channel.scale === 1 ? siteB * 100 : siteB;
     const band = plddtBand(value);
     confidence = {
       kind: "plddt",
       value,
       text: `pLDDT ${value.toFixed(1)} · ${band.label.toLowerCase()}`,
-      note: `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`,
+      note: isAf
+        ? `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`
+        : `From ${siteIdentity!.name}, this view's wild type; displayed in the ${band.label.toLowerCase()} pLDDT band, not an AlphaFold DB classification.`,
     };
   } else if (siteB !== null && channel?.kind === "temperature-factor") {
     const scan = isAf ? input.wildType.scan : null;
@@ -1153,6 +1168,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         ? `${input.burial.label ?? "Accessibility measured"}${input.burial.rsa !== null ? ` · RSA ${Math.round(input.burial.rsa * 100)}%` : ""}${input.burial.structure ? ` · on ${input.burial.structure}` : ""}`
         : null,
     selected: input.selectedResidue !== null && input.selectedResidue !== position ? input.selectedResidue : null,
+    canAddressVariantSite,
   };
 
   /* ── Notices ──────────────────────────────────────────────────────────── */

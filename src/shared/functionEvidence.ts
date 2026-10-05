@@ -736,7 +736,8 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   const variantGroup = groups.find((g) => g.group === "variants");
   if (variantGroup && density.total > 0) {
     const poly = rows.filter((r) => r.group === "variants" && !r.disease).length;
-    variantGroup.summary = `${density.total} disease${poly ? `, ${poly} polymorphism${poly === 1 ? "" : "s"}` : ""} · ${density.near} within ${NEAR_WINDOW} of ${residue}${density.densest && density.total >= 12 ? ` · densest ${density.densest.start}–${density.densest.end} (${density.densest.count})` : ""}`;
+    // The group's count is rows (residues); say how many variants those are, so "58" and "81" do not look like a mistake.
+    variantGroup.summary = `${density.total} disease variant${density.total === 1 ? "" : "s"} at ${density.residues} residue${density.residues === 1 ? "" : "s"}${poly ? `, ${poly} polymorphism${poly === 1 ? "" : "s"}` : ""} · ${density.near} within ±${NEAR_WINDOW} of ${residue}${density.densest && density.total >= 12 ? ` · densest ${density.densest.start}–${density.densest.end} (${density.densest.count})` : ""}`;
   }
 
   // The processed protein's number: UniProt's chain starts after residue 1 (initiator Met removed, signal peptide
@@ -980,7 +981,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
         : { text: coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `No site, region or specific domain covers residue ${residue}.`, strong: "" }
       : { text: "Nothing is claimed about the residue until the record arrives.", strong: "" },
     {
-      text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting only evidence observed in this protein (experimental, structure or large-scale study):`,
+      text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting only evidence observed in this protein (experimental, structure or large-scale study): `,
       strong: pm1.qualifying ? `${pm1.qualifying.type.toLowerCase()} found` : pm1.notCounted.length ? "none counted" : uniprot ? "none found" : "not assessed",
     },
     {

@@ -460,7 +460,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : ifc.interface.verdict === "at-interface"
         ? `${ifc.assembly.kind === "unstated" ? "" : `${ifc.assembly.label}${ifc.assembly.qualifier ? ` (${ifc.assembly.qualifier.toLowerCase()})` : ""}. `}Contact is not disruption, and the engine does not read assembly.`
         : asmKind === "unstated" ? "Not stated is not a monomer. The engine does not read assembly."
-        : ifc.interface.verdict === "not-at-interface" ? `${ifc.residueLabel} is not at any interface seen in solved structures. The engine does not read assembly.`
+        : ifc.interface.verdict === "not-at-interface" ? `${ifc.residueLabel} is not at any native interface in solved structures${ifc.interface.reference ? ` (0 of ${ifc.interface.reference.n})` : ""}${ifc.interface.fibril ? `; it touches another chain only in ${ifc.interface.fibril.k} of ${ifc.interface.fibril.n} amyloid fibril structures` : ""}. The engine does not read assembly.`
         : "The engine does not read assembly.",
   });
 

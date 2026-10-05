@@ -631,11 +631,12 @@ function checkDense(c: Case, s: Schematic, host: HTMLElement): Check[] {
   const px1 = (s.x1 - s.x0) / (s.window.end - s.window.start);
   for (const b of bars) {
     const r = Number(b.getAttribute("data-start"));
-    const left = bbox(b.querySelector("rect")!).left;
-    if (Math.abs(left - expectedX(s, r)) > 0.75) off.push(`${r}: bar at ${px(left)}, expected ${px(expectedX(s, r))}`);
+    const box = bbox(b.querySelector("rect")!);
+    const centre = (box.left + box.right) / 2;
+    if (Math.abs(centre - expectedX(s, r)) > 0.75) off.push(`${r}: bar centred at ${px(centre)}, expected ${px(expectedX(s, r))}`);
     if (Number(b.getAttribute("data-count")) !== want.disease.get(r)) off.push(`${r}: count ${b.getAttribute("data-count")}, fixture ${want.disease.get(r)}`);
   }
-  const second: Check = { name: `${c.id}: every bar sits at its residue with the fixture's count`, pass: bars.length > 0 && off.length === 0, detail: off.length ? off.slice(0, 4).join("; ") : `${bars.length} bars within 0.75px (${px(px1)}px per residue)` };
+  const second: Check = { name: `${c.id}: every bar is centred on its residue with the fixture's count`, pass: bars.length > 0 && off.length === 0, detail: off.length ? off.slice(0, 4).join("; ") : `${bars.length} bars within 0.75px (${px(px1)}px per residue)` };
 
   const q = bars.filter((b) => b.hasAttribute("data-query"));
   const hOf = (b: SVGGElement) => bbox(b.querySelector("rect")!).bottom - bbox(b.querySelector("rect")!).top;

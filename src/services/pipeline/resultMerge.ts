@@ -10,6 +10,7 @@ const enrichmentOwners: Record<string, PipelineStage> = {
   landscapeData: "landscape",
   landscapeMeta: "landscape",
   multimerData: "multimer",
+  ppiBindingData: "ppi",
   esm3Eval: "structural",
   esmcEval: "structural",
   esm2Eval: "structural",

@@ -27,6 +27,20 @@
  *   • A STRING score is association, never binding strength, drawn in neutral ink.
  *   • ΔΔG_bind carries DDMut-PPI's sign (≤ 0 weaker binding) and its error, not a class.
  *
+ *   • Amyloid fibril structures are their own reading, never the native interface: chains stacked
+ *     along a fibril axis touch at most of the core. SOD1 Ala5 is in 0 of 142 native structures and
+ *     4 of 15 fibrils; the screen said "at the interface with the other SOD1 chain in 4 of 157".
+ *   • Antibodies, nanobodies and chains with no UniProt record are set aside like construct tags, and
+ *     a partner from another species is named with its species.
+ *   • Every partner is counted once, whichever source named it first (SUBUNIT's "CCS" and PDBe's
+ *     O14618 are one row).
+ *   • The model groups and folds the partner list; the screen renders it. A long single-screen tail
+ *     is one folded row listing its genes, never 60 rows repeating one sentence.
+ *
+ * REPLACED (doc/INTERFACES_PPI_REVIEW.md, SOD1 p.Ala5Val): fibril stacking read as the dimer
+ * interface (and planned as a DDMut-PPI wild type); "NB1" and "Other" counted as partners; CCS
+ * listed twice; mouse and yeast proteins unnamed as such; 120 partner rows, 66 of them one sentence.
+ *
  * REPLACED (doc/INTERFACES_AUDIT.md): two tabs (Multimer assembly, Protein interactions) that each
  * answered "at an interface" from the same PDBe data, counted entries per partner instead of per
  * residue ("in 8 solved structures" for a residue at the interface in 1), called eight partners from
@@ -159,7 +173,10 @@ export interface AvailabilityView {
 }
 
 export interface ObservedView extends ObservedInterface {
+  /** Track and table name: "SOD1, other chain", "CCS", "Sod1 (mouse)", "SOD1 fibril". */
   label: string;
+  /** Stable key shared by the track lane and the table row (linked highlight). */
+  key: string;
   /** Entries showing the pair. */
   n: number;
   /** Entries showing the variant at this interface. */
@@ -209,6 +226,17 @@ export interface InterfaceView {
   support: string;
   /** Observed support of the best-attested partner at the variant, when observed. */
   observed: { k: number; n: number; partner: string; entries: string[]; maxSupport: number } | null;
+  /**
+   * When the residue is not at a native interface: the interface it was tested against, so the screen
+   * can say "0 of 142" rather than a bare "No contact".
+   */
+  reference: { n: number; partner: string } | null;
+  /** The nearest residue at that interface in at least half as many structures as its best residue. */
+  nearest: { residue: number; name: string; support: number; n: number; gap: number } | null;
+  /** The residue in amyloid fibril structures, read apart from the native interface. */
+  fibril: { k: number; n: number; entries: string[]; sentence: string } | null;
+  /** The residue at a crystal-packing contact (the entry's biological assembly is a monomer). */
+  crystal: { k: number; n: number; entries: string[]; sentence: string } | null;
   /** Observation and prediction disagree: one sentence saying how. */
   disagreement: string | null;
   /** Construct-tag interfaces at the variant, set aside: one sentence. */
@@ -220,10 +248,30 @@ export type PartnerGroup = "assembly" | "structural" | "curated" | "screen" | "p
 export const PARTNER_GROUP_LABEL: Record<PartnerGroup, { title: string; meta: string }> = {
   assembly: { title: "Assembly", meta: "Named in UniProt's SUBUNIT record" },
   structural: { title: "Seen in solved structures", meta: "PDBe-KB interfaces" },
-  curated: { title: "Reported binding", meta: "IntAct, by co-purification, structure or several studies" },
+  curated: { title: "Reported binding", meta: "UniProt or IntAct, beyond a single two-hybrid screen" },
   screen: { title: "Binary screen only", meta: "IntAct, two-hybrid in one study" },
   physical: { title: "Physical association only", meta: "STRING physical sub-network, no curated binding" },
   functional: { title: "Functional association only", meta: "STRING, no physical evidence" },
+};
+
+/**
+ * The two bands the partner list is read in: binding evidence (a curated, structural or screened
+ * claim that the two proteins actually bind) and association only (STRING physical/functional,
+ * which is not a binding strength). The tier chart and the grid group headers share this map, so a
+ * reader sees the same hierarchy in both.
+ */
+export const PARTNER_BANDS: Record<PartnerGroup, "binding" | "association"> = {
+  assembly: "binding",
+  structural: "binding",
+  curated: "binding",
+  screen: "binding",
+  physical: "association",
+  functional: "association",
+};
+
+export const PARTNER_BAND_LABEL: Record<"binding" | "association", { title: string; meta: string }> = {
+  binding: { title: "Binding evidence", meta: "a curated, structural or screened claim that the two proteins bind" },
+  association: { title: "Association only", meta: "STRING association, not a binding strength" },
 };
 
 export interface StringCell {
@@ -253,6 +301,24 @@ export interface PartnerRow {
   functional: StringCell;
   variantInSite: boolean;
   variantAtObservedInterface: boolean;
+  /** The partner's species when it is not human ("mouse", "Baker's yeast", "other species"). */
+  organism: string | null;
+}
+
+/** One evidence tier of the partner list, as the screen draws it: shown rows, a folded tail, a count. */
+export interface PartnerGroupView {
+  id: PartnerGroup;
+  title: string;
+  meta: string;
+  /** Every partner of this tier the payloads hold (shown, folded and hidden). */
+  total: number;
+  /** STRING's list reached its cap, so the tier holds more than `total`. */
+  capped: boolean;
+  rows: PartnerRow[];
+  /** Rows folded behind one summary line; the screen lists them as names on request. */
+  folded: { rows: PartnerRow[]; summary: string } | null;
+  /** STRING-only rows not carried at all (beyond the shown few); counted, linked to STRING. */
+  hidden: number;
 }
 
 export interface TrackLane {
@@ -265,6 +331,10 @@ export interface TrackLane {
   /** Residue marks with support 0–1 (solved: k/n; predicted: 1). */
   marks: Array<{ residue: number; weight: number; title: string }>;
   hit: boolean;
+  /** Solved lanes: the variant residue's own support, "4/15", shown at the lane's end. */
+  readout: { k: number; n: number } | null;
+  /** The table row this lane is (observed partners), for the linked highlight. */
+  rowKey: string | null;
   /** Accessible summary. */
   summary: string;
 }
@@ -292,6 +362,11 @@ export interface TraceStep {
   value: string;
   sub?: string;
   warn?: boolean;
+  /**
+   * The source behind this step has not answered ("pending"), answered ("done") or failed
+   * ("failed"). The rail draws it; `warn` is kept for the failed flag it already carried.
+   */
+  state: "done" | "pending" | "failed";
 }
 
 export interface InterfacesEvidence {
@@ -313,12 +388,30 @@ export interface InterfacesEvidence {
     composition: string;
   };
   chains: ChainView[];
-  observed: { availability: AvailabilityView; partners: ObservedView[]; artefacts: ObservedView[] };
+  observed: {
+    availability: AvailabilityView;
+    /** Native interfaces with biological partners: the ones the verdict reads. */
+    partners: ObservedView[];
+    /** The same pairs in amyloid fibril structures. */
+    fibrils: ObservedView[];
+    /** The same pairs where the entry's biological assembly is a monomer: crystal packing. */
+    crystals: ObservedView[];
+    /** Construct tags, tool antibodies, unmapped chains: shown, never counted. */
+    artefacts: ObservedView[];
+    /** What the table draws: the first few set-aside chains; the rest fold behind one line. */
+    artefactsShown: ObservedView[];
+    artefactsFold: { rows: ObservedView[]; summary: string } | null;
+    /** False when RCSB could not be read, so fibril entries may sit among the native ones. */
+    fibrilsChecked: boolean;
+  };
   model: ModelView;
   interface: InterfaceView;
   sites: PpiInteractionSite[];
   sections: { uniprot: AvailabilityView; intact: AvailabilityView; stringPhysical: AvailabilityView; stringFunctional: AvailabilityView };
+  /** Rows shown by default, in group order (folded and hidden rows excluded). */
   partners: PartnerRow[];
+  /** The partner list by tier, with counts, folds and STRING tails: what the screen draws. */
+  groups: PartnerGroupView[];
   /** Partner rows hidden from the grid (long STRING tails), per group. */
   hiddenPartners: Partial<Record<PartnerGroup, number>>;
   columns: { solved: boolean; site: boolean };
@@ -350,12 +443,21 @@ export interface BuildInterfacesInput {
   shiftError?: string | null;
 }
 
-/** A stored assembly payload that predates per-residue support (or the assembly record) is not rendered. */
+/**
+ * A stored assembly payload that predates per-residue support, the assembly record or the fibril split
+ * is not rendered: it may count fibril stacking as the native interface.
+ */
 export function isStaleAssembly(d: MultimerData | null | undefined): boolean {
   if (!d) return false;
   if (!d.assembly) return true;
   const partners = d.experimental?.partners ?? [];
-  return partners.some(p => !Array.isArray((p as any).support) || !Array.isArray((p as any).variantEntries));
+  return (
+    partners.some(p => !Array.isArray((p as any).support) || !Array.isArray((p as any).variantEntries) || !("context" in p)) ||
+    // A payload written before the crystal-packing split carries no verdict on it: re-read once, then
+    // trust the recorded `crystalChecked` (including `false` when RCSB did not answer) so a failed
+    // RCSB lookup does not make the assembly re-read forever.
+    (partners.length > 0 && (d.experimental as any)?.crystalChecked === undefined)
+  );
 }
 
 /** A stored PPI payload from before IntAct evidence and the STRING lists is re-read, not rendered. */
@@ -377,8 +479,14 @@ function availability(
   return { state: "unknown", label: ENGINE_STATE_LABELS["no-result"], reason: words.unknown };
 }
 
-function intactLine(e: IntactEvidence | null, experiments: number | null): string {
-  if (!e || !e.methods.length) return experiments !== null ? `IntAct binary interaction (${plural(experiments, "assay")}, methods not read)` : "IntAct binary interaction";
+function intactLine(e: IntactEvidence | null, experiments: number | null, intactRead: boolean): string {
+  if (!e || !e.methods.length) {
+    // IntAct answered and holds no row for the pair (often a different isoform or species entry): say that, not "not read".
+    if (experiments === null) return "IntAct binary interaction";
+    return intactRead
+      ? `UniProt: ${plural(experiments, "experiment")}; IntAct gave no method for this pair`
+      : `IntAct binary interaction (${plural(experiments, "assay")}, methods not read)`;
+  }
   const studies = e.pubmed.length;
   const method = e.twoHybridOnly ? "Yeast two-hybrid" : e.methods.slice(0, 2).map(m => m.charAt(0).toUpperCase() + m.slice(1)).join(", ") + (e.methods.length > 2 ? ` +${e.methods.length - 2}` : "");
   return `${method} · ${studies === 1 ? `1 study (PubMed ${e.pubmed[0]})` : plural(studies, "study", "studies")}`;
@@ -425,18 +533,45 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   const exp = asmData?.experimental;
   const allObserved: ObservedView[] = (exp?.status === "ok" ? exp.partners : []).map(p => {
     const n = p.pdbEntries.length;
+    const fibril = p.context === "fibril";
+    const crystal = p.context === "crystal";
+    const name = p.gene ?? p.name;
     return {
       ...p,
-      label: p.homomeric ? `${gene}, other chain` : p.name,
+      label: fibril
+        ? `${p.homomeric ? gene : name} fibril`
+        : crystal ? `${p.homomeric ? gene : name} (outside the assembly)`
+        : p.homomeric ? `${gene}, other chain` : p.organism ? `${name} (${p.organism.toLowerCase()})` : name,
+      key: `solved:${p.accession}:${p.context ?? "native"}`,
       n,
       k: p.variantEntries.length,
       maxSupport: p.support.length ? Math.max(...p.support) : 0,
     };
   });
-  const observedPartners = allObserved.filter(p => !p.artefact);
-  const artefacts = allObserved.filter(p => p.artefact);
+  const observedPartners = allObserved.filter(p => !p.artefact && p.context !== "fibril" && p.context !== "crystal");
+  const fibrilPartners = allObserved.filter(p => !p.artefact && p.context === "fibril");
+  const crystalPartners = allObserved.filter(p => !p.artefact && p.context === "crystal");
+  // One row per non-biological chain, whichever entries it came from (PDBe's "Other" spans fibrils and crystals).
+  const artefacts: ObservedView[] = [];
+  for (const p of allObserved.filter(o => o.artefact)) {
+    const seen = artefacts.find(a => a.accession === p.accession);
+    if (!seen) artefacts.push({ ...p, key: `solved:${p.accession}:set-aside` });
+    else {
+      const entries = [...new Set([...seen.pdbEntries, ...p.pdbEntries])].sort();
+      Object.assign(seen, { pdbEntries: entries, n: entries.length, variantAtInterface: seen.variantAtInterface || p.variantAtInterface, variantEntries: [...new Set([...seen.variantEntries, ...p.variantEntries])] });
+    }
+  }
+  // Density budget for set-aside chains: a handful are worth showing; a screen of construct tags and
+  // unmapped chains folds behind one line (SOD1's set is two, so nothing folds there).
+  const SET_ASIDE_SHOWN = 4;
+  const artefactsShown = artefacts.slice(0, SET_ASIDE_SHOWN);
+  const artefactsFold = artefacts.length > SET_ASIDE_SHOWN
+    ? { rows: artefacts.slice(SET_ASIDE_SHOWN), summary: `${plural(artefacts.length - SET_ASIDE_SHOWN, "more chain")} set aside: construct tags, tool binders or unmapped chains, not biological and not counted` }
+    : null;
   const observedAvail = availability(
-    exp?.status,
+    // A failed assembly service (no payload at all) is a provider failure, not "not read yet":
+    // otherwise the trace says "Solved structures have not been read" forever after a failed run.
+    exp?.status ?? (input.assemblyStatus === "error" && !asmData ? "failed" : undefined),
     observedPartners.length > 0,
     asmLoading,
     {
@@ -445,8 +580,17 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       unknown: "Solved structures have not been read for this variant yet.",
     }
   );
-  if (observedAvail.state === "ok" && observedPartners.length === 0 && artefacts.length) {
-    Object.assign(observedAvail, { state: "empty", label: ENGINE_STATE_LABELS["no-result"], reason: `The only interfaces in solved structures of ${gene} are with construct tags, which are not counted.` });
+  if (observedAvail.state === "ok" && observedPartners.length === 0 && (artefacts.length || fibrilPartners.length || crystalPartners.length)) {
+    const nonNative: string[] = [];
+    if (fibrilPartners.length) nonNative.push("amyloid fibril stacking");
+    if (crystalPartners.length) nonNative.push("contacts outside a deposited monomer assembly");
+    Object.assign(observedAvail, {
+      state: "empty",
+      label: ENGINE_STATE_LABELS["no-result"],
+      reason: nonNative.length
+        ? `Solved structures of ${gene} show no native interface with another protein; only ${nonNative.join(" and ")}${artefacts.length ? ", and non-biological partners" : ""}.`
+        : `The only interfaces in solved structures of ${gene} are with construct tags, antibodies or unmapped chains, which are not counted.`,
+    });
   }
 
   // ── Chains (diagram) ───────────────────────────────────────────────────
@@ -539,11 +683,56 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   const best = hits[0] ?? null;
   const artefactHits = artefacts.filter(p => p.variantAtInterface);
   const setAside = artefactHits.length
-    ? `An interface with ${artefactHits.map(a => a.artefact).join(" and ")} at ${resLabel} is a property of the construct and is not counted.`
+    ? `A contact at ${resLabel} with ${artefactHits.map(a => `${a.name} (${a.artefact})`).join(" and ")} is not a biological interface and is not counted.`
     : null;
+
+  // The fibril reading, apart from the native one.
+  const fibrilHit = [...fibrilPartners].filter(p => p.variantAtInterface).sort((a, b) => b.k - a.k)[0] ?? null;
+  const fibril = fibrilHit
+    ? {
+        k: fibrilHit.k,
+        n: fibrilHit.n,
+        entries: fibrilHit.variantEntries,
+        sentence:
+          `In ${fibrilHit.k >= fibrilHit.n ? (fibrilHit.n === 1 ? "the one" : `all ${fibrilHit.n}`) : `${fibrilHit.k} of ${fibrilHit.n}`} amyloid fibril structure${fibrilHit.n === 1 ? "" : "s"} ` +
+          `(${fibrilHit.variantEntries.slice(0, 4).map(e => e.toUpperCase()).join(", ")}${fibrilHit.variantEntries.length > 4 ? "…" : ""}) ${resLabel} touches a neighbouring chain of the fibril. ` +
+          "Fibril stacking is not a native interface, so it is read apart.",
+      }
+    : null;
+
+  // Crystal packing, apart from the native interface: an entry whose biological assembly is a
+  // monomer shows the contact only because of how the crystal packs, so it is not counted.
+  const crystalHit = [...crystalPartners].filter(p => p.variantAtInterface).sort((a, b) => b.k - a.k)[0] ?? null;
+  const crystal = crystalHit
+    ? {
+        k: crystalHit.k,
+        n: crystalHit.n,
+        entries: crystalHit.variantEntries,
+        sentence:
+          `In ${crystalHit.k >= crystalHit.n ? (crystalHit.n === 1 ? "the one" : `all ${crystalHit.n}`) : `${crystalHit.k} of ${crystalHit.n}`} solved structure${crystalHit.n === 1 ? "" : "s"} ` +
+          `(${crystalHit.variantEntries.slice(0, 4).map(e => e.toUpperCase()).join(", ")}${crystalHit.variantEntries.length > 4 ? "…" : ""}) ${resLabel} touches another chain outside the deposited assembly (a monomer), so it is read apart. ` +
+          "The biological assembly of that entry is a monomer, so this is not a native interface and is not counted.",
+      }
+    : null;
+
+  // What the residue was tested against when it is not at a native interface, and its nearest core neighbour.
+  const seq: string = typeof md.sequence === "string" ? md.sequence : "";
+  const residueName = (r: number) => (seq[r - 1] && AMINO_ACID_1_TO_3_TITLE[seq[r - 1].toUpperCase()] ? `${AMINO_ACID_1_TO_3_TITLE[seq[r - 1].toUpperCase()]}${r}` : `residue ${r}`);
+  const referencePartner =
+    observedPartners.find(p => p.homomeric && rec.kind === "homomer") ?? [...observedPartners].sort((a, b) => b.n - a.n)[0] ?? null;
+  let nearest: InterfaceView["nearest"] = null;
+  if (referencePartner && position !== null && !referencePartner.variantAtInterface) {
+    const core = referencePartner.residues
+      .map((r, i) => ({ r, s: referencePartner.support[i] }))
+      .filter(x => x.s * 2 >= referencePartner.maxSupport)
+      .sort((a, b) => Math.abs(a.r - position) - Math.abs(b.r - position) || b.s - a.s)[0];
+    if (core) nearest = { residue: core.r, name: residueName(core.r), support: core.s, n: referencePartner.n, gap: Math.abs(core.r - position) };
+  }
+  const reference = referencePartner ? { n: referencePartner.n, partner: referencePartner.label } : null;
+
   let iface: InterfaceView;
   if (asmLoading || staleAsm) {
-    iface = { verdict: "pending", label: ENGINE_STATE_LABELS.running, support: "Reading solved structures", observed: null, disagreement: null, setAside };
+    iface = { verdict: "pending", label: ENGINE_STATE_LABELS.running, support: "Reading solved structures", observed: null, reference: null, nearest: null, fibril: null, crystal: null, disagreement: null, setAside };
   } else if (best) {
     const disagreement = model.state === "built" && !vContacts.length
       ? `The predicted complex places ${resLabel} outside its interface; the solved structures are the stronger evidence.`
@@ -553,6 +742,10 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       label: "At an interface",
       support: supportText(best.k, best.n),
       observed: { k: best.k, n: best.n, partner: best.label, entries: best.variantEntries, maxSupport: best.maxSupport },
+      reference: null,
+      nearest: null,
+      fibril,
+      crystal,
       disagreement,
       setAside,
     };
@@ -562,6 +755,10 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       label: "At an interface",
       support: "In the predicted complex only",
       observed: null,
+      reference,
+      nearest,
+      fibril,
+      crystal,
       disagreement: observedAvail.state === "ok"
         ? `Solved structures of ${gene} show ${plural(observedPartners.length, "interface")}, none at ${resLabel}; only the model places it at one.`
         : null,
@@ -570,14 +767,19 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   } else if (model.state === "built" || observedAvail.state === "ok") {
     iface = {
       verdict: "not-at-interface",
-      label: "No contact",
-      support: model.state === "built" && observedAvail.state === "ok" ? "Model and solved structures" : model.state === "built" ? "In the predicted complex" : `In ${plural(new Set(observedPartners.flatMap(p => p.pdbEntries)).size, "solved structure")}`,
+      // Not "No contact": a fibril or construct contact may exist, and is stated beside this.
+      label: "Not at an interface",
+      support: model.state === "built" && observedAvail.state === "ok" ? "Model and solved structures" : model.state === "built" ? "In the predicted complex" : `In ${plural(new Set(observedPartners.flatMap(p => p.pdbEntries)).size, "native solved structure")}`,
       observed: null,
+      reference: observedAvail.state === "ok" ? reference : null,
+      nearest: observedAvail.state === "ok" ? nearest : null,
+      fibril,
+      crystal,
       disagreement: null,
       setAside,
     };
   } else {
-    iface = { verdict: "not-measured", label: "Not measured", support: "No solved complex or model", observed: null, disagreement: null, setAside };
+    iface = { verdict: "not-measured", label: "Not measured", support: "No solved complex or model", observed: null, reference: null, nearest: null, fibril, crystal, disagreement: null, setAside };
   }
 
   // ── Curation: sites, IntAct; association: STRING ───────────────────────
@@ -614,7 +816,8 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   const stringCell = (gene: string, which: "physical" | "functional"): StringCell => {
     const list = which === "physical" ? ppi?.string?.physical : ppi?.string?.functional;
     const map = which === "physical" ? physMap : funcMap;
-    if (!list) return { score: null, band: null, note: ppiLoading ? null : "Not read" };
+    // A failed lookup is not an absence: the cell says the provider errored, never "Not read".
+    if (!list) return { score: null, band: null, note: ppiLoading ? null : input.ppiStatus === "error" ? ENGINE_STATE_LABELS["upstream-error"] : "Not read" };
     const s = map.get(gene.toUpperCase());
     if (s !== undefined) return { score: s, band: stringConfidenceLabel(s), note: null };
     return { score: null, band: null, note: limit !== null && list.length >= limit ? `Not in STRING's top ${limit}` : `None ≥ ${minScore.toFixed(2)}` };
@@ -637,16 +840,38 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
         key, gene: g ?? acc ?? "Partner", accession: acc, group: "functional", evidence: "", qualifier: null, family: false, subunitNamed: false,
         intact: null, intactExperiments: null, observed: null, sites: [],
         physical: { score: null, band: null, note: null }, functional: { score: null, band: null, note: null },
-        variantInSite: false, variantAtObservedInterface: false,
+        variantInSite: false, variantAtObservedInterface: false, organism: null,
       };
       rows.set(key, row);
     }
     if (acc && !row.accession) row.accession = acc;
     if (row.accession) byAcc.set(bare(row.accession), key);
     if (g && (row.gene === row.accession || row.gene === "Partner")) row.gene = g;
-    if (row.gene) byGene.set(row.gene.toUpperCase(), key);
+    // A protein from another species is matched by accession only: its gene name ("Sod1", "Hspa5")
+    // must not fold it into the human row, or into the query itself.
+    if (row.gene && !row.organism) byGene.set(row.gene.toUpperCase(), key);
     return row;
   };
+  /** A partner from another species: its own row, keyed by accession. */
+  const upsertForeign = (g: string | null, acc: string, organism: string): PartnerRow => {
+    const key = byAcc.get(bare(acc)) ?? `${bare(acc)}`;
+    let row = rows.get(key);
+    if (!row) {
+      row = {
+        key, gene: g ?? acc, accession: acc, group: "functional", evidence: "", qualifier: null, family: false, subunitNamed: false,
+        intact: null, intactExperiments: null, observed: null, sites: [],
+        physical: { score: null, band: null, note: null }, functional: { score: null, band: null, note: null },
+        variantInSite: false, variantAtObservedInterface: false, organism,
+      };
+      rows.set(key, row);
+      byAcc.set(bare(acc), key);
+    }
+    return row;
+  };
+  // Accessions IntAct gives for gene names, so SUBUNIT's "CCS" and PDBe's O14618 meet in one row.
+  const accessionOf = new Map<string, string>();
+  for (const c of intact) if (c.gene && c.accession && !c.organismDiffer && !c.evidence?.organism) accessionOf.set(c.gene.toUpperCase(), c.accession);
+  for (const o of observedPartners) if (o.gene && !o.organism) accessionOf.set(o.gene.toUpperCase(), o.accession);
 
   // Assembly: the protein itself for a homomer, named partners, and families named without genes.
   const evidenceOf = new Map<string, string>();
@@ -664,12 +889,12 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
         evidence: `${st.label}${st.qualifier ? ` (${st.qualifier.toLowerCase()})` : ""}, named as a family; not resolved to genes`,
         qualifier: st.qualifier, family: true, subunitNamed: false, intact: null, intactExperiments: null, observed: null, sites: [],
         physical: { score: null, band: null, note: null }, functional: { score: null, band: null, note: null },
-        variantInSite: false, variantAtObservedInterface: false,
+        variantInSite: false, variantAtObservedInterface: false, organism: null,
       });
     } else {
       for (const g of st.partnerGenes) {
         const resolved = rec.partners.find(p => p.gene === g);
-        const row = upsert(g, resolved?.accession ?? null);
+        const row = upsert(g, resolved?.accession ?? accessionOf.get(g.toUpperCase()) ?? null);
         row.group = "assembly";
         row.qualifier = row.qualifier ?? st.qualifier;
         if (!evidenceOf.has(row.key)) evidenceOf.set(row.key, `${st.label}${st.qualifier ? ` (${st.qualifier.toLowerCase()})` : ""}`);
@@ -688,15 +913,16 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     evidenceOf.set(row.key, /\bcomplex binds\b/i.test(m.sentence) ? `Binds the ${assemblyPartnerName ? `${gene}–${assemblyPartnerName}` : gene} complex (SUBUNIT)` : "Binds (SUBUNIT)");
   }
   for (const o of observedPartners) {
-    const row = o.homomeric ? upsert(gene, uniprotId) : upsert(null, o.accession);
-    if (row.gene === o.accession) row.gene = o.name;
+    const row = o.homomeric ? upsert(gene, uniprotId) : o.organism ? upsertForeign(o.gene ?? o.name, o.accession, o.organism) : upsert(o.gene ?? null, o.accession);
+    if (row.gene === o.accession) row.gene = o.gene ?? o.name;
     row.observed = o;
     row.variantAtObservedInterface = o.variantAtInterface;
     if (row.group !== "assembly") row.group = "structural";
   }
   for (const c of intact) {
     if (bare(c.accession) === bare(uniprotId)) continue;
-    const row = upsert(c.gene, c.accession);
+    const foreign = c.evidence?.organism ?? (c.organismDiffer ? "other species" : null);
+    const row = foreign ? upsertForeign(c.gene, c.accession, foreign) : upsert(c.gene, c.accession);
     row.intactExperiments = c.experiments ?? null;
     row.intact = c.evidence ?? null;
   }
@@ -717,8 +943,10 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     if (row.family) continue;
     // The protein's own row (a homomer) has no STRING score with itself.
     const self = bare(row.accession) === bare(uniprotId) && Boolean(uniprotId);
-    row.physical = self ? { score: null, band: null, note: null } : stringCell(row.gene, "physical");
-    row.functional = self ? { score: null, band: null, note: null } : stringCell(row.gene, "functional");
+    // STRING here is the human network: a mouse protein has no score in it, and its human ortholog's is not its own.
+    const foreignNote: StringCell = { score: null, band: null, note: `Not scored (${row.organism === "other species" ? "not human" : row.organism})` };
+    row.physical = self ? { score: null, band: null, note: null } : row.organism ? foreignNote : stringCell(row.gene, "physical");
+    row.functional = self ? { score: null, band: null, note: null } : row.organism ? foreignNote : stringCell(row.gene, "functional");
     if (row.group === "assembly" || row.group === "structural") {
       // decided above
     } else if (row.subunitNamed) {
@@ -736,7 +964,7 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     const parts: string[] = [];
     if (evidenceOf.has(row.key)) parts.push(evidenceOf.get(row.key)!);
     if (row.observed) parts.push(`Solved: ${plural(row.observed.n, "structure")}`);
-    if (row.intactExperiments !== null || row.intact) parts.push(intactLine(row.intact, row.intactExperiments));
+    if (row.intactExperiments !== null || row.intact) parts.push(intactLine(row.intact, row.intactExperiments, ppi?.lookups?.intact === "ok"));
     if (row.sites.length && !parts.length) parts.push(`Mapped site ${row.sites.map(rangeText).join(", ")}`);
     if (!parts.length) parts.push(row.group === "physical" ? "STRING physical association" : "STRING functional association");
     row.evidence = parts.join(" · ");
@@ -752,19 +980,55 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     (b.functional.score ?? 0) - (a.functional.score ?? 0) ||
     a.gene.localeCompare(b.gene)
   );
+  // ── Groups: what is shown, what folds, what only STRING holds ──────────
+  // Density budget (data-presentation.md): about 20 rows per tier. A single-screen tail folds behind one
+  // line listing its genes; a STRING tail keeps its first few and lists the rest as names with scores.
+  const SCREEN_ALWAYS = 12;
+  const CURATED_SHOWN = 20;
+  const STRING_CORROBORATES = 0.4;
+  const groups: PartnerGroupView[] = [];
   const hiddenPartners: Partial<Record<PartnerGroup, number>> = {};
-  const partners: PartnerRow[] = [];
-  const shownIn: Partial<Record<PartnerGroup, number>> = {};
-  for (const r of sorted) {
-    const cap = r.group === "physical" ? PHYSICAL_SHOWN : r.group === "functional" ? FUNCTIONAL_SHOWN : Infinity;
-    const n = shownIn[r.group] ?? 0;
-    if (n >= cap) {
-      hiddenPartners[r.group] = (hiddenPartners[r.group] ?? 0) + 1;
-      continue;
+  for (const id of groupOrder) {
+    const all = sorted.filter(r => r.group === id);
+    if (!all.length) continue;
+    let rowsShown = all;
+    let folded: PartnerGroupView["folded"] = null;
+    let meta = PARTNER_GROUP_LABEL[id].meta;
+    const list = id === "physical" ? ppi?.string?.physical : id === "functional" ? ppi?.string?.functional : null;
+    const capped = Boolean(list && limit !== null && list.length >= limit);
+    if (id === "screen") {
+      const studies = new Set(all.flatMap(r => r.intact?.pubmed ?? []));
+      if (studies.size === 1) {
+        // One study for the whole tier: said once in the head, not on every row.
+        meta = `Yeast two-hybrid in one study (PubMed ${[...studies][0]}), no other method`;
+        for (const r of all) r.evidence = r.organism ? `Yeast two-hybrid, ${r.organism} protein` : "Yeast two-hybrid";
+      }
+      if (all.length > SCREEN_ALWAYS) {
+        const keep = (r: PartnerRow) => (r.physical.score ?? 0) >= STRING_CORROBORATES || r.sites.length > 0 || Boolean(r.observed);
+        rowsShown = all.filter(keep);
+        const rest = all.filter(r => !keep(r));
+        if (rest.length) {
+          folded = {
+            rows: rest,
+            summary: `${plural(rest.length, "more partner")} from ${studies.size === 1 ? "the same screen" : "two-hybrid screens"}, none with STRING physical support of ${STRING_CORROBORATES.toFixed(2)} or more`,
+          };
+        }
+      }
+    } else if (id === "curated" && all.length > CURATED_SHOWN) {
+      rowsShown = all.slice(0, CURATED_SHOWN);
+      folded = { rows: all.slice(CURATED_SHOWN), summary: `${plural(all.length - CURATED_SHOWN, "more reported partner")} with weaker STRING support` };
+    } else if (id === "physical" || id === "functional") {
+      const cap = id === "physical" ? PHYSICAL_SHOWN : FUNCTIONAL_SHOWN;
+      rowsShown = all.slice(0, cap);
+      const rest = all.slice(cap);
+      if (rest.length) {
+        hiddenPartners[id] = rest.length;
+        folded = { rows: rest, summary: `${rest.length}${capped ? "+" : ""} more on STRING${capped ? `, which returns its top ${limit}` : ""}` };
+      }
     }
-    shownIn[r.group] = n + 1;
-    partners.push(r);
+    groups.push({ id, title: PARTNER_GROUP_LABEL[id].title, meta, total: all.length, capped, rows: rowsShown, folded, hidden: 0 });
   }
+  const partners: PartnerRow[] = groups.flatMap(g => g.rows);
   const columns = {
     solved: partners.some(p => p.observed),
     site: sites.length > 0,
@@ -790,6 +1054,8 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       })),
       marks: [],
       hit: false,
+      readout: null,
+      rowKey: null,
       summary: `${plural(tm, "membrane segment")}; ${resLabel} is ${where ? (where.type === "Topological domain" ? `in the ${lower1(where.description || "topological domain")} part` : "in a membrane segment") : "outside annotated topology"}`,
     });
   }
@@ -803,6 +1069,8 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       ranges: named.map(f => ({ start: f.start, end: f.end, kind: f.type === "Domain" ? "domain" : "region", name: f.description || f.type, hit: Boolean(position !== null && f.start <= position && position <= f.end) })),
       marks: [],
       hit: false,
+      readout: null,
+      rowKey: null,
       summary: named.map(f => `${f.description || f.type} ${rangeText(f)}`).join("; "),
     });
   }
@@ -815,20 +1083,27 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       ranges: sites.map(s => ({ start: s.start, end: s.end, kind: "site", name: `${s.type} ${rangeText(s)} · ${s.description}`, hit: s.containsVariant })),
       marks: [],
       hit: sites.some(s => s.containsVariant),
+      readout: null,
+      rowKey: null,
       summary: `${sites.map(s => `${rangeText(s)} ${s.description}`).join("; ")}; ${sites.some(s => s.containsVariant) ? "includes" : "does not include"} ${resLabel}`,
     });
   }
+  // Native interfaces (homomer first, then by structures), then fibrils last: a different kind of contact.
   const ordered = [...observedPartners].sort((a, b) => Number(b.homomeric) - Number(a.homomeric) || b.n - a.n);
-  for (const o of ordered.slice(0, 6)) {
+  for (const o of [...ordered.slice(0, 6), ...fibrilPartners]) {
+    const fib = o.context === "fibril";
+    const where = fib ? "amyloid fibril structure" : "solved structure";
     track.push({
-      key: `solved:${o.accession}`,
+      key: o.key,
       kind: "solved",
       label: o.label,
-      sub: `${plural(o.n, "solved structure")}`,
+      sub: fib ? plural(o.n, "fibril structure") : plural(o.n, "solved structure"),
       ranges: [],
-      marks: o.residues.map((r, i) => ({ residue: r, weight: o.n ? Math.min(1, o.support[i] / o.n) : 1, title: `${r}: ${supportText(o.support[i], o.n)}` })),
+      marks: o.residues.map((r, i) => ({ residue: r, weight: o.n ? Math.min(1, o.support[i] / o.n) : 1, title: `${residueName(r)}: ${o.support[i]} of ${plural(o.n, where)}` })),
       hit: o.variantAtInterface,
-      summary: `${o.label}: ${plural(o.residues.length, "interface residue")}; ${o.variantAtInterface ? `${resLabel} at the interface in ${supportText(o.k, o.n)}` : `${resLabel} not at this interface`}`,
+      readout: { k: o.k, n: o.n },
+      rowKey: o.key,
+      summary: `${o.label}: ${plural(o.residues.length, "interface residue")}; ${o.variantAtInterface ? `${resLabel} at the interface in ${o.k} of ${plural(o.n, where)}` : `${resLabel} not at this interface`}`,
     });
   }
   if (model.state === "built") {
@@ -840,6 +1115,8 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       ranges: [],
       marks: footprint.map(r => ({ residue: r, weight: 1, title: `${r}: contact in the model` })),
       hit: vContacts.length > 0,
+      readout: null,
+      rowKey: null,
       summary: `Predicted interface: ${plural(footprint.length, "residue")}; ${vContacts.length ? "includes" : "does not include"} ${resLabel}`,
     });
   }
@@ -934,11 +1211,21 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     headline = `In the predicted complex, ${resLabel} makes ${plural(vContacts.length, "contact")} with another chain${model.band ? ` (ipTM ${model.iptm!.toFixed(2)}, ${IPTM_BAND_LABEL[model.band].toLowerCase()})` : ""}.`;
     predicate = "No solved structure shows it; this is a prediction on the variant model, so whether a contact is lost is not measured";
   } else if (iface.verdict === "not-at-interface") {
+    const ref = iface.reference;
+    const refPhrase = ref ? (ref.partner === `${gene}, other chain` ? `the other ${gene} chain` : ref.partner) : null;
     headline = siteHits.length
       ? `${resLabel} is inside UniProt's mapped binding site ${siteHits.map(rangeText).join(", ")}, but no structure places it at an interface.`
-      : `${resLabel} is not at any interface seen ${model.state === "built" ? "in the model or " : ""}in solved structures of ${gene}.`;
+      : ref && model.state !== "built"
+        ? `${resLabel} is not at the interface with ${refPhrase} in any of ${plural(ref.n, "native solved structure")}.`
+        : `${resLabel} is not at any interface seen ${model.state === "built" ? "in the model or " : ""}in solved structures of ${gene}.`;
+    const near = iface.nearest && iface.nearest.gap <= 5
+      ? `${iface.nearest.name}, ${plural(iface.nearest.gap, "residue")} away, is at that interface in ${iface.nearest.support} of ${iface.nearest.n}`
+      : null;
     predicate = observedPartners.length
-      ? `Solved structures show ${plural(observedPartners.length, "interface")}, none including ${resLabel}`
+      ? [
+          observedPartners.length > 1 ? `None of the ${observedPartners.length} native interfaces in solved structures includes it` : null,
+          near,
+        ].filter(Boolean).join("; ") || `Solved structures show ${plural(observedPartners.length, "interface")}, none including ${resLabel}`
       : model.nearestInterfaceGap !== null
         ? `In the predicted complex the nearest interface residue is ${plural(model.nearestInterfaceGap, "residue")} away in sequence`
         : "The predicted complex has no contact at it";
@@ -957,7 +1244,9 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   const chipTone: "neutral" | "muted" = iface.verdict === "at-interface" ? "neutral" : "muted";
 
   // ── Facts ──────────────────────────────────────────────────────────────
-  const physicalPartners = partners.filter(p => p.group === "assembly" || p.group === "structural" || p.group === "curated" || p.group === "screen").filter(p => !p.family && bare(p.accession) !== bare(uniprotId));
+  // Counted over every row, shown or folded; families, the query itself and set-aside chains are not partners.
+  const physicalPartners = sorted.filter(p => p.group === "assembly" || p.group === "structural" || p.group === "curated" || p.group === "screen").filter(p => !p.family && !p.organism && bare(p.accession) !== bare(uniprotId));
+  const foreignPartners = sorted.filter(p => p.organism && p.group !== "physical" && p.group !== "functional").length;
   const screenRows = [...rows.values()].filter(p => p.group === "screen");
   const screenOnly = screenRows.length;
   const screenStudies = new Set(screenRows.flatMap(p => p.intact?.pubmed ?? []));
@@ -967,6 +1256,7 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       : screenOnly
         ? `${screenOnly} from a two-hybrid screen only`
         : "curated, structural or co-purified";
+  const partnerSubFull = foreignPartners ? `${partnerSub}; ${foreignPartners} more from other species` : partnerSub;
   const facts: InterfacesEvidence["facts"] = [
     {
       label: "Assembly",
@@ -975,14 +1265,16 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     },
     {
       label: "Interface support",
-      value: iface.observed ? `${iface.observed.k} of ${iface.observed.n}` : iface.label,
-      sub: iface.observed ? `solved structures${iface.observed.entries.length <= 2 ? ` · ${iface.observed.entries.map(e => e.toUpperCase()).join(", ")}` : ""}` : iface.support,
-      mono: Boolean(iface.observed),
+      value: iface.observed ? `${iface.observed.k} of ${iface.observed.n}` : iface.reference ? `0 of ${iface.reference.n}` : iface.label,
+      sub: (iface.observed
+        ? `solved structures${iface.observed.entries.length <= 2 ? ` · ${iface.observed.entries.map(e => e.toUpperCase()).join(", ")}` : ""}`
+        : iface.reference ? "native solved structures" : iface.support) + (iface.fibril ? ` · ${iface.fibril.k} of ${iface.fibril.n} fibrils` : "") + (iface.crystal ? ` · ${iface.crystal.k} of ${iface.crystal.n} monomer-assembly entries` : ""),
+      mono: Boolean(iface.observed || iface.reference),
     },
     {
       label: "Reported partners",
       value: ppiLoading ? ENGINE_STATE_LABELS.running : String(physicalPartners.length),
-      sub: ppiLoading ? "" : sections.uniprot.state === "failed" ? "UniProt not read" : partnerSub,
+      sub: ppiLoading ? "" : sections.uniprot.state === "failed" ? "UniProt not read" : partnerSubFull,
       mono: !ppiLoading,
     },
     {
@@ -994,50 +1286,77 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
   ];
 
   // ── Trace ──────────────────────────────────────────────────────────────
+  // Each step carries whether its source has actually answered, so the rail can draw a pending
+  // marker only while a source is genuinely in flight, and a failed state (with the reason) when it
+  // errored — never a spinner that outlives the run.
   const physicalCount = ppi?.string?.physical?.length ?? 0;
+  const curationPending = !subunitText && (asmLoading || ppiLoading);
+  const curationFailed = !subunitText && !curationPending && ((input.assemblyStatus === "error" && !asmData) || (input.ppiStatus === "error" && !ppi));
+  const partnersFailed = sections.uniprot.state === "failed";
+  const stringFailed = sections.stringPhysical.state === "failed";
   const trace: TraceStep[] = [
     {
       label: "Curation",
-      value: statements.length
-        ? statements.map(s => `${s.label}${s.qualifier ? ` (${s.qualifier.toLowerCase()})` : ""}${s.family ? ` with ${s.family}` : s.partnerGenes.length ? ` with ${s.partnerGenes.join(", ")}` : ""}`).join("; ")
-        : subunitText ? "SUBUNIT names no assembly" : "No SUBUNIT record",
-      sub: statements.length > 1 ? "The first statement decides the assembly; the others are shown, not dropped." : subunitText ? undefined : "Read as not stated, never as a monomer.",
+      value: curationPending
+        ? ENGINE_STATE_LABELS.running
+        : statements.length
+          ? statements.map(s => `${s.label}${s.qualifier ? ` (${s.qualifier.toLowerCase()})` : ""}${s.family ? ` with ${s.family}` : s.partnerGenes.length ? ` with ${s.partnerGenes.join(", ")}` : ""}`).join("; ")
+          : curationFailed ? ENGINE_STATE_LABELS["upstream-error"] : subunitText ? "SUBUNIT names no assembly" : "No SUBUNIT record",
+      sub: statements.length > 1 ? "The first statement decides the assembly; the others are shown, not dropped." : subunitText ? undefined : curationFailed ? "UniProt did not answer, so the assembly statement could not be read." : "Read as not stated, never as a monomer.",
+      state: curationPending ? "pending" : curationFailed ? "failed" : "done",
     },
     {
       label: "Solved structures",
       value: observedAvail.state === "ok"
         ? observedPartners.map(o => `${o.label}: ${plural(o.n, "entry", "entries")}`).join("; ")
         : observedAvail.reason ?? "Not read",
-      sub: artefacts.length ? `${plural(artefacts.length, "construct partner")} set aside (${artefacts.map(a => a.artefact).join(", ")}).` : undefined,
-      warn: observedAvail.state === "failed",
+      sub: [
+        fibrilPartners.length ? `Amyloid fibrils read apart: ${fibrilPartners.map(f => `${f.label}, ${plural(f.n, "entry", "entries")}`).join("; ")}.` : null,
+        crystalPartners.length ? `Monomer-assembly entries read apart: ${crystalPartners.map(c => `${c.label}, ${plural(c.n, "entry", "entries")}`).join("; ")}.` : null,
+        artefacts.length ? `Set aside, not biological: ${[...new Set(artefacts.map(a => `${a.name} (${a.artefact})`))].join("; ")}.` : null,
+        exp?.status === "ok" && exp.entryKinds === "failed" ? "RCSB did not answer, so fibril and monomer-assembly entries could not be told apart from native ones." : null,
+      ].filter(Boolean).join(" ") || undefined,
+      warn: observedAvail.state === "failed" || (exp?.status === "ok" && exp.entryKinds === "failed"),
+      state: observedAvail.state === "pending" ? "pending" : observedAvail.state === "failed" ? "failed" : "done",
     },
     {
       label: "Variant residue",
-      value: iface.observed ? `At the interface in ${supportText(iface.observed.k, iface.observed.n)}` : iface.verdict === "at-interface" ? "At an interface in the model only" : iface.verdict === "not-at-interface" ? "Not at any interface" : "Not measured",
-      sub: iface.disagreement ?? (iface.observed ? `Interacting entries: ${iface.observed.entries.map(e => e.toUpperCase()).join(", ")}.` : undefined),
+      value: iface.verdict === "pending"
+        ? ENGINE_STATE_LABELS.running
+        : iface.observed ? `At the interface in ${supportText(iface.observed.k, iface.observed.n)}` : iface.verdict === "at-interface" ? "At an interface in the model only" : iface.verdict === "not-at-interface" ? (iface.reference ? `Not at the interface in any of ${plural(iface.reference.n, "native structure")}` : "Not at any interface") : "Not measured",
+      sub: iface.verdict === "pending"
+        ? "Reading the solved structures."
+        : [iface.disagreement ?? (iface.observed ? `Interacting entries: ${iface.observed.entries.map(e => e.toUpperCase()).join(", ")}.` : null), iface.fibril?.sentence ?? null].filter(Boolean).join(" ") || undefined,
       warn: Boolean(iface.disagreement),
+      state: iface.verdict === "pending" ? "pending" : "done",
     },
     {
       label: "Complex model",
-      value: model.state === "built" ? `Built · ${plural(model.chainCount, "chain")} · ipTM ${model.iptm !== null ? model.iptm.toFixed(2) : "not reported"}` : model.state === "not-requested" ? "Not run (on request)" : model.stateLabel ?? "Not run",
+      value: model.state === "pending" || model.state === "running"
+        ? ENGINE_STATE_LABELS.running
+        : model.state === "built" ? `Built · ${plural(model.chainCount, "chain")} · ipTM ${model.iptm !== null ? model.iptm.toFixed(2) : "not reported"}` : model.state === "not-requested" ? "Not run (on request)" : model.stateLabel ?? "Not run",
       sub: model.state === "built" ? undefined : model.reason ?? undefined,
       warn: model.state === "failed",
+      state: model.state === "pending" || model.state === "running" ? "pending" : model.state === "failed" ? "failed" : "done",
     },
     {
       label: "Partners",
       value: ppiLoading
         ? ENGINE_STATE_LABELS.running
-        : `${plural(physicalPartners.length, "reported partner")}: ${partnerSub}`,
-      sub: sections.intact.state === "failed" ? sections.intact.reason ?? undefined : undefined,
-      warn: sections.uniprot.state === "failed" || sections.intact.state === "failed",
+        : partnersFailed ? ENGINE_STATE_LABELS["upstream-error"]
+          : `${plural(physicalPartners.length, "reported partner")}: ${partnerSubFull}`,
+      sub: [partnersFailed ? sections.uniprot.reason : null, sections.intact.state === "failed" ? sections.intact.reason : null].filter(Boolean).join(" ") || undefined,
+      warn: partnersFailed || sections.intact.state === "failed",
+      state: ppiLoading ? "pending" : partnersFailed ? "failed" : "done",
     },
     {
       label: "STRING",
       value: sections.stringPhysical.state === "ok" || sections.stringPhysical.state === "empty"
-        ? `${plural(physicalCount, "physical partner")} and ${ppi?.string?.functional?.length ?? 0} functional ≥ ${minScore.toFixed(2)}`
+        ? `${plural(physicalCount, "physical partner")} and ${ppi?.string?.functional?.length ?? 0}${limit !== null && (ppi?.string?.functional?.length ?? 0) >= limit ? "+" : ""} functional ≥ ${minScore.toFixed(2)}`
         : sections.stringPhysical.reason ?? "Not read",
-      sub: ppi?.stringVersion ? `STRING ${ppi.stringVersion}` : undefined,
-      warn: sections.stringPhysical.state === "failed",
+      sub: [ppi?.stringVersion ? `STRING ${ppi.stringVersion}` : null, limit !== null && (ppi?.string?.functional?.length ?? 0) >= limit ? `STRING returns its top ${limit}; the functional network is larger` : null].filter(Boolean).join(". ") || undefined,
+      warn: stringFailed,
+      state: ppiLoading && !ppi ? "pending" : stringFailed ? "failed" : "done",
     },
     {
       label: "Binding change",
@@ -1046,8 +1365,9 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
         : binding.state === "ready" ? "Not run yet" : binding.stateLabel ?? "Not measured",
       sub: binding.state === "ok" ? undefined : binding.reason ?? undefined,
       warn: binding.state === "failed",
+      state: binding.state === "pending" || binding.state === "running" ? "pending" : binding.state === "failed" ? "failed" : "done",
     },
-    { label: "Engine record", value: "None", sub: "No ACMG criterion reads this tab." },
+    { label: "Engine record", value: "None", sub: "No ACMG criterion reads this tab.", state: "done" },
   ];
 
   // STRING band counts (physical) for the rail's cut-point list.
@@ -1076,12 +1396,13 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
       composition,
     },
     chains,
-    observed: { availability: observedAvail, partners: observedPartners, artefacts },
+    observed: { availability: observedAvail, partners: observedPartners, fibrils: fibrilPartners, crystals: crystalPartners, artefacts, artefactsShown, artefactsFold, fibrilsChecked: exp?.status !== "ok" || exp.entryKinds !== "failed" },
     model,
     interface: iface,
     sites,
     sections,
     partners,
+    groups,
     hiddenPartners,
     columns,
     track,
@@ -1092,6 +1413,23 @@ export function buildInterfacesEvidence(input: BuildInterfacesInput): Interfaces
     string: { version: ppi?.stringVersion ?? null, limit, minScore: ppi?.string?.minScore ?? null, bands: [...bandCounts].map(([id, count]) => ({ id, count })) },
     stringUrl: md.gene ? stringNetworkUrl(md.gene, undefined, true) : null,
   };
+}
+
+/**
+ * The partner list as the reader narrowed it: one tier, a name query, or both. A query reaches folded
+ * and STRING-tail rows too, and shows each match as a full row; nothing is filtered on the screen.
+ */
+export function filterPartnerGroups(groups: PartnerGroupView[], view: { tier: PartnerGroup | null; query: string }): PartnerGroupView[] {
+  const q = view.query.trim().toUpperCase();
+  const match = (r: PartnerRow) => !q || r.gene.toUpperCase().includes(q) || (r.accession ?? "").toUpperCase().includes(q);
+  return groups
+    .filter(g => !view.tier || g.id === view.tier)
+    .map(g => {
+      if (!q) return g;
+      const rows = [...g.rows, ...(g.folded?.rows ?? [])].filter(match);
+      return { ...g, rows, folded: null };
+    })
+    .filter(g => g.rows.length > 0 || g.folded);
 }
 
 /** The assembly sentence alone, for surfaces (Insights) that show one line. */

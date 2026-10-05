@@ -20,6 +20,7 @@ import {
   type CalibratedToolKey
 } from "./thresholds/calibration";
 import type { LandscapeContext, LandscapeMeta, LandscapeResidueItem } from "./contracts";
+import { AMINO_ACID_3_TO_1 } from "./aminoAcids";
 
 export type LandscapeTool = "revel" | "alphaMissense";
 export type SummaryMode = "mean" | "max";
@@ -230,8 +231,14 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
   const windowText =
     `Of ${scored.length} scored residues in ${window.start}–${window.end} (${width} aa), ${pp3} ${pp3 === 1 ? "has" : "have"} a ${stat} AlphaMissense score in the PP3 range and ${bp4} in the BP4 range` +
     ` (ClinGen bands, ${calibrationSourceShort("alphaMissense")}; on residue summaries they orient, they do not score evidence).`;
+  // A residue with no dbNSFP missense record (a codon the database does not score) is a gap in the data,
+  // not a benign reading, so the finding names it instead of letting the count quietly skip it.
+  const unscored = inWindow.filter((r) => residueSummary(r, "alphaMissense", mode) === null).map((r) => r.residx);
+  const gapText = unscored.length
+    ? ` No dbNSFP missense record for residue${unscored.length === 1 ? "" : "s"} ${unscored.slice(0, 4).join(", ")}${unscored.length > 4 ? ` and ${unscored.length - 4} more` : ""}.`
+    : "";
 
-  return { window: windowText, variant: variantSentence(target, variantRevel, variantAm, rows), context, cautions, empty: false };
+  return { window: windowText + gapText, variant: variantSentence(target, variantRevel, variantAm, rows), context, cautions, empty: false };
 }
 
 function variantSentence(
@@ -264,6 +271,16 @@ function variantSentence(
   return `${name}: ${parts.join(" · ")}${context}.`;
 }
 
+/** True when a ClinVar missense record is the queried substitution itself (same residue, same alternative). */
+export function clinvarIsQuery(
+  c: { pos: number; hgvsp: string },
+  target: { pos: number; mut: string } | null
+): boolean {
+  if (!target || !target.mut || c.pos !== target.pos) return false;
+  const m = c.hgvsp.replace(/^p\./i, "").match(/^[A-Za-z]{3}\d+([A-Za-z]{3})$/);
+  return Boolean(m && AMINO_ACID_3_TO_1[m[1]] === target.mut);
+}
+
 function contextSentence(input: LandscapeFindingInput): string | null {
   const { target, context, domains } = input;
   if (!target || target.pos <= 0) return null;
@@ -288,13 +305,17 @@ function contextSentence(input: LandscapeFindingInput): string | null {
   }
   if (context.clinvar === null) parts.push("ClinVar not loaded");
   else {
-    const plp = context.clinvar.filter((c) => c.cls === "plp");
+    // The queried variant is the thing being interpreted: counting its own ClinVar record as
+    // "pathogenic variants here" would make the context circular, so it is named apart.
+    const own = context.clinvar.find((c) => clinvarIsQuery(c, target));
+    const plp = context.clinvar.filter((c) => c.cls === "plp" && c !== own);
     const here = plp.filter((c) => c.pos === target.pos).length;
-    if (here) parts.push(`${here} ClinVar P/LP missense at this residue`);
+    if (own) parts.push(`the queried variant is itself in ClinVar (${own.significance})`);
+    if (here) parts.push(`${here} other ClinVar P/LP missense ${here === 1 ? "variant" : "variants"} at this residue`);
     else if (plp.length) {
       const nearest = plp.reduce((a, b) => (Math.abs(b.pos - target.pos) < Math.abs(a.pos - target.pos) ? b : a));
-      parts.push(`nearest ClinVar P/LP missense ${Math.abs(nearest.pos - target.pos)} residues away (residue ${nearest.pos})`);
-    } else parts.push("no ClinVar P/LP missense in this gene");
+      parts.push(`nearest other ClinVar P/LP missense ${Math.abs(nearest.pos - target.pos)} residues away (residue ${nearest.pos})`);
+    } else parts.push(own ? "no other ClinVar P/LP missense in this gene" : "no ClinVar P/LP missense in this gene");
   }
   if (context.gnomad === null) parts.push("gnomAD not loaded");
   else {

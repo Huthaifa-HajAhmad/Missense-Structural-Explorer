@@ -123,7 +123,7 @@ export function SpliceWindowControl({
 
   return (
     <div className="spl-window" data-testid="splice-window">
-      <span className="spl-window__label" id="spl-window-label">SpliceAI window</span>
+      <span className="spl-window__label" id="spl-window-label">Reporting window</span>
       <div className="spl-window__group" role="radiogroup" aria-labelledby="spl-window-label" aria-busy={busy}>
         {SPLICEAI_WINDOWS.map((w, i) => (
           <button

@@ -47,7 +47,7 @@ describe("ResidueShiftInspector", () => {
     expect(within(cuts).getByText(/None of these is a published classification/)).toBeInTheDocument();
     const active = cuts.querySelectorAll("[data-active]");
     expect([...active].map(el => el.textContent)).toEqual([
-      "> 29 largelargest shift",
+      "> 29 markedlargest shift",
       "> 12 Å distalthis variant"
     ]);
   });

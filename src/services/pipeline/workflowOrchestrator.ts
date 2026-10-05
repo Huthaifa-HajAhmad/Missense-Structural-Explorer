@@ -11,7 +11,8 @@ import {
   fetchBiophysicalAnalysis,
   fetchProgressiveLandscape,
   fetchProgressiveStructuralAssessments,
-  fetchProgressiveMultimer
+  fetchProgressiveMultimer,
+  fetchProgressivePpi
 } from "./biophysicalService";
 import { generateClinicalNarrative } from "./narrativeService";
 import { mergeResultPatch, mergeCompletedCore, hasReusableCoreEvidence, type StageOutcome } from "./resultMerge";
@@ -601,6 +602,9 @@ export async function executeFullAnalysisWorkflow({
         if (targetUniprot) {
           const stages = cached.analysisResult?.metadata?.pipelineStages;
           if (!cached.analysisResult?.multimerData) cachedTasks.push(fetchProgressiveMultimer(requestParams(), fetchWithAuth, activeSignal, setAnalysisState, requestId, getActiveRequestId));
+          // The partner lookups are resumed with the assembly: the Interfaces & PPI tab renders them
+          // cold otherwise, long after the run this cached path is finishing.
+          if (!cached.analysisResult?.ppiBindingData) cachedTasks.push(fetchProgressivePpi(requestParams(), fetchWithAuth, activeSignal, setAnalysisState, requestId, getActiveRequestId));
           if (!cached.analysisResult?.landscapeData || stages?.landscape === "running" || stages?.landscape === "error") {
             cachedTasks.push(fetchProgressiveLandscape(requestParams(), apiClient, activeSignal, setAnalysisState, requestId, getActiveRequestId));
           }
@@ -630,7 +634,7 @@ export async function executeFullAnalysisWorkflow({
     const startEnrichment = () => {
       if (enrichmentStarted || !targetUniprot || activeSignal.aborted) return;
       enrichmentStarted = true;
-      Object.assign(initialStages, { landscape: "running", structural: "running", multimer: "running" });
+      Object.assign(initialStages, { landscape: "running", structural: "running", multimer: "running", ppi: "running" });
       const params = requestParams();
       enrichmentTasks.push(Promise.resolve(fetchProgressiveLandscape(params, apiClient, activeSignal, setEnrichmentState, requestId, getActiveRequestId)));
       enrichmentTasks.push(fetchProgressiveStructuralAssessments(
@@ -638,6 +642,9 @@ export async function executeFullAnalysisWorkflow({
         setEnrichmentState, requestId, getActiveRequestId, getTraceContext(), analysisSink.setIsStructuralLoading
       ));
       enrichmentTasks.push(fetchProgressiveMultimer(params, fetchWithAuth, activeSignal, setEnrichmentState, requestId, getActiveRequestId));
+      // Partners, IntAct methods and STRING are independent of the assembly: prefetch them together
+      // so the Interfaces & PPI tab is warm when it opens.
+      enrichmentTasks.push(fetchProgressivePpi(params, fetchWithAuth, activeSignal, setEnrichmentState, requestId, getActiveRequestId));
     };
 
     // Stage 2: 3D Structure Fetch

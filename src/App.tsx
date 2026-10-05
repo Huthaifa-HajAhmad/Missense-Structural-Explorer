@@ -99,7 +99,8 @@ export default function App() {
     }
   });
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
-  const [isHowToInspectOpen, setIsHowToInspectOpen] = useState(false);
+  const isHowToInspectOpen = useVariantAnalysisStore(s => s.isHowToInspectOpen);
+  const setIsHowToInspectOpen = useVariantAnalysisStore(s => s.setIsHowToInspectOpen);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 

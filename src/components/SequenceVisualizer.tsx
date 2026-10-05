@@ -442,6 +442,11 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             width={windowSize}
             onWidth={setWindowSize}
             targetPos={targetPos}
+            available={{
+              clinvar: overview?.status !== "ready" || overview.data?.context?.clinvar !== undefined,
+              gnomad: overview?.status !== "ready" || overview.data?.context?.gnomad !== undefined,
+              regions: overview?.status !== "ready" || (overview.data?.context?.regions?.length ?? 0) > 0
+            }}
             awayFromTarget={awayFromTarget}
             onBack={() => {
               setCenter(targetPos);
@@ -494,7 +499,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             residueClass={residueClass}
           />
 
-          <LandscapeLegend />
+          <LandscapeLegend colorBy={view.colorBy} laneVisible={laneStatus === "ready" && codons.size > 0} />
 
           <GenomicSaturationHeatmap
             region={region}
