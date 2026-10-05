@@ -36,7 +36,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  */
 
 const mockGenerateContent = vi.fn();
-const mockRetrieveRelevantLiterature = vi.fn().mockResolvedValue([]);
+const mockSelectSummaryCitations = vi.fn().mockResolvedValue([]);
 
 vi.mock("@google/genai", () => {
   return {
@@ -50,9 +50,9 @@ vi.mock("@google/genai", () => {
   };
 });
 
-vi.mock("./literature-rag.ts", () => {
+vi.mock("./literature-summary.ts", () => {
   return {
-    retrieveRelevantLiterature: (...args: any[]) => mockRetrieveRelevantLiterature(...args)
+    selectSummaryCitations: async (...args: any[]) => ({ citations: await mockSelectSummaryCitations(...args), scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, withoutEmbeddings: 0 })
   };
 });
 
@@ -119,8 +119,8 @@ describe("narrative prompt — ClinVar grounding", () => {
 
   beforeEach(() => {
     mockGenerateContent.mockReset();
-    mockRetrieveRelevantLiterature.mockReset();
-    mockRetrieveRelevantLiterature.mockResolvedValue([]);
+    mockSelectSummaryCitations.mockReset();
+    mockSelectSummaryCitations.mockResolvedValue([]);
     mockGenerateContent.mockResolvedValue({ text: MODEL_JSON });
     // One candidate, so the captured call is the only call.
     process.env.GEMINI_MODEL = "primary";

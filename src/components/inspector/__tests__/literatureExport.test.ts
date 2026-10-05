@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { toBibtex, toRis, toCsv } from "../LiteratureInspector";
+import { shortlistRecords, toBibtex, toRis, toCsv } from "../LiteratureInspector";
 import type { Citation } from "../../LiteratureView";
+import { buildLiteratureEvidence } from "../../../shared/literatureEvidence";
 
 const citations: Citation[] = [
   {
@@ -24,6 +25,56 @@ const citations: Citation[] = [
 ];
 
 describe("citation export serializers (export exactly the on-screen list)", () => {
+  it("exports the screening tier, source-backed tags, quote, and header block", () => {
+    const evidence = buildLiteratureEvidence({
+      gene: "NAE1", variant: "p.Asp116Gly", citations: [{ ...citations[0], abstract: "NAE1 p.Asp116Gly activity was reduced." }],
+      response: null, executedQuery: "", narrowingFilter: "", groupFilter: "all", pinnedIds: new Set(),
+      probe: { state: "idle", hitCount: null }, load: "ready", error: null,
+    });
+    const header = { query: "NAE1", lexiconVersion: 1, date: "2026-10-05" };
+    expect(toBibtex(evidence.visible, header)).toContain("@comment{Query: NAE1; Lexicon version: 1; Date: 2026-10-05}");
+    expect(toRis(evidence.visible, header)).toContain("N1  - tier 1; tags");
+    const csv = toCsv(evidence.visible, "NAE1", "p.Asp116Gly", header);
+    expect(csv).toContain("# Query,NAE1");
+    expect(csv).toContain("Tier,Screening tags");
+    expect(csv).toContain("functional-assay [sentence-anchor]");
+  });
+
+  it("builds the shortlist export from Read first and Read next even when the table is filtered", () => {
+    const evidence = buildLiteratureEvidence({
+      gene: "NAE1", variant: "p.Asp116Gly", citations: [
+        { ...citations[0], abstract: "NAE1 p.Asp116Gly activity was reduced." },
+        { ...citations[1], title: "NAE1 mechanism", abstract: "NAE1 loss-of-function mechanism." },
+        { ...citations[1], id: "PMC999", title: "Fish", abstract: "Aquaculture genetics." },
+      ], response: null, executedQuery: "", narrowingFilter: "", groupFilter: "all", pinnedIds: new Set(),
+      probe: { state: "idle", hitCount: null }, load: "ready", error: null,
+    });
+    expect(shortlistRecords(evidence.papers).map(paper => paper.citation.id)).toEqual(["42433374", "PPR998877"]);
+  });
+  it("exports curated record relationships as provenance, separate from quote-backed tags", () => {
+    const withLink: Citation = {
+      ...citations[0],
+      curatedLinks: [{
+        provider: "uniprot",
+        featureId: "VAR_088123",
+        accession: "Q13564",
+        variant: "D116G",
+        variantDescription: "in NEDFIH",
+        evidenceCode: "ECO:0000269",
+        pmid: "42433374",
+        source: "PubMed",
+        sourceUrl: "https://www.uniprot.org/uniprotkb/Q13564/variant/VAR_088123",
+        retrievedAt: "2026-10-05T00:00:00.000Z",
+      }],
+    };
+    const csv = toCsv([withLink], "NAE1", "p.Asp116Gly");
+    expect(csv).toContain("Curated links");
+    expect(csv).toContain("Cited by UniProt variant record [PMID 42433374 VAR_088123]");
+    expect(csv).toContain("https://www.uniprot.org/uniprotkb/Q13564/variant/VAR_088123");
+    expect(toBibtex([withLink])).toContain("curated: Cited by UniProt variant record");
+    expect(toRis([withLink])).toContain("curated: Cited by UniProt variant record");
+  });
+
   describe("toBibtex", () => {
     const out = toBibtex(citations);
 
@@ -131,7 +182,7 @@ describe("citation export serializers (export exactly the on-screen list)", () =
     it("emits the documented header and CRLF row endings", () => {
       const out = toCsv(citations, "GENE1", "p.X1Y2");
       const lines = out.split("\r\n");
-      expect(lines[0]).toBe("Gene,Variant,ID,Title,Authors,Journal,Year,URL");
+      expect(lines[0]).toBe("Gene,Variant,ID,Title,Authors,Journal,Year,URL,Tier,Screening tags,Curated links");
       expect(out.endsWith("\r\n")).toBe(true);
       expect(lines[1]).toContain("GENE1,p.X1Y2,42433374,");
       expect(lines[1]).toContain('"Wang W, Liu J"');

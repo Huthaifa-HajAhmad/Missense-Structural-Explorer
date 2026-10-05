@@ -14,7 +14,9 @@ import {
   buildPaperUrl,
   searchGeneLiterature,
   migrateLiteratureSchema,
-  resetDbForTesting
+  resetDbForTesting,
+  LITERATURE_CACHE_SCHEMA_VERSION,
+  fetchCitationsByPmids
 } from "./literature-rag.ts";
 
 // Mock the Gemini client to avoid external API calls during testing
@@ -56,6 +58,26 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
 
   afterEach(() => {
     resetDbForTesting();
+  });
+
+  describe("curated PMID hydration", () => {
+    it("fetches exact IDs without a gene filter and leaves search membership untouched", async () => {
+      const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({
+        hitCount: 1, resultList: { result: [{ id: "123", source: "MED", title: "Old protein nomenclature", abstractText: "No contemporary gene or variant notation.", pubYear: "1990" }] },
+      })));
+      try {
+        const citations = await fetchCitationsByPmids(["123", "123"]);
+        expect(citations.map(c => c.id)).toEqual(["123"]);
+        const query = new URL(String(fetchMock.mock.calls[0][0])).searchParams.get("query");
+        expect(query).toBe("(EXT_ID:123) AND SRC:MED");
+        expect(isLiteratureCacheStale("PAH")).toBe(true);
+      } finally { fetchMock.mockRestore(); }
+    });
+    it("refuses incomplete or unexpected identifiers instead of presenting a complete curated lookup", async () => {
+      const fetchMock = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({resultList:{result:[{id:"999",title:"Wrong paper",abstractText:"Text"}]}})));
+      try { await expect(fetchCitationsByPmids(["123"])).rejects.toThrow("every curated PMID"); }
+      finally { fetchMock.mockRestore(); }
+    });
   });
 
   describe("cosineSimilarity", () => {
@@ -114,9 +136,12 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
               pmid: "123456",
               title: "Pathogenic PAH mutation characterization",
               abstractText: "We found that PAH mutation p.Arg408His causes folding disruption.",
-              authorString: "Smith J, Doe J",
-              journalTitle: "J Biol Chem",
-              pubYear: "2023"
+            authorString: "Smith J, Doe J",
+            journalTitle: "J Biol Chem",
+              pubYear: "2023",
+              pubTypeList: { pubType: ["Case Reports"] },
+              meshHeadingList: { meshHeading: [{ descriptorName: "Phenylketonurias" }] },
+              keywordList: { keyword: ["PAH", "folding"] }
             },
             {
               pmid: "789012",
@@ -147,6 +172,11 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
         const citationsList = await getGeneCitations("PAH");
         expect(citationsList).toHaveLength(2);
         expect(citationsList[0].id).toBe("789012"); // Ordered by year descending
+        expect(citationsList.find(citation => citation.id === "123456")).toMatchObject({
+          publicationTypes: ["Case Reports"],
+          meshHeadings: ["Phenylketonurias"],
+          authorKeywords: ["PAH", "folding"],
+        });
 
         // 3. Perform RAG query
         // Query contains "pathogenic", so Smith J's paper (which contains "Pathogenic") should score higher.
@@ -208,9 +238,9 @@ describe("Literature RAG and Vector Search Service Unit Tests", () => {
 
   describe("literatureCacheKey, staleness, and hit counts", () => {
     it("normalizes the gene and scopes keys per query", () => {
-      expect(literatureCacheKey(" acot9 ")).toBe("ACOT9");
-      expect(literatureCacheKey("ACOT9", "   ")).toBe("ACOT9");
-      expect(literatureCacheKey("ACOT9", "p.Lys272Asn")).toBe("ACOT9::p.Lys272Asn");
+      expect(literatureCacheKey(" acot9 ")).toBe(`v${LITERATURE_CACHE_SCHEMA_VERSION}::ACOT9`);
+      expect(literatureCacheKey("ACOT9", "   ")).toBe(`v${LITERATURE_CACHE_SCHEMA_VERSION}::ACOT9`);
+      expect(literatureCacheKey("ACOT9", "p.Lys272Asn")).toBe(`v${LITERATURE_CACHE_SCHEMA_VERSION}::ACOT9::p.Lys272Asn`);
     });
 
     it("treats a never-synced set as stale and a recorded sync as fresh", () => {

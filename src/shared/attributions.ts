@@ -146,7 +146,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     release: null,
     citation:
       "UniProt Consortium (2023). UniProt: the Universal Protein Knowledgebase in 2023. Nucleic Acids Research 51, D523–D531. https://doi.org/10.1093/nar/gkac1052",
-    usedBy: ["server/services/external-api/uniprot.ts", "server/services/prediction/predictors/transcript-resolver.ts"]
+    usedBy: ["server/services/external-api/uniprot.ts", "server/services/prediction/predictors/transcript-resolver.ts", "server/services/llm/curated-literature.ts"]
   },
   {
     id: "ensembl-vep",
@@ -862,4 +862,3 @@ export const WORKSPACE_CITATION = {
     "}"
   ].join("\n")
 } as const;
-

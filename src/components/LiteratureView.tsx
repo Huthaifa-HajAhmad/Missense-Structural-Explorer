@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import { AlertTriangle, BookOpen, Library, Search } from "lucide-react";
 import { useApiClient } from "../apiClient";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
@@ -8,6 +8,7 @@ import {
   parseVariantForms,
   variantSearchQuery,
   type Citation,
+  type CuratedCoverage,
   type GroupFilter,
   type LiteratureEvidence,
   type LiteratureResponseMeta,
@@ -15,7 +16,10 @@ import {
   type VariantProbe,
 } from "../shared/literatureEvidence";
 import { PaperTable } from "./literature/PaperTable";
+import { filterByScreening, type TierFilter } from "./literature/screeningFilters";
 import { Prose } from "./ui/Prose";
+import type { GeneConstraint, ScreeningTagName } from "../shared/literatureScreening";
+import { ENGINE_STATE_LABELS } from "../shared/engineStatus";
 
 export type { Citation };
 
@@ -23,6 +27,8 @@ interface LiteratureViewProps {
   gene: string;
   /** The variant in view, e.g. `p.Asp116Gly`. Drives the "names this variant" scope and text check. */
   variant?: string;
+  /** The variant's UniProt accession, when known: lets the server attach curated variant-record links. */
+  uniprotId?: string;
   searchQuery?: string;
   onSearchQueryChange?: (q: string) => void;
   /** Reports the evidence model for what is on screen (local filters applied) so the inspector can
@@ -37,6 +43,15 @@ interface LiteratureViewProps {
 /** Worded with the gene symbol so each filter reads exactly like the chip on the rows it selects. */
 const groupLabel = (g: GroupFilter, gene: string): string =>
   g === "all" ? "All" : g === "variant" ? "Name the variant" : g === "gene" ? `Name only ${gene}` : `${gene} not in abstract`;
+
+const screeningFilters: Array<{ tag: ScreeningTagName; label: string }> = [
+  { tag: "functional-assay", label: "Functional" },
+  { tag: "clinical-case", label: "Clinical case" },
+  { tag: "same-residue", label: "Same residue" },
+  { tag: "mechanism", label: "Mechanism" },
+  { tag: "review", label: "Review" },
+  { tag: "preprint", label: "Preprint" },
+];
 
 /**
  * Literature.
@@ -57,6 +72,7 @@ const groupLabel = (g: GroupFilter, gene: string): string =>
 export default function LiteratureView({
   gene,
   variant = "",
+  uniprotId = "",
   searchQuery = "",
   onSearchQueryChange,
   onEvidenceChange,
@@ -64,6 +80,9 @@ export default function LiteratureView({
 }: LiteratureViewProps) {
   const { apiClient } = useApiClient();
   const [citations, setCitations] = useState<Citation[]>([]);
+  const [curatedCoverage, setCuratedCoverage] = useState<CuratedCoverage | null>(null);
+  // Curated records the query did not match, shown but never counted as query membership.
+  const [curatedAdded, setCuratedAdded] = useState(0);
   const reportCitations = useVariantAnalysisStore(st => st.reportCitations);
   const pinReportCitation = useVariantAnalysisStore(st => st.pinReportCitation);
   const unpinReportCitation = useVariantAnalysisStore(st => st.unpinReportCitation);
@@ -74,6 +93,9 @@ export default function LiteratureView({
   const [executedQuery, setExecutedQuery] = useState(searchQuery.trim());
   const [response, setResponse] = useState<LiteratureResponseMeta | null>(null);
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
+  const [sortOrder, setSortOrder] = useState<"attention" | "newest">("attention");
+  const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  const [tagFilters, setTagFilters] = useState<ScreeningTagName[]>([]);
   const [probe, setProbe] = useState<VariantProbe>({ state: "idle", hitCount: null });
   // The gene-wide count survives a switch to the variant scope, so both scope buttons can show theirs.
   const [geneHitCount, setGeneHitCount] = useState<number | null>(null);
@@ -115,9 +137,23 @@ export default function LiteratureView({
     setIsLoading(true);
     setError(null);
     try {
-      const data = await apiClient.getLiterature(gene, forceSync, controller.signal, customQuery);
+      const data = await apiClient.getLiterature(gene, forceSync, controller.signal, customQuery, {
+        variant: variant || undefined,
+        uniprot: uniprotId || undefined,
+      });
       if (seq !== requestSeq.current) return; // superseded — a newer request owns the UI
-      setCitations(data.citations || []);
+      const curatedOnly = data.curatedCitations || [];
+      setCitations([...(data.citations || []), ...curatedOnly]);
+      setCuratedAdded(curatedOnly.length);
+      setCuratedCoverage(
+        data.curated
+          ? {
+              state: data.curated.state,
+              ...(data.curated.reason ? { reason: data.curated.reason } : {}),
+              linked: typeof data.curated.linked === "number" ? data.curated.linked : 0,
+            }
+          : null
+      );
       const meta: LiteratureResponseMeta = {
         hitCount: typeof data.hitCount === "number" ? data.hitCount : null,
         europePmcQuery: data.europePmcQuery ?? null,
@@ -152,7 +188,7 @@ export default function LiteratureView({
         setIsLoading(false);
       }
     }
-  }, [gene, apiClient, variantQuery, publishOutcome]);
+  }, [gene, apiClient, variantQuery, publishOutcome, variant, uniprotId]);
 
   // The shared query prop changes only when a search actually executes — from the main
   // form, the inspector, or a scope button. Typing never touches it, so a prop change
@@ -169,8 +205,12 @@ export default function LiteratureView({
     // shows a loading state while the export still offers the stale list under the new label.
     setCitations([]);
     setResponse(null);
+    setCuratedCoverage(null);
+    setCuratedAdded(0);
     setError(null);
     setGroupFilter("all");
+    setTierFilter("all");
+    setTagFilters([]);
     // The gene-wide count belongs to the gene: keep it across a scope switch, drop it for a new gene.
     if (lastGene.current !== gene) {
       lastGene.current = gene;
@@ -179,9 +219,10 @@ export default function LiteratureView({
     setInternalQuery(searchQuery);
     setExecutedQuery(searchQuery.trim());
     void fetchCitations(false, searchQuery || undefined);
-    // Keyed on what actually changes: the gene, an executed query, or an inspector apply.
+    // Keyed on what actually changes: the gene, an executed query, the variant context, or an
+    // inspector apply.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gene, searchQuery, searchVersion]);
+  }, [gene, searchQuery, searchVersion, variant, uniprotId]);
 
   // The variant probe: one background search for records that name the variant, so the finding can say
   // how many there are without the reader switching scope first. It is an ordinary custom query, cached
@@ -225,7 +266,11 @@ export default function LiteratureView({
     if (queryChanged) {
       setCitations([]);
       setResponse(null);
+      setCuratedCoverage(null);
+      setCuratedAdded(0);
       setGroupFilter("all");
+      setTierFilter("all");
+      setTagFilters([]);
     }
     if (query !== searchQuery.trim() && onSearchQueryChange) {
       selfQueryUpdate.current = true;
@@ -257,18 +302,43 @@ export default function LiteratureView({
         geneHitCount,
         load: isLoading ? "loading" : error && citations.length === 0 ? "error" : response ? "ready" : "idle",
         error,
+        sortOrder,
+        curated: curatedCoverage,
+        curatedAdded,
       }),
-    [gene, variant, citations, response, executedQuery, isNarrowingFilter, activeFilter, groupFilter, pinnedIds, probe, geneHitCount, isLoading, error]
+    [gene, variant, citations, response, executedQuery, isNarrowingFilter, activeFilter, groupFilter, pinnedIds, probe, geneHitCount, isLoading, error, sortOrder, curatedCoverage, curatedAdded]
   );
+
+  const loadedSetKey = citations.map(citation => citation.id).join("|");
+  useLayoutEffect(() => {
+    setTierFilter(evidence.shortlist.readFirst > 0 ? "readFirst" : "all");
+  }, [loadedSetKey]);
+
+  const screeningVisible = useMemo(() => {
+    const base = filterByScreening(evidence.papers, tierFilter, tagFilters);
+    const visibleIds = new Set(evidence.visible.map(paper => paper.citation.id));
+    return base.filter(paper => visibleIds.has(paper.citation.id));
+  }, [evidence.papers, evidence.visible, tierFilter, tagFilters]);
+
+  const displayedEvidence = useMemo(() => ({
+    ...evidence,
+    visible: screeningVisible,
+    counts: { ...evidence.counts, visible: screeningVisible.length },
+    trace: evidence.trace.map(step => step.key === "order" ? {
+      ...step,
+      value: step.value.replace(/\d[\d,]* shown$/, `${screeningVisible.length.toLocaleString("en-GB")} shown`),
+    } : step),
+    displayed: screeningVisible.map(paper => paper.citation),
+  }), [evidence, screeningVisible]);
 
   // Hand the evidence model to shared state for the inspector. Guarded on what the inspector prints, so
   // a keystroke that changes nothing it shows does not re-render the whole inspector tree.
   const lastReportedKey = useRef<string | null>(null);
   useEffect(() => {
     const key = JSON.stringify([
-      evidence.displayed.map(c => c.id),
-      evidence.counts,
-      evidence.trace,
+      displayedEvidence.displayed.map(c => c.id),
+      displayedEvidence.counts,
+      displayedEvidence.trace,
       evidence.faults,
       evidence.scope,
       evidence.variantQuery,
@@ -277,8 +347,8 @@ export default function LiteratureView({
     ]);
     if (key === lastReportedKey.current) return;
     lastReportedKey.current = key;
-    onEvidenceChange?.(evidence);
-  }, [evidence, onEvidenceChange]);
+    onEvidenceChange?.(displayedEvidence);
+  }, [evidence, displayedEvidence, onEvidenceChange]);
 
   const togglePin = (paper: PaperReading) => {
     const c = paper.citation;
@@ -294,13 +364,28 @@ export default function LiteratureView({
       });
   };
 
-  const { counts, finding, facts, faults } = evidence;
+  const { counts, finding, facts, faults } = displayedEvidence;
+  // Curated additions are shown but are not this query's records.
+  const queryTotal = Math.max(0, counts.total - curatedAdded);
+  const analysisConstraint = useVariantAnalysisStore(st => st.analysisState.result?.gnomadConstraint ?? null);
+  const constraintStatus = useVariantAnalysisStore(st => st.analysisState.result?.serviceStatus?.gnomadConstraint ?? null);
+  const constraint = useMemo<GeneConstraint | null>(() => analysisConstraint ? {
+    pli: analysisConstraint.pli ?? null,
+    loeuf: analysisConstraint.loeuf ?? null,
+    missense_z: analysisConstraint.missense_z ?? null,
+    oe_mis: analysisConstraint.oe_mis ?? null,
+  } : null, [analysisConstraint]);
+  const constraintUnavailableReason = constraintStatus === "error" || constraintStatus === "timeout"
+    ? `${ENGINE_STATE_LABELS["upstream-error"]} — gnomAD gene constraint did not return for this result.`
+    : constraintStatus === "pending"
+      ? `${ENGINE_STATE_LABELS.running} — gnomAD gene constraint is still loading.`
+      : `${ENGINE_STATE_LABELS["no-result"]} — gnomAD did not return gene constraint for this result.`;
   const variantHit = evidence.scope === "variant" ? (response?.degraded ? null : response?.hitCount ?? null) : probe.state === "done" ? probe.hitCount : null;
   const geneCount = evidence.scope === "gene" ? (response?.degraded ? null : response?.hitCount ?? null) : geneHitCount;
   const fmt = (v: number | null) => (v === null ? null : v.toLocaleString("en-GB"));
 
   const loadingFirst = isLoading && citations.length === 0;
-  const nothingMatched = !isLoading && evidence.visible.length === 0;
+  const nothingMatched = !isLoading && screeningVisible.length === 0;
 
   return (
     <div className="lit-view">
@@ -355,6 +440,23 @@ export default function LiteratureView({
               </div>
             ))}
           </dl>
+        </section>
+
+        <section className="lit-card lit-shortlist" aria-label="Shortlist">
+          <p>
+            <button type="button" className="lit-shortlist__count" onClick={() => setTierFilter("readFirst")} aria-label={`Show ${evidence.shortlist.readFirst} read first papers`}>
+              {evidence.shortlist.readFirst} read first
+            </button>
+            {" · "}
+            <button type="button" className="lit-shortlist__count" onClick={() => setTierFilter("readNext")} aria-label={`Show ${evidence.shortlist.readNext} read next papers`}>
+              {evidence.shortlist.readNext} read next
+            </button>
+            {" · "}
+            <button type="button" className="lit-shortlist__count" onClick={() => setTierFilter("all")} aria-label={`Show all ${evidence.counts.total} loaded papers, including the ${Math.max(0, evidence.counts.total - evidence.shortlist.readFirst - evidence.shortlist.readNext)} other`}>
+              {Math.max(0, evidence.counts.total - evidence.shortlist.readFirst - evidence.shortlist.readNext)} other
+            </button>
+            {". Screening orders what to read; it is not evidence."}
+          </p>
         </section>
 
         {/* ── 2. The papers ──────────────────────────────────────────────────────────────── */}
@@ -423,6 +525,26 @@ export default function LiteratureView({
             </div>
 
             {counts.total > 0 && (
+              <>
+              <div className="lit-groups lit-tiers" role="group" aria-label="Filter by reading tier">
+                {(["readFirst", "readNext", "all"] as TierFilter[]).map(tier => {
+                  const count = tier === "readFirst" ? evidence.shortlist.readFirst : tier === "readNext" ? evidence.shortlist.readNext : evidence.counts.total;
+                  const label = tier === "readFirst" ? "Read first" : tier === "readNext" ? "Read next" : "All";
+                  return <button key={tier} type="button" className="lit-group" aria-label={tier === "all" ? "Show all tiers" : undefined} aria-pressed={tierFilter === tier} disabled={tier !== "all" && count === 0} onClick={() => setTierFilter(tier)}>{label}<span className="lit-group__n">{count}</span></button>;
+                })}
+                <span className="lit-sort" role="group" aria-label="Sort papers">
+                  <span>Sort:</span>
+                  <button type="button" className="lit-group" aria-pressed={sortOrder === "attention"} onClick={() => setSortOrder("attention")}>Attention</button>
+                  <button type="button" className="lit-group" aria-pressed={sortOrder === "newest"} onClick={() => setSortOrder("newest")}>Newest</button>
+                </span>
+              </div>
+              <div className="lit-groups" role="group" aria-label="Filter by screening observation">
+                {screeningFilters.map(({ tag, label }) => {
+                  const count = evidence.shortlist.tags[tag];
+                  const active = tagFilters.includes(tag);
+                  return <button key={tag} type="button" className="lit-group" aria-pressed={active} disabled={count === 0} onClick={() => setTagFilters(current => active ? current.filter(item => item !== tag) : [...current, tag])}>{label}<span className="lit-group__n">{count}</span></button>;
+                })}
+              </div>
               <div className="lit-groups" role="group" aria-label="Filter by what the text check found">
                 {(["all", ...(forms ? (["variant"] as const) : []), "gene", "elsewhere"] as GroupFilter[]).map(g => {
                   const n = g === "all" ? counts.total : counts[g];
@@ -431,6 +553,7 @@ export default function LiteratureView({
                       key={g}
                       type="button"
                       className="lit-group"
+                      aria-label={g === "all" ? "Show all text-check groups" : undefined}
                       aria-pressed={groupFilter === g}
                       disabled={g !== "all" && n === 0}
                       onClick={() => setGroupFilter(g)}
@@ -441,6 +564,7 @@ export default function LiteratureView({
                   );
                 })}
               </div>
+              </>
             )}
 
             {error && (
@@ -471,6 +595,16 @@ export default function LiteratureView({
                       None of the {counts.total} loaded papers match “{activeFilter}”. Press Enter to search Europe PMC for it.
                     </p>
                   </>
+                ) : (tierFilter !== "all" || tagFilters.length > 0) && counts.total > 0 ? (
+                  <>
+                    <p className="lit-empty__title">No loaded paper matches these screening filters</p>
+                    <p className="lit-empty__body">
+                      The {counts.total} loaded papers do not combine the chosen tier and observations.{" "}
+                      <button type="button" className="lit-link lit-link--btn lit-link--inline" onClick={() => { setTierFilter("all"); setTagFilters([]); }}>
+                        Clear screening filters
+                      </button>
+                    </p>
+                  </>
                 ) : groupFilter !== "all" && counts.total > 0 ? (
                   <>
                     <p className="lit-empty__title">None in this group</p>
@@ -492,17 +626,18 @@ export default function LiteratureView({
                 )}
               </div>
             ) : (
-              <PaperTable papers={evidence.visible} gene={gene} forms={forms} onTogglePin={togglePin} />
+              <PaperTable papers={screeningVisible} gene={gene} forms={forms} onTogglePin={togglePin} constraint={constraint} constraintUnavailableReason={constraintUnavailableReason} />
             )}
 
             <div className="lit-card__foot">
               <span>
                 Europe PMC · {counts.visible.toLocaleString("en-GB")} shown
-                {response?.hitCount != null && !response.degraded && response.hitCount > counts.total
-                  ? ` · first ${counts.total.toLocaleString("en-GB")} of ${response.hitCount.toLocaleString("en-GB")} in Europe PMC's default ranking`
+                {response?.hitCount != null && !response.degraded && response.hitCount > queryTotal
+                  ? ` · first ${queryTotal.toLocaleString("en-GB")} of ${response.hitCount.toLocaleString("en-GB")} in Europe PMC's default ranking`
                   : ""}
+                {curatedAdded > 0 ? ` · ${curatedAdded.toLocaleString("en-GB")} from a curated variant record` : ""}
               </span>
-              <span>Variant matches first, then newest · text check reads titles and abstracts only</span>
+              <span>{sortOrder === "attention" ? "Attention tiers 1–6; ties keep retrieval order." : "Publication year, newest first; ties keep retrieval order."} Text check reads titles and abstracts only.</span>
             </div>
           </div>
         </section>

@@ -3,6 +3,12 @@ import fs from "fs";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRouter } from "../../routes.ts";
+import { literatureSummaryDigest, selectSummaryCitations } from "../../services/llm/literature-summary.ts";
+import { buildLiteratureSummary } from "../../../src/shared/literatureSummary.ts";
+vi.mock("../../services/llm/literature-summary.ts", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../services/llm/literature-summary.ts")>(),
+  selectSummaryCitations: vi.fn(async () => ({ citations: [], scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, withoutEmbeddings: 0 })),
+}));
 import * as externalServices from "../../services/external.ts";
 import * as geminiService from "../../services/gemini.ts";
 import { geminiCache } from "../shared.ts";
@@ -97,7 +103,7 @@ function expectedCacheKey(body: Record<string, unknown>): string {
   const model = geminiService.getConfiguredGeminiModels()[0];
   return (
     `clinical_${CLIENTSIDE_UNIPROT}_p.Arg408Trp_standard__${evidenceHash}` +
-    `_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`
+    `_literature:${literatureSummaryDigest(buildLiteratureSummary("PAH", "p.Arg408Trp", []))}_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`
   );
 }
 
@@ -107,6 +113,7 @@ describe("narrative cache key — the evidence contract", () => {
   let geminiSpy: any;
 
   beforeEach(() => {
+    vi.mocked(selectSummaryCitations).mockResolvedValue(buildLiteratureSummary("PAH", "p.Arg408Trp", []));
     geminiCache.clear();
     geminiService.resetModelHealth();
     analysisCallCount = 0;
@@ -145,6 +152,23 @@ describe("narrative cache key — the evidence contract", () => {
     // The entry exists under the key the CLIENT-side contract predicts — the whole point of one
     // declaration: a run has one evidence identity, not one per control the reader pressed.
     expect(geminiCache.get(expectedCacheKey(body))).toBeTruthy();
+  });
+
+  it("invalidates literature-dependent cache entries and passes exactly the hashed snapshot", async () => {
+    const handler = getNarrativeHandler();
+    const selection = buildLiteratureSummary("PAH", "p.Arg408Trp", [{id:"1",title:"PAH assay",abstract:"PAH p.Arg408Trp activity was reduced.",authors:"A",journal:"J",year:2026}]);
+    vi.mocked(selectSummaryCitations).mockResolvedValue(selection);
+    await handler(makeReq({}), makeRes(), () => {});
+    expect(geminiSpy.mock.calls[0][16]).toBe(selection);
+    expect([...geminiCache.keys()][0]).toContain(`_literature:${literatureSummaryDigest(selection)}_`);
+    await handler(makeReq({}), makeRes(), () => {});
+    expect(analysisCallCount).toBe(1);
+    const changed = {...selection,citations:selection.citations.map(c=>({...c,abstract:"PAH p.Arg408Trp activity was increased."}))};
+    vi.mocked(selectSummaryCitations).mockResolvedValue(changed);
+    await handler(makeReq({}), makeRes(), () => {});
+    expect(analysisCallCount).toBe(2);
+    expect(geminiSpy.mock.calls[1][16]).toBe(changed);
+    expect(geminiCache.size).toBe(2);
   });
 
   it("separates a failed source from an absent one", async () => {

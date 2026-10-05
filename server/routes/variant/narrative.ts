@@ -40,6 +40,7 @@ import {
   describeFallbackReason,
 } from "../../../src/shared/narrativeFallback.ts";
 import { NARRATIVE_PROMPT_SCHEMA_VERSION } from "../../../src/shared/narrativeSynthesis.ts";
+import { selectSummaryCitations, literatureSummaryDigest } from "../../services/llm/literature-summary.ts";
 import {
   buildNarrativeEvidenceContract,
   canonicalNarrativeEvidence,
@@ -221,6 +222,14 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
       const activeApiKey = effectiveKey || "no_key";
       const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
       const model = getConfiguredGeminiModels()[0];
+      const clientAbortController = new AbortController();
+      onClientDisconnect(res, () => clientAbortController.abort());
+      const timeoutSignal = AbortSignal.timeout(NARRATIVE_REQUEST_DEADLINE_MS);
+      const combinedSignal = AbortSignal.any([clientAbortController.signal, timeoutSignal]);
+      // Select ONCE before lookup. The server owns this optional literature identity; the
+      // client biological-evidence revision remains computable from its own request alone.
+      const selectedLiterature = await selectSummaryCitations(gene, variant, uniprotId, customApiKey, combinedSignal);
+      const citationDigest = literatureSummaryDigest(selectedLiterature);
       /*
        * SHA-256 over the CONTRACT's canonical string — one string, produced by the shared helper, so
        * the key and the revision the client records are two views of the same evidence. The contract
@@ -239,7 +248,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
        * prompt wrote — for the cache's full 24h TTL. See `NARRATIVE_PROMPT_SCHEMA_VERSION` for why
        * that mattered here specifically.
        */
-      const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}_${evidenceHash}_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`;
+      const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}_${evidenceHash}_literature:${citationDigest}_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`;
       const cached = getFromCache(cacheKey);
 
       if (cached) {
@@ -261,12 +270,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         );
       }
 
-      const clientAbortController = new AbortController();
       // `req.on("close")` fires as soon as the body has been read, which express.json() has
       // already done — that aborted every synthesis before it started. Use the response.
-      onClientDisconnect(res, () => clientAbortController.abort());
-      const timeoutSignal = AbortSignal.timeout(NARRATIVE_REQUEST_DEADLINE_MS);
-      const combinedSignal = AbortSignal.any([clientAbortController.signal, timeoutSignal]);
       const reqId = req.headers["x-request-id"] as string;
 
       let analysisResult;
@@ -299,7 +304,8 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
            * that they are correlated predictions rather than assays, and that no ACMG criterion may be
            * created from them.
            */
-          deepEvidence
+          deepEvidence,
+          selectedLiterature
         );
         writeToCache(cacheKey, analysisResult);
       } catch (err: any) {

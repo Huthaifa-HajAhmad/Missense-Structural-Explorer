@@ -181,7 +181,7 @@ describe("narrowCitations", () => {
 });
 
 describe("buildLiteratureEvidence", () => {
-  it("orders the list variant → gene → elsewhere, keeping the server's newest-first order inside each group", () => {
+  it("orders the list by attention tier, keeping the server's newest-first order inside a tier", () => {
     const ev = buildLiteratureEvidence(base);
     expect(ev.papers.map(p => p.citation.id)).toEqual(["30000001", "41695624", "PMC13295995"]);
     expect(ev.counts).toMatchObject({ total: 3, variant: 1, gene: 1, elsewhere: 1, visible: 3 });
@@ -258,6 +258,20 @@ describe("buildLiteratureEvidence", () => {
     const ev = buildLiteratureEvidence({ ...base, pinnedIds: new Set(["41695624"]) });
     expect(ev.counts.pinned).toBe(1);
     expect(ev.papers.find(p => p.citation.id === "41695624")!.pinned).toBe(true);
+  });
+
+  it("keeps the old group filter while allowing newest-first order to be restored", () => {
+    const newest = buildLiteratureEvidence({ ...base, citations: [HIT, FISH, NEDD], sortOrder: "newest" });
+    expect(newest.papers.map(p => p.citation.id)).toEqual(["PMC13295995", "41695624", "30000001"]);
+    const grouped = buildLiteratureEvidence({ ...base, groupFilter: "gene", sortOrder: "newest" });
+    expect(grouped.visible.map(p => p.citation.id)).toEqual(["41695624"]);
+  });
+
+  it("keeps screening separate from the hero figure and any ACMG outcome", () => {
+    const screened = buildLiteratureEvidence(base);
+    expect(screened.papers.some(paper => paper.screening.tags.length > 0)).toBe(true);
+    expect(JSON.stringify(screened.finding)).not.toMatch(/functional-assay|clinical-case|screening|PS3|PS4|ACMG/i);
+    expect(screened.facts.at(-1)).toEqual({ label: "Engine record", value: "None", sub: "Literature is read, not scored" });
   });
 
   it("has no variant scope for a change with no protein notation, and says why", () => {
