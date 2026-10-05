@@ -21,6 +21,14 @@
  *   • No journal quality metric is computed or shown: none is sourced here.
  */
 import { AMINO_ACID_3_TO_1 } from "./aminoAcids";
+import { LEXICON_VERSION, screenPaper, type PaperScreening, type ScreeningTagName } from "./literatureScreening";
+import type { CuratedCoverage, CuratedVariantLink } from "./curatedLiterature";
+
+// Re-exported so a consumer that already imports the literature model finds the curated-link shape
+// beside it. The relationship type itself lives in curatedLiterature.ts, which imports nothing at
+// runtime, so this stays a type-only reference.
+export type { CuratedCoverage, CuratedCoverageState, CuratedLinkProvider, CuratedVariantLink } from "./curatedLiterature";
+export { CURATED_LINK_LABELS, curatedLinkDetail, curatedLinkLabel } from "./curatedLiterature";
 
 // ── Types ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -33,6 +41,16 @@ export interface Citation {
   year: number | null;
   /** Canonical link resolved server-side: PubMed, PMC, or Europe PMC for preprints. */
   url?: string | null;
+  /** Europe PMC core metadata. Optional so older API responses remain valid. */
+  publicationTypes?: string[] | null;
+  meshHeadings?: string[] | null;
+  authorKeywords?: string[] | null;
+  /**
+   * Curated database record → paper relationships (Phase 1b). A relationship only: it may carry no
+   * abstract sentence, it is not proof the paper supports pathogenicity, and it enters no ACMG
+   * criterion. Optional so older payloads remain valid.
+   */
+  curatedLinks?: CuratedVariantLink[] | null;
 }
 
 export type MentionLevel = "variant" | "gene" | "elsewhere";
@@ -68,6 +86,7 @@ export interface PaperReading {
   href: string;
   hrefLabel: string;
   mentions: CitationMentions;
+  screening: PaperScreening;
   pinned: boolean;
 }
 
@@ -109,6 +128,19 @@ export interface LiteratureEvidenceInput {
   geneHitCount?: number | null;
   load: LiteratureLoadState;
   error: string | null;
+  /** Attention is the default; newest sorts loaded records by publication year. */
+  sortOrder?: "attention" | "newest";
+  /**
+   * Phase 1b coverage of the curated variant-citation lookup, when one was requested. `null` means no
+   * curated lookup ran, which the trace reports as "Not checked" rather than as an absence of links.
+   */
+  curated?: CuratedCoverage | null;
+  /**
+   * Curated records among `citations` that the query itself did NOT match. They are shown, but they are
+   * not query membership: the loaded/hit-count facts must never treat them as Europe PMC records for
+   * this query.
+   */
+  curatedAdded?: number;
 }
 
 export interface FactCell {
@@ -132,11 +164,12 @@ export interface LiteratureEvidence {
   scope: LiteratureScope;
   /** Query to run for the variant scope; `null` when the variant has no searchable protein notation. */
   variantQuery: string | null;
-  /** Every loaded paper, ordered variant → gene → elsewhere, newest first within each (server order). */
+  /** Every loaded paper, ordered by attention tier or publication year. */
   papers: PaperReading[];
   /** What the list shows after the group and narrowing filters. */
   visible: PaperReading[];
   counts: { total: number; variant: number; gene: number; elsewhere: number; visible: number; pinned: number };
+  shortlist: ShortlistCounts;
   finding: { figure: string; figureLabel: string; headline: string; predicate: string };
   facts: FactCell[];
   trace: TraceStep[];
@@ -147,6 +180,19 @@ export interface LiteratureEvidence {
   load: LiteratureLoadState;
   /** The citations a reader can see right now, in the order shown — what the export serialises. */
   displayed: Citation[];
+  /** Curated variant-citation coverage for this run, or `null` when no lookup was requested. */
+  curated: CuratedCoverage | null;
+  /** Curated records shown among `papers` that the query itself did not match. */
+  curatedAdded: number;
+}
+
+export interface ShortlistCounts {
+  /** Attention tiers 1-2. */
+  readFirst: number;
+  /** Attention tiers 3-4. */
+  readNext: number;
+  /** Counts are observations, not scores. Every taxonomy tag is present, including zeros. */
+  tags: Record<ScreeningTagName, number>;
 }
 
 /** Europe PMC returns one page per request (`EUROPE_PMC_PAGE_SIZE` on the server). */
@@ -191,6 +237,39 @@ export function parseVariantForms(variant: string | null | undefined): VariantFo
   forms.push(`${wt}${pos}${mut === "*" ? "X" : mut}`, `p.${wt}${pos}${mut === "*" ? "X" : mut}`);
   if (mut === "*") forms.push(`${wt}${pos}*`, `p.${wt3}${pos}*`);
   return { label: forms[0], forms: [...new Set(forms)] };
+}
+
+/** One-letter residue identity of a substitution, for matching a provider's feature exactly. */
+export interface VariantResidues {
+  /** Reference residue, one-letter upper case, e.g. `D`. */
+  wildType: string;
+  /** 1-based position, e.g. `116`. */
+  position: number;
+  /** Alternate residue, one-letter upper case or `*` for a stop. */
+  alternate: string;
+}
+
+/**
+ * The one-letter identity of a substitution, or `null` for anything that is not a substitution between
+ * two different residues — the same rule as `parseVariantForms`. Curated matching compares this against
+ * a provider's `originalSequence`/`alternativeSequences` and position, so no notation is guessed.
+ */
+export function parseVariantResidues(variant: string | null | undefined): VariantResidues | null {
+  if (!variant) return null;
+  const m = variant.match(VARIANT_RE);
+  if (!m) return null;
+  const toOne = (token: string): string | null => {
+    if (token === "*" || token === "=") return token;
+    if (/^Ter$/i.test(token)) return "*";
+    if (token.length === 1) return ONE_LETTER_TO_THREE[token.toUpperCase()] ? token.toUpperCase() : null;
+    return AMINO_ACID_3_TO_1[token] ?? AMINO_ACID_3_TO_1[token[0].toUpperCase() + token.slice(1).toLowerCase()] ?? null;
+  };
+  const wildType = toOne(m[1]);
+  const alternate = toOne(m[3]);
+  const position = Number.parseInt(m[2], 10);
+  if (!wildType || !alternate || wildType === "=" || alternate === "=" || wildType === "*" || wildType === alternate) return null;
+  if (!Number.isInteger(position) || position <= 0) return null;
+  return { wildType, position, alternate };
 }
 
 /** The variant-scope query. Quoted so each notation is one term; the gene keeps it scoped. */
@@ -354,7 +433,6 @@ export function narrowCitations<T extends Citation>(list: readonly T[], filter: 
 
 // ── The model ─────────────────────────────────────────────────────────────────────────────────────
 
-const LEVEL_ORDER: Record<MentionLevel, number> = { variant: 0, gene: 1, elsewhere: 2 };
 const n = (value: number) => value.toLocaleString("en-GB");
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
@@ -374,25 +452,42 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
 
   const readings: PaperReading[] = citations.map(citation => {
     const link = paperLink(citation);
+    const mentions = readMentions(citation, gene, forms);
     return {
       citation,
       identifier: paperIdentifier(citation.id),
       href: link.href,
       hrefLabel: link.label,
-      mentions: readMentions(citation, gene, forms),
+      mentions,
+      screening: screenPaper({ citation, gene, forms, mentions, curatedLinks: citation.curatedLinks }),
       pinned: pinnedIds.has(citation.id),
     };
   });
-  // Stable sort: the server's newest-first order survives inside each group.
+  // Stable ties preserve retrieval order, which may be Europe PMC relevance rather than date.
   const papers = readings
     .map((r, i) => ({ r, i }))
-    .sort((a, b) => LEVEL_ORDER[a.r.mentions.level] - LEVEL_ORDER[b.r.mentions.level] || a.i - b.i)
+    .sort((a, b) => (input.sortOrder ?? "attention") === "newest"
+      ? (b.r.citation.year ?? -Infinity) - (a.r.citation.year ?? -Infinity) || a.i - b.i
+      : a.r.screening.tier - b.r.screening.tier || a.i - b.i)
     .map(x => x.r);
 
   const counts = { total: papers.length, variant: 0, gene: 0, elsewhere: 0, visible: 0, pinned: 0 };
   for (const p of papers) {
     counts[p.mentions.level]++;
     if (p.pinned) counts.pinned++;
+  }
+
+  const tagNames: ScreeningTagName[] = [
+    "names-variant", "names-gene", "functional-assay", "clinical-case", "mechanism", "review",
+    "preprint", "full-text-only", "same-residue", "multi-variant", "model-system",
+  ];
+  const shortlist: ShortlistCounts = {
+    readFirst: papers.filter(paper => paper.screening.tier <= 2).length,
+    readNext: papers.filter(paper => paper.screening.tier >= 3 && paper.screening.tier <= 4).length,
+    tags: Object.fromEntries(tagNames.map(tag => [tag, 0])) as Record<ScreeningTagName, number>,
+  };
+  for (const paper of papers) {
+    for (const tag of paper.screening.tags) shortlist.tags[tag.tag]++;
   }
 
   const byGroup = input.groupFilter === "all" ? papers : papers.filter(p => p.mentions.level === input.groupFilter);
@@ -403,6 +498,9 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
   const degraded = response?.degraded === true;
   const hitCount = degraded ? null : response?.hitCount ?? null;
   const label = forms?.label ?? null;
+  // Curated additions are shown but are not this query's records: keep them out of the loaded page count.
+  const curatedAdded = Math.max(0, Math.min(input.curatedAdded ?? 0, counts.total));
+  const queryTotal = counts.total - curatedAdded;
   // "Gene-wide" is the default query's count. While another scope is showing, `hitCount` is THAT
   // query's count, so the fact reads the remembered gene-wide figure instead of mislabelling it.
   const geneWide = scope === "gene" ? hitCount : input.geneHitCount ?? null;
@@ -459,8 +557,11 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     },
     {
       label: "Loaded here",
-      value: n(counts.total),
-      sub: hitCount !== null && hitCount > counts.total ? `First ${n(pageSize)} of ${n(hitCount)} in Europe PMC's default ranking` : "Everything Europe PMC returned",
+      value: n(queryTotal),
+      sub: [
+        hitCount !== null && hitCount > queryTotal ? `First ${n(pageSize)} of ${n(hitCount)} in Europe PMC's default ranking` : "Everything Europe PMC returned",
+        curatedAdded > 0 ? `${n(curatedAdded)} more from a curated variant record, not this query` : null,
+      ].filter(Boolean).join(" · ")
     },
     { label: "Engine record", value: "None", sub: "Literature is read, not scored" },
   ];
@@ -470,6 +571,10 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
   if (degraded) faults.push("Europe PMC did not answer this search. The papers shown are this gene's cached set and may not match the query.");
   if (input.error) faults.push(input.error);
   if (probe.state === "error") faults.push("The variant-specific search did not complete, so its count is not shown.");
+  const curated = input.curated ?? null;
+  if (curated?.state === "error") {
+    faults.push(`The curated variant-citation lookup did not complete${curated.reason ? ` (${curated.reason})` : ""}. Papers cited only by a curated variant record may be missing.`);
+  }
 
   const sent = response?.europePmcQuery ?? null;
   const trace: TraceStep[] = [
@@ -496,18 +601,44 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       state: degraded ? "warn" : hitCount !== null ? "done" : "idle",
     },
     {
-      key: "shown",
-      label: "Loaded and shown",
-      value: `${n(counts.total)} loaded · ${n(counts.visible)} shown`,
-      sub: "Papers naming the variant first, then those naming the gene, then the rest; newest first within each.",
-      state: counts.total > 0 ? "done" : "idle",
-    },
-    {
       key: "check",
       label: "Text check",
       value: forms ? `${counts.variant} name ${label} · ${counts.gene} name only ${gene} · ${counts.elsewhere} neither` : `${counts.gene} name ${gene} · ${counts.elsewhere} do not`,
       sub: forms ? `Literal match of ${forms.forms.join(", ")} in title or abstract` : `Gene symbol ${gene} in title or abstract`,
       state: "done",
+    },
+    {
+      key: "curated",
+      label: "Curated variant citations",
+      value: curated === null
+        ? "Not checked"
+        : curated.state === "unavailable"
+          ? "Not available"
+          : curated.state === "error"
+            ? "Did not load"
+            : curated.linked > 0
+              ? `${n(curated.linked)} ${plural(curated.linked, "record", "records")} linked to the variant record`
+              : "No linked record",
+      sub: curated?.state === "complete"
+        ? "UniProt Natural variant evidence. A record relationship, not a pathogenicity claim and not an ACMG input."
+        : curated?.reason ?? undefined,
+      state: curated === null ? "idle" : curated.state === "error" ? "warn" : "done",
+    },
+    {
+      key: "screening",
+      label: "Screening",
+      value: `Lexicon v${LEXICON_VERSION} · ${shortlist.readFirst} read first · ${shortlist.readNext} read next`,
+      sub: `${papers.filter(paper => (paper.citation.publicationTypes?.length ?? 0) > 0).length} of ${papers.length} records include Europe PMC publication types.`,
+      state: papers.length > 0 ? "done" : "idle",
+    },
+    {
+      key: "order",
+      label: "Order",
+      value: `${n(queryTotal)} loaded${curatedAdded > 0 ? ` · ${n(curatedAdded)} curated added` : ""} · ${n(counts.visible)} shown`,
+      sub: (input.sortOrder ?? "attention") === "newest"
+        ? "Publication year, newest first; ties keep retrieval order."
+        : "Attention tiers 1–6; ties keep retrieval order.",
+      state: counts.total > 0 ? "done" : "idle",
     },
   ];
 
@@ -519,6 +650,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     papers,
     visible,
     counts,
+    shortlist,
     finding,
     facts,
     trace,
@@ -527,5 +659,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     pageSize,
     load,
     displayed: visible.map(p => p.citation),
+    curated,
+    curatedAdded,
   };
 }

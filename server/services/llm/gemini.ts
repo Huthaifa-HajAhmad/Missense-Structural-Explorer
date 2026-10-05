@@ -10,6 +10,7 @@ import { PredictorData, ConservationData, StringInteraction, type ClinVarData } 
 import type { ACMGCriteriaItem, AcmgEvidenceCode, AnalysisResult } from "../../../src/shared/contracts.ts";
 import type { NarrativeFallbackReason } from "../../../src/shared/narrativeFallback.ts";
 import { NARRATIVE_SYNTHESIS } from "../../../src/shared/narrativeSynthesis.ts";
+import { literatureSummaryPrompt, type LiteratureSummarySelection } from "../../../src/shared/literatureSummary.ts";
 import {
   deepEvidencePromptBlock,
   type DeepModelEvidence,
@@ -693,7 +694,8 @@ export async function performGeminiAnalysis(
    * the same prompt it always did: no block is emitted when the payload is absent, and the shared
    * renderer emits none either when nothing informative is in it.
    */
-  deepEvidence?: DeepModelEvidence | null
+  deepEvidence?: DeepModelEvidence | null,
+  selectedLiterature?: LiteratureSummarySelection
 ) {
   // Validate key is usable early (throws if placeholder/missing)
   getGeminiClient(customApiKey);
@@ -701,25 +703,11 @@ export async function performGeminiAnalysis(
   // Retrieve relevant publications from the local SQLite/Europe PMC RAG cache
   let literatureEvidence = "";
   try {
-    const { retrieveRelevantLiterature } = await import("./literature-rag.ts");
-    const queryText = `${gene} ${variant} functional activity pathogenicity stability`;
-    // Literature is optional context and must not consume the entire narrative deadline.
-    const literatureSignal = anySignal([timeoutSignal, AbortSignal.timeout(5000)]);
-    const citations = await retrieveRelevantLiterature(gene, queryText, customApiKey, literatureSignal);
-    if (citations && citations.length > 0) {
-      literatureEvidence = `
-[CITED SCIENTIFIC LITERATURE & CLINICAL ABSTRACTS]:
-${citations.map((c, i) => `
-Citation #${i + 1}:
-- Title: ${c.title}
-- Authors: ${c.authors} (${c.year})
-- Journal: ${c.journal}
-- Abstract Excerpt: ${c.abstract.slice(0, 800)}...
-`).join("\n")}
-
-INSTRUCTION: Ground your clinical analysis in the findings from these cited papers. When describing functional effects or pathogenicity assertions, reference the authors and year (e.g. "Smith et al. (2023) demonstrated...") to ground your reasoning in the provided abstracts. Do not speculate or extrapolate beyond the cited passages.
-`;
-    }
+    // The route's immutable selection is the exact set its cache key describes.
+    // Direct service callers also use the selector, but never retrieve twice.
+    const selection = selectedLiterature ?? await (await import("./literature-summary.ts"))
+      .selectSummaryCitations(gene, variant, uniprotId, customApiKey, timeoutSignal);
+    literatureEvidence = literatureSummaryPrompt(selection);
   } catch (err: any) {
     console.warn("[RAG Warning] Failed to retrieve literature citations:", err.message);
   }

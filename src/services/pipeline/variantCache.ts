@@ -63,7 +63,8 @@ import { analysisContextMatches, type AnalysisCacheContext } from "./analysisCon
  * which re-tiers stored verdicts the same way.
  */
 // v4.4 separates context-scoped interpretation from reusable protein artifacts.
-export const CACHE_VERSION = "v4.5";
+// v4.6 invalidates narratives produced before screening-selected literature context.
+export const CACHE_VERSION = "v4.6";
 const CACHE_PREFIX = `mrx_bundle_${CACHE_VERSION}_`;
 const MAX_CACHE_ENTRIES = 25;
 
@@ -466,4 +467,3 @@ export function clearClientVariantCache(): void {
     keysToRemove.forEach(k => sessionStorage.removeItem(k));
   } catch (_) {}
 }
-

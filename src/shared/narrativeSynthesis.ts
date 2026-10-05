@@ -63,7 +63,8 @@
  * the stability and language-model results the report displays, so without this bump a re-run of the
  * same variant would have been served the pre-integration narrative for the cache's full 24h TTL.
  */
-export const NARRATIVE_PROMPT_SCHEMA_VERSION = 5;
+// v6: screening-selected literature and explicit no-criterion grounding instructions.
+export const NARRATIVE_PROMPT_SCHEMA_VERSION = 6;
 
 /** The narrative call's provider parameters. The server reads these; the UI only reports them. */
 export const NARRATIVE_SYNTHESIS = {
@@ -119,6 +120,7 @@ export const NARRATIVE_PROMPT_EVIDENCE = {
     "GERP++",
     "phyloP",
     "STRING partners",
+    "screening-selected literature abstracts and curated citation relationships",
     "deep-model ΔΔG engines (FoldX, DynaMut2, DDMut, RaSP, ThermoMPNN, StabilityOracle)",
     "language-model variant scores (SaProt, ESM-2, ESM-C, ESM3)",
   ],

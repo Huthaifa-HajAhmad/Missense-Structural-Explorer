@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, Database, Download, ExternalLink, GitBranch, RotateCcw, Search, Sparkles } from "lucide-react";
-import type { Citation, LiteratureEvidence } from "../../shared/literatureEvidence";
+import type { Citation, LiteratureEvidence, PaperReading } from "../../shared/literatureEvidence";
+import { LEXICON_VERSION } from "../../shared/literatureScreening";
+import { curatedLinkLabel } from "../../shared/curatedLiterature";
 
 interface LiteratureInspectorProps {
   gene: string;
@@ -81,16 +83,46 @@ const uniqueKeys = (list: Citation[]): string[] => {
 
 const identifierLabel = (id: string): string => (/^\d+$/.test(id) ? `PMID: ${id}` : `ID: ${id}`);
 
-export const toBibtex = (list: Citation[]): string => {
-  const keys = uniqueKeys(list);
-  return `${list.map((c, i) => {
+type ExportItem = Citation | PaperReading;
+interface ExportHeader { query: string; lexiconVersion: number; date: string; }
+const citationOf = (item: ExportItem): Citation => "citation" in item ? item.citation : item;
+const screeningOf = (item: ExportItem) => "screening" in item ? item.screening : null;
+/**
+ * Curated record relationships on the record, as provenance — label, provider id and the provider's own
+ * URL. Deliberately not a quote and not a screening tag; the export keeps the two apart the same way the
+ * table does.
+ */
+const curatedNote = (item: ExportItem): string => {
+  const links = citationOf(item).curatedLinks ?? [];
+  return links
+    .map(link => `${curatedLinkLabel(link.provider)} [PMID ${link.pmid}${link.featureId ? ` ${link.featureId}` : ""}]: ${link.sourceUrl}`)
+    .join(" | ");
+};
+const exportNote = (item: ExportItem): string => {
+  const screening = screeningOf(item);
+  const curated = curatedNote(item);
+  const parts: string[] = [];
+  if (screening) parts.push(`tier ${screening.tier}; tags ${screening.tags.map(tag => `${tag.tag} [${tag.source}]: ${tag.quote}`).join(" | ")}`);
+  if (curated) parts.push(`curated: ${curated}`);
+  return parts.join("; ");
+};
+/** The export action is deliberately based on the attention rule, not a currently selected table filter. */
+export const shortlistRecords = (papers: readonly PaperReading[]): PaperReading[] => papers.filter(paper => paper.screening.tier <= 4);
+const headerText = (header: ExportHeader) => `Query: ${header.query}; Lexicon version: ${header.lexiconVersion}; Date: ${header.date}`;
+
+export const toBibtex = (list: readonly ExportItem[], header?: ExportHeader): string => {
+  const citations = list.map(citationOf);
+  const keys = uniqueKeys(citations);
+  const prefix = header ? `@comment{${bibtexEscape(headerText(header))}}\n\n` : "";
+  return `${prefix}${citations.map((c, i) => {
+    const note = [identifierLabel(c.id), exportNote(list[i])].filter(Boolean).join("; ");
     const fields = [
       `  author  = {${splitAuthors(c.authors).map(toSurnameFirst).map(bibtexEscape).join(" and ")}}`,
       `  title   = {${bibtexEscape(c.title)}}`,
       `  journal = {${bibtexEscape(c.journal)}}`,
       ...(c.year ? [`  year    = {${c.year}}`] : []),
       ...(c.url ? [`  url     = {${bibtexEscape(c.url)}}`] : []),
-      `  note    = {${bibtexEscape(identifierLabel(c.id))}}`
+      `  note    = {${bibtexEscape(note)}}`
     ];
     return `@article{${keys[i]},\n${fields.join(",\n")}\n}`;
   }).join("\n\n")}\n`;
@@ -99,8 +131,9 @@ export const toBibtex = (list: Citation[]): string => {
 /** RIS is line-oriented: a newline inside a value would start a bogus record line. */
 const risLine = (text: string): string => text.replace(/\s*\r?\n\s*/g, " ");
 
-export const toRis = (list: Citation[]): string =>
-  `${list.map(c => {
+export const toRis = (list: readonly ExportItem[], header?: ExportHeader): string =>
+  `${header ? `N1  - ${risLine(headerText(header))}\n\n` : ""}${list.map(item => {
+    const c = citationOf(item);
     const lines = [
       "TY  - JOUR",
       `TI  - ${risLine(c.title)}`,
@@ -109,6 +142,7 @@ export const toRis = (list: Citation[]): string =>
       ...(c.abstract ? [`AB  - ${risLine(c.abstract)}`] : []),
       ...(c.year ? [`PY  - ${c.year}`] : []),
       ...(c.url ? [`UR  - ${c.url}`] : []),
+      ...(exportNote(item) ? [`N1  - ${risLine(exportNote(item))}`] : []),
       `AN  - ${c.id}`,
       "ER  - "
     ];
@@ -126,15 +160,18 @@ const csvCell = (value: string | number | null | undefined): string => {
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 
-export const toCsv = (list: Citation[], gene: string, variant: string): string => {
-  const header = ["Gene", "Variant", "ID", "Title", "Authors", "Journal", "Year", "URL"];
-  const rows = list.map(c =>
-    [gene, variant, c.id, c.title, c.authors, c.journal, c.year ?? "", c.url ?? ""]
+export const toCsv = (list: readonly ExportItem[], gene: string, variant: string, exportHeader?: ExportHeader): string => {
+  const header = ["Gene", "Variant", "ID", "Title", "Authors", "Journal", "Year", "URL", "Tier", "Screening tags", "Curated links"];
+  const rows = list.map(item => {
+    const c = citationOf(item);
+    const screening = screeningOf(item);
+    return [gene, variant, c.id, c.title, c.authors, c.journal, c.year ?? "", c.url ?? "", screening?.tier ?? "", screening ? screening.tags.map(tag => `${tag.tag} [${tag.source}]: ${tag.quote}`).join(" | ") : "", curatedNote(item)]
       .map(csvCell)
-      .join(",")
-  );
+      .join(",");
+  });
   // CRLF line endings keep Excel happy when a field contains quotes or newlines.
-  return `${[header.join(","), ...rows].join("\r\n")}\r\n`;
+  const preamble = exportHeader ? [`# Query,${csvCell(exportHeader.query)}`, `# Lexicon version,${exportHeader.lexiconVersion}`, `# Date,${csvCell(exportHeader.date)}`] : [];
+  return `${[...preamble, header.join(","), ...rows].join("\r\n")}\r\n`;
 };
 
 function Step({ n, label, state = "done", last = false, children }: { n: number; label: string; state?: "done" | "warn" | "idle"; last?: boolean; children: React.ReactNode }) {
@@ -203,27 +240,34 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
     flashApplied();
   };
 
-  const citations = evidence?.displayed ?? [];
-  const citationCount = citations.length;
+  const readings = evidence?.visible ?? [];
+  // The shortlist is defined by the shared attention rule, not by whichever tier/filter the reader
+  // happens to have selected in the table. Otherwise the default Read first view could silently omit
+  // every Read next record from an action explicitly labelled "Export shortlist".
+  const shortlistReadings = evidence ? shortlistRecords(evidence.papers) : [];
+  const citationCount = readings.length;
   const sentQuery = evidence?.response?.europePmcQuery ?? null;
   const notSearched = searchQuery.trim() === "" && customQuery === suggestion;
   const sweep = formatSweep(evidence?.response?.fetchedAt ?? null);
 
-  const handleExportCitations = (format: "bibtex" | "ris" | "csv") => {
-    if (citationCount === 0) return;
+  const handleExportCitations = (format: "bibtex" | "ris" | "csv", shortlistOnly = false) => {
+    const records = shortlistOnly ? shortlistReadings : readings;
+    if (records.length === 0) return;
+
+    const exportHeader = { query: (sentQuery ?? searchQuery) || "Gene-wide default", lexiconVersion: LEXICON_VERSION, date: new Date(evidence?.response?.fetchedAt ?? Date.now()).toISOString().slice(0, 10) };
 
     let content = "";
     let mime = "text/plain";
     let ext = "txt";
 
     if (format === "bibtex") {
-      content = toBibtex(citations);
+      content = toBibtex(records, exportHeader);
       ext = "bib";
     } else if (format === "ris") {
-      content = toRis(citations);
+      content = toRis(records, exportHeader);
       ext = "ris";
     } else {
-      content = toCsv(citations, gene || "", variant || "");
+      content = toCsv(records, gene || "", variant || "", exportHeader);
       mime = "text/csv;charset=utf-8";
       ext = "csv";
     }
@@ -232,7 +276,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${gene || "gene"}_literature_export.${ext}`;
+    a.download = `${gene || "gene"}_literature_${shortlistOnly ? "shortlist" : "export"}.${ext}`;
     a.click();
     // Deferred: revoking synchronously can tear the URL down before the browser has
     // started reading it, aborting the download.
@@ -262,6 +306,17 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
         {evidence?.faults.map(f => (
           <p key={f} className="lit-rail__warn" role="status">{f}</p>
         ))}
+      </section>
+
+      <section className="rail-section" aria-labelledby="lit-rail-shortlist">
+        <h3 className="eyebrow" id="lit-rail-shortlist">Shortlist</h3>
+        {evidence ? (
+          <dl className="rail-kv">
+            <div className="rail-kv__row"><dt>Read first</dt><dd>{evidence.shortlist.readFirst}</dd></div>
+            <div className="rail-kv__row"><dt>Read next</dt><dd>{evidence.shortlist.readNext}</dd></div>
+            <div className="rail-kv__row"><dt>Order</dt><dd>{evidence.trace.find(step => step.key === "order")?.sub ?? "Not reported"}</dd></div>
+          </dl>
+        ) : <p className="lit-rail__empty">No shortlist until papers are loaded.</p>}
       </section>
 
       {/* ── 2. Change the search ── */}
@@ -326,6 +381,15 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="lit-btn lit-btn--quiet lit-shortlist-export"
+          onClick={() => handleExportCitations("csv", true)}
+          disabled={shortlistReadings.length === 0}
+          title="Download Read first and Read next papers as CSV"
+        >
+          <Download aria-hidden="true" /> Export shortlist
+        </button>
         {evidence && evidence.counts.pinned > 0 && (
           <p className="rail-step__sub">{evidence.counts.pinned} pinned for the Report — pins are kept per variant and appear in its literature block.</p>
         )}
@@ -339,7 +403,8 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
         </h3>
         <dl className="rail-kv">
           <div className="rail-kv__row"><dt>ACMG engine</dt><dd>Nothing. No criterion is scored from literature.</dd></div>
-          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to 5 abstracts from the gene-wide set, ranked by embedding similarity. Searches here do not change them.</dd></div>
+          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to 5 abstracts from the default and variant searches plus curated record links, ordered by screening tier then available similarity and date. Titles and abstracts only; searches here do not change them.</dd></div>
+          <div className="rail-kv__row"><dt>Screener</dt><dd>Reads titles and abstracts to order this list. It is not evidence and enters no ACMG criterion.</dd></div>
           <div className="rail-kv__row"><dt>Report</dt><dd>Only papers you pin.</dd></div>
         </dl>
       </section>
@@ -353,7 +418,11 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
             <li>“Names the variant” is a literal match of the notations listed in the trace, in the title or abstract. It does not read full text, tables or figures, nucleotide (c.) notation, or gene aliases.</li>
             <li>The naming count in the finding comes from a second, background search for the variant notations. It is cached like any search, and if it fails the tab says so instead of showing a zero.</li>
             <li>A record that names the variant reports nothing about its finding. Read it before relying on it.</li>
-            <li>Results are ordered by text check, then newest. No journal ranking or impact metric is applied or shown.</li>
+            <li>Screening reads <strong>titles and abstracts only</strong> — no full text, tables or figures.</li>
+            <li>It is <strong>lexical, not semantic</strong>: it reports that assay language is present, not that an assay was performed on this variant, and not what it found.</li>
+            <li>Tiers are an ordering rule, not a quality judgement; no journal metric is computed or shown.</li>
+            <li>No screening tag is evidence, and none enters the ACMG verdict.</li>
+            <li>On the AI-summary side: the summary is prose grounded in cited abstracts; a citation in it is not an assertion that a paper supports the narrative’s claims.</li>
           </ul>
         </details>
       </section>

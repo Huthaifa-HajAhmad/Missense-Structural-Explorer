@@ -20,14 +20,20 @@ vi.mock("../../services/literature-rag.ts", async (importOriginal) => {
   };
 });
 
+// Phase 1b curation is orchestrated here but implemented and tested in its own module; the route test
+// only needs to observe the orchestration (context pass-through, coverage, separate curated additions).
+vi.mock("../../services/llm/curated-literature.ts", () => ({ getCuratedVariantCitations: vi.fn() }));
+
 import {
   getGeneCitations,
   syncLiteratureForGene,
   searchGeneLiterature,
   isLiteratureCacheStale,
   getLiteratureHitCount,
-  getLastLiteratureSync
+  getLastLiteratureSync,
+  literatureCacheKey
 } from "../../services/literature-rag.ts";
+import { getCuratedVariantCitations } from "../../services/llm/curated-literature.ts";
 
 function getLiteratureHandler(): any {
   const route: any = (apiRouter as any).stack.find(
@@ -74,6 +80,7 @@ describe("GET /literature/:gene orchestration", () => {
     vi.mocked(getGeneCitations).mockResolvedValue([citation]);
     vi.mocked(syncLiteratureForGene).mockResolvedValue(1);
     vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [], degraded: false });
+    vi.mocked(getCuratedVariantCitations).mockResolvedValue({ citations: [], state: "complete" });
   });
 
   it("does not re-sync a fresh cache even when it contains zero citations", async () => {
@@ -87,6 +94,24 @@ describe("GET /literature/:gene orchestration", () => {
     expect(syncLiteratureForGene).not.toHaveBeenCalled();
     expect(res.body.citations).toEqual([]);
     expect(res.body.hitCount).toBe(1204);
+  });
+
+  it("cancels upstream only when the response disconnects, not when the request completes", async () => {
+    const { req, res } = makeHarness({ query: "TP53" });
+    const requestListeners = new Map<string, () => void>();
+    const responseListeners = new Map<string, () => void>();
+    req.on = (event: string, listener: () => void) => requestListeners.set(event, listener);
+    res.on = (event: string, listener: () => void) => responseListeners.set(event, listener);
+    await getLiteratureHandler()(req, res);
+    const signal = vi.mocked(searchGeneLiterature).mock.calls[0][2]!;
+    requestListeners.get("close")?.();
+    expect(signal.aborted).toBe(false);
+    res.writableEnded = true;
+    responseListeners.get("close")?.();
+    expect(signal.aborted).toBe(false);
+    res.writableEnded = false;
+    responseListeners.get("close")?.();
+    expect(signal.aborted).toBe(true);
   });
 
   it("syncs when the cache is stale", async () => {
@@ -119,7 +144,7 @@ describe("GET /literature/:gene orchestration", () => {
       true
     );
     expect(getGeneCitations).not.toHaveBeenCalled();
-    expect(getLiteratureHitCount).toHaveBeenCalledWith("TP53::tp53 and custom");
+    expect(getLiteratureHitCount).toHaveBeenCalledWith(literatureCacheKey("TP53", "tp53 and custom"));
     expect(res.body.hitCount).toBe(1204);
     expect(res.body.returnedCount).toBe(1);
     expect(res.body.query).toBe("tp53 and custom");
@@ -189,6 +214,91 @@ describe("GET /literature/:gene orchestration", () => {
       expect(res.body.degraded).toBe(true);
       expect(res.body.fetchedAt).toBeNull();
       expect(getLastLiteratureSync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Phase 1b curated variant citations", () => {
+    const curatedLink = {
+      provider: "uniprot" as const,
+      featureId: "VAR_088123",
+      accession: "Q13564",
+      variant: "L49F",
+      variantDescription: "in NEDFIH",
+      evidenceCode: "ECO:0000269",
+      pmid: "999",
+      source: "PubMed",
+      sourceUrl: "https://www.uniprot.org/uniprotkb/Q13564/variant/VAR_088123",
+      retrievedAt: "2026-10-05T00:00:00.000Z",
+    };
+    const curatedOnly = {
+      id: "999",
+      title: "Curated only",
+      abstract: "",
+      authors: "X",
+      journal: "J",
+      year: 2020,
+      url: "https://pubmed.ncbi.nlm.nih.gov/999/",
+      curatedLinks: [curatedLink],
+    };
+
+    it("passes the variant/accession context through and returns curated-only records separately", async () => {
+      vi.mocked(getCuratedVariantCitations).mockResolvedValue({ citations: [curatedOnly], state: "complete" });
+
+      const { req, res } = makeHarness({ variant: "p.Leu49Phe", uniprot: "Q13564" }, "NAE1");
+      await getLiteratureHandler()(req, res);
+
+      expect(getCuratedVariantCitations).toHaveBeenCalledWith("NAE1", "p.Leu49Phe", "Q13564", expect.any(AbortSignal));
+      expect(res.body.curated).toEqual({ state: "complete", linked: 1 });
+      // The curated record is shown but is NOT query membership, so `citations` and its count are unchanged.
+      expect(res.body.citations.map((c: any) => c.id)).toEqual(["123456"]);
+      expect(res.body.returnedCount).toBe(1);
+      expect(res.body.curatedCitations.map((c: any) => c.id)).toEqual(["999"]);
+      expect(res.body.curatedCitations[0].curatedLinks).toHaveLength(1);
+    });
+
+    it("annotates an ordinary record in place and adds nothing when the query already matched it", async () => {
+      vi.mocked(getCuratedVariantCitations).mockResolvedValue({
+        citations: [{ ...citation, curatedLinks: [{ ...curatedLink, pmid: "123456" }] }],
+        state: "complete",
+      });
+
+      const { req, res } = makeHarness({ variant: "p.Leu49Phe", uniprot: "Q13564" }, "NAE1");
+      await getLiteratureHandler()(req, res);
+
+      expect(res.body.citations).toHaveLength(1);
+      expect(res.body.citations[0].curatedLinks).toHaveLength(1);
+      expect(res.body.curatedCitations).toEqual([]);
+    });
+
+    it("does not run a curated lookup without both context values", async () => {
+      for (const query of [{}, { variant: "p.Leu49Phe" }, { uniprot: "Q13564" }] as Array<Record<string, string>>) {
+        const { req, res } = makeHarness(query, "NAE1");
+        await getLiteratureHandler()(req, res);
+        expect(res.body.curated).toBeNull();
+        expect(res.body.curatedCitations).toEqual([]);
+      }
+      expect(getCuratedVariantCitations).not.toHaveBeenCalled();
+    });
+
+    it("reports a curated failure explicitly while the ordinary list is unaffected", async () => {
+      vi.mocked(getCuratedVariantCitations).mockResolvedValue({ citations: [], state: "error", reason: "UniProt answered 503." });
+
+      const { req, res } = makeHarness({ variant: "p.Leu49Phe", uniprot: "Q13564" }, "NAE1");
+      await getLiteratureHandler()(req, res);
+
+      expect(res.body.curated).toEqual({ state: "error", reason: "UniProt answered 503.", linked: 0 });
+      expect(res.body.citations).toHaveLength(1);
+      expect(res.body.curatedCitations).toEqual([]);
+    });
+
+    it("turns a thrown curated lookup into an error state rather than failing the request", async () => {
+      vi.mocked(getCuratedVariantCitations).mockRejectedValue(new Error("boom"));
+
+      const { req, res } = makeHarness({ variant: "p.Leu49Phe", uniprot: "Q13564" }, "NAE1");
+      await getLiteratureHandler()(req, res);
+
+      expect(res.body.curated).toMatchObject({ state: "error", linked: 0 });
+      expect(res.body.citations).toHaveLength(1);
     });
   });
 });

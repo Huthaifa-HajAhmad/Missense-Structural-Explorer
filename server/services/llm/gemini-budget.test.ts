@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockGenerateContent = vi.fn();
-const mockRetrieveRelevantLiterature = vi.fn().mockResolvedValue([]);
+const mockSelectSummaryCitations = vi.fn().mockResolvedValue([]);
 
 vi.mock("@google/genai", () => {
   return {
@@ -25,8 +25,8 @@ vi.mock("@google/genai", () => {
   };
 });
 
-vi.mock("./literature-rag.ts", () => ({
-  retrieveRelevantLiterature: (...args: any[]) => mockRetrieveRelevantLiterature(...args)
+vi.mock("./literature-summary.ts", () => ({
+  selectSummaryCitations: async (...args: any[]) => ({ citations: await mockSelectSummaryCitations(...args), scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, withoutEmbeddings: 0 })
 }));
 
 const VALID_RESPONSE = {
@@ -62,8 +62,8 @@ describe("narrative synthesis time budget", () => {
 
   beforeEach(async () => {
     mockGenerateContent.mockReset();
-    mockRetrieveRelevantLiterature.mockReset();
-    mockRetrieveRelevantLiterature.mockResolvedValue([]);
+    mockSelectSummaryCitations.mockReset();
+    mockSelectSummaryCitations.mockResolvedValue([]);
     const geminiService = await import("./gemini.ts");
     geminiService.resetModelHealth();
     oldModel = process.env.GEMINI_MODEL;
@@ -358,8 +358,8 @@ describe("narrative synthesis time budget", () => {
     try {
       for (const [branch, providerError, code, kind] of cases) {
         mockGenerateContent.mockReset();
-        mockRetrieveRelevantLiterature.mockReset();
-        mockRetrieveRelevantLiterature.mockResolvedValue([]);
+        mockSelectSummaryCitations.mockReset();
+        mockSelectSummaryCitations.mockResolvedValue([]);
         mockGenerateContent.mockRejectedValue(providerError);
         const geminiService = await import("./gemini.ts");
         geminiService.resetModelHealth();
@@ -393,8 +393,8 @@ describe("provider-health circuit breaker", () => {
 
   beforeEach(async () => {
     mockGenerateContent.mockReset();
-    mockRetrieveRelevantLiterature.mockReset();
-    mockRetrieveRelevantLiterature.mockResolvedValue([]);
+    mockSelectSummaryCitations.mockReset();
+    mockSelectSummaryCitations.mockResolvedValue([]);
     const geminiService = await import("./gemini.ts");
     geminiService.resetModelHealth();
     oldModel = process.env.GEMINI_MODEL;
@@ -595,8 +595,8 @@ describe("provider failure classification", () => {
     process.env.GEMINI_MODEL = "a";
     process.env.GEMINI_MODEL_FALLBACKS = "b";
     mockGenerateContent.mockReset();
-    mockRetrieveRelevantLiterature.mockReset();
-    mockRetrieveRelevantLiterature.mockResolvedValue([]);
+    mockSelectSummaryCitations.mockReset();
+    mockSelectSummaryCitations.mockResolvedValue([]);
     mockGenerateContent.mockRejectedValue(OVERLOAD_ERROR);
     const geminiService = await import("./gemini.ts");
     geminiService.resetModelHealth();

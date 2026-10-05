@@ -34,6 +34,7 @@ vi.mock("../../apiClient", () => ({ useApiClient: () => hoisted.client }));
 
 import LiteratureView from "../LiteratureView";
 import LiteratureInspector from "../inspector/LiteratureInspector";
+import { MechanismPanel } from "../literature/MechanismPanel";
 
 const GENE = "NAE1";
 const VARIANT = "p.Asp116Gly";
@@ -46,6 +47,8 @@ const paper = (id: string, year: number, title: string, abstract: string, journa
 const FISH = paper("PMC13295995", 2026, "Advances in Fish Gene Editing", "CRISPR tools have transformed aquaculture genetics.");
 const NEDD = paper("41695624", 2026, "Neddylation and NAE1 in disease", "NAE1 encodes a NEDD8-activating enzyme subunit.");
 const HIT = paper("30000001", 2021, "A de novo NAE1 missense change", "We report a child. Sequencing found NAE1 p.Asp116Gly, absent from gnomAD.");
+const FUNCTIONAL = paper("30000002", 2024, "NAE1 activity", "NAE1 p.Asp116Gly activity was reduced in vitro.");
+const CLINICAL_FUNCTIONAL = paper("30000003", 2023, "NAE1 case and assay", "A patient with NAE1 p.Asp116Gly had reduced activity in vitro.");
 
 const reply = (over: Record<string, unknown> = {}) => ({
   gene: GENE,
@@ -121,12 +124,14 @@ describe("Literature tab — the finding", () => {
 });
 
 describe("Literature tab — the papers", () => {
-  it("marks a record matched on full text as not naming the gene in its abstract", async () => {
+  it("keeps full-text-only records out of the default shortlist and labels their screening observation when All is chosen", async () => {
     serve();
     renderView();
+    await screen.findByTestId("paper-41695624");
+    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
     const row = await screen.findByTestId("paper-PMC13295995");
-    expect(within(row).getByText("NAE1 not in abstract")).toBeTruthy();
-    expect(within(await screen.findByTestId("paper-41695624")).getByText("Names NAE1 only")).toBeTruthy();
+    expect(within(row).getByText("Full-text only")).toBeTruthy();
+    expect(within(await screen.findByTestId("paper-41695624")).getByText("Gene named")).toBeTruthy();
   });
 
   it("lists a paper that names the variant first, with a chip and the quoted sentence when opened", async () => {
@@ -135,10 +140,10 @@ describe("Literature tab — the papers", () => {
     const table = await screen.findByTestId("literature-table");
     const firstRow = within(table).getAllByTestId(/^paper-/)[0];
     expect(firstRow.getAttribute("data-testid")).toBe("paper-30000001");
-    expect(within(firstRow).getByText("Names p.Asp116Gly")).toBeTruthy();
+    expect(within(firstRow).getByText("Variant named")).toBeTruthy();
 
     fireEvent.click(within(firstRow).getByRole("button", { name: /^A de novo NAE1 missense change/ }));
-    expect(await screen.findByText("Sentence naming the variant")).toBeTruthy();
+    expect(await screen.findByText(/names variant · lexicon/i)).toBeTruthy();
     expect(screen.getAllByText("p.Asp116Gly", { selector: "mark" }).length).toBeGreaterThan(0);
   });
 
@@ -149,7 +154,7 @@ describe("Literature tab — the papers", () => {
     getLiterature.mockClear();
     fireEvent.click(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }));
     await waitFor(() => expect(getLiterature).toHaveBeenCalled());
-    expect(getLiterature).toHaveBeenCalledWith(GENE, false, expect.any(AbortSignal), VARIANT_Q);
+    expect(getLiterature).toHaveBeenCalledWith(GENE, false, expect.any(AbortSignal), VARIANT_Q, expect.objectContaining({ variant: VARIANT }));
     expect(await screen.findByText("No record names p.Asp116Gly")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }).getAttribute("aria-pressed")).toBe("true");
   });
@@ -158,9 +163,84 @@ describe("Literature tab — the papers", () => {
     serve({ citations: [NEDD, HIT, FISH], hitCount: 3 }, { citations: [HIT], hitCount: 1 });
     renderView();
     await screen.findByTestId("paper-30000001");
+    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
     fireEvent.click(screen.getByRole("button", { name: /NAE1 not in abstract/ }));
     expect(screen.queryByTestId("paper-30000001")).toBeNull();
     expect(screen.getByTestId("paper-PMC13295995")).toBeTruthy();
+  });
+
+  it("shows zero-inclusive shortlist counts, applies the count control, and combines screening chips with AND semantics", async () => {
+    serve({ citations: [FUNCTIONAL, CLINICAL_FUNCTIONAL, FISH], hitCount: 3 });
+    const view = renderView();
+    const shortlist = await screen.findByLabelText("Shortlist");
+    expect(within(shortlist).getByRole("button", { name: /Show 2 read first papers/ })).toBeTruthy();
+    expect(within(shortlist).getByRole("button", { name: /Show 0 read next papers/ })).toBeTruthy();
+    fireEvent.click(within(shortlist).getByRole("button", { name: /Show all 3 loaded papers, including the 1 other/ }));
+    expect(await screen.findByTestId("paper-PMC13295995")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    const controls = screen.getByRole("group", { name: "Filter by screening observation" });
+    fireEvent.click(within(controls).getByRole("button", { name: /Functional2/ }));
+    fireEvent.click(within(controls).getByRole("button", { name: /Clinical case1/ }));
+    expect(screen.getByTestId("paper-30000003")).toBeTruthy();
+    expect(screen.queryByTestId("paper-30000002")).toBeNull();
+    await waitFor(() => expect(view.evidence()?.trace.find(step => step.key === "order")?.value).toContain("1 shown"));
+  });
+
+  it("defaults to attention ordering and sorts by year even when retrieval order is not chronological", async () => {
+    serve({ citations: [HIT, NEDD], hitCount: 2 });
+    renderView();
+    const table = await screen.findByTestId("literature-table");
+    expect(within(table).getAllByTestId(/^paper-/)[0].getAttribute("data-testid")).toBe("paper-30000001");
+    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    fireEvent.click(screen.getByRole("button", { name: "Newest" }));
+    expect(within(table).getAllByTestId(/^paper-/)[0].getAttribute("data-testid")).toBe("paper-41695624");
+  });
+
+  it("explains an empty screening intersection and restores papers when cleared", async () => {
+    const clinical = paper("30000004", 2022, "NAE1 patient", "A patient with NAE1 p.Asp116Gly was diagnosed.");
+    serve({ citations: [FUNCTIONAL, clinical], hitCount: 2 });
+    renderView();
+    await screen.findByTestId("paper-30000002");
+    const filters = screen.getByRole("group", { name: "Filter by screening observation" });
+    fireEvent.click(within(filters).getByRole("button", { name: /Functional1/ }));
+    fireEvent.click(within(filters).getByRole("button", { name: /Clinical case1/ }));
+    expect(await screen.findByText("No loaded paper matches these screening filters")).toBeTruthy();
+    expect(screen.queryByText("No papers returned")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear screening filters" }));
+    expect(await screen.findByTestId("paper-30000002")).toBeTruthy();
+    expect(screen.getByTestId("paper-30000004")).toBeTruthy();
+  });
+
+  it("shows a curated record relationship with its provider link and keeps it out of the query's loaded count", async () => {
+    const curatedLink = {
+      provider: "uniprot" as const,
+      featureId: "VAR_088123",
+      accession: "Q13564",
+      variant: "D116G",
+      variantDescription: "in NEDFIH",
+      evidenceCode: "ECO:0000269",
+      pmid: "30000009",
+      source: "PubMed",
+      sourceUrl: "https://www.uniprot.org/uniprotkb/Q13564/variant/VAR_088123",
+      retrievedAt: "2026-10-05T00:00:00.000Z",
+    };
+    const curatedOnly = paper("30000009", 2020, "NAE1 curated-only record", "An abstract that never mentions the substitution.");
+    getLiterature.mockImplementation(async (_g: string, _f: boolean, _s: unknown, query?: string) =>
+      query && query.includes("D116G")
+        ? reply({ citations: [], hitCount: 0, europePmcQuery: VARIANT_Q })
+        : reply({ citations: [NEDD], hitCount: 1, curatedCitations: [{ ...curatedOnly, curatedLinks: [curatedLink] }], curated: { state: "complete", linked: 1 } })
+    );
+    renderView();
+
+    const row = await screen.findByTestId("paper-30000009");
+    expect(within(row).getByText("Cited by UniProt variant record")).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: /^NAE1 curated-only record/ }));
+    expect(await screen.findByText(/VAR_088123/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Provider record/ }).getAttribute("href")).toBe(curatedLink.sourceUrl);
+    // The curated-only record is shown but is not query membership: the loaded fact stays at 1.
+    const loadedFact = screen.getByText("Loaded here").closest(".lit-fact") as HTMLElement;
+    expect(within(loadedFact).getByText("1")).toBeTruthy();
+    expect(within(loadedFact).queryByText("2")).toBeNull();
   });
 
   it("pins and unpins a paper from the row, without opening it", async () => {
@@ -201,6 +281,18 @@ describe("Literature tab — the papers", () => {
   });
 });
 
+describe("Literature tab — mechanism comparison states", () => {
+  const terms = [{ term: "loss-of-function", quote: "The variant causes loss-of-function." }];
+  it("renders the flag, constraint-silent, and unavailable states in words", () => {
+    const { rerender } = render(<MechanismPanel terms={terms} constraint={{ pli: 0.1, loeuf: 0.9, missense_z: 1, oe_mis: 1 }} />);
+    expect(screen.getByText("terms differ from context")).toBeTruthy();
+    rerender(<MechanismPanel terms={[{ term: "gain-of-function", quote: "Activation." }]} constraint={{ pli: 0.1, loeuf: 0.9, missense_z: 1, oe_mis: 1 }} />);
+    expect(screen.getByText("Constraint cannot speak to this mechanism.")).toBeTruthy();
+    rerender(<MechanismPanel terms={terms} constraint={null} unavailableReason="Not available here — constraint is absent for this result." />);
+    expect(screen.getByText(/Not available here — constraint is absent/)).toBeTruthy();
+  });
+});
+
 describe("Literature rail — the trace", () => {
   it("prints the query the server sent, and offers the variant query as a suggestion that is not yet run", async () => {
     serve();
@@ -222,7 +314,7 @@ describe("Literature rail — the trace", () => {
     render(<LiteratureInspector gene={GENE} variant={VARIANT} evidence={null} />);
     const rail = screen.getByTestId("literature-rail");
     expect(rail.textContent).toContain("Nothing. No criterion is scored from literature.");
-    expect(rail.textContent).toContain("Up to 5 abstracts from the gene-wide set");
+    expect(rail.textContent).toContain("Up to 5 abstracts from the default and variant searches");
     expect(within(rail).getByText("No search has run yet.")).toBeTruthy();
   });
 
@@ -268,5 +360,14 @@ describe("Literature surfaces — what they may never print", () => {
       expect(source, file).not.toMatch(/\b(rose|emerald|amber|indigo|sky)-\d{2,3}\b/);
       expect(source, file).not.toMatch(/animate-(spin|pulse|ping)/);
     }
+  });
+
+  it("keeps screening tags and counts out of the hero and every ACMG surface", async () => {
+    serve({ citations: [HIT], hitCount: 1 });
+    renderView();
+    const hero = await screen.findByTestId("literature-finding");
+    expect(hero.textContent).not.toMatch(/functional|clinical case|same residue|mechanism|review|preprint|read first/i);
+    const source = FILES.map(file => fs.readFileSync(path.join(process.cwd(), file), "utf-8")).join("\n");
+    expect(source).not.toMatch(/acmgCriteria[\s\S]*screening|screening[\s\S]*acmgCriteria/i);
   });
 });

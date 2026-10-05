@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockGenerateContent = vi.fn();
-const mockRetrieveRelevantLiterature = vi.fn().mockResolvedValue([]);
+const mockSelectSummaryCitations = vi.fn().mockResolvedValue([]);
 
 vi.mock("@google/genai", () => {
   return {
@@ -19,17 +19,17 @@ vi.mock("@google/genai", () => {
   };
 });
 
-vi.mock("./literature-rag.ts", () => {
+vi.mock("./literature-summary.ts", () => {
   return {
-    retrieveRelevantLiterature: (...args: any[]) => mockRetrieveRelevantLiterature(...args)
+    selectSummaryCitations: async (...args: any[]) => ({ citations: await mockSelectSummaryCitations(...args), scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, withoutEmbeddings: 0 })
   };
 });
 
 describe("Gemini API Fallback Cascade and Error Mapping", () => {
   beforeEach(async () => {
     mockGenerateContent.mockReset();
-    mockRetrieveRelevantLiterature.mockReset();
-    mockRetrieveRelevantLiterature.mockResolvedValue([]);
+    mockSelectSummaryCitations.mockReset();
+    mockSelectSummaryCitations.mockResolvedValue([]);
     // The provider-health circuit breaker is module-global: transient failures recorded by
     // one test would reorder candidate models for the next. Reset it per test.
     const geminiService = await import("./gemini.ts");
@@ -137,9 +137,10 @@ describe("Gemini API Fallback Cascade and Error Mapping", () => {
       await geminiService.performGeminiAnalysis(
         "PAH", "p.Arg408Trp", "P00439", "408", "R", "W", undefined, null, "standard", "dummy-key", controller.signal
       );
-      expect(mockRetrieveRelevantLiterature).toHaveBeenCalledWith(
+      expect(mockSelectSummaryCitations).toHaveBeenCalledWith(
         "PAH",
-        "PAH p.Arg408Trp functional activity pathogenicity stability",
+        "p.Arg408Trp",
+        "P00439",
         "dummy-key",
         expect.any(AbortSignal)
       );

@@ -18,7 +18,10 @@ export function migrateLiteratureSchema(db: DatabaseSync): void {
   const existing = new Set(columns.map((column) => column.name));
   for (const [name, definition] of [
     ["has_embedding", "INTEGER NOT NULL DEFAULT 1"],
-    ["url", "TEXT"]
+    ["url", "TEXT"],
+    ["publication_types", "TEXT"],
+    ["mesh_headings", "TEXT"],
+    ["author_keywords", "TEXT"]
   ] as Array<[string, string]>) {
     if (!existing.has(name)) {
       db.exec(`ALTER TABLE literature_abstracts ADD COLUMN ${name} ${definition}`);
@@ -84,7 +87,10 @@ function getDb(): DatabaseSync {
         embedding BLOB NOT NULL,
         created_at INTEGER NOT NULL,
         has_embedding INTEGER NOT NULL DEFAULT 1,
-        url TEXT
+        url TEXT,
+        publication_types TEXT,
+        mesh_headings TEXT,
+        author_keywords TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_literature_gene ON literature_abstracts(gene);
 
@@ -124,13 +130,17 @@ function getDb(): DatabaseSync {
  */
 const LITERATURE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** Bump when the cached citation payload changes so old incomplete rows are re-fetched. */
+export const LITERATURE_CACHE_SCHEMA_VERSION = 2;
+
 /** Cache key for a (gene, query) pair. The query is part of the identity of the result
  *  set, so it must be part of the key — otherwise a custom search overwrites the
  *  default view's rows and all later default reads report the custom results. */
 export function literatureCacheKey(gene: string, query?: string): string {
   const cleanGene = gene.trim().toUpperCase();
   const normalizedQuery = query?.trim() ? query.trim() : "";
-  return normalizedQuery ? `${cleanGene}::${normalizedQuery}` : cleanGene;
+  const prefix = `v${LITERATURE_CACHE_SCHEMA_VERSION}::${cleanGene}`;
+  return normalizedQuery ? `${prefix}::${normalizedQuery}` : prefix;
 }
 
 export function recordLiteratureSync(cacheKey: string, query: string, hitCount: number | null = null): void {
@@ -388,7 +398,13 @@ export interface PmcPaper {
   journalTitle?: string;
   pubYear?: string;
   firstPublicationDate?: string;
+  pubTypeList?: { pubType?: PmcMetadataValue } | PmcMetadataValue;
+  meshHeadingList?: { meshHeading?: PmcMetadataValue } | PmcMetadataValue;
+  keywordList?: { keyword?: PmcMetadataValue } | PmcMetadataValue;
 }
+
+type PmcMetadataItem = string | { descriptorName?: string; text?: string; "#text"?: string };
+type PmcMetadataValue = PmcMetadataItem | PmcMetadataItem[];
 
 export interface NormalizedCitation {
   id: string;
@@ -398,6 +414,9 @@ export interface NormalizedCitation {
   journal: string;
   year: number | null;
   url: string;
+  publicationTypes?: string[];
+  meshHeadings?: string[];
+  authorKeywords?: string[];
 }
 
 function normalizeYear(paper: PmcPaper): number | null {
@@ -405,6 +424,22 @@ function normalizeYear(paper: PmcPaper): number | null {
   if (!raw) return null;
   const parsed = parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function metadataList(value: unknown, property: string): string[] {
+  const raw = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && property in value
+      ? (value as Record<string, unknown>)[property]
+      : [];
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const asText = (item: unknown): string | null => {
+    if (typeof item === "string") return item;
+    if (!item || typeof item !== "object") return null;
+    const entry = item as Record<string, unknown>;
+    return [entry.descriptorName, entry.text, entry["#text"]].find((candidate): candidate is string => typeof candidate === "string") ?? null;
+  };
+  return [...new Set(list.map(asText).filter((item): item is string => item !== null).map(item => cleanLiteratureText(item).trim()).filter(Boolean))];
 }
 
 /**
@@ -462,6 +497,9 @@ function toCitation(paper: PmcPaper): NormalizedCitation | null {
   const pmid = paper.pmid || paper.id;
   if (!pmid) return null;
 
+  const publicationTypes = metadataList(paper.pubTypeList, "pubType");
+  const meshHeadings = metadataList(paper.meshHeadingList, "meshHeading");
+  const authorKeywords = metadataList(paper.keywordList, "keyword");
   return {
     id: pmid,
     title: cleanLiteratureText(paper.title || "") || "Untitled Publication",
@@ -474,7 +512,10 @@ function toCitation(paper: PmcPaper): NormalizedCitation | null {
         .replace(/\s+/g, " ")
         .trim() || "Unknown Journal",
     year: normalizeYear(paper),
-    url: buildPaperUrl(pmid, paper)
+    url: buildPaperUrl(pmid, paper),
+    ...(publicationTypes.length ? { publicationTypes } : {}),
+    ...(meshHeadings.length ? { meshHeadings } : {}),
+    ...(authorKeywords.length ? { authorKeywords } : {}),
   };
 }
 
@@ -502,8 +543,8 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
   withWriteTx(db, () => {
     db.prepare(
       `INSERT INTO literature_abstracts
-         (id, gene, title, abstract, authors, journal, year, url, embedding, has_embedding, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (id, gene, title, abstract, authors, journal, year, url, publication_types, mesh_headings, author_keywords, embedding, has_embedding, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          gene = excluded.gene,
          title = excluded.title,
@@ -512,6 +553,9 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
          journal = excluded.journal,
          year = excluded.year,
          url = excluded.url,
+         publication_types = excluded.publication_types,
+         mesh_headings = excluded.mesh_headings,
+         author_keywords = excluded.author_keywords,
          embedding = CASE WHEN excluded.has_embedding = 1 THEN excluded.embedding ELSE literature_abstracts.embedding END,
          has_embedding = CASE WHEN excluded.has_embedding = 1 THEN 1 ELSE literature_abstracts.has_embedding END,
          created_at = excluded.created_at`
@@ -524,6 +568,9 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
       citation.journal,
       citation.year,
       citation.url,
+      citation.publicationTypes ? JSON.stringify(citation.publicationTypes) : null,
+      citation.meshHeadings ? JSON.stringify(citation.meshHeadings) : null,
+      citation.authorKeywords ? JSON.stringify(citation.authorKeywords) : null,
       embedding,
       hasEmbedding ? 1 : 0,
       now
@@ -538,6 +585,32 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
 /** Europe PMC returns one page per request; this is that page's size. The UI reports the
  *  true hit count so a shorter list is explained rather than looking like a bug. */
 export const EUROPE_PMC_PAGE_SIZE = 25;
+
+/** Hydrate verified provider PMIDs directly, without a gene filter or search-cache membership. */
+export async function fetchCitationsByPmids(pmids: readonly string[], signal?: AbortSignal): Promise<CitationRow[]> {
+  const ids = [...new Set(pmids.filter(id => /^\d+$/.test(id)))];
+  if (ids.length === 0) return [];
+  if (ids.length > EUROPE_PMC_PAGE_SIZE) throw new Error("Curated PMID hydration exceeds one page");
+  const query = `(${ids.map(id => `EXT_ID:${id}`).join(" OR ")}) AND SRC:MED`;
+  const boundedSignal = AbortSignal.any([AbortSignal.timeout(5000), ...(signal ? [signal] : [])]);
+  checkPmcCircuit();
+  const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
+  try {
+    const response = await fetch(url, { headers: { Accept: "application/json" }, signal: boundedSignal });
+    if (!response.ok) throw new Error(`Europe PMC API request failed: ${response.status}`);
+    const data = await response.json();
+    if (boundedSignal.aborted) throw boundedSignal.reason;
+    const { citations } = mapPapers(data.resultList?.result ?? []);
+    const expected = new Set(ids);
+    const exact = citations.filter(c => expected.has(c.id));
+    if (exact.length !== ids.length) throw new Error("Europe PMC did not return every curated PMID");
+    recordPmcSuccess();
+    return exact;
+  } catch (error) {
+    if (!signal?.aborted) recordPmcFailure();
+    throw error;
+  }
+}
 
 // Fetch papers from Europe PMC Search JSON API
 export async function syncLiteratureForGene(
@@ -710,6 +783,9 @@ export interface LiteratureCitation {
   journal: string;
   year: number | null;
   url: string | null;
+  publicationTypes?: string[];
+  meshHeadings?: string[];
+  authorKeywords?: string[];
   similarity: number;
 }
 
@@ -724,9 +800,25 @@ interface AbstractRow {
   journal: string | null;
   year: number | null;
   url: string | null;
+  publication_types: string | null;
+  mesh_headings: string | null;
+  author_keywords: string | null;
+}
+
+function parseMetadataColumn(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) && parsed.every(item => typeof item === "string") ? parsed : undefined;
+  } catch (_) {
+    return undefined;
+  }
 }
 
 function rowToCitation(row: AbstractRow): CitationRow {
+  const publicationTypes = parseMetadataColumn(row.publication_types);
+  const meshHeadings = parseMetadataColumn(row.mesh_headings);
+  const authorKeywords = parseMetadataColumn(row.author_keywords);
   return {
     id: row.id,
     title: row.title,
@@ -734,7 +826,10 @@ function rowToCitation(row: AbstractRow): CitationRow {
     authors: row.authors || "Unknown Authors",
     journal: row.journal || "Unknown Journal",
     year: row.year,
-    url: row.url
+    url: row.url,
+    ...(publicationTypes ? { publicationTypes } : {}),
+    ...(meshHeadings ? { meshHeadings } : {}),
+    ...(authorKeywords ? { authorKeywords } : {}),
   };
 }
 
@@ -753,7 +848,8 @@ export async function retrieveRelevantLiterature(
   gene: string,
   query: string,
   customApiKey?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  limit = 5
 ): Promise<LiteratureCitation[]> {
   const db = getDb();
   const cleanGene = gene.trim().toUpperCase();
@@ -783,7 +879,7 @@ export async function retrieveRelevantLiterature(
   // untyped rows, so a dropped/renamed column would silently widen to `unknown`.
   const rows = db
     .prepare(
-      `SELECT a.id, a.title, a.abstract, a.authors, a.journal, a.year, a.url, a.embedding, a.has_embedding
+      `SELECT a.id, a.title, a.abstract, a.authors, a.journal, a.year, a.url, a.publication_types, a.mesh_headings, a.author_keywords, a.embedding, a.has_embedding
          FROM literature_abstracts a
          JOIN literature_query_members m ON m.paper_id = a.id
         WHERE m.cache_key = ?`
@@ -816,7 +912,7 @@ export async function retrieveRelevantLiterature(
     // 5. Sort by relevance descending and return top 5
     return citations
       .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, 5);
+      .slice(0, limit);
   } catch (err: any) {
     console.error(`[RAG Error] Retrieval failed for query on gene ${cleanGene}:`, err.message);
     return [];
@@ -856,7 +952,7 @@ export async function getGeneCitations(
   // Keep the SELECT column list in sync with the AbstractRow cast below.
   const rows = db
     .prepare(
-      `SELECT a.id, a.title, a.abstract, a.authors, a.journal, a.year, a.url
+      `SELECT a.id, a.title, a.abstract, a.authors, a.journal, a.year, a.url, a.publication_types, a.mesh_headings, a.author_keywords
          FROM literature_abstracts a
          JOIN literature_query_members m ON m.paper_id = a.id
         WHERE m.cache_key = ?
@@ -897,7 +993,7 @@ export async function searchGeneLiterature(
     // Keep the SELECT column list in sync with the AbstractRow cast below.
     const cached = db
       .prepare(
-        `SELECT a.id, a.title, a.abstract, a.authors, a.journal, a.year, a.url
+        `SELECT a.id, a.title, a.abstract, a.authors, a.journal, a.year, a.url, a.publication_types, a.mesh_headings, a.author_keywords
            FROM literature_abstracts a
            JOIN literature_query_members m ON m.paper_id = a.id
           WHERE m.cache_key = ?

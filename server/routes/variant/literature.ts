@@ -11,6 +11,10 @@ import {
   formatQueryForEuropePmc,
   EUROPE_PMC_PAGE_SIZE
 } from "../../services/literature-rag.ts";
+import { getCuratedVariantCitations, type CuratedVariantCitations } from "../../services/llm/curated-literature.ts";
+import { attachCuratedLinks, curatedOnlyCitations, type CuratedCoverage } from "../../../src/shared/curatedLiterature.ts";
+import type { Citation } from "../../../src/shared/literatureEvidence.ts";
+import { onClientDisconnect } from "../../utils/client-disconnect.ts";
 
 export function registerLiteratureRoutes(apiRouter: Router): void {
   apiRouter.get("/literature/:gene", async (req, res) => {
@@ -23,6 +27,11 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
     const customQuery = typeof req.query.query === "string" && req.query.query.trim().length > 0 
       ? req.query.query.trim() 
       : undefined;
+
+    // Phase 1b context: only when BOTH are present is a curated lookup meaningful. They are optional,
+    // so an older client or a bare search is unaffected.
+    const variantParam = typeof req.query.variant === "string" ? req.query.variant.trim() : "";
+    const uniprotParam = typeof req.query.uniprot === "string" ? req.query.uniprot.trim() : "";
 
     if (!cleanGene || !/^[A-Za-z0-9\-.]+$/.test(cleanGene)) {
       sendError(res, 400, "BAD_REQUEST", "Gene parameter is required.");
@@ -43,13 +52,24 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
       // Abort upstream work when the client goes away: the live search used to receive
       // no signal at all, so a stalled Europe PMC call hung the request indefinitely.
       const aborter = new AbortController();
-      req.on("close", () => aborter.abort());
+      onClientDisconnect(res, () => aborter.abort());
       const signal = aborter.signal;
 
       const gene = cleanGene.toUpperCase();
       const cacheKey = literatureCacheKey(gene, customQuery);
-      let citations;
+      let citations: Citation[] = [];
       let degraded = false;
+
+      // Start the optional curated lookup alongside the ordinary one, so a slow UniProt/Europe PMC
+      // enrichment does not add to the list's own latency. Any rejection is turned into an explicit
+      // `error` state here: this enrichment must never fail the ordinary literature read.
+      const curatedPromise = variantParam && uniprotParam
+        ? getCuratedVariantCitations(gene, variantParam, uniprotParam, signal).catch((): CuratedVariantCitations => ({
+            citations: [],
+            state: "error",
+            reason: "The curated variant-citation lookup failed.",
+          }))
+        : null;
 
       if (customQuery) {
         // Handles its own cache: a fresh entry is served without going upstream, so
@@ -81,6 +101,23 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
         }
       }
 
+      // Merge the curated set: ordinary rows keep their base metadata and gain the provider
+      // relationship by identifier. A curated record the search never returned is returned in its OWN
+      // array, not appended to `citations`, so the query's page and hit count are never inflated by a
+      // record the query did not match. Coverage is reported separately.
+      let curated: CuratedCoverage | null = null;
+      let curatedCitations: Citation[] = [];
+      if (curatedPromise) {
+        const curatedResult = await curatedPromise;
+        curated = {
+          state: curatedResult.state,
+          ...(curatedResult.reason ? { reason: curatedResult.reason } : {}),
+          linked: curatedResult.citations.length,
+        };
+        citations = attachCuratedLinks(citations, curatedResult.citations);
+        curatedCitations = curatedOnlyCitations(citations, curatedResult.citations);
+      }
+
       // `hitCount` is how many records Europe PMC matched, which is normally larger than
       // the single page we store. Returning it lets the UI explain the difference instead
       // of looking like it dropped results. On a degraded fallback the citations came from
@@ -92,6 +129,7 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
       res.json({
         gene,
         citations,
+        curatedCitations,
         hitCount,
         returnedCount: Array.isArray(citations) ? citations.length : 0,
         query: degraded ? null : (customQuery ?? null),
@@ -107,7 +145,9 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
         europePmcQuery: formatQueryForEuropePmc(customQuery, gene),
         degraded,
         fetchedAt: degraded ? null : getLastLiteratureSync(cacheKey),
-        pageSize: EUROPE_PMC_PAGE_SIZE
+        pageSize: EUROPE_PMC_PAGE_SIZE,
+        // Phase 1b curated coverage. `null` when no variant/accession context was sent.
+        curated
       });
     } catch (err: any) {
       console.error(`[Route Error] Failed to fetch literature for ${cleanGene}:`, err.message);

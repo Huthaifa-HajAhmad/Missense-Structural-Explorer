@@ -27,7 +27,17 @@ describe("NARRATIVE_PROMPT_EVIDENCE", () => {
     ]) {
       expect(body).toContain(block);
     }
-    expect(NARRATIVE_PROMPT_EVIDENCE.sent).toHaveLength(9);
+    expect(NARRATIVE_PROMPT_EVIDENCE.sent).toHaveLength(10);
+  });
+
+  it("uses the supplied citation snapshot and carries the screening no-criterion rule", () => {
+    expect(body).toContain("selectedLiterature ??");
+    expect(body).toContain("literatureSummaryPrompt(selection)");
+    expect(prompt).toContain("${literatureEvidence}");
+    expect(NARRATIVE_PROMPT_EVIDENCE.sent.join(" ")).toContain("screening-selected literature");
+    const renderer = fs.readFileSync("src/shared/literatureSummary.ts", "utf8");
+    expect(renderer).toContain("must NOT create or strengthen an ACMG/AMP criterion");
+    expect(NARRATIVE_PROMPT_SCHEMA_VERSION).toBeGreaterThanOrEqual(6);
   });
 
   it("carries the deep-model block, rendered by the shared module rather than written here", () => {

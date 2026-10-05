@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRouter } from "../../routes.ts";
+import { literatureSummaryDigest } from "../../services/llm/literature-summary.ts";
+import { buildLiteratureSummary } from "../../../src/shared/literatureSummary.ts";
+vi.mock("../../services/llm/literature-summary.ts", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../services/llm/literature-summary.ts")>(),
+  selectSummaryCitations: vi.fn(async () => ({ citations: [], scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, withoutEmbeddings: 0 })),
+}));
 import * as externalServices from "../../services/external.ts";
 import * as geminiService from "../../services/gemini.ts";
 import { geminiCache } from "../shared.ts";
@@ -105,7 +111,8 @@ describe("Variant narrative route wiring", () => {
         null,
         // The deep-model observations. This request carries none, so the synthesis is given the fast
         // evidence set exactly as before — and the prompt renders no deep block for it.
-        null
+        null,
+        expect.objectContaining({ citations: [], scopes: expect.any(Object) })
       );
       expect(responseBody().analysis).toBe("Resolved narrative output");
     } finally {

@@ -1,13 +1,19 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, Copy, ExternalLink, Pin } from "lucide-react";
 import type { PaperReading, VariantForms } from "../../shared/literatureEvidence";
+import type { GeneConstraint } from "../../shared/literatureScreening";
 import { MarkedText } from "./MarkedText";
+import { MechanismPanel } from "./MechanismPanel";
+import { ScreeningChips } from "./ScreeningChips";
+import { whyRead } from "../../shared/literatureScreening";
 
 interface PaperTableProps {
   papers: readonly PaperReading[];
   gene: string;
   forms: VariantForms | null;
   onTogglePin: (paper: PaperReading) => void;
+  constraint: GeneConstraint | null;
+  constraintUnavailableReason?: string;
 }
 
 /**
@@ -21,7 +27,7 @@ interface PaperTableProps {
  * Chips state what the literal check found and nothing more ("Names p.Asp116Gly", "Gene not in
  * abstract"); they are not assertions about the paper's conclusions.
  */
-export function PaperTable({ papers, gene, forms, onTogglePin }: PaperTableProps) {
+export function PaperTable({ papers, gene, forms, onTogglePin, constraint, constraintUnavailableReason }: PaperTableProps) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -72,35 +78,24 @@ export function PaperTable({ papers, gene, forms, onTogglePin }: PaperTableProps
                     <span className="lit-meta__journal" title={c.journal}>{c.journal || "Journal not listed"}</span>
                     <span className="lit-meta__id lit-mono">{identifier.label}</span>
                   </span>
+                  {whyRead(paper.screening) && <p className="lit-why-read" title={whyRead(paper.screening) ?? undefined}>Why read this: {whyRead(paper.screening)}</p>}
                   <span className="lit-chips">
-                    {m.level === "variant" && forms && (
-                      <span
-                        className="ev-tier"
-                        data-tone="accent"
-                        title={`${m.matchedForm} appears in the ${m.variantIn}. A literal text match, not a reading of the paper's findings.`}
+                    <ScreeningChips tags={paper.screening.tags} />
+                    {/* A curated record relationship is provider provenance, not a screening tag and
+                        not a quote. It gets its own link so the source can be opened. */}
+                    {paper.screening.citedBy?.map(link => (
+                      <a
+                        key={`${link.pmid}-${link.sourceUrl}`}
+                        className="lit-curated-chip"
+                        href={link.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`${link.label}${link.detail ? ` · ${link.detail}` : ""} · PMID ${link.pmid}`}
                       >
-                        Names {forms.label}
-                      </span>
-                    )}
-                    {m.level === "gene" && (
-                      <span className="ev-tier" data-tone="neutral" title={`${gene} appears in the ${m.geneIn.join(" and ")}, but the variant was not found in either.`}>
-                        Names {gene} only
-                      </span>
-                    )}
-                    {m.level === "elsewhere" && (
-                      <span
-                        className="ev-tier"
-                        data-tone="muted"
-                        title={`Europe PMC matched this record on its text, but ${gene} is not in the title or abstract.`}
-                      >
-                        {gene} not in abstract
-                      </span>
-                    )}
-                    {!m.hasAbstract && (
-                      <span className="ev-tier" data-tone="muted" title="No abstract was returned, so only the title was checked.">
-                        Title only
-                      </span>
-                    )}
+                        {link.label}
+                        <span className="sr-only"> (opens the provider record in a new tab)</span>
+                      </a>
+                    ))}
                   </span>
                 </td>
                 <td className="lit-col-id lit-mono">
@@ -123,17 +118,39 @@ export function PaperTable({ papers, gene, forms, onTogglePin }: PaperTableProps
                 <tr className="lit-detail" id={detailId}>
                   <td />
                   <td colSpan={3}>
-                    {m.snippet && (
-                      <figure className="lit-quote">
-                        <figcaption className="lit-quote__label">Sentence naming the variant</figcaption>
-                        <blockquote><MarkedText text={m.snippet} gene={gene} forms={forms} /></blockquote>
+                    {paper.screening.tags.map(tag => (
+                      <figure className="lit-quote" key={`${tag.tag}-${tag.source}`}>
+                        <figcaption className="lit-quote__label">{tag.tag.replace(/-/g, " ")} · {tag.source.replace(/-/g, " ")}</figcaption>
+                        <blockquote><MarkedText text={tag.quote} gene={gene} forms={forms} /></blockquote>
                       </figure>
-                    )}
+                    ))}
+                    {paper.screening.citedBy?.map(link => (
+                      <div className="lit-curated" key={`${link.pmid}-${link.sourceUrl}`}>
+                        <p className="lit-curated__label">{link.label}</p>
+                        <p className="lit-curated__detail">
+                          {link.detail && <span>{link.detail}</span>}
+                          <span className="lit-mono">PMID {link.pmid}</span>
+                          <a className="lit-link" href={link.sourceUrl} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink aria-hidden="true" />
+                            Provider record
+                            <span className="sr-only"> (opens in a new tab)</span>
+                          </a>
+                          <span className="lit-dim">retrieved {link.retrievedAt.slice(0, 10)}</span>
+                        </p>
+                      </div>
+                    ))}
                     <p className="lit-abstract">
                       {c.abstract.trim()
                         ? <MarkedText text={c.abstract} gene={gene} forms={forms} />
                         : <span className="lit-dim">Europe PMC returned no abstract for this record.</span>}
                     </p>
+                    {paper.screening.mechanismTerms.length > 0 && (
+                      <MechanismPanel
+                        terms={paper.screening.mechanismTerms}
+                        constraint={constraint}
+                        unavailableReason={constraintUnavailableReason}
+                      />
+                    )}
                     <div className="lit-actions">
                       <a className="lit-link" href={paper.href} target="_blank" rel="noopener noreferrer">
                         <ExternalLink aria-hidden="true" />

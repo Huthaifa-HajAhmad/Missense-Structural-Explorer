@@ -598,6 +598,7 @@ export function AppViews({
                 <LiteratureView 
                   gene={gene}
                   variant={variant}
+                  uniprotId={uniprotId ?? undefined}
                   searchQuery={literatureSearchQuery}
                   onSearchQueryChange={setLiteratureSearchQuery}
                   onEvidenceChange={setLiteratureEvidence}

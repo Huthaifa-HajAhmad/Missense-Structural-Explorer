@@ -179,6 +179,7 @@ describe("attribution registry", () => {
       "sid.erda.dk": "manual download location for the RaSP proteome data, not an outbound call",
       "consurf.tau.ac.il": "the ConSurf project page; the API host is disclosed separately",
       "europepmc.org": "article links; the search API is www.ebi.ac.uk",
+      "uniprot.org": "curated variant record links; the API is rest.uniprot.org",
       "ncbi.nlm.nih.gov": "article links; the API is eutils.ncbi.nlm.nih.gov",
       "pubmed.ncbi.nlm.nih.gov": "article links only",
       // Built by the @google/genai SDK rather than written here, so it cannot appear as a
