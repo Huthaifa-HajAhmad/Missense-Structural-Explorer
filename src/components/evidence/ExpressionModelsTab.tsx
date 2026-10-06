@@ -6,7 +6,6 @@ import { buildAdultExpressionEvidence, type TissueExpression } from '../../share
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { DiseaseContextPicker } from './DiseaseContextPicker';
 import { DevelopmentalExpressionCard } from './DevelopmentalExpressionCard';
-import { EvidenceContextExport } from './EvidenceContextExport';
 
 function TissueTable({ tissues, caption }: { tissues: TissueExpression[]; caption: string }) {
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label={caption}><table className="ctx-table">
@@ -24,9 +23,11 @@ export function ExpressionModelsTab({ analysisState }: TabComponentProps) {
 function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentProps['analysisState']['result']> }) {
   const context = useEvidenceContext(result, true);
   const evidence = buildAdultExpressionEvidence(context.expressionLoad?.data ?? null, context.selection.systems);
+  const overview = !evidence.relevant.length
+    ? [...evidence.other].sort((a, b) => (b.value ?? -1) - (a.value ?? -1)).slice(0, 6) : [];
   return <div className="ctx-screen" data-testid="expression-models-screen">
     <header className="ctx-heading"><div><h1 className="screen-title">Expression &amp; models</h1><p className="screen-tab-description">Where the gene is measured, and which biological context remains uncovered.</p></div>
-      <EvidenceContextExport context={context} result={result} /></header>
+      </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
     <section className="ctx-card"><div className="ctx-card__head"><h2>Review systems</h2><span className="ctx-caption">Your selections</span></div><div className="ctx-card__body">
@@ -40,13 +41,14 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     <DevelopmentalExpressionCard load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
     <section className="ctx-card"><div className="ctx-card__head"><h2>Human adult expression</h2><span className="ctx-caption">GTEx v10 · median TPM</span></div>
       {!context.expressionLoad || context.expressionLoad.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading GTEx tissue expression.</div>
-        : context.expressionLoad.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{ENGINE_STATE_LABELS['upstream-error']} — tissue measurements could not be read.</span><button type="button" className="ctx-button" onClick={context.retryExpression}>Try again</button></div>
+        : context.expressionLoad.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{context.expressionLoad.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — tissue measurements could not be read.`}</span><button type="button" className="ctx-button" onClick={context.retryExpression}>Try again</button></div>
         : <>
           {context.expressionLoad.data?.status === 'not-found' && <p className="ctx-card__body">No gene reading in this GTEx response. This is not evidence that the gene is unexpressed.</p>}
           {evidence.ready && <>
             {!!evidence.gaps.length && <div className="ctx-card__body"><p className="ctx-prose"><strong>Relevant anatomy is not sampled by GTEx.</strong></p><ul className="ctx-gap-list">{evidence.gaps.map(id => <li key={id}>{REVIEW_SYSTEMS.find(s => s.id === id)?.label}: {id === 'skeletal' ? 'bone and growth-plate cartilage' : id === 'hearing' ? 'cochlea' : id === 'vision' ? 'retina and ocular structures' : 'no tissue in the local grouping'}.</li>)}</ul></div>}
             {evidence.relevant.length > 0 && <TissueTable tissues={evidence.relevant} caption="Tissues in your review systems" />}
-            <details className="ctx-details ctx-details--table"><summary>{context.selection.systems.length ? `Other sampled tissues (${evidence.other.length})` : `All sampled tissues (${evidence.other.length})`}</summary><TissueTable tissues={evidence.other} caption="Other adult tissues" /></details>
+            {!!overview.length && <><p className="ctx-card__body ctx-caption">Highest measured tissue medians. Use review systems to bring related tissues forward.</p><TissueTable tissues={overview} caption="Highest adult tissue medians" /></>}
+            {evidence.other.length > overview.length && <details className="ctx-details ctx-details--table"><summary>{context.selection.systems.length ? `Other sampled tissues (${evidence.other.length})` : `All sampled tissues (${evidence.other.length})`}</summary><TissueTable tissues={evidence.other} caption="Other adult tissues" /></details>}
           </>}
         </>}
       <p className="ctx-card__foot">Gene-level bulk RNA, adult donors. A zero median is a measured value, not proof of absence. Expression does not classify this variant.</p>

@@ -11,7 +11,7 @@ vi.mock('../services/evidence-context/g2p', () => ({ loadMechanismContext: vi.fn
 vi.mock('../services/evidence-context/gtex', () => ({ fetchAdultExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-found', tissues: [], provenance: null, message: null })) }));
 vi.mock('../services/evidence-context/dgtex', () => ({ loadDevelopmentalExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', observations: [], provenance: null, message: 'Missing snapshot' })) }));
 
-describe('evidence context through the authenticated API router', () => {
+describe('public reference evidence through the API router', () => {
   let server: Server; let base: string;
   const prior = process.env.APP_API_TOKEN; const token = 'context-http-test-token-fixed-32-chars';
   beforeAll(async () => {
@@ -24,12 +24,19 @@ describe('evidence context through the authenticated API router', () => {
     await new Promise<void>(resolve => server.close(() => resolve()));
   });
   const request = (suffix: string, authenticated = true) => fetch(base + suffix, { headers: authenticated ? { Authorization: `Bearer ${token}` } : {} });
-  it('protects all three sources and does not call adapters for unauthenticated requests', async () => {
-    for (const suffix of ['/TEST', '/TEST/expression', '/TEST/development']) expect((await request(suffix, false)).status).toBe(401);
-    expect(loadGeneDiseaseContext).not.toHaveBeenCalled(); expect(fetchAdultExpression).not.toHaveBeenCalled(); expect(loadDevelopmentalExpression).not.toHaveBeenCalled();
+  it('serves all three reference sources without an API token or Gemini key', async () => {
+    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development']) expect((await request(suffix, false)).status).toBe(200);
+    expect(loadGeneDiseaseContext).toHaveBeenCalledWith('RGS9');
+    expect(fetchAdultExpression).toHaveBeenCalledWith('RGS9');
+    expect(loadDevelopmentalExpression).toHaveBeenCalledWith('RGS9');
+    vi.clearAllMocks();
+  });
+  it('keeps writes and unrelated context paths authenticated', async () => {
+    expect((await fetch(base + '/RGS9', { method: 'POST' })).status).toBe(401);
+    expect((await request('/RGS9/private', false)).status).toBe(401);
   });
   it('rejects malformed symbols before source retrieval', async () => {
-    expect((await request('/bad%20symbol')).status).toBe(400);
+    expect((await request('/bad%20symbol', false)).status).toBe(400);
     expect(loadGeneDiseaseContext).not.toHaveBeenCalled();
   });
   it('retains distinct unavailable states and passes the exact symbol to each adapter', async () => {

@@ -18,36 +18,25 @@ beforeEach(() => {
     expressionLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, tissues: [{ id: 'Muscle_Skeletal', label: 'Skeletal muscle', ontologyId: null, value: 0, unit: 'TPM', sampleCount: 100, samplingSite: null }] } } };
 });
 describe('context tab claims and interactions', () => {
-  it('exports loading and unavailable states plus an unresolved saved disease choice explicitly', () => {
-    let payload: any;
-    vi.stubGlobal('Blob', class { constructor(parts: string[]) { payload = JSON.parse(parts[0]); } });
-    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() });
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    context.value.selection.diseaseKey = 'retired-frame';
-    context.value.diseaseLoad.data = { gene: 'TEST', status: 'not-installed', frames: [], provenance: null, message: 'Missing' };
-    context.value.expressionLoad = { status: 'loading', data: null };
+  it('shows adult measurements immediately without disease or system selections and omits removed controls', () => {
     render(<ExpressionModelsTab {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export context' }));
-    expect(payload).toMatchObject({ schemaVersion: 2, contextOnly: true, unresolvedDiseaseKey: 'retired-frame',
-      validity: { status: 'not-installed' }, loads: { adult: 'loading' }, queryMetadata: { gene: 'TEST' } });
-    expect(payload.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(screen.getByRole('rowheader', { name: /Skeletal muscle/ })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Export context' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Context only')).not.toBeInTheDocument();
+  });
+  it('explains unavailable choices and transport failures', () => {
+    context.value.diseaseLoad = { status: 'error', data: null, error: 'Access denied. Public evidence access is unavailable on this server.' };
+    render(<GeneDiseaseTab {...props} />);
+    expect(screen.getByRole('combobox')).toBeDisabled();
+    expect(screen.getByText('Disease choices unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/Access denied/)).toBeInTheDocument();
+    expect(screen.queryByText(/Expression and model-organism observations belong/)).not.toBeInTheDocument();
   });
   it('can recheck a newly installed validity source without reloading the application', () => {
     context.value.diseaseLoad.data = { status: 'not-installed', frames: [] };
     render(<DiseaseContextPicker gene="TEST" load={context.value.diseaseLoad} selection={context.value.selection} onChange={context.value.setSelection} onRetry={context.value.retryDisease} />);
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
     expect(context.value.retryDisease).toHaveBeenCalledOnce();
-  });
-  it('makes the same context receipt available from the gene–disease tab without requesting other sources', () => {
-    let payload: any;
-    vi.stubGlobal('Blob', class { constructor(parts: string[]) { payload = JSON.parse(parts[0]); } });
-    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() });
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    context.value.expressionLoad = undefined; context.value.developmentalLoad = undefined;
-    render(<GeneDiseaseTab {...props} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export context' }));
-    expect(payload.loads).toMatchObject({ adult: 'not-requested', development: 'not-requested' });
-    expect(payload.validity.frames).toHaveLength(1);
   });
   it('requires explicit disease choice and preserves systems when selecting', () => {
     const selection = { ...emptyPhenotypeSelection(), systems: ['hearing' as const] }; const onChange = vi.fn();
@@ -68,7 +57,7 @@ describe('context tab claims and interactions', () => {
     expect(screen.getByText('Relevant anatomy is not sampled by GTEx.')).toBeInTheDocument();
     const row = screen.getByRole('rowheader', { name: /Skeletal muscle/ }).closest('tr')!;
     expect(within(row).getByText('0')).toBeInTheDocument();
-    expect(screen.getByText('Other sampled tissues (1)')).toBeInTheDocument();
+    expect(row).toBeVisible();
   });
   it('renders an upstream error without claiming missing tissue or no expression', () => {
     context.value.expressionLoad = { status: 'error', data: null }; render(<ExpressionModelsTab {...props} />);

@@ -22,11 +22,12 @@ export function DevelopmentalExpressionCard({ load, systems, onRetry }: {
   const [cohort, setCohort] = useState('all');
   const id = useId();
   const evidence = buildDevelopmentalEvidence(load?.data ?? null, systems, cohort);
+  const overview = !evidence.relevant.length ? [...evidence.other].sort((a, b) => b.value - a.value).slice(0, 6) : [];
   const counts = load?.data?.counts;
   return <section className="ctx-card" aria-labelledby={`${id}-heading`}>
     <div className="ctx-card__head"><h2 id={`${id}-heading`}>Human pediatric expression</h2><span className="ctx-caption">dGTEx V1 · donor medians</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading the installed pediatric snapshot.</div>
-      : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{ENGINE_STATE_LABELS['upstream-error']} — pediatric measurements could not be read.</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
+      : load.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{load.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — pediatric measurements could not be read.`}</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : load.data?.status === 'not-installed' ? <div className="ctx-card__body" role="status"><p>{ENGINE_STATE_LABELS['not-installed']} — a dGTEx V1 snapshot is not installed.</p><button type="button" className="ctx-button" onClick={onRetry}>Check again</button></div>
       : load.data?.status === 'not-found' ? <p className="ctx-card__body">No exact gene symbol in the GENCODE v47 snapshot. This does not establish absence of expression.</p>
       : evidence.ready && <>
@@ -40,7 +41,8 @@ export function DevelopmentalExpressionCard({ load, systems, onRetry }: {
           {!evidence.relevant.length && !evidence.other.length && <p>No eligible tissue samples in this source cohort.</p>}
         </div>
         {!!evidence.relevant.length && <DevelopmentalTable observations={evidence.relevant} />}
-        {!!evidence.other.length && <details className="ctx-details ctx-details--table"><summary>{systems.length ? 'Other' : 'Browse'} pediatric tissue × age groups ({evidence.other.length})</summary><DevelopmentalTable observations={evidence.other} /></details>}
+        {!!overview.length && <><p className="ctx-card__body ctx-caption">Highest measured tissue/cohort medians in this age scope. Cohorts are independent samples, not a developmental trajectory.</p><DevelopmentalTable observations={overview} /></>}
+        {evidence.other.length > overview.length && <details className="ctx-details ctx-details--table"><summary>{systems.length ? 'Other' : 'Browse'} pediatric tissue × age groups ({evidence.other.length})</summary><DevelopmentalTable observations={evidence.other} /></details>}
       </>}
     <p className="ctx-card__foot">Median across donors after taking a within-donor median for repeat samples. Sparse postmortem cohorts are descriptive; a single donor is not a population baseline. Pediatric and adult values are not a developmental trajectory or a matched comparison.</p>
   </section>;

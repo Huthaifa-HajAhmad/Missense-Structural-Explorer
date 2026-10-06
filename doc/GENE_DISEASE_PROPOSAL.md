@@ -96,8 +96,8 @@ onset survive disease changes. Review systems are not patient-observed HPO and c
 ## 5. Implementation and remaining limits
 
 Started: schemas, shared per-variant selection/store, browser-session persistence, robust quoted CSV
-import with identity/schema/duplicate validation and atomic replacement, authenticated per-gene GenCC
-endpoint, both tabs/rails, ClinVar xrefs and separate JSON context export.
+import with identity/schema/duplicate validation and atomic replacement, public per-gene GenCC
+endpoint, both tabs/rails, ClinVar xrefs. Standalone context export was removed at the owner’s request.
 
 Second paired slice implemented: G2P snapshot mechanisms alongside dGTEx V1 pediatric expression.
 Next: shared HPO disease context with manual suggestion acceptance, then report/export integration.
@@ -129,3 +129,5 @@ Independent reviews are retained in `GENE_DISEASE_EXTERNAL_AUDIT.md` and
 “PM1 requires RMC” and nonsignificance-as-normality claims are not adopted as authoritative rules.
 See [review and implementation status](EVIDENCE_CONTEXT_REVIEW.md).
 See [implementation re-audit and operator deployment runbook](EVIDENCE_CONTEXT_IMPLEMENTATION_AUDIT.md).
+
+Deployed baseline corrections and revised verification: [baseline audit](EVIDENCE_CONTEXT_BASELINE_FIX.md).

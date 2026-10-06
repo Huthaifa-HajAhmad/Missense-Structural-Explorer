@@ -22,7 +22,7 @@ export function EvidenceContextRail({ analysisResult, expression }: { analysisRe
   const evidence = buildGeneDiseaseEvidence(disease, selection?.diseaseKey ?? null);
   return <div className="ctx-rail"><section className="ctx-rail__section"><h2>Review trace</h2><ol className="ctx-trace">
     <li><strong>Disease choice</strong><p>{evidence.selected ? `${evidence.selected.label} · ${evidence.selected.inheritance.label}` : 'No disease selected.'}</p></li>
-    <li><strong>{expression ? 'Review systems' : 'Assertions'}</strong><p>{expression ? selection?.systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') || 'No systems selected; all tissues remain available.' : `${evidence.assertions.length} source assertions for this disease and inheritance.`}</p></li>
+    <li><strong>{expression ? 'Review systems' : 'Assertions'}</strong><p>{expression ? selection?.systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') || 'No systems selected; all tissues remain available.' : evidence.selected ? `${evidence.assertions.length} source assertions for this disease and inheritance.` : 'Choose a disease to review its assertions.'}</p></li>
     <li><strong>Interpretation boundary</strong><p>Context only. No ACMG criterion is added or changed.</p></li>
     {expression && <li><strong>Disease onset</strong><p>{ONSET_LABELS[selection?.onset ?? 'unknown']}. Kept separate from sampled age.</p></li>}
   </ol></section>
@@ -30,7 +30,7 @@ export function EvidenceContextRail({ analysisResult, expression }: { analysisRe
     {expression && <section className="ctx-rail__section"><h3>Method</h3><p>Adult GTEx v10 medians with tissue RNA-seq cohort counts. Counts are samples, not independent donors or a gene-specific detection count.</p><p>Review-system grouping is local. Onset is kept separate from sampled developmental age.</p></section>}
     {disease?.provenance && <Source provenance={disease.provenance} />}
     {disease?.mechanismContext?.provenance && <Source provenance={disease.mechanismContext.provenance} />}
-    {!disease?.provenance && <p className="ctx-caption">{!state.diseaseContexts[gene] ? 'Not requested' : state.diseaseContexts[gene]?.status === 'loading' ? ENGINE_STATE_LABELS.running : state.diseaseContexts[gene]?.status === 'error' ? ENGINE_STATE_LABELS['upstream-error'] : ENGINE_STATE_LABELS['not-installed']} — no validity-source manifest is available.</p>}
+    {!disease?.provenance && <p className="ctx-caption">{state.diseaseContexts[gene]?.error ?? `${!state.diseaseContexts[gene] ? 'Not requested' : state.diseaseContexts[gene]?.status === 'loading' ? ENGINE_STATE_LABELS.running : state.diseaseContexts[gene]?.status === 'error' ? ENGINE_STATE_LABELS['upstream-error'] : ENGINE_STATE_LABELS['not-installed']} — no validity-source manifest is available.`}</p>}
     {expression && state.expressionContexts[gene]?.data?.provenance && <Source provenance={state.expressionContexts[gene].data!.provenance!} />}
     {expression && state.developmentalContexts[gene]?.data?.provenance && <><section className="ctx-rail__section"><h3>Pediatric method</h3><p>dGTEx V1 uses GENCODE v47. Public age cohorts are broad and independent of onset. Donor medians are derived locally; excluded samples are omitted.</p><p>Pinned data may differ from the latest portal release.</p></section><Source provenance={state.developmentalContexts[gene].data!.provenance!} /></>}
   </div>;

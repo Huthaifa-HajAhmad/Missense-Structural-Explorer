@@ -271,7 +271,9 @@ export function useAuthSession() {
 
     try {
       // Only perform Gemini session handshake for endpoints that need it, or when appApiToken is not configured
-      const shouldCheckSession = targetRequiresGemini || (!appApiToken && isRelativeOrSameOrigin);
+      const publicContextRead = (options.method ?? 'GET').toUpperCase() === 'GET' &&
+        /^\/api\/v1\/evidence-context\/[^/?]+(?:\/(?:expression|development))?(?:\?.*)?$/.test(url);
+      const shouldCheckSession = targetRequiresGemini || (!publicContextRead && !appApiToken && isRelativeOrSameOrigin);
 
       if (shouldCheckSession && geminiApiKey && !invalidApiKeys.has(geminiApiKey)) {
         // Proactively refresh session ID if near expiry (< 60s) but not yet expired

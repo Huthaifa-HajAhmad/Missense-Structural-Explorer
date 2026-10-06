@@ -47,7 +47,10 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
   // 1. Allow public metadata/session endpoints to bypass auth
   
   const pathToCheck = req.path;
-  const isPublic = PUBLIC_ENDPOINTS.some(p => pathToCheck === p || pathToCheck.startsWith(p + "/"));
+  // Gene context is public reference evidence, like ClinVar and UniProt. Only
+  // the three existing GET routes bypass auth; future writes remain protected.
+  const isPublicContextRead = req.method === "GET" && /^\/(?:api\/v1\/)?evidence-context\/[^/]+(?:\/(?:expression|development))?$/.test(pathToCheck);
+  const isPublic = isPublicContextRead || PUBLIC_ENDPOINTS.some(p => pathToCheck === p || pathToCheck.startsWith(p + "/"));
   if (isPublic) {
     next();
     return;
