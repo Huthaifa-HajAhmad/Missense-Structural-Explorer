@@ -310,6 +310,7 @@ describe("predictor locus outcome reconciliation", () => {
   describe("coordinate-first fallback ladder", () => {
     it("falls back to MyVariant by coordinate when Ensembl VEP is unavailable, extracting scores and verified GRCh38 locus", async () => {
       const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };
+      mocks.transcripts.mockResolvedValue({ refseqId: "NM_003835.4", ensemblId: "ENST00000262406.10", canonicalEnsemblId: "ENST00000262406.10" });
       mocks.lift.mockResolvedValue(coordinate);
       mocks.fetch.mockImplementation(async (url: string) => {
         if (url.includes("rest.ensembl.org/vep/human/region")) {
@@ -322,7 +323,10 @@ describe("predictor locus outcome reconciliation", () => {
               genename: ["RGS9"],
               aa: { ref: "C", alt: "S", pos: [182] },
               hgvsp: ["p.Cys182Ser", "p.C182S"],
-              alphamissense: { score: 0.4926, pred: "A" },
+              // dbNSFP lists one AlphaMissense score per transcript, aligned with the transcript ids;
+              // only the canonical transcript's entry (index 3) may be read.
+              ensembl: { transcriptid: ["ENST00000635833", "ENST00000443584", "ENST00000449996", "ENST00000262406"] },
+              alphamissense: { score: [0.4926, 0.4835, 0.4732, 0.5136], pred: ["B", "B", "B", "A"] },
               cadd: { phred: 22.9 },
             },
           });
@@ -333,7 +337,7 @@ describe("predictor locus outcome reconciliation", () => {
       const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
       expect(result.gnomadVariantId).toBe("17-65168243-T-A");
       expect(result.gnomadVariantAssembly).toBe("GRCh38");
-      expect(result.amPathogenicity).toBe(0.4926);
+      expect(result.amPathogenicity).toBe(0.5136); // the canonical transcript's score, not entry [0]
       expect(result.amClass).toBe("ambiguous");
       expect(result.caddPhred).toBe(22.9);
       expect(result.source).toBe("MyVariant.info & dbNSFP (coordinate fallback)");
@@ -343,6 +347,33 @@ describe("predictor locus outcome reconciliation", () => {
         retryable: false,
       });
       expect(result.locusResolution!.steps.some(s => s.outcome === "ok" && s.detail?.includes("MyVariant.info & dbNSFP"))).toBe(true);
+    });
+
+    it("degrades to the first dbNSFP entry when the canonical transcript is not listed", async () => {
+      mocks.transcripts.mockResolvedValue({ refseqId: "NM_1.1", ensemblId: "ENST1.1", canonicalEnsemblId: "ENST00000999999.1" });
+      const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };
+      mocks.lift.mockResolvedValue(coordinate);
+      mocks.fetch.mockImplementation(async (url: string) => {
+        if (url.includes("rest.ensembl.org/vep/human/region")) return json({ error: "down" }, 503);
+        if (url.includes("myvariant.info/v1/variant/")) {
+          return json({
+            _id: "chr17:g.65168243T>A",
+            dbnsfp: {
+              genename: ["RGS9"],
+              aa: { ref: "C", alt: "S", pos: [182] },
+              hgvsp: ["p.Cys182Ser"],
+              ensembl: { transcriptid: ["ENST00000635833", "ENST00000443584"] },
+              alphamissense: { score: [0.4926, 0.4835], pred: ["A", "A"] },
+              cadd: { phred: 22.9 },
+            },
+          });
+        }
+        return json({}, 503);
+      });
+
+      const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+      expect(result.gnomadVariantId).toBe("17-65168243-T-A");
+      expect(result.amPathogenicity).toBe(0.4926); // no canonical match → first entry, never all of them
     });
 
     it("falls back to UCSC reference verification when Ensembl and MyVariant both fail, preserving GRCh38 locus", async () => {
