@@ -102,6 +102,27 @@ describe("InterfacesTab — sequence track", () => {
     // No variant, no label, no re-read: the base step stands.
     expect(trackTicks(674, null)).toEqual([200, 400]);
   });
+
+  it("says why there is no interface chart when no solved or predicted lane exists, and offers to model one", async () => {
+    const bare: any = {
+      ...RESULT,
+      multimerData: { ...SLC12A4.assembly, experimental: { ...(SLC12A4.assembly as any).experimental, partners: [] } },
+    };
+    fetchWithAuthMock.mockResolvedValue({ ok: true, json: async () => bare.multimerData });
+    renderTab(bare);
+    const note = screen.getByTestId("interface-track-note");
+    expect(note).toHaveTextContent("PDBe records no protein–protein interface for SLC12A4 in any solved structure.");
+    expect(within(note).getByRole("button", { name: "Model the complex" })).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(within(note).getByRole("button", { name: "Model the complex" }));
+    });
+    expect(fetchWithAuthMock).toHaveBeenCalledWith("/api/v1/structure/multimer", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("does not explain an empty track when a chart is drawn", () => {
+    renderTab(RESULT);
+    expect(screen.queryByTestId("interface-track-note")).toBeNull();
+  });
 });
 
 describe("InterfacesTab — assembly", () => {

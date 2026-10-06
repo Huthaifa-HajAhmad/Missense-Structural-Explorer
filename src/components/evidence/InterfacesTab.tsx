@@ -313,6 +313,13 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
   const refPhrase = iface.reference ? (iface.reference.partner === `${ev.gene}, other chain` ? `the other ${ev.gene} chain` : iface.reference.partner) : null;
   const callout = [iface.disagreement, iface.fibril?.sentence ?? null, iface.crystal?.sentence ?? null, iface.setAside].filter(Boolean).join(" ");
   const solvedRows: ObservedView[] = [...ev.observed.partners, ...ev.observed.fibrils, ...ev.observed.crystals];
+  // When nothing on the track is a chart — no solved, fibril or predicted lane — the card says why
+  // and offers the one chart that can exist (Boltz-2, on request). RGS9's track is otherwise three
+  // UniProt range chips above silence, and silence reads as a broken graph, not as an absence.
+  const noInterfaceChart =
+    ev.position !== null &&
+    !ev.track.some(l => l.kind === "solved" || l.kind === "predicted") &&
+    (ev.observed.availability.state === "empty" || ev.observed.availability.state === "ok");
   const toggleFold = (id: PartnerGroup) =>
     setOpenFolds(prev => {
       const next = new Set(prev);
@@ -421,6 +428,19 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
         </h2>
         <div className="ifc-card">
           <InterfaceTrack ev={ev} lit={lit} onLit={setLit} onOpen={openRow} />
+          {noInterfaceChart && (
+            <p className="ifc-track__note" data-testid="interface-track-note">
+              <span>
+                {ev.observed.availability.reason}
+                {model.canRequest && " Model the complex with Boltz-2 to predict one; its contacts would be charted here as a lane."}
+              </span>
+              {model.canRequest && (
+                <ActionButton onClick={data.requestModel} icon={<Boxes className="w-3.5 h-3.5" aria-hidden="true" />}>
+                  Model the complex
+                </ActionButton>
+              )}
+            </p>
+          )}
           {/* The legend only earns its strip when a key exists to explain: a lone variant chip repeats
               the ruler's own label (and the readout head) across a full-width band. */}
           {(ev.track.some(l => l.kind !== "domains") || ev.observed.fibrils.length > 0) && (
