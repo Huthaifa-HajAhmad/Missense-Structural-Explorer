@@ -12,6 +12,7 @@ import { LOCUS_POLICY_VERSION, type LocusResolution, type LocusResolutionStep } 
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
 export { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
+import { asList, valueAtIndex } from "../landscape-aggregate.ts";
 import {
   type GenomeAssembly,
   buildForwardStrandGenomicId,
@@ -170,7 +171,7 @@ async function fetchPredictorsViaCoordinateMyVariant(
 ): Promise<PredictorData | null> {
   const normChrom = lifted.chrom.replace(/^chr/i, "");
   const hgvsId = `chr${normChrom}:g.${lifted.pos}${lifted.ref}>${lifted.alt}`;
-  const url = `https://myvariant.info/v1/variant/${encodeURIComponent(hgvsId)}?assembly=hg38&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd,dbnsfp.gene_name,dbnsfp.genename,dbnsfp.hgvsp,dbnsfp.aa`;
+  const url = `https://myvariant.info/v1/variant/${encodeURIComponent(hgvsId)}?assembly=hg38&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd,dbnsfp.gene_name,dbnsfp.genename,dbnsfp.hgvsp,dbnsfp.aa,dbnsfp.ensembl,dbnsfp.mane`;
   try {
     const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 6000, deadlineAt }, 1);
     if (!res.ok) return null;
@@ -216,15 +217,30 @@ async function fetchPredictorsViaCoordinateMyVariant(
       }
     }
 
-    // 4. Score extraction
+    // 4. Score extraction, read at the CANONICAL transcript's index.
+    //
+    // dbNSFP lists AlphaMissense once per transcript, in the same order as the transcript ids
+    // MyVariant exposes at `dbnsfp.ensembl.transcriptid`. Taking entry [0] can report a different
+    // isoform's score — for RGS9 p.Cys182Ser that is 0.4926 where the canonical transcript
+    // (ENST00000262406) scores 0.5136, the value Ensembl VEP returns on the primary path. Match the
+    // canonical id the caller resolved; when it is unknown or absent, degrade to the first entry.
+    const transcriptIds = asList(hit.dbnsfp?.ensembl?.transcriptid ?? hit.dbnsfp?.ensembl_transcriptid)
+      .map((t: unknown) => (typeof t === "string" ? t.trim() : ""));
+    const canonicalKey = canonicalEnsemblId ? canonicalEnsemblId.split(".")[0].toUpperCase() : null;
+    const canonicalIndex = canonicalKey
+      ? transcriptIds.findIndex(t => t.split(".")[0].toUpperCase() === canonicalKey)
+      : -1;
+    const readIndex = canonicalIndex >= 0 ? canonicalIndex : 0;
+
     const amData = hit.dbnsfp?.alphamissense;
     let amPathogenicity: number | null = null;
     let amClass: string | null = null;
     if (amData) {
       const rawAm = Array.isArray(amData) ? amData[0] : amData;
-      const rawScore = Array.isArray(rawAm.score) ? rawAm.score[0] : (rawAm.score ?? rawAm.am_pathogenicity ?? rawAm.pathogenicity);
-      amPathogenicity = safeParseFloat(rawScore);
-      const rawPred = Array.isArray(rawAm.pred) ? rawAm.pred[0] : (rawAm.pred ?? rawAm.am_class);
+      const scoreList = asList(rawAm.score ?? rawAm.am_pathogenicity ?? rawAm.pathogenicity);
+      amPathogenicity = safeParseFloat(valueAtIndex(scoreList, readIndex, Math.max(transcriptIds.length, scoreList.length, 1)));
+      const predList = asList(rawAm.pred ?? rawAm.am_class);
+      const rawPred = predList.length > 1 ? predList[readIndex < predList.length ? readIndex : 0] : predList[0];
       if (rawPred) {
         const predStr = String(rawPred).toUpperCase();
         amClass = predStr === "A" ? "ambiguous" : predStr === "P" ? "pathogenic" : predStr === "B" ? "benign" : String(rawPred);
