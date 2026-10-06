@@ -1,12 +1,6 @@
-import path from "path";
-import fs from "fs";
-import crypto from "crypto";
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { parseAtomsFromPdb } from "../pdb-parser.ts";
 import { PACKING_NEIGHBOUR_BANDS } from "../../../../src/shared/burialEvidence.ts";
-
-const execFileAsync = promisify(execFile);
+import { executeSasaEval } from "../sasa-runner.ts";
 
 export interface DisruptionPrediction {
   level: "high" | "low" | "unknown";
@@ -34,53 +28,15 @@ export async function runSasaEval(
   chain: string,
   position: number
 ): Promise<{ sasa: number; rsa: number; burialStatus: "core" | "surface" | "boundary" } | { error: string }> {
-  const tempDir = path.join(process.cwd(), "temp_jobs", `sasa_${crypto.randomUUID()}`);
-  await fs.promises.mkdir(tempDir, { recursive: true });
-  const pdbPath = path.join(tempDir, "protein.pdb");
-  await fs.promises.writeFile(pdbPath, wtPdbText);
-
-  try {
-    const pythonScript = path.join(process.cwd(), "tools", "sasa_eval.py");
-    // The production image deliberately ships the tools virtualenv.  Calling
-    // `python -m uv` bypassed it: Debian's system Python does not have uv installed
-    // as a module, even though the `uv` executable is present.  Run the sidecar with
-    // the provisioned interpreter so Biopython/Biotite are available with no network
-    // resolution at analysis time.  Keep a uv-binary fallback for local checkouts
-    // before `uv sync` has created the virtualenv.
-    const venvPython = process.platform === "win32"
-      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
-      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
-    const useVenv = fs.existsSync(venvPython);
-    const command = useVenv ? venvPython : "uv";
-    const args = useVenv
-      ? [pythonScript, pdbPath, chain, position.toString()]
-      : ["run", "--project", path.join(process.cwd(), "tools"), pythonScript, pdbPath, chain, position.toString()];
-    const { stdout } = await execFileAsync(command, args, {
-      timeout: 10000
-    });
-    const result = JSON.parse(stdout.trim());
-    if (result.status === "success") {
-      return {
-        sasa: result.sasa,
-        rsa: result.rsa,
-        burialStatus: result.burialStatus
-      };
-    }
-    return { error: typeof result.message === "string" ? result.message : "The accessibility script returned no value." };
-  } catch (err) {
-    console.warn("[SASA-Eval] Subprocess failure:", err);
-    const code = (err as { code?: string })?.code;
+  const result = await executeSasaEval(wtPdbText, chain, position);
+  if (result.status === "success") {
     return {
-      error:
-        code === "ENOENT"
-          ? "The accessibility script could not start: Python was not found."
-          : "The accessibility script failed to run (Python with uv and Biopython is required)."
+      sasa: result.sasa,
+      rsa: result.rsa,
+      burialStatus: result.burialStatus
     };
-  } finally {
-    try {
-      await fs.promises.rm(tempDir, { recursive: true, force: true });
-    } catch {}
   }
+  return { error: result.message };
 }
 
 export async function predictStructuralDisruption(

@@ -5,49 +5,17 @@ import { THRESHOLDS } from "../../../src/shared/thresholds/constants.ts";
 import { fetchWithRetry } from "../external.ts";
 import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
-import path from "path";
-import fs from "fs";
-import os from "os";
-import crypto from "crypto";
-import { execFile } from "child_process";
-import { promisify } from "util";
 import { CONFIG } from "../../config.ts";
-
-const execFileAsync = promisify(execFile);
+import { executeSasaEval } from "../structure/sasa-runner.ts";
 
 export async function runSasaEval(
   pdbText: string,
   chain: string,
   pos: number
 ): Promise<{ rsa: number; sse: string; sasa: number } | null> {
-  const tmpFile = path.join(os.tmpdir(), `sasa_eval_${crypto.randomUUID()}.pdb`);
-  try {
-    await fs.promises.writeFile(tmpFile, pdbText, "utf8");
-    const scriptPath = path.join(process.cwd(), "tools", "sasa_eval.py");
-    // Use the application-managed virtualenv in production.  `python -m uv` asks
-    // the system Python for an uv module it does not own, which made this sidecar
-    // fail even though the image already contained its Biopython dependencies.
-    const venvPython = process.platform === "win32"
-      ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
-      : path.join(process.cwd(), "tools", ".venv", "bin", "python");
-    const useVenv = fs.existsSync(venvPython);
-    const command = useVenv ? venvPython : "uv";
-    const args = useVenv
-      ? [scriptPath, tmpFile, chain, pos.toString()]
-      : ["run", "--project", path.join(process.cwd(), "tools"), scriptPath, tmpFile, chain, pos.toString()];
-    const { stdout } = await execFileAsync(command, args, { timeout: 15000 });
-    const parsed = JSON.parse(stdout.trim());
-    if (parsed.status === "success") {
-      return { rsa: parsed.rsa, sse: parsed.sse, sasa: parsed.sasa };
-    }
-  } catch (err: any) {
-    console.warn(`[SASA-SSE-Eval] Failed to execute Python sidecar:`, err.message);
-  } finally {
-    try {
-      if (fs.existsSync(tmpFile)) {
-        await fs.promises.unlink(tmpFile);
-      }
-    } catch (_) {}
+  const result = await executeSasaEval(pdbText, chain, pos);
+  if (result.status === "success") {
+    return { rsa: result.rsa, sse: result.sse, sasa: result.sasa };
   }
   return null;
 }
