@@ -83,6 +83,13 @@ describe("InterfacesTab — SOD1 partners", () => {
     expect(within(tiers).getByRole("group", { name: "Binding evidence" })).toBeInTheDocument();
     expect(within(tiers).getByRole("button", { name: /Binary screen only\s*66/ })).toHaveAttribute("aria-pressed", "false");
     expect(within(tiers).getByRole("button", { name: /Functional association only\s*369\+/ })).toBeInTheDocument();
+    // Every bar carries a fill whose length is the tier's share of the largest — a bare rail would
+    // read as a loading skeleton (the regression where the fill's positioning rule was dropped).
+    const widths = [...tiers.querySelectorAll<HTMLElement>(".ifc-tier__fill")].map(f => {
+      expect(f.style.width).toMatch(/^max\(2px, [\d.]+%\)$/);
+      return parseFloat(f.style.width.replace(/^max\(2px, /, ""));
+    });
+    expect(Math.max(...widths)).toBeGreaterThan(90);
   });
 
   it("heads each band with its running total and marks binding apart from association", () => {

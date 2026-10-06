@@ -6,8 +6,6 @@ import { STRING_CONFIDENCE_CUTS } from "../../shared/thresholds";
 import {
   DDMUT_PPI_PERFORMANCE,
   IPTM_BAND_LABEL,
-  PARTNER_BANDS,
-  PARTNER_BAND_LABEL,
   buildInterfacesEvidence,
   filterPartnerGroups,
   rcsbUrl,
@@ -255,9 +253,6 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
   const [lit, setLit] = useState<string | null>(null);
   const [tier, setTier] = useState<PartnerGroup | null>(() => (typeof window === "undefined" ? null : parsePpiTier(new URLSearchParams(window.location.search).get(PPI_TIER_PARAM))));
   const [query, setQuery] = useState<string>(() => (typeof window === "undefined" ? "" : parsePpiQuery(new URLSearchParams(window.location.search).get(PPI_QUERY_PARAM))));
-  // The search is a compact icon button that expands into the input; it opens already when a query
-  // is active (from `?ppiq` or a typed query) so a shared link never hides the active filter.
-  const [searchOpen, setSearchOpen] = useState<boolean>(() => (typeof window === "undefined" ? false : Boolean(parsePpiQuery(new URLSearchParams(window.location.search).get(PPI_QUERY_PARAM)))));
   const [openFolds, setOpenFolds] = useState<ReadonlySet<PartnerGroup>>(new Set());
   const [setAsideOpen, setSetAsideOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -269,7 +264,6 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
     firstVariant.current = variantKey;
     setTier(null);
     setQuery("");
-    setSearchOpen(false);
     setOpenFolds(new Set());
     setSetAsideOpen(false);
   }, [variantKey]);
@@ -427,19 +421,23 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
         </h2>
         <div className="ifc-card">
           <InterfaceTrack ev={ev} lit={lit} onLit={setLit} onOpen={openRow} />
-          <div className="ifc-foot" aria-label="Legend">
-            {ev.track.some(l => l.kind === "solved") && (
-              <span className="ifc-legend__item">
-                <i className="ifc-key" data-kind="support" />
-                Solved interface; bar height = share of the pair&apos;s structures with the residue at it
-              </span>
-            )}
-            {ev.observed.fibrils.length > 0 && <span className="ifc-legend__item"><i className="ifc-key" data-kind="fibril" />Amyloid fibril stacking, read apart</span>}
-            {ev.track.some(l => l.kind === "predicted") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="predicted" />Predicted interface</span>}
-            {ev.track.some(l => l.kind === "sites") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="site" />Mapped site, UniProt</span>}
-            {ev.track.some(l => l.kind === "topology") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="membrane" />Membrane segment; cytoplasmic side below the line, outside above</span>}
-            {ev.position !== null && <span className="ifc-legend__item"><i className="ifc-key" data-kind="variant" />{ev.residueLabel}</span>}
-          </div>
+          {/* The legend only earns its strip when a key exists to explain: a lone variant chip repeats
+              the ruler's own label (and the readout head) across a full-width band. */}
+          {(ev.track.some(l => l.kind !== "domains") || ev.observed.fibrils.length > 0) && (
+            <div className="ifc-foot" aria-label="Legend">
+              {ev.track.some(l => l.kind === "solved") && (
+                <span className="ifc-legend__item">
+                  <i className="ifc-key" data-kind="support" />
+                  Solved interface; bar height = share of the pair&apos;s structures with the residue at it
+                </span>
+              )}
+              {ev.observed.fibrils.length > 0 && <span className="ifc-legend__item"><i className="ifc-key" data-kind="fibril" />Amyloid fibril stacking, read apart</span>}
+              {ev.track.some(l => l.kind === "predicted") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="predicted" />Predicted interface</span>}
+              {ev.track.some(l => l.kind === "sites") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="site" />Mapped site, UniProt</span>}
+              {ev.track.some(l => l.kind === "topology") && <span className="ifc-legend__item"><i className="ifc-key" data-kind="membrane" />Membrane segment; cytoplasmic side below the line, outside above</span>}
+              {ev.position !== null && <span className="ifc-legend__item"><i className="ifc-key" data-kind="variant" />{ev.residueLabel}</span>}
+            </div>
+          )}
         </div>
       </section>
 
@@ -702,48 +700,34 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
               <div className="ifc-partners__head">
                 <PartnerTiers groups={ev.groups} active={tier} onToggle={id => setTier(t => (t === id ? null : id))} />
                 <div className="ifc-partners__tools">
-                  {searchOpen ? (
-                    <label className="ifc-search">
-                      <Search className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span className="sr-only">Find a partner by gene or accession</span>
-                      <input
-                        type="search"
-                        autoFocus
-                        ref={searchInputRef}
-                        value={query}
-                        placeholder="Find a partner"
-                        onChange={e => setQuery(e.target.value.slice(0, 40))}
-                        onBlur={e => { if (!e.target.value.trim()) setSearchOpen(false); }}
-                        onKeyDown={e => { if (e.key === "Escape") { setQuery(""); setSearchOpen(false); } }}
-                        aria-controls="ifc-partner-grid"
-                      />
-                      {query && (
-                        <button
-                          type="button"
-                          className="ifc-search__clear"
-                          aria-label="Clear search"
-                          title="Clear search"
-                          // Keep focus in the field so the reader can type again immediately.
-                          onMouseDown={e => e.preventDefault()}
-                          onClick={() => { setQuery(""); searchInputRef.current?.focus(); }}
-                        >
-                          <X className="w-3 h-3" aria-hidden="true" />
-                        </button>
-                      )}
-                    </label>
-                  ) : (
-                    <button
-                      type="button"
-                      className="ifc-search ifc-search--toggle"
-                      onClick={() => setSearchOpen(true)}
-                      aria-label="Find a partner by gene or accession"
-                      title="Find a partner"
-                    >
-                      <Search className="w-3.5 h-3.5" aria-hidden="true" />
-                    </button>
-                  )}
+                  <label className="ifc-search">
+                    <Search className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span className="sr-only">Find a partner by gene or accession</span>
+                    <input
+                      type="search"
+                      ref={searchInputRef}
+                      value={query}
+                      placeholder="Find a partner"
+                      onChange={e => setQuery(e.target.value.slice(0, 40))}
+                      onKeyDown={e => { if (e.key === "Escape") setQuery(""); }}
+                      aria-controls="ifc-partner-grid"
+                    />
+                    {query && (
+                      <button
+                        type="button"
+                        className="ifc-search__clear"
+                        aria-label="Clear search"
+                        title="Clear search"
+                        // Keep focus in the field so the reader can type again immediately.
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => { setQuery(""); searchInputRef.current?.focus(); }}
+                      >
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    )}
+                  </label>
                   {(tier || query) && (
-                    <button type="button" className="ifc-link" onClick={() => { setTier(null); setQuery(""); setSearchOpen(false); }}>
+                    <button type="button" className="ifc-link" onClick={() => { setTier(null); setQuery(""); }}>
                       Show all
                     </button>
                   )}
@@ -762,35 +746,20 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                         {ev.columns.site && <th scope="col" className="ifc-site">Mapped site</th>}
                       </tr>
                     </thead>
-                    {visibleGroups.map((g, i) => {
-                      // The same two-band hierarchy the tier chart draws, carried into the grid: a band
-                      // label row opens each band, so "binding evidence" and "association only" are
-                      // separated by a heading and a rule, not left as an undifferentiated run of rows.
-                      const band = PARTNER_BANDS[g.id];
-                      const showBand = i === 0 || PARTNER_BANDS[visibleGroups[i - 1].id] !== band;
-                      return (
-                        <tbody key={g.id} data-group={g.id} data-band={band}>
-                          {showBand && (
-                            <tr className="ifc-band" data-band={band}>
-                              <th colSpan={colCount} scope="rowgroup">
-                                <span className="ifc-band__title">{PARTNER_BAND_LABEL[band].title}</span>
-                                <span className="ifc-band__meta">{PARTNER_BAND_LABEL[band].meta}</span>
-                              </th>
-                            </tr>
-                          )}
-                          <tr className="ifc-group">
-                            <th colSpan={colCount} scope="rowgroup">
-                              <span className="ifc-group__inner">
-                                <span className="ifc-group__title">{g.title}</span>
-                                <span className="ifc-group__meta">{g.meta}</span>
-                              </span>
-                            </th>
-                          </tr>
-                          {g.rows.map(p => <PartnerRowView key={p.key} p={p} ev={ev} />)}
-                          <FoldedRows g={g} ev={ev} colCount={colCount} open={openFolds.has(g.id)} onToggle={() => toggleFold(g.id)} />
-                        </tbody>
-                      );
-                    })}
+                    {visibleGroups.map(g => (
+                      <tbody key={g.id} data-group={g.id}>
+                        <tr className="ifc-group">
+                          <th colSpan={colCount} scope="rowgroup">
+                            <span className="ifc-group__inner">
+                              <span className="ifc-group__title">{g.title}</span>
+                              <span className="ifc-group__meta">{g.meta}</span>
+                            </span>
+                          </th>
+                        </tr>
+                        {g.rows.map(p => <PartnerRowView key={p.key} p={p} ev={ev} />)}
+                        <FoldedRows g={g} ev={ev} colCount={colCount} open={openFolds.has(g.id)} onToggle={() => toggleFold(g.id)} />
+                      </tbody>
+                    ))}
                   </table>
                 </div>
               ) : (

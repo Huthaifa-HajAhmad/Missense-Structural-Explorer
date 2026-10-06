@@ -48,11 +48,19 @@ dimer indirectly. The tab does not assert that, because no source on the tab mea
   *height* is the share of that pair's structures with the residue at the interface. Opacity is the weakest
   channel there is: a 4-of-157 fibril contact read as dark as the dimer core. Heights make the core
   (Val6, Val8, Gly18, 51–55, 112–116, 149–154 in ~100 of 142) and the faint contacts readable at a glance.
-- **Readout column.** Each solved lane ends with the variant's own count ("0/142", "4/15" in clay when > 0).
+- **Readout column.** Each solved lane ends with the variant's own count ("0/142", "4/15" in clay when > 0),
+  and the variant's label rides the axis row's right end whenever a variant is ruled, readout or not.
+- **The axis never loses a tick under the variant ruler.** The ruler's label is an opaque chip; a tick it
+  would cover is not drawn, and when that leaves fewer than two readable ticks the axis re-reads at half
+  the step (RGS9 p.Cys182Ser covered "200" and read as a broken axis). The legend strip is drawn only when
+  it has a key to explain — a lone variant chip repeated the ruler's own label across a full-width band.
 - **Partner tier chart** (`PartnerTiers.tsx`, the chart the user asked about). One bar per evidence tier,
   in two bands: *binding evidence* (assembly 3, solved 2, reported 13, screen 66) and *association only*
   (STRING physical 202, functional 369+). Linear lengths, number printed on each bar, neutral ink. The shape
   is the finding: few attested binders, many associations. The bars double as the filter.
+  The chart spans the card like the table below it, and the band hierarchy lives in the chart alone:
+  the grid keeps one heading per tier instead of repeating the band labels. Binding bars carry the
+  stronger ink, association bars the muted one, and each band head reads as one line (title, total, meta).
 - **Where a generic chart was not used.** No scatter of STRING physical against functional (two
   association scores against each other answer no question about the variant). No donut (part-to-whole of
   tiers that overlap in meaning). No chart library: the track shares the residue axis, and the tier bars
@@ -63,7 +71,8 @@ dimer indirectly. The tab does not assert that, because no source on the tab mea
 - **Linked highlight:** hovering a solved lane lights its Assembly-table row and the reverse. The lane name
   is a button that scrolls its row into view (no smooth scroll under reduced motion).
 - **Tier filter:** each tier bar is an `aria-pressed` toggle that narrows the grid; "Show all" clears.
-- **Search:** "Find a partner" matches gene or accession across shown, folded and STRING-tail rows, and
+- **Search:** "Find a partner" is a visible field in the card's corner (with an in-input clear button);
+  it matches gene or accession across shown, folded and STRING-tail rows, and
   shows each match as a full row. "No partner matches" is a sentence, not an empty table.
 - **Folds:** "Show 63 names" / "Hide names", `aria-expanded` and `aria-controls`.
 - **URL state:** `?ppit=<tier>` and `?ppiq=<query>` (`interfaces/viewUrlState.ts`), read on open, written on

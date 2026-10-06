@@ -3,6 +3,7 @@ import React from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InterfacesTab } from "../InterfacesTab";
+import { trackTicks } from "../interfaces/InterfaceTrack";
 import { InterfacesRail } from "../../inspector/InterfacesRail";
 import { resetInterfacesLive } from "../interfaces/interfacesLive";
 import { SLC12A4 } from "../../../shared/__tests__/fixtures/slc12a4";
@@ -90,6 +91,17 @@ describe("InterfacesTab — sequence track", () => {
     expect(legend).toHaveTextContent("bar height = share of the pair's structures");
     expect(legend).not.toHaveTextContent("Predicted interface");
   });
+
+  it("never hides an axis tick under the variant ruler's label, and re-reads the axis when that leaves it bare", () => {
+    // SOD1's short axis: the ruler label at residue 5 covers nothing.
+    expect(trackTicks(154, 5)).toEqual([50, 100]);
+    // RGS9's axis (674): the base step is 200, and the label would cover "200" — finer step instead.
+    const rgs9 = trackTicks(674, 182);
+    expect(rgs9).not.toContain(200);
+    expect(rgs9.length).toBeGreaterThanOrEqual(2);
+    // No variant, no label, no re-read: the base step stands.
+    expect(trackTicks(674, null)).toEqual([200, 400]);
+  });
 });
 
 describe("InterfacesTab — assembly", () => {
@@ -162,32 +174,24 @@ describe("InterfacesTab — partners", () => {
     expect(screen.getByRole("region", { name: "Interaction partners of SLC12A4" })).toHaveAttribute("tabindex", "0");
   });
 
-  it("collapses the search to an icon button, expands on click, and collapses on Esc or an empty blur", () => {
+  it("shows the search field at open, and Escape clears it", () => {
     renderTab(RESULT);
-    expect(screen.queryByRole("searchbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Find a partner/ }));
     const input = screen.getByRole("searchbox");
-    fireEvent.blur(input);
-    expect(screen.queryByRole("searchbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Find a partner/ }));
-    const reopened = screen.getByRole("searchbox");
-    fireEvent.change(reopened, { target: { value: "krt" } });
-    fireEvent.keyDown(reopened, { key: "Escape" });
-    expect(screen.queryByRole("searchbox")).toBeNull();
+    fireEvent.change(input, { target: { value: "krt" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.getByRole("searchbox")).toHaveValue("");
   });
 
-  it("keeps the search open while a query is active, and blur does not close it", () => {
+  it("keeps the query in the field after blur, so the active filter stays visible", () => {
     renderTab(RESULT);
-    fireEvent.click(screen.getByRole("button", { name: /Find a partner/ }));
     const input = screen.getByRole("searchbox");
     fireEvent.change(input, { target: { value: "krt" } });
     fireEvent.blur(input);
     expect(screen.getByRole("searchbox")).toHaveValue("krt");
   });
 
-  it("clears the query from an in-input button, keeping the field open", () => {
+  it("clears the query from an in-input button, keeping the field focused", () => {
     renderTab(RESULT);
-    fireEvent.click(screen.getByRole("button", { name: /Find a partner/ }));
     const input = screen.getByRole("searchbox");
     fireEvent.change(input, { target: { value: "krt" } });
     const clear = screen.getByRole("button", { name: "Clear search" });
@@ -196,12 +200,16 @@ describe("InterfacesTab — partners", () => {
     expect(screen.getByRole("searchbox")).toHaveValue("");
   });
 
-  it("carries the two-band hierarchy into the grid, one band label per band", () => {
+  it("keeps the band hierarchy in the tier chart, and the grid to one heading per tier", () => {
     renderTab(RESULT);
+    const chart = screen.getByTestId("partner-tiers");
+    expect(chart).toHaveTextContent("Binding evidence");
+    expect(chart).toHaveTextContent("Association only");
+    // The grid does not repeat the chart's band labels; the tier headings carry it.
     const grid = screen.getByTestId("partner-grid");
-    expect(grid).toHaveTextContent("Binding evidence");
-    expect(grid).toHaveTextContent("Association only");
-    expect(grid.querySelectorAll(".ifc-band")).toHaveLength(2);
+    expect(grid.querySelectorAll(".ifc-band")).toHaveLength(0);
+    expect(grid).toHaveTextContent("Binary screen only");
+    expect(grid).toHaveTextContent("Physical association only");
   });
 });
 
