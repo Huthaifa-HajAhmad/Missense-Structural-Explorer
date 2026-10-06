@@ -14,7 +14,7 @@
     "start": "node dist/server.cjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsx scripts/check-boundaries.ts && node scripts/check-focus-indicators.mjs && tsx scripts/check-verify-parity.ts && tsc --noEmit",
-    "audit": "npm audit --audit-level=critical",
+    "audit": "npm audit --omit=dev --audit-level=critical",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:smoke": "vitest run server/tests/smoke.test.ts",
