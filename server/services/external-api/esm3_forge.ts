@@ -80,6 +80,20 @@ export const esm3StructureCache = new LRUCache<string, any>({
   ttl: 24 * 60 * 60 * 1000 // 24 hours TTL
 });
 
+/**
+ * HTTP budget for the sidecar `/predict/esm3` call.
+ *
+ * The sidecar answers ESM3 by deployment: with a BioHub token it runs ESM3-Medium remotely (two
+ * encode + two logits round trips); without one it falls back to the local VESM-150M, which runs the
+ * masked LLR pass PLUS two unmasked embedding passes to build the perturbation map. On a ~670-residue
+ * protein that local path takes ~18s on CPU — past the flat 20s this call used to allow — so ESM3 was
+ * aborted and reported as a failure while the run still had ~100s of its 120s structural budget left
+ * (`CONFIG.timeouts.structuralModelsMs`). Scale the budget for long sequences rather than aborting work
+ * the outer budget would have completed; the default is preserved for the ordinary-length case.
+ */
+const ESM3_SIDECAR_BUDGET_MS = (sequenceLength: number): number =>
+  sequenceLength > 500 ? 60000 : 20000;
+
 export async function fetchEsm3StructureEval(
   uniprotId: string,
   position: number,
@@ -111,6 +125,8 @@ export async function fetchEsm3StructureEval(
   let perturbationScores: number[] = [];
   let seqLen = 300;
   let esm3Error: string | undefined;
+  /** Set only when the sidecar failed, so a timeout is not reported as a generic error. */
+  let esm3Status: "error" | "timeout" | undefined;
 
   let sequence = sequenceOverride || "";
   if (!sequence && wtPdbText) {
@@ -135,6 +151,7 @@ export async function fetchEsm3StructureEval(
   const tokenToUse = biohubToken || process.env.BIOHUB_API_TOKEN || null;
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   let provenance = "ESM3-Medium (Remote)";
+  const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
 
   try {
     const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
@@ -151,7 +168,7 @@ export async function fetchEsm3StructureEval(
         biohubToken: tokenToUse,
         refine: false
       }),
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(sidecarBudgetMs)
     });
 
     if (sidecarRes.ok) {
@@ -169,10 +186,17 @@ export async function fetchEsm3StructureEval(
       const txt = await sidecarRes.text();
       console.warn(`[ESM3 Sidecar API] Prediction call failed with status ${sidecarRes.status}: ${txt}`);
       esm3Error = `Sidecar API returned HTTP ${sidecarRes.status}: ${txt}`;
+      esm3Status = "error";
     }
   } catch (err: any) {
+    // A timeout is retryable and must not read as a generic failure. `AbortSignal.timeout` rejects
+    // with a `TimeoutError` DOMException; older runtimes report `AbortError`.
+    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
     console.warn("[ESM3 Sidecar API] Failed to run ESM3 structural evaluation:", err.message);
-    esm3Error = err.message;
+    esm3Error = timedOut
+      ? `ESM3 structural perturbation timed out after ${Math.round(sidecarBudgetMs / 1000)}s (sidecar /predict/esm3)`
+      : err.message;
+    esm3Status = timedOut ? "timeout" : "error";
   }
 
 
@@ -240,7 +264,10 @@ export async function fetchEsm3StructureEval(
 
   // If we could not retrieve real perturbation scores from the API, we return error to avoid fabricating data
   if (perturbationScores.length === 0) {
-    const errorResult = { error: esm3Error || "No perturbation scores returned by Biohub ESM3 API." };
+    const errorResult: { error: string; status?: "error" | "timeout" } = {
+      error: esm3Error || "No perturbation scores returned by Biohub ESM3 API."
+    };
+    if (esm3Status) errorResult.status = esm3Status;
     // Do NOT cache API errors/failures so configuring keys can take immediate effect on retry
     return errorResult as any;
   }
