@@ -7,7 +7,7 @@ import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
 import { liftCoordinateToCanonical } from "../../translation/liftover.ts";
-import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38 } from "./locus-resolver.ts";
+import { recoverCanonicalLocus, readDbnsfpGrch38, type DbnsfpGrch38, ucscGrch38Base } from "./locus-resolver.ts";
 import { LOCUS_POLICY_VERSION, type LocusResolution, type LocusResolutionStep } from "../../../../src/shared/locusResolution.ts";
 import type { AssemblyTaggedCoordinate } from "../../../../src/shared/assembly.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../../src/shared/proteinAlleleIdentity.ts";
@@ -156,6 +156,145 @@ function buildPredictorFromVep(
 }
 
 /**
+ * Coordinate fallback via MyVariant.info (GRCh38 / hg38).
+ *
+ * When Ensembl VEP is unavailable, rate-limited, or times out, query MyVariant.info directly
+ * by HGVS genomic coordinate on assembly=hg38. Validates echo, gene binding, and substitution
+ * binding against dbNSFP before returning predictor data and the verified GRCh38 locus.
+ */
+async function fetchPredictorsViaCoordinateMyVariant(
+  lifted: { chrom: string; pos: number; ref: string; alt: string },
+  canonicalEnsemblId: string | null,
+  expect: { gene: string; wt: string | null; mut: string | null; pos: number | null },
+  deadlineAt?: number
+): Promise<PredictorData | null> {
+  const normChrom = lifted.chrom.replace(/^chr/i, "");
+  const hgvsId = `chr${normChrom}:g.${lifted.pos}${lifted.ref}>${lifted.alt}`;
+  const url = `https://myvariant.info/v1/variant/${encodeURIComponent(hgvsId)}?assembly=hg38&fields=dbnsfp.alphamissense,dbnsfp.cadd,cadd,dbnsfp.gene_name,dbnsfp.genename,dbnsfp.hgvsp,dbnsfp.aa`;
+  try {
+    const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 6000, deadlineAt }, 1);
+    if (!res.ok) return null;
+    const hit = await res.json() as any;
+    if (!hit || typeof hit !== "object" || hit.error) return null;
+
+    // 1. Echo: Contig, position, REF and ALT must match
+    const rawId = String(hit._id ?? "").replace(/^chr/i, "");
+    const wantId = `${normChrom}:g.${lifted.pos}${lifted.ref}>${lifted.alt}`;
+    if (rawId.toLowerCase() !== wantId.toLowerCase()) return null;
+
+    // 2. Gene binding check
+    const wantGene = expect.gene.trim().toUpperCase();
+    const rawGenes = [hit.dbnsfp?.genename, hit.dbnsfp?.gene_name].flat().filter((x: any) => x !== undefined && x !== null);
+    if (rawGenes.length > 0) {
+      const geneMatches = rawGenes.some((g: any) => typeof g === "string" && g.trim().toUpperCase() === wantGene);
+      if (!geneMatches) return null;
+    }
+
+    // 3. Substitution binding check
+    if (expect.wt && expect.mut) {
+      const aaRef = [hit.dbnsfp?.aa?.ref].flat().filter(Boolean).map(String);
+      const aaAlt = [hit.dbnsfp?.aa?.alt].flat().filter(Boolean).map(String);
+      const aaPos = [hit.dbnsfp?.aa?.pos].flat().filter(Boolean).map(Number);
+      const wantRef = expect.wt.toUpperCase();
+      const wantAlt = expect.mut.toUpperCase();
+      const refMatches = aaRef.some(r => r.toUpperCase() === wantRef);
+      const altMatches = aaAlt.some(a => a.toUpperCase() === wantAlt);
+      const posMatches = expect.pos === null || aaPos.includes(expect.pos);
+
+      const hgvspRows = [hit.dbnsfp?.hgvsp].flat().filter(Boolean).map(String);
+      const hgvspMatches = hgvspRows.some(h => {
+        const hUpper = h.toUpperCase();
+        return (expect.pos === null || hUpper.includes(String(expect.pos))) &&
+               (hUpper.includes(wantRef) || hUpper.includes(expect.wt!)) &&
+               (hUpper.includes(wantAlt) || hUpper.includes(expect.mut!));
+      });
+
+      if (aaRef.length > 0 && aaAlt.length > 0) {
+        if (!refMatches || !altMatches || !posMatches) return null;
+      } else if (hgvspRows.length > 0 && !hgvspMatches) {
+        return null;
+      }
+    }
+
+    // 4. Score extraction
+    const amData = hit.dbnsfp?.alphamissense;
+    let amPathogenicity: number | null = null;
+    let amClass: string | null = null;
+    if (amData) {
+      const rawAm = Array.isArray(amData) ? amData[0] : amData;
+      const rawScore = Array.isArray(rawAm.score) ? rawAm.score[0] : (rawAm.score ?? rawAm.am_pathogenicity ?? rawAm.pathogenicity);
+      amPathogenicity = safeParseFloat(rawScore);
+      const rawPred = Array.isArray(rawAm.pred) ? rawAm.pred[0] : (rawAm.pred ?? rawAm.am_class);
+      if (rawPred) {
+        const predStr = String(rawPred).toUpperCase();
+        amClass = predStr === "A" ? "ambiguous" : predStr === "P" ? "pathogenic" : predStr === "B" ? "benign" : String(rawPred);
+      }
+    }
+
+    const caddData = hit.dbnsfp?.cadd || hit.cadd;
+    let caddPhred: number | null = null;
+    if (caddData) {
+      const rawCadd = Array.isArray(caddData) ? caddData[0] : caddData;
+      caddPhred = safeParseFloat(rawCadd.phred ?? rawCadd.cadd_phred ?? hit.cadd_phred ?? hit.cadd?.phred);
+    }
+
+    return {
+      available: true,
+      amPathogenicity,
+      amClass,
+      caddPhred,
+      gnomadVariantId: `${normChrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`,
+      gnomadVariantAssembly: "GRCh38",
+      transcriptId: canonicalEnsemblId ?? undefined,
+      canonicalEnsemblId,
+      isManeSelect: false,
+      isManePlusClinical: false,
+      isCanonical: Boolean(canonicalEnsemblId),
+      source: "MyVariant.info & dbNSFP (coordinate fallback)",
+    };
+  } catch (err: any) {
+    console.warn(`[MyVariant Coordinate Fallback Query] Failed for ${lifted.chrom}:${lifted.pos}: ${err?.message ?? err}`);
+    return null;
+  }
+}
+
+/**
+ * Coordinate fallback via UCSC Reference Genome.
+ *
+ * Confirms that the reference base at the requested GRCh38 position matches the input coordinate.
+ * Used when prediction APIs are unavailable, preserving the verified genomic locus so cohort
+ * and population evidence queries (gnomAD) are not erroneously suppressed.
+ */
+async function fetchPredictorsViaCoordinateUcsc(
+  lifted: { chrom: string; pos: number; ref: string; alt: string },
+  canonicalEnsemblId: string | null
+): Promise<PredictorData | null> {
+  try {
+    const ucsc = await ucscGrch38Base(lifted.chrom, lifted.pos);
+    if ("base" in ucsc && ucsc.base.toUpperCase() === lifted.ref.toUpperCase()) {
+      const normChrom = lifted.chrom.replace(/^chr/i, "");
+      return {
+        available: true,
+        amPathogenicity: null,
+        amClass: null,
+        caddPhred: null,
+        gnomadVariantId: `${normChrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`,
+        gnomadVariantAssembly: "GRCh38",
+        transcriptId: canonicalEnsemblId ?? undefined,
+        canonicalEnsemblId,
+        isManeSelect: false,
+        isManePlusClinical: false,
+        isCanonical: Boolean(canonicalEnsemblId),
+        source: "UCSC Reference Sequence (coordinate fallback)",
+      };
+    }
+  } catch (err: any) {
+    console.warn(`[UCSC Coordinate Fallback Query] Failed for ${lifted.chrom}:${lifted.pos}: ${err?.message ?? err}`);
+  }
+  return null;
+}
+
+/**
  * Coordinate-first predictor query (unmapping defect F-1).
  *
  * The protein-HGVS ladder below is a lossy re-derivation: Ensembl's REST hgvs endpoint rejects
@@ -190,39 +329,52 @@ async function fetchPredictorsViaCoordinate(
   const url = `https://rest.ensembl.org/vep/human/region/${encodeURIComponent(lifted.chrom)}:${lifted.pos}-${lifted.pos}/${encodeURIComponent(lifted.alt)}?content-type=application/json&AlphaMissense=1&CADD=1&mane=1`;
   try {
     const res = await fetchWithRetry(url, { headers: { "Accept": "application/json" }, timeout: 8000, deadlineAt }, 1);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const parsed = vepResponseSchema.parse(data) as VepParsed;
-    const first = parsed[0];
-    const echoChrom = String(first.seq_region_name ?? "").replace(/^chr/i, "").toUpperCase();
-    const alleles = typeof first.allele_string === "string" ? first.allele_string.split("/") : [];
-    const rawRef = (alleles[0] ?? "").toUpperCase();
-    const strand = first.strand;
-    const isNegative = strand === -1 || strand === "-1" || strand === "-";
-    const echoRef = (isNegative ? reverseComplementDna(rawRef) : rawRef).toUpperCase();
-    const rawAlt = (alleles[1] ?? "").toUpperCase();
-    const echoAlt = (isNegative ? reverseComplementDna(rawAlt) : rawAlt).toUpperCase();
-    if (alleles.length !== 2 || echoAlt !== lifted.alt.toUpperCase() || echoChrom !== lifted.chrom.toUpperCase() || first.start !== lifted.pos || echoRef !== lifted.ref.toUpperCase()) {
-      return null;
+    if (res.ok) {
+      const data = await res.json();
+      const parsed = vepResponseSchema.parse(data) as VepParsed;
+      const first = parsed[0];
+      const echoChrom = String(first.seq_region_name ?? "").replace(/^chr/i, "").toUpperCase();
+      const alleles = typeof first.allele_string === "string" ? first.allele_string.split("/") : [];
+      const rawRef = (alleles[0] ?? "").toUpperCase();
+      const strand = first.strand;
+      const isNegative = strand === -1 || strand === "-1" || strand === "-";
+      const echoRef = (isNegative ? reverseComplementDna(rawRef) : rawRef).toUpperCase();
+      const rawAlt = (alleles[1] ?? "").toUpperCase();
+      const echoAlt = (isNegative ? reverseComplementDna(rawAlt) : rawAlt).toUpperCase();
+      if (alleles.length === 2 && echoAlt === lifted.alt.toUpperCase() && echoChrom === lifted.chrom.toUpperCase() && first.start === lifted.pos && echoRef === lifted.ref.toUpperCase()) {
+        const consequences = (first.transcript_consequences ?? []) as any[];
+        const wantGene = expect.gene.trim().toUpperCase();
+        const geneRows = consequences.filter(c => typeof c.gene_symbol === "string" && c.gene_symbol.trim().toUpperCase() === wantGene);
+        if (geneRows.length > 0) {
+          let changeMatches = true;
+          if (expect.wt && expect.mut) {
+            const wantChange = `${expect.wt}/${expect.mut}`.toUpperCase();
+            changeMatches = geneRows.some(c => typeof c.amino_acids === "string" && c.amino_acids.toUpperCase() === wantChange
+              && (expect.pos === null || c.protein_start === expect.pos));
+          }
+          if (changeMatches) {
+            return buildPredictorFromVep(parsed, "GRCh38", "Ensembl VEP API (coordinate)", canonicalEnsemblId, wantGene);
+          }
+        }
+      }
     }
-
-    // (2)+(3) gene and substitution binding, against the RAW consequence list.
-    const consequences = (first.transcript_consequences ?? []) as any[];
-    const wantGene = expect.gene.trim().toUpperCase();
-    const geneRows = consequences.filter(c => typeof c.gene_symbol === "string" && c.gene_symbol.trim().toUpperCase() === wantGene);
-    if (geneRows.length === 0) return null;
-    if (expect.wt && expect.mut) {
-      const wantChange = `${expect.wt}/${expect.mut}`.toUpperCase();
-      const changeMatches = geneRows.some(c => typeof c.amino_acids === "string" && c.amino_acids.toUpperCase() === wantChange
-        && (expect.pos === null || c.protein_start === expect.pos));
-      if (!changeMatches) return null;
-    }
-
-    return buildPredictorFromVep(parsed, "GRCh38", "Ensembl VEP API (coordinate)", canonicalEnsemblId, wantGene);
   } catch (err: any) {
-    console.warn(`[VEP Coordinate Query] Failed for ${lifted.chrom}:${lifted.pos}: ${err?.message ?? err}`);
-    return null;
+    console.warn(`[VEP Coordinate Query] Ensembl query failed for ${lifted.chrom}:${lifted.pos}: ${err?.message ?? err}`);
   }
+
+  // ── Fallback 1: MyVariant.info by exact GRCh38 genomic coordinate ──
+  const myvariantData = await fetchPredictorsViaCoordinateMyVariant(lifted, canonicalEnsemblId, expect, deadlineAt);
+  if (myvariantData) {
+    return myvariantData;
+  }
+
+  // ── Fallback 2: UCSC REST API reference sequence validation ──
+  const ucscData = await fetchPredictorsViaCoordinateUcsc(lifted, canonicalEnsemblId);
+  if (ucscData) {
+    return ucscData;
+  }
+
+  return null;
 }
 
 /**
@@ -524,7 +676,8 @@ export async function fetchPredictorData(
           route,
           canonicalBy: !intrinsicAmbiguity && data.gnomadVariantAssembly === "GRCh38" ? "vep" : null,
           retryable: false,
-          ...(intrinsicAmbiguity ? { failureKind: "ambiguous-allele" as const, policyVersion: LOCUS_POLICY_VERSION } : {}),
+          policyVersion: LOCUS_POLICY_VERSION,
+          ...(intrinsicAmbiguity ? { failureKind: "ambiguous-allele" as const } : {}),
           steps: steps.slice(-12),
         },
       });
@@ -550,7 +703,7 @@ export async function fetchPredictorData(
         if (lifted) {
           const viaCoordinate = await fetchPredictorsViaCoordinate(lifted, canonicalEnsemblId, expect, coordDeadline);
           if (viaCoordinate) {
-            steps.push({ step: "vep-coordinate", outcome: "ok", detail: `region ${lifted.chrom}:${lifted.pos}` });
+            steps.push({ step: "vep-coordinate", outcome: "ok", detail: `region ${lifted.chrom}:${lifted.pos} via ${viaCoordinate.source}` });
             return withTrail(viaCoordinate, "vep-coordinate");
           }
           steps.push({ step: "vep-coordinate", outcome: "failed", detail: "the region query did not answer or did not bind to this gene and substitution" });

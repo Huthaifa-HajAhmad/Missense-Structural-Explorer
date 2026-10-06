@@ -73,7 +73,7 @@ export function readDbnsfpGrch38(hit: any): DbnsfpGrch38 | null {
 }
 
 /** The GRCh38 reference base at a 1-based position, from UCSC (independent of Ensembl). */
-async function ucscGrch38Base(chrom: string, pos: number): Promise<{ base: string } | { failure: string }> {
+export async function ucscGrch38Base(chrom: string, pos: number): Promise<{ base: string } | { failure: string }> {
   // UCSC's sequence API is 0-based, half-open: [pos-1, pos) is the one base at 1-based `pos`.
   const url = `https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom=chr${encodeURIComponent(chrom)};start=${pos - 1};end=${pos}`;
   try {

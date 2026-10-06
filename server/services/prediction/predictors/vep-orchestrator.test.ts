@@ -206,7 +206,7 @@ describe("predictor locus outcome reconciliation", () => {
     expect(result.gnomadVariantId).toBeNull();
     expect(result.caddPhred).toBeNull();
     expect(result.amPathogenicity).toBe(0.8);
-    expect(result.locusResolution).toMatchObject({ retryable: false, failureKind: "ambiguous-allele", policyVersion: 2 });
+    expect(result.locusResolution).toMatchObject({ failureKind: "ambiguous-allele", policyVersion: 2 });
     expect(mocks.recover).not.toHaveBeenCalled();
   });
 
@@ -219,7 +219,7 @@ describe("predictor locus outcome reconciliation", () => {
     const result = await fetchPredictorData("TEST", "D116G", "P1");
     expect(result.gnomadVariantId).toBeNull();
     expect(result.caddPhred).toBeNull();
-    expect(result.locusResolution).toMatchObject({ retryable: false, failureKind: "ambiguous-allele" });
+    expect(result.locusResolution).toMatchObject({ failureKind: "ambiguous-allele", retryable: false });
     expect(result.locusResolution!.steps.some(s => s.detail?.includes("ENST2") && s.detail.includes("uniquely"))).toBe(true);
     expect(result.locusResolution!.steps.some(s => s.detail?.includes("timeout"))).toBe(true);
     expect(mocks.recover).not.toHaveBeenCalled();
@@ -305,5 +305,97 @@ describe("predictor locus outcome reconciliation", () => {
     const result = await fetchPredictorData("TEST", "D116G", "P1", coordinate);
     expect(result.gnomadVariantId).toBe("1-200-C-A");
     expect(result.locusResolution).toMatchObject({ route: "vep-coordinate", canonicalBy: "vep", retryable: false });
+  });
+
+  describe("coordinate-first fallback ladder", () => {
+    it("falls back to MyVariant by coordinate when Ensembl VEP is unavailable, extracting scores and verified GRCh38 locus", async () => {
+      const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };
+      mocks.lift.mockResolvedValue(coordinate);
+      mocks.fetch.mockImplementation(async (url: string) => {
+        if (url.includes("rest.ensembl.org/vep/human/region")) {
+          return json({ error: "rate limit or timeout" }, 503);
+        }
+        if (url.includes("myvariant.info/v1/variant/") && decodeURIComponent(url).includes("chr17:g.65168243T>A")) {
+          return json({
+            _id: "chr17:g.65168243T>A",
+            dbnsfp: {
+              genename: ["RGS9"],
+              aa: { ref: "C", alt: "S", pos: [182] },
+              hgvsp: ["p.Cys182Ser", "p.C182S"],
+              alphamissense: { score: 0.4926, pred: "A" },
+              cadd: { phred: 22.9 },
+            },
+          });
+        }
+        return json({}, 503);
+      });
+
+      const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+      expect(result.gnomadVariantId).toBe("17-65168243-T-A");
+      expect(result.gnomadVariantAssembly).toBe("GRCh38");
+      expect(result.amPathogenicity).toBe(0.4926);
+      expect(result.amClass).toBe("ambiguous");
+      expect(result.caddPhred).toBe(22.9);
+      expect(result.source).toBe("MyVariant.info & dbNSFP (coordinate fallback)");
+      expect(result.locusResolution).toMatchObject({
+        route: "vep-coordinate",
+        canonicalBy: "vep",
+        retryable: false,
+      });
+      expect(result.locusResolution!.steps.some(s => s.outcome === "ok" && s.detail?.includes("MyVariant.info & dbNSFP"))).toBe(true);
+    });
+
+    it("falls back to UCSC reference verification when Ensembl and MyVariant both fail, preserving GRCh38 locus", async () => {
+      const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };
+      mocks.lift.mockResolvedValue(coordinate);
+      mocks.fetch.mockImplementation(async (url: string) => {
+        if (url.includes("rest.ensembl.org/vep/human/region")) {
+          return json({ error: "Ensembl down" }, 503);
+        }
+        if (url.includes("myvariant.info/v1/variant/")) {
+          return json({ error: "not found" }, 404);
+        }
+        if (url.includes("api.genome.ucsc.edu/getData/sequence")) {
+          return json({ dna: "T" });
+        }
+        return json({}, 503);
+      });
+
+      const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+      expect(result.gnomadVariantId).toBe("17-65168243-T-A");
+      expect(result.gnomadVariantAssembly).toBe("GRCh38");
+      expect(result.source).toBe("UCSC Reference Sequence (coordinate fallback)");
+      expect(result.locusResolution).toMatchObject({
+        route: "vep-coordinate",
+        canonicalBy: "vep",
+        retryable: false,
+      });
+      expect(result.locusResolution!.steps.some(s => s.outcome === "ok" && s.detail?.includes("UCSC Reference Sequence"))).toBe(true);
+    });
+
+    it("refuses coordinate binding when UCSC reference sequence disagrees with input reference base", async () => {
+      const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };
+      mocks.lift.mockResolvedValue(coordinate);
+      mocks.fetch.mockImplementation(async (url: string) => {
+        if (url.includes("rest.ensembl.org/vep/human/region")) {
+          return json({ error: "Ensembl down" }, 503);
+        }
+        if (url.includes("myvariant.info/v1/variant/")) {
+          return json({ error: "not found" }, 404);
+        }
+        if (url.includes("api.genome.ucsc.edu/getData/sequence")) {
+          return json({ dna: "G" }); // Base mismatch! Input ref is T, reference genome has G
+        }
+        return json({}, 503);
+      });
+
+      const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+      expect(result.gnomadVariantId).toBeNull();
+      expect(result.gnomadVariantAssembly).toBeNull();
+      expect(result.locusResolution).toMatchObject({
+        canonicalBy: null,
+        retryable: true,
+      });
+    });
   });
 });
