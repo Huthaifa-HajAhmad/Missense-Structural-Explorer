@@ -2,14 +2,13 @@
  * Deterministic literature screening. This is lexical triage only: it reads titles and
  * abstracts, records the text which fired a tag, and never creates clinical evidence.
  *
- * Negation is deliberately not interpreted in this first lexicon version. For example,
- * a sentence saying that an assay was not performed can still match assay language.
+ * Tags describe language, not validated results. Explicitly absent assays never receive
+ * a positive assay tag or a variant-anchored promotion.
  */
 import { AMINO_ACID_3_TO_1 } from "./aminoAcids";
-import { THRESHOLDS } from "./thresholds";
 import { curatedLinkDetail, curatedLinkLabel, type CuratedVariantLink } from "./curatedLiterature";
 
-export const LEXICON_VERSION = 1;
+export const LEXICON_VERSION = 2;
 export const MULTI_VARIANT_THRESHOLD = 10;
 
 export type ScreeningTagName =
@@ -120,25 +119,25 @@ const LEXICONS = {
     "functional", "activity", "kinetic", "western blot", "in vitro", "knock-in", "rescue",
     "expression", "catalytic", "binding affinity", "misfold", "erad", "trafficking", "oligomer",
   ],
-  "clinical-case": ["patient", "proband", "case report", "cohort", "family", "segregation", "phenotype", "diagnosed"],
+  "clinical-case": ["patient", "patients", "proband", "probands", "case report", "case reports", "cohort", "cohorts", "family", "families", "segregation", "phenotype", "phenotypes", "diagnosed"],
   mechanism: [
     "loss-of-function", "loss of function", "haploinsufficiency", "dominant-negative", "dominant negative",
     "gain-of-function", "gain of function", "constitutive activation", "domain", "ortholog", "homolog",
-    "dimer", "interface", "structure",
+    "dimerization", "protein interface", "protein structure",
   ],
   review: ["review", "we summarize", "meta-analysis", "overview"],
   "model-system": ["mouse", "mice", "zebrafish", "yeast", "patient fibroblasts", "ipsc", "organoid"],
 } as const;
 
 function sentenceParts(text: string): Array<{ text: string; start: number }> {
-  // Protect HGVS's `p.` prefix from the ordinary full-stop sentence boundary.
-  const protectedText = text.replace(/\bp\./g, "p\uFFFF");
+  // HGVS prefixes and accession versions are not sentence boundaries; preserve quote offsets.
+  const protectedText = text.replace(/\b([pcgnrm])\.(?=[A-Za-z0-9(])/g, "$1\uFFFF").replace(/\.(?=\d)/g, "\uFFFF");
   const parts: Array<{ text: string; start: number }> = [];
   const re = /[^\n.!?]+(?:[.!?]+|$)/g;
   for (let match = re.exec(protectedText); match; match = re.exec(protectedText)) {
     const leading = match[0].search(/\S/);
     if (leading === -1) continue;
-    parts.push({ text: match[0].trim().replace(/p\uFFFF/g, "p."), start: match.index + leading });
+    parts.push({ text: match[0].trim().replace(/\uFFFF/g, "."), start: match.index + leading });
   }
   return parts;
 }
@@ -161,7 +160,7 @@ function quoteAt(text: string, index: number): string | null {
 function wholeWordMatch(text: string, terms: readonly string[]): { term: string; index: number } | null {
   let result: { term: string; index: number } | null = null;
   for (const term of terms) {
-    const match = new RegExp(`${B}${escapeRe(term)}${E}`, "g").exec(text);
+    const match = new RegExp(`${B}${escapeRe(term)}${E}`, "gi").exec(text);
     if (match && (!result || match.index < result.index)) result = { term, index: match.index };
   }
   return result;
@@ -174,6 +173,11 @@ function hasWholeWord(text: string, value: string): number | null {
 
 function variantInSentence(sentence: string, forms: ScreeningVariantForms | null): boolean {
   return !!forms && forms.forms.some(form => hasWholeWord(sentence, form) !== null);
+}
+
+/** Narrow absence detection; reduced/absent activity is still an experimental result. */
+function absentAssay(sentence: string): boolean {
+  return /\b(?:no|without)\s+(?:\w+\s+){0,3}(?:functional\s+)?(?:assays?|experiments?|stud(?:y|ies)|testing|data|evidence)\b|\b(?:assays?|experiments?|stud(?:y|ies)|testing|analysis)\b[^.;]{0,60}\b(?:not|never)\s+(?:\w+\s+){0,2}(?:performed|conducted|available|undertaken|tested)|\b(?:did|could|have)\s+not\s+(?:perform|conduct|test|measure)/i.test(sentence);
 }
 
 function pubTypeMatch(types: readonly string[] | null | undefined, test: RegExp): string | null {
@@ -211,7 +215,7 @@ function sentenceForMention(citation: ScreeningCitation, mentions: ScreeningMent
 
 /** Screen one title/abstract. All returned tags are backed by a quote. */
 export function screenPaper(input: ScreenPaperInput): PaperScreening {
-  const { citation, forms, mentions } = input;
+  const { citation, forms, mentions, gene } = input;
   const title = citation.title ?? "";
   const abstract = citation.abstract ?? "";
   const text = `${title}\n${abstract}`;
@@ -248,20 +252,25 @@ export function screenPaper(input: ScreenPaperInput): PaperScreening {
 
   // `readMentions` owns the case-aware gene-symbol rule (important for common-word genes).
   if (mentions.geneIn.length > 0) {
-    push("names-gene", "lexicon", mentions.geneIn.includes("title") ? title : firstSentence(abstract));
+    push("names-gene", "lexicon", mentions.geneIn.includes("title") ? title : sentences(abstract).find(sentence => hasWholeWord(sentence, gene) !== null) ?? null);
   }
 
   for (const tag of ["functional-assay", "clinical-case"] as const) {
     // Prefer a sentence where the lexicon hit AND the variant co-occur: judging only the earliest hit
     // would call a paper gene-context when a later sentence is the variant-anchored one.
     const sentenceQuotes = sentences(text);
-    const anchored = sentenceQuotes.find(sentence => wholeWordMatch(sentence, LEXICONS[tag]) && variantInSentence(sentence, forms));
+    const eligible = sentenceQuotes.filter(sentence => tag !== "functional-assay" || !absentAssay(sentence));
+    const anchored = eligible.find(sentence => wholeWordMatch(sentence, LEXICONS[tag]) && variantInSentence(sentence, forms));
     if (anchored) {
       push(tag, "sentence-anchor", anchored);
       continue;
     }
-    const hit = wholeWordMatch(text, LEXICONS[tag]);
-    if (hit) push(tag, "lexicon", quoteAt(text, hit.index));
+    const quote = eligible.find(sentence => wholeWordMatch(sentence, LEXICONS[tag]));
+    if (quote) push(tag, "lexicon", quote);
+    else if (tag === "clinical-case") {
+      const clinicalType = pubTypeMatch(citation.publicationTypes, /\bcase reports?\b|\bclinical (?:trial|study)\b/i);
+      if (clinicalType) push(tag, "pubtype", clinicalType);
+    }
   }
 
   const mechanismTerms: MechanismTerm[] = [];
@@ -296,7 +305,7 @@ export function screenPaper(input: ScreenPaperInput): PaperScreening {
     push("multi-variant", "lexicon", quoteAt(abstract, abstractVariants[0].index));
   }
 
-  if (mentions.level === "elsewhere") push("full-text-only", "lexicon", firstSentence(title) ?? firstSentence(abstract));
+  // No positive tag: failing a title/abstract check says nothing about unseen full text.
 
   return {
     tags,
@@ -321,7 +330,7 @@ export function attentionTier(screening: {
     || screening.tags.some(item => item.source === "curated" && item.tag === "names-variant");
   if ((anchored || curated) && !has("multi-variant") && !has("review")) return 1;
   // `multi-variant` alone says only that many substitutions are listed, not that ours is among them.
-  if (has("names-variant")) return 2;
+  if (has("names-variant") || curated) return 2;
   if (has("same-residue")) return 3;
   if (has("names-gene") && (has("mechanism") || has("functional-assay") || has("clinical-case") || has("review"))) return 4;
   if (has("names-gene")) return 5;
@@ -340,8 +349,9 @@ const TIER_NAMES: Record<AttentionTier, string> = {
 /** One rule-built line for the paper list; no quote means no line. */
 export function whyRead(screening: PaperScreening): string | null {
   const sourceOrder: ScreeningTagSource[] = ["sentence-anchor", "curated", "pubtype", "lexicon"];
+  const useful = screening.tags.filter(tag => !["names-gene", "model-system", "full-text-only"].includes(tag.tag));
   const strongest = sourceOrder
-    .map(source => screening.tags.find(tag => tag.source === source && tag.tag !== "model-system"))
+    .map(source => useful.find(tag => tag.source === source))
     .find(Boolean) ?? screening.tags.find(tag => tag.tag !== "model-system");
   if (!strongest) {
     // A curated-only row has no quotable sentence; its line is the provider relationship, not a quote.
@@ -362,14 +372,9 @@ export interface GeneConstraint {
   oe_mis: number | null;
 }
 
-/** Existing published LOEUF cut-point; no pLI cut-point is invented here. */
-export const LOSS_OF_FUNCTION_CONSTRAINT_THRESHOLDS = {
-  loeufConstrainedBelow: THRESHOLDS.loeuf.pathogenicSupporting,
-} as const;
-
 export interface MechanismFit {
-  state: "unavailable" | "constraint-silent" | "compared";
-  flag: "terms differ from context" | null;
+  state: "unavailable" | "inapplicable" | "constraint-silent" | "compared";
+  flag: null;
 }
 
 /**
@@ -379,18 +384,16 @@ export interface MechanismFit {
 export function mechanismFit(
   terms: readonly Pick<MechanismTerm, "term">[],
   constraint: GeneConstraint | null | undefined,
-  thresholds = LOSS_OF_FUNCTION_CONSTRAINT_THRESHOLDS,
 ): MechanismFit {
-  if (!constraint) return { state: "unavailable", flag: null };
   const normalised = terms.map(term => term.term.toLowerCase());
   if (normalised.some(term => term.includes("dominant-negative") || term.includes("dominant negative") || term.includes("gain-of-function") || term.includes("gain of function"))) {
     return { state: "constraint-silent", flag: null };
   }
   if (!normalised.some(term => term.includes("loss-of-function") || term.includes("loss of function") || term.includes("haploinsufficiency"))) {
-    return { state: "unavailable", flag: null };
+    return { state: "inapplicable", flag: null };
   }
-  if (constraint.loeuf === null) return { state: "unavailable", flag: null };
-  return constraint.loeuf >= thresholds.loeufConstrainedBelow
-    ? { state: "compared", flag: "terms differ from context" }
-    : { state: "compared", flag: null };
+  if (!constraint || constraint.loeuf === null) return { state: "unavailable", flag: null };
+  // Constraint measures depletion of heterozygous LoF. Without inheritance and gene-specific
+  // mechanism validation, high LOEUF cannot contradict recessive LoF or a paper's mechanism.
+  return { state: "compared", flag: null };
 }

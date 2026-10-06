@@ -64,7 +64,7 @@
  * same variant would have been served the pre-integration narrative for the cache's full 24h TTL.
  */
 // v6: screening-selected literature and explicit no-criterion grounding instructions.
-export const NARRATIVE_PROMPT_SCHEMA_VERSION = 6;
+export const NARRATIVE_PROMPT_SCHEMA_VERSION = 7;
 
 /** The narrative call's provider parameters. The server reads these; the UI only reports them. */
 export const NARRATIVE_SYNTHESIS = {

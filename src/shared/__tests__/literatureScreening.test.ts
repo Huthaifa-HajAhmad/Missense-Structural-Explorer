@@ -58,16 +58,16 @@ describe("literature screening synthetic abstracts (proposal §0.3)", () => {
   it("E: compares only loss-of-function terms; gain-of-function is constraint-silent", () => {
     const loss = screen("PAH p.Arg408Trp causes loss-of-function.");
     expect(mechanismFit(loss.mechanismTerms, { pli: null, loeuf: 0.9, missense_z: null, oe_mis: null }))
-      .toEqual({ state: "compared", flag: "terms differ from context" });
+      .toEqual({ state: "compared", flag: null });
     const gain = screen("PAH p.Arg408Trp causes gain-of-function.");
     expect(mechanismFit(gain.mechanismTerms, { pli: null, loeuf: 0.9, missense_z: null, oe_mis: null }))
       .toEqual({ state: "constraint-silent", flag: null });
     expect(mechanismFit(loss.mechanismTerms, null)).toEqual({ state: "unavailable", flag: null });
   });
 
-  it("H: represents honest emptiness as full-text-only rather than inventing a variant observation", () => {
+  it("H: never infers unseen full text from an empty title/abstract check", () => {
     const result = screen("Aquaculture genome editing methods are reviewed.", { title: "Fish genome editing" });
-    expect(result.tags).toEqual(expect.arrayContaining([expect.objectContaining({ tag: "full-text-only" })]));
+    expect(result.tags.map(tag => tag.tag)).not.toContain("full-text-only");
     expect(result.tags.map(tag => tag.tag)).not.toContain("names-variant");
     expect(result.tier).toBe(6);
   });
@@ -80,12 +80,12 @@ describe("lexical boundaries and structured publication types", () => {
     expect(result.tier).toBe(6);
     expect(screen("This review summarizes PAH biology.", { publicationTypes: ["Review"] }).tier).toBe(4);
   });
-  it("uses whole words, preserves case, and deliberately does not interpret negation", () => {
+  it("uses whole words and recognizes capitalized assay language", () => {
     expect(screen("PAH p.Arg408Trp has inactivity.").tags.map(tag => tag.tag)).not.toContain("functional-assay");
     expect(screen("PAH p.Arg408Trp was non-functional.").tags).toEqual(expect.arrayContaining([
       expect.objectContaining({ tag: "functional-assay", source: "sentence-anchor" }),
     ]));
-    expect(screen("PAH p.Arg408Trp Activity was measured.").tags.map(tag => tag.tag)).not.toContain("functional-assay");
+    expect(screen("PAH p.Arg408Trp Activity was measured.").tags.map(tag => tag.tag)).toContain("functional-assay");
   });
 
   it("lets a publication type beat the review lexicon and marks preprints from metadata", () => {
@@ -115,5 +115,37 @@ describe("review fixes", () => {
     expect(result.tags.some(tag => tag.tag === "multi-variant")).toBe(true);
     expect(result.tags.some(tag => tag.tag === "names-variant")).toBe(false);
     expect(result.tier).toBeGreaterThan(2);
+  });
+});
+
+// Public reference: PMID 40955044. These assertions test labels, not pathogenicity.
+describe("post-merge RGS9 and provenance regressions", () => {
+  it("recognizes probands without treating normal retinal structure as a disease mechanism", () => {
+    const c = citation("To report clinical features in two probands with bradyopsia harboring RGS9 c.895T>C. Both probands had normal retinal structure.", { title: "RGS9 bradyopsia", publicationTypes: ["Case Reports"] });
+    const f = parseVariantForms("p.Cys182Ser")!;
+    const result = screenPaper({ citation: c, gene: "RGS9", forms: f, mentions: readMentions(c, "RGS9", f) });
+    expect(result.tags.some(t => t.tag === "clinical-case")).toBe(true);
+    expect(result.tags.some(t => t.tag === "mechanism")).toBe(false);
+    expect(whyRead(result)).toContain("two probands");
+    expect(whyRead(result)).toContain("c.895T>C");
+  });
+  it("uses clinical publication types when the abstract has no clinical lexicon hit", () => {
+    expect(screen("PAH R408W was described.", { publicationTypes: ["Case Reports"] }).tags).toContainEqual(expect.objectContaining({ tag: "clinical-case", source: "pubtype" }));
+  });
+  it("never promotes an explicitly unperformed assay but retains reduced activity results", () => {
+    for (const text of ["A functional assay was not performed for PAH p.Arg408Trp.", "No functional studies were available for PAH R408W.", "We did not measure activity for PAH R408W.", "No functional study was performed for PAH R408W.", "A functional study was not performed for PAH R408W."]) {
+      const result = screen(text);
+      expect(result.tags.some(t => t.tag === "functional-assay")).toBe(false);
+      expect(result.tier).toBe(2);
+    }
+    expect(screen("PAH R408W had no activity in vitro.").tier).toBe(1);
+  });
+  it("quotes the sentence naming the gene rather than an unrelated opening", () => {
+    const result = screen("An unrelated introduction. PAH participates in metabolism.", { title: "Metabolism" });
+    expect(result.tags.find(t => t.tag === "names-gene")?.quote).toBe("PAH participates in metabolism.");
+  });
+  it("distinguishes an inapplicable comparison from missing constraint", () => {
+    expect(mechanismFit([{ term: "domain" }], { pli: 0, loeuf: .85, missense_z: .04, oe_mis: null }).state).toBe("inapplicable");
+    expect(mechanismFit([{ term: "domain" }], null).state).toBe("inapplicable");
   });
 });

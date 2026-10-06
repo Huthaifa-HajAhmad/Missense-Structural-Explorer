@@ -1,3 +1,4 @@
+import type { LiteratureSummaryReceipt } from "./literatureSummary";
 import { z } from "zod";
 import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
 import type { PredictorConcordance } from "./thresholds/concordance";
@@ -572,7 +573,20 @@ export function deriveCoordinateLift(params: {
   };
 }
 
+export const literatureSummaryReceiptSchema = z.object({
+  citations: z.array(z.object({ id: z.string(), title: z.string(), url: z.string().nullable(), tier: z.number() })),
+  scopes: z.object({ gene: z.enum(["complete", "unavailable", "error"]), variant: z.enum(["complete", "unavailable", "error"]), curated: z.enum(["complete", "unavailable", "error"]) }),
+  coverage: z.array(z.object({ scope: z.string(), query: z.string(), loaded: z.number(), matched: z.number().nullable(), state: z.enum(["complete", "error"]), truncated: z.boolean() }))
+});
+
+export const verifiedLiteratureAliasSchema = z.object({
+  notation: z.string().max(200), gene: z.string(), proteinVariant: z.string(), uniprotId: z.string(),
+  source: z.enum(["ensembl-vep", "variant-validator"])
+});
+export type VerifiedLiteratureAlias = z.infer<typeof verifiedLiteratureAliasSchema>;
+
 export const translateVariantResponseSchema = z.object({
+  literatureAliases: z.array(verifiedLiteratureAliasSchema).optional(),
   gene: z.string(),
   variant: z.string(),
   uniprotId: z.string(),
@@ -868,7 +882,9 @@ export const biophysicalAnalysisResponseSchema = z.object({
   resolvedAssembly: z.enum(["GRCh37", "GRCh38"]).nullable().optional(),
   liftedGenomicCoordinates: z.string().nullable().optional(),
   coordinateLift: coordinateLiftSchema.nullable().optional(),
+  literatureAliases: z.array(verifiedLiteratureAliasSchema).optional(),
   insights: z.object({
+    literature: literatureSummaryReceiptSchema.optional(),
     biochemicalShift: z.string().optional(),
     structuralImpact: z.string().optional(),
     plausibility: z.string().optional(),
@@ -1551,6 +1567,7 @@ export const analyzeVariantResponseSchema = z.object({
      */
     model: z.string().optional(),
     source: z.enum(["ai_inference", "rule_based"]).optional(),
+    literature: literatureSummaryReceiptSchema.optional(),
     partialEvidence: z.object({
       available: z.array(z.string()),
       unavailable: z.array(z.string())
@@ -1915,6 +1932,7 @@ export const REFUSAL_CODES = {
 } as const;
 
 export interface TranscriptMetadata {
+  literatureAliases?: VerifiedLiteratureAlias[];
   transcriptId?: string | null;
   isManeSelect?: boolean;
   isManePlusClinical?: boolean;
@@ -1984,6 +2002,7 @@ export type AssemblyProvenance = Pick<
 export type AcmgVerdict = "Pathogenic" | "Likely Pathogenic" | "VUS" | "Likely Benign" | "Benign";
 
 export interface ClinicalInsight {
+  literature?: LiteratureSummaryReceipt;
   biochemicalShift: string;
   structuralImpact: string;
   acmgCriteria: ACMGCriteriaItem[];

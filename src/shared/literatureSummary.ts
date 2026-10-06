@@ -2,7 +2,7 @@
 import { buildLiteratureEvidence, type Citation } from "./literatureEvidence";
 import { LEXICON_VERSION, type PaperScreening } from "./literatureScreening";
 
-export const SUMMARY_SELECTION_VERSION = 1;
+export const SUMMARY_SELECTION_VERSION = 2;
 export const SUMMARY_CITATION_LIMIT = 5;
 export type LiteratureScopeState = "complete" | "unavailable" | "error";
 export interface SummaryCandidate extends Citation { similarity?: number | null }
@@ -11,6 +11,17 @@ export interface LiteratureSummarySelection {
   citations: SummaryCitation[];
   scopes: { gene: LiteratureScopeState; variant: LiteratureScopeState; curated: LiteratureScopeState };
   withoutEmbeddings: number;
+  coverage?: Array<{ scope: string; query: string; loaded: number; matched: number | null; state: "complete" | "error"; truncated: boolean }>;
+}
+
+/** Small server-authored receipt, retained with the narrative rather than recomputed by the tab. */
+export interface LiteratureSummaryReceipt {
+  citations: Array<{ id: string; title: string; url: string | null; tier: number }>;
+  scopes: LiteratureSummarySelection["scopes"];
+  coverage: NonNullable<LiteratureSummarySelection["coverage"]>;
+}
+export function literatureSummaryReceipt(selection: LiteratureSummarySelection): LiteratureSummaryReceipt {
+  return { citations: selection.citations.map(c => ({ id: c.id, title: c.title, url: c.url ?? null, tier: c.screening.tier })), scopes: selection.scopes, coverage: selection.coverage ?? [] };
 }
 
 export function buildLiteratureSummary(
@@ -32,7 +43,8 @@ export function buildLiteratureSummary(
   const evidence = buildLiteratureEvidence({ gene, variant, citations: [...byId.values()], response: null,
     executedQuery: "", narrowingFilter: "", groupFilter: "all", pinnedIds: new Set(),
     probe: { state: "idle", hitCount: null }, load: "ready", error: null });
-  const ranked = evidence.papers.map(paper => ({
+  // An empty relevant pool is preferable to filling the narrative with unrelated abstracts.
+  const ranked = evidence.papers.filter(paper => paper.mentions.level !== "elsewhere" || !!paper.screening.citedBy?.length).map(paper => ({
     ...paper.citation,
     screening: paper.screening,
     similarity: Number.isFinite(byId.get(paper.citation.id)?.similarity) ? byId.get(paper.citation.id)!.similarity! : null,
@@ -58,10 +70,17 @@ export function canonicalLiteratureSummary(selection: LiteratureSummarySelection
   return JSON.stringify(stableValue({ selectionVersion: SUMMARY_SELECTION_VERSION, lexiconVersion: LEXICON_VERSION, ...selection }));
 }
 
+function abstractExcerpt(citation: SummaryCitation): string {
+  const anchor = citation.screening.tags.find(tag => tag.source === "sentence-anchor" || tag.tag === "names-variant");
+  const index = anchor ? citation.abstract.indexOf(anchor.quote) : -1;
+  const start = index > 650 ? Math.max(0, index - 120) : 0;
+  return `${start ? "[Earlier abstract text omitted] " : ""}${citation.abstract.slice(start, start + 800)}`;
+}
+
 export function literatureSummaryPrompt(selection: LiteratureSummarySelection): string {
   return `[CITED SCIENTIFIC LITERATURE & CLINICAL ABSTRACTS]:
 Selection: at most ${SUMMARY_CITATION_LIMIT} abstracts, ordered by screening tier, then available embedding similarity and publication year.
-Retrieval scopes: ${JSON.stringify(selection.scopes)}. Candidates without embedding similarity: ${selection.withoutEmbeddings}.
+Retrieval scopes: ${JSON.stringify(selection.scopes)}. Bounded search coverage (truncated does not mean exhaustive): ${JSON.stringify(selection.coverage ?? [])}. Candidates without embedding similarity: ${selection.withoutEmbeddings}.
 ${selection.citations.length ? selection.citations.map((citation, index) => `Citation #${index + 1}:
 - Identifier: ${citation.id}
 - Title: ${citation.title}
@@ -70,6 +89,6 @@ ${selection.citations.length ? selection.citations.map((citation, index) => `Cit
 - Screening tier: ${citation.screening.tier}
 - Screening observations: ${JSON.stringify(citation.screening.tags)}
 - Curated record relationships: ${JSON.stringify(stableValue((citation as Citation & { curatedLinks?: unknown }).curatedLinks ?? []))}
-- Abstract excerpt: ${citation.abstract.slice(0, 800)}`).join("\n\n") : "No abstracts selected; draw no conclusion about absence of published evidence."}
+- Abstract excerpt: ${abstractExcerpt(citation)}`).join("\n\n") : "No abstracts selected; draw no conclusion about absence of published evidence."}
 INSTRUCTION: These are title/abstract observations and provider record relationships, not validated clinical evidence. Screening tags and curated citation links must NOT create or strengthen an ACMG/AMP criterion (including PS3, PS4, PP4, PM5 or PVS1). Never call lexical assay language a validated functional result. Cite identifier, authors and year only for claims actually supported by the supplied abstract excerpt; do not extrapolate from tags, full text, tables or unseen passages. An incomplete scope or missing embedding is not absence of literature.`;
 }

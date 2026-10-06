@@ -71,6 +71,7 @@ export interface PipelineStateBaseParams {
   wildType?: string;
   mutant?: string;
   transcriptMeta?: {
+    literatureAliases?: import("../../shared/contracts").VerifiedLiteratureAlias[];
     transcriptId?: string;
     isManeSelect?: boolean;
     isManePlusClinical?: boolean;
@@ -119,6 +120,7 @@ function resultProvenance(
   }
 ) {
   return {
+    literatureAliases: transcriptMeta?.literatureAliases,
     uniprotIsoform: transcriptMeta?.uniprotIsoform,
     numberingBasis: transcriptMeta?.numberingBasis,
     numberingRemap: transcriptMeta?.numberingRemap,

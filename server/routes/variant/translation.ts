@@ -981,6 +981,11 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         // How the build was decided: submitted vs annotated build, both loci, and — when no lift
         // was used — why. Machine-readable so a report, a UI or an agent can state the trail.
         coordinateLift,
+        // Derived from the SAME resolved allele and reconciled canonical protein, never inferred
+        // by reversing a protein substitution (multiple nucleotide changes can encode it).
+        literatureAliases: verdict.status !== "unverified" && selectedTc.hgvsc
+          ? [{ notation: selectedTc.hgvsc, gene: geneSymbol, proteinVariant: proteinPart, uniprotId, source: consequence.provider }]
+          : [],
         notationNormalized: trimmed,
         // Present only when the provider named the resolved gene with a RETIRED symbol that UniProt
         // lists as a synonym, and `gene` above is therefore the current HGNC symbol (Ensembl's

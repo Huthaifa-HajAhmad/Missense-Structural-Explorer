@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, Database, Download, ExternalLink, GitBranch, RotateCcw, Search, Sparkles } from "lucide-react";
 import type { Citation, LiteratureEvidence, PaperReading } from "../../shared/literatureEvidence";
+import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { LEXICON_VERSION } from "../../shared/literatureScreening";
 import { curatedLinkLabel } from "../../shared/curatedLiterature";
 
@@ -205,6 +206,10 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   onSearch,
   evidence
 }) => {
+  const summaryReceipt = useVariantAnalysisStore(st => {
+    const result = st.analysisState.result;
+    return result?.metadata?.gene === gene && result.metadata.variant === variant && !result.isFallback ? result.insights?.literature : undefined;
+  });
   const suggestion = evidence?.variantQuery ?? `${gene || "GENE"} AND (mutation OR variant)`;
   const [customQuery, setCustomQuery] = useState(searchQuery || suggestion);
   const [justApplied, setJustApplied] = useState(false);
@@ -403,18 +408,28 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
         </h3>
         <dl className="rail-kv">
           <div className="rail-kv__row"><dt>ACMG engine</dt><dd>Nothing. No criterion is scored from literature.</dd></div>
-          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to 5 abstracts from the default and variant searches plus curated record links, ordered by screening tier then available similarity and date. Titles and abstracts only; searches here do not change them.</dd></div>
+          <div className="rail-kv__row"><dt>AI summary</dt><dd>Up to 5 relevant abstracts from bounded gene, protein-notation and clinical/functional searches plus curated links. Ordered by screening tier, then available similarity and date. Searches here do not change the summary.</dd></div>
           <div className="rail-kv__row"><dt>Screener</dt><dd>Reads titles and abstracts to order this list. It is not evidence and enters no ACMG criterion.</dd></div>
           <div className="rail-kv__row"><dt>Report</dt><dd>Only papers you pin.</dd></div>
         </dl>
       </section>
 
       {/* ── 5. Method ── */}
+      <section className="rail-section" aria-labelledby="lit-rail-summary-inputs">
+        <h3 className="eyebrow" id="lit-rail-summary-inputs"><Sparkles className="w-3.5 h-3.5" />Summary inputs</h3>
+        {summaryReceipt ? <>
+          <p className="lit-rail__lead">{summaryReceipt.citations.length} {summaryReceipt.citations.length === 1 ? "abstract" : "abstracts"} supplied to the current AI narrative. Selection is separate from this tab's filters.</p>
+          <ol className="lit-summary-papers">{summaryReceipt.citations.map(c => <li key={c.id}><a className="lit-link" href={c.url ?? `https://europepmc.org/search?query=${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer">{c.title}</a><span className="lit-dim lit-mono">{c.id} / tier {c.tier}</span></li>)}</ol>
+          {summaryReceipt.coverage.map((row, i) => <p className="lit-rail__field" key={`${row.scope}-${i}`}>{row.scope}: {row.loaded} loaded{row.matched !== null ? ` of ${row.matched}` : "; total not reported"}{row.truncated ? " / bounded, more matches remain" : ""}{row.state === "error" ? " / retrieval incomplete" : ""}</p>)}
+          {Object.entries(summaryReceipt.scopes).filter(([, state]) => state !== "complete").map(([scope, state]) => <p className="lit-rail__field" key={scope}>{scope}: {state === "error" ? "retrieval incomplete" : "not available"}</p>)}
+        </> : <p className="lit-rail__lead">Summary inputs are not recorded for this result. Generate a new AI narrative to inspect its selected abstracts.</p>}
+      </section>
+
       <section className="rail-section" aria-labelledby="lit-rail-method">
         <details className="rail-notes">
           <summary id="lit-rail-method">Method notes</summary>
           <ul>
-            <li>Europe PMC searches titles, abstracts and open-access full text. A record can match without the gene appearing in its abstract; those are marked “{gene || "gene"} not in abstract”.</li>
+            <li>Europe PMC searches titles, abstracts and open-access full text. A record can match without the gene appearing in its abstract; the match location is unknown unless its title or abstract names the gene.</li>
             <li>“Names the variant” is a literal match of the notations listed in the trace, in the title or abstract. It does not read full text, tables or figures, nucleotide (c.) notation, or gene aliases.</li>
             <li>The naming count in the finding comes from a second, background search for the variant notations. It is cached like any search, and if it fails the tab says so instead of showing a zero.</li>
             <li>A record that names the variant reports nothing about its finding. Read it before relying on it.</li>

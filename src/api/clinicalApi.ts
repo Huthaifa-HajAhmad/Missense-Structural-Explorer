@@ -109,7 +109,7 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
        * Phase 1b context: the variant and its UniProt accession let the server attach curated
        * variant-record relationships. Optional, so an older caller keeps the plain search.
        */
-      context?: { variant?: string; uniprot?: string }
+      context?: { variant?: string; uniprot?: string; cursor?: string }
     ): Promise<{
       gene: string;
       citations: LiteratureCitationPayload[];
@@ -130,6 +130,7 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
       /** When this query's own sweep last completed (ms since epoch); null when unknown or degraded. */
       fetchedAt?: number | null;
       pageSize?: number;
+      nextCursor?: string | null;
       /** Curated variant-citation coverage; null/absent when no variant+accession context was sent. */
       curated?: {
         state: "complete" | "unavailable" | "error";
@@ -142,6 +143,7 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
       if (customQuery && customQuery.trim()) params.set("query", customQuery.trim());
       if (context?.variant && context.variant.trim()) params.set("variant", context.variant.trim());
       if (context?.uniprot && context.uniprot.trim()) params.set("uniprot", context.uniprot.trim());
+      if (context?.cursor) params.set("cursor", context.cursor);
       const qStr = params.toString() ? `?${params.toString()}` : "";
       const url = `/api/v1/literature/${encodeURIComponent(gene)}${qStr}`;
 
@@ -181,6 +183,7 @@ export function createClinicalApi(fetchWithAuth: FetchWithAuth) {
           degraded: z.boolean().optional(),
           fetchedAt: z.number().nullable().optional(),
           pageSize: z.number().optional(),
+          nextCursor: z.string().nullable().optional(),
           curated: z.object({
             state: z.enum(["complete", "unavailable", "error"]),
             reason: z.string().optional(),

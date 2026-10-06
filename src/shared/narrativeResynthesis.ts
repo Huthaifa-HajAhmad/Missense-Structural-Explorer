@@ -474,5 +474,6 @@ export function mergeNarrativeInsights(input: {
     pathogenicity: incoming.pathogenicity ?? previous.pathogenicity,
     model: input.degraded ? undefined : incoming.model,
     source: input.degraded ? "rule_based" : incoming.source,
+    literature: input.degraded ? undefined : incoming.literature,
   };
 }

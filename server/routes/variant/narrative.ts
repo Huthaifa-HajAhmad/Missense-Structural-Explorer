@@ -40,6 +40,7 @@ import {
   describeFallbackReason,
 } from "../../../src/shared/narrativeFallback.ts";
 import { NARRATIVE_PROMPT_SCHEMA_VERSION } from "../../../src/shared/narrativeSynthesis.ts";
+import { literatureSummaryReceipt } from "../../../src/shared/literatureSummary.ts";
 import { selectSummaryCitations, literatureSummaryDigest } from "../../services/llm/literature-summary.ts";
 import {
   buildNarrativeEvidenceContract,
@@ -255,7 +256,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         console.log(`[Cache Hit] Serving cached clinical Gemini narrative for ${cacheKey}`);
         return handleNarrativeResponse(
           res,
-          cached,
+          { ...cached, insights: cached.insights ? { ...cached.insights, literature: cached.isFallback ? undefined : literatureSummaryReceipt(selectedLiterature) } : cached.insights },
           gene,
           variant,
           clinvar,
@@ -307,6 +308,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
           deepEvidence,
           selectedLiterature
         );
+        if (analysisResult.insights) analysisResult.insights.literature = literatureSummaryReceipt(selectedLiterature);
         writeToCache(cacheKey, analysisResult);
       } catch (err: any) {
         console.warn("[Graceful Fallback] Gemini narrative execution failed:", err.stack || err.message);

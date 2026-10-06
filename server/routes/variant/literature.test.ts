@@ -79,7 +79,7 @@ describe("GET /literature/:gene orchestration", () => {
     vi.mocked(getLastLiteratureSync).mockReturnValue(1_700_000_000_000);
     vi.mocked(getGeneCitations).mockResolvedValue([citation]);
     vi.mocked(syncLiteratureForGene).mockResolvedValue(1);
-    vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [], degraded: false });
+    vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [citation], degraded: false });
     vi.mocked(getCuratedVariantCitations).mockResolvedValue({ citations: [], state: "complete" });
   });
 
@@ -87,6 +87,7 @@ describe("GET /literature/:gene orchestration", () => {
     // Regression: the old `citations.length === 0` arm treated "synced, zero hits" as
     // "never synced" and hit Europe PMC on every request for genes with no literature.
     vi.mocked(getGeneCitations).mockResolvedValue([]);
+    vi.mocked(searchGeneLiterature).mockResolvedValue({ citations: [], degraded: false });
 
     const { req, res } = makeHarness();
     await getLiteratureHandler()(req, res);
@@ -114,7 +115,7 @@ describe("GET /literature/:gene orchestration", () => {
     expect(signal.aborted).toBe(true);
   });
 
-  it("syncs when the cache is stale", async () => {
+  it("uses the shared search for stale default reads without embedding sync", async () => {
     vi.mocked(isLiteratureCacheStale).mockReturnValue(true);
     vi.mocked(getGeneCitations)
       .mockResolvedValueOnce([citation]) // first read: pre-sync contents
@@ -123,8 +124,8 @@ describe("GET /literature/:gene orchestration", () => {
     const { req, res } = makeHarness();
     await getLiteratureHandler()(req, res);
 
-    expect(syncLiteratureForGene).toHaveBeenCalledTimes(1);
-    expect(getGeneCitations).toHaveBeenCalledTimes(2);
+    expect(syncLiteratureForGene).not.toHaveBeenCalled();
+    expect(searchGeneLiterature).toHaveBeenCalledWith("TP53", undefined, expect.any(AbortSignal), undefined, false);
     expect(res.body.citations).toEqual([citation]);
   });
 
@@ -170,7 +171,7 @@ describe("GET /literature/:gene orchestration", () => {
     await getLiteratureHandler()(req, res);
 
     expect(res.body.gene).toBe("TP53");
-    expect(getGeneCitations).toHaveBeenCalledWith("TP53", expect.any(AbortSignal));
+    expect(searchGeneLiterature).toHaveBeenCalledWith("TP53", undefined, expect.any(AbortSignal), undefined, false);
   });
 
   it("rejects a gene outside the symbol charset instead of serving a colliding key", async () => {
