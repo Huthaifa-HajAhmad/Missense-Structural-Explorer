@@ -28,6 +28,8 @@ export interface SasaRunnerOptions {
   timeoutMs?: number;
   /** Force fallback to uv run for testing */
   forceUvFallback?: boolean;
+  /** Custom executor for testing and subprocess mocking */
+  executor?: (command: string, args: string[], options: { timeout: number }) => Promise<{ stdout: string }>;
 }
 
 /**
@@ -50,6 +52,7 @@ export async function executeSasaEval(
 
   const pythonScript = path.join(process.cwd(), "tools", "sasa_eval.py");
   const timeout = options?.timeoutMs ?? 15000;
+  const execAsync = options?.executor ?? execFileAsync;
 
   try {
     const venvPython = process.platform === "win32"
@@ -60,7 +63,7 @@ export async function executeSasaEval(
 
     if (useVenv) {
       try {
-        const { stdout } = await execFileAsync(
+        const { stdout } = await execAsync(
           venvPython,
           [pythonScript, pdbPath, chain, position.toString()],
           { timeout }
@@ -80,7 +83,7 @@ export async function executeSasaEval(
 
     // Tier 2: Resilient standalone fallback using uv with PEP 723 metadata
     try {
-      const { stdout } = await execFileAsync(
+      const { stdout } = await execAsync(
         "uv",
         ["run", "--no-project", pythonScript, pdbPath, chain, position.toString()],
         { timeout }

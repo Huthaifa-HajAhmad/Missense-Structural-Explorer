@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import fs from "fs";
+import path from "path";
 import { executeSasaEval } from "./sasa-runner.ts";
 
 const mockCysPdb = `
@@ -12,35 +14,103 @@ TER
 `.trim();
 
 describe("SASA Runner (Two-Tier Resilient Biophysical Execution)", () => {
-  it("should calculate SASA, RSA, and burial status via direct interpreter", async () => {
-    const result = await executeSasaEval(mockCysPdb, "A", 182);
+  it("hermetically parses successful output from the primary interpreter", async () => {
+    const mockOutput = JSON.stringify({
+      status: "success",
+      resName: "CYS",
+      resId: 182,
+      sasa: 224.36,
+      maxSasa: 167.0,
+      rsa: 1.3435,
+      burialStatus: "surface",
+      sse: "c"
+    });
+
+    const executor = vi.fn().mockResolvedValue({ stdout: mockOutput });
+    const result = await executeSasaEval(mockCysPdb, "A", 182, { executor });
+
     expect(result.status).toBe("success");
     if (result.status === "success") {
       expect(result.resName).toBe("CYS");
       expect(result.resId).toBe(182);
-      expect(result.sasa).toBeGreaterThan(0);
-      expect(result.rsa).toBeGreaterThan(0);
-      expect(["core", "surface", "boundary"]).toContain(result.burialStatus);
+      expect(result.sasa).toBe(224.36);
+      expect(result.rsa).toBe(1.3435);
+      expect(result.burialStatus).toBe("surface");
+      expect(result.sse).toBe("c");
     }
   });
 
-  it("should transparently fallback to uv run --no-project when forced", async () => {
-    const result = await executeSasaEval(mockCysPdb, "A", 182, { forceUvFallback: true });
+  it("transparently falls back to uv run --no-project when primary interpreter fails", async () => {
+    const mockSuccessOutput = JSON.stringify({
+      status: "success",
+      resName: "CYS",
+      resId: 182,
+      sasa: 15.0,
+      maxSasa: 167.0,
+      rsa: 0.0898,
+      burialStatus: "core",
+      sse: "h"
+    });
+
+    // Fail if called with venv python; succeed if called with uv
+    const executor = vi.fn().mockImplementation(async (command: string, args: string[]) => {
+      if (command === "uv") {
+        expect(args[0]).toBe("run");
+        expect(args[1]).toBe("--no-project");
+        return { stdout: mockSuccessOutput };
+      }
+      const err = new Error("Command failed: status 0xC000007B");
+      (err as any).code = 3221225794;
+      throw err;
+    });
+
+    const result = await executeSasaEval(mockCysPdb, "A", 182, { executor });
     expect(result.status).toBe("success");
     if (result.status === "success") {
-      expect(result.resName).toBe("CYS");
-      expect(result.resId).toBe(182);
-      expect(result.sasa).toBeGreaterThan(0);
-      expect(result.rsa).toBeGreaterThan(0);
-      expect(["core", "surface", "boundary"]).toContain(result.burialStatus);
+      expect(result.burialStatus).toBe("core");
+      expect(result.rsa).toBe(0.0898);
     }
   });
 
-  it("should return a clean structured error when the target residue is missing", async () => {
-    const result = await executeSasaEval(mockCysPdb, "A", 999);
+  it("returns clean structured error when the target residue is missing", async () => {
+    const mockErrorOutput = JSON.stringify({
+      status: "error",
+      message: "Residue 999 in chain A not found."
+    });
+
+    const executor = vi.fn().mockResolvedValue({ stdout: mockErrorOutput });
+    const result = await executeSasaEval(mockCysPdb, "A", 999, { executor });
+
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.message).toContain("Residue 999 in chain A not found");
     }
   });
+
+  it("handles ENOENT when neither Python venv nor uv is found on the system", async () => {
+    const executor = vi.fn().mockRejectedValue(Object.assign(new Error("spawn uv ENOENT"), { code: "ENOENT" }));
+    const result = await executeSasaEval(mockCysPdb, "A", 182, { executor, forceUvFallback: true });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.message).toContain("neither Python venv nor uv was found");
+    }
+  });
+
+  // End-to-end integration check only when live tools runtime is present on host
+  const venvPython = process.platform === "win32"
+    ? path.join(process.cwd(), "tools", ".venv", "Scripts", "python.exe")
+    : path.join(process.cwd(), "tools", ".venv", "bin", "python");
+
+  if (fs.existsSync(venvPython)) {
+    it("runs live end-to-end evaluation when local tools environment is provisioned", async () => {
+      const result = await executeSasaEval(mockCysPdb, "A", 182);
+      expect(result.status).toBe("success");
+      if (result.status === "success") {
+        expect(result.resName).toBe("CYS");
+        expect(result.resId).toBe(182);
+        expect(result.sasa).toBeGreaterThan(0);
+      }
+    });
+  }
 });
