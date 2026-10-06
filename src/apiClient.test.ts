@@ -281,6 +281,17 @@ describe("useApiClient Domain Methods & Delegation", () => {
     expect(calledHeaders["X-Gemini-Session-ID"]).toBeUndefined();
   });
 
+  it("loads public context without renewing an expired Gemini session", async () => {
+    sessionStorage.setItem("missenseTransientCredentials", JSON.stringify({
+      geminiApiKey: "AIzaSyTestKey123", geminiSessionId: "expired", geminiSessionExpiresAt: 1
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useApiClient(), { wrapper });
+    await result.current.fetchWithAuth("/api/v1/evidence-context/RGS9/expression");
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/v1/evidence-context/RGS9/expression")).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v1/session/keys" || url === "/api/v1/session/refresh")).toBe(false);
+  });
   it("auto-renews expired session and immediately attaches X-Gemini-Session-ID to outgoing request", async () => {
     sessionStorage.setItem(
       "missenseTransientCredentials",
@@ -498,4 +509,3 @@ describe("useApiClient Domain Methods & Delegation", () => {
     expect(calledHeaders["X-Gemini-Session-ID"]).toBe("valid-session");
   });
 });
-

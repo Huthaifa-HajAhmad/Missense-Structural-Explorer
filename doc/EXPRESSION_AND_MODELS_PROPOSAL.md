@@ -173,9 +173,8 @@ This is an explicit initial implementation choice, **not an installed offline GT
 Next: persisted artifacts for reproducible offline/batch use. GenCC is already atomically installed.
 No context module feeds criteria.ts.
 
-Selections are per gene + protein + variant + transcript/isoform + assembly/resolved locus; browser-session persistence is confirmed by the owner. A separate schema-v2 JSON
-context export includes selections, assertions and source metadata/measurements. Main report/session
-export integration remains follow-up. Exact unverified versions are never printed.
+Selections are per gene + protein + variant + transcript/isoform + assembly/resolved locus; browser-session persistence is confirmed by the owner. Standalone context export was removed at the owner’s request. Main report/session
+integration remains follow-up. Exact unverified versions are never printed.
 The owner confirmed a brief selected-disease summary, coverage gaps and source dates in the main
 report, with full evidence in an appendix.
 
@@ -210,3 +209,5 @@ by §1 here. Original survey figures remain historical observations, not hard-co
 See [review and actual implementation status](EVIDENCE_CONTEXT_REVIEW.md).
 See [implementation re-audit and production runbook](EVIDENCE_CONTEXT_IMPLEMENTATION_AUDIT.md)
 for the owner-approved operator snapshot policy and verified G2P choices beyond GenCC.
+
+Deployed baseline corrections and revised verification: [baseline audit](EVIDENCE_CONTEXT_BASELINE_FIX.md).

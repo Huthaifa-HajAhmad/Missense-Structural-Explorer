@@ -17,6 +17,12 @@ beforeEach(() => {
   useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, phenotypeSelections: {} });
 });
 describe('authenticated context loading and gene isolation', () => {
+  it.each([[401, 'Access denied'], [429, 'Request limit reached'], [503, 'HTTP 503']])('reports HTTP %s without blaming the evidence provider', async (status, message) => {
+    fetchWithAuth.mockResolvedValue({ ok: false, status });
+    const hook = renderHook(() => useEvidenceContext(result('RGS9')));
+    await waitFor(() => expect(hook.result.current.diseaseLoad?.status).toBe('error'));
+    expect(hook.result.current.diseaseLoad?.error).toContain(message);
+  });
   it('discloses a refined transcript identity and retains the original choices without silently assigning them to another reference', async () => {
     fetchWithAuth.mockResolvedValue({ ok: true, json: async () => data('A') });
     const hook = renderHook(({ transcript }) => useEvidenceContext({ ...result('A'), transcriptId: transcript }), { initialProps: { transcript: undefined as string | undefined } });

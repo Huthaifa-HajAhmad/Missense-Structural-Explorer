@@ -1,5 +1,8 @@
 # Evidence context implementation audit
 
+This is the earlier implementation audit. The later [deployed baseline audit](EVIDENCE_CONTEXT_BASELINE_FIX.md)
+supersedes its authentication and standalone export decisions.
+
 Audited from the original proposals through the importers, server routes, shared contracts,
 store, UI, exports and deployment configuration on 2026-10-06. This supplements
 [the research and implementation record](EVIDENCE_CONTEXT_REVIEW.md).
@@ -54,7 +57,7 @@ do not run these npm data commands inside that runner.
    Compose currently mounts `../data:/app/data`. Default names work without extra environment
    variables. Custom GENCC_CONTEXT_PATH/G2P_CONTEXT_PATH/DGTEX_CONTEXT_PATH values must name
    paths inside the container and be explicitly passed to the service environment.
-4. Exercise the authenticated context endpoints for a known gene and inspect provenance;
+4. Exercise the public context GET endpoints for a known gene and inspect provenance;
    missing installation, no curated gene and corrupt installation have different states.
 
 The GTEx adult adapter is still live and requires network access. A reproducible offline
@@ -69,9 +72,8 @@ no production image or deployment was executed in this audit.
    expansion currently supports only two documented allelic mappings. No arbitrary free-text
    or unsupported inheritance is assigned to a curated frame.
 2. **Report and context import next:** add a validated export contract, import preview, source
-   fingerprints and selection identity checks to main report/session round-trips. The current
-   JSON is a separate receipt, not a complete reproducible analysis session. Restored analyses
-   refetch context; exports should be retained when source reproducibility matters.
+   fingerprints and selection identity checks to main report/session round-trips. Standalone context export has been removed at the owner’s request. Restored analyses
+   refetch context; main-report reproducibility remains follow-up.
 3. **Paired biological context:** ClinGen reconciliation/dosage and condition-scoped RCV/SCV
    alongside HPA/assay confidence, coordinate-aware pext, curated orthology and allele/assay
    scoped MGI/ZFIN/IMPC. These are labelled missing in the interface and remain planned.
@@ -114,3 +116,5 @@ remains an efficiency improvement. Nested onset labels are valid accessible HTML
 was demonstrated. Raw reviewer opinions about transcript-specific pext or automatic acceptance are
 superseded by the scientific constraints in the revised proposals.
 No commit, PR or deployment was performed.
+
+Deployed baseline corrections and revised verification: [baseline audit](EVIDENCE_CONTEXT_BASELINE_FIX.md).

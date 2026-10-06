@@ -7,6 +7,7 @@ import { developmentalExpressionResponseSchema } from '../shared/developmentalEx
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import type { AnalysisResult } from '../types';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
+import { ContextHttpError, contextRequestFailure } from '../shared/contextRequest';
 const EMPTY_SELECTION = emptyPhenotypeSelection();
 export function useEvidenceContext(result: AnalysisResult, expression = false) {
   const { fetchWithAuth } = useApiClient();
@@ -26,33 +27,33 @@ export function useEvidenceContext(result: AnalysisResult, expression = false) {
     actions.setDiseaseContext(gene, { status: 'loading', data: null });
     try {
       const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}`, { timeout: 20000 });
-      if (!response.ok) throw new Error('Context request failed');
+      if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = geneDiseaseResponseSchema.parse(await response.json());
       if (data.gene !== gene) throw new Error('Context identity mismatch');
       actions.setDiseaseContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch { actions.setDiseaseContext(gene, { status: 'error', data: null }); }
+    } catch (error) { actions.setDiseaseContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
   };
   const loadExpression = async () => {
     if (!gene || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'loading') return;
     actions.setExpressionContext(gene, { status: 'loading', data: null });
     try {
       const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/expression`, { timeout: 40000 });
-      if (!response.ok) throw new Error('Expression request failed');
+      if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = adultExpressionResponseSchema.parse(await response.json());
       if (data.gene !== gene) throw new Error('Expression identity mismatch');
       actions.setExpressionContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch { actions.setExpressionContext(gene, { status: 'error', data: null }); }
+    } catch (error) { actions.setExpressionContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
   };
   const loadDevelopment = async () => {
     if (!gene || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'loading') return;
     actions.setDevelopmentalContext(gene, { status: 'loading', data: null });
     try {
       const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/development`, { timeout: 20000 });
-      if (!response.ok) throw new Error('Developmental request failed');
+      if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
       const data = developmentalExpressionResponseSchema.parse(await response.json());
       if (data.gene !== gene) throw new Error('Context identity mismatch');
       actions.setDevelopmentalContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
-    } catch { actions.setDevelopmentalContext(gene, { status: 'error', data: null }); }
+    } catch (error) { actions.setDevelopmentalContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
   };
   useEffect(() => { actions.loadPhenotypeSelection(key); }, [key]);
   useEffect(() => {

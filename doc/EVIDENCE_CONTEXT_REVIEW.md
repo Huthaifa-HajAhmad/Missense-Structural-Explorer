@@ -18,8 +18,7 @@ automatically accepted requirements.
 - Default main report: brief selected-disease summary, coverage gaps and source dates;
   full evidence in an appendix.
 
-The owner confirmed browser-session persistence per variant with a separate JSON context
-export, and dGTEx V1 first after tissue/age manifest validation, followed by complementary
+The owner confirmed browser-session persistence per variant and dGTEx V1 first after tissue/age manifest validation, followed by complementary
 atlases. No cross-restart storage.
 
 ## Corrections supported by research
@@ -64,8 +63,7 @@ error and no curated record are distinct states.
 Expression & models displays adult GTEx v10 median gene TPM, tissue anatomy IDs and RNA-seq
 cohort sample counts. Zero stays measured. Review systems reorder presentation; other tissues
 remain reachable. Cartilage, cochlea and ocular coverage gaps are explicit. Adult-reference
-limitations appear for earlier onset selections. A separate JSON context export includes
-selections, source responses and provenance.
+limitations appear for earlier onset selections. Standalone context export was removed at the owner’s request after deployed testing.
 
 The inspector shows the chosen context, interpretation boundary, source release when known,
 retrieval time, terms and fingerprint. Both tabs are registered in navigation and the inspector.
@@ -98,8 +96,7 @@ Second paired slice completed after the owner confirmed the persistence and pedi
   mapping compares AD/monoallelic and AR/biallelic labels. Other allelic scopes remain separate;
   modifiers do not silently establish variant applicability. FGFR3 achondroplasia's “restricted
   mutation set” remains explicit. G2P validity already present in GenCC is not counted again.
-- Browser-session per-variant restoration is tested. Separate context JSON export now includes
-  pediatric observations and G2P source records. Both additions remain context-only.
+- Browser-session per-variant restoration is tested. Standalone context export was subsequently removed at the owner’s request. Both additions remain context-only.
 
 Run `npm run data:dgtex` to download the four public V1 input artifacts and atomically build
 `data/dgtex-context.sqlite`. Python standard library only; no pandas/openpyxl dependency.
@@ -187,3 +184,5 @@ skipped; four Python importer tests, lint and production build passed. Final cli
 bundles were rebuilt after reviewer fixes. Exact-ID choice expansion,
 snapshot consistency and prototype-key recovery have regression coverage. HPO shared context
 is the next paired slice, followed by main report/export round-trips.
+
+Deployed baseline corrections and revised verification: [baseline audit](EVIDENCE_CONTEXT_BASELINE_FIX.md).

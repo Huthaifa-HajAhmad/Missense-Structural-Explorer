@@ -6,7 +6,6 @@ import { buildGeneDiseaseEvidence } from '../../shared/diseaseFrame';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { DiseaseContextPicker } from './DiseaseContextPicker';
 import { MechanismContextCard } from './MechanismContextCard';
-import { EvidenceContextExport } from './EvidenceContextExport';
 
 export function GeneDiseaseTab({ analysisState }: TabComponentProps) {
   if (!analysisState.result) return null;
@@ -16,7 +15,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   const context = useEvidenceContext(result);
   const evidence = buildGeneDiseaseEvidence(context.diseaseLoad?.data ?? null, context.selection.diseaseKey);
   return <div className="ctx-screen" data-testid="gene-disease-screen">
-    <header className="ctx-heading"><div><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Causal relationship, disease mechanism and variant context.</p></div><EvidenceContextExport context={context} result={result} /></header>
+    <header className="ctx-heading"><div><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Causal relationship, disease mechanism and variant context.</p></div></header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
     {evidence.selected && <>
@@ -43,6 +42,5 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
         <div><dt>Variant locus</dt><dd>Disease-conditioned ClinVar context is not integrated yet. Functional domains remain available in their own tab.</dd></div>
       </dl></section>
     </>}
-    <p className="ctx-caption">Expression and model-organism observations belong in Expression &amp; models. These tabs add no ACMG criteria.</p>
   </div>;
 }

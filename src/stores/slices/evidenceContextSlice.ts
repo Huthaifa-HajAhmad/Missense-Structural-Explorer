@@ -4,7 +4,7 @@ import type { AdultExpressionResponse } from '../../shared/expressionModels';
 import type { DevelopmentalExpressionResponse } from '../../shared/developmentalExpression';
 import { phenotypeSelectionSchema, emptyPhenotypeSelection, type PhenotypeSelection } from '../../shared/phenotypeFrame';
 
-export type ContextLoad<T> = { status: 'loading' | 'ready' | 'error'; data: T | null };
+export type ContextLoad<T> = { status: 'loading' | 'ready' | 'error'; data: T | null; error?: string };
 export interface EvidenceContextSlice {
   diseaseContexts: Record<string, ContextLoad<GeneDiseaseResponse>>;
   expressionContexts: Record<string, ContextLoad<AdultExpressionResponse>>;
