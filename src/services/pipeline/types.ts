@@ -9,6 +9,7 @@ export interface TraceContext {
   activeTraceId: string | null;
   traceStart: number;
   addTraceSpan: (span: any) => void;
+  updateTraceSpan?: (traceId: string, spanName: string, updates: any) => void;
   /**
    * End the trace run.
    *
