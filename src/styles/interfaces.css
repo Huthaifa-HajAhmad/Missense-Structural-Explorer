@@ -211,6 +211,13 @@
   color: var(--cs-text-accent); background: var(--cs-surface);
 }
 .ifc-track__more { margin: 8px 0 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+/* Why the track holds no chart: one quiet line, with the request that would fill it. */
+.ifc-track__note {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  margin: 0; padding: 10px 16px 2px; border-top: 1px solid var(--cs-border-subtle);
+  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+}
+.ifc-track__note > span { max-width: 62ch; line-height: 1.5; }
 @container (max-width: 640px) {
   .ifc-track { --ifc-track-label: 116px; --ifc-track-readout: 44px; }
 }
@@ -442,16 +449,14 @@
   padding: 12px 16px; border-bottom: 1px solid var(--cs-border-subtle);
 }
 /* The chart spans the card like the table below it: the tier grid's 1fr bar track ends at the count
-   column, so the longest bar reaches the card's edge and no run of empty pixels is left to its right. */
-.ifc-tiers { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.ifc-tiers__band {
-  display: flex; flex-direction: column; gap: 1px;
-  padding: 5px 8px; margin: 0 -8px; border-radius: 8px;
-}
-.ifc-tiers__band + .ifc-tiers__band { margin-top: 2px; border-top: 1px solid var(--cs-border); padding-top: 7px; }
-.ifc-tiers__band[data-band="association"] { background: var(--cs-surface-2); }
+   column, so the longest bar reaches the card's edge and no run of empty pixels is left to its right.
+   The bands separate by a heading and a rule, like the table's tier groups — no second surface, which
+   read as an inset panel floating in the card rather than as hierarchy. */
+.ifc-tiers { display: flex; flex-direction: column; min-width: 0; }
+.ifc-tiers__band { display: flex; flex-direction: column; gap: 2px; }
+.ifc-tiers__band + .ifc-tiers__band { margin-top: 10px; border-top: 1px solid var(--cs-border); padding-top: 9px; }
 .ifc-tiers__band-head {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 3px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 4px;
 }
 .ifc-tiers__band-title {
   font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold);
@@ -460,9 +465,10 @@
 .ifc-tiers__band[data-band="binding"] .ifc-tiers__band-title { color: var(--cs-text-secondary); }
 .ifc-tiers__band-count {
   font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums;
-  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary);
+  font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-secondary);
 }
-.ifc-tiers__band-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+/* The qualifier reads as a caption under its heading, never as a third voice on the heading line. */
+.ifc-tiers__band-meta { flex: 1 1 100%; margin: 0; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .ifc-tier {
   display: grid; grid-template-columns: 176px minmax(60px, 1fr) 52px; align-items: center; gap: 10px;
   min-height: 22px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: 6px; background: none;

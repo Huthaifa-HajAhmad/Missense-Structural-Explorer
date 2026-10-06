@@ -46,8 +46,7 @@ export function PartnerTiers({
               <span className="ifc-tiers__band-title">{label.title}</span>
               <span className="ifc-tiers__band-count">{total}{capped ? "+" : ""} entries</span>
               <span className="ifc-tiers__band-meta">{label.meta}</span>
-            </p>
-            {b.items.map(g => {
+            </p>            {b.items.map(g => {
               const count = `${g.total}${g.capped ? "+" : ""}`;
               return (
                 <button

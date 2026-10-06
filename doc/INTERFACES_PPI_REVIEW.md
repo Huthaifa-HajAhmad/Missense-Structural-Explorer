@@ -54,13 +54,20 @@ dimer indirectly. The tab does not assert that, because no source on the tab mea
   would cover is not drawn, and when that leaves fewer than two readable ticks the axis re-reads at half
   the step (RGS9 p.Cys182Ser covered "200" and read as a broken axis). The legend strip is drawn only when
   it has a key to explain — a lone variant chip repeated the ruler's own label across a full-width band.
+- **When nothing on the track is a chart, the card says so.** RGS9 is the case: PDBe-KB records no
+  protein-protein interface for it in any solved structure (checked live), so there is no support profile
+  to draw and the track is three UniProt range chips above silence. One quiet line under the track states
+  the absence in PDBe-KB's own words and offers the one chart that can exist: model the complex with
+  Boltz-2, on request; its predicted contacts are charted as a lane of the same track.
 - **Partner tier chart** (`PartnerTiers.tsx`, the chart the user asked about). One bar per evidence tier,
   in two bands: *binding evidence* (assembly 3, solved 2, reported 13, screen 66) and *association only*
   (STRING physical 202, functional 369+). Linear lengths, number printed on each bar, neutral ink. The shape
   is the finding: few attested binders, many associations. The bars double as the filter.
   The chart spans the card like the table below it, and the band hierarchy lives in the chart alone:
-  the grid keeps one heading per tier instead of repeating the band labels. Binding bars carry the
-  stronger ink, association bars the muted one, and each band head reads as one line (title, total, meta).
+  the grid keeps one heading per tier instead of repeating the band labels. Each band head is two lines —
+  the name and its running total, then the qualifier as a caption — and the bands separate by a heading
+  and a rule, like the table's tier groups, with no second surface. Binding bars carry the stronger ink,
+  association bars the muted one.
 - **Where a generic chart was not used.** No scatter of STRING physical against functional (two
   association scores against each other answer no question about the variant). No donut (part-to-whole of
   tiers that overlap in meaning). No chart library: the track shares the residue axis, and the tier bars
