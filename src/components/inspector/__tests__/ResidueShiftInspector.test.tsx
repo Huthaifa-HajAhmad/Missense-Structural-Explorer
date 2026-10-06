@@ -52,16 +52,17 @@ describe("ResidueShiftInspector", () => {
     ]);
   });
 
-  it("draws cut-points as a flat definition list, with the active row marked in words", () => {
+  it("condenses each cut-point group to one scannable row and marks the active band in words", () => {
     render(<ResidueShiftInspector analysisResult={NAE1_RESULT} computedPocket={NAE1_POCKET} />);
     const cuts = screen.getByTestId("residue-cuts");
-    expect(cuts.querySelectorAll("dl.rsx-cuts__list").length).toBeGreaterThan(0);
-    expect(cuts.querySelectorAll("dt.rsx-cut__rule").length).toBeGreaterThan(0);
-    // The active row is identified by its visible marker text, not a fill or a pill.
+    expect(cuts.querySelectorAll(".rsx-cuts__group")).toHaveLength(3);
+    expect(cuts.querySelectorAll(".rsx-cut")).toHaveLength(3);
+    expect(cuts.querySelectorAll(".rsx-cut__rule").length).toBeGreaterThan(0);
+    // The active band is identified by its visible marker text, not a fill or a pill.
     const active = cuts.querySelector("[data-active]");
     expect(active).not.toBeNull();
     expect(active).toHaveTextContent(/largest shift|this variant/);
-    expect(active!.querySelector("dd.rsx-cut__here")).not.toBeNull();
+    expect(active!.querySelector(".rsx-cut__here")).not.toBeNull();
   });
 
   it("labels the narrative as model-written and checks it against the scales", () => {

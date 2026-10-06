@@ -61,15 +61,30 @@ Audit and visual overhaul under `evidence-tab-refactor` and `CHARTING_AND_VISUAL
 | # | Severity | Was | Now |
 |---|---|---|---|
 | F1 | High | Server selected nearest pocket by centroid distance, while the tab and rail displayed and banded distance to the cavity centre. | `server/services/structure/pocket/selection.ts`: selects pocket by cavity centre distance for P2Rank (`selectPocketForResidue`), guaranteeing display and banding alignment. |
-| F2 | Medium | When wild-type and variant had identical values (e.g. net charge 0 → 0), variant marker eclipsed wild-type marker on the track. | `PropertyDumbbell.tsx`: `.rsx-track__same` renders a concentric ring with variant core dot and ARIA disclosure that both share the value. |
+| F2 | Medium | When wild-type and variant had identical values (e.g. net charge 0 → 0), variant marker eclipsed wild-type marker on the track. | `PropertyDumbbell.tsx`: the wild-type ring uses `data-coincident` to remain visible around the variant dot, and the axis has an ARIA description that both share the value. |
 | F3 | Medium | Shift magnitude bands had decimal gaps (e.g. 9 vs 9.1). Rail used "large" while model used "marked". | Model cut-points made gap-free (`> 29 marked`, `> 9 to ≤ 29 moderate`, `> 0 to ≤ 9 slight`), labels standardized. |
 | F4 | Medium | Pocket distance bands in rail inspector lacked exact inequality symbols. | Standardized to `<= 4 Å lining`, `> 4 to <= 8 Å proximal`, `> 8 to <= 12 Å peripheral`, `> 12 Å distal`. |
 | F5 | Low | Fact strip reported "Pocket confidence" while P2Rank outputs a calibrated probability. | Aligned to "Ligand-site probability" (or "P2Rank score" for rescaled raw scores), matching table row. |
 | F6 | Visual | No visual representation of side-chain differences; pure text table. | `ResidueGlyph.tsx`: 2D skeletal bond topology diff for all standard amino acids, showing atoms and bonds kept, lost, and gained on a unified coordinate frame. |
-| F7 | Visual | Property tracks had no amino-acid context; hard to see where other residues sat. | `PropertyDumbbell.tsx`: renders background tick marks for all other standard amino acids with tooltip residue codes and values. |
+| F7 | Visual | Property tracks had no amino-acid context; hard to see where other residues sat. | The Properties card keeps the exact grouped values for every scale in one keyboard-accessible disclosure in its footer. |
 | F8 | Visual | Environment section had separate distance row and 4-column residue grid; no spatial reference. | `PocketDistanceStrip.tsx`: continuous distance axis with 0 Å origin, cut-points, cavity centre marker ◆, and interactive residue buttons. |
 | F9 | Dead space | Excessive whitespace in hero finding and environment cards. | Compact multi-column hero integrating `ResidueGlyph`, dense data layout in `PocketDistanceStrip`. |
 | F10 | Architecture | Rail was dispatched only via `ViewInspector`, falling through in `EvidenceInspector`. | Directly wired in `EvidenceInspector.tsx`. |
+
+## UI polish follow-up (2026-10-05)
+
+This pass changed presentation only. It did not change a reading, cut-point, classification or source.
+
+| # | Severity | Was | Now |
+|---|---|---|---|
+| P1 | Medium | Every distinct value among the other amino acids drew a 1 px mark on each property axis. The marks looked like scientific cut-points and their tooltip-only values were inaccessible from the keyboard. | Each axis now shows only the wild-type and variant readings. One native `<details>` disclosure in the Properties footer retains every scale’s grouped reference values for keyboard and assistive-technology users without repeating a control in every row. |
+| P2 | Medium | The property axis stopped at 440 px inside a flexible table column, leaving a variable gap before the wild-type, variant and shift columns. | The property table uses one fixed column grid and each axis fills its track column, so markers and numeric columns align across rows. |
+| P3 | Medium | Ligand-site probability and cavity size put prose under the axis heading, skipped the value column, then pushed the value to the far-right call column. | The environment table now has four explicit columns: reading, axis or context, value, and interpretation. Every populated row fills all four. |
+| P4 | Low | The hero placed a small residue pair and sentence above a full-width glyph panel with two small centred drawings. | The finding copy and side-chain sketch share a compact two-column body at wide widths and stack at a narrow container width. |
+| P5 | Medium | The inspector listed ten cut-point rows across three groups, making the active band hard to find. | Each evidence group is one compact row containing every exact inequality; the active band alone gains weight and the visible “this variant” marker. |
+| P6 | Low | Dead `.rsx-track__same` and `.rsx-track__same-core` rules described an element the component no longer rendered. | Removed the obsolete rules; the live `data-coincident` ring remains the single coincidence treatment. |
+
+Visual checks used the real `font-mono text-xs` Evidence wrapper at wide light, wide dark and 820 px. The 820 px page has no root overflow; the two evidence tables scroll within their own cards. Dark-theme text sampled from the tab and rail was at least 4.93:1 against its local surface.
 
 ## Sources
 

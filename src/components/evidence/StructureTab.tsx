@@ -7,14 +7,14 @@ import { RESIDUE_SCALE_SOURCES } from "../../shared/residueScales";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { Prose } from "../ui/Prose";
 import { ResidueGlyph } from "./residue/ResidueGlyph";
-import { PropertyDumbbell } from "./residue/PropertyDumbbell";
+import { PropertyDumbbell, PropertyScaleReference } from "./residue/PropertyDumbbell";
 import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
 
 /**
  * Residue Shifts & Pockets — the tab.
  *
  * Three tiers, from one model (`buildResidueContextEvidence`) that the inspector rail also renders:
- *   1. the finding: the residue pair, one sentence, four facts ending in the engine record;
+ *   1. the finding: the residue pair, one sentence, the side-chain sketch and four key facts;
  *   2. residue properties: one row per published scale, the two residues on its own axis;
  *   3. structural environment: burial (measured accessibility, the Cα count as a reading) and the
  *      predicted pocket (one distance, one probability, residues nearest first).
@@ -69,32 +69,33 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
         <h2 className="eyebrow" id="rsx-finding-title">Structural context · not an ACMG input</h2>
         <span className="ev-tier" data-tone="muted">Informational</span>
       </div>
-      <div className="rsx-hero__body rsx-hero__body--split">
-        <div className="rsx-pair">
-          <span className="rsx-pair__fig" data-testid="residue-pair">
-            {pair.wildType || "?"}
-            <span className="rsx-pair__arrow" aria-hidden="true">&rarr;</span>
-            {pair.mutant || "?"}
-          </span>
-          <span className="rsx-pair__sub">
-            {[pair.wildTypeName, pair.mutantName].every(Boolean)
-              ? `${pair.wildTypeName} to ${pair.mutantName}${pair.position ? ` at ${pair.position}` : ""}`
-              : pair.position
-                ? `Position ${pair.position}`
-                : null}
-            {pair.grantham !== null && (
-              <>
-                {" · "}Grantham distance <span className="rsx-mono">{pair.grantham}</span>, {pair.granthamClass}
-              </>
-            )}
-          </span>
+      <div className={`rsx-hero__body rsx-hero__body--split${model.glyph ? "" : " rsx-hero__body--single"}`}>
+        <div className="rsx-hero__copy">
+          <div className="rsx-pair">
+            <span className="rsx-pair__fig" data-testid="residue-pair">
+              {pair.wildType || "?"}
+              <span className="rsx-pair__arrow" aria-hidden="true">&rarr;</span>
+              {pair.mutant || "?"}
+            </span>
+            <span className="rsx-pair__sub">
+              {[pair.wildTypeName, pair.mutantName].every(Boolean)
+                ? `${pair.wildTypeName} to ${pair.mutantName}${pair.position ? ` at ${pair.position}` : ""}`
+                : pair.position
+                  ? `Position ${pair.position}`
+                  : null}
+              {pair.grantham !== null && (
+                <>
+                  {" · "}Grantham distance <span className="rsx-mono">{pair.grantham}</span>, {pair.granthamClass}
+                </>
+              )}
+            </span>
+          </div>
+          <Prose className="rsx-finding" data-testid="residue-finding-text">
+            <strong>{model.finding.headline}</strong> {model.finding.detail}
+          </Prose>
         </div>
-        <Prose className="rsx-finding" data-testid="residue-finding-text">
-          <strong>{model.finding.headline}</strong> {model.finding.detail}
-        </Prose>
-      </div>
-      {model.glyph && (
-        <div className="rsx-hero__glyph">
+        {model.glyph && (
+          <div className="rsx-hero__glyph">
           <ResidueGlyph
             diff={model.glyph}
             wildType={pair.wildType}
@@ -102,8 +103,9 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
             wildTypeName={pair.wildTypeName}
             mutantName={pair.mutantName}
           />
-        </div>
-      )}
+          </div>
+        )}
+      </div>
       <dl className="rsx-facts">
         {model.facts.map(fact => (
           <div className="rsx-fact" key={fact.label}>
@@ -125,11 +127,11 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
     <section className="rsx-card" aria-label="Residue properties" data-testid="residue-properties">
       {properties ? (
         <div className="rsx-table-wrap">
-          <table className="rsx-table">
+          <table className="rsx-table rsx-table--properties">
             <thead>
               <tr>
                 <th scope="col" className="rsx-col-name">Property</th>
-                <th scope="col">Position on the published scale</th>
+                <th scope="col" className="rsx-col-track">Position on the published scale</th>
                 <th scope="col" className="rsx-num rsx-col-val">{pair.wildType}</th>
                 <th scope="col" className="rsx-num rsx-col-val">{pair.mutant}</th>
                 <th scope="col" className="rsx-num rsx-col-shift">Shift</th>
@@ -147,7 +149,6 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
                       row={row}
                       wildType={pair.wildType}
                       mutant={pair.mutant}
-                      contextTicks={model.scaleContext[row.key]}
                     />
                   </td>
                   <td className="rsx-num">{row.wildTypeNative ?? row.wildTypeValue}</td>
@@ -189,6 +190,11 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
         <span>
           Shift is the share of each scale&apos;s range. The scales describe the two residues, not an effect on this protein.
         </span>
+        {properties && (
+          <PropertyScaleReference
+            items={properties.map(row => ({ key: row.key, label: row.label, ticks: model.scaleContext[row.key] }))}
+          />
+        )}
       </div>
     </section>
   );
@@ -222,12 +228,13 @@ function Environment({
   return (
     <section className="rsx-card" aria-label="Structural environment" data-testid="residue-environment">
       <div className="rsx-table-wrap">
-        <table className="rsx-table">
+        <table className="rsx-table rsx-table--environment">
           <thead>
             <tr>
               <th scope="col" className="rsx-col-name">Reading</th>
-              <th scope="col">Value on its own axis</th>
-              <th scope="col" colSpan={2} className="rsx-num rsx-end">Value · reads as</th>
+              <th scope="col">Axis or context</th>
+              <th scope="col" className="rsx-num rsx-col-reading">Value</th>
+              <th scope="col" className="rsx-end rsx-col-call">Reads as</th>
             </tr>
           </thead>
           <tbody>
@@ -303,7 +310,8 @@ function Environment({
                           label={`${packing.valueLabel} Cα atoms within 10 Å. Shown as a reading; it does not decide burial.`}
                         />
                       </td>
-                      <td className="rsx-num rsx-end" colSpan={2}>{packing.valueLabel}</td>
+                      <td className="rsx-num rsx-end">{packing.valueLabel}</td>
+                      <td className="rsx-end rsx-reason">Does not decide burial</td>
                     </>
                   ) : (
                     <td colSpan={3} className="rsx-reason">Not reported.</td>
@@ -365,30 +373,32 @@ function Environment({
                       {pocket.ranking.kind === "probability" ? "P2Rank, this profile only" : "not a probability"}
                     </span>
                   </td>
-                  <td colSpan={2} className="rsx-reason">
+                  <td className="rsx-reason">
                     {pocket.ranking.kind === "probability"
                       ? "P2Rank's estimate that this cavity binds a ligand"
                       : pocket.ranking.kind === "rescaled_raw_score"
                         ? "The probability rounded to zero, so the runner reports a rescaled score"
                         : "This result does not say whether the score is a probability"}
                   </td>
-                  <td className="rsx-num rsx-end" colSpan={2}>{pocket.ranking.display ?? "Not reported"}</td>
+                  <td className="rsx-num rsx-end">{pocket.ranking.display ?? "Not reported"}</td>
+                  <td className="rsx-end rsx-reason">No local band</td>
                 </tr>
                 <tr data-testid="pocket-volume-row">
                   <td>
                     <span className="rsx-name">Cavity size</span>
                     <span className="rsx-note">{pocket.volume.isMeasured ? "measured volume" : "surface points"}</span>
                   </td>
-                  <td colSpan={2} className="rsx-reason">
+                  <td className="rsx-reason">
                     {pocket.volume.isMeasured ? `${pocket.volume.label}: ${pocket.volume.detail}` : "No volume was measured, so none is quoted"}
                   </td>
-                  <td className="rsx-num rsx-end" colSpan={2}>
+                  <td className="rsx-num rsx-end">
                     {pocket.volume.isMeasured && pocket.volume.volume !== null
                       ? `${pocket.volume.volume.toLocaleString()} Å³`
                       : pocket.volume.surfacePoints !== null
                         ? pocket.volume.surfacePoints
                         : "Not reported"}
                   </td>
+                  <td className="rsx-end rsx-reason">{pocket.volume.isMeasured ? "Measured geometry" : "Count, not volume"}</td>
                 </tr>
               </>
             ) : (
