@@ -89,6 +89,20 @@ jobs:
         # NOT part of `npm run verify`: it resolves against a live advisory database, so its verdict
         # depends on when it runs rather than on the tree, and a developer cannot fix a newly-published
         # advisory by editing code. Allow-listed in `scripts/check-verify-parity.ts` with that reason.
+        #
+        # `--omit=dev` (set in the script, not here) scopes the gate to the dependencies that ship:
+        # `deploy/Dockerfile.oci` installs the runtime tree with `npm ci --omit=dev`, so production-only
+        # is the set that reaches users, and a critical there is always actionable here. A dev-only
+        # critical may be unfixable by any edit to this repository. Measured on 2026-10-06: new
+        # advisories landed between 21:30 and 08:25 and turned this step red on three unrelated PRs at
+        # once, `main` included. Four of the five criticals were `simple-git` and `@simple-git/argv-parser`,
+        # reachable only through `@zvec/zvec-grep`'s optional `node-llama-cpp` — dev-only search tooling —
+        # and no fix exists upstream: `node-llama-cpp@latest` still declares `simple-git: ^3.36.0` while
+        # the advisory covers everything `<= 4.0.1`, so that caret can never satisfy it. npm's own
+        # suggested remedy was to *downgrade* `@zvec/zvec-grep`, which would break `npm run search`
+        # rather than patch anything. The fifth, `proxy-addr`, was a genuine production critical and is
+        # fixed here by taking the lockfile from 2.0.7 to 2.0.8. A gate nobody can turn green is a gate
+        # that gets baselined or bypassed; dev advisories are still reported by `npm audit`, just not fatal.
         run: npm run audit
 
       - name: Run linter
