@@ -1,0 +1,633 @@
+{
+  "data": [
+    {
+      "name": "gs://developmental-gtex/annotations/",
+      "displayName": "Metadata",
+      "description": "",
+      "order": 8,
+      "parent": "gs://developmental-gtex/",
+      "children": {
+        "files": [],
+        "folders": [
+          {
+            "name": "gs://developmental-gtex/annotations/v1/",
+            "displayName": "dGTEx Analysis V1",
+            "description": "The pilot release of the Developmental GTEx (dGTEx) Project.",
+            "order": 1,
+            "parent": "gs://developmental-gtex/annotations/",
+            "children": {
+              "files": [],
+              "folders": [
+                {
+                  "name": "gs://developmental-gtex/annotations/v1/metadata-files/",
+                  "displayName": "Metadata Files",
+                  "description": "",
+                  "order": 1,
+                  "parent": "gs://developmental-gtex/annotations/v1/",
+                  "children": {
+                    "files": [
+                      {
+                        "displayName": "dGTEx_Analysis_2026-01-30_v1_Sample_Attributes_Dataset_DS_open.xlsx",
+                        "description": "A de-identified, open access version of the sample annotations available in dbGaP.",
+                        "fileSize": 328074,
+                        "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Sample_Attributes_Dataset_DS_open.xlsx",
+                        "order": 3,
+                        "parent": "gs://developmental-gtex/annotations/v1/metadata-files/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2026-01-30_v1_Sample_Attributes_Public_DD.xlsx",
+                        "description": "A data dictionary that describes each column in dGTEx_Analysis_2026-01-30_v1_Sample_Attributes_Dataset_DS_open.tx.",
+                        "fileSize": 125479,
+                        "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Sample_Attributes_Public_DD.xlsx",
+                        "order": 1,
+                        "parent": "gs://developmental-gtex/annotations/v1/metadata-files/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Dataset_DS_open.xlsx",
+                        "description": "A de-identified, open access version of the subject phenotypes available in dbGaP.",
+                        "fileSize": 11502,
+                        "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Dataset_DS_open.xlsx",
+                        "order": 4,
+                        "parent": "gs://developmental-gtex/annotations/v1/metadata-files/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Public_DD.xlsx",
+                        "description": "A data dictionary that describes each column in dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Dataset_DS_open.txt .",
+                        "fileSize": 44094,
+                        "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Public_DD.xlsx",
+                        "order": 2,
+                        "parent": "gs://developmental-gtex/annotations/v1/metadata-files/"
+                      }
+                    ],
+                    "folders": []
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "gs://developmental-gtex/bulk-gex/",
+      "displayName": "Bulk Tissue Expression",
+      "description": "",
+      "order": 1,
+      "parent": "gs://developmental-gtex/",
+      "children": {
+        "files": [],
+        "folders": [
+          {
+            "name": "gs://developmental-gtex/bulk-gex/v1/",
+            "displayName": "dGTEx Analysis V1",
+            "description": "The pilot release of the Developmental GTEx (dGTEx) Project.",
+            "order": 1,
+            "parent": "gs://developmental-gtex/bulk-gex/",
+            "children": {
+              "files": [],
+              "folders": [
+                {
+                  "name": "gs://developmental-gtex/bulk-gex/v1/rna-seq/",
+                  "displayName": "RNA-Seq",
+                  "description": "",
+                  "order": 1,
+                  "parent": "gs://developmental-gtex/bulk-gex/v1/",
+                  "children": {
+                    "files": [
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_exon_reads.gct.gz",
+                        "description": "Exon read counts.",
+                        "fileSize": 240209415,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_exon_reads.gct.gz",
+                        "order": 9,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_exon_reads.parquet",
+                        "description": "Exon read counts.",
+                        "fileSize": 389766065,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_exon_reads.parquet",
+                        "order": 10,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_reads.gct.gz",
+                        "description": "Gene Expression Read Counts from RNASeQCv2.4.3.",
+                        "fileSize": 19066862,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_reads.gct.gz",
+                        "order": 1,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_reads.parquet",
+                        "description": "Gene Expression Read Counts from RNASeQCv2.4.3.",
+                        "fileSize": 38640780,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_reads.parquet",
+                        "order": 2,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_tpm.gct.gz",
+                        "description": "Gene Expression Transcripts Per Million (TPM) from RNASeQCv2.4.3.",
+                        "fileSize": 43037818,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_tpm.gct.gz",
+                        "order": 3,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_tpm.parquet",
+                        "description": "Gene Expression Transcripts Per Million (TPM) from RNASeQCv2.4.3.",
+                        "fileSize": 71429389,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_tpm.parquet",
+                        "order": 4,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RSEMv1.3.3_transcripts_expected_count.txt.gz",
+                        "description": "Expressed Transcript read counts from RSEMv.1.3.3.",
+                        "fileSize": 86161655,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RSEMv1.3.3_transcripts_expected_count.txt.gz",
+                        "order": 7,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_RSEMv1.3.3_transcripts_tpm.txt.gz",
+                        "description": "Transctipt TPMs from RSEMv.1.3.3.",
+                        "fileSize": 61228993,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RSEMv1.3.3_transcripts_tpm.txt.gz",
+                        "order": 8,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      },
+                      {
+                        "displayName": "dGTEx_Analysis_2025-07-21_v1_STARv2.7.11b_junctions.gct.gz",
+                        "description": "Exon-exon junction read counts from STARv2.7.11b",
+                        "fileSize": 91324275,
+                        "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_STARv2.7.11b_junctions.gct.gz",
+                        "order": 6,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/"
+                      }
+                    ],
+                    "folders": [
+                      {
+                        "name": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/",
+                        "displayName": "Gene read counts by tissue",
+                        "description": "",
+                        "order": 11,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/",
+                        "children": {
+                          "files": [
+                            {
+                              "displayName": "gene_reads_dgtex_v1_adipose_tissue.gct.gz",
+                              "description": "Gene read counts for Adipose Tissue.",
+                              "fileSize": 2786541,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_adipose_tissue.gct.gz",
+                              "order": 1,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_adrenal_gland.gct.gz",
+                              "description": "Gene read counts for Adrenal Gland.",
+                              "fileSize": 1015839,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_adrenal_gland.gct.gz",
+                              "order": 3,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_blood_vessel.gct.gz",
+                              "description": "Gene read counts for Blood Vessel.",
+                              "fileSize": 1005770,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_blood_vessel.gct.gz",
+                              "order": 4,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_brain.gct.gz",
+                              "description": "Gene read counts for Brain.",
+                              "fileSize": 918768,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_brain.gct.gz",
+                              "order": 8,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_colon.gct.gz",
+                              "description": "Gene read counts for Colon.",
+                              "fileSize": 2169448,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_colon.gct.gz",
+                              "order": 26,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_esophagus.gct.gz",
+                              "description": "Gene read counts for Esophagus.",
+                              "fileSize": 1701524,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_esophagus.gct.gz",
+                              "order": 31,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_heart.gct.gz",
+                              "description": "Gene read counts for Heart.",
+                              "fileSize": 1036043,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_heart.gct.gz",
+                              "order": 35,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_kidney.gct.gz",
+                              "description": "Gene read counts for Kidney.",
+                              "fileSize": 835256,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_kidney.gct.gz",
+                              "order": 37,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_liver.gct.gz",
+                              "description": "Gene read counts for Liver.",
+                              "fileSize": 1220017,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_liver.gct.gz",
+                              "order": 39,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_lung.gct.gz",
+                              "description": "Gene read counts for Lung.",
+                              "fileSize": 2820147,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_lung.gct.gz",
+                              "order": 43,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_lymph_node.gct.gz",
+                              "description": "Gene read counts for Lymph Node.",
+                              "fileSize": 1783936,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_lymph_node.gct.gz",
+                              "order": 57,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_muscle.gct.gz",
+                              "description": "Gene read counts for Muscle.",
+                              "fileSize": 3046753,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_muscle.gct.gz",
+                              "order": 45,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_nerve.gct.gz",
+                              "description": "Gene read counts for Nerve.",
+                              "fileSize": 1219371,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_nerve.gct.gz",
+                              "order": 46,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_ovary.gct.gz",
+                              "description": "Gene read counts for Ovary.",
+                              "fileSize": 749277,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_ovary.gct.gz",
+                              "order": 47,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_pancreas.gct.gz",
+                              "description": "Gene read counts for Pancreas.",
+                              "fileSize": 888564,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_pancreas.gct.gz",
+                              "order": 48,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_pituitary.gct.gz",
+                              "description": "Gene read counts for Pituitary.",
+                              "fileSize": 750246,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_pituitary.gct.gz",
+                              "order": 52,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_skin.gct.gz",
+                              "description": "Gene read counts for Skin.",
+                              "fileSize": 1981056,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_skin.gct.gz",
+                              "order": 54,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_small_intestine.gct.gz",
+                              "description": "Gene read counts for Small Intestine.",
+                              "fileSize": 2115477,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_small_intestine.gct.gz",
+                              "order": 56,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_spleen.gct.gz",
+                              "description": "Gene read counts for Spleen.",
+                              "fileSize": 1164110,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_spleen.gct.gz",
+                              "order": 59,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_stomach.gct.gz",
+                              "description": "Gene read counts for Stomach.",
+                              "fileSize": 1415929,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_stomach.gct.gz",
+                              "order": 60,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_testis.gct.gz",
+                              "description": "Gene read counts for Testis.",
+                              "fileSize": 1409067,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_testis.gct.gz",
+                              "order": 67,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_thymus.gct.gz",
+                              "description": "Gene read counts for Thymus.",
+                              "fileSize": 673579,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_thymus.gct.gz",
+                              "order": 67,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_thyroid.gct.gz",
+                              "description": "Gene read counts for Thyroid.",
+                              "fileSize": 1603841,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_thyroid.gct.gz",
+                              "order": 64,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_reads_dgtex_v1_uterus.gct.gz",
+                              "description": "Gene read counts for Uterus.",
+                              "fileSize": 820487,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/gene_reads_dgtex_v1_uterus.gct.gz",
+                              "order": 65,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/counts-by-tissue/"
+                            }
+                          ],
+                          "folders": []
+                        }
+                      },
+                      {
+                        "name": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/",
+                        "displayName": "Gene TPMs by tissue",
+                        "description": "",
+                        "order": 12,
+                        "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/",
+                        "children": {
+                          "files": [
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_adipose_tissue.gct.gz",
+                              "description": "Gene TPMs for Adipose Tissue.",
+                              "fileSize": 5472520,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_adipose_tissue.gct.gz",
+                              "order": 1,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_adrenal_gland.gct.gz",
+                              "description": "Gene TPMs for Adrenal Gland.",
+                              "fileSize": 1494470,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_adrenal_gland.gct.gz",
+                              "order": 3,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_blood_vessel.gct.gz",
+                              "description": "Gene TPMs for Blood Vessel.",
+                              "fileSize": 1473150,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_blood_vessel.gct.gz",
+                              "order": 4,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_brain.gct.gz",
+                              "description": "Gene TPMs for Brain.",
+                              "fileSize": 1279906,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_brain.gct.gz",
+                              "order": 8,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_colon.gct.gz",
+                              "description": "Gene TPMs for Colon.",
+                              "fileSize": 4055198,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_colon.gct.gz",
+                              "order": 26,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_esophagus.gct.gz",
+                              "description": "Gene TPMs for Esophagus.",
+                              "fileSize": 3008696,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_esophagus.gct.gz",
+                              "order": 31,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_heart.gct.gz",
+                              "description": "Gene TPMs for Heart.",
+                              "fileSize": 1532816,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_heart.gct.gz",
+                              "order": 35,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_kidney.gct.gz",
+                              "description": "Gene TPMs for Kidney.",
+                              "fileSize": 1093760,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_kidney.gct.gz",
+                              "order": 37,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_liver.gct.gz",
+                              "description": "Gene TPMs for Liver.",
+                              "fileSize": 1965741,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_liver.gct.gz",
+                              "order": 39,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_lung.gct.gz",
+                              "description": "Gene TPMs for Lung.",
+                              "fileSize": 5618171,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_lung.gct.gz",
+                              "order": 43,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_lymph_node.gct.gz",
+                              "description": "Gene TPMs for Lymph Node.",
+                              "fileSize": 3234374,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_lymph_node.gct.gz",
+                              "order": 57,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_muscle.gct.gz",
+                              "description": "Gene TPMs for Muscle.",
+                              "fileSize": 6149355,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_muscle.gct.gz",
+                              "order": 45,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_nerve.gct.gz",
+                              "description": "Gene TPMs for Nerve.",
+                              "fileSize": 1935208,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_nerve.gct.gz",
+                              "order": 46,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_ovary.gct.gz",
+                              "description": "Gene TPMs for Ovary.",
+                              "fileSize": 926697,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_ovary.gct.gz",
+                              "order": 47,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_pancreas.gct.gz",
+                              "description": "Gene TPMs for Pancreas.",
+                              "fileSize": 1200669,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_pancreas.gct.gz",
+                              "order": 48,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_pituitary.gct.gz",
+                              "description": "Gene TPMs for Pituitary.",
+                              "fileSize": 928212,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_pituitary.gct.gz",
+                              "order": 52,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_skin.gct.gz",
+                              "description": "Gene TPMs for Skin.",
+                              "fileSize": 3644423,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_skin.gct.gz",
+                              "order": 54,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_small_intestine.gct.gz",
+                              "description": "Gene TPMs for Small Intestine.",
+                              "fileSize": 3956311,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_small_intestine.gct.gz",
+                              "order": 56,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_spleen.gct.gz",
+                              "description": "Gene TPMs for Spleen.",
+                              "fileSize": 1831372,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_spleen.gct.gz",
+                              "order": 59,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_stomach.gct.gz",
+                              "description": "Gene TPMs for Stomach.",
+                              "fileSize": 2369951,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_stomach.gct.gz",
+                              "order": 60,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_testis.gct.gz",
+                              "description": "Gene TPMs for Testis.",
+                              "fileSize": 2438071,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_testis.gct.gz",
+                              "order": 67,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_thymus.gct.gz",
+                              "description": "Gene TPMs for Thymus.",
+                              "fileSize": 774589,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_thymus.gct.gz",
+                              "order": 67,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_thyroid.gct.gz",
+                              "description": "Gene TPMs for Thyroid.",
+                              "fileSize": 2755702,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_thyroid.gct.gz",
+                              "order": 64,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            },
+                            {
+                              "displayName": "gene_tpm_dgtex_v1_uterus.gct.gz",
+                              "description": "Gene TPMs for Uterus.",
+                              "fileSize": 1069031,
+                              "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/gene_tpm_dgtex_v1_uterus.gct.gz",
+                              "order": 65,
+                              "parent": "gs://developmental-gtex/bulk-gex/v1/rna-seq/tpms-by-tissue/"
+                            }
+                          ],
+                          "folders": []
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "gs://developmental-gtex/references/",
+      "displayName": "Reference",
+      "description": "",
+      "order": 7,
+      "parent": "gs://developmental-gtex/",
+      "children": {
+        "files": [],
+        "folders": [
+          {
+            "name": "gs://developmental-gtex/references/v1/",
+            "displayName": "dGTEx Analysis V1",
+            "description": "The pilot release of the Developmental GTEx (dGTEx) Project.",
+            "order": 1,
+            "parent": "gs://developmental-gtex/references/",
+            "children": {
+              "files": [],
+              "folders": [
+                {
+                  "name": "gs://developmental-gtex/references/v1/reference-tables/",
+                  "displayName": "Reference Tables",
+                  "description": "",
+                  "order": 1,
+                  "parent": "gs://developmental-gtex/references/v1/",
+                  "children": {
+                    "files": [
+                      {
+                        "displayName": "gencode.v47.genes.collapsed.stranded.gtf",
+                        "description": "Collapsed and strand-specific version of the GENCODE v47 gene annotation file, containing one transcript per gene (representative model) for use in stranded RNA-seq quantification and QC pipelines (e.g., RNA-SeQC).",
+                        "fileSize": 182618178,
+                        "url": "https://storage.googleapis.com/developmental-gtex/references/v1/reference-tables/gencode.v47.genes.collapsed.stranded.gtf",
+                        "order": 1,
+                        "parent": "gs://developmental-gtex/references/v1/reference-tables/"
+                      }
+                    ],
+                    "folders": []
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

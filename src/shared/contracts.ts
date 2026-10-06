@@ -82,6 +82,10 @@ export const clinVarDataSchema = z.object({
     )
   })),
   trait: z.string(),
+  /** Raw condition identifiers retained for an explicit disease choice; no label-based matching. */
+  conditions: z.array(z.object({
+    label: z.string(), xrefs: z.array(z.object({ source: z.string(), id: z.string() }))
+  })).optional(),
   uid: z.string().nullable(),
   hasOtherPathogenicVariantSameAA: z.boolean().optional()
 });

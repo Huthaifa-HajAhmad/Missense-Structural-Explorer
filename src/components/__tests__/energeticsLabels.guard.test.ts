@@ -27,6 +27,12 @@ const REPO_ROOT = process.cwd();
 
 /** The surfaces that must render engine state exclusively from `src/shared/engineStatus.ts`. */
 const GUARDED_SURFACES = [
+  'src/components/evidence/DevelopmentalExpressionCard.tsx',
+  'src/components/evidence/MechanismContextCard.tsx',
+  'src/components/evidence/GeneDiseaseTab.tsx',
+  'src/components/evidence/ExpressionModelsTab.tsx',
+  'src/components/evidence/DiseaseContextPicker.tsx',
+  'src/components/inspector/EvidenceContextRail.tsx',
   "src/components/EnergeticsView.tsx",
   "src/components/inspector/EnergeticsInspector.tsx",
   // The Energetics evidence model and its ruler, which every Energetics surface now renders from.

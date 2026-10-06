@@ -9,6 +9,9 @@ data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
 data/*.csv
+data/dgtex-v1-input
+data/gencc-context.json
+data/g2p-context.json
 
 # RaSP index-build leftovers. Excluded 2026-09-30, after they broke CD on the deploy host.
 #

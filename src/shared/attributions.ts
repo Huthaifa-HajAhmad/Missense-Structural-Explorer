@@ -84,6 +84,38 @@ export interface AttributionGroup {
  */
 const REFERENCE_SOURCES: AttributionEntry[] = [
   {
+    id: 'dgtex', name: 'Developmental GTEx', provider: 'dGTEx Consortium / NDRI / Broad Institute', kind: 'dataset',
+    role: 'Pediatric tissue and public age-cohort gene TPM, summarized by donor from a locally installed snapshot; context only.',
+    url: 'https://gtexportal.org/home/downloads/developmental-gtex', release: 'dGTEx Analysis V1 / GENCODE v47',
+    releaseNote: 'Pinned data may differ from the latest portal release. Public age cohorts do not disclose exact ages.',
+    citation: 'Coorens, T. H. H., et al. (2025). The human and non-human primate developmental GTEx projects. Nature 637, 557–564. https://doi.org/10.1038/s41586-024-08244-9',
+    licence: 'GTEx Portal data licence: attribution, no endorsement, and disclose when distributed data is not current.',
+    usedBy: ['scripts/import-dgtex-context.py', 'server/services/evidence-context/dgtex.ts', 'src/components/evidence/DevelopmentalExpressionCard.tsx'],
+  },
+  {
+    id: 'g2p', name: 'Gene2Phenotype', provider: 'EMBL-EBI / G2P curators', kind: 'dataset',
+    role: 'Gene–disease mechanism records retaining allelic requirement, modifiers, confidence and support; context only.',
+    url: 'https://www.ebi.ac.uk/gene2phenotype/', release: null,
+    releaseNote: 'Operator bulk snapshot fingerprint and review dates are retained; no release identifier is invented.',
+    citation: null, licence: 'EMBL-EBI Terms of Use; source attribution requested. No CC licence is inferred from the paper or software.',
+    usedBy: ['scripts/import-g2p-context.ts', 'server/services/evidence-context/g2p.ts', 'src/components/evidence/MechanismContextCard.tsx'],
+  },
+  {
+    id: 'gencc', name: 'GenCC', provider: 'Gene Curation Coalition and contributing submitters', kind: 'dataset',
+    role: 'Per-submitter gene–disease validity assertions, scoped to disease and inheritance; context only.',
+    url: 'https://thegencc.org/', release: null,
+    releaseNote: 'The installed snapshot reports its retrieval time and hash; no source release identifier is invented.',
+    citation: null, licence: 'CC0 1.0; attribution requested to GenCC and contributing sources.',
+    usedBy: ['scripts/import-gencc-context.ts', 'server/services/evidence-context/gencc.ts', 'src/components/evidence/GeneDiseaseTab.tsx'],
+  },
+  {
+    id: 'gtex', name: 'GTEx', provider: 'GTEx Consortium / Broad Institute', kind: 'dataset',
+    role: 'Adult tissue median gene expression and RNA-seq cohort sample counts; context only.',
+    url: 'https://gtexportal.org/', release: 'gtex_v10 / GENCODE v39',
+    citation: null, licence: 'GTEx portal data-use and citation policies apply.',
+    usedBy: ['server/services/evidence-context/gtex.ts', 'src/components/evidence/ExpressionModelsTab.tsx'],
+  },
+  {
     id: "gnomad",
     name: "gnomAD",
     provider: "Broad Institute (gnomAD Consortium)",
@@ -768,6 +800,7 @@ export const QUERY_TRANSMISSION = {
   blurb:
     "A query is resolved by sending the notation, and then the identifiers it resolves to, to the hosts below. None of them receives a patient identifier: what leaves the machine is a gene symbol, an HGVS notation, a genomic coordinate, a UniProt accession, a PDB id, a RefSeq transcript id, a sequence, or a free-text literature query.",
   hosts: [
+    { host: "gtexportal.org", sent: "Gene symbol, resolved GENCODE gene identifier and tissue metadata request", note: "Adult GTEx v10 expression context. Disease, onset and review-system selections stay in the browser." },
     { host: "rest.ensembl.org · grch37.rest.ensembl.org", sent: "Gene symbol, HGVS notation, transcript or genomic coordinate", note: "Ensembl VEP. The host is chosen from the genome build, so a GRCh37 notation never reaches the GRCh38 endpoint." },
     { host: "rest.variantvalidator.org", sent: "Gene symbol and HGVS notation", note: "Consulted for validation and isoform numbering only." },
     { host: "myvariant.info", sent: "Gene symbol and protein change", note: "Fallback route; its records are hg19-keyed." },

@@ -10,6 +10,7 @@ import { registerStructureRoutes } from "./structure.ts";
 import { registerBiophysicsRoutes } from "./biophysics.ts";
 import { registerSessionRoutes } from "./session.ts";
 import { docsRouter } from "./docs.ts";
+import { registerEvidenceContextRoutes } from "./evidence-context.ts";
 
 export function registerAllRoutes(
   apiRouter: Router,
@@ -18,6 +19,7 @@ export function registerAllRoutes(
 ): void {
   registerHealthRoutes(apiRouter);
   registerCapabilitiesRoutes(apiRouter);
+  registerEvidenceContextRoutes(apiRouter);
   apiRouter.use(docsRouter);
   registerVariantRoutes(apiRouter, jsonParserRegular);
   registerStructureRoutes(apiRouter, jsonParserRegular, jsonParserPdb);

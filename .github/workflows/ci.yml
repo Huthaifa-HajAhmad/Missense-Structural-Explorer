@@ -115,6 +115,9 @@ jobs:
       - name: Test deployment failure paths
         run: npm run test:deployment
 
+      - name: Test evidence context imports
+        run: npm run test:evidence-context-import
+
       # Was its own job, running in parallel with the tests. Both were already paying for their own
       # checkout, setup-node and `npm ci`; the build is 22s, so the parallelism bought wall-clock at
       # the price of a whole second job's billed setup. See the header comment.

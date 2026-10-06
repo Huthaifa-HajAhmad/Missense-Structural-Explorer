@@ -18,6 +18,7 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 import { humaniseAnyRefusal } from "../../shared/evidenceAvailability";
 import { FunctionRail } from "./FunctionRail";
 import { PopulationRail } from "./PopulationRail";
+import { EvidenceContextRail } from './EvidenceContextRail';
 import { InterfacesRail } from "./InterfacesRail";
 import { PredictorsRail } from "./PredictorsRail";
 import { normalizeEvidenceTab } from "../evidence/types";
@@ -56,6 +57,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {tab === "function" && <FunctionRail analysisResult={analysisResult} />}
 
       {tab === "clinical" && <PopulationRail analysisResult={analysisResult} />}
+      {(tab === 'gene-disease' || tab === 'expression-models') && <EvidenceContextRail analysisResult={analysisResult} expression={tab === 'expression-models'} />}
 
       {tab === "predictors" && <PredictorsRail analysisResult={analysisResult} />}
 
@@ -64,7 +66,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {tab === "structure" && <ResidueShiftInspector analysisResult={analysisResult} />}
 
       {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "structure" && (
+      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "structure" && tab !== 'gene-disease' && tab !== 'expression-models' && (
         <div className="flex flex-col gap-3">
           <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />
@@ -100,5 +102,4 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
 };
 
 export default React.memo(EvidenceInspector);
-
 

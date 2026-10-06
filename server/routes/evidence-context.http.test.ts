@@ -1,0 +1,42 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import express from 'express';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { apiRouter } from '../routes';
+import { loadGeneDiseaseContext } from '../services/evidence-context/store';
+import { fetchAdultExpression } from '../services/evidence-context/gtex';
+import { loadDevelopmentalExpression } from '../services/evidence-context/dgtex';
+vi.mock('../services/evidence-context/store', () => ({ loadGeneDiseaseContext: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', frames: [], provenance: null, message: 'Missing snapshot' })) }));
+vi.mock('../services/evidence-context/g2p', () => ({ loadMechanismContext: vi.fn(async () => ({ status: 'not-installed', records: [], provenance: null, message: 'Missing snapshot' })) }));
+vi.mock('../services/evidence-context/gtex', () => ({ fetchAdultExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-found', tissues: [], provenance: null, message: null })) }));
+vi.mock('../services/evidence-context/dgtex', () => ({ loadDevelopmentalExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', observations: [], provenance: null, message: 'Missing snapshot' })) }));
+
+describe('evidence context through the authenticated API router', () => {
+  let server: Server; let base: string;
+  const prior = process.env.APP_API_TOKEN; const token = 'context-http-test-token-fixed-32-chars';
+  beforeAll(async () => {
+    process.env.APP_API_TOKEN = token;
+    const app = express(); app.use('/api/v1', apiRouter);
+    await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => { base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/evidence-context`; resolve(); }); });
+  });
+  afterAll(async () => {
+    if (prior === undefined) delete process.env.APP_API_TOKEN; else process.env.APP_API_TOKEN = prior;
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  });
+  const request = (suffix: string, authenticated = true) => fetch(base + suffix, { headers: authenticated ? { Authorization: `Bearer ${token}` } : {} });
+  it('protects all three sources and does not call adapters for unauthenticated requests', async () => {
+    for (const suffix of ['/TEST', '/TEST/expression', '/TEST/development']) expect((await request(suffix, false)).status).toBe(401);
+    expect(loadGeneDiseaseContext).not.toHaveBeenCalled(); expect(fetchAdultExpression).not.toHaveBeenCalled(); expect(loadDevelopmentalExpression).not.toHaveBeenCalled();
+  });
+  it('rejects malformed symbols before source retrieval', async () => {
+    expect((await request('/bad%20symbol')).status).toBe(400);
+    expect(loadGeneDiseaseContext).not.toHaveBeenCalled();
+  });
+  it('retains distinct unavailable states and passes the exact symbol to each adapter', async () => {
+    const validity = await request('/TEST'); expect(validity.status).toBe(200);
+    expect(await validity.json()).toMatchObject({ gene: 'TEST', status: 'not-installed', mechanismContext: { status: 'not-installed' } });
+    expect(await (await request('/TEST/expression')).json()).toMatchObject({ gene: 'TEST', status: 'not-found' });
+    expect(await (await request('/TEST/development')).json()).toMatchObject({ gene: 'TEST', status: 'not-installed' });
+    expect(loadGeneDiseaseContext).toHaveBeenCalledWith('TEST'); expect(fetchAdultExpression).toHaveBeenCalledWith('TEST'); expect(loadDevelopmentalExpression).toHaveBeenCalledWith('TEST');
+  });
+});
