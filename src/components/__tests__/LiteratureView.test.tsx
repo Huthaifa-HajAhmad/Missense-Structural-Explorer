@@ -88,7 +88,7 @@ describe("Literature tab — the finding", () => {
     renderView();
     const finding = await screen.findByTestId("literature-finding");
     await waitFor(() => expect(within(finding).getByTestId("literature-figure").textContent).toBe("0"));
-    expect(finding.textContent).toContain("Europe PMC holds no record that names p.Asp116Gly.");
+    expect(finding.textContent).toContain("No matches for the searched protein notations of p.Asp116Gly.");
     expect(finding.textContent).toContain("matched 0 records");
     expect(finding.textContent).toContain("another notation");
     expect(finding.textContent).not.toMatch(/no evidence|benign|N\/A/i);
@@ -130,7 +130,7 @@ describe("Literature tab — the papers", () => {
     await screen.findByTestId("paper-41695624");
     fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
     const row = await screen.findByTestId("paper-PMC13295995");
-    expect(within(row).getByText("Full-text only")).toBeTruthy();
+    expect(within(row).getByText("Not in title/abstract")).toBeTruthy();
     expect(within(await screen.findByTestId("paper-41695624")).getByText("Gene named")).toBeTruthy();
   });
 
@@ -143,7 +143,7 @@ describe("Literature tab — the papers", () => {
     expect(within(firstRow).getByText("Variant named")).toBeTruthy();
 
     fireEvent.click(within(firstRow).getByRole("button", { name: /^A de novo NAE1 missense change/ }));
-    expect(await screen.findByText(/names variant · lexicon/i)).toBeTruthy();
+    expect(await screen.findByText(/Variant named · lexicon/i)).toBeTruthy();
     expect(screen.getAllByText("p.Asp116Gly", { selector: "mark" }).length).toBeGreaterThan(0);
   });
 
@@ -155,7 +155,7 @@ describe("Literature tab — the papers", () => {
     fireEvent.click(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }));
     await waitFor(() => expect(getLiterature).toHaveBeenCalled());
     expect(getLiterature).toHaveBeenCalledWith(GENE, false, expect.any(AbortSignal), VARIANT_Q, expect.objectContaining({ variant: VARIANT }));
-    expect(await screen.findByText("No record names p.Asp116Gly")).toBeTruthy();
+    expect(await screen.findByText("No matches for these protein notations of p.Asp116Gly")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Naming p\.Asp116Gly/ }).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -164,7 +164,7 @@ describe("Literature tab — the papers", () => {
     renderView();
     await screen.findByTestId("paper-30000001");
     fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
-    fireEvent.click(screen.getByRole("button", { name: /NAE1 not in abstract/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Neither in title\/abstract/ }));
     expect(screen.queryByTestId("paper-30000001")).toBeNull();
     expect(screen.getByTestId("paper-PMC13295995")).toBeTruthy();
   });
@@ -172,15 +172,13 @@ describe("Literature tab — the papers", () => {
   it("shows zero-inclusive shortlist counts, applies the count control, and combines screening chips with AND semantics", async () => {
     serve({ citations: [FUNCTIONAL, CLINICAL_FUNCTIONAL, FISH], hitCount: 3 });
     const view = renderView();
-    const shortlist = await screen.findByLabelText("Shortlist");
-    expect(within(shortlist).getByRole("button", { name: /Show 2 read first papers/ })).toBeTruthy();
-    expect(within(shortlist).getByRole("button", { name: /Show 0 read next papers/ })).toBeTruthy();
-    fireEvent.click(within(shortlist).getByRole("button", { name: /Show all 3 loaded papers, including the 1 other/ }));
-    expect(await screen.findByTestId("paper-PMC13295995")).toBeTruthy();
+    const shortlist = await screen.findByRole("group", { name: "Filter by reading tier" });
+    expect(within(shortlist).getByRole("button", { name: /Read first2/ })).toBeTruthy();
+    expect(within(shortlist).getByRole("button", { name: /Read next0/ }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
     const controls = screen.getByRole("group", { name: "Filter by screening observation" });
-    fireEvent.click(within(controls).getByRole("button", { name: /Functional2/ }));
-    fireEvent.click(within(controls).getByRole("button", { name: /Clinical case1/ }));
+    fireEvent.click(within(controls).getByRole("button", { name: /Assay language2/ }));
+    fireEvent.click(within(controls).getByRole("button", { name: /Clinical study1/ }));
     expect(screen.getByTestId("paper-30000003")).toBeTruthy();
     expect(screen.queryByTestId("paper-30000002")).toBeNull();
     await waitFor(() => expect(view.evidence()?.trace.find(step => step.key === "order")?.value).toContain("1 shown"));
@@ -202,8 +200,8 @@ describe("Literature tab — the papers", () => {
     renderView();
     await screen.findByTestId("paper-30000002");
     const filters = screen.getByRole("group", { name: "Filter by screening observation" });
-    fireEvent.click(within(filters).getByRole("button", { name: /Functional1/ }));
-    fireEvent.click(within(filters).getByRole("button", { name: /Clinical case1/ }));
+    fireEvent.click(within(filters).getByRole("button", { name: /Assay language1/ }));
+    fireEvent.click(within(filters).getByRole("button", { name: /Clinical study1/ }));
     expect(await screen.findByText("No loaded paper matches these screening filters")).toBeTruthy();
     expect(screen.queryByText("No papers returned")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Clear screening filters" }));
@@ -285,7 +283,8 @@ describe("Literature tab — mechanism comparison states", () => {
   const terms = [{ term: "loss-of-function", quote: "The variant causes loss-of-function." }];
   it("renders the flag, constraint-silent, and unavailable states in words", () => {
     const { rerender } = render(<MechanismPanel terms={terms} constraint={{ pli: 0.1, loeuf: 0.9, missense_z: 1, oe_mis: 1 }} />);
-    expect(screen.getByText("terms differ from context")).toBeTruthy();
+    expect(screen.queryByText("terms differ from context")).toBeNull();
+    expect(screen.getByText(/Constraint alone does not establish/)).toBeTruthy();
     rerender(<MechanismPanel terms={[{ term: "gain-of-function", quote: "Activation." }]} constraint={{ pli: 0.1, loeuf: 0.9, missense_z: 1, oe_mis: 1 }} />);
     expect(screen.getByText("Constraint cannot speak to this mechanism.")).toBeTruthy();
     rerender(<MechanismPanel terms={terms} constraint={null} unavailableReason="Not available here — constraint is absent for this result." />);
@@ -314,7 +313,7 @@ describe("Literature rail — the trace", () => {
     render(<LiteratureInspector gene={GENE} variant={VARIANT} evidence={null} />);
     const rail = screen.getByTestId("literature-rail");
     expect(rail.textContent).toContain("Nothing. No criterion is scored from literature.");
-    expect(rail.textContent).toContain("Up to 5 abstracts from the default and variant searches");
+    expect(rail.textContent).toContain("Up to 5 relevant abstracts from bounded gene, protein-notation and clinical/functional searches");
     expect(within(rail).getByText("No search has run yet.")).toBeTruthy();
   });
 
@@ -369,5 +368,36 @@ describe("Literature surfaces — what they may never print", () => {
     expect(hero.textContent).not.toMatch(/functional|clinical case|same residue|mechanism|review|preprint|read first/i);
     const source = FILES.map(file => fs.readFileSync(path.join(process.cwd(), file), "utf-8")).join("\n");
     expect(source).not.toMatch(/acmgCriteria[\s\S]*screening|screening[\s\S]*acmgCriteria/i);
+  });
+});
+
+describe("pagination and honest summary inputs", () => {
+  it("keeps the chosen tier while appending another query page", async () => {
+    serve({ citations: [{ ...NEDD, abstract: "NAE1 enzyme activity was measured." }, FISH], hitCount: 60, nextCursor: "page-2" });
+    const view = renderView();
+    await screen.findByTestId("paper-41695624");
+    expect(screen.getByRole("button", { name: /Read next1/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Show all tiers" }));
+    getLiterature.mockResolvedValueOnce({ gene: GENE, citations: [NEDD, HIT], hitCount: 60, nextCursor: null, degraded: false });
+    fireEvent.click(screen.getByRole("button", { name: "Load 25 more" }));
+    await screen.findByTestId("paper-30000001");
+    expect(screen.getByRole("button", { name: "Show all tiers" }).getAttribute("aria-pressed")).toBe("true");
+    expect(getLiterature).toHaveBeenLastCalledWith(GENE, false, expect.any(AbortSignal), undefined, { cursor: "page-2" });
+    await waitFor(() => expect(view.evidence()?.counts.total).toBe(3));
+    expect(screen.queryByRole("button", { name: "Load 25 more" })).toBeNull();
+  });
+  it("keeps loaded papers and offers retry after a next-page error", async () => {
+    serve({ citations: [NEDD], hitCount: 60, nextCursor: "page-2" });
+    renderView();
+    await screen.findByTestId("paper-41695624");
+    getLiterature.mockRejectedValueOnce(new Error("Next page failed"));
+    fireEvent.click(screen.getByRole("button", { name: "Load 25 more" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Next page failed");
+    expect(screen.getByTestId("paper-41695624")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Load 25 more" }).hasAttribute("disabled")).toBe(false);
+  });
+  it("reports unknown summary provenance instead of presenting the current filters as AI inputs", () => {
+    render(<LiteratureInspector gene={GENE} variant={VARIANT} />);
+    expect(screen.getByText(/Summary inputs are not recorded/)).toBeTruthy();
   });
 });

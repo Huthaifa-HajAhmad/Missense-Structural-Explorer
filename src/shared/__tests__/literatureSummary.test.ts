@@ -40,3 +40,9 @@ describe("screening-selected narrative literature", () => {
     expect(literatureSummaryPrompt({...selected,citations:[]})).toContain("draw no conclusion about absence");
   });
 });
+
+it("leaves the narrative empty when candidates have no gene, variant or curated relationship", () => {
+  const selected = buildLiteratureSummary("RGS9", "p.Cys182Ser", [{ ...paper("goose", "We studied body weight in geese."), title: "Goose genetics" }]);
+  expect(selected.citations).toEqual([]);
+  expect(literatureSummaryPrompt(selected)).toContain("draw no conclusion about absence");
+});

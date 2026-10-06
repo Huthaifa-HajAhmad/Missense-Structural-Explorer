@@ -598,7 +598,8 @@ export function AppViews({
                 <LiteratureView 
                   gene={gene}
                   variant={variant}
-                  uniprotId={uniprotId ?? undefined}
+                    uniprotId={uniprotId ?? undefined}
+                    verifiedAliases={analysisState.result?.literatureAliases}
                   searchQuery={literatureSearchQuery}
                   onSearchQueryChange={setLiteratureSearchQuery}
                   onEvidenceChange={setLiteratureEvidence}

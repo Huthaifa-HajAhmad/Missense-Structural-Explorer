@@ -463,3 +463,12 @@ describe("narrative stage outcome", () => {
     expect(revisionOf(running)).toBe(before);
   });
 });
+
+
+it("replaces the actual literature receipt and clears it on degraded or receipt-less synthesis", () => {
+  const receipt = { citations: [{ id: "40955044", title: "RGS9 clinical report", url: null, tier: 4 }], scopes: { gene: "complete", variant: "complete", curated: "unavailable" }, coverage: [] };
+  const previous = { ...PREVIOUS.insights, literature: { citations: [{ id: "stale" }] } };
+  expect(mergeNarrativeInsights({ previousInsights: previous, payloadInsights: { literature: receipt }, degraded: false }).literature).toEqual(receipt);
+  expect(mergeNarrativeInsights({ previousInsights: previous, payloadInsights: { literature: receipt }, degraded: true }).literature).toBeUndefined();
+  expect(mergeNarrativeInsights({ previousInsights: previous, payloadInsights: {}, degraded: false }).literature).toBeUndefined();
+});

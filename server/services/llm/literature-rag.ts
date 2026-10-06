@@ -32,6 +32,9 @@ export function migrateLiteratureSchema(db: DatabaseSync): void {
   if (syncColumns.length > 0 && !syncColumns.some((column) => column.name === "hit_count")) {
     db.exec("ALTER TABLE literature_syncs ADD COLUMN hit_count INTEGER");
   }
+  if (syncColumns.length > 0 && !syncColumns.some(column => column.name === "next_cursor")) {
+    db.exec("ALTER TABLE literature_syncs ADD COLUMN next_cursor TEXT");
+  }
 
   // Rows written before query-scoping existed carry no membership; attribute them to the
   // gene's default query, which is the set they were fetched for. The NOT EXISTS clause is
@@ -131,7 +134,7 @@ function getDb(): DatabaseSync {
 const LITERATURE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Bump when the cached citation payload changes so old incomplete rows are re-fetched. */
-export const LITERATURE_CACHE_SCHEMA_VERSION = 2;
+export const LITERATURE_CACHE_SCHEMA_VERSION = 3;
 
 /** Cache key for a (gene, query) pair. The query is part of the identity of the result
  *  set, so it must be part of the key — otherwise a custom search overwrites the
@@ -143,10 +146,15 @@ export function literatureCacheKey(gene: string, query?: string): string {
   return normalizedQuery ? `${prefix}::${normalizedQuery}` : prefix;
 }
 
-export function recordLiteratureSync(cacheKey: string, query: string, hitCount: number | null = null): void {
+export function recordLiteratureSync(cacheKey: string, query: string, hitCount: number | null = null, nextCursor: string | null = null): void {
   getDb()
-    .prepare("INSERT OR REPLACE INTO literature_syncs (cache_key, query, synced_at, hit_count) VALUES (?, ?, ?, ?)")
-    .run(cacheKey, query, Date.now(), hitCount);
+    .prepare("INSERT OR REPLACE INTO literature_syncs (cache_key, query, synced_at, hit_count, next_cursor) VALUES (?, ?, ?, ?, ?)")
+    .run(cacheKey, query, Date.now(), hitCount, nextCursor);
+}
+
+export function getLiteratureNextCursor(cacheKey: string): string | null {
+  const row = getDb().prepare("SELECT next_cursor FROM literature_syncs WHERE cache_key = ?").get(cacheKey) as { next_cursor: string | null } | undefined;
+  return row?.next_cursor ?? null;
 }
 
 export function getLastLiteratureSync(cacheKey: string): number | null {
@@ -586,6 +594,26 @@ function insertCitation(citation: NormalizedCitation, gene: string, cacheKey: st
  *  true hit count so a shorter list is explained rather than looking like a bug. */
 export const EUROPE_PMC_PAGE_SIZE = 25;
 
+/** One explicit page; never replaces the cached first-page membership or its provenance. */
+export async function fetchLiteraturePage(gene: string, query: string | undefined, cursor: string, signal?: AbortSignal): Promise<{ citations: NormalizedCitation[]; hitCount: number | null; nextCursor: string | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  const combined = AbortSignal.any([controller.signal, ...(signal ? [signal] : [])]);
+  try {
+    checkPmcCircuit();
+    const params = new URLSearchParams({ query: formatQueryForEuropePmc(query, gene), format: "json", resultType: "core", pageSize: String(EUROPE_PMC_PAGE_SIZE), cursorMark: cursor });
+    const res = await fetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`, { signal: combined, headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`Europe PMC API request failed: ${res.status}`);
+    const data = await res.json();
+    const records = data.resultList?.result ?? [];
+    const { citations } = mapPapers(records);
+    recordPmcSuccess();
+    return { citations, hitCount: typeof data.hitCount === "number" ? data.hitCount : null,
+      nextCursor: records.length >= EUROPE_PMC_PAGE_SIZE && typeof data.nextCursorMark === "string" && data.nextCursorMark !== cursor ? data.nextCursorMark : null };
+  } catch (err) { if (!signal?.aborted) recordPmcFailure(); throw err; }
+  finally { clearTimeout(timer); }
+}
+
 /** Hydrate verified provider PMIDs directly, without a gene filter or search-cache membership. */
 export async function fetchCitationsByPmids(pmids: readonly string[], signal?: AbortSignal): Promise<CitationRow[]> {
   const ids = [...new Set(pmids.filter(id => /^\d+$/.test(id)))];
@@ -697,7 +725,7 @@ export async function syncLiteratureForGene(
         // An empty result is still a completed sweep: recording it stops every later
         // request from re-querying a gene that genuinely has no literature.
         replaceLiteratureMembership(cacheKey, []);
-        recordLiteratureSync(cacheKey, formattedQuery, hitCount);
+        recordLiteratureSync(cacheKey, formattedQuery, hitCount, typeof data.nextCursorMark === "string" && citations.length < (hitCount ?? 0) ? data.nextCursorMark : null);
         return 0;
       }
 
@@ -739,7 +767,7 @@ export async function syncLiteratureForGene(
       // of accumulating every paper ever matched, without risking a partial overwrite.
       if (!timeoutController.signal.aborted) {
         replaceLiteratureMembership(cacheKey, citations.map((citation) => citation.id));
-        recordLiteratureSync(cacheKey, formattedQuery, hitCount);
+        recordLiteratureSync(cacheKey, formattedQuery, hitCount, typeof data.nextCursorMark === "string" && citations.length < (hitCount ?? 0) ? data.nextCursorMark : null);
       }
 
       console.log(`[RAG] Successfully synced and embedded ${successCount}/${citations.length} papers for ${safeLog(cleanGene)}`);
@@ -1009,7 +1037,7 @@ export async function searchGeneLiterature(
   // the sync loop above), so a mid-store failure cannot strand a partial overwrite; the
   // rows are stored with a zero embedding marked unscorable. `syncLiteratureForGene`
   // (which embeds properly) is what later upgrades them.
-  const storeResults = (citations: NormalizedCitation[], hitCount: number | null): void => {
+  const storeResults = (citations: NormalizedCitation[], hitCount: number | null, nextCursor: string | null): void => {
     const zeroVector = vectorToBuffer(new Float32Array(768));
     for (const citation of citations) {
       try {
@@ -1019,7 +1047,7 @@ export async function searchGeneLiterature(
       }
     }
     replaceLiteratureMembership(cacheKey, citations.map((citation) => citation.id));
-    recordLiteratureSync(cacheKey, formattedQuery, hitCount);
+    recordLiteratureSync(cacheKey, formattedQuery, hitCount, nextCursor);
   };
 
   // The live call used to run with no timeout and no circuit-breaker participation: a
@@ -1041,18 +1069,9 @@ export async function searchGeneLiterature(
     checkPmcCircuit();
 
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        headers: { "Accept": "application/json" },
-        signal: liveController.signal
-      });
-    } finally {
-      clearTimeout(liveTimeoutId);
-      if (signal) {
-        signal.removeEventListener("abort", onCallerAbort);
-      }
-    }
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" }, signal: liveController.signal
+    });
 
     if (res.ok) {
       recordPmcSuccess();
@@ -1061,7 +1080,7 @@ export async function searchGeneLiterature(
       const hitCount = typeof data.hitCount === "number" ? data.hitCount : null;
       // A successful query with no matches is a real answer; recording it caches the
       // empty set so it is not re-queried the next time the same search is executed.
-      storeResults(citations, hitCount);
+      storeResults(citations, hitCount, typeof data.nextCursorMark === "string" && citations.length < (hitCount ?? 0) ? data.nextCursorMark : null);
       // Return the canonical cache read, not the raw upstream page: the cached SELECT
       // orders by year (nulls last) while Europe PMC's page order is upstream-defined,
       // and serving upstream order here but cached order on re-render flipped the top-8
@@ -1086,6 +1105,9 @@ export async function searchGeneLiterature(
       recordPmcFailure();
     }
     console.warn(`[RAG Warning] Live Europe PMC search failed for "${safeLog(formattedQuery)}":`, err.message);
+  } finally {
+    clearTimeout(liveTimeoutId);
+    signal?.removeEventListener("abort", onCallerAbort);
   }
 
   // Fallback (degraded): the upstream call failed, so search the cached abstracts for

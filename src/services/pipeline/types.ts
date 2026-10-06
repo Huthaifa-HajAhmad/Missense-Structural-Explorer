@@ -129,6 +129,7 @@ export interface TranslatedVariantResult {
   variant: string;
   uniprotId: string;
   transcriptMeta: {
+    literatureAliases?: import("../../shared/contracts").VerifiedLiteratureAlias[];
     transcriptId?: string;
     isManeSelect?: boolean;
     isManePlusClinical?: boolean;

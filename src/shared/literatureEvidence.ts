@@ -102,6 +102,7 @@ export interface LiteratureResponseMeta {
   /** When the server last completed a sweep of this query (ms since epoch), if it knows. */
   fetchedAt: number | null;
   pageSize: number | null;
+  nextCursor?: string | null;
 }
 
 export interface VariantProbe {
@@ -424,7 +425,7 @@ export function narrowCitations<T extends Citation>(list: readonly T[], filter: 
     .map(t => t.toLowerCase())
     .filter(t => t.length > 1);
   return list.filter(c => {
-    const text = `${c.title} ${c.abstract} ${c.authors} ${c.journal} ${c.year ?? ""}`.toLowerCase();
+    const text = `${c.title} ${c.abstract} ${c.authors} ${c.journal} ${c.year ?? ""} ${(c.meshHeadings ?? []).join(" ")} ${(c.authorKeywords ?? []).join(" ")}`.toLowerCase();
     if (text.includes(raw.toLowerCase())) return true;
     if (terms.length === 0) return true;
     return terms.some(t => text.includes(t));
@@ -519,8 +520,8 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     const c = probe.hitCount as number;
     finding = {
       figure: n(c),
-      figureLabel: `Europe PMC ${plural(c, "record names", "records name")} ${label}`,
-      headline: c === 0 ? `Europe PMC holds no record that names ${label}.` : `Europe PMC matched ${n(c)} ${plural(c, "record", "records")} naming ${label}.`,
+      figureLabel: `Europe PMC ${plural(c, "record matches", "records match")} these protein notations`,
+      headline: c === 0 ? `No matches for the searched protein notations of ${label}.` : `Europe PMC matched ${n(c)} ${plural(c, "record", "records")} for these protein notations.`,
       predicate: c === 0
         ? `A search for ${gene} with ${forms.forms.join(", ")} matched 0 records, in titles, abstracts and open-access full text. A report under another notation, such as a nucleotide change, would not match`
         : `Matched on ${gene} with ${forms.forms.join(", ")}; ${scope === "variant" ? "they are listed below" : `choose "Naming ${label}" below to read them`}`,
@@ -552,14 +553,14 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       // A fixed label: table heads are uppercased by the house style, which would turn "p.Asp116Gly"
       // into "P.ASP116GLY" — a notation that is not the variant. The variant goes in the sub line.
       label: "Naming the variant",
-      value: !forms ? "—" : probeDone ? n(probe.hitCount as number) : probe.state === "loading" ? "…" : "Not searched",
-      sub: !forms ? "No protein notation" : probeDone ? `${forms.label} · title, abstract or open-access text` : `${forms.label} · not searched yet`,
+      value: !forms ? "—" : probeDone ? n(probe.hitCount as number) : probe.state === "loading" ? "…" : probe.state === "error" ? "Search incomplete" : "Not searched",
+      sub: !forms ? "No protein notation" : probeDone ? `${forms.label} · title, abstract or open-access text` : `${forms.label} · ${probe.state === "error" ? "search incomplete" : "not searched yet"}`,
     },
     {
       label: "Loaded here",
       value: n(queryTotal),
       sub: [
-        hitCount !== null && hitCount > queryTotal ? `First ${n(pageSize)} of ${n(hitCount)} in Europe PMC's default ranking` : "Everything Europe PMC returned",
+        degraded ? "Cached fallback; query membership unverified" : hitCount !== null && hitCount > queryTotal ? `${n(queryTotal)} of ${n(hitCount)} query matches loaded` : "All retrieved query matches",
         curatedAdded > 0 ? `${n(curatedAdded)} more from a curated variant record, not this query` : null,
       ].filter(Boolean).join(" · ")
     },
@@ -581,7 +582,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
     {
       key: "scope",
       label: "Scope you chose",
-      value: scope === "gene" ? `All literature on ${gene}` : scope === "variant" ? `Papers naming ${label}` : "Your own query",
+      value: scope === "gene" ? `Default search on ${gene}` : scope === "variant" ? `Protein-notation search for ${label}` : "Your own query",
       sub: scope === "custom" ? "Scoped to the gene unless it already names it" : undefined,
       state: "done",
     },
@@ -597,7 +598,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       key: "matched",
       label: "Europe PMC matched",
       value: degraded ? "No answer" : hitCount !== null ? `${n(hitCount)} ${plural(hitCount, "record", "records")}` : "Not reported",
-      sub: hitCount !== null && !degraded ? `Searches titles, abstracts and open-access full text. Only the first ${n(pageSize)} are loaded, in Europe PMC's default ranking (not date order).` : undefined,
+      sub: hitCount !== null && !degraded ? `${n(queryTotal)} query matches loaded. Retrieval uses Europe PMC's default ranking; the cached list is ordered by year before screening.` : undefined,
       state: degraded ? "warn" : hitCount !== null ? "done" : "idle",
     },
     {
@@ -636,8 +637,8 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       label: "Order",
       value: `${n(queryTotal)} loaded${curatedAdded > 0 ? ` · ${n(curatedAdded)} curated added` : ""} · ${n(counts.visible)} shown`,
       sub: (input.sortOrder ?? "attention") === "newest"
-        ? "Publication year, newest first; ties keep retrieval order."
-        : "Attention tiers 1–6; ties keep retrieval order.",
+        ? "Publication year, newest first; ties keep the supplied list order."
+        : "Screening tiers 1–6; ties keep the supplied list order.",
       state: counts.total > 0 ? "done" : "idle",
     },
   ];

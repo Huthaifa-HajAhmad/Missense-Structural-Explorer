@@ -197,7 +197,7 @@ describe("buildLiteratureEvidence", () => {
   it("words a zero as a count of records matched by a stated query — never as absence of evidence", () => {
     const ev = buildLiteratureEvidence({ ...base, probe: { state: "done", hitCount: 0 } });
     expect(ev.finding.figure).toBe("0");
-    expect(ev.finding.headline).toBe("Europe PMC holds no record that names p.Asp116Gly.");
+    expect(ev.finding.headline).toBe("No matches for the searched protein notations of p.Asp116Gly.");
     expect(ev.finding.predicate).toContain("matched 0 records");
     expect(ev.finding.predicate).toContain("another notation");
     expect(ev.finding.predicate).not.toMatch(/no evidence|benign/i);
@@ -288,4 +288,10 @@ describe("buildLiteratureEvidence", () => {
     expect(text).not.toMatch(/"(PS3|PS4|PP1|PM1|PP3)"/);
     expect(buildLiteratureEvidence(base).facts.at(-1)).toEqual({ label: "Engine record", value: "None", sub: "Literature is read, not scored" });
   });
+});
+
+it("narrows on retained MeSH headings and author keywords", () => {
+  const citation = { ...FISH, meshHeadings: ["Photoreceptor Cells"], authorKeywords: ["Electroretinography"] };
+  expect(narrowCitations([citation], "Photoreceptor Cells")).toEqual([citation]);
+  expect(narrowCitations([citation], "Electroretinography")).toEqual([citation]);
 });

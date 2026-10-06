@@ -1,10 +1,10 @@
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ search: vi.fn(), ranked: vi.fn(), curated: vi.fn() }));
-vi.mock("./literature-rag.ts", () => ({searchGeneLiterature:mocks.search,retrieveRelevantLiterature:mocks.ranked}));
+const mocks = vi.hoisted(() => ({ search: vi.fn(), ranked: vi.fn(), curated: vi.fn(), cursor: vi.fn(), page: vi.fn(), count: vi.fn() }));
+vi.mock("./literature-rag.ts", () => ({searchGeneLiterature:mocks.search,retrieveRelevantLiterature:mocks.ranked, literatureCacheKey:()=>"key", getLiteratureHitCount:mocks.count, getLiteratureNextCursor:mocks.cursor, fetchLiteraturePage:mocks.page}));
 vi.mock("./curated-literature.ts", () => ({getCuratedVariantCitations:mocks.curated}));
 import { selectSummaryCitations, boundedLiterature, literatureSummaryDigest } from "./literature-summary";
 const paper = (id:string,abstract:string) => ({id,title:"PAH",abstract,authors:"A",journal:"J",year:2026});
-beforeEach(() => { mocks.search.mockReset(); mocks.ranked.mockReset().mockResolvedValue([]); mocks.curated.mockReset().mockResolvedValue({citations:[],state:"complete"}); });
+beforeEach(() => { mocks.cursor.mockReset().mockReturnValue(null); mocks.page.mockReset(); mocks.count.mockReset().mockReturnValue(null); mocks.search.mockReset(); mocks.ranked.mockReset().mockResolvedValue([]); mocks.curated.mockReset().mockResolvedValue({citations:[],state:"complete"}); });
 afterEach(() => vi.useRealTimers());
 describe("summary retrieval snapshot", () => {
   it("probes a cold variant scope and admits its unembedded exact-variant paper", async () => {
@@ -40,4 +40,27 @@ describe("summary retrieval snapshot", () => {
     const signal=AbortSignal.abort(new Error("cancelled"));
     await expect(boundedLiterature(new Promise(()=>{}),signal)).rejects.toThrow("cancelled");
   });
+});
+
+it("retains the first page and marks coverage incomplete when a later page hangs", async () => {
+  vi.useFakeTimers();
+  mocks.search.mockResolvedValue({ citations: [paper("gene", "PAH activity.")], degraded: false });
+  mocks.cursor.mockReturnValue("next"); mocks.count.mockReturnValue(200);
+  mocks.page.mockImplementation(() => new Promise(() => {}));
+  const work = selectSummaryCitations("PAH", "p.Arg408Trp", "");
+  await vi.advanceTimersByTimeAsync(5001);
+  const selected = await work;
+  expect(selected.citations.map(c => c.id)).toEqual(["gene"]);
+  expect(selected.coverage).toEqual(expect.arrayContaining([expect.objectContaining({ loaded: 1, matched: 200, truncated: true, state: "error" })]));
+});
+
+
+it("marks a failed later page incomplete without dropping its first-page citations", async () => {
+  mocks.search.mockResolvedValue({ citations: [paper("gene", "PAH activity.")], degraded: false });
+  mocks.cursor.mockReturnValue("next"); mocks.count.mockReturnValue(200);
+  mocks.page.mockRejectedValue(new Error("provider page failed"));
+  const selected = await selectSummaryCitations("PAH", "p.Arg408Trp", "");
+  expect(selected.citations.map(c => c.id)).toEqual(["gene"]);
+  expect(selected.scopes).toMatchObject({ gene: "error", variant: "error" });
+  expect(selected.coverage?.every(row => row.state === "error")).toBe(true);
 });

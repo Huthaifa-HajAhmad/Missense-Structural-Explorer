@@ -1,16 +1,14 @@
 import { type Router } from "express";
 import { sendError, getApiKeyFromSession } from "../../utils.ts";
 import {
-  getGeneCitations,
-  syncLiteratureForGene,
   searchGeneLiterature,
   literatureCacheKey,
-  isLiteratureCacheStale,
   getLiteratureHitCount,
   getLastLiteratureSync,
   formatQueryForEuropePmc,
   EUROPE_PMC_PAGE_SIZE
 } from "../../services/literature-rag.ts";
+import { fetchLiteraturePage, getLiteratureNextCursor } from "../../services/llm/literature-rag.ts";
 import { getCuratedVariantCitations, type CuratedVariantCitations } from "../../services/llm/curated-literature.ts";
 import { attachCuratedLinks, curatedOnlyCitations, type CuratedCoverage } from "../../../src/shared/curatedLiterature.ts";
 import type { Citation } from "../../../src/shared/literatureEvidence.ts";
@@ -24,6 +22,8 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
     // another query's key identity, so it is rejected instead of served.
     const cleanGene = (req.params.gene ?? "").trim();
     const force = req.query.force === "true";
+    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    if (cursor && cursor.length > 4096) { sendError(res, 400, "BAD_REQUEST", "Invalid literature cursor."); return; }
     const customQuery = typeof req.query.query === "string" && req.query.query.trim().length > 0 
       ? req.query.query.trim() 
       : undefined;
@@ -59,11 +59,13 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
       const cacheKey = literatureCacheKey(gene, customQuery);
       let citations: Citation[] = [];
       let degraded = false;
+      let pageHitCount: number | null = null;
+      let nextCursor: string | null = null;
 
       // Start the optional curated lookup alongside the ordinary one, so a slow UniProt/Europe PMC
       // enrichment does not add to the list's own latency. Any rejection is turned into an explicit
       // `error` state here: this enrichment must never fail the ordinary literature read.
-      const curatedPromise = variantParam && uniprotParam
+      const curatedPromise = !cursor && variantParam && uniprotParam
         ? getCuratedVariantCitations(gene, variantParam, uniprotParam, signal).catch((): CuratedVariantCitations => ({
             citations: [],
             state: "error",
@@ -71,34 +73,17 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
           }))
         : null;
 
-      if (customQuery) {
-        // Handles its own cache: a fresh entry is served without going upstream, so
-        // re-running the same query is instant. `force` (the Sync button) is passed
-        // through so an explicit refresh bypasses the cache instead of silently
-        // doing nothing while a query is in the search box. `degraded` marks an
-        // upstream failure whose results came from the gene's cached default set.
+      if (cursor) {
+        const page = await fetchLiteraturePage(gene, customQuery, cursor, signal);
+        citations = page.citations;
+        pageHitCount = page.hitCount;
+        nextCursor = page.nextCursor;
+      } else {
+        // Viewing papers never creates per-paper embeddings. The shared search handles cache,
+        // force refresh and explicit degraded fallback for default and custom queries alike.
         const result = await searchGeneLiterature(gene, customApiKey, signal, customQuery, force);
         citations = result.citations;
         degraded = result.degraded;
-      } else {
-        citations = await getGeneCitations(gene, signal);
-
-        // Refresh on an explicit sync or once the entry has aged past its TTL. The old
-        // `citations.length === 0` arm conflated "synced, zero hits" with "never synced"
-        // and re-queried Europe PMC on every request for genes with no literature; a cold
-        // cache is already reported as stale by `isLiteratureCacheStale`, so it needs no
-        // special case. (A cold start also triggers getGeneCitations' own background
-        // pre-warm — syncLiteratureForGene reuses that in-flight promise instead of
-        // issuing a second upstream query.)
-        if (force || isLiteratureCacheStale(cacheKey)) {
-          console.log(`[RAG Route] Syncing default literature for gene: ${gene} (force=${force})`);
-          try {
-            await syncLiteratureForGene(gene, customApiKey, signal);
-          } catch (syncErr: any) {
-            console.warn(`[RAG Route Warning] Sync error for ${gene}:`, syncErr.message);
-          }
-          citations = await getGeneCitations(gene, signal);
-        }
       }
 
       // Merge the curated set: ordinary rows keep their base metadata and gain the provider
@@ -124,7 +109,8 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
       // the gene's default set rather than this key's own sweep, so this key's hit count
       // — and its query label — would belong to a different result set: report null for
       // both instead of a lying pair.
-      const hitCount = degraded ? null : getLiteratureHitCount(cacheKey);
+      const hitCount = degraded ? null : cursor ? pageHitCount : getLiteratureHitCount(cacheKey);
+      if (!cursor && !degraded) nextCursor = getLiteratureNextCursor(cacheKey);
 
       res.json({
         gene,
@@ -146,6 +132,7 @@ export function registerLiteratureRoutes(apiRouter: Router): void {
         degraded,
         fetchedAt: degraded ? null : getLastLiteratureSync(cacheKey),
         pageSize: EUROPE_PMC_PAGE_SIZE,
+        nextCursor,
         // Phase 1b curated coverage. `null` when no variant/accession context was sent.
         curated
       });

@@ -89,13 +89,13 @@
 .lit-shortlist__count:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 /* ── Finding ────────────────────────────────────────────────── */
-.lit-hero__body { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 16px; }
+.lit-hero__body { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; }
 .lit-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .lit-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin-top: 2px; }
 /* The page's sans, proportional figures — a display number is not a table column. */
 .lit-hero .figure-headline.lit-figure {
   font-family: var(--cs-font-sans);
-  font-size: 30px;
+  font-size: 24px;
   font-weight: var(--cs-font-weight-semibold);
   font-variant-numeric: proportional-nums;
   letter-spacing: -0.01em;
@@ -125,7 +125,7 @@
   margin: 0;
   border-top: 1px solid var(--cs-border-subtle);
 }
-.lit-fact { padding: 12px 16px; border-left: 1px solid var(--cs-border-subtle); min-width: 0; }
+.lit-fact { padding: 8px 16px; border-left: 1px solid var(--cs-border-subtle); min-width: 0; }
 .lit-fact:first-child { border-left: 0; }
 .lit-fact > dt {
   font-size: var(--cs-font-size-badge);
@@ -326,7 +326,7 @@
 .lit-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0 18px; }
 .lit-chips:empty { display: none; }
 .lit-screening-chip--lexicon { text-decoration: underline dotted var(--cs-text-muted); text-underline-offset: 3px; }
-.lit-why-read { margin: 5px 0 0 18px; max-width: 72ch; overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
+.lit-why-read { margin: 5px 0 0 18px; max-width: 90ch; overflow: hidden; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; }
 
 /* Curated record relationships: provider provenance, distinct from a quote-backed screening tag. */
 .lit-curated-chip {
@@ -481,3 +481,19 @@
 /* The identifier rides under the journal only when its own column is hidden. */
 .lit-meta__id { display: none; }
 @container (max-width: 640px) { .lit-meta__id { display: inline; } .lit-meta__id::before { content: "·"; margin-right: 8px; } }
+
+/* Progressive refinement keeps the reading list prominent at every width. */
+.lit-presets { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 16px; border-bottom: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.lit-filter-details { border-bottom: 1px solid var(--cs-border-subtle); }
+.lit-filter-details > summary { padding: 10px 16px; cursor: pointer; color: var(--cs-text-secondary); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold); }
+.lit-filter-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+.lit-filter-note { margin: 0; padding: 0 16px 8px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.lit-filter-clear { margin: 8px 16px; }
+.lit-open-paper { margin: 5px 0 0 18px; min-height: 24px; }
+.lit-load-more { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.lit-summary-papers { margin: 8px 0; padding-left: 18px; }
+.lit-summary-papers li { margin: 8px 0; }
+.lit-summary-papers li > span { display: block; font-size: var(--cs-font-size-caption); }
+.lit-btn { transition: transform 150ms cubic-bezier(0.2, 0, 0, 1); }
+.lit-btn:active:not(:disabled) { transform: scale(0.96); }
+@media (prefers-reduced-motion: reduce) { .lit-btn { transition: none; } .lit-btn:active:not(:disabled) { transform: none; } }

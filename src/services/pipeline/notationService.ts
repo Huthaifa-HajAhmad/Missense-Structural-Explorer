@@ -79,6 +79,7 @@ export async function translateVariantNotation(
       variant: data.variant,
       uniprotId: data.uniprotId,
       transcriptMeta: {
+        literatureAliases: data.literatureAliases,
         transcriptId: data.transcriptId,
         isManeSelect: data.isManeSelect,
         isManePlusClinical: data.isManePlusClinical,
