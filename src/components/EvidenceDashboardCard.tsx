@@ -4,6 +4,8 @@ import { useSettings } from "../context/SettingsContext";
 import { EvidenceDashboardCardProps, TabType, normalizeEvidenceTab } from "./evidence/types";
 import { formatDdg } from "../shared/engineStatus";
 import { ClinicalTab } from "./evidence/ClinicalTab";
+import { GeneDiseaseTab } from './evidence/GeneDiseaseTab';
+import { ExpressionModelsTab } from './evidence/ExpressionModelsTab';
 import { SplicingTab } from "./evidence/SplicingTab";
 import { PredictorsTab } from "./evidence/PredictorsTab";
 import { StructureTab } from "./evidence/StructureTab";
@@ -248,6 +250,8 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
 
       <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
+        {activeTab === 'gene-disease' && <GeneDiseaseTab {...tabProps} />}
+        {activeTab === 'expression-models' && <ExpressionModelsTab {...tabProps} />}
         {activeTab === "predictors" && <PredictorsTab {...tabProps} />}
         {activeTab === "alphagenome" && <AlphaGenomeTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}

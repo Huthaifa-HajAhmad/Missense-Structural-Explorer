@@ -160,6 +160,8 @@ export const MASTER_VIEW_ITEMS: NavItem[] = [
  */
 export const EVIDENCE_SUB_ITEMS = [
   { id: "clinical",     label: "Population data"          },
+  { id: "gene-disease", label: "Gene–disease"             },
+  { id: "expression-models", label: "Expression & models" },
   { id: "function",     label: "Functional domains"       },
   { id: "predictors",   label: "In-silico predictors"     },
   { id: "alphagenome",  label: "AlphaGenome"              },

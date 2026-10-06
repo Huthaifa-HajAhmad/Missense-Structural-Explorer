@@ -18,6 +18,7 @@ export interface ClinVarData {
   reviewStatus: string;
   alleleFrequencies: { source: string; value: any }[];
   trait: string;
+  conditions?: Array<{ label: string; xrefs: Array<{ source: string; id: string }> }>;
   uid: string | null;
   hasOtherPathogenicVariantSameAA?: boolean;
 }
@@ -39,7 +40,8 @@ const clinvarSummaryResponseSchema = z.object({
         last_evaluated: z.string().optional(),
         review_status: z.string().optional(),
         trait_set: z.array(z.object({
-          trait_name: z.string().optional()
+          trait_name: z.string().optional(),
+          trait_xrefs: z.array(z.object({ db_source: z.string(), db_id: z.string() })).optional()
         })).optional()
       }).optional(),
       allele_freq_set: z.array(z.object({
@@ -231,6 +233,10 @@ export async function fetchClinVarData(
   const lastEvaluated = matchedEntry.germline_classification?.last_evaluated || "";
   const reviewStatus = matchedEntry.germline_classification?.review_status || "";
   const traits = (matchedEntry.germline_classification?.trait_set || []).map((t: any) => t.trait_name || "").filter(Boolean).join(", ");
+  const conditions = (matchedEntry.germline_classification?.trait_set || []).map((t: any) => ({
+    label: t.trait_name || '',
+    xrefs: (t.trait_xrefs || []).map((xref: { db_source: string; db_id: string }) => ({ source: xref.db_source, id: xref.db_id }))
+  }));
   
   const alleleFrequencies = (matchedEntry.allele_freq_set || []).map((freq: any) => ({
     source: freq.source || "Unknown",
@@ -243,6 +249,7 @@ export async function fetchClinVarData(
         reviewStatus,
         alleleFrequencies,
         trait: traits,
+        conditions,
         uid: matchedId,
         hasOtherPathogenicVariantSameAA
       };

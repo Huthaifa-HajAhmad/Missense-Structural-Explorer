@@ -23,7 +23,11 @@ describe("fetchClinVarData", () => {
             description: "Pathogenic",
             last_evaluated: "2023-01-01",
             review_status: "practice guideline",
-            trait_set: [{ trait_name: "Phenylketonuria" }]
+            trait_set: [{ trait_name: "Phenylketonuria", trait_xrefs: [
+              { db_source: 'MONDO', db_id: 'MONDO:0009861' },
+              { db_source: 'OMIM', db_id: '261600' },
+              { db_source: 'UnknownSource', db_id: 'raw-identifier' }
+            ] }]
           },
           allele_freq_set: [
             { source: "gnomAD", value: "0.0005" }
@@ -45,6 +49,11 @@ describe("fetchClinVarData", () => {
     const res = await fetchClinVarData("PAH", "p.Arg408Trp");
     expect(res.classification).toBe("Pathogenic");
     expect(res.trait).toBe("Phenylketonuria");
+    expect(res.conditions).toEqual([{ label: 'Phenylketonuria', xrefs: [
+      { source: 'MONDO', id: 'MONDO:0009861' },
+      { source: 'OMIM', id: '261600' },
+      { source: 'UnknownSource', id: 'raw-identifier' }
+    ] }]);
     expect(res.uid).toBe("12345");
     expect(res.alleleFrequencies[0].value).toBe("0.0005");
 

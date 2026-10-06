@@ -1,0 +1,1046 @@
+{
+  "schemaVersion": 1,
+  "geneCount": 75738,
+  "coverage": [
+    {
+      "tissueId": "UBERON:0005406",
+      "tissue": "Adipose - Perirenal",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0005406",
+      "tissue": "Adipose - Perirenal",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0005406",
+      "tissue": "Adipose - Perirenal",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Calf)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Calf)",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Calf)",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Calf)",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Gluteofemoral)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Gluteofemoral)",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Gluteofemoral)",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Gluteofemoral)",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Periumbilical)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Periumbilical)",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Periumbilical)",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002190",
+      "tissue": "Adipose - Subcutaneous (Periumbilical)",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 6,
+      "donorCount": 6
+    },
+    {
+      "tissueId": "UBERON:0001234",
+      "tissue": "Adrenal Gland",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0001234",
+      "tissue": "Adrenal Gland",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001234",
+      "tissue": "Adrenal Gland",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001516",
+      "tissue": "Artery - Aorta (Abdominal)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001516",
+      "tissue": "Artery - Aorta (Abdominal)",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002345",
+      "tissue": "Artery - Aorta (Descending)",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001621",
+      "tissue": "Artery - Coronary (Mid-Vent-3)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002264",
+      "tissue": "Brain - Olfactory bulb",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002264",
+      "tissue": "Brain - Olfactory bulb",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002264",
+      "tissue": "Brain - Olfactory bulb",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002178",
+      "tissue": "Bronchus - Extrapulmonary",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002178",
+      "tissue": "Bronchus - Extrapulmonary",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001156",
+      "tissue": "Colon - Ascending",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0001156",
+      "tissue": "Colon - Ascending",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001156",
+      "tissue": "Colon - Ascending",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 5,
+      "donorCount": 5
+    },
+    {
+      "tissueId": "UBERON:0001159",
+      "tissue": "Colon - Sigmoid",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:0001159",
+      "tissue": "Colon - Sigmoid",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001159",
+      "tissue": "Colon - Sigmoid",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001159",
+      "tissue": "Colon - Sigmoid",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 9,
+      "donorCount": 9
+    },
+    {
+      "tissueId": "UBERON:0013473",
+      "tissue": "Esophagus",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0013473",
+      "tissue": "Esophagus",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0013473",
+      "tissue": "Esophagus",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0013473",
+      "tissue": "Esophagus",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 11,
+      "donorCount": 11
+    },
+    {
+      "tissueId": "UBERON:0002098",
+      "tissue": "Heart - Apex",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002094",
+      "tissue": "Heart - Interventricular Septum (Mid-Vent-3)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0003380",
+      "tissue": "Heart - Left Atrium",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0003382",
+      "tissue": "Heart - Left Ventricle (Mid-Vent-3)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0003379",
+      "tissue": "Heart - Right Atrium",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0003381",
+      "tissue": "Heart - Right Ventricle (Mid-Vent-3)",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:7770009",
+      "tissue": "Kidney",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:7770009",
+      "tissue": "Kidney",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001117",
+      "tissue": "Liver - Caudate Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001117",
+      "tissue": "Liver - Caudate Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001114",
+      "tissue": "Liver - Right Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:0001114",
+      "tissue": "Liver - Right Lobe",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001114",
+      "tissue": "Liver - Right Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0008953",
+      "tissue": "Lung - Left Lower Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 5,
+      "donorCount": 5
+    },
+    {
+      "tissueId": "UBERON:0008953",
+      "tissue": "Lung - Left Lower Lobe",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0008953",
+      "tissue": "Lung - Left Lower Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0008952",
+      "tissue": "Lung - Left Upper Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 6,
+      "donorCount": 5
+    },
+    {
+      "tissueId": "UBERON:0008952",
+      "tissue": "Lung - Left Upper Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002171",
+      "tissue": "Lung - Right Lower Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002171",
+      "tissue": "Lung - Right Lower Lobe",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002171",
+      "tissue": "Lung - Right Lower Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002174",
+      "tissue": "Lung - Right Middle Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:0002174",
+      "tissue": "Lung - Right Middle Lobe",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002174",
+      "tissue": "Lung - Right Middle Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002170",
+      "tissue": "Lung - Right Upper Lobe",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002170",
+      "tissue": "Lung - Right Upper Lobe",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002170",
+      "tissue": "Lung - Right Upper Lobe",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0039167",
+      "tissue": "Lymph Node - Hilar",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0039167",
+      "tissue": "Lymph Node - Hilar",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002509",
+      "tissue": "Lymph Node - Mesenteric",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002509",
+      "tissue": "Lymph Node - Mesenteric",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002509",
+      "tissue": "Lymph Node - Mesenteric",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002509",
+      "tissue": "Lymph Node - Mesenteric",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 9,
+      "donorCount": 9
+    },
+    {
+      "tissueId": "UBERON:8480055",
+      "tissue": "Lymph Node - Subcarinal",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002378",
+      "tissue": "Muscle - Abdominal",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0011907",
+      "tissue": "Muscle - Gastrocnemius",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 8,
+      "donorCount": 8
+    },
+    {
+      "tissueId": "UBERON:0011907",
+      "tissue": "Muscle - Gastrocnemius",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0011907",
+      "tissue": "Muscle - Gastrocnemius",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0011907",
+      "tissue": "Muscle - Gastrocnemius",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 10,
+      "donorCount": 10
+    },
+    {
+      "tissueId": "UBERON:0008523",
+      "tissue": "Muscle - Infrahyoid",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001377",
+      "tissue": "Muscle - Quadriceps",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 8,
+      "donorCount": 8
+    },
+    {
+      "tissueId": "UBERON:0001377",
+      "tissue": "Muscle - Quadriceps",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0001377",
+      "tissue": "Muscle - Quadriceps",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001377",
+      "tissue": "Muscle - Quadriceps",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 10,
+      "donorCount": 10
+    },
+    {
+      "tissueId": "UBERON:0001322",
+      "tissue": "Nerve - Sciatic",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 5,
+      "donorCount": 5
+    },
+    {
+      "tissueId": "UBERON:0001322",
+      "tissue": "Nerve - Sciatic",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0001322",
+      "tissue": "Nerve - Sciatic",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0000992",
+      "tissue": "Ovary",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0000992",
+      "tissue": "Ovary",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0001264",
+      "tissue": "Pancreas",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0001264",
+      "tissue": "Pancreas",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0000007",
+      "tissue": "Pituitary",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0015474",
+      "tissue": "Skin - Axillary",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0015474",
+      "tissue": "Skin - Axillary",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0015474",
+      "tissue": "Skin - Axillary",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0015474",
+      "tissue": "Skin - Axillary",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:8480050",
+      "tissue": "Skin - Calf",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:8480050",
+      "tissue": "Skin - Calf",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:8480050",
+      "tissue": "Skin - Calf",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:8480050",
+      "tissue": "Skin - Calf",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 7,
+      "donorCount": 7
+    },
+    {
+      "tissueId": "UBERON:0001416",
+      "tissue": "Skin - Periumbilical",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002114",
+      "tissue": "Small Intestine - Duodenum",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002114",
+      "tissue": "Small Intestine - Duodenum",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002114",
+      "tissue": "Small Intestine - Duodenum",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002115",
+      "tissue": "Small Intestine - Jejunum",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002115",
+      "tissue": "Small Intestine - Jejunum",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002115",
+      "tissue": "Small Intestine - Jejunum",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002116",
+      "tissue": "Small Intestine - Terminal Ileum",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 6,
+      "donorCount": 6
+    },
+    {
+      "tissueId": "UBERON:0002116",
+      "tissue": "Small Intestine - Terminal Ileum",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002116",
+      "tissue": "Small Intestine - Terminal Ileum",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002116",
+      "tissue": "Small Intestine - Terminal Ileum",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 6,
+      "donorCount": 6
+    },
+    {
+      "tissueId": "UBERON:0002106",
+      "tissue": "Spleen",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0002106",
+      "tissue": "Spleen",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002106",
+      "tissue": "Spleen",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0000945",
+      "tissue": "Stomach",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0000945",
+      "tissue": "Stomach",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0000945",
+      "tissue": "Stomach",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 3,
+      "donorCount": 3
+    },
+    {
+      "tissueId": "UBERON:0000945",
+      "tissue": "Stomach",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 7,
+      "donorCount": 7
+    },
+    {
+      "tissueId": "UBERON:0000473",
+      "tissue": "Testis",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 5,
+      "donorCount": 5
+    },
+    {
+      "tissueId": "UBERON:0000473",
+      "tissue": "Testis",
+      "cohortId": "3",
+      "cohort": "Pre-pubertal (8 to approximately 13)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0000473",
+      "tissue": "Testis",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 4,
+      "donorCount": 4
+    },
+    {
+      "tissueId": "UBERON:0002370",
+      "tissue": "Thymus",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002046",
+      "tissue": "Thyroid",
+      "cohortId": "1",
+      "cohort": "Infant (0 to 2 years)",
+      "sampleCount": 2,
+      "donorCount": 2
+    },
+    {
+      "tissueId": "UBERON:0002046",
+      "tissue": "Thyroid",
+      "cohortId": "2",
+      "cohort": "Early Childhood (2 to 8 years)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0002046",
+      "tissue": "Thyroid",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 12,
+      "donorCount": 12
+    },
+    {
+      "tissueId": "UBERON:0003126",
+      "tissue": "Trachea",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 1,
+      "donorCount": 1
+    },
+    {
+      "tissueId": "UBERON:0000995",
+      "tissue": "Uterus",
+      "cohortId": "4",
+      "cohort": "Post-pubertal (approximately 13 to 18)",
+      "sampleCount": 3,
+      "donorCount": 3
+    }
+  ],
+  "counts": {
+    "metadataSamples": 379,
+    "includedSamples": 332,
+    "excludedSamples": 10,
+    "wgsSamples": 37,
+    "includedDonors": 34,
+    "metadataDonors": 40
+  },
+  "reference": "GENCODE v47 / GRCh38",
+  "statistic": "median of within-donor median TPM",
+  "files": [
+    {
+      "kind": "dictionary",
+      "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Public_DD.xlsx",
+      "sha256": "f35d0020e57a1747f8752b93ac987e98f99c04a4df8e27f5c40519b1077dcc3b"
+    },
+    {
+      "kind": "samples",
+      "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Sample_Attributes_Dataset_DS_open.xlsx",
+      "sha256": "750aae3446efea813dfcd93955394056b5c035858cb9e26f49e226cff763f45b"
+    },
+    {
+      "kind": "subjects",
+      "url": "https://storage.googleapis.com/developmental-gtex/annotations/v1/metadata-files/dGTEx_Analysis_2026-01-30_v1_Subject_Phenotypes_Dataset_DS_open.xlsx",
+      "sha256": "deeaf3d0d4bddbeb60b052f21dcd27ea534112ba7553de62c2f1c733ecdb3835"
+    },
+    {
+      "kind": "tpm",
+      "url": "https://storage.googleapis.com/developmental-gtex/bulk-gex/v1/rna-seq/dGTEx_Analysis_2025-07-21_v1_RNASeQCv2.4.3_gene_tpm.gct.gz",
+      "sha256": "53f1eedf7e0745d4643efcd34196a206141555f07217164831d81e73d1305d5a"
+    }
+  ],
+  "provenance": {
+    "source": "dGTEx",
+    "url": "https://gtexportal.org/home/downloads/developmental-gtex",
+    "licence": "GTEx Portal data licence; attribution and pinned-data disclosure required",
+    "release": "dGTEx Analysis V1 / GENCODE v47",
+    "retrievedAt": "2026-10-06T12:57:45.310960+00:00",
+    "sha256": "c1c4b6a92ab7c6278be16b1781a4fab9b7da772af3d0df789cd884edde6cb0aa"
+  }
+}

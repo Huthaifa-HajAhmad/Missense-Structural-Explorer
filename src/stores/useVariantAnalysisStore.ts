@@ -5,6 +5,7 @@ import { BiophysicalSlice, createBiophysicalSlice } from "./slices/biophysicalSl
 import { StructuralFoldingSlice, createStructuralFoldingSlice } from "./slices/structuralFoldingSlice";
 import { UiSlice, createUiSlice } from "./slices/uiSlice";
 import type { VariantBiophysicsState } from "./models";
+import { createEvidenceContextSlice, type EvidenceContextSlice } from './slices/evidenceContextSlice';
 
 export type { VariantBiophysicsState };
 
@@ -17,6 +18,7 @@ export type VariantAnalysisStore = SearchSlice &
   BiophysicalSlice &
   StructuralFoldingSlice &
   UiSlice &
+  EvidenceContextSlice &
   RootStoreActions;
 
 export const useVariantAnalysisStore = create<VariantAnalysisStore>()((set, get, api) => ({
@@ -25,6 +27,7 @@ export const useVariantAnalysisStore = create<VariantAnalysisStore>()((set, get,
   ...createBiophysicalSlice(set, get, api),
   ...createStructuralFoldingSlice(set, get, api),
   ...createUiSlice(set, get, api),
+  ...createEvidenceContextSlice(set, get, api),
 
   resetVariantAnalysisState: () => {
     get().resetViewerState();

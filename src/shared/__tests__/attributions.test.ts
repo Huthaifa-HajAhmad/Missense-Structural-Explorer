@@ -169,6 +169,7 @@ describe("attribution registry", () => {
     const disclosed = collectDisclosedHosts();
 
     const allowlist: Record<string, string> = {
+      "thegencc.org": "operator bulk snapshot download and source links; no per-case server query",
       // Served to the browser on the /docs page only; no variant data ever reaches it.
       "cdn.jsdelivr.net": "API-reference stylesheet/script for the docs page, not a data path",
       // Outbound only as a citation or repository link. Nothing is ever sent to them.

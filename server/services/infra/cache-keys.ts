@@ -54,7 +54,8 @@ export function buildClinvarKey(gene: string, variant: string, notation?: string
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
   const notStr = notation ? `_${notation.trim()}` : "";
-  return `clinvar_${normGene}_${cleanVar}${notStr}_schema:${CACHE_SCHEMA_VERSION}`;
+  // Retire only ClinVar payloads that predate preserved condition identifiers.
+  return `clinvar_${normGene}_${cleanVar}${notStr}_condition-xrefs1_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildGenosKey(gene: string, variant: string, gnomadVarId?: string): string {

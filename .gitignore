@@ -62,6 +62,7 @@ tools/thermompnn/dataset_splits/
 data/*.csv
 data/*.sqlite*
 data/*.json
+data/dgtex-v1-input/
 
 # Repowise cache and databases
 .repowise/
