@@ -592,20 +592,82 @@ function VariantSearchPanel({
 
   const result = analysisState.result;
 
+  // Derive stage status & metrics for live workflow rail
+  const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
+    const raw = getWorkflowStageStatus({
+      ...engineState,
+      foldingPhase: engineState.foldingProgress?.phase,
+      view: stage,
+      result,
+      isFolding,
+      isBiophysicalLoading,
+      isClinicalLoading,
+      isLoadingSearch: analysisState.isLoading,
+      loadingStep,
+      isPocketLoading,
+      dynamut2Status,
+      ddmutStatus,
+      isNarrativeLoading,
+      hasStructureCoordinates: Boolean(loadedPdb)
+    });
+    /**
+     * Display labels for the workflow states. "In Progress" was retired — it is in
+     * `LEGACY_ENGINE_LABELS` (`engineStatus.ts`), which bans it precisely because it implies waiting
+     * forever, and a stalled stage rendered with it looked identical to a working one.
+     *
+     * Callers branch on `rawStatus`, never on the display word.
+     */
+    const statusMap: Record<string, string> = {
+      complete: "Complete",
+      progress: "Running",
+      pending: "Pending",
+      degraded: "Degraded",
+      error: "Error",
+      unavailable: "Unavailable",
+      "on-demand": "On demand"
+    };
+    return {
+      status: statusMap[raw.status] || raw.status,
+      rawStatus: raw.status,
+      desc: raw.desc
+    };
+  };
+
+  const stageInfos = WORKFLOW_STAGES.map(stage => ({ stage, info: getStageInfo(stage.key) }));
+  const summary = summarizeWorkflowStatuses(stageInfos.map(({ info }) => info.rawStatus));
+  const settledCount = summary.settled;
+  const progressPct = summary.percent;
+
+  const isWorkflowSettled = Boolean(result && summary.total > 0 && summary.settled >= summary.total);
+
   // Check if any pipeline stage or background solver is still in active execution
-  const isPipelineActive = Boolean(
-    analysisState.isLoading ||
-    isBiophysicalLoading ||
-    isClinicalLoading ||
+  const isPipelineActive = !isWorkflowSettled && Boolean(
+    isForegroundActive ||
     isNarrativeLoading ||
     isStructuralLoading ||
-    Object.values(result?.metadata?.pipelineStages ?? {}).some(outcome => outcome === "running") ||
+    isPocketLoading ||
     isFolding ||
     dynamut2Status === "pending" ||
     ddmutStatus === "pending" ||
     engineState.thermompnnStatus === "pending" ||
-    isPocketLoading
+    Object.values(result?.metadata?.pipelineStages ?? {}).some(outcome => outcome === "running") ||
+    stageInfos.some(({ info }) => info.rawStatus === "progress"
+  ));
+
+  const hasCoreError = Boolean(
+    result?.metadata?.pipelineStages?.core === "error" ||
+    (analysisState?.error && !isPipelineActive)
   );
+
+  const hasRun = Boolean(result) || isPipelineActive;
+
+  const pipelineStatusLabel = isForegroundActive
+    ? "Loading evidence"
+    : hasCoreError
+    ? "Analysis failed"
+    : result
+    ? isPipelineActive ? "Workspace ready · Enriching" : summary.hasProblems ? "Workspace ready · Partial results" : "Workspace ready"
+    : "Pipeline ready";
 
   const [activeRightTab, setActiveRightTab] = useState<RailTabId>(result ? "pipeline" : "telemetry");
 
@@ -924,65 +986,7 @@ function VariantSearchPanel({
   // shouted beside a lower-case "e.g. p.Gly380Arg".
   const inputBase = `w-full h-10 rounded-[var(--cs-radius-input)] pl-3 pr-10 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)] placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-cs-text-muted ${classInput}`;
 
-  // Derive stage status & metrics for live workflow rail
-  const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
-    const raw = getWorkflowStageStatus({
-      ...engineState,
-      foldingPhase: engineState.foldingProgress?.phase,
-      view: stage,
-      result,
-      isFolding,
-      isBiophysicalLoading,
-      isClinicalLoading,
-      isLoadingSearch: analysisState.isLoading,
-      loadingStep,
-      isPocketLoading,
-      dynamut2Status,
-      ddmutStatus,
-      isNarrativeLoading,
-      hasStructureCoordinates: Boolean(loadedPdb)
-    });
-    /**
-     * Display labels for the workflow states. "In Progress" was retired — it is in
-     * `LEGACY_ENGINE_LABELS` (`engineStatus.ts`), which bans it precisely because it implies waiting
-     * forever, and a stalled stage rendered with it looked identical to a working one.
-     *
-     * Callers branch on `rawStatus`, never on the display word.
-     */
-    const statusMap: Record<string, string> = {
-      complete: "Complete",
-      progress: "Running",
-      pending: "Pending",
-      degraded: "Degraded",
-      error: "Error",
-      unavailable: "Unavailable",
-      "on-demand": "On demand"
-    };
-    return {
-      status: statusMap[raw.status] || raw.status,
-      rawStatus: raw.status,
-      desc: raw.desc
-    };
-  };
 
-  const stageInfos = WORKFLOW_STAGES.map(stage => ({ stage, info: getStageInfo(stage.key) }));
-  const summary = summarizeWorkflowStatuses(stageInfos.map(({ info }) => info.rawStatus));
-  const settledCount = summary.settled;
-  const hasRun = Boolean(result) || isPipelineActive;
-  const progressPct = summary.percent;
-
-  const hasCoreError = Boolean(
-    result?.metadata?.pipelineStages?.core === "error" ||
-    (analysisState?.error && !isPipelineActive)
-  );
-
-  const pipelineStatusLabel = isForegroundActive
-    ? "Loading evidence"
-    : hasCoreError
-    ? "Analysis failed"
-    : result
-    ? isPipelineActive ? "Workspace ready · Enriching" : summary.hasProblems ? "Workspace ready · Partial results" : "Workspace ready"
-    : "Pipeline ready";
 
   const isNonMissenseError = Boolean(
     analysisState?.error &&
