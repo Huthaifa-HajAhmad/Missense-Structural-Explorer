@@ -2,6 +2,7 @@ import React, { useId } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { buildDosageEvidence, type DosageResponse, type DosageReading } from '../../shared/dosageSensitivity';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
+import { OrdinalScale } from './ContextCharts';
 import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
 
 const SCOPE_NOTE: Record<DosageReading['scope'], string> = {
@@ -12,7 +13,7 @@ const SCOPE_NOTE: Record<DosageReading['scope'], string> = {
 function Reading({ r }: { r: DosageReading }) {
   return <tr>
     <th scope="row">{r.name}<span className="ctx-caption ctx-block">{r.asks}</span></th>
-    <td><span className="ev-tier" data-tone={r.tone}>{r.call}</span></td>
+    <td><span className="ev-tier" data-tone={r.tone}>{r.call}</span>{r.code !== null && r.code <= 3 && <OrdinalScale levels={['0', '1', '2', '3']} index={r.code} label={`${r.name} evidence score`} />}</td>
     <td>{r.disease ? <>{r.disease}{r.diseaseId && <span className="ctx-caption ctx-block ctx-mono">{r.diseaseId}</span>}<span className="ctx-caption ctx-block">{SCOPE_NOTE[r.scope]}</span></> : <span className="ctx-caption">No disease recorded</span>}
       {r.history && <span className="ctx-caption ctx-block">{r.history}</span>}</td>
   </tr>;

@@ -137,7 +137,7 @@ describe('context tab claims and interactions', () => {
     const card = within(screen.getByTestId('model-organisms-card'));
     expect(card.getByText('Best match both directions')).toBeInTheDocument();
     expect(card.getByText('Significant difference')).toBeInTheDocument();
-    expect(card.getByText('No significant difference in screened procedures')).toBeInTheDocument();
+    expect(card.getByText('No significant difference')).toBeInTheDocument();
     expect(card.getByText(/not that the mouse is normal/)).toBeInTheDocument();
     expect(card.queryByText(/phenotypically normal/i)).toBeNull();
   });

@@ -79,3 +79,8 @@
 .ctx-terms input { margin-top: 3px; accent-color: var(--cs-accent-clay); }
 .ctx-pheno { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 7px 0; }
 .ctx-pheno + .ctx-pheno { border-top: 1px solid var(--cs-border-subtle); }
+.ctx-scale { display: inline-flex; gap: 3px; align-items: center; vertical-align: middle; }
+.ctx-scale__rung { width: 14px; height: 6px; border-radius: 2px; background: var(--cs-surface-2); border: 1px solid var(--cs-border-subtle); }
+.ctx-scale__rung[data-below] { background: color-mix(in srgb, var(--cs-accent-clay) 28%, var(--cs-surface-2)); border-color: transparent; }
+.ctx-scale__rung[data-on] { height: 10px; background: var(--cs-accent-clay); border-color: var(--cs-accent-clay); }
+.ctx-table td .ctx-scale { display: flex; margin-top: 6px; }

@@ -8,7 +8,8 @@ import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { MechanismContextCard } from './MechanismContextCard';
 import { VariantLocusCard } from './VariantLocusCard';
 import { DosageSensitivityCard } from './DosageSensitivityCard';
-import { validityTone } from '../../shared/diseaseFrame';
+import { validityTone, validityPosition, VALIDITY_SCALE } from '../../shared/diseaseFrame';
+import { OrdinalScale } from './ContextCharts';
 
 export function GeneDiseaseTab({ analysisState }: TabComponentProps) {
   if (!analysisState.result) return null;
@@ -32,13 +33,13 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
       <section className="ctx-card"><div className="ctx-card__head"><h2>Causality assertions</h2><span className="ctx-caption">GenCC · each submitter retained</span></div>
         {!evidence.assertions.length && <p className="ctx-card__body">{ENGINE_STATE_LABELS['no-result']} — {evidence.finding} The selected disease identity is supplied by {evidence.selected.selectionSource ?? 'GenCC'}; missing validity coverage does not refute the relationship.</p>}
         {!!evidence.assertions.length && <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Gene disease validity assertions"><table className="ctx-table">
-          <thead><tr><th scope="col">Submitter</th><th scope="col">Validity</th><th scope="col">Assertion date</th><th scope="col">Source</th></tr></thead>
+          <thead><tr><th scope="col">Submitter</th><th scope="col">Validity</th><th scope="col">On the GenCC scale</th><th scope="col">Assertion date</th><th scope="col">Source</th></tr></thead>
           <tbody>{evidence.assertions.map(assertion => <tr key={assertion.id}>
-            <th scope="row">{assertion.submitter}</th><td><span className="ev-tier" data-tone={validityTone(assertion.level)}>{assertion.level}</span></td><td className="ctx-mono">{assertion.evaluatedAt?.slice(0, 10) ?? 'Not reported'}</td>
+            <th scope="row">{assertion.submitter}</th><td><span className="ev-tier" data-tone={validityTone(assertion.level)}>{assertion.level}</span></td><td><OrdinalScale levels={VALIDITY_SCALE} index={validityPosition(assertion.level)} label={`${assertion.submitter} classification`} /></td><td className="ctx-mono">{assertion.evaluatedAt?.slice(0, 10) ?? 'Not reported'}</td>
             <td>{assertion.reportUrl ? <a className="ctx-link" href={assertion.reportUrl} target="_blank" rel="noreferrer">Report <ExternalLink size={12} aria-hidden="true" /></a> : 'Not linked'}</td>
           </tr>)}</tbody>
         </table></div>}
-        {!!evidence.assertions.length && <p className="ctx-card__foot">Levels are reported as submitted. They are not averaged or ranked into a consensus.</p>}
+        {!!evidence.assertions.length && <p className="ctx-card__foot">Levels are reported as submitted. The scale (weakest to strongest) places each one; they are not averaged or ranked into a consensus.</p>}
       </section>
       <MechanismContextCard frame={evidence.selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} />
       <VariantLocusCard clinvar={result.clinvar} frame={evidence.selected} />

@@ -69,7 +69,7 @@ export function screenCellForSystem(screen: ImpcScreen, system: ReviewSystemId):
   return hit && quiet ? 'mixed' : hit ? 'significant' : quiet ? 'not-significant' : 'not-reported';
 }
 export const SCREEN_CELL_LABEL: Record<ScreenCell, string> = {
-  significant: 'Significant difference', 'not-significant': 'No significant difference in screened procedures',
+  significant: 'Significant difference', 'not-significant': 'No significant difference',
   mixed: 'Significant in some terms only', 'not-reported': 'Not reported',
 };
 export const unmappedScreenTerms = (screen: ImpcScreen) => {

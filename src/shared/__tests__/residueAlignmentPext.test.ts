@@ -47,3 +47,14 @@ describe('pext placement', () => {
     expect(t.other.map(x => x.tissue)).toEqual(['liver', 'cells_ebv_transformed_lymphocytes']);
   });
 });
+
+import { validityPosition, VALIDITY_SCALE } from '../diseaseFrame';
+describe('GenCC scale position', () => {
+  it('places listed classifications, tolerates the Evidence suffix and refuses to force the rest onto a rung', () => {
+    expect(validityPosition('Definitive')).toBe(VALIDITY_SCALE.length - 1);
+    expect(validityPosition('Refuted Evidence')).toBe(0);
+    expect(validityPosition('Disputed Evidence')).toBe(1);
+    expect(validityPosition('Animal Model Only')).toBeNull();
+    expect(validityPosition('No Known Disease Relationship')).toBeNull();
+  });
+});

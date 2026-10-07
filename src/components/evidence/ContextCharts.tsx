@@ -51,3 +51,13 @@ export function AlignmentStrip({ mapping }: { mapping: ResidueMapping }) {
     <span className="ctx-aln__row">{cells(target, human)}</span>
   </span>;
 }
+
+/**
+ * One value placed on a fixed ordinal scale. The filled rung is the source's own category; there is
+ * no gradient and no good/bad colour. The text label is always shown beside it by the caller.
+ */
+export function OrdinalScale({ levels, index, label }: { levels: readonly string[]; index: number | null; label: string }) {
+  return <span className="ctx-scale" role="img" aria-label={index === null ? `${label}: not on this scale` : `${label}: ${levels[index]}, rung ${index + 1} of ${levels.length}`}>
+    {levels.map((level, i) => <span key={level} className="ctx-scale__rung" data-on={i === index || undefined} data-below={(index !== null && i < index) || undefined} title={level} />)}
+  </span>;
+}
