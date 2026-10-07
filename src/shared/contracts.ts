@@ -1773,6 +1773,8 @@ export interface NearestResidue {
 
 export interface PdbHomolog {
   pdbId: string;
+  /** Author chain for the matched RCSB polymer entity; absent if entity-to-chain mapping is unknown. */
+  chainId?: string;
   /** RCSB search relevance score — not identity. */
   score: number;
   /** Sequence identity (%) from the alignment; null when RCSB returned no match context. */

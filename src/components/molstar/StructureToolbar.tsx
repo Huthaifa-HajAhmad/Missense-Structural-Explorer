@@ -1,18 +1,12 @@
-import React, { useRef } from "react";
-import { Camera, ChevronDown, ClipboardCopy, Crosshair, Download, HelpCircle, Maximize2, Minimize2, ScanSearch, Undo2 } from "lucide-react";
+import React, { useEffect, useId, useRef, useState } from "react";
+import {
+  Camera, ChevronDown, ClipboardCopy, Crosshair, Download, HelpCircle,
+  Maximize2, Minimize2, ScanSearch, SlidersHorizontal, Undo2,
+} from "lucide-react";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
 import type { PlddtFilter } from "./useMolstarStructure";
 import { LOCAL_ALIGNMENT_FIT_WINDOW } from "../../shared/thresholds";
 
-/**
- * The 3D view's toolbar — every control reads the evidence model.
- *
- * Replaces a toolbar that named the canvas from the store's last-written provenance ("RCSB PDB: 1YOV"
- * over the AlphaFold model), offered an "ESMFold-2 / ESM3 Allosteric Heatmap" in the FoldX view, showed
- * a pLDDT filter for crystal temperature factors, called a ±15 sequence window a "Local Pocket", and
- * labelled a panel toggle "Run binding pocket analysis". The model switch lived only in the inspector,
- * so collapsing the inspector left the canvas without it.
- */
 export interface StructureToolbarProps {
   model: Structure3dEvidence;
   variantPosition: number | null;
@@ -25,6 +19,7 @@ export interface StructureToolbarProps {
   onFocusSite: () => void;
   onBackToSite: () => void;
   pocketOpen: boolean;
+  pocketTriggerRef?: React.RefObject<HTMLButtonElement | null>;
   onTogglePocket: () => void;
   captureOpen: boolean;
   setCaptureOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -39,19 +34,45 @@ export interface StructureToolbarProps {
   onToggleFullscreen: () => void;
 }
 
+/** Source and coordinate mode stay visible; less frequent display controls live in one disclosure. */
 export function StructureToolbar(props: StructureToolbarProps) {
   const { model } = props;
+  const [displayOpen, setDisplayOpen] = useState(false);
+  const displayId = useId();
+  const displayRef = useRef<HTMLDivElement>(null);
+  const displayTriggerRef = useRef<HTMLButtonElement>(null);
+  const captureTriggerRef = useRef<HTMLButtonElement>(null);
   const segRef = useRef<HTMLDivElement>(null);
   const primary = model.canvas.primary;
   const site = model.site;
+  const representation = model.representations.find(r => r.id === model.representation);
 
-  const onSegKey = (e: React.KeyboardEvent) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
-    e.preventDefault();
-    const available = model.modes.filter(m => m.available);
-    const i = available.findIndex(m => m.id === model.viewMode);
-    const step = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1;
-    const next = available[(i + step + available.length) % available.length];
+  useEffect(() => {
+    if (!displayOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (!displayRef.current?.contains(event.target as Node)) setDisplayOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDisplayOpen(false);
+        displayTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [displayOpen]);
+
+  const onSegKey = (event: React.KeyboardEvent) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    const available = model.modes.filter(mode => mode.available);
+    const current = available.findIndex(mode => mode.id === model.viewMode);
+    const step = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const next = available[(current + step + available.length) % available.length];
     if (next && next.id !== model.viewMode) {
       props.onModeChange(next.id);
       segRef.current?.querySelector<HTMLButtonElement>(`[data-mode="${next.id}"]`)?.focus();
@@ -60,150 +81,153 @@ export function StructureToolbar(props: StructureToolbarProps) {
 
   return (
     <div className="s3d-bar" role="toolbar" aria-label="3D structure controls">
-      <div className="s3d-bar__row">
-        <span className="s3d-ident" data-tone={model.canvas.chip.tone} title={model.canvas.chip.title} data-testid="structure-source">
-          <span className="s3d-ident__dot" aria-hidden="true" />
-          <span className="s3d-ident__name">{model.canvas.chip.label}</span>
+      <div className="s3d-bar__top">
+        <div className="s3d-bar__identity">
+          <span className="s3d-ident" data-tone={model.canvas.chip.tone} title={model.canvas.chip.title} data-testid="structure-source">
+            <span className="s3d-ident__dot" aria-hidden="true" />
+            <span className="s3d-ident__name">{model.canvas.chip.label}</span>
+          </span>
           {primary && <span className="s3d-ident__kind">{primary.kind}</span>}
-        </span>
-        {site.substitution && (
-          <button type="button" className="s3d-site" onClick={props.onFocusSite} title="Frame the variant site" data-testid="structure-site">
-            <Crosshair aria-hidden="true" />
-            {site.substitution}
+        </div>
+        <div className="s3d-bar__top-actions">
+          {site.substitution && (
+            site.canAddressVariantSite ? (
+              <button type="button" className="s3d-site" onClick={props.onFocusSite} title="Frame the variant site" data-testid="structure-site">
+                <Crosshair aria-hidden="true" />{site.substitution}
+              </button>
+            ) : (
+              <span className="s3d-site" data-kind="unmapped" title={site.check.text} data-testid="structure-site">
+                {site.substitution} · site unmapped
+              </span>
+            )
+          )}
+          {props.selectedResidue !== null && props.selectedResidue !== props.variantPosition && site.canAddressVariantSite && (
+            <button type="button" className="s3d-site" data-kind="selected" onClick={props.onBackToSite} title="Clear the selection and return to the variant site">
+              Selected {props.selectedResidue}<Undo2 aria-hidden="true" />
+            </button>
+          )}
+          {props.onSwitchToAlphaFold && props.onSwitchToEsmFold && (
+            <div className="s3d-family" role="group" aria-label="Structure family">
+              <button type="button" className="s3d-family__btn" aria-pressed={model.family === "alphafold"} onClick={props.onSwitchToAlphaFold}>AlphaFold</button>
+              <button type="button" className="s3d-family__btn" aria-pressed={model.family === "esmfold"} onClick={props.onSwitchToEsmFold}>ESMFold</button>
+            </div>
+          )}
+          <button type="button" className="s3d-btn s3d-btn--quiet" onClick={props.onOpenGuide} title="How to read this view" aria-label="Guide: how to read this view">
+            <HelpCircle aria-hidden="true" /><span className="s3d-btn__text">Guide</span>
           </button>
-        )}
-        {props.onSwitchToAlphaFold && props.onSwitchToEsmFold && (
-          <div className="s3d-family" role="group" aria-label="Structure family">
-            <button type="button" className="s3d-family__btn" aria-pressed={model.family === "alphafold"} onClick={props.onSwitchToAlphaFold}>AlphaFold</button>
-            <button type="button" className="s3d-family__btn" aria-pressed={model.family === "esmfold"} onClick={props.onSwitchToEsmFold}>ESMFold</button>
-          </div>
-        )}
-        {props.selectedResidue !== null && props.selectedResidue !== props.variantPosition && (
-          <button type="button" className="s3d-site" data-kind="selected" onClick={props.onBackToSite} title="Clear the selection and return to the variant site">
-            Selected {props.selectedResidue}
-            <Undo2 aria-hidden="true" />
+          <button
+            type="button" className="s3d-btn s3d-btn--icon s3d-btn--quiet"
+            onClick={props.onToggleFullscreen}
+            aria-label={props.isFullscreen ? "Exit full screen" : "Full screen"}
+            title={props.isFullscreen ? "Exit full screen" : "Full screen"}
+          >
+            {props.isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
           </button>
-        )}
-        <span className="s3d-bar__spacer" />
-        <button type="button" className="s3d-btn" onClick={props.onOpenGuide} title="How to read this view" aria-label="Guide: how to read this view">
-          <HelpCircle aria-hidden="true" />
-          <span className="s3d-btn__text">Guide</span>
-        </button>
-        <button
-          type="button"
-          className="s3d-btn s3d-btn--icon"
-          onClick={props.onToggleFullscreen}
-          aria-label={props.isFullscreen ? "Exit full screen" : "Full screen"}
-          title={props.isFullscreen ? "Exit full screen" : "Full screen"}
-        >
-          {props.isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-        </button>
+        </div>
       </div>
 
-      <div className="s3d-bar__row">
-        <div className="s3d-bar__group">
-          <div className="s3d-seg" role="radiogroup" aria-label="Coordinates shown" ref={segRef} onKeyDown={onSegKey} data-testid="structure-modes">
-            {model.modes.map(mode => {
-              const checked = model.viewMode === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  role="radio"
-                  data-mode={mode.id}
-                  className="s3d-seg__btn"
-                  aria-checked={checked}
-                  aria-disabled={!mode.available}
-                  tabIndex={checked ? 0 : -1}
-                  title={mode.reason ?? undefined}
-                  onClick={() => mode.available && props.onModeChange(mode.id)}
-                >
-                  {mode.busy && !mode.available && <span className="s3d-seg__busy" aria-hidden="true" />}
-                  {mode.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="s3d-bar__group">
-          <label className="s3d-field">
-            <span className="s3d-label">Colour</span>
-            <select
-              className="s3d-select"
-              value={model.representation}
-              onChange={e => props.onRepresentationChange(e.target.value as RepresentationId)}
-              data-testid="structure-colour"
+      <div className="s3d-bar__bottom">
+        <div className="s3d-seg" role="radiogroup" aria-label="Coordinates shown" ref={segRef} onKeyDown={onSegKey} data-testid="structure-modes">
+          {model.modes.map(mode => (
+            <button
+              key={mode.id} type="button" role="radio" data-mode={mode.id}
+              className="s3d-seg__btn" aria-checked={model.viewMode === mode.id}
+              aria-disabled={!mode.available} tabIndex={model.viewMode === mode.id ? 0 : -1}
+              title={mode.reason ?? undefined}
+              onClick={() => mode.available && props.onModeChange(mode.id)}
             >
-              {model.representations.map(r => (
-                <option key={r.id} value={r.id} disabled={!r.available} title={r.reason ?? undefined}>
-                  {r.label}{r.available ? "" : " — not available"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {model.plddtFilter.available && (
-            <label className="s3d-field">
-              <span className="s3d-label">Show</span>
-              <select className="s3d-select" value={props.plddtFilter} onChange={e => props.onPlddtFilterChange(e.target.value as PlddtFilter)}>
-                <option value="none">All residues</option>
-                <option value="50">pLDDT ≥ 50</option>
-                <option value="70">pLDDT ≥ 70</option>
-              </select>
-            </label>
-          )}
-          {model.alignment.scopeToggle && props.onAlignmentScopeChange && (
-            <label className="s3d-field">
-              <span className="s3d-label">Fit</span>
-              <select
-                className="s3d-select"
-                value={model.alignment.scope}
-                onChange={e => props.onAlignmentScopeChange!(e.target.value as AlignmentScope)}
-                title="Which Cα atoms the Kabsch superposition fits"
-              >
-                <option value="global">Whole chain</option>
-                <option value="local">±{LOCAL_ALIGNMENT_FIT_WINDOW} residues around the site</option>
-              </select>
-            </label>
+              {mode.busy && !mode.available && <span className="s3d-seg__busy" aria-hidden="true" />}
+              {mode.label}
+            </button>
+          ))}
+        </div>
+        <span className="s3d-bar__divider" aria-hidden="true" />
+        <div className="s3d-display-wrap" ref={displayRef}>
+          <button
+            ref={displayTriggerRef} type="button" className="s3d-btn s3d-btn--display"
+            aria-expanded={displayOpen} aria-controls={displayId}
+            onClick={() => setDisplayOpen(open => !open)}
+          >
+            <SlidersHorizontal aria-hidden="true" />
+            <span>Display</span>
+            <span className="s3d-btn__value">{representation?.label ?? "Options"}</span>
+            <ChevronDown aria-hidden="true" />
+          </button>
+          {displayOpen && (
+            <div className="s3d-display" id={displayId} role="region" aria-label="Structure display options">
+              <label className="s3d-display__field">
+                <span className="s3d-display__label">Colour by</span>
+                <select
+                  className="s3d-select" value={model.representation}
+                  onChange={event => props.onRepresentationChange(event.target.value as RepresentationId)}
+                  data-testid="structure-colour"
+                >
+                  {model.representations.map(item => (
+                    <option key={item.id} value={item.id} disabled={!item.available}>
+                      {item.label}{item.available ? "" : " — unavailable"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {model.representation === "esm3" && (
+                <p className="s3d-display__note">Sequence difference projected onto wild-type coordinates; this is not structural motion.</p>
+              )}
+              {model.plddtFilter.available && (
+                <label className="s3d-display__field">
+                  <span className="s3d-display__label">Show residues</span>
+                  <select className="s3d-select" value={props.plddtFilter} onChange={event => props.onPlddtFilterChange(event.target.value as PlddtFilter)}>
+                    <option value="none">All residues</option>
+                    <option value="50">pLDDT ≥ 50</option>
+                    <option value="70">pLDDT ≥ 70</option>
+                  </select>
+                </label>
+              )}
+              {model.alignment.scopeToggle && props.onAlignmentScopeChange && (
+                <label className="s3d-display__field">
+                  <span className="s3d-display__label">Fit Cα atoms</span>
+                  <select className="s3d-select" value={model.alignment.scope} onChange={event => props.onAlignmentScopeChange!(event.target.value as AlignmentScope)}>
+                    <option value="global">Whole chain</option>
+                    <option value="local">±{LOCAL_ALIGNMENT_FIT_WINDOW} residues around the site</option>
+                  </select>
+                </label>
+              )}
+            </div>
           )}
         </div>
-
-        <div className="s3d-bar__group">
+        <div className="s3d-bar__tools">
           <button
-            type="button"
-            className="s3d-btn"
-            aria-pressed={props.pocketOpen}
-            onClick={props.onTogglePocket}
-            title="Show the predicted ligand pocket nearest the variant"
-            aria-label="Pocket"
+            ref={props.pocketTriggerRef} type="button" className="s3d-btn" aria-pressed={props.pocketOpen}
+            onClick={props.onTogglePocket} title="Inspect the predicted pocket from the pipeline structure"
           >
-            <ScanSearch aria-hidden="true" />
-            <span className="s3d-btn__text">Pocket</span>
+            <ScanSearch aria-hidden="true" /><span>Pocket</span>
           </button>
           <div className="s3d-menu-wrap" ref={props.captureMenuRef}>
             <button
-              type="button"
-              className="s3d-btn"
-              aria-haspopup="menu"
-              aria-expanded={props.captureOpen}
-              aria-label="Save or copy an image of the view"
-              onClick={() => props.setCaptureOpen(p => !p)}
+              ref={captureTriggerRef} type="button" className="s3d-btn"
+              aria-expanded={props.captureOpen} aria-label="Save or copy an image of the view"
+              onClick={() => props.setCaptureOpen(open => !open)}
             >
               <Camera aria-hidden="true" />
-              <span className="s3d-btn__text">{props.copyState === "copied" ? "Copied" : props.copyState === "failed" ? "Copy failed" : "Image"}</span>
+              <span>{props.copyState === "copied" ? "Copied" : props.copyState === "failed" ? "Copy failed" : "Image"}</span>
               <ChevronDown aria-hidden="true" />
             </button>
             {props.captureOpen && (
-              <div className="s3d-menu" role="menu">
-                <button type="button" role="menuitem" className="s3d-menu__item" onClick={props.onDownload}>
-                  <Download aria-hidden="true" />
-                  Download PNG
+              <div
+                className="s3d-menu" role="group" aria-label="Image actions"
+                onKeyDown={event => {
+                  if (event.key === "Escape") {
+                    props.setCaptureOpen(false);
+                    captureTriggerRef.current?.focus();
+                  }
+                }}
+              >
+                <button type="button" className="s3d-menu__item" onClick={props.onDownload}>
+                  <Download aria-hidden="true" />Download PNG
                 </button>
-                <button type="button" role="menuitem" className="s3d-menu__item" onClick={props.onCopy}>
-                  <ClipboardCopy aria-hidden="true" />
-                  Copy to clipboard
+                <button type="button" className="s3d-menu__item" onClick={props.onCopy}>
+                  <ClipboardCopy aria-hidden="true" />Copy to clipboard
                 </button>
-                <p className="s3d-menu__note">The file name records the structure and the colouring.</p>
+                <p className="s3d-menu__note">The filename records the structure and colouring.</p>
               </div>
             )}
           </div>

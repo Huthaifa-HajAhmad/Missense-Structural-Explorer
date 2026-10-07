@@ -36,6 +36,7 @@ import {
   fetchAlphafoldPdb,
   fetchPdbFromRcsb,
   fetchPdbHomologs,
+  fetchVerifiedExperimentalChain,
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
@@ -57,8 +58,8 @@ const STRUCTURE_RESOLUTION_TTL_S = 6 * 60 * 60; // 6 h
  */
 type ChosenStructure =
   | { tier: 1; pdbId: string; chainId: string; unpStart: number | null; structStart: number | null }
-  | { tier: 2; afdbVersion: string }
-  | { tier: 3; pdbId: string; resolution: number | null; method: string | null; identity: number; organism?: string };
+  | { tier: 2; afdbVersion: string | undefined }
+  | { tier: 3; pdbId: string; chainId: string; resolution: number | null; method: string | null; identity: number; organism?: string };
 
 interface ProbedStructure {
   choice: ChosenStructure;
@@ -90,13 +91,25 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
   try {
     const pdbMapping = await fetchBestPdbStructure(uniprotId, pos);
     if (pdbMapping) {
-      const pdbText = await fetchPdbFromRcsb(
+      /**
+       * The chain is offered only after residue-by-residue verification against the UniProt sequence.
+       *
+       * The PDBe mapping is a segment pair (`unp_start`/`start`), so the one-shift form used here
+       * numbered a construct correctly only until its first insertion or deletion — past one, every
+       * residue carried a neighbour's UniProt number while the response still claimed `experimental`.
+       * `fetchVerifiedExperimentalChain` renumbers through PDBe's per-residue map (SIFTS) or the
+       * sequence alignment, and refuses when the wild-type residue at the site does not match; a
+       * refusal falls through to the predicted tiers rather than serving mis-numbered coordinates.
+       */
+      const verified = await fetchVerifiedExperimentalChain(
         pdbMapping.pdbId,
         pdbMapping.chainId,
+        uniprotId,
+        pos,
         pdbMapping.unpStart,
         pdbMapping.structStart
       );
-      if (pdbText) {
+      if (verified) {
         console.log(`[resolveStructure] Tier 1 hit: PDB ${pdbMapping.pdbId.toUpperCase()} chain ${pdbMapping.chainId}`);
         return {
           choice: {
@@ -106,7 +119,7 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
             unpStart: pdbMapping.unpStart ?? null,
             structStart: pdbMapping.structStart ?? null
           },
-          pdbText,
+          pdbText: verified.pdbText,
           provenance: {
             source: "experimental",
             pdbId: pdbMapping.pdbId.toUpperCase(),
@@ -114,6 +127,11 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
           }
         };
       }
+      console.warn(
+        `[resolveStructure] Tier 1 mapping for PDB ${pdbMapping.pdbId.toUpperCase()} chain ` +
+        `${pdbMapping.chainId} did not verify residue-by-residue against ${uniprotId}; ` +
+        `not serving it as UniProt-numbered experimental.`
+      );
     }
   } catch (err: any) {
     console.warn("[resolveStructure] Tier 1 (PDBe direct) failed:", err.message);
@@ -123,8 +141,13 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
   try {
     const afData = await fetchAlphafoldPdb(uniprotId);
     if (afData) {
-      const afdbVersion = getResolvedAlphafoldVersion(uniprotId) || "v4";
-      console.log(`[resolveStructure] Tier 2 hit: AlphaFold (${afdbVersion}) for ${uniprotId}`);
+      /**
+       * Only a version the resolved URL actually names is reported. The old `|| "v4"` (and the
+       * route's `|| "v6"`) stamped a version on provenance that the bytes need not carry — a claim
+       * that looks like verification and cannot be checked downstream.
+       */
+      const afdbVersion = getResolvedAlphafoldVersion(uniprotId);
+      console.log(`[resolveStructure] Tier 2 hit: AlphaFold${afdbVersion ? ` (${afdbVersion})` : ""} for ${uniprotId}`);
       return {
         choice: { tier: 2, afdbVersion },
         pdbText: afData,
@@ -142,6 +165,7 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
     // Rank by resolution (ascending — lower Å is better), then identity (descending)
     // The tier's own contract: ≥30% identity AND covering the mutation position. Coverage was not
     // checked, and "identity" used to be the search's relevance score.
+    // `chainId` is the matched polymer entity's author chain, not the entry's default chain.
     const ranked = homologs
       .filter(h => h.identity !== null && h.identity >= 30 && (pos === undefined || h.coversPosition === true))
       .sort((a, b) => {
@@ -151,33 +175,40 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
         return (b.identity ?? 0) - (a.identity ?? 0);
       });
 
-    if (ranked.length > 0) {
-      const best = ranked[0];
-      const pdbText = await fetchPdbFromRcsb(best.pdbId);
-      if (pdbText) {
-        console.log(
-          `[resolveStructure] Tier 3 hit: homolog ${best.pdbId} ` +
-          `(${best.identity}% identity, ${best.resolution ?? "?"}Å, ${best.organism})`
-        );
-        return {
-          choice: {
-            tier: 3,
-            pdbId: best.pdbId,
-            resolution: best.resolution ?? null,
-            method: best.method ?? null,
-            identity: best.identity!,
-            organism: best.organism
-          },
-          pdbText,
-          provenance: {
-            source: "homolog",
-            pdbId: best.pdbId,
-            resolution: best.resolution,
-            method: best.method,
-            identity: best.identity!
-          }
-        };
+    // The search matched an ENTITY, not a chain: load the entity's own chain, and refuse the
+    // candidate when no entity -> chain mapping is known rather than defaulting to chain A (which is
+    // routinely a partner, a nanobody or a second copy — a different molecule's coordinates).
+    for (const best of ranked) {
+      if (!best.chainId) {
+        console.warn(`[resolveStructure] Tier 3: ${best.pdbId.toUpperCase()} has no resolved entity→chain mapping; refusing to assume chain A.`);
+        continue;
       }
+      const pdbText = await fetchPdbFromRcsb(best.pdbId, best.chainId);
+      if (!pdbText) continue;
+      console.log(
+        `[resolveStructure] Tier 3 hit: homolog ${best.pdbId} chain ${best.chainId} ` +
+        `(${best.identity}% identity, ${best.resolution ?? "?"}Å, ${best.organism})`
+      );
+      return {
+        choice: {
+          tier: 3,
+          pdbId: best.pdbId,
+          chainId: best.chainId,
+          resolution: best.resolution ?? null,
+          method: best.method ?? null,
+          identity: best.identity!,
+          organism: best.organism
+        },
+        pdbText,
+        provenance: {
+          source: "homolog",
+          pdbId: best.pdbId,
+          chainId: best.chainId,
+          resolution: best.resolution,
+          method: best.method,
+          identity: best.identity!
+        }
+      };
     }
   } catch (err: any) {
     console.warn("[resolveStructure] Tier 3 (RCSB homolog) failed:", err.message);
@@ -189,18 +220,23 @@ async function probeStructure(uniprotId: string, pos?: number): Promise<ProbedSt
 /** Re-materialises a memoised choice. The coordinates come from the fetchers' own L1 caches. */
 async function materialise(
   uniprotId: string,
+  pos: number | undefined,
   choice: ChosenStructure
 ): Promise<ResolvedStructure | null> {
   if (choice.tier === 1) {
-    const pdbText = await fetchPdbFromRcsb(
+    // Re-verify on the way back out: the memo records which entry and chain, not coordinates, and
+    // the fetch is the same residue-by-residue gate the probe used.
+    const verified = await fetchVerifiedExperimentalChain(
       choice.pdbId,
       choice.chainId,
+      uniprotId,
+      pos,
       choice.unpStart ?? undefined,
       choice.structStart ?? undefined
     );
-    return pdbText
+    return verified
       ? {
-          pdbText,
+          pdbText: verified.pdbText,
           provenance: { source: "experimental", pdbId: choice.pdbId.toUpperCase(), chainId: choice.chainId }
         }
       : null;
@@ -208,18 +244,23 @@ async function materialise(
 
   if (choice.tier === 2) {
     const pdbText = await fetchAlphafoldPdb(uniprotId);
-    return pdbText
-      ? { pdbText, provenance: { source: "alphafold", afdbVersion: choice.afdbVersion } }
-      : null;
+    if (!pdbText) return null;
+    // The version travels with the bytes re-materialised NOW, not with the six-hour-old memo: a
+    // release since the choice was recorded would otherwise be reported under the old label, while
+    // the coordinates come from the new release. The memo's value is the fallback for a fetch whose
+    // URL names no version.
+    const afdbVersion = getResolvedAlphafoldVersion(uniprotId) ?? choice.afdbVersion;
+    return { pdbText, provenance: { source: "alphafold", afdbVersion } };
   }
 
-  const pdbText = await fetchPdbFromRcsb(choice.pdbId);
+  const pdbText = await fetchPdbFromRcsb(choice.pdbId, choice.chainId);
   return pdbText
     ? {
         pdbText,
         provenance: {
           source: "homolog",
           pdbId: choice.pdbId,
+          chainId: choice.chainId,
           resolution: choice.resolution,
           method: choice.method ?? undefined,
           identity: choice.identity
@@ -281,7 +322,7 @@ export async function resolveStructure(
     return { pdbText: freshlyProbed.pdbText, provenance: freshlyProbed.provenance };
   }
 
-  const materialised = await materialise(uniprotId, chosen).catch((err: any) => {
+  const materialised = await materialise(uniprotId, pos, chosen).catch((err: any) => {
     console.warn("[resolveStructure] Re-materialising the memoised tier failed:", err.message);
     return null;
   });

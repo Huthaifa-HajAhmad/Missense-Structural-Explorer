@@ -156,6 +156,19 @@ describe("renumberChainToUniprot", () => {
   it("refuses a UniProt number the PDB format cannot hold", () => {
     expect(renumberChainToUniprot(atomLine("ATOM  ", 1, "MET", "A", 1), "A", new Map([["1|", 12000]]))).toBeNull();
   });
+
+  it("drops ANISOU/SIGATM/SIGUIJ instead of leaving them at the authors' numbering", () => {
+    const text = [
+      atomLine("ATOM  ", 1, "MET", "A", 1),
+      "ANISOU    1  CA  MET A   1      1000   1000   1000   1000   1000   1000       C",
+      "SIGATM    1  CA  MET A   1      0.10   0.10   0.10   0.10   0.10   0.10       C",
+      "SIGUIJ    1  CA  MET A   1      0.10   0.10   0.10   0.10   0.10   0.10       C",
+      "END",
+    ].join("\n");
+    const result = renumberChainToUniprot(text, "A", new Map([["1|", 5]]))!;
+    expect(namesAt(result.pdbText, 5)).toEqual(["MET"]);
+    expect(result.pdbText).not.toMatch(/ANISOU|SIGATM|SIGUIJ/);
+  });
 });
 
 describe("resolvePdbCoordinatesDeterministically — insertions", () => {

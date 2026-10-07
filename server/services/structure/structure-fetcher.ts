@@ -28,6 +28,16 @@ function singleFlightPdb(key: string, fetcher: () => Promise<string | null>): Pr
   });
 }
 
+/**
+ * Per-atom records dropped when a chain is filtered or renumbered.
+ *
+ * `CONECT` refers to atoms in chains that were deleted. `ANISOU`/`SIGATM`/`SIGUIJ` copy an ATOM
+ * line's residue number: kept verbatim beside renumbered ATOM lines they state a second, wrong
+ * numbering, and as "metadata" they survived for chains whose ATOM lines were dropped. No
+ * downstream reader takes them from this path.
+ */
+const PER_ATOM_RECORDS_DROPPED = new Set(["ANISOU", "SIGATM", "SIGUIJ"]);
+
 export async function fetchAlphafoldPdb(uniprotId: string): Promise<string | null> {
   const validatedUniprot = validateUniProt(uniprotId);
   const cacheKey = `af_pdb_${validatedUniprot}`;
@@ -233,6 +243,11 @@ export function extractChainFromPdb(pdbText: string, chainId: string, shift = 0)
       }
     } else if (recordType === "CONECT") {
       // Skip connect records as they might refer to atoms in other chains we deleted
+      continue;
+    } else if (PER_ATOM_RECORDS_DROPPED.has(recordType)) {
+      // ANISOU/SIGATM/SIGUIJ repeat an ATOM's residue number. Kept beside a shifted chain they
+      // would state the authors' numbering while the ATOM lines state UniProt's (and they would
+      // survive for chains whose ATOM lines were dropped entirely). They are not read downstream.
       continue;
     } else {
       // Keep metadata lines (HEADER, TITLE, REMARK, HELIX, SHEET, etc.)
@@ -460,6 +475,61 @@ export async function fetchPdbFromRcsb(
   });
 }
 
+/** A chain proven, residue by residue, to be in UniProt numbering. */
+export interface VerifiedExperimentalChain {
+  pdbText: string;
+  /** The UniProt position the mapping was validated at (the variant site, or the mapping's start). */
+  validatedAt: number;
+}
+
+/**
+ * Tier-1 experimental chain, offered ONLY after it verifies against the UniProt sequence.
+ *
+ * The PDBe best-structures mapping is a segment pair (`unp_start`/`start`), so the single shift
+ * derived from it numbers a construct correctly only until its first insertion or deletion; past
+ * one, every residue carries a neighbour's UniProt number while the response still says
+ * `experimental`. This runs the same deterministic, residue-by-residue resolver FoldX's templates
+ * pass (PDBe SIFTS per-residue map, else the Needleman-Wunsch alignment) and returns null unless the
+ * wild-type residue at the site matches — so a caller falls through to the predicted tiers instead
+ * of serving mis-numbered experimental coordinates as if they were UniProt-numbered.
+ *
+ * The site is the variant position when one is given, otherwise the mapping's own `unpStart`: with
+ * no variant to place, validating the start of the declared range is enough to confirm the mapping.
+ * Null when the sequence cannot be fetched, the site is outside it, or the entry does not verify.
+ */
+export async function fetchVerifiedExperimentalChain(
+  pdbId: string,
+  chainId: string,
+  uniprotId: string,
+  pos?: number,
+  unpStart?: number,
+  structStart?: number
+): Promise<VerifiedExperimentalChain | null> {
+  let sequence: string | null = null;
+  try {
+    sequence = await fetchUniprotSequence(uniprotId);
+  } catch (err: any) {
+    console.warn(`[RCSB PDB Verify] Could not fetch the UniProt sequence for ${uniprotId}:`, err?.message);
+    sequence = null;
+  }
+  if (!sequence || sequence.length === 0) return null;
+
+  const inRange = (n: number | undefined): n is number =>
+    typeof n === "number" && Number.isFinite(n) && n >= 1 && n <= sequence!.length;
+  const site = inRange(pos) ? pos : inRange(unpStart) ? unpStart : null;
+  if (site === null) return null;
+
+  const expectedWt1 = sequence[site - 1];
+  const pdbText = await fetchPdbFromRcsb(pdbId, chainId, unpStart, structStart, {
+    uniprotId,
+    sequence,
+    pos: site,
+    expectedWt1,
+  });
+  return pdbText ? { pdbText, validatedAt: site } : null;
+}
+
+
 interface RawHomologCandidate {
   pdbId: string;
   /** RCSB's search relevance score (0–1, normalised to the top hit). NOT sequence identity. */
@@ -473,13 +543,23 @@ interface RawHomologCandidate {
   isHuman: boolean;
   method: string;
   resolution: number | null;
+  /**
+   * The author chain the search's matching polymer ENTITY occupies, when RCSB named one.
+   *
+   * The search matches an ENTITY (`5V3M_3`), not a chain, and an entry's chain A is often a partner,
+   * a nanobody or a second copy. Without this the Tier-3 loader fell back to chain A and could serve
+   * a different molecule's coordinates. Absent when the entity could not be matched, in which case
+   * the resolver refuses the candidate rather than assuming a chain.
+   */
+  chainId?: string;
   querySeqFrom?: number;
   querySeqTo?: number;
 }
 
 async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawHomologCandidate[]> {
-  // v2: entries cached before the verbose search stored the relevance score as "identity".
-  const cacheKey = `raw_homologs_v2_${validatedUniprot}`;
+  // v3: the entity -> author chain mapping (`chainId`) is new; entries cached under v2 carry none,
+  // so a Tier-3 resolution would have to refuse every homolog until they expired.
+  const cacheKey = `raw_homologs_v3_${validatedUniprot}`;
   const cached = pdbCache.get(cacheKey);
   if (cached) {
     try {
@@ -597,6 +677,11 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
               resolution_combined
             }
             polymer_entities {
+              rcsb_polymer_entity_container_identifiers {
+                entity_id
+                asym_ids
+                auth_asym_ids
+              }
               rcsb_entity_source_organism {
                 ncbi_scientific_name
               }
@@ -647,6 +732,17 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
         const resolution = entryMeta.rcsb_entry_info?.resolution_combined?.[0] || null;
         const organism = entryMeta.polymer_entities?.[0]?.rcsb_entity_source_organism?.[0]?.ncbi_scientific_name || "Unknown";
 
+        // The search hit names a polymer ENTITY; map it to the author chain(s) that entity occupies.
+        // The FIRST auth chain of the MATCHED entity is the one the sequence search aligned, so a
+        // multi-copy entry or a complex does not hand back a partner's chain A.
+        const entities: any[] = Array.isArray(entryMeta.polymer_entities) ? entryMeta.polymer_entities : [];
+        const matchedEntity = entities.find(
+          (e: any) => String(e?.rcsb_polymer_entity_container_identifiers?.entity_id ?? "") === String(info.entityId)
+        );
+        const authChains: unknown[] = matchedEntity?.rcsb_polymer_entity_container_identifiers?.auth_asym_ids ?? [];
+        const chainId =
+          typeof authChains[0] === "string" && authChains[0].trim() ? (authChains[0].trim().toUpperCase()) : undefined;
+
         // Only the alignment's own match context may supply identity, coverage or range; absent, they
         // stay null rather than being filled from the relevance score or a guessed 80%.
         const mc = info.rawHit.services?.[0]?.nodes?.[0]?.match_context?.[0];
@@ -670,6 +766,7 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
           isHuman: organism.toLowerCase().includes("homo sapiens") || organism.toLowerCase().includes("human"),
           method,
           resolution,
+          chainId,
           querySeqFrom: qFrom,
           querySeqTo: qTo,
         });
@@ -690,7 +787,9 @@ async function fetchRawHomologCandidates(validatedUniprot: string): Promise<RawH
 
 export async function fetchPdbHomologs(uniprotId: string, pos?: number): Promise<PdbHomolog[]> {
   const validatedUniprot = validateUniProt(uniprotId);
-  const posCacheKey = `homologs_v2_${validatedUniprot}_pos_${pos ?? "none"}`;
+  // v3: matches `raw_homologs_v3` — v2 payloads carry no entity -> chain mapping, so a Tier-3
+  // resolution reading one would have to refuse it.
+  const posCacheKey = `homologs_v3_${validatedUniprot}_pos_${pos ?? "none"}`;
   const cachedData = pdbCache.get(posCacheKey);
   if (cachedData) {
     try {

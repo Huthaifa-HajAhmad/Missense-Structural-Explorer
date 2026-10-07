@@ -405,6 +405,20 @@ describe("derivePocketNarrative", () => {
     expect(narrative.plainLanguage).not.toMatch(/P2Rank did not run/i);
   });
 
+  it("preserves measured fpocket geometry without applying P2Rank score bands", () => {
+    const narrative = derivePocketNarrative({
+      status: "fallback", pocketDistance: 5.2, pocketScore: 12,
+      pocketResidues: [{ name: "ALA", index: 5, chain: "A", distance: 2.1 }],
+    }, { variantResidueIndex: 5, variantResidueChain: "A" });
+    expect(narrative.status).toBe("fallback_engine");
+    expect(narrative.proximity.distance).toBe(5.2);
+    expect(narrative.ranking.score).toBe(12);
+    expect(narrative.ranking.band).toBe("unknown");
+    expect(narrative.ranking.kind).toBe("unverified");
+    expect(narrative.plainLanguage).toMatch(/fpocket reported a score/i);
+    expect(narrative.plainLanguage).not.toMatch(/P2Rank gives that cavity/i);
+  });
+
   it("treats a present-but-statusless payload as unavailable, not as a scan never requested", () => {
     const narrative = derivePocketNarrative({ pocketDistance: 5, pocketScore: 40, pocketVolume: 500 });
     expect(narrative.status).toBe("unavailable");
