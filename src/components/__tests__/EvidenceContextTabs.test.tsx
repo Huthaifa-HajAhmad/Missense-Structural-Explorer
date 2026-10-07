@@ -170,19 +170,19 @@ describe('context tab claims and interactions', () => {
     const homology = { type: '1:1', species: 'mus_musculus', taxonId: 'NCBITaxon:10090', geneId: 'ENSMUSG1', proteinId: 'P', sourceAligned: 'ABCDE', targetAligned: 'ABQDE', humanIdentity: 90, orthologIdentity: 90, humanSimilarity: 95 };
     context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
     const result = { metadata: { gene: 'TEST', sequence: 'ABCDE', residueIndex: 3, wildType: 'C', mutant: 'Q' } };
-    const { unmount } = render(<ExpressionModelsTab analysisState={{ result, isLoading: false, error: null } as any} />);
+    const { unmount } = render(<ExpressionModelsTab {...props} analysisState={{ result, isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in Mouse/)).toBeInTheDocument(); unmount();
-    render(<ExpressionModelsTab analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
+    render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('residue-alignment-card')).getByText(/No residue is mapped/)).toBeInTheDocument();
   });
   it('places the variant on a pext region only with a verified GRCh38 locus', () => {
     context.value.pextLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', geneId: 'E', chrom: '17', flags: ['low_max_pext'], provenance: null, message: null,
       regions: [{ start: 100, stop: 110, mean: 0.5, tissues: [{ tissue: 'liver', value: 0.9 }] }] } };
     const make = (assembly: string) => ({ metadata: { gene: 'TEST' }, predictorData: { gnomadVariantId: '17-105-A-T', gnomadVariantAssembly: assembly } });
-    const { unmount } = render(<ExpressionModelsTab analysisState={{ result: make('GRCh38'), isLoading: false, error: null } as any} />);
+    const { unmount } = render(<ExpressionModelsTab {...props} analysisState={{ result: make('GRCh38'), isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('pext-card')).getByText('Liver')).toBeInTheDocument();
     expect(within(screen.getByTestId('pext-card')).getByText(/low_max_pext/)).toBeInTheDocument(); unmount();
-    render(<ExpressionModelsTab analysisState={{ result: make('GRCh37'), isLoading: false, error: null } as any} />);
+    render(<ExpressionModelsTab {...props} analysisState={{ result: make('GRCh37'), isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('pext-card')).getByText(/no verified GRCh38 position/)).toBeInTheDocument();
   });
 });
