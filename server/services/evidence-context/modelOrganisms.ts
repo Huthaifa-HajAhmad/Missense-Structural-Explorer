@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
+import { loadAllianceRelease } from './allianceRelease.ts';
 import { modelOrganismResponseSchema, speciesLabel, type ImpcScreen, type ModelOrganismResponse, type Ortholog } from '../../../src/shared/modelOrganisms.ts';
 
 const HGNC_URL = 'https://rest.genenames.org/fetch/symbol/';
@@ -60,7 +61,7 @@ export async function loadModelOrganisms(gene: string): Promise<ModelOrganismRes
         confidence: g.confidence?.name ?? null, methodCount: g.predictionMethodsMatched?.length ?? 0,
       }));
       const provenance = [
-        { source: 'Alliance of Genome Resources orthology', url: alliance.url, licence: 'CC BY 4.0', release: null, retrievedAt: new Date().toISOString(), sha256: sha(hgnc.raw, alliance.raw), timestampBasis: 'download' as const },
+        { source: 'Alliance of Genome Resources orthology', url: alliance.url, licence: 'CC BY 4.0', release: await loadAllianceRelease(), retrievedAt: new Date().toISOString(), sha256: sha(hgnc.raw, alliance.raw), timestampBasis: 'download' as const },
       ];
       let impc: ModelOrganismResponse['impc'] = null;
       const mouse = [...new Set(orthologs.filter(o => o.taxonId === 'NCBITaxon:10090' && /^MGI:\d+$/.test(o.id)).map(o => o.id))];

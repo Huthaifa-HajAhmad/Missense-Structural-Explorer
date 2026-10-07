@@ -1,10 +1,11 @@
 import React from 'react';
 import type { TabComponentProps } from './types';
 import { useEvidenceContext } from '../../hooks/useEvidenceContext';
-import { REVIEW_SYSTEMS, ONSET_LABELS, toggleReviewSystem, type PhenotypeSelection } from '../../shared/phenotypeFrame';
 import { buildAdultExpressionEvidence, type TissueExpression } from '../../shared/expressionModels';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
-import { DiseaseContextPicker } from './DiseaseContextPicker';
+import { ReviewFrame } from './expression/ReviewFrame';
+import { ExpressionHero } from './expression/ExpressionHero';
+import { buildExpressionFinding, buildSourceFacts } from '../../shared/expressionTabEvidence';
 import { DevelopmentalExpressionCard } from './DevelopmentalExpressionCard';
 import { ModelOrganismsCard } from './ModelOrganismsCard';
 import { HpoAnnotationCard } from './HpoAnnotationCard';
@@ -14,8 +15,9 @@ import { ModelPhenotypesCard } from './ModelPhenotypesCard';
 import { PextCard } from './PextCard';
 import { ResidueAlignmentCard } from './ResidueAlignmentCard';
 import { MeasureBar, maxOf } from './ContextCharts';
-import { pextSiteFromVariantId } from '../../shared/pext';
+import { pextSiteFromVariantId, locatePext } from '../../shared/pext';
 import { isFallbackLocus } from '../../shared/locusResolution';
+import { resolveResidueShiftModel } from '../../lib/residueShiftModel';
 
 function TissueTable({ tissues, caption, max }: { tissues: TissueExpression[]; caption: string; max: number }) {
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label={caption}><table className="ctx-table">
@@ -36,21 +38,24 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
   const chosen = buildGeneDiseaseEvidence(context.diseaseLoad?.data ?? null, context.selection.diseaseKey).selected;
   const diseaseTerms = new Map((context.hpoLoad?.data?.terms ?? []).map(t => [t.id, t.name] as const));
   const maxTpm = maxOf((context.expressionLoad?.data?.tissues ?? []).map(t => t.value));
+  const gtexLabels = new Map((context.expressionLoad?.data?.tissues ?? []).map(t => [t.id.toLowerCase(), t.label] as const));
   const site = pextSiteFromVariantId(result.predictorData?.gnomadVariantId, result.predictorData?.gnomadVariantAssembly, isFallbackLocus(result));
+  // The pipeline records metadata.wildType/mutant as three-letter codes ("Ala"); the alignment walk compares one-letter
+  // residues. Passing the raw metadata made every real payload read "Reference differs".
+  const pair = resolveResidueShiftModel({ wildType: result.metadata?.wildType, mutant: result.metadata?.mutant, variant: result.metadata?.variant });
+  const finding = buildExpressionFinding(context.expressionLoad?.data ?? null, context.expressionLoad?.status ?? null, context.selection.systems);
+  const pextLocation = locatePext(context.pextLoad?.data ?? null, site);
+  const facts = buildSourceFacts({ adult: finding, developmental: context.developmentalLoad, hpa: context.hpaLoad,
+    pext: { load: context.pextLoad?.status ?? null, status: context.pextLoad?.data?.status ?? null, locationNote: pextLocation.state === 'no-locus' ? 'No verified GRCh38 position' : pextLocation.state === 'no-region' ? 'Outside the coding regions' : pextLocation.state === 'other-chromosome' ? 'Different chromosome from the gene record' : null,
+      region: pextLocation.region ? { mean: pextLocation.region.mean, tissues: pextLocation.region.tissues.length } : null } });
   const overview = !evidence.relevant.length
     ? [...evidence.other].sort((a, b) => (b.value ?? -1) - (a.value ?? -1)).slice(0, 6) : [];
   return <div className="ctx-screen" data-testid="expression-models-screen">
     <header className="ctx-heading"><div><h1 className="screen-title">Expression &amp; models</h1><p className="screen-tab-description">Where the gene is measured, and which biological context remains uncovered.</p></div>
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
-    <DiseaseContextPicker gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
-    <section className="ctx-card"><div className="ctx-card__head"><h2>Review systems</h2><span className="ctx-caption">Your selections</span></div><div className="ctx-card__body">
-      <p className="ctx-prose">Select the systems you want to review. These are review choices, not recorded patient findings.</p>
-      <div className="ctx-chips" role="group" aria-label="Review organ systems">{REVIEW_SYSTEMS.map(system => <button key={system.id} type="button" className="ctx-chip" aria-pressed={context.selection.systems.includes(system.id)} onClick={() => context.setSelection(toggleReviewSystem(context.selection, system.id))}>{system.label}</button>)}</div>
-      <label className="ctx-onset">Disease onset <select className="ctx-select" value={context.selection.onset} onChange={e => context.setSelection({ ...context.selection, onset: e.target.value as PhenotypeSelection['onset'] })}>{Object.entries(ONSET_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-      {['antenatal', 'congenital', 'neonatal', 'infantile', 'childhood', 'juvenile'].includes(context.selection.onset) && <p className="ctx-notice">Disease onset is separate from sampled age. Adult GTEx does not cover the selected onset period; dGTEx public cohorts cannot establish exact-age or prenatal coverage.</p>}
-      <details className="ctx-details"><summary>How selections relate to tissue sampling</summary><p className="ctx-caption">Local display grouping. Systems reorder the table; no tissue is removed. This grouping is not an official HPO-to-anatomy mapping.</p><dl className="ctx-definition">{REVIEW_SYSTEMS.filter(s => context.selection.systems.includes(s.id)).map(s => <div key={s.id}><dt>{s.label}</dt><dd>{s.anatomy}</dd></div>)}</dl></details>
-    </div></section>
+    <ReviewFrame gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
+    <ExpressionHero finding={finding} facts={facts} onset={context.selection.onset} />
     <HpoAnnotationCard load={context.hpoLoad} hasDisease={!!context.selection.diseaseKey} hasIds={!!context.hpoIds} diseaseId={chosen?.diseaseId ?? null} selection={context.selection} onChange={context.setSelection} onRetry={context.retryHpo} />
     <section className="ctx-card"><div className="ctx-card__head"><h2>Human adult expression</h2><span className="ctx-caption">GTEx v10 · median TPM</span></div>
       {!context.expressionLoad || context.expressionLoad.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading GTEx tissue expression.</div>
@@ -58,7 +63,6 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
         : <>
           {context.expressionLoad.data?.status === 'not-found' && <p className="ctx-card__body">No gene reading in this GTEx response. This is not evidence that the gene is unexpressed.</p>}
           {evidence.ready && <>
-            {!!evidence.gaps.length && <div className="ctx-card__body"><p className="ctx-prose"><strong>Relevant anatomy is not sampled by GTEx.</strong></p><ul className="ctx-gap-list">{evidence.gaps.map(id => <li key={id}>{REVIEW_SYSTEMS.find(s => s.id === id)?.label}: {id === 'skeletal' ? 'bone and growth-plate cartilage' : id === 'hearing' ? 'cochlea' : id === 'vision' ? 'retina and ocular structures' : 'no tissue in the local grouping'}.</li>)}</ul></div>}
             {evidence.relevant.length > 0 && <TissueTable tissues={evidence.relevant} caption="Tissues in your review systems" max={maxTpm} />}
             {!!overview.length && <><p className="ctx-card__body ctx-caption">Highest measured tissue medians. Use review systems to bring related tissues forward.</p><TissueTable tissues={overview} caption="Highest adult tissue medians" max={maxTpm} /></>}
             {evidence.other.length > overview.length && <details className="ctx-details ctx-details--table"><summary>{context.selection.systems.length ? `Other sampled tissues (${evidence.other.length})` : `All sampled tissues (${evidence.other.length})`}</summary><TissueTable tissues={evidence.other} caption="Other adult tissues" max={maxTpm} /></details>}
@@ -68,14 +72,14 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     </section>
     <DevelopmentalExpressionCard load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
     <HpaCard load={context.hpaLoad} onRetry={context.retryHpa} />
-    <PextCard load={context.pextLoad} site={site} systems={context.selection.systems} onRetry={context.retryPext} />
+    <PextCard load={context.pextLoad} site={site} systems={context.selection.systems} tissueLabels={gtexLabels} onRetry={context.retryPext} />
     <ModelOrganismsCard load={context.modelLoad} systems={context.selection.systems} onRetry={context.retryModels} />
     <ModelPhenotypesCard load={context.phenotypesLoad} diseaseTerms={diseaseTerms} diseaseName={chosen?.label ?? null} onRetry={context.retryPhenotypes} />
-    <ResidueAlignmentCard load={context.alignmentLoad} onRetry={context.retryAlignment} residue={{ sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: result.metadata?.wildType ?? '', mutant: result.metadata?.mutant ?? '' }} />
+    <ResidueAlignmentCard load={context.alignmentLoad} onRetry={context.retryAlignment} residue={{ sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: pair.wildTypeCode, mutant: pair.mutantCode }} />
     <section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
       <div><dt>Prenatal</dt><dd>Prenatal and organ-specific atlases (BrainSpan, Cardoso-Moreira, stage-specific Bgee) are not read. dGTEx covers the pediatric public age cohorts only.</dd></div>
       <div><dt>Transcript</dt><dd>Annotation-level pext and isoform expression for the transcript carrying this missense are not read.</dd></div>
-      <div><dt>Embryo</dt><dd>DECIPHER embryo links have no verified endpoint, so none is shipped.</dd></div>
+      <div><dt>Embryo</dt><dd>Embryo and fetal phenotype resources (such as DECIPHER) are not read.</dd></div>
     </dl></section>
   </div>;
 }

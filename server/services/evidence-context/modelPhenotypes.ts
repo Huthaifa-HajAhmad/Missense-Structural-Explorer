@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { buildUphenoIndex, modelPhenotypesResponseSchema, type ModelPhenotypesResponse, type SpeciesPhenotypes } from '../../../src/shared/modelPhenotypes.ts';
 import { loadModelOrganisms } from './modelOrganisms.ts';
+import { loadAllianceRelease } from './allianceRelease.ts';
 
 const ALLIANCE = 'https://www.alliancegenome.org/api/gene/';
 const UPHENO_URL = 'https://raw.githubusercontent.com/obophenotype/upheno/master/mappings/upheno-species-independent.sssom.tsv';
@@ -66,7 +67,7 @@ export async function loadModelPhenotypes(gene: string): Promise<ModelPhenotypes
     }
     const result = modelPhenotypesResponseSchema.parse({ gene, status: 'ready', species, mapping: upheno ? 'available' : 'unavailable',
       provenance: [
-        { source: 'Alliance of Genome Resources phenotypes', url: 'https://www.alliancegenome.org/', licence: 'CC BY 4.0', release: null, retrievedAt: new Date().toISOString(), sha256: createHash('sha256').update(rawAll).digest('hex'), timestampBasis: 'download' },
+        { source: 'Alliance of Genome Resources phenotypes', url: 'https://www.alliancegenome.org/', licence: 'CC BY 4.0', release: await loadAllianceRelease(), retrievedAt: new Date().toISOString(), sha256: createHash('sha256').update(rawAll).digest('hex'), timestampBasis: 'download' },
         ...(upheno ? [{ source: 'uPheno cross-species exact matches', url: UPHENO_URL, licence: 'CC BY 4.0', release: null, retrievedAt: upheno.at, sha256: upheno.sha, timestampBasis: 'download' as const }] : []),
       ], message: species.length ? null : 'No ortholog in a covered organism.' });
     if (species.every(s => s.status === 'ready') && upheno) cache.set(gene, result);

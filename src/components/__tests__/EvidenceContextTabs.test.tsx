@@ -97,7 +97,10 @@ describe('context tab claims and interactions', () => {
   });
   it('keeps zero numeric and does not substitute muscle for cartilage; other tissues stay reachable', () => {
     context.value.selection.systems = ['skeletal']; render(<ExpressionModelsTab {...props} />);
-    expect(screen.getByText('Relevant anatomy is not sampled by GTEx.')).toBeInTheDocument();
+    const finding = within(screen.getByTestId('expression-finding'));
+    expect(finding.getByText(/GTEx samples none of your review system/)).toBeInTheDocument();
+    expect(finding.getByText(/no tissue for bone and growth-plate cartilage: that is a coverage limit, not a low reading/)).toBeInTheDocument();
+    expect(finding.getByText('Not sampled')).toBeInTheDocument();
     const row = screen.getByRole('rowheader', { name: /Skeletal muscle/ }).closest('tr')!;
     expect(within(row).getByText('0')).toBeInTheDocument();
     expect(row).toBeVisible();
@@ -105,7 +108,7 @@ describe('context tab claims and interactions', () => {
   it('renders an upstream error without claiming missing tissue or no expression', () => {
     context.value.expressionLoad = { status: 'error', data: null }; render(<ExpressionModelsTab {...props} />);
     expect(screen.getByText(/tissue measurements could not be read/)).toBeInTheDocument();
-    expect(screen.queryByText('Relevant anatomy is not sampled by GTEx.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/coverage limit, not a low reading/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
   it('keeps public sampled age independent of onset and flags single-donor pediatric measurements', () => {
@@ -175,6 +178,27 @@ describe('context tab claims and interactions', () => {
     expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in Mouse/)).toBeInTheDocument(); unmount();
     render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('residue-alignment-card')).getByText(/No residue is mapped/)).toBeInTheDocument();
+  });
+  it('maps the residue when the pipeline records three-letter codes (real payload shape)', () => {
+    const homology = { type: '1:1', species: 'mus_musculus', taxonId: 'NCBITaxon:10090', geneId: 'ENSMUSG1', proteinId: 'P', sourceAligned: 'ABCDE', targetAligned: 'ABQDE', humanIdentity: 90, orthologIdentity: 90, humanSimilarity: 95 };
+    context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
+    // 'ABCDE' is not real amino-acid text, so use real residues: C3 -> Q.
+    homology.sourceAligned = 'ACCDE'; homology.targetAligned = 'ACQDE';
+    render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { gene: 'TEST', sequence: 'ACCDE', residueIndex: 3, wildType: 'Cys', mutant: 'Gln' } }, isLoading: false, error: null } as any} />);
+    const card = within(screen.getByTestId('residue-alignment-card'));
+    expect(card.queryByText(/No residue is mapped/)).toBeNull();
+    expect(card.getByText(/normal residue in Mouse/)).toBeInTheDocument();
+  });
+  it('uses the GTEx tissue name in the pext table and states a uniform region instead of ranking ties', () => {
+    context.value.expressionLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', gencodeId: 'G', provenance: null, message: null,
+      tissues: [{ id: 'Brain_Frontal_Cortex_BA9', label: 'Brain - Frontal Cortex (BA9)', ontologyId: null, value: 5, unit: 'TPM', sampleCount: 10, samplingSite: null }] } };
+    context.value.pextLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', geneId: 'E', chrom: '17', flags: [], provenance: null, message: null,
+      regions: [{ start: 100, stop: 110, mean: 1, tissues: [{ tissue: 'brain_frontal_cortex_ba9', value: 1 }, { tissue: 'liver', value: 1 }] }] } };
+    render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { gene: 'TEST' }, predictorData: { gnomadVariantId: '17-105-A-T', gnomadVariantAssembly: 'GRCh38' } }, isLoading: false, error: null } as any} />);
+    const card = within(screen.getByTestId('pext-card'));
+    expect(card.getByText(/All 2 tissues have base-level pext/)).toBeInTheDocument();
+    fireEvent.click(card.getByText('All 2 tissues'));
+    expect(card.getByText('Brain - Frontal Cortex (BA9)')).toBeInTheDocument();
   });
   it('places the variant on a pext region only with a verified GRCh38 locus', () => {
     context.value.pextLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', geneId: 'E', chrom: '17', flags: ['low_max_pext'], provenance: null, message: null,
