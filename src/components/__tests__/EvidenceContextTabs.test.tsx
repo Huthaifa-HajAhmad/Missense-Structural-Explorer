@@ -12,7 +12,7 @@ const frame = { key: 'TEST|MONDO:1|AD', geneId: 'HGNC:1', geneSymbol: 'TEST', di
 const props = { analysisState: { result: { metadata: { gene: 'TEST' } }, isLoading: false, error: null } } as any;
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 beforeEach(() => {
-  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(), retryModels: vi.fn(), retryHpo: vi.fn(), hpoIds: 'OMIM:1',
+  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(), retryModels: vi.fn(), retryPhenotypes: vi.fn(), retryHpa: vi.fn(), retryHpo: vi.fn(), hpoIds: 'OMIM:1',
     developmentalLoad: { status: 'ready', data: { gene: 'TEST', status: 'not-installed', observations: [], counts: null, provenance: null, gencodeId: null, message: null } },
     diseaseLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', frames: [frame], provenance: null, message: null } },
     expressionLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, tissues: [{ id: 'Muscle_Skeletal', label: 'Skeletal muscle', ontologyId: null, value: 0, unit: 'TPM', sampleCount: 100, samplingSite: null }] } } };
@@ -184,5 +184,26 @@ describe('context tab claims and interactions', () => {
     expect(within(screen.getByTestId('pext-card')).getByText(/low_max_pext/)).toBeInTheDocument(); unmount();
     render(<ExpressionModelsTab {...props} analysisState={{ result: make('GRCh37'), isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('pext-card')).getByText(/no verified GRCh38 position/)).toBeInTheDocument();
+  });
+  it('marks model phenotypes that match the chosen disease and never reads an empty list as normal', () => {
+    context.value.hpoLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, message: null, disease: null, terms: [{ id: 'HP:0000505', name: 'Visual impairment', category: 'Eye', frequency: null, onset: null, sources: [] }] } };
+    const mouse = { taxonId: 'NCBITaxon:10090', species: 'Mouse', orthologId: 'MGI:1', symbol: 'Tst', status: 'ready', total: 1, phenotypes: [{ termId: 'MP:1', statement: 'abnormal eye physiology', annotations: 2, models: 1, humanTerms: ['HP:0000505'] }] };
+    const fish = { taxonId: 'NCBITaxon:7955', species: 'Zebrafish', orthologId: 'ZFIN:1', symbol: 'tst', status: 'ready', total: 0, phenotypes: [] };
+    context.value.phenotypesLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', mapping: 'available', provenance: [], message: null, species: [fish, mouse] } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('model-phenotypes-card'));
+    expect(card.getByText(/Same phenotype as: Visual impairment/)).toBeInTheDocument();
+    expect(card.getByText(/That is not evidence of a normal organism/)).toBeInTheDocument();
+  });
+  it('shows Protein Atlas cell-type enrichment on its own scale with a GTEx-overlap caveat', () => {
+    context.value.hpaLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', ensemblId: 'ENSG1', provenance: null, message: null,
+      rna: { specificity: 'Tissue enriched', distribution: 'Detected in many', enrichedTissues: [{ name: 'brain', value: 62.9 }] },
+      cells: { specificity: 'Group enriched', distribution: null, enrichedCells: [{ name: 'Rod photoreceptor cells', value: 906.3 }] },
+      protein: { evidence: 'Evidence at protein level', tissueSpecificity: 'Not detected', antibodies: ['HPA1'], reliabilityIhc: 'Enhanced', reliabilityIf: null } } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('hpa-card'));
+    expect(card.getByText('Rod photoreceptor cells')).toBeInTheDocument();
+    expect(card.getByText('nCPM')).toBeInTheDocument(); expect(card.getByText('nTPM')).toBeInTheDocument();
+    expect(card.getByText(/includes GTEx/)).toBeInTheDocument();
   });
 });

@@ -9,6 +9,8 @@ import { DevelopmentalExpressionCard } from './DevelopmentalExpressionCard';
 import { ModelOrganismsCard } from './ModelOrganismsCard';
 import { HpoAnnotationCard } from './HpoAnnotationCard';
 import { buildGeneDiseaseEvidence } from '../../shared/diseaseFrame';
+import { HpaCard } from './HpaCard';
+import { ModelPhenotypesCard } from './ModelPhenotypesCard';
 import { PextCard } from './PextCard';
 import { ResidueAlignmentCard } from './ResidueAlignmentCard';
 import { MeasureBar, maxOf } from './ContextCharts';
@@ -32,6 +34,7 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
   const context = useEvidenceContext(result, true);
   const evidence = buildAdultExpressionEvidence(context.expressionLoad?.data ?? null, context.selection.systems);
   const chosen = buildGeneDiseaseEvidence(context.diseaseLoad?.data ?? null, context.selection.diseaseKey).selected;
+  const diseaseTerms = new Map((context.hpoLoad?.data?.terms ?? []).map(t => [t.id, t.name] as const));
   const maxTpm = maxOf((context.expressionLoad?.data?.tissues ?? []).map(t => t.value));
   const site = pextSiteFromVariantId(result.predictorData?.gnomadVariantId, result.predictorData?.gnomadVariantAssembly, isFallbackLocus(result));
   const overview = !evidence.relevant.length
@@ -64,12 +67,15 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
       <p className="ctx-card__foot">Gene-level bulk RNA, adult donors. Bars are linear, scaled to the highest tissue; the number is the measurement. A zero median is a measured value, not proof of absence. Expression does not classify this variant.</p>
     </section>
     <DevelopmentalExpressionCard load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
+    <HpaCard load={context.hpaLoad} onRetry={context.retryHpa} />
     <PextCard load={context.pextLoad} site={site} systems={context.selection.systems} onRetry={context.retryPext} />
     <ModelOrganismsCard load={context.modelLoad} systems={context.selection.systems} onRetry={context.retryModels} />
+    <ModelPhenotypesCard load={context.phenotypesLoad} diseaseTerms={diseaseTerms} diseaseName={chosen?.label ?? null} onRetry={context.retryPhenotypes} />
     <ResidueAlignmentCard load={context.alignmentLoad} onRetry={context.retryAlignment} residue={{ sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: result.metadata?.wildType ?? '', mutant: result.metadata?.mutant ?? '' }} />
-    <section className="ctx-card"><div className="ctx-card__head"><h2>Coverage still to add</h2></div><dl className="ctx-definition">
-            <div><dt>Mouse &amp; zebrafish</dt><dd>{ENGINE_STATE_LABELS['not-installed']} — orthology and assay-scoped phenotype records.</dd></div>
-      <div><dt>Development</dt><dd>Complementary prenatal and organ-specific atlases remain to add; dGTEx V1 public cohorts are shown above when installed.</dd></div>
+    <section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
+      <div><dt>Prenatal</dt><dd>Prenatal and organ-specific atlases (BrainSpan, Cardoso-Moreira, stage-specific Bgee) are not read. dGTEx covers the pediatric public age cohorts only.</dd></div>
+      <div><dt>Transcript</dt><dd>Annotation-level pext and isoform expression for the transcript carrying this missense are not read.</dd></div>
+      <div><dt>Embryo</dt><dd>DECIPHER embryo links have no verified endpoint, so none is shipped.</dd></div>
     </dl></section>
   </div>;
 }

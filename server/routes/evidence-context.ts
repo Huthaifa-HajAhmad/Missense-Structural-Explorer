@@ -8,6 +8,8 @@ import { loadDosageContext } from '../services/evidence-context/clingenDosage.ts
 import { loadModelOrganisms } from '../services/evidence-context/modelOrganisms.ts';
 import { loadAlignment } from '../services/evidence-context/alignment.ts';
 import { loadPext } from '../services/evidence-context/pext.ts';
+import { loadHpa } from '../services/evidence-context/hpa.ts';
+import { loadModelPhenotypes } from '../services/evidence-context/modelPhenotypes.ts';
 import { loadHpoAnnotation } from '../services/evidence-context/hpo.ts';
 import { CONTEXT_SUFFIXES, type ContextSuffix } from '../../src/shared/contextRequest.ts';
 import { addVerifiedMechanismChoices } from '../../src/shared/diseaseFrame.ts';
@@ -23,6 +25,8 @@ const GENE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,49}$/;
 const SOURCES: Record<ContextSuffix, (gene: string, query: Record<string, unknown>) => Promise<unknown>> = {
   development: g => loadDevelopmentalExpression(g), dosage: g => loadDosageContext(g), models: g => loadModelOrganisms(g),
   alignment: g => loadAlignment(g), pext: g => loadPext(g), expression: g => fetchAdultExpression(g),
+  hpa: g => loadHpa(g),
+  phenotypes: g => loadModelPhenotypes(g),
   hpo: (g, q) => loadHpoAnnotation(g, q.disease),
 };
 

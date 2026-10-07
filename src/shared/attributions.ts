@@ -141,6 +141,23 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     usedBy: ['server/services/evidence-context/hpo.ts', 'src/components/evidence/HpoAnnotationCard.tsx'],
   },
   {
+    id: 'hpa', name: 'Human Protein Atlas', provider: 'Human Protein Atlas (SciLifeLab / KTH / Uppsala University)', kind: 'dataset',
+    role: 'RNA tissue and single-cell-type specificity and protein-level evidence for the gene; context only. Tissue consensus includes GTEx.',
+    url: 'https://www.proteinatlas.org/', release: null,
+    releaseNote: 'Fetched live and cached for a day; the gene summary carries no release identifier, so none is invented.',
+    citation: 'Uhlen, M., et al. (2015). Tissue-based map of the human proteome. Science 347, 1260419. https://doi.org/10.1126/science.1260419',
+    licence: 'CC BY-SA 4.0.',
+    usedBy: ['server/services/evidence-context/hpa.ts', 'src/components/evidence/HpaCard.tsx'],
+  },
+  {
+    id: 'upheno', name: 'uPheno', provider: 'Unified Phenotype Ontology consortium (Monarch Initiative)', kind: 'dataset',
+    role: 'Cross-species exact-match table linking mouse, zebrafish, worm and human phenotype terms; marks which animal phenotypes describe the same trait as a human HPO term. Context only.',
+    url: 'https://github.com/obophenotype/upheno', release: null,
+    releaseNote: 'The table is downloaded from the repository default branch and cached for a week; no release identifier is invented. Coverage is partial.',
+    citation: null, licence: 'CC BY 4.0.',
+    usedBy: ['server/services/evidence-context/modelPhenotypes.ts', 'src/components/evidence/ModelPhenotypesCard.tsx'],
+  },
+  {
     id: 'hgnc', name: 'HGNC', provider: 'HUGO Gene Nomenclature Committee', kind: 'dataset',
     role: 'Exact approved gene symbol to HGNC identifier, used to anchor orthology; aliases are not resolved by guess.',
     url: 'https://www.genenames.org/', release: null,
@@ -842,6 +859,8 @@ export const QUERY_TRANSMISSION = {
   hosts: [
     { host: "search.clinicalgenome.org", sent: "Nothing about the query: the whole public dosage table is downloaded and filtered on the server", note: "ClinGen dosage sensitivity context. The gene is matched locally, so no gene symbol leaves the machine." },
     { host: "ontology.jax.org", sent: "OMIM or Orphanet identifier of the disease you chose", note: "HPO terms for that disease. No gene or variant is sent." },
+    { host: "www.proteinatlas.org", sent: "Ensembl gene identifier", note: "Human Protein Atlas gene summary. Disease and review selections stay in the browser." },
+    { host: "raw.githubusercontent.com", sent: "Nothing about the query: a public table is downloaded and matched on the server", note: "uPheno cross-species phenotype matches." },
     { host: "rest.genenames.org", sent: "Gene symbol", note: "Resolves the exact approved symbol to an HGNC identifier for orthology." },
     { host: "alliancegenome.org", sent: "HGNC gene identifier", note: "Model-organism orthologs. Selections stay in the browser." },
     { host: "gtexportal.org", sent: "Gene symbol, resolved GENCODE gene identifier and tissue metadata request", note: "Adult GTEx v10 expression context. Disease, onset and review-system selections stay in the browser." },
