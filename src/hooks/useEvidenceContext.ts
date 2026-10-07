@@ -5,6 +5,7 @@ import { geneDiseaseResponseSchema } from '../shared/diseaseFrame';
 import { dosageResponseSchema } from '../shared/dosageSensitivity';
 import { adultExpressionResponseSchema } from '../shared/expressionModels';
 import { developmentalExpressionResponseSchema } from '../shared/developmentalExpression';
+import { modelOrganismResponseSchema } from '../shared/modelOrganisms';
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import type { AnalysisResult } from '../types';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
@@ -22,6 +23,7 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
   const dosageLoad = useVariantAnalysisStore(s => s.dosageContexts[gene]);
   const expressionLoad = useVariantAnalysisStore(s => s.expressionContexts[gene]);
   const developmentalLoad = useVariantAnalysisStore(s => s.developmentalContexts[gene]);
+  const modelLoad = useVariantAnalysisStore(s => s.modelContexts[gene]);
   const selection = useVariantAnalysisStore(s => s.phenotypeSelections[key] ?? EMPTY_SELECTION);
   const actions = useVariantAnalysisStore.getState();
   const loadDisease = async () => {
@@ -57,6 +59,17 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
       actions.setExpressionContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
     } catch (error) { actions.setExpressionContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
   };
+  const loadModels = async () => {
+    if (!gene || useVariantAnalysisStore.getState().modelContexts[gene]?.status === 'loading') return;
+    actions.setModelContext(gene, { status: 'loading', data: null });
+    try {
+      const response = await fetchWithAuth(`/api/v1/evidence-context/${encodeURIComponent(gene)}/models`, { timeout: 60000 });
+      if (!response.ok) { await response.body?.cancel(); throw new ContextHttpError(response.status); }
+      const data = modelOrganismResponseSchema.parse(await response.json());
+      if (data.gene !== gene) throw new Error('Model-organism identity mismatch');
+      actions.setModelContext(gene, { status: data.status === 'error' ? 'error' : 'ready', data });
+    } catch (error) { actions.setModelContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
+  };
   const loadDevelopment = async () => {
     if (!gene || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'loading') return;
     actions.setDevelopmentalContext(gene, { status: 'loading', data: null });
@@ -82,9 +95,11 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
     if (dosage && (!cachedDosage || cachedDosage.status === 'error')) void loadDosage();
     if (expression && !useVariantAnalysisStore.getState().expressionContexts[gene]) void loadExpression();
     if (expression && !useVariantAnalysisStore.getState().developmentalContexts[gene]) void loadDevelopment();
+    const cachedModels = useVariantAnalysisStore.getState().modelContexts[gene];
+    if (expression && (!cachedModels || cachedModels.status === 'error' || cachedModels.data?.impc?.status === 'error')) void loadModels();
   }, [gene, expression, dosage, fetchWithAuth]);
-  return { gene, key, selection, diseaseLoad, dosageLoad, expressionLoad, developmentalLoad,
+  return { gene, key, selection, diseaseLoad, dosageLoad, expressionLoad, developmentalLoad, modelLoad,
     identityChanged: refinedIdentity === key,
     setSelection: (value: typeof selection) => { actions.setPhenotypeSelection(key, value); setRefinedIdentity(null); },
-    retryDisease: loadDisease, retryDosage: loadDosage, retryExpression: loadExpression, retryDevelopment: loadDevelopment };
+    retryDisease: loadDisease, retryDosage: loadDosage, retryExpression: loadExpression, retryDevelopment: loadDevelopment, retryModels: loadModels };
 }

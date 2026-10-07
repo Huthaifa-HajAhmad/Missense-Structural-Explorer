@@ -12,7 +12,7 @@ const frame = { key: 'TEST|MONDO:1|AD', geneId: 'HGNC:1', geneSymbol: 'TEST', di
 const props = { analysisState: { result: { metadata: { gene: 'TEST' } }, isLoading: false, error: null } } as any;
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 beforeEach(() => {
-  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(),
+  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(), retryModels: vi.fn(),
     developmentalLoad: { status: 'ready', data: { gene: 'TEST', status: 'not-installed', observations: [], counts: null, provenance: null, gencodeId: null, message: null } },
     diseaseLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', frames: [frame], provenance: null, message: null } },
     expressionLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, tissues: [{ id: 'Muscle_Skeletal', label: 'Skeletal muscle', ontologyId: null, value: 0, unit: 'TPM', sampleCount: 100, samplingSite: null }] } } };
@@ -127,5 +127,28 @@ describe('context tab claims and interactions', () => {
     expect(screen.getByText('inferred')).toBeInTheDocument();
     expect(screen.getByText('Modifier: restricted mutation set')).toBeInTheDocument();
     expect(screen.getByText(/do not establish applicability to this variant/)).toBeInTheDocument();
+  });
+  it('shows orthologs and the mouse screen per system without calling a quiet screen normal', () => {
+    context.value.selection.systems = ['vision', 'muscle'];
+    const ortholog = { id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: 'high', methodCount: 4 };
+    context.value.modelLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', orthologs: [ortholog], provenance: [], message: null,
+      impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping data available', phenotypingDataAvailable: true, embryoDataAvailable: false, significant: ['vision/eye phenotype'], notSignificant: ['muscle phenotype'] }] } } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('model-organisms-card'));
+    expect(card.getByText('Best match both directions')).toBeInTheDocument();
+    expect(card.getByText('Significant difference')).toBeInTheDocument();
+    expect(card.getByText('No significant difference in screened procedures')).toBeInTheDocument();
+    expect(card.getByText(/not that the mouse is normal/)).toBeInTheDocument();
+    expect(card.queryByText(/phenotypically normal/i)).toBeNull();
+  });
+  it('says an unscreened mouse is absent data and offers a retry when IMPC fails', () => {
+    const base = { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', provenance: [], message: null, orthologs: [{ id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: null, methodCount: 1 }] };
+    context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping not planned', phenotypingDataAvailable: false, embryoDataAvailable: false, significant: [], notSignificant: [] }] } } };
+    const { unmount } = render(<ExpressionModelsTab {...props} />);
+    expect(screen.getByText(/Absence of data is not a normal result/)).toBeInTheDocument(); unmount();
+    context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'error', screens: [] } } };
+    render(<ExpressionModelsTab {...props} />);
+    fireEvent.click(within(screen.getByTestId('model-organisms-card')).getByRole('button', { name: 'Try again' }));
+    expect(context.value.retryModels).toHaveBeenCalled();
   });
 });

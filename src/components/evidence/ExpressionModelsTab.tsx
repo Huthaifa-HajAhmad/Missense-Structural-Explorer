@@ -6,6 +6,7 @@ import { buildAdultExpressionEvidence, type TissueExpression } from '../../share
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { DiseaseContextPicker } from './DiseaseContextPicker';
 import { DevelopmentalExpressionCard } from './DevelopmentalExpressionCard';
+import { ModelOrganismsCard } from './ModelOrganismsCard';
 
 function TissueTable({ tissues, caption }: { tissues: TissueExpression[]; caption: string }) {
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label={caption}><table className="ctx-table">
@@ -38,7 +39,6 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
       <details className="ctx-details"><summary>How selections relate to tissue sampling</summary><p className="ctx-caption">Local display grouping. Systems reorder the table; no tissue is removed. This grouping is not an official HPO-to-anatomy mapping.</p><dl className="ctx-definition">{REVIEW_SYSTEMS.filter(s => context.selection.systems.includes(s.id)).map(s => <div key={s.id}><dt>{s.label}</dt><dd>{s.anatomy}</dd></div>)}</dl></details>
       <p className="ctx-caption">HPO disease suggestions are not installed yet. They will appear separately and require your acceptance.</p>
     </div></section>
-    <DevelopmentalExpressionCard load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
     <section className="ctx-card"><div className="ctx-card__head"><h2>Human adult expression</h2><span className="ctx-caption">GTEx v10 · median TPM</span></div>
       {!context.expressionLoad || context.expressionLoad.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading GTEx tissue expression.</div>
         : context.expressionLoad.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{context.expressionLoad.error ?? `${ENGINE_STATE_LABELS['upstream-error']} — tissue measurements could not be read.`}</span><button type="button" className="ctx-button" onClick={context.retryExpression}>Try again</button></div>
@@ -53,6 +53,8 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
         </>}
       <p className="ctx-card__foot">Gene-level bulk RNA, adult donors. A zero median is a measured value, not proof of absence. Expression does not classify this variant.</p>
     </section>
+    <DevelopmentalExpressionCard load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
+    <ModelOrganismsCard load={context.modelLoad} systems={context.selection.systems} onRetry={context.retryModels} />
     <section className="ctx-card"><div className="ctx-card__head"><h2>Coverage still to add</h2></div><dl className="ctx-definition">
       <div><dt>Human annotation</dt><dd>{ENGINE_STATE_LABELS['not-installed']} — pinned HPO annotations.</dd></div>
       <div><dt>Mouse &amp; zebrafish</dt><dd>{ENGINE_STATE_LABELS['not-installed']} — orthology and assay-scoped phenotype records.</dd></div>
