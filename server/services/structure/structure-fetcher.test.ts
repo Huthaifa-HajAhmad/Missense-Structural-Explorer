@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry } from "./structure-fetcher.ts";
+import { fetchPdbHomologs, fetchAlphafoldPdb, fetchPdbFromRcsb, fetchFullPdbEntry, extractChainFromPdb, fetchVerifiedExperimentalChain } from "./structure-fetcher.ts";
 import { pdbCache, afUrlCache } from "../infra/cache.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
+import { uniprotSeqCache } from "../external-api/uniprot.ts";
 
 describe("structure-fetcher SingleFlight & PDB Cache", () => {
   beforeEach(() => {
@@ -368,5 +369,165 @@ describe("fetchPdbHomologs & Diversity Clustering", () => {
     const result = await fetchPdbHomologs("P99999", 15);
     expect(Array.isArray(result)).toBe(true);
     expect(result).toHaveLength(0);
+  });
+
+  it("carries the matching polymer entity's author chain onto each homolog", async () => {
+    // The search matched ENTITY 3 of 5V3M; that entity occupies author chain C, and chain A is a
+    // different polymer. The loader must be told C, never fall back to A.
+    AnalysisDatabase.resetInstance(":memory:");
+    pdbCache.clear();
+    const mockSequence = "MKVLVLGSGGREHALAWKAAQAAPEVVAVHT";
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uniprotkb")) return new Response(`>sp|Q9H1C1|TEST\n${mockSequence}`, { status: 200 });
+      if (u.includes("rcsbsearch")) {
+        return new Response(JSON.stringify({
+          result_set: [
+            { identifier: "5V3M_3", score: 0.9, services: [{ nodes: [{ match_context: [{ sequence_identity: 1.0, alignment_length: 31, query_beg: 1, query_end: 31 }] }] }] },
+          ]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (u.includes("graphql")) {
+        return new Response(JSON.stringify({ data: { entries: [{
+          rcsb_id: "5V3M",
+          struct: { title: "Zinc finger complex" },
+          rcsb_entry_info: { experimental_method: "X-RAY DIFFRACTION", resolution_combined: [2.1] },
+          polymer_entities: [
+            {
+              rcsb_polymer_entity_container_identifiers: { entity_id: "1", asym_ids: ["A"], auth_asym_ids: ["A"] },
+              rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }]
+            },
+            {
+              rcsb_polymer_entity_container_identifiers: { entity_id: "3", asym_ids: ["C"], auth_asym_ids: ["C"] },
+              rcsb_entity_source_organism: [{ ncbi_scientific_name: "Homo sapiens" }]
+            },
+          ],
+        }] } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    const homologs = await fetchPdbHomologs("Q9H1C1");
+    const hit = homologs.find(h => h.pdbId === "5V3M") as any;
+    expect(hit?.chainId).toBe("C");
+  });
+});
+
+describe("per-atom records and validation-keyed chain caching", () => {
+  beforeEach(() => {
+    pdbCache.clear();
+    afUrlCache.clear();
+    AnalysisDatabase.resetInstance(":memory:");
+    vi.restoreAllMocks();
+  });
+
+  it("drops ANISOU/SIGATM/SIGUIJ rather than keep the authors' numbering beside a shifted chain", () => {
+    const text = [
+      "ATOM      1  N   MET A   1      11.104  13.205   3.120  1.00 20.00           N",
+      "ANISOU    1  N   MET A   1      1000   1000   1000   1000   1000   1000       N",
+      "SIGATM    1  N   MET A   1      0.10   0.10   0.10   0.10   0.10   0.10       N",
+      "SIGUIJ    1  N   MET A   1      0.10   0.10   0.10   0.10   0.10   0.10       N",
+      "ATOM      2  CA  MET A   1      12.500  13.500   3.500  1.00 20.00           C",
+      "ANISOU    2  CA  MET A  99      1000   1000   1000   1000   1000   1000       C",
+      "END",
+    ].join("\n");
+
+    const out = extractChainFromPdb(text, "A", 10);
+
+    expect(out).toContain("MET A  11");
+    expect(out).not.toMatch(/ANISOU|SIGATM|SIGUIJ/);
+  });
+
+  it("keys a validated chain by accession and wild-type, so another context cannot be served it", async () => {
+    let downloads = 0;
+    const chainText = "ATOM      1  CA  MET A   1      27.340  24.430   2.614  1.00 50.00           C";
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("files.rcsb.org")) {
+        downloads++;
+        return new Response(chainText, { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }));
+
+    const ctx = (uniprotId: string, expectedWt1: string) => ({ uniprotId, sequence: "MAP", pos: 1, expectedWt1 });
+
+    const same1 = await fetchPdbFromRcsb("1AAA", "A", undefined, undefined, ctx("P12345", "M"));
+    const same2 = await fetchPdbFromRcsb("1AAA", "A", undefined, undefined, ctx("P12345", "M"));
+    expect(same1).toBeTruthy();
+    expect(same2).toBe(same1);
+    expect(downloads, "an identical validation context must be a cache hit").toBe(1);
+
+    const otherAccession = await fetchPdbFromRcsb("1AAA", "A", undefined, undefined, ctx("Q99999", "M"));
+    expect(otherAccession).toBeTruthy();
+    expect(downloads, "a different accession must not share the validated chain").toBe(2);
+
+    const otherWildType = await fetchPdbFromRcsb("1AAA", "A", undefined, undefined, ctx("P12345", "A"));
+    expect(otherWildType, "a different wild-type expectation must revalidate").toBeNull();
+    expect(downloads, "a different wild-type must not share the validated chain").toBe(3);
+  });
+});
+
+const VERIFY_ACCESSION = "P12345";
+const VERIFY_UNIPROT = "MKTAYIAKQRQISFVKSHFSRQ"; // 22 aa; residue 15 is V
+const VERIFY_THREE: Record<string, string> = {
+  A: "ALA", R: "ARG", N: "ASN", D: "ASP", C: "CYS", Q: "GLN", E: "GLU", G: "GLY", H: "HIS", I: "ILE",
+  L: "LEU", K: "LYS", M: "MET", F: "PHE", P: "PRO", S: "SER", T: "THR", W: "TRP", Y: "TYR", V: "VAL",
+};
+
+function verifyAtomLine(serial: number, res: string, chain: string, seq: number): string {
+  return (
+    "ATOM  " + String(serial).padStart(5) + "   CA " + res.padStart(3) + " " + chain +
+    String(seq).padStart(4) + "    " + (seq * 1.1).toFixed(3).padStart(8) + "   0.000   0.000  1.00 30.00           C"
+  );
+}
+
+/** UniProt 1–10, then a GGG insertion absent from UniProt, then UniProt 11–22; author numbers run 1–25. */
+function verifyConstruct(siteMut?: string): string {
+  const mid = VERIFY_UNIPROT.slice(0, 10) + "GGG" + VERIFY_UNIPROT.slice(10);
+  const chars = [...mid];
+  if (siteMut) chars[17] = siteMut; // UniProt 15 sits at author index 17 past the insertion
+  return chars.map((aa, i) => verifyAtomLine(i + 1, VERIFY_THREE[aa], "A", i + 1)).join("\n");
+}
+
+const verifyNamesAt = (text: string, pos: number) =>
+  text.split("\n").filter(l => l.startsWith("ATOM") && Number(l.slice(22, 26)) === pos).map(l => l.slice(17, 20).trim());
+
+describe("fetchVerifiedExperimentalChain — residue-by-residue verification", () => {
+  beforeEach(() => {
+    pdbCache.clear();
+    afUrlCache.clear();
+    uniprotSeqCache.clear();
+    AnalysisDatabase.resetInstance(":memory:");
+    vi.restoreAllMocks();
+  });
+
+  const stub = (pdbId: string, text: string) => {
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes(`files.rcsb.org/download/${pdbId}.pdb`)) return new Response(text, { status: 200 });
+      if (u.includes(`uniprotkb/${VERIFY_ACCESSION}.fasta`)) return new Response(`>sp|${VERIFY_ACCESSION}|TEST\n${VERIFY_UNIPROT}\n`, { status: 200 });
+      return new Response("not found", { status: 404 });
+    }));
+  };
+
+  it("numbers both sides of an insertion from the alignment, not from one PDBe shift", async () => {
+    stub("1XYW", verifyConstruct());
+    const verified = await fetchVerifiedExperimentalChain("1XYW", "A", VERIFY_ACCESSION, 15, 1, 1);
+
+    expect(verified).not.toBeNull();
+    // A single shift taken at the site would put every residue past the GGG off by three.
+    expect(verifyNamesAt(verified!.pdbText, 2)).toEqual([VERIFY_THREE[VERIFY_UNIPROT[1]]]);
+    expect(verifyNamesAt(verified!.pdbText, 15)).toEqual([VERIFY_THREE[VERIFY_UNIPROT[14]]]);
+    expect(verifyNamesAt(verified!.pdbText, 22)).toEqual([VERIFY_THREE[VERIFY_UNIPROT[21]]]);
+    expect(verified!.validatedAt).toBe(15);
+  });
+
+  it("returns null when the site residue does not match the UniProt wild type", async () => {
+    // The construct carries Ala where UniProt has Val15: a mapping that puts the variant on this
+    // position would be wrong, so it must not be offered as UniProt-numbered experimental.
+    stub("1XYA", verifyConstruct("A"));
+    const verified = await fetchVerifiedExperimentalChain("1XYA", "A", VERIFY_ACCESSION, 15, 1, 1);
+    expect(verified).toBeNull();
   });
 });

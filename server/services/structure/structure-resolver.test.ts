@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveStructure } from "./structure-resolver.ts";
+import { AnalysisDatabase } from "../infra/analysis-db.ts";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ vi.mock("./structure-fetcher.ts", () => ({
   fetchAlphafoldPdb: vi.fn(),
   fetchPdbFromRcsb: vi.fn(),
   fetchPdbHomologs: vi.fn(),
+  fetchVerifiedExperimentalChain: vi.fn(),
   getResolvedAlphafoldVersion: vi.fn(() => "v4")
 }));
 
@@ -33,11 +35,17 @@ const tierOneMapping = { pdbId: "1PAH", chainId: "A", unpStart: 1, structStart: 
 describe("resolveStructure tier determinism", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The memo is module-level and persistent through L2; unique accessions per test keep them
-    // independent without reaching into the cache internals.
+    // The memo is module-level and, worse, persisted to L2. An in-memory DB per test keeps a row
+    // written earlier in this file (or by a slower concurrent run) from answering a later test.
+    AnalysisDatabase.resetInstance(":memory:");
     vi.mocked(fetchers.fetchPdbFromRcsb).mockResolvedValue("EXPERIMENTAL_PDB");
     vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue("ALPHAFOLD_PDB");
     vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([]);
+    vi.mocked(fetchers.fetchVerifiedExperimentalChain).mockResolvedValue({
+      pdbText: "EXPERIMENTAL_PDB",
+      validatedAt: 1
+    } as any);
+    vi.mocked(fetchers.getResolvedAlphafoldVersion).mockReturnValue("v4");
   });
 
   it("keeps using the tier that first answered, even after the ladder would now choose another", async () => {
@@ -120,17 +128,84 @@ describe("resolveStructure tier determinism", () => {
 
   it("re-resolves when the memoised tier's coordinates are gone", async () => {
     vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(tierOneMapping as any);
-    vi.mocked(fetchers.fetchPdbFromRcsb).mockResolvedValueOnce("EXPERIMENTAL_PDB");
 
     const first = await resolveStructure("TIERMEMO4", 5);
     expect(first?.pdbText).toBe("EXPERIMENTAL_PDB");
 
-    // The structure is no longer fetchable; AlphaFold is now the only tier that can answer.
-    vi.mocked(fetchers.fetchPdbFromRcsb).mockResolvedValue(null as any);
+    // The chain no longer verifies; AlphaFold is now the only tier that can answer.
+    vi.mocked(fetchers.fetchVerifiedExperimentalChain).mockResolvedValue(null as any);
     vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(null as any);
     const second = await resolveStructure("TIERMEMO4", 5);
 
     expect(second?.provenance.source).toBe("alphafold");
     expect(second?.pdbText).toBe("ALPHAFOLD_PDB");
+  });
+
+  it("does not serve a Tier-1 chain as UniProt-numbered when it fails residue verification", async () => {
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(tierOneMapping as any);
+    vi.mocked(fetchers.fetchVerifiedExperimentalChain).mockResolvedValue(null as any);
+
+    const resolved = await resolveStructure("TIERMEMO6", 489);
+
+    // A segment-level PDBe shift that does not verify must not be presented as experimental, even
+    // though an experimental entry exists — the predicted tier is the honest answer.
+    expect(resolved?.provenance.source).toBe("alphafold");
+    expect(resolved?.provenance.pdbId).toBeUndefined();
+  });
+
+  it("does not fabricate an AlphaFold version when the resolved URL names none", async () => {
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(null as any);
+    vi.mocked(fetchers.getResolvedAlphafoldVersion).mockReturnValue(undefined as any);
+
+    const resolved = await resolveStructure("TIERMEMO7", 10);
+
+    expect(resolved?.provenance.source).toBe("alphafold");
+    expect(resolved?.provenance.afdbVersion).toBeUndefined();
+  });
+
+  it("reports the version of the bytes re-materialised, not the memoised label", async () => {
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(null as any);
+    // The probe records v4 (the release fetched then); between the two calls AlphaFold names v6.
+    vi.mocked(fetchers.getResolvedAlphafoldVersion).mockReturnValueOnce("v4").mockReturnValue("v6");
+
+    const first = await resolveStructure("TIERMEMO8", 10);
+    expect(first?.provenance.afdbVersion).toBe("v4");
+
+    const second = await resolveStructure("TIERMEMO8", 10);
+    expect(second?.provenance.afdbVersion).toBe("v6");
+  });
+
+  it("loads the homolog chain the search actually matched, not chain A", async () => {
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([
+      {
+        pdbId: "5v3m", score: 0.9, identity: 60, coverage: 90, title: "t", organism: "Homo sapiens",
+        method: "X-RAY DIFFRACTION", resolution: 2.0, isHuman: true, coversPosition: true, chainId: "C",
+      } as any,
+    ]);
+    vi.mocked(fetchers.fetchPdbFromRcsb).mockResolvedValue("HOMOLOG_PDB");
+
+    const resolved = await resolveStructure("TIERMEMO9", 100);
+
+    expect(resolved?.provenance.source).toBe("homolog");
+    expect(resolved?.provenance.chainId).toBe("C");
+    expect(fetchers.fetchPdbFromRcsb).toHaveBeenCalledWith("5v3m", "C");
+  });
+
+  it("refuses a homolog with no entity→chain mapping rather than loading chain A", async () => {
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchAlphafoldPdb).mockResolvedValue(null as any);
+    vi.mocked(fetchers.fetchPdbHomologs).mockResolvedValue([
+      {
+        pdbId: "5v3m", score: 0.9, identity: 60, coverage: 90, title: "t", organism: "Homo sapiens",
+        method: "X-RAY DIFFRACTION", resolution: 2.0, isHuman: true, coversPosition: true,
+      } as any,
+    ]);
+
+    const resolved = await resolveStructure("TIERMEMO10", 100);
+
+    expect(resolved).toBeNull();
+    expect(fetchers.fetchPdbFromRcsb).not.toHaveBeenCalled();
   });
 });

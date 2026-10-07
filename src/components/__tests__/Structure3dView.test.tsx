@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, cleanup, within } from "@testing-library/react";
+import { render, cleanup, fireEvent, within } from "@testing-library/react";
 import React from "react";
 import { StructureInspector } from "../inspector/StructureInspector";
 import { StructureToolbar } from "../molstar/StructureToolbar";
 import { StructureLegend } from "../molstar/StructureLegend";
+import { StructureStatusOverlay } from "../molstar/StructureStatusOverlay";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { buildStructure3dEvidence, type Structure3dInput } from "../../shared/structure3dEvidence";
 import { scanBFactors, readResidueAt } from "../../shared/coordinateText";
@@ -71,6 +72,22 @@ beforeEach(() => {
   seed();
 });
 
+describe("coordinate load recovery", () => {
+  it("retries the canvas load without silently rerunning structural analysis", () => {
+    const retryLoad = vi.fn();
+    const retryAnalysis = vi.fn();
+    const { getByRole } = render(<StructureStatusOverlay
+      family="alphafold" hasVariant loading={false} loadError="Coordinate parse failed"
+      deNovoFolding={false} deNovoError={null} deNovoLoaded={false}
+      proteinLength={null} scanWindowLength={null} customEntryLoaded={false}
+      onRetryLoad={retryLoad} onRetryStructural={retryAnalysis}
+    />);
+    fireEvent.click(getByRole("button", { name: "Retry loading coordinates" }));
+    expect(retryLoad).toHaveBeenCalledOnce();
+    expect(retryAnalysis).not.toHaveBeenCalled();
+  });
+});
+
 describe("3D rail — NAE1 p.Asp116Gly", () => {
   it("names the AlphaFold model as the wild type and never calls 1YOV's B-factor pLDDT", () => {
     const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
@@ -79,6 +96,8 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     expect(text).toContain("pLDDT 92.3 · very high");
     expect(text).not.toMatch(/pLDDT 94\.5/);
     expect(text).not.toMatch(/\bN\/A\b/);
+    expect(container.textContent).not.toContain("Side-chain comparison");
+    expect(container.textContent).not.toContain("Coordinate comparison");
   });
 
   it("describes the FoldX variant by its template and states that ΔΔG is not pathogenicity", () => {
@@ -88,6 +107,8 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     expect(text).toContain("FoldX variant on PDB 1YOV chain A");
     expect(text).toContain("The variant is not built on the wild type shown");
     expect(text).toMatch(/a stability estimate, not pathogenicity/);
+    expect(text).toContain("Side-chain comparison");
+    expect(text).not.toContain("Local Cα RMSD");
   });
 
   it("prints χ1 as not applicable for the glycine, and never 0.0°", () => {
@@ -98,7 +119,8 @@ describe("3D rail — NAE1 p.Asp116Gly", () => {
     expect(readings.textContent).toContain("Not applicable");
     expect(readings.textContent).toContain("Gly has no χ1");
     expect(container.textContent).not.toContain("0.0°");
-    expect(readings.textContent).toContain("±5 residues around 116");
+    expect(readings.textContent).not.toContain("Cα RMSD");
+    expect(container.textContent).toContain("Cα motion and RMSD are zero by construction");
   });
 
   it("lists experimental entries without inventing identity or coverage", () => {
@@ -193,6 +215,7 @@ describe("3D toolbar and legend", () => {
     );
     const { container } = toolbar(crystal);
     expect(container.textContent).not.toContain("pLDDT ≥ 70");
+    fireEvent.click(within(container).getByRole("button", { name: /display/i }));
     expect((container.querySelector("[data-testid='structure-colour']") as HTMLSelectElement).value).toBe("confidence");
     expect(container.textContent).toContain("B-factor, relative");
   });

@@ -339,6 +339,7 @@ export interface Structure3dEvidence {
     primary: CoordinateIdentity | null;
     secondary: CoordinateIdentity | null;
     chip: { label: string; title: string; tone: "predicted" | "experimental" | "model" | "none" };
+    relationshipNote: string | null;
   };
   modes: ModeOption[];
   representations: RepresentationOption[];
@@ -389,7 +390,7 @@ const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   plain: "Plain cartoon",
   pair: "Wild type and variant",
   displacement: "Cα displacement",
-  esm3: "ESM3 embedding shift",
+  esm3: "ESM3 sequence shift",
 };
 
 /** Neutral reference and clay variant for the superposition pair. Clay is `--cs-accent-clay`. */
@@ -753,12 +754,14 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     secondary = variantModel
       ? {
           ...variantModel,
-          channel: {
-            kind: "displacement",
-            inherited: false,
-            scale: null,
-            note: "B-factor column rewritten by the superposition: each residue's Cα displacement in Å.",
-          },
+          channel: isAf
+            ? { ...variantModel.channel, note: "FoldX keeps the template backbone fixed; its Cα displacement is not a variant measurement." }
+            : {
+                kind: "displacement",
+                inherited: false,
+                scale: null,
+                note: "B-factor column rewritten by the superposition: each residue's Cα displacement in Å.",
+              },
         }
       : null;
   }
@@ -775,7 +778,11 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
           ? "Template B-factor (copied)"
           : "B-factor, relative"
         : "Confidence";
-  const esm3Numbered = primary?.numbering === "uniprot";
+  // ESM3 scores compare the two sequences. They can be projected onto a numbered predicted
+  // wild type, but are not an experimental measurement or a property of a FoldX variant model.
+  const esm3ProjectionReady =
+    effectiveMode === "wildtype" && primary?.numbering === "uniprot" &&
+    (primary.origin === "afdb" || primary.origin === "de-novo");
   const rigid = isAf;
   const representations: RepresentationOption[] = [
     {
@@ -793,35 +800,32 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       available: true,
       reason: null,
     },
-    ...(effectiveMode === "superimposed"
+    ...(effectiveMode === "superimposed" && !rigid
       ? [
           {
             id: "displacement" as const,
             label: REPRESENTATION_LABELS.displacement,
-            available: !rigid && referenceReady,
-            reason: rigid
-              ? "FoldX keeps the template backbone fixed, so every Cα displacement is zero by construction."
-              : referenceReady
-                ? null
-                : "No superposition to measure.",
+            available: referenceReady,
+            reason: referenceReady ? null : "No superposition to measure.",
           },
         ]
-      : [
+      : effectiveMode === "wildtype"
+      ? [
           {
             id: "esm3" as const,
             label: REPRESENTATION_LABELS.esm3,
-            available: Boolean(input.esm3?.scoreCount) && esm3Numbered,
+            available: Boolean(input.esm3?.scoreCount) && esm3ProjectionReady,
             reason: !input.esm3
               ? "ESM3 was not run for this variant."
               : input.esm3.error
                 ? `ESM3 did not return scores: ${input.esm3.error}`
                 : !input.esm3.scoreCount
                   ? "ESM3 returned no per-residue scores."
-                  : esm3Numbered
+                  : esm3ProjectionReady
                     ? null
-                    : "This entry is not numbered like UniProt, so ESM3's per-position scores cannot be placed on it.",
+                    : "ESM3 sequence scores are projected only onto a numbered predicted wild-type model.",
           },
-        ]),
+        ] : []),
   ];
 
   const preferred: RepresentationId =
@@ -913,9 +917,9 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     const d = THRESHOLDS.esm3Drift;
     colour = { primary: { theme: "esm3" }, secondary: null, secondaryCartoon: false };
     legend = {
-      title: "ESM3 embedding shift (cosine distance)",
+      title: "ESM3 sequence shift on wild type",
       provenance: "app-defined",
-      provenanceNote: "App-defined display bands (thresholds.esm3Drift); a language-model distance, not allostery",
+      provenanceNote: "Wild-type versus variant sequence embeddings, projected by residue onto the predicted wild-type coordinates. App-defined bands; not structural movement or allostery.",
       entries: [
         { label: `< ${d.none}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[0] },
         { label: `${d.none}–${d.minor}`, range: null, color: STRUCTURE_COLOUR_BANDS.esm3Shift[1] },
@@ -1016,39 +1020,37 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   /* ── Readings ─────────────────────────────────────────────────────────── */
   const readings: Reading[] = [];
   if (comparison.state === "ready" && metrics) {
-    const local = fmt(metrics.localWindowRmsd, 2);
-    readings.push({
-      key: "local-rmsd",
-      label: "Local Cα RMSD",
-      note: `±${LOCAL_STRUCTURAL_WINDOW} residues around ${position ?? "the site"}`,
-      value: local ? `${local} Å` : null,
-      state: local ? "measured" : "not-measured",
-      caveat: comparison.rigidBackbone
-        ? "Zero by construction: FoldX keeps the template backbone."
-        : measuredScope === "local"
+    if (!comparison.rigidBackbone) {
+      const local = fmt(metrics.localWindowRmsd, 2);
+      readings.push({
+        key: "local-rmsd",
+        label: "Local Cα RMSD",
+        note: `±${LOCAL_STRUCTURAL_WINDOW} residues around ${position ?? "the site"}`,
+        value: local ? `${local} Å` : null,
+        state: local ? "measured" : "not-measured",
+        caveat: measuredScope === "local"
           ? `Measured inside the ±${LOCAL_ALIGNMENT_FIT_WINDOW} fitted window, so small by construction.`
           : null,
-    });
-    const global = fmt(metrics.globalRmsd, 2);
-    readings.push({
-      key: "global-rmsd",
-      label: "Whole-chain Cα RMSD",
-      note: measuredScope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
-      value: global ? `${global} Å` : null,
-      state: global ? "measured" : "not-measured",
-      caveat: !comparison.rigidBackbone
-        ? "Two separate predictions: part of any difference can come from the predictions, not the substitution."
-        : null,
-    });
-    const shift = fmt(metrics.maxCaDisplacement, 2);
-    readings.push({
-      key: "max-shift",
-      label: "Largest Cα shift",
-      note: `within ±${LOCAL_STRUCTURAL_WINDOW} residues`,
-      value: shift ? `${shift} Å` : null,
-      state: shift ? "measured" : "not-measured",
-      caveat: null,
-    });
+      });
+      const global = fmt(metrics.globalRmsd, 2);
+      readings.push({
+        key: "global-rmsd",
+        label: "Whole-chain Cα RMSD",
+        note: measuredScope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
+        value: global ? `${global} Å` : null,
+        state: global ? "measured" : "not-measured",
+        caveat: "Two separate predictions: part of any difference can come from the predictions, not the substitution.",
+      });
+      const shift = fmt(metrics.maxCaDisplacement, 2);
+      readings.push({
+        key: "max-shift",
+        label: "Largest Cα shift",
+        note: `within ±${LOCAL_STRUCTURAL_WINDOW} residues`,
+        value: shift ? `${shift} Å` : null,
+        state: shift ? "measured" : "not-measured",
+        caveat: null,
+      });
+    }
     // Older results carry no paired wild type: the variant is then read against the template as
     // fetched, before RepairPDB, and the repair's own side-chain moves count as differences.
     const unrepaired =
@@ -1104,15 +1106,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   /* ── Site ─────────────────────────────────────────────────────────────── */
   const siteStructure = isAf ? input.wildType.site : deNovo.site;
   const siteIdentity = canvasWildType;
-  const canAddressVariantSite = siteIdentity?.numbering === "uniprot";
+  const hasVerifiedNumbering = siteIdentity?.numbering === "uniprot";
   const expected = wt3 ? wt3.toUpperCase() : null;
   let check: SiteContext["check"];
-  if (!canAddressVariantSite && siteIdentity && siteStructure && expected && siteStructure.resName !== expected) {
-    check = {
-      state: "mismatch",
-      text: `The structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at ${position}, not ${wt3}: its numbering does not follow UniProt here, so the highlighted residue is not the variant's.`,
-    };
-  } else if (!canAddressVariantSite && siteIdentity) {
+  if (!hasVerifiedNumbering && siteIdentity) {
     check = { state: "unknown", text: `${siteIdentity.name} keeps entry numbering, so the variant's UniProt residue is not highlighted or compared.` };
   } else if (!siteStructure) {
     check = siteIdentity
@@ -1125,9 +1122,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   } else {
     check = {
       state: "mismatch",
-      text: `The structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at ${position}, not ${wt3}: its numbering does not follow UniProt here, so the highlighted residue is not the variant's.`,
+      text: `The mapped structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at UniProt ${position}, not ${wt3}; the variant site is not highlighted or measured until the residue identity is reconciled.`,
     };
   }
+  const canAddressVariantSite = hasVerifiedNumbering && check.state === "match";
 
   let confidence: SiteContext["confidence"] = { kind: "none", value: null, text: "Not read", note: "No wild-type coordinates at the site." };
   const siteB = siteStructure?.caBFactor ?? null;
@@ -1143,7 +1141,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         ? `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`
         : `From ${siteIdentity!.name}, this view's wild type; displayed in the ${band.label.toLowerCase()} pLDDT band, not an AlphaFold DB classification.`,
     };
-  } else if (siteB !== null && channel?.kind === "temperature-factor") {
+  } else if (siteB !== null && canAddressVariantSite && channel?.kind === "temperature-factor") {
     const scan = isAf ? input.wildType.scan : null;
     const q = quartileOf(siteB, scan);
     confidence = {
@@ -1181,8 +1179,8 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       body: `FoldX built the variant on ${foldxTemplate.name}${input.wildType.customPdbUrl ? "" : `, not on ${canvasWildType?.name ?? "the AlphaFold model"}`}. The superposition and its measurements pair the variant with ${pairedByFoldx ? "FoldX's own wild type on that template" : "that template"}, so they describe the substitution rather than the difference between two structures.`,
     });
   }
-  if (check.state === "mismatch") {
-    notices.push({ key: "numbering", tone: "warning", title: "Highlighted residue is not the variant's", body: check.text });
+  if (check.state === "mismatch" || (!hasVerifiedNumbering && siteIdentity)) {
+    notices.push({ key: "numbering", tone: "warning", title: "Variant site not verified on these coordinates", body: check.text });
   }
   if (!isAf && deNovo.engines?.wildType && deNovo.engines?.variant && deNovo.engines.wildType !== deNovo.engines.variant) {
     notices.push({
@@ -1348,6 +1346,13 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     (a, b) => (b.h.identity! - a.h.identity!) || ((a.h.resolution ?? 99) - (b.h.resolution ?? 99))
   );
   const best = isAf ? bestCandidates[0]?.row ?? null : null;
+  const loadedRow = rows.find(row => row.loaded);
+  const relationshipNote =
+    isAf && effectiveMode === "wildtype" && input.wildType.customPdbUrl && loadedRow
+      ? loadedRow.identity === "100%"
+        ? "This experimental entry and AlphaFold represent the same wild-type protein sequence across the aligned range. A similar ribbon fold is expected; this view has not calculated an AlphaFold–PDB coordinate RMSD."
+        : "This experimental entry is related to the queried protein. A similar ribbon fold does not mean the coordinates are identical; this view has not calculated an AlphaFold–PDB coordinate RMSD."
+      : null;
 
   /* ── Notes and sources ────────────────────────────────────────────────── */
   const notes: string[] = [];
@@ -1404,7 +1409,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   return {
     family,
     viewMode: effectiveMode,
-    canvas: { primary, secondary, chip },
+    canvas: { primary, secondary, chip, relationshipNote },
     modes,
     representations,
     representation,

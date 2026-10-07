@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { ArrowRight, Eye, EyeOff, X } from "lucide-react";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import type { PocketNarrative } from "../../shared/residueShiftEvidence";
@@ -35,6 +35,13 @@ export function StructurePocketPanel({
   onClose: () => void;
 }) {
   const residues = pocket.lining.byDistance.slice(0, 10);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
   return (
     <section className="s3d-pocket" aria-label="Predicted ligand pocket" data-testid="structure-pocket">
       <div className="s3d-pocket__head">
@@ -44,7 +51,8 @@ export function StructurePocketPanel({
         </button>
       </div>
       <div className="s3d-pocket__body">
-        {pocket.status === "success" ? (
+        {pocket.status === "success" || (pocket.status === "fallback_engine" &&
+          (pocket.proximity.distance !== null || pocket.ranking.score !== null || pocket.lining.count > 0)) ? (
           <>
             <p className="s3d-pocket__statement">
               <strong>{pocket.headline}</strong>
@@ -59,7 +67,7 @@ export function StructurePocketPanel({
                 </dd>
               </div>
               <div className="s3d-kv__row">
-                <dt>{pocket.ranking.kind === "probability" ? "Ligand-site probability" : "P2Rank score"}</dt>
+                <dt>{pocket.status === "fallback_engine" ? "fpocket score" : pocket.ranking.kind === "probability" ? "Ligand-site probability" : "P2Rank score"}</dt>
                 <dd>
                   <span className="s3d-mono">{pocket.ranking.display ?? "Not reported"}</span>
                   <span className="s3d-kv__note">
@@ -105,12 +113,14 @@ export function StructurePocketPanel({
               type="button"
               className="s3d-btn"
               aria-pressed={showOnStructure}
-              disabled={!canShowOnStructure}
-              title={!canShowOnStructure ? "This pocket was detected on pipeline coordinates, not the entry on the canvas." : undefined}
+              disabled={!canShowOnStructure || residues.length === 0}
+              title={!canShowOnStructure
+                ? "This pocket was detected on pipeline coordinates, not the entry on the canvas."
+                : residues.length === 0 ? "The detector returned no lining residues to draw." : undefined}
               onClick={onToggleShow}
             >
               {showOnStructure ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-              {!canShowOnStructure ? "Pocket belongs to pipeline coordinates" : showOnStructure ? "Hide on the structure" : "Show on the structure"}
+              {!canShowOnStructure ? "Pocket belongs to pipeline coordinates" : residues.length === 0 ? "No lining residues to show" : showOnStructure ? "Hide on the structure" : "Show on the structure"}
             </button>
           </>
         ) : (
