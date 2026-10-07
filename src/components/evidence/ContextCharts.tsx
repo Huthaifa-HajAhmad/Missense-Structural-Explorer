@@ -23,10 +23,10 @@ export const maxOf = (values: Array<number | null>) => Math.max(0, ...values.map
  */
 export function PextStrip({ regions, activeIndex, position }: { regions: PextRegion[]; activeIndex: number; position: number | null }) {
   const total = regions.reduce((n, r) => n + (r.stop - r.start + 1), 0) || 1;
-  const W = 640; const H = 44; const GAP = 2; const usable = W - GAP * (regions.length - 1);
+  const W = 640; const H = 44; const GAP = regions.length > 120 ? 0.5 : 2; const usable = Math.max(W / 2, W - GAP * (regions.length - 1));
   let x = 0; let markerX: number | null = null;
   const boxes = regions.map((r, i) => {
-    const w = Math.max(2, ((r.stop - r.start + 1) / total) * usable);
+    const w = Math.max(0.5, ((r.stop - r.start + 1) / total) * usable);
     if (i === activeIndex && position !== null) markerX = x + ((position - r.start + 0.5) / (r.stop - r.start + 1)) * w;
     const box = <rect key={`${r.start}-${r.stop}`} x={x} y={14} width={w} height={22} rx={2} fill="currentColor"
       fillOpacity={0.12 + 0.88 * Math.min(1, r.mean ?? 0)} stroke={i === activeIndex ? 'var(--cs-text-primary)' : 'none'} strokeWidth={1.5}>

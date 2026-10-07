@@ -34,3 +34,12 @@ describe('pext adapter', () => {
     vi.stubGlobal('fetch', vi.fn(async () => gene({ flags: [], regions: [{ start: 9, stop: 1, mean: 0, tissues: [] }] }, 'PX5'))); expect((await loadPext('PX5')).status).toBe('error');
   });
 });
+
+describe('alignment source isoform', () => {
+  it('keeps the most common human source protein instead of failing the whole card', async () => {
+    const h = (species: string, protein: string) => ({ type: 'ortholog_one2one', source: { ...side('ENSG1', 'homo_sapiens', 'AB-CDE'), protein_id: protein }, target: side(`G_${species}`, species, 'ABXCDE') });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'ENSG1', homologies: [h('mus_musculus', 'P1'), h('rattus_norvegicus', 'P1'), h('danio_rerio', 'P2')] }] }))));
+    const r = await loadAlignment('ALN5');
+    expect(r.status).toBe('ready'); expect(r.sourceProteinId).toBe('P1'); expect(r.homologies.map(x => x.species)).toEqual(['mus_musculus', 'rattus_norvegicus']);
+  });
+});

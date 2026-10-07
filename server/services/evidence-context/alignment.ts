@@ -27,12 +27,15 @@ export async function loadAlignment(gene: string): Promise<AlignmentResponse> {
         .map(h => ({ type: TYPES[h.type] ?? h.type, species: h.target.species, taxonId: TAXA[h.target.species],
           geneId: h.target.id, proteinId: h.target.protein_id, sourceAligned: h.source.align_seq, targetAligned: h.target.align_seq,
           humanIdentity: h.source.perc_id, orthologIdentity: h.target.perc_id, humanSimilarity: h.source.perc_pos, sourceProtein: h.source.protein_id })));
-      const sources = new Set(homologies.map(h => h.sourceProtein));
-      if (sources.size > 1) throw new Error('Ambiguous human source protein');
-      const result = alignmentResponseSchema.parse({ gene, status: homologies.length ? 'ready' : 'not-found', sourceProteinId: [...sources][0] ?? null,
-        homologies: homologies.map(({ sourceProtein: _s, ...h }) => h),
+      // Compara can align different orthologs to different human isoforms. Keep one source protein (the most common), never mix them.
+      const counts = new Map<string, number>(); for (const h of homologies) counts.set(h.sourceProtein, (counts.get(h.sourceProtein) ?? 0) + 1);
+      const source = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+      const kept = homologies.filter(h => h.sourceProtein === source);
+      const sources = new Set(kept.map(h => h.sourceProtein));
+      const result = alignmentResponseSchema.parse({ gene, status: kept.length ? 'ready' : 'not-found', sourceProteinId: [...sources][0] ?? null,
+        homologies: kept.map(({ sourceProtein: _s, ...h }) => h),
         provenance: { source: 'Ensembl Compara', url, licence: 'Ensembl data are open (EMBL-EBI terms of use)', release: null, retrievedAt: new Date().toISOString(), sha256: createHash('sha256').update(raw).digest('hex'), timestampBasis: 'download' },
-        message: homologies.length ? null : 'No aligned orthologs returned for the selected model organisms.' });
+        message: kept.length ? null : 'No aligned orthologs returned for the selected model organisms.' });
       cache.set(gene, result); return result;
     } catch { return { gene, status: 'error', sourceProteinId: null, homologies: [], provenance: null, message: 'Ensembl did not return a complete, valid protein alignment.' }; }
   })().finally(() => { flights.delete(gene); });

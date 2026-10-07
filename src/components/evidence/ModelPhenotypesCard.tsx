@@ -6,7 +6,7 @@ import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
 
 function Rows({ rows, terms }: { rows: ModelPhenotype[]; terms: Map<string, string> }) {
   return <ul className="ctx-terms">{rows.map(p => { const names = matchedNames(p, terms);
-    return <li key={p.termId} className="ctx-pheno"><span>{p.statement}<span className="ctx-caption ctx-block"><span className="ctx-mono">{p.termId}</span> · {p.annotations} annotation{p.annotations === 1 ? '' : 's'}{p.models ? ` · ${p.models} model${p.models === 1 ? '' : 's'}` : ''}</span></span>
+    return <li key={`${p.termId}:${p.statement}`} className="ctx-pheno"><span>{p.statement}<span className="ctx-caption ctx-block"><span className="ctx-mono">{p.termId}</span> · {p.annotations} annotation{p.annotations === 1 ? '' : 's'}{p.models ? ` · ${p.models} model${p.models === 1 ? '' : 's'}` : ''}</span></span>
       {names.length > 0 && <span className="ctx-cell" data-cell="significant">Same phenotype as: {names.join(', ')}</span>}</li>; })}</ul>;
 }
 

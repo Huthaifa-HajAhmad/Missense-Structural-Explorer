@@ -37,6 +37,7 @@ export async function loadModelPhenotypes(gene: string): Promise<ModelPhenotypes
   const running = flights.get(gene); if (running) return running;
   const task = (async (): Promise<ModelPhenotypesResponse> => {
     const fail = (status: 'not-found' | 'error', message: string): ModelPhenotypesResponse => ({ gene, status, species: [], mapping: 'unavailable', provenance: [], message });
+    try {
     const models = await loadModelOrganisms(gene);
     if (models.status === 'not-found') return fail('not-found', models.message ?? 'No approved HGNC gene with this exact symbol.');
     if (models.status !== 'ready') return fail('error', 'Orthologs were not available, so model phenotypes cannot be listed.');
@@ -70,6 +71,7 @@ export async function loadModelPhenotypes(gene: string): Promise<ModelPhenotypes
       ], message: species.length ? null : 'No ortholog in a covered organism.' });
     if (species.every(s => s.status === 'ready') && upheno) cache.set(gene, result);
     return result;
+    } catch { return fail('error', 'Model phenotypes could not be read.'); }
   })().finally(() => { flights.delete(gene); });
   flights.set(gene, task); return task;
 }

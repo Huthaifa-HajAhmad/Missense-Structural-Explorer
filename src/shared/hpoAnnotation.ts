@@ -23,13 +23,14 @@ export type HpoTerm = z.infer<typeof hpoTermSchema>;
 
 /** Categories that describe course or inheritance, not an affected organ. */
 export const NON_PHENOTYPIC_CATEGORIES = ['Inheritance', 'Clinical course'];
+// Keys are lower case: the service has returned both 'Cardiovascular' and 'Nervous System' style names.
 const CATEGORY_SYSTEM: Record<string, ReviewSystemId> = {
-  'Skeletal system': 'skeletal', Limbs: 'skeletal', 'Head and neck': 'skeletal', 'Cardiovascular System': 'cardiovascular',
-  'Nervous System': 'nervous', Ear: 'hearing', Eye: 'vision', Musculature: 'muscle', 'Genitourinary System': 'renal',
-  'Digestive System': 'digestive', 'Respiratory System': 'respiratory', 'Skin, Hair, and Nails': 'skin',
-  'Immune System': 'immune', 'Blood and Blood-forming Tissues': 'immune',
+  'skeletal system': 'skeletal', limbs: 'skeletal', 'head and neck': 'skeletal', cardiovascular: 'cardiovascular', 'cardiovascular system': 'cardiovascular',
+  'nervous system': 'nervous', ear: 'hearing', eye: 'vision', musculature: 'muscle', 'genitourinary system': 'renal',
+  'digestive system': 'digestive', 'respiratory system': 'respiratory', 'skin, hair, and nails': 'skin',
+  'immune system': 'immune', immunology: 'immune', 'blood and blood-forming tissues': 'immune',
 };
-export const systemForCategory = (category: string): ReviewSystemId | null => CATEGORY_SYSTEM[category] ?? null;
+export const systemForCategory = (category: string): ReviewSystemId | null => CATEGORY_SYSTEM[category.trim().toLowerCase()] ?? null;
 
 export function groupHpoTerms(data: HpoResponse | null) {
   const groups = new Map<string, HpoTerm[]>();

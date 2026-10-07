@@ -22,7 +22,7 @@ export function HpoAnnotationCard({ load, hasDisease, hasIds, diseaseId, selecti
       : data?.status !== 'ready' ? <p className="ctx-card__body">{data?.message}</p>
       : <>
         <div className="ctx-card__body">
-          <p className="ctx-prose">{data.disease!.name} <span className="ctx-mono ctx-caption">{data.disease!.id}</span>: {groups.reduce((n, g) => n + g.terms.length, 0)} annotated terms across {groups.length} categories.
+          <p className="ctx-prose">{data.disease?.name ?? 'This disease'} <span className="ctx-mono ctx-caption">{data.disease?.id}</span>: {groups.reduce((n, g) => n + g.terms.length, 0)} annotated terms across {groups.length} categories.
             {verified ? ' Matches your chosen disease by MONDO ID.' : ' Matched through the submitter cross-reference; its MONDO ID is not the same as your chosen disease, so confirm it is the same condition.'}</p>
           <p className="ctx-caption">Accepted terms stay review context. They are not findings in a patient, and they do not change any ACMG criterion.</p>
           {!!implied.length && <div className="ctx-chips" role="group" aria-label="Add systems implied by accepted terms">

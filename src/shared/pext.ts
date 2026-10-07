@@ -30,7 +30,8 @@ export function pextSiteFromVariantId(id: string | null | undefined, assembly: s
 export type PextLocation = 'region' | 'no-region' | 'no-locus' | 'other-chromosome';
 export function locatePext(data: PextResponse | null, site: PextSite | null) {
   if (!site) return { state: 'no-locus' as PextLocation, region: null, index: -1 };
-  if (!data || data.chrom?.toUpperCase() !== site.chrom) return { state: 'other-chromosome' as PextLocation, region: null, index: -1 };
+  const chrom = (data?.chrom ?? '').toUpperCase().replace(/^CHR/, '').replace(/^M$/, 'MT');
+  if (!data || chrom !== site.chrom) return { state: 'other-chromosome' as PextLocation, region: null, index: -1 };
   const index = data.regions.findIndex(r => r.start <= site.pos && site.pos <= r.stop); // inclusive
   return index < 0 ? { state: 'no-region' as PextLocation, region: null, index } : { state: 'region' as PextLocation, region: data.regions[index], index };
 }

@@ -58,3 +58,15 @@ describe('GenCC scale position', () => {
     expect(validityPosition('No Known Disease Relationship')).toBeNull();
   });
 });
+
+import { groupHpoTerms, systemForCategory } from '../hpoAnnotation';
+describe('review-driven regressions', () => {
+  it('maps every HPO category spelling the service returns, ignoring case', () => {
+    for (const [c, s] of [['Cardiovascular', 'cardiovascular'], ['Immunology', 'immune'], ['Blood and blood-forming tissues', 'immune'], ['Genitourinary system', 'renal'], ['Nervous System', 'nervous']] as const) expect(systemForCategory(c)).toBe(s);
+    expect(systemForCategory('Connective tissue')).toBeNull();
+    expect(groupHpoTerms({ gene: 'G', status: 'ready', disease: null, provenance: null, message: null, terms: [{ id: 'HP:0000001', name: 'x', category: 'Cardiovascular', frequency: null, onset: null, sources: [] }] })[0].system).toBe('cardiovascular');
+  });
+  it('treats gnomAD chrom M and the variant id MT as the same chromosome', () => {
+    expect(locatePext({ ...pext, chrom: 'M', regions: [{ start: 1, stop: 9, mean: 0, tissues: [] }] }, { chrom: 'MT', pos: 5 }).state).toBe('region');
+  });
+});
