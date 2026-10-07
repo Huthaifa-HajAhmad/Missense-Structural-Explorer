@@ -120,6 +120,28 @@ export function refusalAttachmentsFromError(error: unknown, fallbackNotation: st
     };
   }
 
+  if (code === REFUSAL_CODES.nonMissenseVariant) {
+    const consequences = Array.isArray(details?.consequence) ? details.consequence : [];
+    const isIntronic = consequences.some((c: string) => typeof c === "string" && c.toLowerCase().includes("intron"));
+    const isSynonymous = consequences.some((c: string) => typeof c === "string" && c.toLowerCase().includes("synonymous"));
+    const hasCodon = !isIntronic && !consequences.some((c: string) => typeof c === "string" && c.toLowerCase().includes("non_coding"));
+    return {
+      nonMissenseRefusal: {
+        gene: typeof details?.gene === "string" ? details.gene : undefined,
+        hgvsc: typeof details?.hgvsc === "string" ? details.hgvsc : undefined,
+        hgvsp: typeof details?.hgvsp === "string" ? details.hgvsp : undefined,
+        consequence: consequences,
+        isCoding: !isIntronic,
+        hasCodon,
+        reason: isIntronic
+          ? "Intronic variant: does not alter a coding sequence or codon."
+          : isSynonymous
+          ? "Synonymous variant: alters a nucleotide within a codon but does not change the amino acid."
+          : "Non-missense variant: out of scope for 3D missense structural modeling.",
+      },
+    };
+  }
+
   if (code !== REFUSAL_CODES.ambiguousProteinNumbering) return {};
 
   // Bounded like every other server-supplied array: a compromised or buggy response must not be able
@@ -616,6 +638,13 @@ export async function executeFullAnalysisWorkflow({
         if (needsNarrativeBackfill || mode !== "automatic") cachedTasks.push(triggerNarrative(cached.analysisResult));
         await Promise.allSettled(cachedTasks);
         await refreshNarrativeOnce();
+        if (getActiveRequestId() === requestId && !activeSignal.aborted) {
+          analysisSink.setLoadingStep("");
+          analysisSink.setIsStructuralLoading(false);
+          analysisSink.setIsNarrativeLoading(false);
+          analysisSink.setIsClinicalLoading(false);
+          analysisSink.setIsBiophysicalLoading(false);
+        }
         return activeSignal.aborted || getActiveRequestId() !== requestId ? "aborted" : "completed";
       }
     } else {
@@ -840,6 +869,32 @@ export async function executeFullAnalysisWorkflow({
           // Awaiting here owns telemetry completion, never navigation or workspace readiness.
           await Promise.allSettled([...enrichmentTasks, triggerNarrative(resResult)]);
           await refreshNarrativeOnce();
+          if (getActiveRequestId() === requestId && !activeSignal.aborted) {
+            for (const stage of Object.keys(initialStages)) {
+              if (initialStages[stage] === "running") {
+                initialStages[stage] = "complete";
+              }
+            }
+            analysisSink.setLoadingStep("");
+            analysisSink.setIsStructuralLoading(false);
+            analysisSink.setIsNarrativeLoading(false);
+            analysisSink.setIsClinicalLoading(false);
+            analysisSink.setIsBiophysicalLoading(false);
+            setAnalysisState((prev: any) => {
+              if (!prev?.result) return prev;
+              const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
+              let modified = false;
+              for (const [k, v] of Object.entries(stages)) {
+                if (v === "running") {
+                  stages[k] = "complete";
+                  modified = true;
+                }
+              }
+              return modified
+                ? { ...prev, result: { ...prev.result, metadata: { ...prev.result.metadata, pipelineStages: stages } } }
+                : prev;
+            });
+          }
         } else {
           throw new Error("Biophysical result payload empty.");
         }

@@ -139,6 +139,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
 
   const structureRef = useRef<any>(null);
   const structure2Ref = useRef<any>(null);
+  const polymerRef = useRef<any>(null);
+  const polymer2Ref = useRef<any>(null);
   const highlightRefs = useRef<string[]>([]);
   const isLoadingRef = useRef(false);
   const [readyVersion, setReadyVersion] = useState(0);
@@ -153,6 +155,14 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   // A length-only key left an existing ESM3 heatmap stale after a same-length rerun.
   const scoresKey = esm3Scores ? JSON.stringify(esm3Scores) : "";
   const filterCut = plddtScale && plddtFilter !== "none" ? Number(plddtFilter) / (plddtScale === 1 ? 100 : 1) : null;
+  // Alpha/visibility are representation properties, not colour-theme properties. Only these
+  // changes require rebuilding visual components; palette and ESM3 score changes do not.
+  const visualStructureKey = JSON.stringify({
+    filterCut,
+    primaryAlpha: colour.primary.theme === "uniform" ? colour.primary.alpha : 1,
+    secondaryAlpha: colour.secondary?.theme === "uniform" ? colour.secondary.alpha : 1,
+    secondaryCartoon: colour.secondaryCartoon,
+  });
 
   /* ── Load and draw ───────────────────────────────────────────────────── */
   useEffect(() => {
@@ -169,6 +179,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (!active) return;
         structureRef.current = null;
         structure2Ref.current = null;
+        polymerRef.current = null;
+        polymer2Ref.current = null;
         highlightRefs.current = [];
 
         let text: string | null = primaryPdbData;
@@ -269,6 +281,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         }
         if (!polymerTarget) polymerTarget = await plugin.builders.structure.tryCreateComponentStatic(structure, "polymer");
         if (!active) return;
+        polymerRef.current = polymerTarget;
         if (polymerTarget) {
           await plugin.builders.structure.representation.addRepresentation(polymerTarget, { type: "cartoon", ...themeRef(colour.primary, esm3Scores) });
         }
@@ -288,6 +301,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           if (!active || !structure2) return;
           structure2Ref.current = structure2;
           const polymer2 = colour.secondaryCartoon ? await plugin.builders.structure.tryCreateComponentStatic(structure2, "polymer") : null;
+          polymer2Ref.current = polymer2;
           if (polymer2) {
             await plugin.builders.structure.representation.addRepresentation(polymer2, { type: "cartoon", ...themeRef(colour.secondary, esm3Scores) });
           }
@@ -317,9 +331,41 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       active = false;
       isLoadingRef.current = false;
     };
-    // `colourKey`/`scoresKey` stand in for the plan and the scores, which change identity per render.
+    // Colour theme changes are handled below without reparsing coordinates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, allowFetch, colourKey, filterCut, scoresKey]);
+  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, allowFetch, visualStructureKey]);
+
+  useEffect(() => {
+    if (!pluginCreated || !readyVersion || isLoadingRef.current) return;
+    const plugin = pluginRef.current;
+    if (!plugin) return;
+    let active = true;
+    async function updateColour() {
+      try {
+        const primary = polymerRef.current;
+        if (primary) {
+          const theme = themeRef(colour.primary, esm3Scores);
+          await plugin.managers.structure.component.updateRepresentationsTheme([primary], {
+            color: theme.color as any, colorParams: theme.colorParams,
+          });
+        }
+        if (!active) return;
+        const secondary = polymer2Ref.current;
+        if (secondary && colour.secondary) {
+          const theme = themeRef(colour.secondary, esm3Scores);
+          await plugin.managers.structure.component.updateRepresentationsTheme([secondary], {
+            color: theme.color as any, colorParams: theme.colorParams,
+          });
+        }
+      } catch (err) {
+        if (active) console.error("[3D] Structure colour update failed:", err);
+      }
+    }
+    void updateColour();
+    return () => { active = false; };
+    // The serialized keys capture value changes in colour plans and ESM3 arrays.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pluginCreated, readyVersion, colourKey, scoresKey]);
 
   useEffect(() => {
     if (!customPdbUrl) onEntryLoadedRef.current?.(null);

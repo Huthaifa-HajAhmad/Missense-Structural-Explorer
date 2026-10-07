@@ -61,7 +61,10 @@ export function useEvidenceContext(result: AnalysisResult, expression = false) {
     previousKey.current = key;
   }, [key]);
   useEffect(() => {
-    if (!useVariantAnalysisStore.getState().diseaseContexts[gene]) void loadDisease();
+    // A cached "not installed" or failed read is not a fact about the gene: the snapshot can be
+    // installed (or the server recovered) while this session is open, so re-ask on mount.
+    const cachedDisease = useVariantAnalysisStore.getState().diseaseContexts[gene];
+    if (!cachedDisease || cachedDisease.status === 'error' || cachedDisease.data?.status === 'not-installed') void loadDisease();
     if (expression && !useVariantAnalysisStore.getState().expressionContexts[gene]) void loadExpression();
     if (expression && !useVariantAnalysisStore.getState().developmentalContexts[gene]) void loadDevelopment();
   }, [gene, expression, fetchWithAuth]);

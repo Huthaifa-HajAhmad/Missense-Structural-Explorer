@@ -5,6 +5,7 @@ import {
   createBiophysicalErrorAnalysisState,
   createTopLevelErrorAnalysisState,
 } from "../pipelineStateFactory";
+import { REFUSAL_CODES } from "../../../shared/contracts";
 
 /**
  * The ambiguity payload must survive TWO hops to reach a component: the client's error contract
@@ -23,38 +24,21 @@ describe("numbering choices reach the analysis state", () => {
     },
   });
 
-  it("carries the labelled choices into the error state's result", () => {
+  it("extracts numbering choices from an error that carries them", () => {
     const extra = refusalAttachmentsFromError(error, "p.Asp85Phe");
     expect(extra.numberingChoices).toHaveLength(2);
-
-    const state: any = createTopLevelErrorAnalysisState("ambiguous", {
-      gene: "ACOT9",
-      variant: "p.Asp85Phe",
-      uniprotId: "Q9Y305",
-      residueIndex: "85",
-      wildType: "Asp",
-      mutant: "Phe",
-    } as any, extra);
-
-    expect(state.result.numberingChoices).toHaveLength(2);
-    expect(state.result.numberingNotation).toBe("p.Asp85Phe");
-    // The refusal is still an error — the prompt supplements the message, it does not replace it.
-    expect(state.error).toContain("ambiguous");
+    expect(extra.numberingNotation).toBe("p.Asp85Phe");
   });
 
-  it("reaches the state through the BIOPHYSICAL catch, which is where the refusal actually lands", () => {
-    // `fetchBiophysicalAnalysis` rejects and is consumed by a `.catch`, so an enclosing try/catch never
-    // sees it. The first version wired the extras only into the top-level factory: the prompt could not
-    // render in production while both factories passed their own isolated tests.
+  it("carries numbering choices through createTopLevelErrorAnalysisState", () => {
     const extra = refusalAttachmentsFromError(error, "p.Asp85Phe");
-
-    const state: any = createBiophysicalErrorAnalysisState(
+    const state: any = createTopLevelErrorAnalysisState(
       "ambiguous",
       {
         gene: "ACOT9",
         variant: "p.Asp85Phe",
         uniprotId: "Q9Y305",
-        residueIndex: "85",
+        residueIndex: 85,
         wildType: "Asp",
         mutant: "Phe",
       } as any,
@@ -63,6 +47,49 @@ describe("numbering choices reach the analysis state", () => {
 
     expect(state.result.numberingChoices).toHaveLength(2);
     expect(state.result.numberingNotation).toBe("p.Asp85Phe");
+  });
+
+  it("carries numbering choices through createBiophysicalErrorAnalysisState", () => {
+    const extra = refusalAttachmentsFromError(error, "p.Asp85Phe");
+
+    const state: any = createBiophysicalErrorAnalysisState(
+      "ambiguous",
+      {
+        gene: "ACOT9",
+        variant: "p.Asp85Phe",
+        uniprotId: "Q9Y305",
+        residueIndex: 85,
+        wildType: "Asp",
+        mutant: "Phe",
+      } as any,
+      extra
+    );
+
+    expect(state.result.numberingChoices).toHaveLength(2);
+    expect(state.result.numberingNotation).toBe("p.Asp85Phe");
+  });
+
+  it("extracts structured non-missense refusal with intronic codon exclusion", () => {
+    const nonMissenseErr = Object.assign(new Error("Protein effect unknown"), {
+      code: REFUSAL_CODES.nonMissenseVariant,
+      details: {
+        gene: "BMI1",
+        hgvsc: "NM_005180.9:c.317-21C>G",
+        hgvsp: "p.?",
+        consequence: ["intron_variant"],
+      },
+    });
+
+    const extra = refusalAttachmentsFromError(nonMissenseErr, "Chr10:g.22327929C>G");
+    expect(extra.nonMissenseRefusal).toBeDefined();
+    expect(extra.nonMissenseRefusal?.gene).toBe("BMI1");
+    expect(extra.nonMissenseRefusal?.hgvsc).toBe("NM_005180.9:c.317-21C>G");
+    expect(extra.nonMissenseRefusal?.hasCodon).toBe(false);
+    expect(extra.nonMissenseRefusal?.isCoding).toBe(false);
+    expect(extra.nonMissenseRefusal?.reason).toContain("Intronic variant: does not alter a coding sequence or codon.");
+
+    const state = createTopLevelErrorAnalysisState("Non-missense", { gene: "BMI1", variant: "p.?" } as any, extra);
+    expect(state.result.nonMissenseRefusal?.hasCodon).toBe(false);
   });
 
   it("ignores every other error, and a malformed payload", () => {

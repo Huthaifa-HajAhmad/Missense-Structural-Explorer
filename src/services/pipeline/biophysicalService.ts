@@ -252,8 +252,8 @@ export function fetchProgressiveMultimer(
   }, signal)
     .then((data: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return data;
+      setAnalysisState((prev: any) => mergeResultPatch(prev, { multimerData: data || null }, undefined, "multimer", data ? "complete" : "skipped"));
       if (data) {
-        setAnalysisState((prev: any) => mergeResultPatch(prev, { multimerData: data }, undefined, "multimer", "complete"));
         const cached = getCachedVariant(gene, variant);
         if (ownsCachedAnalysis(cached, params)) {
           setCachedVariant(gene, variant, uniprotId, {
@@ -309,8 +309,8 @@ export function fetchProgressivePpi(
   }, signal)
     .then((data: any) => {
       if (getActiveRequestId() !== requestId || signal.aborted) return data;
+      setAnalysisState((prev: any) => mergeResultPatch(prev, { ppiBindingData: data || null }, undefined, "ppi", data ? "complete" : "skipped"));
       if (data) {
-        setAnalysisState((prev: any) => mergeResultPatch(prev, { ppiBindingData: data }, undefined, "ppi", "complete"));
         const cached = getCachedVariant(gene, variant);
         if (ownsCachedAnalysis(cached, params)) {
           setCachedVariant(gene, variant, uniprotId, {
@@ -425,13 +425,14 @@ export function fetchProgressiveStructuralAssessments(
             esm3Eval: structRes.esm3Eval, esmcEval: structRes.esmcEval,
             esm2Eval: structRes.esm2Eval, saprotEval: structRes.saprotEval,
             metadata: { structuralTimings: timings, structuralTimingOffsets: offsets },
-        serviceStatus: structRes.serviceStatus ?? {},
+            serviceStatus: structRes.serviceStatus ?? {},
             ...(structRes.ruleBasedInsights ? { ruleBasedInsights: structRes.ruleBasedInsights } : {})
           }, undefined, "structural", failedModels.length ? "degraded" : "complete").result
         });
       }
     })
     .catch((structErr: any) => {
+      setIsStructuralLoading?.(false);
       if (
         getActiveRequestId() !== requestId ||
         signal.aborted ||
@@ -439,7 +440,6 @@ export function fetchProgressiveStructuralAssessments(
       ) {
         return;
       }
-      setIsStructuralLoading?.(false);
 
       const isTimeout = structErr.name === "TimeoutError" || structErr.message?.includes("timed out");
       const errMessage = isTimeout

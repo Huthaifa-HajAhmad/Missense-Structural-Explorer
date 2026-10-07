@@ -7,7 +7,7 @@ import {
   type Structure3dInput,
 } from "../structure3dEvidence";
 import { scanBFactors, readResidueAt, identifyAlphaFoldHeader, plddtScale, isSitePair } from "../coordinateText";
-import { LOCAL_STRUCTURAL_WINDOW, LOCAL_ALIGNMENT_FIT_WINDOW, THRESHOLDS } from "../thresholds";
+import { LOCAL_ALIGNMENT_FIT_WINDOW, THRESHOLDS } from "../thresholds";
 import { LEGACY_ENGINE_LABELS } from "../engineStatus";
 
 /**
@@ -256,12 +256,11 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx: readyFoldx(), metrics: NAE1_METRICS, representation: "displacement" }));
     expect(m.viewMode).toBe("superimposed");
     expect(m.canvas.primary?.name).toBe("PDB 1YOV chain A");
-    expect(m.canvas.secondary?.channel.kind).toBe("displacement");
+    expect(m.canvas.secondary?.channel.kind).toBe("temperature-factor");
     expect(m.comparison.state).toBe("ready");
     expect(m.comparison.canvasWildTypeIsNotTemplate).toBe(true);
     const disp = m.representations.find(r => r.id === "displacement");
-    expect(disp?.available).toBe(false);
-    expect(disp?.reason).toMatch(/zero by construction/);
+    expect(disp).toBeUndefined();
     expect(m.representation).toBe("pair");
     expect(m.alignment.scopeToggle).toBe(false);
   });
@@ -294,13 +293,11 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(JSON.stringify(m)).not.toContain("0.0°");
   });
 
-  it("labels the local RMSD with the ±5 window it is measured over, and the zero as a FoldX construction", () => {
+  it("omits FoldX's fixed-backbone geometry rows and keeps measured side-chain changes", () => {
     const m = buildStructure3dEvidence(baseInput({ viewMode: "superimposed", foldx: readyFoldx(), metrics: NAE1_METRICS }));
-    const local = m.readings.find(r => r.key === "local-rmsd")!;
-    expect(local.note).toBe(`±${LOCAL_STRUCTURAL_WINDOW} residues around 116`);
-    expect(local.value).toBe("0.00 Å");
-    expect(local.caveat).toMatch(/Zero by construction/);
-    expect(JSON.stringify(m.readings)).not.toContain("±15 residue active-site");
+    expect(m.readings.some(r => ["local-rmsd", "global-rmsd", "max-shift"].includes(r.key))).toBe(false);
+    expect(m.readings.find(r => r.key === "sasa")?.value).toBeTruthy();
+    expect(m.readings.find(r => r.key === "polar")?.value).toBeTruthy();
   });
 
   it("calls the 3.5 Å polar-atom count a proxy, not hydrogen bonds", () => {
@@ -458,14 +455,37 @@ describe("structure3dEvidence — ESMFold view", () => {
   });
 });
 
-describe("ESM3 embedding shift", () => {
-  it("uses the engine's own bands and never calls itself allosteric", () => {
+describe("ESM3 sequence shift overlay", () => {
+  it("projects variant-conditioned scores only onto the predicted wild type and uses app-defined bands", () => {
     const m = buildStructure3dEvidence(baseInput({ esm3: { scoreCount: 534, error: null }, representation: "esm3" }));
     expect(m.representation).toBe("esm3");
+    expect(m.legend?.title).toBe("ESM3 sequence shift on wild type");
+    expect(m.legend?.provenanceNote).toMatch(/Wild-type versus variant sequence embeddings, projected/);
     const d = THRESHOLDS.esm3Drift;
     expect(m.legend?.entries.map(e => e.label).slice(0, 4)).toEqual([`< ${d.none}`, `${d.none}–${d.minor}`, `${d.minor}–${d.moderate}`, `≥ ${d.moderate}`]);
     expect(m.legend?.provenance).toBe("app-defined");
     expect(JSON.stringify(m)).not.toMatch(/Allosteric (Hub|Heatmap)/);
+  });
+
+  it("does not offer the sequence overlay on a FoldX variant or an experimental entry", () => {
+    const variant = buildStructure3dEvidence(baseInput({
+      viewMode: "mutant", foldx: readyFoldx(), esm3: { scoreCount: 534, error: null }, representation: "esm3",
+    }));
+    expect(variant.representations.some(option => option.id === "esm3")).toBe(false);
+    expect(variant.representation).not.toBe("esm3");
+
+    const entry = buildStructure3dEvidence(baseInput({
+      esm3: { scoreCount: 534, error: null }, representation: "esm3",
+      wildType: {
+        provenance: { source: "alphafold", afdbVersion: "v6" },
+        customPdbUrl: "/api/v1/pdb/entry/1YOV?uniprot=Q13564&pos=116&wt=D",
+        entry: { numbering: "uniprot", chainId: "A", mapping: "sifts", reason: null },
+        scan: scanBFactors(CRYSTAL_TEXT), site: readResidueAt(CRYSTAL_TEXT, 116),
+      },
+    }));
+    expect(entry.representations.find(option => option.id === "esm3")?.available).toBe(false);
+    expect(entry.representation).not.toBe("esm3");
+    expect(entry.canvas.relationshipNote).toMatch(/AlphaFold–PDB coordinate RMSD/);
   });
 });
 

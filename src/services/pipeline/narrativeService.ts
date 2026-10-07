@@ -291,6 +291,7 @@ export async function generateClinicalNarrative(
         result: updated
       };
     });
+    analysisSink.setLoadingStep("");
   };
 
   const installFromTransportFailure = (narrativeErr: any) => {
@@ -322,6 +323,7 @@ export async function generateClinicalNarrative(
         result: updated
       };
     });
+    analysisSink.setLoadingStep("");
   };
 
   /**
@@ -358,7 +360,14 @@ export async function generateClinicalNarrative(
         const narrativeData = await apiClient.getNarrative(plan.request, workSignal);
         installFromResponse(narrativeData);
       } catch (narrativeErr: any) {
-        if (workSignal.aborted) return;
+        if (workSignal.aborted) {
+          if (getActiveRequestId() === requestId && !signal.aborted) {
+            analysisSink.setAnalysisState((prev: any) =>
+              prev?.result ? { ...prev, result: withNarrativeStageOutcome(prev.result, "skipped") } : prev
+            );
+          }
+          return;
+        }
         installFromTransportFailure(narrativeErr);
       }
     }
@@ -380,6 +389,7 @@ export async function generateClinicalNarrative(
      */
     if (!narrativeActivityOutstanding()) {
       analysisSink.setIsNarrativeLoading(false);
+      analysisSink.setLoadingStep("");
     }
   }
 }
