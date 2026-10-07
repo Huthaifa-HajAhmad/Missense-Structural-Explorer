@@ -3,6 +3,9 @@ import rateLimit from "express-rate-limit";
 import crypto from "crypto";
 import { sendError, safeCompare, getApiKeyFromSession, decryptSession } from "./utils.ts";
 import { PUBLIC_ENDPOINTS } from "./routes/state.ts";
+import { CONTEXT_SUFFIXES } from "../src/shared/contextRequest.ts";
+
+const PUBLIC_CONTEXT_READ = new RegExp(`^/(?:api/v1/)?evidence-context/[^/]+(?:/(?:${CONTEXT_SUFFIXES.join("|")}))?$`);
 
 // [MOD-12] Request/Response Logging Middleware
 export function requestLogger(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -49,7 +52,7 @@ export const authCheck = (req: express.Request, res: express.Response, next: exp
   const pathToCheck = req.path;
   // Gene context is public reference evidence, like ClinVar and UniProt. Only
   // the existing GET routes bypass auth; future writes remain protected.
-  const isPublicContextRead = req.method === "GET" && /^\/(?:api\/v1\/)?evidence-context\/[^/]+(?:\/(?:expression|development|dosage|models))?$/.test(pathToCheck);
+  const isPublicContextRead = req.method === "GET" && PUBLIC_CONTEXT_READ.test(pathToCheck);
   const isPublic = isPublicContextRead || PUBLIC_ENDPOINTS.some(p => pathToCheck === p || pathToCheck.startsWith(p + "/"));
   if (isPublic) {
     next();

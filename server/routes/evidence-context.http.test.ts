@@ -6,6 +6,9 @@ import { apiRouter } from '../routes';
 import { loadGeneDiseaseContext } from '../services/evidence-context/store';
 import { fetchAdultExpression } from '../services/evidence-context/gtex';
 import { loadDevelopmentalExpression } from '../services/evidence-context/dgtex';
+import { loadHpoAnnotation } from '../services/evidence-context/hpo';
+import { loadAlignment } from '../services/evidence-context/alignment';
+import { loadPext } from '../services/evidence-context/pext';
 import { loadModelOrganisms } from '../services/evidence-context/modelOrganisms';
 import { loadDosageContext } from '../services/evidence-context/clingenDosage';
 vi.mock('../services/evidence-context/store', () => ({ loadGeneDiseaseContext: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', frames: [], provenance: null, message: 'Missing snapshot' })) }));
@@ -13,6 +16,9 @@ vi.mock('../services/evidence-context/g2p', () => ({ loadMechanismContext: vi.fn
 vi.mock('../services/evidence-context/gtex', () => ({ fetchAdultExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-found', tissues: [], provenance: null, message: null })) }));
 vi.mock('../services/evidence-context/dgtex', () => ({ loadDevelopmentalExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', observations: [], provenance: null, message: 'Missing snapshot' })) }));
 vi.mock('../services/evidence-context/modelOrganisms', () => ({ loadModelOrganisms: vi.fn(async (gene: string) => ({ gene, status: 'ready', hgncId: null, orthologs: [], impc: null, provenance: [], message: null })) }));
+vi.mock('../services/evidence-context/hpo', () => ({ loadHpoAnnotation: vi.fn(async (gene: string) => ({ gene, status: 'not-found', terms: [] })) }));
+vi.mock('../services/evidence-context/alignment', () => ({ loadAlignment: vi.fn(async (gene: string) => ({ gene, status: 'not-found', homologies: [] })) }));
+vi.mock('../services/evidence-context/pext', () => ({ loadPext: vi.fn(async (gene: string) => ({ gene, status: 'no-pext', regions: [] })) }));
 vi.mock('../services/evidence-context/clingenDosage', () => ({ loadDosageContext: vi.fn(async (gene: string) => ({ gene, status: 'not-found', record: null, provenance: null, message: null })) }));
 
 describe('public reference evidence through the API router', () => {
@@ -29,10 +35,10 @@ describe('public reference evidence through the API router', () => {
   });
   const request = (suffix: string, authenticated = true) => fetch(base + suffix, { headers: authenticated ? { Authorization: `Bearer ${token}` } : {} });
   it('serves every reference sources without an API token or Gemini key', async () => {
-    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development', '/RGS9/dosage', '/RGS9/models']) expect((await request(suffix, false)).status).toBe(200);
+    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development', '/RGS9/dosage', '/RGS9/models', '/RGS9/alignment', '/RGS9/pext', '/RGS9/hpo?disease=OMIM:1']) expect((await request(suffix, false)).status).toBe(200);
     expect(loadGeneDiseaseContext).toHaveBeenCalledWith('RGS9');
     expect(loadDosageContext).toHaveBeenCalledWith('RGS9');
-    expect(loadModelOrganisms).toHaveBeenCalledWith('RGS9');
+    expect(loadModelOrganisms).toHaveBeenCalledWith('RGS9'); expect(loadAlignment).toHaveBeenCalledWith('RGS9'); expect(loadPext).toHaveBeenCalledWith('RGS9'); expect(loadHpoAnnotation).toHaveBeenCalledWith('RGS9', 'OMIM:1');
     expect(fetchAdultExpression).toHaveBeenCalledWith('RGS9');
     expect(loadDevelopmentalExpression).toHaveBeenCalledWith('RGS9');
     vi.clearAllMocks();

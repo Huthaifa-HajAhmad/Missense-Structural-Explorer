@@ -14,7 +14,7 @@ const result = (gene: string) => ({ metadata: { gene, uniprotId: 'P1', variant: 
 const data = (gene: string) => ({ gene, status: 'ready', frames: [], provenance: null, message: null });
 beforeEach(() => {
   fetchWithAuth.mockReset(); sessionStorage.clear();
-  useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, dosageContexts: {}, modelContexts: {}, phenotypeSelections: {} });
+  useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, dosageContexts: {}, modelContexts: {}, extraContexts: {}, phenotypeSelections: {} });
 });
 describe('authenticated context loading and gene isolation', () => {
   it.each([[401, 'Access denied'], [429, 'Request limit reached'], [503, 'HTTP 503']])('reports HTTP %s without blaming the evidence provider', async (status, message) => {

@@ -133,6 +133,14 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     usedBy: ['server/services/evidence-context/modelOrganisms.ts', 'src/components/evidence/ModelOrganismsCard.tsx'],
   },
   {
+    id: 'hpo', name: 'Human Phenotype Ontology', provider: 'HPO / Monarch Initiative (via the Jackson Laboratory ontology service)', kind: 'dataset',
+    role: 'Phenotype terms annotated to the disease you chose, with frequency and onset when recorded; offered as suggestions you accept one by one. Context only.',
+    url: 'https://hpo.jax.org/', release: null,
+    releaseNote: 'Fetched live and cached for a day; the response carries no release identifier, so none is invented.',
+    citation: null, licence: 'HPO licence: free use with attribution and no endorsement.',
+    usedBy: ['server/services/evidence-context/hpo.ts', 'src/components/evidence/HpoAnnotationCard.tsx'],
+  },
+  {
     id: 'hgnc', name: 'HGNC', provider: 'HUGO Gene Nomenclature Committee', kind: 'dataset',
     role: 'Exact approved gene symbol to HGNC identifier, used to anchor orthology; aliases are not resolved by guess.',
     url: 'https://www.genenames.org/', release: null,
@@ -833,6 +841,7 @@ export const QUERY_TRANSMISSION = {
     "A query is resolved by sending the notation, and then the identifiers it resolves to, to the hosts below. None of them receives a patient identifier: what leaves the machine is a gene symbol, an HGVS notation, a genomic coordinate, a UniProt accession, a PDB id, a RefSeq transcript id, a sequence, or a free-text literature query.",
   hosts: [
     { host: "search.clinicalgenome.org", sent: "Nothing about the query: the whole public dosage table is downloaded and filtered on the server", note: "ClinGen dosage sensitivity context. The gene is matched locally, so no gene symbol leaves the machine." },
+    { host: "ontology.jax.org", sent: "OMIM or Orphanet identifier of the disease you chose", note: "HPO terms for that disease. No gene or variant is sent." },
     { host: "rest.genenames.org", sent: "Gene symbol", note: "Resolves the exact approved symbol to an HGNC identifier for orthology." },
     { host: "alliancegenome.org", sent: "HGNC gene identifier", note: "Model-organism orthologs. Selections stay in the browser." },
     { host: "gtexportal.org", sent: "Gene symbol, resolved GENCODE gene identifier and tissue metadata request", note: "Adult GTEx v10 expression context. Disease, onset and review-system selections stay in the browser." },

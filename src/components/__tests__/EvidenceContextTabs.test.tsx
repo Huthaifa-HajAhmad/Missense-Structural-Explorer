@@ -12,7 +12,7 @@ const frame = { key: 'TEST|MONDO:1|AD', geneId: 'HGNC:1', geneSymbol: 'TEST', di
 const props = { analysisState: { result: { metadata: { gene: 'TEST' } }, isLoading: false, error: null } } as any;
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 beforeEach(() => {
-  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(), retryModels: vi.fn(),
+  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(), retryModels: vi.fn(), retryHpo: vi.fn(), hpoIds: 'OMIM:1',
     developmentalLoad: { status: 'ready', data: { gene: 'TEST', status: 'not-installed', observations: [], counts: null, provenance: null, gencodeId: null, message: null } },
     diseaseLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', frames: [frame], provenance: null, message: null } },
     expressionLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, tissues: [{ id: 'Muscle_Skeletal', label: 'Skeletal muscle', ontologyId: null, value: 0, unit: 'TPM', sampleCount: 100, samplingSite: null }] } } };
@@ -150,5 +150,39 @@ describe('context tab claims and interactions', () => {
     render(<ExpressionModelsTab {...props} />);
     fireEvent.click(within(screen.getByTestId('model-organisms-card')).getByRole('button', { name: 'Try again' }));
     expect(context.value.retryModels).toHaveBeenCalled();
+  });
+  it('offers HPO terms for acceptance one by one and adds a system only on an explicit click', () => {
+    context.value.selection = { ...emptyPhenotypeSelection(), diseaseKey: 'TEST|MONDO:1|AD', acceptedTerms: ['HP:0000002'] };
+    context.value.hpoLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, message: null, disease: { queried: 'OMIM:1', id: 'OMIM:1', name: 'Example disease', mondoId: 'MONDO:1' },
+      terms: [{ id: 'HP:0000001', name: 'Short stature', category: 'Skeletal system', frequency: 'Frequent', onset: null, sources: [] }, { id: 'HP:0000002', name: 'Myopia', category: 'Eye', frequency: null, onset: 'Childhood onset', sources: [] },
+        { id: 'HP:0000006', name: 'Autosomal dominant inheritance', category: 'Inheritance', frequency: null, onset: null, sources: [] }] } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('hpo-card'));
+    expect(card.getByText(/Matches your chosen disease by MONDO ID/)).toBeInTheDocument();
+    expect(card.queryByText('Autosomal dominant inheritance')).toBeNull();
+    expect(context.value.setSelection).not.toHaveBeenCalled();
+    fireEvent.click(card.getByRole('button', { name: /Add Vision to review/ }));
+    expect(context.value.setSelection).toHaveBeenCalledWith(expect.objectContaining({ systems: ['vision'] }));
+    fireEvent.click(card.getByRole('checkbox', { name: /Short stature/ }));
+    expect(context.value.setSelection).toHaveBeenLastCalledWith(expect.objectContaining({ acceptedTerms: ['HP:0000002', 'HP:0000001'] }));
+  });
+  it('shows the residue in each ortholog and refuses to map when the reference differs', () => {
+    const homology = { type: '1:1', species: 'mus_musculus', taxonId: 'NCBITaxon:10090', geneId: 'ENSMUSG1', proteinId: 'P', sourceAligned: 'ABCDE', targetAligned: 'ABQDE', humanIdentity: 90, orthologIdentity: 90, humanSimilarity: 95 };
+    context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
+    const result = { metadata: { gene: 'TEST', sequence: 'ABCDE', residueIndex: 3, wildType: 'C', mutant: 'Q' } };
+    const { unmount } = render(<ExpressionModelsTab analysisState={{ result, isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in Mouse/)).toBeInTheDocument(); unmount();
+    render(<ExpressionModelsTab analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/No residue is mapped/)).toBeInTheDocument();
+  });
+  it('places the variant on a pext region only with a verified GRCh38 locus', () => {
+    context.value.pextLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', geneId: 'E', chrom: '17', flags: ['low_max_pext'], provenance: null, message: null,
+      regions: [{ start: 100, stop: 110, mean: 0.5, tissues: [{ tissue: 'liver', value: 0.9 }] }] } };
+    const make = (assembly: string) => ({ metadata: { gene: 'TEST' }, predictorData: { gnomadVariantId: '17-105-A-T', gnomadVariantAssembly: assembly } });
+    const { unmount } = render(<ExpressionModelsTab analysisState={{ result: make('GRCh38'), isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('pext-card')).getByText('Liver')).toBeInTheDocument();
+    expect(within(screen.getByTestId('pext-card')).getByText(/low_max_pext/)).toBeInTheDocument(); unmount();
+    render(<ExpressionModelsTab analysisState={{ result: make('GRCh37'), isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('pext-card')).getByText(/no verified GRCh38 position/)).toBeInTheDocument();
   });
 });
