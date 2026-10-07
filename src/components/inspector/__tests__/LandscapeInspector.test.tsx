@@ -67,10 +67,10 @@ describe("LandscapeInspector", () => {
   it("lists the residue's substitutions as letters and opens one on click (Substitutions tab)", () => {
     const onSelect = vi.fn();
     render(<LandscapeInspector analysisResult={result} onSelectResidueIndex={onSelect} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Substitutions" }));
-    // Context reads as key/value rows now; the basis comes from the payload (PR #72).
+    // Context reads as key/value rows on the Summary tab; the basis comes from the payload (PR #72).
     expect(screen.getByText("2 missense, max AC 10")).toBeTruthy();
     expect(screen.getByText("0.41 (96–262, gnomAD v4.1.1 regional missense)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Substitutions" }));
     const v = screen.getAllByRole("button", { name: /^D→V AlphaMissense 0\.950/ })[0];
     fireEvent.click(v);
     expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ kind: "substitution", pos: 116, alt: "V" });
