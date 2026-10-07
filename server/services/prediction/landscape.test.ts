@@ -65,6 +65,24 @@ describe("fetchLandscape", () => {
   });
 });
 
+describe("nucleotide identity", () => {
+  // myvariant.info ids carry no "g." separator. The old pattern required `g.<pos><ref>><alt>`, so
+  // live myvariant candidates had `nucleotideKey: null` and the same nucleotide's three alt SNVs
+  // were counted as three nucleotides in the codon-mean GERP++ / phyloP.
+  it("reads the nucleotide out of myvariant's own id shape (chr7:117287507G>A)", () => {
+    const a = candidateFromMyVariantHit(hit("chr7:117287507G>A", { aa: { ref: "D", alt: "G", pos: 5 }, "gerp++": { rs: 2 }, phylop: { "100way_vertebrate": { score: 1 } } }))!;
+    const b = candidateFromMyVariantHit(hit("chr7:117287507G>C", { aa: { ref: "D", alt: "A", pos: 5 }, "gerp++": { rs: 2 }, phylop: { "100way_vertebrate": { score: 1 } } }))!;
+    const c = candidateFromMyVariantHit(hit("chr7:117287508T>C", { aa: { ref: "D", alt: "V", pos: 5 }, "gerp++": { rs: 5 }, phylop: { "100way_vertebrate": { score: 4 } } }))!;
+    expect(a.nucleotideKey).toBe("chr7:117287507");
+    expect(b.nucleotideKey).toBe("chr7:117287507");
+    const { positions } = aggregateLandscape([a, b, c], { start: 5, end: 5, sequence: null, choice: { transcript: null, basis: "unknown" } });
+    // Nucleotides 117287507 (2) and 117287508 (5), not the three SNV rows (2, 2, 5).
+    expect(positions[0].nucleotideCount).toBe(2);
+    expect(positions[0].gerp).toBeCloseTo(3.5);
+    expect(positions[0].phylop).toBeCloseTo(2.5);
+  });
+});
+
 describe("window query", () => {
   it("asks for each residue by exact term, never a range (SOD1 p.Ala5Val lost residues 4-9)", async () => {
     const fetchSpy = vi.spyOn(global, "fetch");
