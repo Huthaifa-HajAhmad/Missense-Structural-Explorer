@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { conservationCache, getCachedOrFetch } from "../../infra/cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
-import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant } from "../dbnsfp_local.ts";
+import { isLocalDbnsfpAvailable, queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
 import { queryGenosWebservice } from "../../external-api/genos_web.ts";
 import { resolveSpliceProximity } from "../splice_resolver.ts";
 import { buildConservationKey } from "../../infra/cache-keys.ts";
@@ -292,6 +292,7 @@ export async function fetchConservationData(
             const resVal: ConservationData = {
               available: true,
               revel: rec.revel,
+              revelProvenance: (rec.revel ?? null) !== null ? readLocalDbnsfpVersion() ?? "local dbNSFP (version not recorded)" : undefined,
               gerp: rec.gerp,
               phylop: rec.phylop,
               consurf: consurfVal,
@@ -361,6 +362,7 @@ export async function fetchConservationData(
           const resVal: ConservationData = {
             available: true,
             revel: activeGenosRec.revel,
+            revelProvenance: (activeGenosRec.revel ?? null) !== null ? "Genos Web Query" : undefined,
             gerp: activeGenosRec.gerp,
             phylop: activeGenosRec.phylop,
             consurf: consurfVal,
@@ -425,6 +427,7 @@ export async function fetchConservationData(
           const resVal: ConservationData = {
             available: true,
             revel: pubDbnsfp.revel ?? null,
+            revelProvenance: (pubDbnsfp.revel ?? null) !== null ? "query.dbnsfp.org (release not stated)" : undefined,
             gerp: pubDbnsfp.gerp ?? null,
             phylop: pubDbnsfp.phylop ?? null,
             consurf: consurfVal,
@@ -653,6 +656,7 @@ export async function fetchConservationData(
               const resVal: ConservationData = { 
                 available: true, 
                 revel, 
+                revelProvenance: revel !== null ? "myvariant.info dbNSFP (release not stated)" : undefined,
                 gerp, 
                 phylop, 
                 consurf: consurfVal,

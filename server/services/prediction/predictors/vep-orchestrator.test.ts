@@ -9,7 +9,7 @@ vi.mock("../../infra/http-client.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../infra/http-client.ts")>(), fetchWithRetry: mocks.fetch,
 }));
 vi.mock("./transcript-resolver.ts", () => ({ getTranscriptsForProtein: mocks.transcripts }));
-vi.mock("../dbnsfp_local.ts", () => ({ queryLocalDbnsfpVariant: mocks.local }));
+vi.mock("../dbnsfp_local.ts", () => ({ queryLocalDbnsfpVariant: mocks.local, readLocalDbnsfpVersion: vi.fn(() => null) }));
 vi.mock("../../translation/liftover.ts", () => ({ liftCoordinateToCanonical: mocks.lift }));
 vi.mock("./locus-resolver.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("./locus-resolver.ts")>(), recoverCanonicalLocus: mocks.recover,
@@ -80,6 +80,7 @@ describe("predictor locus outcome reconciliation", () => {
     expect(result.gnomadVariantId).toBeNull();
     expect(result.caddPhred).toBeNull();
     expect(result.amPathogenicity).toBe(0.8);
+    expect(result.amProvenance).toBe("VEP AlphaMissense plugin");
     expect(result.locusResolution).toMatchObject({ failureKind: "ambiguous-allele", retryable: false });
     expect(isUsablePredictorResult(result, "Q867H")).toBe(true);
   });
@@ -339,6 +340,9 @@ describe("predictor locus outcome reconciliation", () => {
       expect(result.gnomadVariantAssembly).toBe("GRCh38");
       expect(result.amPathogenicity).toBe(0.5136); // the canonical transcript's score, not entry [0]
       expect(result.amClass).toBe("ambiguous");
+      // The tier that produced the score is named, so the Landscape rank cross-check can say
+      // which table disagreed when it does.
+      expect(result.amProvenance).toBe("myvariant.info dbNSFP (release not stated)");
       expect(result.caddPhred).toBe(22.9);
       expect(result.source).toBe("MyVariant.info & dbNSFP (coordinate fallback)");
       expect(result.locusResolution).toMatchObject({
