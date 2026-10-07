@@ -8,8 +8,8 @@ import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
  *
  * ClinVar and gnomAD come from gnomAD's GraphQL API on GRCh38, restricted to gnomAD's canonical
  * transcript so residue numbers match the landscape's MANE numbering in the usual case (gnomAD v4
- * canonical = MANE Select for most genes). Regional constraint only exists for gnomAD v2
- * (GRCh37 canonical transcript), and the payload says so.
+ * canonical = MANE Select for most genes). Regional v4.1.1 data use genomic intervals; this protein-axis view withholds them
+ * until a verified exon/protein mapping is available.
  */
 
 import { classifyClinvar, type ClinvarClass } from "../../../src/shared/clinvarClassification.ts";
@@ -176,7 +176,10 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     errors.push(`gnomAD not loaded: ${gnomadRes.status === "rejected" ? gnomadRes.reason?.message ?? "request failed" : "gene not found"}`);
   }
   if (constraintRes.status === "fulfilled" && constraintRes.value) {
-    regions = constraintRes.value.hasRegionalData ? parseRegions(constraintRes.value.regions) : [];
+    // v4 regions are genomic intervals. Rendering them on a protein axis without exon mapping
+    // would recreate the transcript-numbering defect this migration fixes.
+    regions = null;
+    errors.push("Regional protein map unavailable: gnomAD v4.1.1 intervals require verified transcript-to-protein mapping.");
   } else {
     errors.push("Regional constraint not loaded");
   }
@@ -186,7 +189,7 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     gnomad,
     regions,
     transcript,
-    regionsBasis: "gnomAD v2 regional missense constraint (GRCh37 canonical transcript numbering)",
+    regionsBasis: "gnomAD v4.1.1 genomic intervals (protein mapping not verified)",
     errors
   };
   // Cache only a complete answer; a partial one is retried on the next request.

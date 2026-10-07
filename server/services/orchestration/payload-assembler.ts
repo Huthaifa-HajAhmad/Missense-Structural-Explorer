@@ -1,3 +1,4 @@
+import { CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
 import { generateAltVariants } from "../../routes/shared.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
@@ -303,7 +304,7 @@ export function declaredModelProvenanceOf(
     );
   }
 
-  return { schemaVersion: MODEL_PROVENANCE_SCHEMA_VERSION, models };
+  return { schemaVersion: MODEL_PROVENANCE_SCHEMA_VERSION, constraintRelease: CONSTRAINT_RELEASE, models };
 }
 
 /**

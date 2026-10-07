@@ -13,6 +13,8 @@ import type { AnalysisResult } from "../../../types";
  */
 
 const constraint = {
+  provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+  regionalRelease: "4.1.1",
   missense_z: 1.09,
   loeuf: 0.94,
   pli: 0,
@@ -50,7 +52,7 @@ const props = (analysisResult: AnalysisResult | null) => ({ gene: "NAE1", varian
 describe("context strip", () => {
   it("shows each metric as a chip with its value, micro-track and verdict", () => {
     render(<VariantHeader {...props(clean)} />);
-    const chips = within(screen.getByRole("list", { name: "Gene constraint, gnomAD v2" })).getAllByRole("listitem");
+    const chips = within(screen.getByRole("list", { name: "Gene constraint, gnomAD v4.1.2" })).getAllByRole("listitem");
     expect(chips).toHaveLength(3);
     expect(chips[0]).toHaveTextContent("Missense Z");
     expect(chips[0]).toHaveTextContent("+1.09");

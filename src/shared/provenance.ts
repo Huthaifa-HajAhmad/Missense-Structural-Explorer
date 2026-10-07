@@ -1,3 +1,4 @@
+import { CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_RELEASE } from "./constraintSource";
 /**
  * provenance.ts — Scientific Provenance Manifest Generator
  *
@@ -24,7 +25,9 @@ export const PROVENANCE_DATA_SOURCES = {
    * two patch claims, neither requested nor read, exported in a manifest that is attached to a
    * clinical write-up. The major release is what the code establishes.
    */
-  gnomad: "r4 (GraphQL API)",
+  gnomad: "r4 (GraphQL frequency API)",
+  gnomadConstraint: `v${CONSTRAINT_RELEASE} (pinned constraint snapshot)`,
+  gnomadRegionalConstraint: `v${REGIONAL_CONSTRAINT_RELEASE} (pinned genomic intervals)`,
   clinvar: "2024-latest (NCBI E-utilities)",
   foldx: "FoldX 5.0 (BuildModel & RepairPDB)",
   cacheSchemaVersion: "v3"

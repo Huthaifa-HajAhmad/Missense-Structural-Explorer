@@ -37,6 +37,18 @@ describe("AnalysisDatabase (Persistent SQLite Store)", () => {
     expect(retrieved?.modelVersions.esm3).toBe("1.0");
   });
 
+  it("retires persisted constraint conclusions from earlier data releases", async () => {
+    const save = (modelVersions?: Record<string, string>) => db.saveVariantAnalysis({
+      gene: "PAH", variant: "p.Arg408Trp", uniprotId: "P00439", pos: 408, wildType: "Arg", mutant: "Trp",
+      acmgVerdict: "Uncertain", payload: { gnomadConstraint: { missense_z: 3.09 } }, modelVersions,
+    });
+    save();
+    expect(db.getVariantAnalysis("PAH", "p.Arg408Trp")).toBeNull();
+    expect(await db.getVariantAnalysisAsync("PAH", "p.Arg408Trp")).toBeNull();
+    save({ constraintRelease: "4.1.2" });
+    expect(db.getVariantAnalysis("PAH", "p.Arg408Trp")).not.toBeNull();
+  });
+
   it("updates existing variant analysis upon rerun", () => {
     db.saveVariantAnalysis({
       gene: "PAH",

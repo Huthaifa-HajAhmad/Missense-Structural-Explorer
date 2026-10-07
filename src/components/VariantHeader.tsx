@@ -1,3 +1,4 @@
+import { constraintSourceLabel } from "./header/constraintMetrics";
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, RotateCw, Search, Scissors } from "lucide-react";
 import { AnalysisResult } from "../types";
@@ -66,6 +67,8 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
   useEffect(() => setOpen(false), [gene, variant]);
 
   const { metrics } = model;
+  const source = constraintSourceLabel(analysisResult);
+  const provenance = analysisResult?.gnomadConstraint?.provenance;
 
   /*
    * Proximity to a junction is CONTEXT, not a finding.
@@ -85,10 +88,10 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
       {metrics.length > 0 && (
         <>
           <span className="vcs-title">
-            Gene constraint <span className="vcs-source">· gnomAD v2</span>
+            Gene constraint <span className="vcs-source">· {source}</span>
           </span>
           {/* Explicit role: `list-style: none` drops list semantics in WebKit. */}
-          <ul className="vcs-chips" role="list" aria-label="Gene constraint, gnomAD v2">
+          <ul className="vcs-chips" role="list" aria-label={`Gene constraint, ${source}`}>
             {metrics.map((m) => (
               <li key={m.key} className="vcs-chip" title={m.tooltip}>
                 <span className="vcs-chip-label">{m.label}</span>
@@ -124,21 +127,28 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
           <div className="vh-rail">
             <div className="vh-rail-head">
               <span className="vh-rail-title">
-                Gene constraint <span className="vh-rail-source">· gnomAD v2</span>
+                Gene constraint <span className="vh-rail-source">· {source}</span>
               </span>
               <span className="vh-rail-axis" aria-hidden="true">
-                <span>tolerant</span>
+                <span>less depleted</span>
                 <span>constrained →</span>
               </span>
             </div>
-            <ul className="vh-metrics" role="list" aria-label="gnomAD v2 population constraint and normal ranges">
+            <ul className="vh-metrics" role="list" aria-label={`${source} population constraint and reference ranges`}>
               {metrics.map((metric) => (
                 <ConstraintMetric key={metric.key} metric={metric} />
               ))}
             </ul>
+            {provenance && <p className="vcs-panel-note">
+              Gene metrics: <a href={`https://gnomad.broadinstitute.org/gene/${provenance.geneId}?dataset=gnomad_r4`} target="_blank" rel="noopener noreferrer">{source}</a>, {provenance.assembly}, {provenance.transcriptId}.{provenance.transcriptVersion} ({provenance.selection === "matched" ? "annotated transcript" : provenance.selection === "mane-select" ? "MANE Select reference" : "canonical reference"}).
+              {analysisResult?.gnomadConstraint?.regionalRelease && <> Regional metrics: gnomAD v{analysisResult.gnomadConstraint.regionalRelease}.</>}
+            </p>}
             <p className="vcs-panel-note">
-              Gene-level constraint, not a call on this variant. Every track reads tolerant on the left and
+              Population constraint does not classify this variant. Every track reads less depleted on the left and
               constrained on the right; LOEUF and O/E fall as constraint rises, so their axes are reversed.
+              {provenance?.release === "4.1.2" && <> Missense Z bands are app-defined (dashed marks).
+                LOEUF uses <a href="https://gnomad.broadinstitute.org/news/2026-03-gnomad-v4-1-1/" target="_blank" rel="noopener noreferrer">gnomAD's current guidance</a>.
+                Regional calls require depletion, significance and passed QC.</>}
             </p>
           </div>
         </div>

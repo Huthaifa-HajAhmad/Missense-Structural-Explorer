@@ -1,21 +1,16 @@
 import type { LRUCache } from "lru-cache";
-import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
-import { gnomadFreqCache, gnomadConstraintCache, getCachedOrFetch } from "../infra/cache.ts";
-import { buildGnomadFreqKey, buildGnomadConstraintKey } from "../infra/cache-keys.ts";
+import { fetchWithRetry } from "../infra/http-client.ts";
+import { gnomadFreqCache, getCachedOrFetch } from "../infra/cache.ts";
+import { buildGnomadFreqKey } from "../infra/cache-keys.ts";
 // The ancestry-group AN floor is shared with the surface that DESCRIBES it (the Population
 // Frequencies tab's grouped-maximum row), so the filter and the copy cannot drift apart.
-import { THRESHOLDS, isPp2Constrained } from "../../../src/shared/thresholds.ts";
+import { THRESHOLDS } from "../../../src/shared/thresholds.ts";
 
 export interface FetchGnomadFrequencyOptions {
   l1Cache?: LRUCache<string, any>;
   bypassSqlite?: boolean;
   /** Build that the variant id's coordinates belong to, when known. Part of the cache key. */
   assembly?: string | null;
-}
-
-export interface FetchGnomadConstraintOptions {
-  l1Cache?: LRUCache<string, any>;
-  bypassSqlite?: boolean;
 }
 
 export interface GnomadVariantFrequency {
@@ -207,163 +202,6 @@ export async function fetchGnomadVariantFrequency(
   });
 }
 
-export interface GnomadGeneConstraint {
-  missense_z: number | null;
-  oe_mis: number | null;
-  pli: number | null;
-  loeuf: number | null;
-  isPP2Constrained: boolean;
-  regions?: any[];
-  hasRegionalData?: boolean;
-  /** gnomAD's QC verdict on the gene's RMC track; null when the API omitted it. */
-  rmcPassedQc?: boolean | null;
-  regionalConstraint?: {
-    isConstrained: boolean;
-    oeRatio: number | null;
-    pValue: number | null;
-    regionText: string | null;
-  } | null;
-}
-
-export async function fetchGnomadGeneConstraint(
-  geneSymbol: string,
-  aaPos?: number | null,
-  options?: FetchGnomadConstraintOptions
-): Promise<GnomadGeneConstraint | null> {
-  const normGene = normalizeGeneSymbol(geneSymbol).toUpperCase();
-
-  const cached = await getCachedOrFetch<GnomadGeneConstraint | null>({
-    key: buildGnomadConstraintKey(geneSymbol),
-    source: "gnomAD Constraint API",
-    l1Cache: options?.l1Cache ?? gnomadConstraintCache,
-    ttlSeconds: 30 * 24 * 60 * 60,
-    bypassSqlite: options?.bypassSqlite,
-    fetcher: async () => {
-      const query = `
-        query GeneConstraintAndRMC($gene: String!) {
-          gene(gene_symbol: $gene, reference_genome: GRCh37) {
-            gnomad_constraint {
-              mis_z
-              oe_mis
-              pLI
-              oe_lof_upper
-            }
-            gnomad_v2_regional_missense_constraint {
-              passed_qc
-              regions {
-                chrom
-                start
-                stop
-                aa_start
-                aa_stop
-                obs_mis
-                exp_mis
-                obs_exp
-                p_value
-              }
-            }
-          }
-        }
-      `;
-
-      try {
-        const resp = await fetchWithRetry(
-          "https://gnomad.broadinstitute.org/api",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Accept": "application/json" },
-            body: JSON.stringify({ query, variables: { gene: normGene } }),
-            timeout: 15000,
-          },
-          2,
-          1500
-        );
-
-        if (resp.ok) {
-          const json = await resp.json();
-          const geneData = json?.data?.gene;
-          const constraint = geneData?.gnomad_constraint;
-          const rmc = geneData?.gnomad_v2_regional_missense_constraint;
-
-          if (constraint) {
-            const missense_z = constraint.mis_z != null ? parseFloat(constraint.mis_z.toFixed(2)) : null;
-            const oe_mis = constraint.oe_mis != null ? parseFloat(constraint.oe_mis.toFixed(2)) : null;
-            const pli = constraint.pLI != null ? parseFloat(constraint.pLI.toFixed(2)) : null;
-            const loeuf = constraint.oe_lof_upper != null ? parseFloat(constraint.oe_lof_upper.toFixed(2)) : null;
-
-            // One rule for the engine and the Threshold Guide that describes it.
-            const isPP2Constrained = isPp2Constrained(missense_z, oe_mis) === true;
-
-            return {
-              missense_z,
-              oe_mis,
-              pli,
-              loeuf,
-              isPP2Constrained,
-              regions: rmc?.regions || [],
-              hasRegionalData: !!(rmc && rmc.regions && rmc.regions.length > 0),
-              rmcPassedQc: typeof rmc?.passed_qc === "boolean" ? rmc.passed_qc : null
-            };
-          }
-        }
-      } catch (err: any) {
-        console.error(`[gnomAD Constraint] Error fetching ${normGene}:`, err.message);
-      }
-      return null;
-    }
-  });
-
-  if (!cached) return null;
-
-  // Perform regional check for the specific aaPos on-the-fly from the cached object
-  let regionalConstraint: GnomadGeneConstraint["regionalConstraint"] = null;
-  if (aaPos && cached.regions && cached.regions.length > 0) {
-    let matchedRegion = null;
-    for (const r of cached.regions) {
-      const startNum = parseInt(r.aa_start.replace(/\D/g, ""), 10);
-      const stopNum = parseInt(r.aa_stop.replace(/\D/g, ""), 10);
-      if (!isNaN(startNum) && !isNaN(stopNum)) {
-        const minPos = Math.min(startNum, stopNum);
-        const maxPos = Math.max(startNum, stopNum);
-        if (aaPos >= minPos && aaPos <= maxPos) {
-          matchedRegion = r;
-          break;
-        }
-      }
-    }
-    if (matchedRegion) {
-      // gnomAD's released RMC regions are all significantly depleted, but the
-      // verdict must not rest on that assumption: a matched window only counts
-      // as constrained when the RMC track passed QC and the window's own LRT
-      // p-value clears 0.05. A sub-threshold match still returns its span and
-      // p-value so the client can say "matched, not significant" instead of
-      // "outside every constrained sub-region".
-      // p_value is a GraphQL Float, but tolerate a string encoding too rather
-      // than silently un-constraining every match.
-      const windowP =
-        matchedRegion.p_value == null ? NaN : Number(matchedRegion.p_value);
-      const significant =
-        cached.rmcPassedQc !== false &&
-        Number.isFinite(windowP) &&
-        windowP < 0.05;
-      regionalConstraint = {
-        isConstrained: significant,
-        oeRatio: matchedRegion.obs_exp != null ? parseFloat(matchedRegion.obs_exp.toFixed(2)) : null,
-        pValue: matchedRegion.p_value,
-        regionText: `${matchedRegion.aa_start} to ${matchedRegion.aa_stop}`
-      };
-    } else {
-      regionalConstraint = {
-        isConstrained: false,
-        oeRatio: null,
-        pValue: null,
-        regionText: null
-      };
-    }
-  }
-
-  return {
-    ...cached,
-    regionalConstraint
-  };
-}
+// Gene constraint is a pinned local product, independent of the live variant frequency API.
+export { fetchGnomadGeneConstraint } from "./gnomad-gene-constraint.ts";
+export type { GnomadGeneConstraint, FetchGnomadConstraintOptions } from "./gnomad-gene-constraint.ts";

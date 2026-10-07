@@ -59,8 +59,9 @@ describe("landscape context parsing", () => {
     const ctx = await fetchLandscapeContext("NAE1");
     expect(ctx.clinvar).toBeNull();
     expect(ctx.gnomad).toBeNull();
-    expect(ctx.regions).toEqual([{ start: 96, end: 262, oe: 0.41, pValue: 0.001 }]);
-    expect(ctx.errors.length).toBe(2);
+    expect(ctx.regions).toBeNull();
+    expect(ctx.regionsBasis).toContain("v4.1.1");
+    expect(ctx.errors.length).toBe(3);
     spy.mockRestore();
   });
 });

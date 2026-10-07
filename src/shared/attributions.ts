@@ -1,3 +1,4 @@
+import { CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_RELEASE } from "./constraintSource";
 /**
  * attributions.ts — Third-party credit registry for the About page.
  *
@@ -179,10 +180,10 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     kind: "dataset",
     role: "Population allele frequencies, cohort counts and gene-level constraint (pLI, missense Z, LOEUF) — the numbers the ACMG engine's PM2, BS1 and BA1 arms actually read.",
     url: "https://gnomad.broadinstitute.org/",
-    release: "r4 (GraphQL API)",
+    release: `constraint v${CONSTRAINT_RELEASE}; regional v${REGIONAL_CONSTRAINT_RELEASE}; live frequency r4`,
     citation:
       "Chen, S., et al. (2024). A genomic mutational constraint map using variation in 76,156 human genomes. Nature 625, 92–100. https://doi.org/10.1038/s41586-023-06045-0",
-    usedBy: ["server/services/external-api/gnomad.ts", "server/services/prediction/landscape.ts"]
+    usedBy: ["server/services/external-api/gnomad.ts", "server/services/external-api/gnomad-gene-constraint.ts", "server/services/prediction/landscape.ts"]
   },
   {
     id: "clinvar",

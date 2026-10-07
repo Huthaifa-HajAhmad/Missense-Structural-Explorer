@@ -37,7 +37,7 @@ export function ConstraintMetric({ metric }: { metric: VhMetric }) {
           ))}
         </span>
         {ticks.map((tick) => (
-          <span key={tick.at} className="vh-tick" style={{ left: `${vhPos(tick.at, metric)}%` }} />
+          <span key={tick.at} className="vh-tick" data-kind={tick.kind} style={{ left: `${vhPos(tick.at, metric)}%` }} />
         ))}
         {markerLeft !== null && <span className="vh-marker" data-tone={tone} style={{ left: `${markerLeft}%` }} />}
         {ticks.map((tick) => (

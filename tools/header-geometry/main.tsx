@@ -47,6 +47,8 @@ const maco1 = {
     gnomadVariantAssembly: "GRCh38",
   },
   gnomadConstraint: {
+    provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "synthetic-geometry-fixture" },
+    regionalRelease: "4.1.1",
     missense_z: 3.13,
     oe_mis: 0.26,
     pli: 0.98,
@@ -68,6 +70,8 @@ const braf = {
   isManeSelect: true,
   predictorData: { gnomadVariantId: "7-140753336-A-T", gnomadVariantAssembly: "GRCh38" },
   gnomadConstraint: {
+    provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "synthetic-geometry-fixture" },
+    regionalRelease: "4.1.1",
     missense_z: 2.04,
     oe_mis: 0.72,
     pli: 0.99,
@@ -109,7 +113,9 @@ const ambiguousAllele = {
   gnomadFrequency: null, aouFrequency: null, aouLookup: null,
   ruleBasedInsights: { acmgCriteria: [] },
   // Synthetic layout values, not a live constraint reading for the reference variant.
-  gnomadConstraint: { missense_z: 1.35, loeuf: 0.68, isPP2Constrained: false, hasRegionalData: false },
+  gnomadConstraint: {
+    provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "synthetic-geometry-fixture" },
+    regionalRelease: "4.1.1", missense_z: 1.35, loeuf: 0.68, isPP2Constrained: false, hasRegionalData: false },
   predictorData: {
     gnomadVariantId: null,
     gnomadVariantAssembly: null,
