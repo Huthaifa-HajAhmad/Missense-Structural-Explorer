@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getWorkflowStageStatus } from "../workflowStatus.ts";
+import { getWorkflowStageStatus, summarizeWorkflowStatuses } from "../workflowStatus.ts";
 import type { AnalysisResult } from "../contracts.ts";
 
 describe("workflowStatus Helper Unit Tests (C-7)", () => {
@@ -228,5 +228,52 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(reportStatus.status).toBe("error");
     expect(reportStatus.status).not.toBe("complete");
   });
-});
 
+  it("does not report insights as complete when insights only contain error placeholders and core failed", () => {
+    const errorResult: AnalysisResult = {
+      analysis: "",
+      metadata: {
+        gene: "BMI1",
+        variant: "p.?",
+        uniprotId: "P35226",
+        pipelineStages: { core: "error" }
+      },
+      insights: {
+        biochemicalShift: "⚠️ **Biochemical Shift Unavailable** (Protein effect unknown)",
+        structuralImpact: "⚠️ **Structural Impact Unavailable** (Protein effect unknown)",
+        acmgCriteria: [],
+        plausibility: ""
+      }
+    } as any;
+
+    const evidenceStatus = getWorkflowStageStatus("evidence", errorResult);
+    expect(evidenceStatus.status).toBe("error");
+
+    const structureStatus = getWorkflowStageStatus("structure", errorResult);
+    expect(structureStatus.status).toBe("unavailable");
+
+    const energeticsStatus = getWorkflowStageStatus("energetics", errorResult);
+    expect(energeticsStatus.status).toBe("unavailable");
+
+    const landscapeStatus = getWorkflowStageStatus("landscape", errorResult);
+    expect(landscapeStatus.status).toBe("unavailable");
+
+    const insightsStatus = getWorkflowStageStatus("insights", errorResult);
+    expect(insightsStatus.status).toBe("unavailable");
+    expect(insightsStatus.status).not.toBe("complete");
+
+    const reportStatus = getWorkflowStageStatus("report", errorResult);
+    expect(reportStatus.status).toBe("unavailable");
+
+    const summary = summarizeWorkflowStatuses([
+      evidenceStatus.status,
+      structureStatus.status,
+      energeticsStatus.status,
+      landscapeStatus.status,
+      insightsStatus.status,
+      reportStatus.status
+    ]);
+    expect(summary.settled).toBe(6);
+    expect(summary.hasProblems).toBe(true);
+  });
+});

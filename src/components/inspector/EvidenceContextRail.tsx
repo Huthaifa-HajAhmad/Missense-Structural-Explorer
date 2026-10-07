@@ -4,6 +4,7 @@ import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import { buildGeneDiseaseEvidence, type ContextProvenance } from '../../shared/diseaseFrame';
 import { REVIEW_SYSTEMS, ONSET_LABELS } from '../../shared/phenotypeFrame';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
+import { buildDosageEvidence } from '../../shared/dosageSensitivity';
 import { evidenceContextIdentity } from '../../shared/evidenceContextIdentity';
 
 function Source({ provenance }: { provenance: ContextProvenance }) {
@@ -20,6 +21,7 @@ export function EvidenceContextRail({ analysisResult, expression }: { analysisRe
   const selection = state.phenotypeSelections[key];
   const disease = state.diseaseContexts[gene]?.data ?? null;
   const evidence = buildGeneDiseaseEvidence(disease, selection?.diseaseKey ?? null);
+  const dosage = buildDosageEvidence(state.dosageContexts[gene], evidence.selected?.diseaseId ?? null);
   return <div className="ctx-rail"><section className="ctx-rail__section"><h2>Review trace</h2><ol className="ctx-trace">
     <li><strong>Disease choice</strong><p>{evidence.selected ? `${evidence.selected.label} · ${evidence.selected.inheritance.label}` : 'No disease selected.'}</p></li>
     <li><strong>{expression ? 'Review systems' : 'Assertions'}</strong><p>{expression ? selection?.systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') || 'No systems selected; all tissues remain available.' : evidence.selected ? `${evidence.assertions.length} source assertions for this disease and inheritance.` : 'Choose a disease to review its assertions.'}</p></li>
@@ -29,6 +31,8 @@ export function EvidenceContextRail({ analysisResult, expression }: { analysisRe
     {!!evidence.adverse.length && <p className="ctx-notice">This disease relationship has disputed or refuted assertions. Gene expression cannot resolve that dispute.</p>}
     {expression && <section className="ctx-rail__section"><h3>Method</h3><p>Adult GTEx v10 medians with tissue RNA-seq cohort counts. Counts are samples, not independent donors or a gene-specific detection count.</p><p>Review-system grouping is local. Onset is kept separate from sampled developmental age.</p></section>}
     {disease?.provenance && <Source provenance={disease.provenance} />}
+    {!expression && dosage.state === 'ready' && <section className="ctx-rail__section"><h3>Dosage method</h3><p>ClinGen scores are gene-level copy-number calls: {dosage.readings.map(r => `${r.name.toLowerCase()} ${r.code ?? r.call.toLowerCase()}`).join('; ')}. Codes 30 and 40 are special categories, not higher scores. No ACMG criterion is added.</p></section>}
+    {!expression && state.dosageContexts[gene]?.data?.provenance && <Source provenance={state.dosageContexts[gene].data!.provenance!} />}
     {disease?.mechanismContext?.provenance && <Source provenance={disease.mechanismContext.provenance} />}
     {!disease?.provenance && <p className="ctx-caption">{state.diseaseContexts[gene]?.error ?? `${!state.diseaseContexts[gene] ? 'Not requested' : state.diseaseContexts[gene]?.status === 'loading' ? ENGINE_STATE_LABELS.running : state.diseaseContexts[gene]?.status === 'error' ? ENGINE_STATE_LABELS['upstream-error'] : ENGINE_STATE_LABELS['not-installed']} — no validity-source manifest is available.`}</p>}
     {expression && state.expressionContexts[gene]?.data?.provenance && <Source provenance={state.expressionContexts[gene].data!.provenance!} />}

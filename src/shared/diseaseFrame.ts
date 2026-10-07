@@ -63,6 +63,11 @@ export function addVerifiedMechanismChoices(data: GeneDiseaseResponse): GeneDise
   return { ...data, frames };
 }
 
+/** Tone for a GenCC classification. Only dispute/refutation is flagged; strength is never ranked into a verdict. */
+export function validityTone(level: string): 'warning' | 'neutral' {
+  return /^(disputed|refuted)( evidence)?$/i.test(level) ? 'warning' : 'neutral';
+}
+
 export function buildGeneDiseaseEvidence(data: GeneDiseaseResponse | null, selectedKey: string | null) {
   const selected = data?.frames.find(frame => frame.key === selectedKey) ?? null;
   const assertions = selected?.validity ?? [];

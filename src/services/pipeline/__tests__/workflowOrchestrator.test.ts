@@ -194,6 +194,49 @@ describe("workflowOrchestrator", () => {
     expect(sinks.analysis.setAnalysisState).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining("Cluster offline") }));
     expect(sinks.analysis.setIsBiophysicalLoading).toHaveBeenCalledWith(false);
   });
+
+  it("clears loadingStep, lowers loading flags, and settles pipeline stages when enrichment finishes", async () => {
+    const sinks = createMockSinks();
+    let currentState: any = null;
+    sinks.analysis.setAnalysisState.mockImplementation((updater: any) => {
+      currentState = typeof updater === "function" ? updater(currentState) : updater;
+    });
+
+    const outcome = await executeFullAnalysisWorkflow({
+      targetGeneArg: "SOD1",
+      targetVariantArg: "p.Ala5Val",
+      targetUniprotArg: "P00441",
+      options: {
+        fetchWithAuth: vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
+        apiClient: {
+          getLandscapeData: vi.fn().mockResolvedValue({ landscapeData: [] }),
+          getStructuralAssessments: vi.fn().mockResolvedValue({ esm3Eval: { state: "computed" } }),
+          getNarrative: vi.fn().mockResolvedValue({ analysis: "Prose", isFallback: false })
+        },
+        settings: { biophysicsConditions: {}, narrativeMode: "automatic" },
+        userDirections: "",
+        sinks: sinks as any
+      },
+      activeSignal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1,
+      getTraceContext: () => ({ activeTraceId: "t1", traceStart: 0, addTraceSpan: vi.fn() }),
+      fetchHomologs: vi.fn().mockResolvedValue([]),
+      fetchPocketData: vi.fn().mockResolvedValue(null),
+      mutantFoldAbortRef: { current: null }
+    });
+
+    expect(outcome).toBe("completed");
+    expect(sinks.analysis.setLoadingStep).toHaveBeenLastCalledWith("");
+    expect(sinks.analysis.setIsStructuralLoading).toHaveBeenLastCalledWith(false);
+    expect(sinks.analysis.setIsNarrativeLoading).toHaveBeenLastCalledWith(false);
+    expect(sinks.analysis.setIsClinicalLoading).toHaveBeenLastCalledWith(false);
+    expect(sinks.analysis.setIsBiophysicalLoading).toHaveBeenLastCalledWith(false);
+
+    const stages = currentState?.result?.metadata?.pipelineStages ?? {};
+    const runningStages = Object.entries(stages).filter(([, status]) => status === "running");
+    expect(runningStages).toEqual([]);
+  });
 });
 
 /**

@@ -55,4 +55,11 @@ describe('authenticated context loading and gene isolation', () => {
     await act(async () => hook.result.current.retryDisease());
     expect(hook.result.current.diseaseLoad?.data?.gene).toBe('A');
   });
+  it('re-asks on mount when the cached answer was "not installed", so a snapshot installed mid-session appears', async () => {
+    useVariantAnalysisStore.setState({ diseaseContexts: { A: { status: 'ready', data: { ...data('A'), status: 'not-installed' } as any } } });
+    fetchWithAuth.mockResolvedValue({ ok: true, json: async () => data('A') });
+    const hook = renderHook(() => useEvidenceContext(result('A')));
+    await waitFor(() => expect(hook.result.current.diseaseLoad?.data?.status).toBe('ready'));
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
+  });
 });

@@ -24,6 +24,12 @@ function remoteStatus(status: string | null | undefined): RemoteStatus {
 
 function energeticsStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string } {
   const result = params.result;
+  if (result?.metadata?.pipelineStages?.core === "error") {
+    return {
+      status: "unavailable",
+      desc: "Stability engines unavailable · Query failed"
+    };
+  }
   const energetics = params.foldingEnergetics !== undefined ? params.foldingEnergetics : result?.foldingEnergetics;
   const evidence = buildEnergeticsEvidence({
     foldingEnergetics: { ...energetics, dynamut2: energetics?.dynamut2 ?? result?.dynamut2, ddmut: energetics?.ddmut ?? result?.ddmut },
@@ -72,6 +78,28 @@ export function isAnalysisFailed(result: AnalysisResult | null | undefined): boo
     a.includes("generation failed") ||
     a.includes("error occurred") ||
     a.includes("rate limit exceeded")
+  );
+}
+
+export function hasRealInsights(insights: any): boolean {
+  if (!insights || typeof insights !== "object") return false;
+  const shift = typeof insights.biochemicalShift === "string" ? insights.biochemicalShift.toLowerCase() : "";
+  const impact = typeof insights.structuralImpact === "string" ? insights.structuralImpact.toLowerCase() : "";
+  if (
+    shift.includes("unavailable") ||
+    shift.includes("failed") ||
+    shift.includes("not synthesized") ||
+    impact.includes("unavailable") ||
+    impact.includes("failed") ||
+    impact.includes("not synthesized")
+  ) {
+    return false;
+  }
+  return Boolean(
+    shift ||
+    impact ||
+    (Array.isArray(insights.acmgCriteria) && insights.acmgCriteria.length > 0) ||
+    insights.acmgVerdict
   );
 }
 
@@ -245,6 +273,12 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "structure" || view === "structure_alphafold" || view === "structure_esmfold") {
+      if (result.metadata?.pipelineStages?.core === "error") {
+        return {
+          status: "unavailable",
+          desc: "Protein coordinates unavailable · Query failed"
+        };
+      }
       if (!!isPocketLoading) {
         return { status: "progress", desc: "Coordinates available · Assessing binding pockets..." };
       }
@@ -270,8 +304,13 @@ export function getWorkflowStageStatus(
       };
     }
 
-
     if (view === "landscape") {
+      if (result.metadata?.pipelineStages?.core === "error") {
+        return {
+          status: "unavailable",
+          desc: "Landscape data unavailable · Query failed"
+        };
+      }
       const outcome = result.metadata?.pipelineStages?.landscape;
       if (outcome === "running") return { status: "progress", desc: "Loading residue landscape..." };
       if (outcome === "error") return { status: "degraded", desc: "Landscape query failed · Retry from Landscape" };
@@ -298,6 +337,13 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "insights") {
+      if (result.metadata?.pipelineStages?.core === "error") {
+        return {
+          status: "unavailable",
+          desc: "Variant interpretation unavailable · Query failed"
+        };
+      }
+
       if (result.ruleBasedInsights && !isBiophysicalLoading && !isClinicalLoading) {
         return { status: "complete", desc: isNarrativeLoading ? "Rule-based interpretation ready · Optional AI running" : "Rule-based interpretation ready" };
       }
@@ -323,7 +369,7 @@ export function getWorkflowStageStatus(
         };
       }
 
-      if (realAnalysis || (result.insights && Object.keys(result.insights).length > 0)) {
+      if (realAnalysis || hasRealInsights(result.insights)) {
         return {
           status: "complete",
           desc: "Variant interpretation consensus ready"
@@ -345,6 +391,13 @@ export function getWorkflowStageStatus(
     }
 
     if (view === "report") {
+      if (result.metadata?.pipelineStages?.core === "error") {
+        return {
+          status: "unavailable",
+          desc: "Clinical report unavailable · Query failed"
+        };
+      }
+
       const hasEvidence = Boolean(result.ruleBasedInsights || result.clinvar || result.predictorData || result.conservationData || result.metadata?.pipelineStages?.core === "complete");
       if (hasEvidence) {
         return { status: isBiophysicalLoading || isClinicalLoading ? "progress" : "complete",

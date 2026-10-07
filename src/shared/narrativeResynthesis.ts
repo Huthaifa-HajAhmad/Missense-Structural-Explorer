@@ -252,7 +252,7 @@ export const NARRATIVE_OWNED_RESULT_FIELDS = [
  * That is the distinction a reader needs and the one the console used to lose: "the model was busy" and
  * "the request never arrived" are different facts, and neither is "the narrative is fine".
  */
-export type NarrativeStageOutcome = "running" | "complete" | "degraded" | "error";
+export type NarrativeStageOutcome = "running" | "complete" | "degraded" | "error" | "skipped";
 
 /**
  * Record the narrative stage's outcome on a result, preserving sibling stages and every other metadata

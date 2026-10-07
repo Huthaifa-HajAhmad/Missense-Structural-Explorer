@@ -42,4 +42,47 @@ describe("pipeline rail engine-state parity", () => {
     expect(screen.getByLabelText("partial results")).toBeInTheDocument();
     expect(screen.getByText("6 of 6 settled")).toBeInTheDocument();
   });
+  it("truthfully displays 'Analysis failed' and structured non-missense refusal prompt on intronic coordinate refusal", () => {
+    const store = useVariantAnalysisStore.getState();
+    store.setAnalysisState({
+      isLoading: false,
+      error: 'Analysis query error: Genomic coordinate translated to non-missense consequence (BMI1 p.?): Protein effect unknown: "p.?". The reference annotation does not predict a protein change for this coordinate, so it is not a missense substitution.',
+      result: {
+        isDemoData: false,
+        metadata: {
+          gene: "BMI1",
+          variant: "p.?",
+          uniprotId: "",
+          pipelineStages: { core: "error" },
+        },
+        nonMissenseRefusal: {
+          gene: "BMI1",
+          hgvsc: "NM_005180.9:c.317-21C>G",
+          hgvsp: "p.?",
+          consequence: ["intron_variant"],
+          isCoding: false,
+          hasCodon: false,
+          reason: "Intronic variant: does not alter a coding sequence or codon.",
+        },
+        insights: {
+          biochemicalShift: "⚠️ Biochemical Shift Unavailable",
+          structuralImpact: "⚠️ Structural Impact Unavailable",
+          acmgCriteria: [],
+        },
+      } as any,
+    });
+
+    renderPipeline();
+
+    expect(screen.getByText("Analysis failed")).toBeInTheDocument();
+    expect(screen.getByTestId("non-missense-error-prompt")).toBeInTheDocument();
+    expect(screen.getByText("Variant Out of Scope: Non-Missense Consequence")).toBeInTheDocument();
+    expect(screen.getByText("Non-coding / Intronic · No mature codon")).toBeInTheDocument();
+    expect(screen.getByText("NM_005180.9:c.317-21C>G")).toBeInTheDocument();
+    expect(screen.getByText(/Does this variant alter a codon\?/)).toBeInTheDocument();
+    expect(screen.getByText(/Recommended resolution:/)).toBeInTheDocument();
+    expect(screen.getByText(/ClinVar \(NCBI\)/)).toBeInTheDocument();
+    expect(screen.getByText(/gnomAD \(Broad\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText("analysis failed")).toBeInTheDocument();
+  });
 });

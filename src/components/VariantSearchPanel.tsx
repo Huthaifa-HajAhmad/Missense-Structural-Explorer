@@ -19,6 +19,7 @@ import {
   CornerDownLeft,
   X,
   Eraser,
+  ExternalLink,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
@@ -970,11 +971,29 @@ function VariantSearchPanel({
   const hasRun = Boolean(result) || isPipelineActive;
   const progressPct = summary.percent;
 
+  const hasCoreError = Boolean(
+    result?.metadata?.pipelineStages?.core === "error" ||
+    (analysisState?.error && !isPipelineActive)
+  );
+
   const pipelineStatusLabel = isForegroundActive
     ? "Loading evidence"
+    : hasCoreError
+    ? "Analysis failed"
     : result
     ? isPipelineActive ? "Workspace ready · Enriching" : summary.hasProblems ? "Workspace ready · Partial results" : "Workspace ready"
     : "Pipeline ready";
+
+  const isNonMissenseError = Boolean(
+    analysisState?.error &&
+    (analysisState.error.toLowerCase().includes("non-missense") ||
+     analysisState.error.includes("Protein effect unknown") ||
+     analysisState.error.toLowerCase().includes("synonymous") ||
+     analysisState.error.toLowerCase().includes("nonsense") ||
+     analysisState.error.toLowerCase().includes("frameshift") ||
+     analysisState.error.toLowerCase().includes("insertion/deletion") ||
+     analysisState.error.toLowerCase().includes("start-loss"))
+  );
 
   return (
     <div className="w-full flex flex-col gap-6 cs-fade-in" id="variant-search-workspace">
@@ -1039,6 +1058,144 @@ function VariantSearchPanel({
                   buildDeclared={result.coordinateLift?.buildDeclared}
                   onRetry={retryAsHintedBuild}
                 />
+              ) : null}
+
+              {analysisState?.error &&
+              !isPipelineActive &&
+              !(
+                result?.numberingChoices &&
+                result.numberingChoices.length >= 2 &&
+                (result.numberingNotation ?? "") === customVariant.trim() &&
+                (result.metadata?.gene ?? "") === customGene.trim() &&
+                (result.metadata?.uniprotId ?? "") === customUniprot.trim()
+              ) &&
+              !(result?.buildHint && buildHintTarget) ? (
+                isNonMissenseError ? (
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    data-testid="non-missense-error-prompt"
+                    className="rounded-lg border px-4 py-3.5 flex flex-col gap-2.5 transition-colors"
+                    style={{
+                      borderColor: "var(--cs-border-danger, #fca5a5)",
+                      background: "var(--cs-bg-danger-subtle, rgba(239, 68, 68, 0.05))",
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-[var(--cs-text-danger, #dc2626)] shrink-0" />
+                        <span className="text-[13px] font-semibold text-[var(--cs-text-primary)]">
+                          Variant Out of Scope: Non-Missense Consequence
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
+                        className="text-cs-text-secondary hover:text-cs-text-primary text-[12px] p-1 -mr-1 -mt-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                        title="Dismiss notification"
+                        aria-label="Dismiss notification"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {result?.nonMissenseRefusal?.hasCodon === false || analysisState.error.includes("p.?") ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          Non-coding / Intronic · No mature codon
+                        </span>
+                      ) : result?.nonMissenseRefusal?.isCoding ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                          Coding sequence · Synonymous / Non-missense
+                        </span>
+                      ) : null}
+                      {result?.nonMissenseRefusal?.hgvsc && (
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-cs-surface-2 text-cs-text-primary border border-cs-border">
+                          {result.nonMissenseRefusal.hgvsc}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[12px] leading-relaxed text-[var(--cs-text-secondary)] font-mono">
+                      {analysisState.error.replace(/^Analysis query error:\s*/i, "")}
+                    </p>
+                    <div className="text-[11px] leading-relaxed text-[var(--cs-text-secondary)] bg-cs-surface-2/60 border border-[var(--cs-border)] rounded-md p-3 flex flex-col gap-2">
+                      <div className="font-semibold text-cs-text-primary">Does this variant alter a codon?</div>
+                      <div>
+                        {result?.nonMissenseRefusal?.hasCodon === false || analysisState.error.includes("p.?") ? (
+                          <>
+                            <strong>No, it does not alter a codon.</strong> This nucleotide is located within an <strong>intron</strong> (intervening non-coding sequence spliced out of pre-mRNA before translation). Because it does not belong to the mature mRNA coding frame, there is no codon triplet and no amino acid substitution to model in 3D protein structure.
+                          </>
+                        ) : (
+                          <>
+                            <strong>No missense substitution.</strong> Missense &amp; Fold specifically analyzes single amino acid substitutions in 3D structures. Synonymous mutations (which alter a nucleotide within a codon but preserve the amino acid) and non-coding alterations produce no protein structure change.
+                          </>
+                        )}
+                      </div>
+                      <div className="font-semibold text-cs-text-primary pt-0.5">Recommended resolution:</div>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li>To evaluate a protein missense substitution, enter the protein HGVS notation (e.g. <code className="font-mono text-cs-text-primary">p.Gly380Arg</code>) or coding cDNA mutation (<code className="font-mono text-cs-text-primary">c.1138G&gt;A</code>).</li>
+                        <li>
+                          For non-coding, intronic, or splice-site impacts, query specialized genomic and clinical databases:
+                          <div className="flex flex-wrap gap-2 pt-1.5">
+                            {(result?.nonMissenseRefusal?.gene || customGene) && (
+                              <>
+                                <a
+                                  href={`https://www.ncbi.nlm.nih.gov/clinvar/?term=${encodeURIComponent(result?.nonMissenseRefusal?.gene || customGene)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-cs-surface border border-cs-border text-cs-text-primary hover:border-cs-accent-clay hover:text-cs-accent-clay transition-colors"
+                                >
+                                  ClinVar (NCBI) <ExternalLink className="w-3 h-3 ml-0.5 opacity-60" />
+                                </a>
+                                <a
+                                  href={`https://gnomad.broadinstitute.org/gene/${encodeURIComponent(result?.nonMissenseRefusal?.gene || customGene)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-cs-surface border border-cs-border text-cs-text-primary hover:border-cs-accent-clay hover:text-cs-accent-clay transition-colors"
+                                >
+                                  gnomAD (Broad) <ExternalLink className="w-3 h-3 ml-0.5 opacity-60" />
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    data-testid="general-error-prompt"
+                    className="rounded-lg border px-4 py-3 flex flex-col gap-2 transition-colors"
+                    style={{
+                      borderColor: "var(--cs-border-danger, #fca5a5)",
+                      background: "var(--cs-bg-danger-subtle, rgba(239, 68, 68, 0.05))",
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-[var(--cs-text-danger, #dc2626)] shrink-0" />
+                        <span className="text-[13px] font-semibold text-[var(--cs-text-primary)]">
+                          Analysis Query Failed
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
+                        className="text-cs-text-secondary hover:text-cs-text-primary text-[12px] p-1 -mr-1 -mt-1 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                        title="Dismiss notification"
+                        aria-label="Dismiss notification"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="text-[12px] leading-relaxed text-[var(--cs-text-secondary)]">
+                      {analysisState.error.replace(/^Analysis query error:\s*/i, "")}
+                    </p>
+                  </div>
+                )
               ) : null}
 
               {/* Protein identity */}
@@ -1511,6 +1668,8 @@ function VariantSearchPanel({
                 badge={
                   isPipelineActive ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-cs-accent-clay animate-pulse shrink-0" aria-label="running" />
+                  ) : hasCoreError ? (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-text-danger)] shrink-0" aria-label="analysis failed" />
                   ) : result && summary.hasProblems ? (
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--cs-text-warning)] shrink-0" aria-label="partial results" />
                   ) : result ? (
@@ -1532,6 +1691,8 @@ function VariantSearchPanel({
                     <span className="text-[12px] font-medium text-cs-text-primary inline-flex items-center gap-2">
                       {isPipelineActive ? (
                         <span className="cs-spinner" aria-hidden="true" />
+                      ) : hasCoreError ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-[var(--cs-text-danger)]" />
                       ) : result && summary.hasProblems ? (
                         <AlertTriangle className="w-3.5 h-3.5 text-[var(--cs-text-warning)]" />
                       ) : result ? (
@@ -1557,7 +1718,7 @@ function VariantSearchPanel({
                       aria-valuenow={settledCount}
                     >
                       <div
-                        className={`h-full rounded-full transition-[width] duration-300 ease-out ${isPipelineActive ? "bg-cs-accent-clay" : "bg-[var(--cs-text-success)]"}`}
+                        className={`h-full rounded-full transition-[width] duration-300 ease-out ${isPipelineActive ? "bg-cs-accent-clay" : hasCoreError ? "bg-[var(--cs-text-danger)]" : summary.hasProblems ? "bg-[var(--cs-text-warning)]" : "bg-[var(--cs-text-success)]"}`}
                         style={{ width: `${progressPct}%` }}
                       />
                     </div>

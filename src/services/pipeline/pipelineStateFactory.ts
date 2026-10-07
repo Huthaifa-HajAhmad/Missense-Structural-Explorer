@@ -1,4 +1,4 @@
-import type { BuildHint, CoordinateLiftRecord, NumberingChoice, NumberingRemapRecord } from "../../shared/contracts";
+import type { BuildHint, CoordinateLiftRecord, NumberingChoice, NumberingRemapRecord, NonMissenseRefusal } from "../../shared/contracts";
 import { PDB_SOURCE_ALPHAFOLD } from "../../shared/contracts";
 import type { GenomeAssembly } from "../../shared/variantNotation";
 
@@ -40,6 +40,8 @@ export interface RefusalAttachments {
   buildHint?: BuildHint;
   /** The build the refusal was taken under, so the copy never asserts a defaulted build. */
   buildTrail?: RefusalBuildTrail;
+  /** Structured non-missense refusal metadata */
+  nonMissenseRefusal?: NonMissenseRefusal;
 }
 
 /** Attachments a refusal asked the UI to render, in the shape every analysis result expects. */
@@ -53,6 +55,7 @@ function refusalAttachments(extra?: RefusalAttachments, fallbackVariant = "") {
       : {}),
     ...(extra?.buildHint ? { buildHint: extra.buildHint } : {}),
     ...(extra?.buildTrail ?? {}),
+    ...(extra?.nonMissenseRefusal ? { nonMissenseRefusal: extra.nonMissenseRefusal } : {}),
   };
 }
 
@@ -366,7 +369,10 @@ export function createTopLevelErrorAnalysisState(
         mutant: mutant || "",
         pdbId: null,
         pdbSource: PDB_SOURCE_ALPHAFOLD,
-        analysisVersion: createAnalysisVersion()
+        analysisVersion: createAnalysisVersion(),
+        pipelineStages: {
+          core: "error"
+        }
       },
       insights: {
         biochemicalShift: `⚠️ **Biochemical Shift Unavailable** (${errorMessage || "Failed"})`,
