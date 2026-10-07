@@ -50,7 +50,7 @@ describe("buildInsightsEvidence", () => {
     const counted = ev.lanes.filter(l => l.counted).map(l => l.key);
     expect(counted).toEqual(["computational"]);
     expect(ev.lanes.find(l => l.key === "stability")!.counted).toBe(false);
-    expect(ev.lanes.find(l => l.key === "stability")!.lean).toBe("pathogenic");
+    expect(ev.lanes.find(l => l.key === "stability")!.lean).toBe("none");
   });
 
   it("states the vote and the disagreement in words", () => {
@@ -60,8 +60,8 @@ describe("buildInsightsEvidence", () => {
     expect(ev.differ.map(d => d.text).join(" ")).toContain("Only one evidence area is counted");
   });
 
-  it("flags a lane that leans but is not counted while the tier is uncertain", () => {
-    expect(ev.differ.some(d => d.text.startsWith("Stability leans pathogenic"))).toBe(true);
+  it("does not translate fold destabilisation into pathogenicity", () => {
+    expect(ev.differ.some(d => d.text.startsWith("Stability leans pathogenic"))).toBe(false);
   });
 
   it("reports that the recorded tier differs from the combining rule", () => {

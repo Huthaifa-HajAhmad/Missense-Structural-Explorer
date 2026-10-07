@@ -6,6 +6,7 @@
  * emitted different documents for one run). They now call this, so a change to what a document
  * contains is made once.
  */
+import type { DeepEvidenceContext } from "./deepModelEvidence.ts";
 import type { AnalysisResult } from "./contracts.ts";
 import { deriveNarrativeAuthorship } from "./narrativeAuthorship.ts";
 import { isFallbackNarrative } from "./narrativeFallback.ts";
@@ -46,6 +47,7 @@ export function reportInputFromRun(args: {
   foldingEnergetics?: Record<string, any> | null;
   foldingDdG?: number | null;
   foldingStatus?: string | null;
+  narrativeContext?: DeepEvidenceContext;
   isLoading?: boolean;
   draft: ReportDraft;
   generatedAt?: string | null;
@@ -65,6 +67,7 @@ export function reportInputFromRun(args: {
     foldingEnergetics: args.foldingEnergetics ?? null,
     foldingDdG: args.foldingDdG ?? null,
     foldingStatus: args.foldingStatus ?? null,
+    narrativeContext: args.narrativeContext,
     isLoading: args.isLoading,
     narrative: reportNarrativeFrom(result),
     citations: draft.citations,

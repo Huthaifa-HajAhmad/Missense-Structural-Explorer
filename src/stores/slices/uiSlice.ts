@@ -33,6 +33,7 @@ export interface UiState {
   reportSections: Record<ReportSectionKey, boolean>;
   /** The author's own text per block. Only prose can be edited; scores, facts and the verdict cannot. */
   reportEdits: Partial<Record<ReportSectionKey, ReportEdit>>;
+  reportDraftStatus: "saved" | "saving" | "session-only";
   reportMeta: ReportMeta;
   /** Papers pinned from the Literature tab; the report cites only these. */
   reportCitations: ReportCitation[];
@@ -59,8 +60,9 @@ export interface UiActions {
   toggleReportSection: (key: ReportSectionKey) => void;
   setReportSections: (sections: Record<ReportSectionKey, boolean>) => void;
   applyReportPreset: (preset: ReportPresetId) => void;
-  setReportEdit: (key: ReportSectionKey, text: string, base: string) => void;
+  setReportEdit: (key: ReportSectionKey, text: string, base: string, evidenceId?: string) => void;
   clearReportEdit: (key: ReportSectionKey) => void;
+  setReportDraftStatus: (status: UiState["reportDraftStatus"]) => void;
   setReportMeta: (patch: Partial<ReportMeta>) => void;
   pinReportCitation: (citation: ReportCitation) => void;
   unpinReportCitation: (id: string) => void;
@@ -80,6 +82,7 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   notifications: [],
   reportSections: { ...DEFAULT_REPORT_SECTIONS },
   reportEdits: {},
+  reportDraftStatus: "session-only",
   reportMeta: { ...DEFAULT_REPORT_META },
   reportCitations: [],
   activePerturbationModel: "saprot",
@@ -93,12 +96,10 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   })),
   setReportSections: (reportSections) => set({ reportSections }),
   applyReportPreset: (preset) => set({ reportSections: sectionsForPreset(preset) }),
-  setReportEdit: (key, text, base) =>
+  setReportEdit: (key, text, base, evidenceId) =>
     set((state) => {
       const next = { ...state.reportEdits };
-      // An empty edit is no edit: clearing the text restores the drafted text.
-      if (text.trim().length === 0) delete next[key];
-      else next[key] = { text, base };
+      next[key] = { text, base, evidenceId };
       return { reportEdits: next };
     }),
   clearReportEdit: (key) =>
@@ -107,6 +108,7 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
       delete next[key];
       return { reportEdits: next };
     }),
+  setReportDraftStatus: (reportDraftStatus) => set({ reportDraftStatus }),
   setReportMeta: (patch) => set((state) => ({ reportMeta: { ...state.reportMeta, ...patch } })),
   pinReportCitation: (citation) =>
     set((state) =>

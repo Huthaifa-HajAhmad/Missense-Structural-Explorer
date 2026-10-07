@@ -374,7 +374,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : "No splicing score was returned.",
     rest: spState === "no-score" || spState === "pending"
       ? "The engine does not read splicing."
-      : `The ClinGen splicing rule reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 and < ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as BP4. The engine does not read splicing.`,
+      : `The ClinGen splicing rule reads ≥ ${THRESHOLDS.spliceai.splicingPp3.toFixed(2)} as PP3 and \u2264 ${THRESHOLDS.spliceai.splicingBp4Below.toFixed(2)} as BP4. The engine does not read splicing.`,
   });
 
   // Function ─ PM1.
@@ -403,10 +403,8 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   });
 
   // Stability ─ context: destabilisation is not pathogenicity.
-  const stabilityLean: Lean = !stability || stability.enginesCounted === 0 ? "none"
-    : /No Destabilization/i.test(stability.verdict) ? "benign"
-    : /Destabilizing/i.test(stability.verdict) ? "pathogenic"
-    : "none";
+  // Fold stability is a mechanistic observation, never a pathogenic/benign vote.
+  const stabilityLean: Lean = "none";
   lanes.push({
     key: "stability",
     name: "Stability",
@@ -481,7 +479,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     lead: lm.length
       ? `${lm.length} ${plural(lm.length, "protein or genome model scored", "protein and genome models scored")} this variant; ${lmP} flag it and ${lmB} read it as tolerated.`
       : "No protein or genome model returned a score.",
-    rest: "None has a published cut-point that counts toward PP3, so they inform and do not vote.",
+    rest: "ESM1b has published calibrated bands; the other sequence models are informational. None votes in this engine.",
   });
 
   // Contrasts ─ generated from the lanes' own calls, never from a new score.
@@ -493,7 +491,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     if (same.length >= 2) agree.push({ text: `${oxfordList(same.map(l => l.name))} ${same.length === 2 ? "both" : "all"} point to ${lean}.` });
   }
   const silent = readLanes.filter(l => l.lean === "none");
-  if (silent.length >= 2) agree.push({ text: `${oxfordList(silent.map(l => l.name))} give no signal either way.` });
+  if (silent.length >= 2) agree.push({ text: `${oxfordList(silent.map(l => l.name))} provide context without an assessed clinical direction.` });
 
   if (nP > 0 && nB > 0) {
     const names = (rs: typeof pe.voters.pathogenic) => oxfordList(rs.slice(0, 3).map(r => r.name));

@@ -56,14 +56,9 @@ export function ProseView({ text }: { text: string }) {
 
 function IncludeTick({ block, onToggle }: { block: ReportBlock; onToggle: () => void }) {
   return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={block.included}
-      aria-label={`${block.included ? "Leave out" : "Include"} ${block.title}`}
-      className="rpt-check"
-      onClick={onToggle}
-    />
+    <label className="rpt-tick" title={`${block.included ? "Leave out" : "Include"} ${block.title}`}>
+      <input type="checkbox" checked={block.included} aria-label={`${block.included ? "Leave out" : "Include"} ${block.title}`} onChange={onToggle} />
+    </label>
   );
 }
 
@@ -97,14 +92,15 @@ function ClassificationHero({ block }: { block: ReportBlock }) {
 
 // ── Editor ───────────────────────────────────────────────────────────────────────────────────────
 
-function ProseEditor({ block, onChange, onDone }: { block: ReportBlock; onChange: (text: string) => void; onDone: () => void }) {
+function ProseEditor({ block, onChange, onDone, onCancel }: { block: ReportBlock; onChange: (text: string, base?: string, evidenceId?: string) => void; onDone: () => void; onCancel: () => void }) {
   const [value, setValue] = useState(block.text);
+  const editBase = useRef({ drafted: block.drafted, evidenceId: block.evidenceId });
   const area = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { area.current?.focus(); }, []);
 
   const commit = (next: string, selStart?: number, selEnd?: number) => {
     setValue(next);
-    onChange(next);
+
     if (selStart !== undefined) {
       requestAnimationFrame(() => {
         area.current?.focus();
@@ -148,7 +144,9 @@ function ProseEditor({ block, onChange, onDone }: { block: ReportBlock; onChange
         onChange={e => commit(e.target.value)}
       />
       <div className="rpt-edit__tools" style={{ borderTop: "1px solid var(--cs-border-subtle)", borderBottom: 0 }}>
-        <button type="button" className="rpt-btn" data-variant="primary" onClick={onDone}>Done</button>
+        <button type="button" className="rpt-btn" data-variant="primary" onClick={() => { onChange(value, editBase.current.drafted, editBase.current.evidenceId); onDone(); }}>Save text</button>
+        <button type="button" className="rpt-btn" onClick={onCancel}>Cancel</button>
+        <span className="rpt-dim">Changes apply when you save.</span>
       </div>
     </div>
   );
@@ -169,7 +167,7 @@ function BlockTable({ block }: { block: ReportBlock }) {
         <tbody>
           {t.rows.map((r, i) => (
             <tr key={i}>
-              {r.map((c, j) => <td key={j} className={numeric.has(j) ? "rpt-num" : j === 0 ? "rpt-strong" : undefined}>{c}</td>)}
+              {r.map((c, j) => <td key={j} className={numeric.has(j) ? "rpt-num" : j === 0 ? "rpt-strong" : undefined}>{(j === 4 && t.headers.length === 5 || block.key === "classification" && j === 3) ? <details><summary>{block.key === "classification" ? "Recorded basis" : "Method"}</summary><p>{c}</p></details> : c}</td>)}
             </tr>
           ))}
         </tbody>
@@ -207,7 +205,7 @@ export interface ReportBlockCardProps {
   onToggle: () => void;
   onStartEdit: () => void;
   onStopEdit: () => void;
-  onEdit: (text: string) => void;
+  onEdit: (text: string, base?: string, evidenceId?: string) => void;
   onRevert: () => void;
   onKeepMine: () => void;
   onOpenTab?: OpenTab;
@@ -216,10 +214,11 @@ export interface ReportBlockCardProps {
 export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopEdit, onEdit, onRevert, onKeepMine, onOpenTab }: ReportBlockCardProps) {
   const isClassification = block.key === "classification";
   const hasProse = block.text.trim().length > 0;
+  const [showAllCriteria, setShowAllCriteria] = useState(false);
   const emptyStatement = block.empty && !hasProse ? EMPTY_STATEMENT[block.key] ?? "Nothing to report." : null;
 
   return (
-    <section id={`report-${block.key}`} className="rpt-card report-section" data-block={block.key} data-edited={block.edited ? "" : undefined}>
+    <section tabIndex={-1} id={`report-${block.key}`} className="rpt-card report-section" data-block={block.key} data-edited={block.edited ? "" : undefined}>
       <header className="rpt-card__head">
         <IncludeTick block={block} onToggle={onToggle} />
         <h2 className="eyebrow rpt-label">{block.title}</h2>
@@ -235,20 +234,27 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
 
       {isClassification ? <ClassificationHero block={block} /> : null}
 
+      {block.warnings.length > 0 ? <details className="rpt-review" open={block.stale || block.key === "summary"}>
+        <summary>{block.key === "summary" ? "Review this summary before sharing" : "Interpretation and method"} <span>{block.warnings.length}</span></summary>
+        {block.warnings.map(w => <p key={w}>{w}</p>)}
+      </details> : null}
       {block.stale ? (
         <div className="rpt-callout" role="status">
-          <p><strong>The evidence changed after you edited this.</strong> Your wording is kept, but the drafted text is now different.</p>
+          <p><strong>The evidence changed after you edited this.</strong> Your wording is kept. Review the current draft and evidence before accepting it.</p>
+          <details className="rpt-compare"><summary>Compare with current draft</summary><div><p><strong>Your text</strong><br />{block.text || "Intentionally blank"}</p><p><strong>Current draft</strong><br />{block.drafted || "No generated text"}</p></div></details>
           <button type="button" className="rpt-btn" onClick={onKeepMine}>Keep my text</button>
           <button type="button" className="rpt-btn" onClick={onRevert}>Use the new draft</button>
         </div>
       ) : null}
 
-      {editing ? <ProseEditor block={block} onChange={onEdit} onDone={onStopEdit} /> : hasProse ? <ProseView text={block.text} /> : null}
+      {editing ? <ProseEditor key={block.key} block={block} onChange={onEdit} onDone={onStopEdit} onCancel={onStopEdit} /> : hasProse ? <ProseView text={block.text} /> : null}
       {emptyStatement && !editing ? <div className="rpt-empty"><p>{emptyStatement}</p></div> : null}
 
       {!isClassification || block.facts.length > 0 ? <BlockFacts block={block} /> : null}
-      <BlockTable block={block} />
+      <BlockTable block={isClassification && !showAllCriteria && block.table ? { ...block, table: { ...block.table, rows: block.table.rows.filter(r => r[2] === "Met" || r[2] === "Withheld") } } : block} />
+      {isClassification && block.table && block.table.rows.some(r => r[2] !== "Met" && r[2] !== "Withheld") ? <button type="button" className="rpt-btn rpt-table-toggle" aria-expanded={showAllCriteria} onClick={() => setShowAllCriteria(v => !v)}>{showAllCriteria ? "Show counted criteria" : "Show all checked criteria"}</button> : null}
 
+      {block.references.length ? <details className="rpt-references"><summary>Sources ? {block.references.length}</summary>{block.references.map(r => <a key={r.url} href={r.url} target="_blank" rel="noreferrer">{r.label}</a>)}</details> : null}
       {(block.caption || block.reads.length > 0) ? (
         <footer className="rpt-card__foot">
           {block.caption ? <span>{block.caption}</span> : null}
@@ -307,7 +313,7 @@ export function ReportFooterCard({ doc }: { doc: ReportDocument }) {
           <b>Left out by the author:</b> {f.omitted.length ? f.omitted.join("; ") : "nothing"}
         </span>
         <span>
-          <b>Document ID</b> <span className="rpt-mono">{f.documentId}</span>. A checksum of the exported text: it detects later changes and does not prove authorship.
+          <b>Document ID</b> <span className="rpt-mono">{f.documentId}</span>. A canonical content identifier. Export time and file formatting are excluded; it does not prove authorship.
         </span>
       </footer>
     </section>

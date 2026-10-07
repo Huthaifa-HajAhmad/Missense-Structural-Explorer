@@ -76,8 +76,8 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     }
   });
 
-  it("puts 0.10 between the bands and 0.20 in PP3", () => {
-    expect(build({ conservationData: { spliceai: sai(THRESHOLDS.spliceai.splicingBp4Below) } }).rule.state).toBe("between");
+  it("includes 0.10 in BP4 and 0.20 in PP3 (Walker 2023 Table 1)", () => {
+    expect(build({ conservationData: { spliceai: sai(THRESHOLDS.spliceai.splicingBp4Below) } }).rule.state).toBe("bp4");
     expect(build({ conservationData: { spliceai: sai(THRESHOLDS.spliceai.splicingPp3) } }).rule.state).toBe("pp3");
   });
 
@@ -119,7 +119,7 @@ describe("the splicing rule is SpliceAI on the Walker 2023 bands", () => {
     const ev = build({ conservationData: { spliceai: { ds_ag: 0, ds_al: 0, ds_dg: 0.001, ds_dl: 0, max_ds: 0.001, dp: { ds_ag: -360, ds_al: 93, ds_dg: -208, ds_dl: -18 } } } });
     expect(ev.readings.find(r => r.key === "spliceai-ds_dg")!.sub).toBeNull();
     expect(splicingFinding(ev).headline).toBe("SpliceAI's score is below the splicing BP4 threshold");
-    expect(splicingFinding(ev).predicate).toMatch(/\(donor gain\) is below 0\.1/);
+    expect(splicingFinding(ev).predicate).toMatch(/\(donor gain\) is at or below 0\.1/);
   });
 
   it("marks the band the score sits in on the ruler", () => {

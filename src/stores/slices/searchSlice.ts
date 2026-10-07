@@ -5,6 +5,7 @@ import { normalizeUniprotAccession } from "../../shared/uniprotAccession";
 // The one report builder. Pure — it imports only `src/shared` — so a store slice may call it, and
 // both "Copy Report" buttons emit the same document because of it.
 import { buildReportDocument } from "../../shared/reportDocument";
+import { deepEvidenceContextFromStore } from "../../shared/deepModelEvidence";
 import { reportInputFromRun } from "../../shared/reportInput";
 import { renderReportText } from "../../shared/reportRender";
 import type { VariantAnalysisStore } from "../useVariantAnalysisStore";
@@ -342,6 +343,7 @@ export const createSearchSlice: StateCreator<
     const doc = buildReportDocument(
       reportInputFromRun({
         result,
+        narrativeContext: deepEvidenceContextFromStore(state),
         gene: state.gene || result?.metadata?.gene || "",
         variant: state.variant || result?.metadata?.variant || "",
         uniprotId: state.uniprotId || result?.metadata?.uniprotId || "",

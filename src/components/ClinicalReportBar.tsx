@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { AnalysisState } from "../types";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
@@ -33,6 +33,7 @@ function ClinicalReportBar({ analysisState, onNavigateToView, onOpenEvidenceTab 
   const setEdit = useVariantAnalysisStore(s => s.setReportEdit);
   const clearEdit = useVariantAnalysisStore(s => s.clearReportEdit);
   const [editing, setEditing] = useState<string | null>(null);
+  useEffect(() => setEditing(null), [doc.subject, result?.metadata?.pipelineRunId]);
 
   const openTab: OpenTab = useCallback(
     tab => {
@@ -59,17 +60,17 @@ function ClinicalReportBar({ analysisState, onNavigateToView, onOpenEvidenceTab 
   const left = doc.blocks.filter(b => !b.included && !(b.empty && !b.edited));
 
   return (
-    <div className="rpt-screen report-page" data-testid="report-screen">
+    <div key={`${doc.subject}-${result.metadata?.pipelineRunId ?? ""}`} className="rpt-screen report-page" data-testid="report-screen">
       <section className="rpt-card report-masthead" aria-label="Report">
         <header className="rpt-card__head">
           <h2 className="eyebrow rpt-label"><FileText className="w-3.5 h-3.5" aria-hidden="true" /> Variant evidence report</h2>
           <ReportChipView chip={{ label: "Research use", tone: "muted" }} />
           <span className="rpt-card__spacer" />
-          <ReportChipView chip={{ label: "Draft, not yet exported", tone: "muted" }} />
+          <ReportChipView chip={{ label: "Draft", tone: "muted" }} />
         </header>
         <div className="rpt-doc-head" style={{ padding: "14px 16px" }}>
           <h1 className="rpt-strong" style={{ fontSize: "var(--cs-font-size-screen-title)" }}>{doc.title}</h1>
-          <p className="rpt-dim">{doc.subject}{doc.meta.preparedBy ? ` · Prepared by ${doc.meta.preparedBy}` : ""}{doc.meta.caseRef ? ` · ${doc.meta.caseRef}` : ""}</p>
+          <p className="rpt-dim">{doc.meta.preparedBy || doc.meta.caseRef ? "" : "Automated evidence with author commentary"}{doc.meta.preparedBy ? ` · Prepared by ${doc.meta.preparedBy}` : ""}{doc.meta.caseRef ? ` · ${doc.meta.caseRef}` : ""}</p>
         </div>
       </section>
 
@@ -81,9 +82,9 @@ function ClinicalReportBar({ analysisState, onNavigateToView, onOpenEvidenceTab 
           onToggle={() => toggle(block.key)}
           onStartEdit={() => setEditing(block.key)}
           onStopEdit={() => setEditing(null)}
-          onEdit={text => (text.trim() === block.drafted.trim() ? clearEdit(block.key) : setEdit(block.key, text, block.drafted))}
+          onEdit={(text, base = block.drafted, evidenceId = block.evidenceId) => (text === block.drafted && evidenceId === block.evidenceId ? clearEdit(block.key) : setEdit(block.key, text, base, evidenceId))}
           onRevert={() => { clearEdit(block.key); setEditing(null); }}
-          onKeepMine={() => setEdit(block.key, block.text, block.drafted)}
+          onKeepMine={() => setEdit(block.key, block.text, block.drafted, block.evidenceId)}
           onOpenTab={openTab}
         />
       ))}

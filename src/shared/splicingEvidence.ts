@@ -5,7 +5,7 @@
  * splicing rule make of that?
  *
  * The rule is the ClinGen SVI Splicing Subgroup's (Walker et al. 2023): SpliceAI's max delta score
- * ≥ 0.2 supports PP3, below 0.1 supports BP4, between supports neither. The ACMG engine does NOT
+ * ≥ 0.2 supports PP3, at or below 0.1 supports BP4, between supports neither. The ACMG engine does NOT
  * read splicing — its PP3/BP4 comes from the missense vote alone (owner decision, recorded in
  * doc/SPLICING_TAB_REVIEW.md) — so this model reports the splicing rule as what it WOULD support,
  * beside the engine's own record, and says so whenever the two sit awkwardly together.
@@ -379,13 +379,13 @@ const SPLICEAI_SCALE_SOURCE = "Bands: Walker 2023 · ticks: authors' 0.5 and 0.8
 /** SpliceAI's 0–1 axis with the Walker bands and the authors' two upper operating points. */
 function spliceAiScale(score: number | null, withBands: boolean): SpliceScale {
   const S = THRESHOLDS.spliceai;
-  const code = score === null ? null : score >= S.splicingPp3 ? "PP3" : score < S.splicingBp4Below ? "BP4" : null;
+  const code = score === null ? null : score >= S.splicingPp3 ? "PP3" : score <= S.splicingBp4Below ? "BP4" : null;
   return {
     min: 0,
     max: 1,
     bands: withBands
       ? [
-          { from: 0, to: S.splicingBp4Below, side: "benign", label: `BP4 · splicing: < ${S.splicingBp4Below.toFixed(1)}`, active: code === "BP4" },
+          { from: 0, to: S.splicingBp4Below, side: "benign", label: `BP4 · splicing: \u2264 ${S.splicingBp4Below.toFixed(1)}`, active: code === "BP4" },
           { from: S.splicingPp3, to: 1, side: "path", label: `PP3 · splicing: ≥ ${S.splicingPp3.toFixed(1)}`, active: code === "PP3" },
         ]
       : [],
@@ -1031,12 +1031,12 @@ export function splicingFinding(ev: SplicingEvidence): { headline: string; predi
     case "bp4":
       return {
         headline: "SpliceAI's score is below the splicing BP4 threshold",
-        predicate: `${deltaPhrase(rule.maxDs!)}${where} is below ${S.splicingBp4Below.toFixed(1)}, which supports BP4 for splicing impact`,
+        predicate: `${deltaPhrase(rule.maxDs!)}${where} is at or below ${S.splicingBp4Below.toFixed(1)}, which supports BP4 for splicing impact`,
       };
     case "between":
       return {
         headline: "SpliceAI's score falls between the bands",
-        predicate: `${deltaPhrase(rule.maxDs!)}${where} is at or above ${S.splicingBp4Below.toFixed(1)} and below ${S.splicingPp3.toFixed(1)}, so the splicing rule supports neither PP3 nor BP4`,
+        predicate: `${deltaPhrase(rule.maxDs!)}${where} is above ${S.splicingBp4Below.toFixed(1)} and below ${S.splicingPp3.toFixed(1)}, so the splicing rule supports neither PP3 nor BP4`,
       };
   }
 }

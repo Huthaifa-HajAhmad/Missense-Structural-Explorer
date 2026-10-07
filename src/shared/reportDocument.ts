@@ -35,11 +35,13 @@ import type { EvidenceTabId, InsightsEvidence, Lane, LaneKey } from "./insightsE
 import { codeWeight } from "./acmgClassifier.ts";
 import { variantNumberingView } from "./numbering.ts";
 import { formatEvidenceCode } from "./thresholds.ts";
-import { buildPredictorEvidence } from "./predictorEvidence.ts";
+import { CAVEAT_TEXT, buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildEnergeticsEvidence, energeticsSummary } from "./energeticsEvidence.ts";
 import { buildFrequencyEvidence, formatAlleleFrequency, frequencySourceLabel, frequencyEvidenceInputFromResult } from "./frequencyEvidence.ts";
 import { NARRATIVE_PROMPT_EVIDENCE } from "./narrativeSynthesis.ts";
 import type { NarrativeAuthorship } from "./narrativeAuthorship.ts";
+import type { DeepEvidenceContext } from "./deepModelEvidence.ts";
+import { narrativeFreshness } from "./narrativeEvidence.ts";
 import { PROVENANCE_DATA_SOURCES, APP_REPOSITORY } from "./provenance.ts";
 
 // ── Blocks ───────────────────────────────────────────────────────────────────────────────────────
@@ -105,7 +107,7 @@ export type ReportPresetId = "one-page" | "full";
 
 export const REPORT_PRESETS: Record<ReportPresetId, { label: string; hint: string; blocks: readonly BlockKey[] }> = {
   "one-page": {
-    label: "One page",
+    label: "Brief report",
     hint: "Identity, classification, what is missing, method",
     blocks: ["identity", "classification", "contrast", "needed", "notes", "method"],
   },
@@ -161,7 +163,25 @@ export interface ReportVerdict {
   tiers: readonly string[];
 }
 
+export interface ReportReference { label: string; url: string }
+
+export const REPORT_SOURCES: readonly ReportReference[] = [
+  { label: "Richards et al. 2015 - combining rules", url: "https://doi.org/10.1038/gim.2015.30" },
+  { label: "Pejaver et al. 2022 - calibrated predictors", url: "https://doi.org/10.1016/j.ajhg.2022.10.013" },
+  { label: "Bergquist et al. 2025 - protein models", url: "https://doi.org/10.1016/j.gim.2025.101402" },
+  { label: "Walker et al. 2023 - splicing", url: "https://doi.org/10.1016/j.ajhg.2023.06.002" },
+  { label: "ClinGen SVI - recommendations", url: "https://www.clinicalgenome.org/working-groups/sequence-variant-interpretation/" },
+];
+
+/** Reject executable URLs from payloads and imported drafts. */
+export function reportReferenceUrl(value: string | null | undefined): string | null {
+  try { const url = new URL(value ?? ""); return ["https:", "http:"].includes(url.protocol) ? url.href : null; } catch { return null; }
+}
+
 export interface ReportBlock {
+  warnings: string[];
+  references: ReportReference[];
+  evidenceId: string;
   key: BlockKey;
   title: string;
   included: boolean;
@@ -199,7 +219,7 @@ export interface ReportFooter {
   weighting: string | null;
   /** Titles of blocks the author left out (empty blocks are not listed). */
   omitted: string[];
-  /** The short checksum of the exported text. Detects later change; proves nothing about authorship. */
+  /** The canonical content identifier, excluding export timestamp and format. Does not prove authorship. */
   documentId: string;
 }
 
@@ -213,6 +233,7 @@ export interface ReportDocument {
 }
 
 export interface ReportEdit {
+  evidenceId?: string;
   text: string;
   /** The drafted text at the time of the edit; a different draft later marks the edit stale. */
   base: string;
@@ -236,6 +257,7 @@ export interface ReportDocumentInput {
   foldingEnergetics?: Record<string, any> | null;
   foldingDdG?: number | null;
   foldingStatus?: string | null;
+  narrativeContext?: DeepEvidenceContext;
   isLoading?: boolean;
   narrative: { text: string; authorship: NarrativeAuthorship; model: string | null };
   citations: readonly ReportCitation[];
@@ -382,6 +404,7 @@ const AUTHORSHIP_CHIP: Record<NarrativeAuthorship, ReportChip> = {
 function blank(key: BlockKey): ReportBlock {
   return {
     key,
+    warnings: [], references: [], evidenceId: "",
     title: BLOCK_TITLE[key],
     included: true,
     empty: false,
@@ -428,7 +451,7 @@ function identityBlock(input: ReportDocumentInput): ReportBlock {
 
   b.facts.push({ label: "Gene", value: gene || "Not resolved" });
   b.facts.push({ label: "Variant", value: reported || "Not resolved", mono: true });
-  if (numbering.remapped || (numbering.modelled && numbering.modelled !== numbering.reported)) {
+  if (numbering.modelled && numbering.modelled !== (numbering.reported || numbering.display)) {
     b.facts.push({ label: "Modelled as", value: numbering.modelled, mono: true });
   }
   b.facts.push({ label: "Protein", value: uniprot || "Not resolved", mono: true });
@@ -535,11 +558,15 @@ function computationalExtras(b: ReportBlock, input: ReportDocumentInput) {
   const pe = buildPredictorEvidence({ result, isLoading: Boolean(input.isLoading) });
   const rows = pe.readings
     .filter(r => r.availability.state === "available" && r.score !== null)
-    .map(r => [r.name, r.scoreText, r.callLabel, r.votes ? "Votes" : "Informational"]);
+    .map(r => [r.name, `${r.scoreText}${r.unit ? ` ${r.unit}` : ""}`, formatEvidenceCode(r.callLabel),
+      r.votes ? "Voting predictor" : r.group === "conservation" ? "Conservation" : "Informational",
+      `${r.cutpoints.source ?? "No published calibration"}; ${r.orientation === "higher" ? "higher" : "lower"} scores indicate ${r.group === "conservation" ? "greater evolutionary constraint" : "greater predicted impact"}${r.note ? `; ${r.note}` : ""}${r.caveats.length ? `; ${r.caveats.map(c => CAVEAT_TEXT[c].detail).join("; ")}` : ""}`]);
   if (rows.length) {
-    b.table = { headers: ["Tool", "Score", "Call", "Role"], rows, numeric: [1] };
-    b.caption = "Scores are not probabilities and the tools are not independent. Cut-points and caveats are on the Predictors tab.";
+    b.table = { headers: ["Tool", "Score", "Reading", "Role", "Method and caveats"], rows, numeric: [1] };
+    b.caption = "Scores are not probabilities; correlated tools are not independent evidence. Per-tool calibrated strengths describe each score, not the aggregate engine criterion.";
   }
+  b.warnings.push("The engine uses an app-defined multi-tool vote at Supporting strength. This is not the pre-specified single-tool policy recommended by ClinGen SVI.");
+  b.references = [...REPORT_SOURCES.slice(1, 3)];
 }
 
 function populationExtras(b: ReportBlock, input: ReportDocumentInput) {
@@ -584,7 +611,7 @@ function structureBlock(input: ReportDocumentInput): ReportBlock {
   const s = energetics.structure;
   const hasModel = Boolean(meta.pdbId || meta.pdbSource || s);
   b.status = hasModel ? "read" : "absent";
-  b.reads = [{ label: "Energetics", tab: "structure" }, { label: "Residue shifts", tab: "structure" }];
+  b.reads = [{ label: "Residue shifts & pockets", tab: "structure" }];
   if (!hasModel) {
     b.drafted = `${bold("No macromolecular model is loaded for this variant.")} Structural reasoning is not part of this report.`;
     return b;
@@ -640,6 +667,10 @@ function literatureBlock(input: ReportDocumentInput): ReportBlock {
       return `- ${bits.join(". ")}.`;
     })
     .join("\n");
+  b.references = input.citations.flatMap(c => {
+    const url = reportReferenceUrl(c.url) ?? (/^\d+$/.test(c.id) ? `https://pubmed.ncbi.nlm.nih.gov/${c.id}/` : null);
+    return url ? [{ label: c.title, url }] : [];
+  });
   b.caption = "Only papers the author pinned from the Literature tab are cited. This is not a search result.";
   return b;
 }
@@ -658,6 +689,10 @@ function summaryBlock(input: ReportDocumentInput): ReportBlock {
     return b;
   }
   b.drafted = narrative.text.trim();
+  const freshness = narrativeFreshness(input.result, input.narrativeContext ?? { stability: { foldingEnergetics: input.foldingEnergetics, foldingDdG: input.foldingDdG, foldingStatus: input.foldingStatus as "success" | "failed" | "unavailable" | null } });
+  if (freshness === "outdated") b.warnings.push("This summary describes earlier evidence. Regenerate or review it against the current report before sharing.");
+  if (freshness === "unrecorded" && narrative.authorship === "ai") b.warnings.push("The evidence snapshot used to write this summary was not recorded; freshness cannot be verified.");
+  if (narrative.authorship === "ai") b.warnings.push("AI-written interpretation is unverified. It does not override the automated classification or a source database assertion.");
   b.caption = narrative.authorship === "ai"
     ? `Not verified against the evidence above. The model was shown ${sent.join(", ")}; it was not shown ${notSent.join(", ")}.`
     : "Text assembled by rules from the evidence when the language model was not available; no model wrote it.";
@@ -677,12 +712,17 @@ function methodBlock(input: ReportDocumentInput): ReportBlock {
   b.drafted = [
     RESEARCH_USE_STATEMENT,
     `${bold("Classification.")} The tier follows the Richards et al. 2015 combining rule, run on the criteria the rule engine recorded${weighting ? `, with the ${weighting} weighting` : ""}. Model proposals and context-only evidence are not counted.`,
+    `${bold("Report coverage.")} Gene-disease validity, expression and regulatory evidence are not reproduced in this document. Consult their evidence views and the full evidence bundle when available. Section counts describe document contents, not completeness of clinical evidence.`,
     `${bold("Not in this app.")} Lab function (PS3), family segregation (PP1) and de novo status (PS2) need evidence the app does not hold.`,
   ].join("\n\n");
-  b.facts.push({ label: "gnomAD", value: PROVENANCE_DATA_SOURCES.gnomad });
-  b.facts.push({ label: "dbNSFP", value: PROVENANCE_DATA_SOURCES.dbnsfp });
-  b.facts.push({ label: "ClinVar", value: PROVENANCE_DATA_SOURCES.clinvar });
-  b.caption = "Data-source versions are the ones the app pins. Per-run provenance is in the evidence bundle.";
+  b.facts.push({ label: "gnomAD - configured dataset", value: PROVENANCE_DATA_SOURCES.gnomad });
+  b.facts.push({ label: "dbNSFP - configured dataset", value: PROVENANCE_DATA_SOURCES.dbnsfp });
+  b.facts.push({ label: "ClinVar - configured provider", value: "NCBI E-utilities; release not recorded" });
+  const run = input.result?.metadata as any;
+  b.facts.push({ label: "Analysis run", value: run?.pipelineRunId ?? "Not recorded", mono: true });
+  b.facts.push({ label: "gnomAD - returned dataset", value: input.result?.gnomadFrequency?.dataset ?? "Not recorded" });
+  b.references = [...REPORT_SOURCES];
+  b.caption = "Configured datasets are app settings, not verified per-run releases. Full service outcomes and provenance are in the evidence bundle.";
   return b;
 }
 
@@ -693,6 +733,8 @@ const LANE_KEYS: readonly LaneKey[] = ["computational", "population", "splicing"
 function canonicalBlock(b: ReportBlock): string {
   return [
     b.title,
+    JSON.stringify(b.chips), JSON.stringify(b.warnings), JSON.stringify(b.references),
+    b.stale ? "[evidence changed]" : "",
     b.edited ? "[edited by the author]" : "",
     b.verdict ? `verdict:${b.verdict.text ?? ""}` : "",
     b.facts.map(f => `${f.label}=${f.value}`).join(";"),
@@ -721,10 +763,30 @@ export function buildReportDocument(input: ReportDocumentInput): ReportDocument 
     else if (key === "notes") b = notesBlock();
     else b = methodBlock(input);
 
+    if (key === "classification") {
+      b.warnings.push("Automated classification from the criteria this engine can assess. It is not a comprehensive clinical interpretation.");
+      b.references = [REPORT_SOURCES[0], REPORT_SOURCES[4]];
+      if (b.verdict?.recordMismatch) b.warnings.push("The recorded tier differs from the current combining rule.");
+    }
+    if (key === "population") {
+      b.warnings.push("The PM2 ceiling uses an app-defined pLI heuristic. pLI measures truncating-variant constraint and does not establish disease-specific inheritance.");
+      const cv = input.result?.clinvar;
+      if (cv) {
+        b.facts.push({ label: "ClinVar assertion", value: cv.classification },
+          { label: "Condition", value: cv.trait || "Not recorded" },
+          { label: "Review status", value: cv.reviewStatus || "Not recorded" },
+          { label: "Last evaluated", value: cv.lastEvaluated || "Not recorded" });
+        if (cv.uid && /^\d+$/.test(cv.uid)) b.references.push({ label: `ClinVar variation ${cv.uid}`, url: `https://www.ncbi.nlm.nih.gov/clinvar/variation/${cv.uid}/` });
+        b.warnings.push("ClinVar is a source assertion, distinct from the automated classification; review its condition and evidence independently.");
+      }
+    }
+    if (key === "language-models") b.caption = "Individual scores and their calibration are listed once in Computational evidence. These models do not vote in this engine.";
+    b.evidenceId = checksum(JSON.stringify([b.drafted, b.facts, b.table, b.verdict, b.warnings, b.references, b.counted]));
     const edit = input.edits[key];
-    const hasEdit = Boolean(edit && edit.text.trim().length > 0);
+    const hasEdit = Boolean(edit);
     b.edited = hasEdit;
-    b.stale = hasEdit && edit!.base !== b.drafted;
+    b.stale = hasEdit && (edit!.base !== b.drafted || Boolean(edit!.evidenceId && edit!.evidenceId !== b.evidenceId));
+    if (b.stale) b.warnings.push("Evidence changed after this text was edited. The author wording has been preserved and needs review.");
     b.text = hasEdit ? edit!.text : b.drafted;
     if (hasEdit) b.empty = false;
     if (hasEdit) b.chips = [...b.chips, { label: "Edited by the author", tone: "accent", dashed: true }];
@@ -771,4 +833,16 @@ export function buildReportDocument(input: ReportDocumentInput): ReportDocument 
 /** Blocks an export carries: included and not empty. */
 export function exportedBlocks(doc: ReportDocument): ReportBlock[] {
   return doc.blocks.filter(b => b.included && !b.empty);
+}
+
+/** Semantic annotations shared by every export renderer. */
+export function reportBlockAnnotations(b: ReportBlock): string[] {
+  return [...b.chips.map(c => c.label), ...b.warnings];
+}
+
+/** Complete block content for summary-deck notes, including facts and numeric tables. */
+export function reportBlockText(b: ReportBlock): string {
+  return [b.title, ...reportBlockAnnotations(b), b.verdict?.text ?? "", ...b.facts.map(f => `${f.label}: ${f.value}`),
+    proseToPlain(b.text), b.table ? [b.table.headers.join(" | "), ...b.table.rows.map(r => r.join(" | "))].join("\n") : "",
+    b.caption ?? "", ...b.references.map(r => `${r.label}: ${r.url}`)].filter(Boolean).join("\n\n");
 }

@@ -13,6 +13,7 @@
  */
 import {
   exportedBlocks,
+  reportBlockText,
   proseToPlain,
   type BlockKey,
   type ReportBlock,
@@ -99,7 +100,7 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     if (id) {
       const line = id.facts.filter(x => ["Gene", "Variant", "Protein", "Genomic"].includes(x.label)).map(x => `${x.label}: ${x.value}`).join("   ·   ");
       s.addText(line, { x: 0.8, y: 5.0, w: 11.7, h: 0.5, fontFace: FONT, fontSize: 13, color: SEC });
-      s.addNotes(proseToPlain(id.text) || line);
+      s.addNotes(reportBlockText(id));
     }
   }
 
@@ -117,7 +118,8 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     });
     const paras = proseToPlain(cls.text).split(/\n{2,}/).slice(0, 2).map(p => p.replace(/\n/g, " ")).join("\n\n");
     s.addText(paras, { x: 0.6, y: 3.4, w: 12.1, h: 3.3, fontFace: FONT, fontSize: 16, color: SEC, valign: "top" });
-    s.addNotes(proseToPlain(cls.text));
+    s.addText("Summary slide: full criteria, limitations and any continued text are in speaker notes.", { x: 0.6, y: 6.8, w: 12.1, h: 0.25, fontFace: FONT, fontSize: 10, color: MUTED });
+    s.addNotes(reportBlockText(cls));
     if (cls.table) {
       chunk(cls.table.rows, CRITERIA_PER_SLIDE).forEach((rows, i, all) => {
         const c = base(all.length > 1 ? `Criteria (${i + 1} of ${all.length})` : "Criteria", "Counted means the rule engine recorded it. Model proposals are listed, not counted.");
@@ -130,7 +132,7 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
   // 4. Evidence readings, one line per block
   const readings = READING_KEYS.map(k => byKey.get(k)).filter((b): b is ReportBlock => Boolean(b));
   chunk(readings, ROWS_PER_SLIDE).forEach((rows, i, all) => {
-    const s = base(all.length > 1 ? `Evidence readings (${i + 1} of ${all.length})` : "Evidence readings", "One line per evidence area. Full text is in the speaker notes.");
+    const s = base(all.length > 1 ? `Evidence readings (${i + 1} of ${all.length})` : "Evidence readings", "Summary readings. Full text, scores, caveats and sources are in speaker notes.");
     s.addTable(
       [
         ["EVIDENCE AREA", "READING", "STATUS"].map(h => ({ text: h, options: { bold: true, color: MUTED, fill: { color: WASH }, fontSize: 10 } })),
@@ -142,7 +144,7 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
       ] as any,
       { x: 0.6, y: 1.6, w: 12.1, colW: [2.4, 7.2, 2.5], fontFace: FONT, border: { type: "solid", color: LINE, pt: 0.5 }, valign: "middle" }
     );
-    s.addNotes(rows.map(b => `${b.title}\n${proseToPlain(b.text)}`).join("\n\n"));
+    s.addNotes(rows.map(reportBlockText).join("\n\n"));
   });
 
   // 5. Where evidence agrees, and what is still needed
@@ -150,12 +152,13 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     const b = byKey.get(key);
     if (!b) continue;
     const s = base(b.title, chipLine(b));
+    if (b.warnings.length) s.addText("Review required: see full warnings in speaker notes", { x: 0.6, y: 1.15, w: 12.1, h: 0.2, fontFace: FONT, fontSize: 10, color: PATH });
     if (b.table) {
       s.addTable(tableRows(b.table) as any, { x: 0.6, y: 1.6, w: 12.1, colW: [3.6, 8.5], fontFace: FONT, border: { type: "solid", color: LINE, pt: 0.5 }, valign: "middle" });
     } else {
-      s.addText(proseToPlain(b.text).slice(0, 1400), { x: 0.6, y: 1.6, w: 12.1, h: 5.2, fontFace: FONT, fontSize: 16, color: SEC, valign: "top" });
+      s.addText(`${proseToPlain(b.text).slice(0, 1400)}${proseToPlain(b.text).length > 1400 ? "... (continued in speaker notes)" : ""}`, { x: 0.6, y: 1.6, w: 12.1, h: 5.2, fontFace: FONT, fontSize: 16, color: SEC, valign: "top" });
     }
-    s.addNotes(proseToPlain(b.text));
+    s.addNotes(reportBlockText(b));
   }
 
   // Written summary, literature and author notes
@@ -163,9 +166,10 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     const b = byKey.get(key);
     if (!b) continue;
     const s = base(b.title, chipLine(b));
-    s.addText(proseToPlain(b.text).slice(0, 1600), { x: 0.6, y: 1.6, w: 12.1, h: 4.6, fontFace: FONT, fontSize: 15, color: SEC, valign: "top" });
+    if (b.warnings.length) s.addText("Review required: see full warnings in speaker notes", { x: 0.6, y: 1.15, w: 12.1, h: 0.2, fontFace: FONT, fontSize: 10, color: PATH });
+    s.addText(`${proseToPlain(b.text).slice(0, 1500)}${proseToPlain(b.text).length > 1500 ? "... (continued in speaker notes)" : ""}`, { x: 0.6, y: 1.6, w: 12.1, h: 4.6, fontFace: FONT, fontSize: 15, color: SEC, valign: "top" });
     if (b.caption) s.addText(b.caption, { x: 0.6, y: 6.3, w: 12.1, h: 0.6, fontFace: FONT, fontSize: 10, color: MUTED, valign: "top" });
-    s.addNotes(proseToPlain(b.text));
+    s.addNotes(reportBlockText(b));
   }
 
   // Closing: limitations and the footer
@@ -173,15 +177,15 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     const m = byKey.get("method");
     const s = base(m?.title ?? "Limitations", "Research use");
     const lines = [m ? proseToPlain(m.text) : f.useStatement];
-    s.addText(lines.join("\n\n").slice(0, 1500), { x: 0.6, y: 1.6, w: 12.1, h: 3.8, fontFace: FONT, fontSize: 14, color: SEC, valign: "top" });
+    s.addText(`${lines.join("\n\n").slice(0, 1500)}${lines.join("\n\n").length > 1500 ? "... (continued in speaker notes)" : ""}`, { x: 0.6, y: 1.6, w: 12.1, h: 3.8, fontFace: FONT, fontSize: 14, color: SEC, valign: "top" });
     const foot = [
       f.omitted.length ? `Not included by the author: ${f.omitted.join("; ")}.` : "",
-      `Document ID ${f.documentId}: a checksum of the report text; it detects later changes and does not prove authorship.`,
+      `Document ID ${f.documentId}: a canonical content identifier; excludes export time and file formatting. Does not prove authorship.`,
       `Generated by ${f.app}${f.generatedAt ? ` on ${f.generatedAt.slice(0, 10)}` : ""}.`,
     ].filter(Boolean).join("\n");
     s.addText(foot, { x: 0.6, y: 5.5, w: 12.1, h: 1.3, fontFace: FONT, fontSize: 11, color: MUTED, valign: "top" });
     s.addShape("rect", { x: 0.6, y: 5.4, w: 0.9, h: 0.04, fill: { color: CLAY }, line: { color: CLAY, width: 0 } });
-    if (m) s.addNotes(proseToPlain(m.text));
+    if (m) s.addNotes(reportBlockText(m));
   }
 
   const out = (await pptx.write({ outputType: "arraybuffer" })) as ArrayBuffer;

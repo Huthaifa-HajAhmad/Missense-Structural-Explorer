@@ -36,9 +36,9 @@ describe("ReportInspector", () => {
     expect(screen.getByRole("checkbox", { name: "Include Classification" })).toBeInTheDocument();
   });
 
-  it("applies the One page preset to the ticks only", () => {
+  it("applies the Brief report preset to the ticks only", () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: "One page" }));
+    fireEvent.click(screen.getByRole("button", { name: "Brief report" }));
     const s = useVariantAnalysisStore.getState().reportSections;
     expect(s.classification).toBe(true);
     expect(s.method).toBe(true);

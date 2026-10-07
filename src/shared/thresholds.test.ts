@@ -89,7 +89,7 @@ describe("Thresholds Evaluation & Consensus Logic Tests (F-C4)", () => {
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.35))).toBe("pathogenic");
 
       // Between the bands: neither criterion.
-      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.1))).toBe("vus");
+      expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.1))).toBe("benign");
       expect(evaluateSplicePredictor({ distance: 15, isNearSpliceSite: false }, sai(0.19))).toBe("vus");
 
       /**
