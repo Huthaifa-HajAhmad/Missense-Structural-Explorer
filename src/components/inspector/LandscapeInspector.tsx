@@ -229,7 +229,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     const gn = ctx.gnomad?.find((x) => x.pos === activeResIndex);
     if (ctx.gnomad) out.push(gn ? `gnomAD: ${gn.variants} missense, max AC ${gn.maxAc}` : "gnomAD: no missense here");
     const region = ctx.regions?.find((r) => activeResIndex >= r.start && activeResIndex <= r.end);
-    if (ctx.regions) out.push(region ? `Regional O/E ${region.oe ?? "—"} (${region.start}–${region.end}, gnomAD v2)` : "Regional O/E: no constrained region");
+    if (ctx.regions) out.push(region ? `Regional O/E ${region.oe ?? "—"} (${region.start}–${region.end}, ${ctx.regionsBasis})` : "Regional O/E: no constrained region");
     return out;
   })();
 

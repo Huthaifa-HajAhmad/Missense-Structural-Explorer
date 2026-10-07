@@ -243,8 +243,9 @@ export const THRESHOLDS = {
     oeMisBelow: 0.6,
   },
   loeuf: {
-    pathogenicStrong: 0.35,
-    pathogenicSupporting: 0.60,
+    // v4.1.1/v4.1.2: strongest 10% of MANE genes; recommended pLoF cutoff.
+    pathogenicStrong: 0.36,
+    pathogenicSupporting: 0.45,
   },
   biophysicalConsensus: {
     highRiskProbability: 0.42,
@@ -503,7 +504,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   misZ:
     "gnomAD missense Z (positive = fewer missense variants than expected). The engine reads a gene as missense-constrained for PP2 at Z ≥ 3.09 with o/e < 0.6 — a local proxy, not a ClinGen cut-point. Gene-level: the same for every variant in the gene.",
   loeuf:
-    "gnomAD LOEUF (upper bound of observed/expected loss-of-function). gnomAD suggests < 0.6 as constrained. Loss-of-function constraint, not missense evidence; no ACMG criterion in this engine reads it.",
+    "gnomAD LOEUF (upper bound of observed/expected loss-of-function). gnomAD v4.1.2 uses the v4.1.1 recommendation < 0.45 for pLoF constraint; < 0.36 corresponds to the strongest 10% of MANE Select genes. Loss-of-function constraint, not missense evidence; no ACMG criterion in this engine reads it.",
   spliceai:
     "SpliceAI (Jaganathan 2019). Splicing PP3 at max ΔScore ≥ 0.20, BP4 at or below 0.10 (ClinGen SVI Splicing " +
     "Subgroup, Walker 2023). The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision); " +

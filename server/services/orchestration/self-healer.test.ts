@@ -173,8 +173,9 @@ describe("self-healer service", () => {
     expect(healed.serviceStatus.gnomadFrequency).toBe("ok");
     expect(healed.gnomadFrequency.exome_af).toBe(0.00001);
 
-    expect(healed.serviceStatus.gnomadConstraint).toBe("ok");
-    expect(healed.gnomadConstraint.mis_z).toBe(2.5);
+    // Gene-only legacy objects cannot restore transcript-specific v4 evidence.
+    expect(healed.serviceStatus.gnomadConstraint).toBe("error");
+    expect(healed.gnomadConstraint).toBeUndefined();
 
     expect(healed.serviceStatus.uniprotFeatures).toBe("ok");
     expect(healed.uniprotFeatures.domains).toContain("Kinase");

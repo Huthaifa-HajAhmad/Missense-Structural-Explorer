@@ -332,7 +332,7 @@ async function runCoreFetch(
   }));
 
   let gnomadConstraintHasError = false;
-  const gnomadConstraintPromise = timeTask("gnomadConstraint", fetchGnomadGeneConstraint(gene, pos).catch(err => {
+  const gnomadConstraintPromise = timeTask("gnomadConstraint", predictorPromise.then(pred => fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) })).catch(err => {
     console.warn("[Gnomad Constraint Warning] Failed to fetch gnomad gene constraint:", err);
     gnomadConstraintHasError = true;
     return null;
@@ -546,7 +546,7 @@ async function runCoreFetch(
     gnomadConstraint: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout"
         : gnomadConstraintHasError ? "error"
-        : (raw as GnomadGeneConstraint | null)?.missense_z !== null && raw !== null ? "ok"
+        : raw !== null && raw !== undefined ? "ok"
         : "not_found",
     gnomadFrequency: (raw: unknown): ServiceFetchStatus =>
       raw === TIMEOUT_FLAG ? "timeout"

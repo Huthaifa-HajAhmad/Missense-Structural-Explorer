@@ -29,10 +29,13 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from "./http-client.ts
  * exists to discard; otherwise the panel flags its own stored result as contradictory for up to
  * 30 days.
  */
-export const CACHE_SCHEMA_VERSION = "v8";
+// v9 retires rounded v2 gene constraint and transcript-unverified regional calls.
+export const CACHE_SCHEMA_VERSION = "v9";
 export const DATA_SOURCES_VERSION = {
   dbnsfp: "4.4a",
-  gnomad: "v4.1.0",
+  gnomad: "v4.1.1",
+  gnomadConstraint: "v4.1.2",
+  gnomadRegionalConstraint: "v4.1.1",
   clinvar: "2024-latest",
   foldx: "v2"
 };
@@ -84,7 +87,7 @@ export function buildBiophysicalKey(
 
 export function buildGnomadConstraintKey(gene: string): string {
   const normGene = normalizeGeneSymbol(gene);
-  return `gnomad_constraint_${normGene}_schema:${CACHE_SCHEMA_VERSION}`;
+  return `gnomad_constraint_4.1.2_GRCh38_${normGene}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
 export function buildUniprotFeaturesKey(uniprotId: string): string {

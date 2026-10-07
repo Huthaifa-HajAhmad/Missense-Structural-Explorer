@@ -292,14 +292,19 @@ function contextSentence(input: LandscapeFindingInput): string | null {
     parts.push("ClinVar, gnomAD and regional constraint could not be loaded");
     return parts.join(" · ") + ".";
   }
-  if (context.regions === null) parts.push("regional constraint not loaded");
-  else {
+  if (context.regions === null) {
+    parts.push(
+      context.regionsStatus === "withheld-mapping"
+        ? "regional constraint withheld pending a verified transcript-to-protein mapping"
+        : "regional constraint not loaded"
+    );
+  } else {
     const region = context.regions.find((r) => target.pos >= r.start && target.pos <= r.end);
     parts.push(
       region
-        ? `regional missense O/E ${region.oe ?? "—"} for ${region.start}–${region.end} (gnomAD v2, GRCh37 numbering)`
+        ? `regional missense O/E ${region.oe ?? "—"} for ${region.start}–${region.end} (${context.regionsBasis})`
         : context.regions.length
-          ? "outside every gnomAD v2 constrained region"
+          ? `outside every constrained sub-region (${context.regionsBasis})`
           : "no regional missense constraint call for this gene"
     );
   }

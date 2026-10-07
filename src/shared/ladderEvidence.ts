@@ -294,7 +294,7 @@ export function buildLadderEvidence(input: LadderEvidenceInput & { predictor?: P
   const oeMis = finite(gc?.oe_mis);
   const pli = finite(gc?.pli);
   const loeuf = finite(gc?.loeuf ?? r.loeuf ?? r.gnomadLoeuf);
-  const pp2RuleMet = isPp2Constrained(missenseZ, oeMis) ?? (typeof gc?.isPP2Constrained === "boolean" && missenseZ === null ? gc.isPP2Constrained : null);
+  const pp2RuleMet = gc?.qualityFlags?.length ? null : isPp2Constrained(missenseZ, oeMis) ?? (typeof gc?.isPP2Constrained === "boolean" && missenseZ === null ? gc.isPP2Constrained : null);
   const constraint: ConstraintFacts = { missenseZ, oeMis, pli, loeuf, pp2RuleMet };
 
   // ── Engine record ──

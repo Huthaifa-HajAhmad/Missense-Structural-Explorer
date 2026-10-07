@@ -306,7 +306,11 @@ export function LandscapeOverview({
                 </div>
               );
             }),
-          context?.regions === null ? "Regional constraint not loaded" : null
+          context?.regions === null
+            ? context?.regionsStatus === "withheld-mapping"
+              ? "Regional map withheld: no verified transcript-to-protein mapping"
+              : "Regional constraint not loaded"
+            : null
         )}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-cs-text-muted" style={{ paddingLeft: GUTTER }}>
@@ -319,7 +323,7 @@ export function LandscapeOverview({
           </>
         )}
         {(context?.regions?.length ?? 0) > 0 && (
-          <span>O/E: solid bar = fewer missense observed than expected (O/E &lt; 0.6) ({context?.regionsBasis ?? "gnomAD v2"})</span>
+          <span>O/E: solid bar = fewer missense observed than expected (O/E &lt; 0.6) ({context?.regionsBasis ?? ""})</span>
         )}
         {status === "ready" && domains.length === 0 && <span>no UniProt domain or region annotated</span>}
         {lanes.regions && status === "ready" && context?.regions?.length === 0 && (

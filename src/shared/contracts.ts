@@ -1,3 +1,4 @@
+import { REGIONAL_STATUSES, type ConstraintProvenance, type RegionalConstraintStatus } from "./constraintSource.ts";
 import type { LiteratureSummaryReceipt } from "./literatureSummary";
 import { z } from "zod";
 import { FOLDX_PHASES, type FoldxPhase } from "./foldxPhase";
@@ -1519,6 +1520,14 @@ export const landscapeContextSchema = z.object({
   })).nullable(),
   gnomad: z.array(z.object({ pos: z.number(), variants: z.number(), maxAc: z.number() })).nullable(),
   regions: z.array(z.object({ start: z.number(), end: z.number(), oe: z.number().nullable(), pValue: z.number().nullable() })).nullable(),
+  /**
+   * Why `regions` holds what it holds, so the lane never calls a withheld map "not loaded":
+   *   available        — protein-mapped intervals are present;
+   *   none             — the source answered; this transcript has no constrained interval;
+   *   withheld-mapping — intervals exist but no verified transcript→protein mapping is available;
+   *   unavailable      — the constraint source did not answer.
+   */
+  regionsStatus: z.enum(["available", "none", "withheld-mapping", "unavailable"]),
   transcript: z.string().nullable(),
   regionsBasis: z.string(),
   errors: z.array(z.string())
@@ -1657,6 +1666,13 @@ export const analyzeVariantResponseSchema = z.object({
     uniparcId: z.string().nullable().optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
+    provenance: z.object({ release: z.string(), assembly: z.literal("GRCh38"), geneId: z.string(), transcriptId: z.string(), transcriptVersion: z.string(), selection: z.enum(["matched", "mane-select", "canonical", "sole-transcript"]), sourceUrl: z.string(), sourceSha256: z.string() }).optional(),
+    qualityFlags: z.array(z.string()).optional(),
+    rawMetrics: z.object({ missense_z: z.number().nullable(), oe_mis: z.number().nullable(), pli: z.number().nullable(), loeuf: z.number().nullable() }).optional(),
+    expectedCounts: z.object({ syn: z.number().nullable(), mis: z.number().nullable(), lof: z.number().nullable() }).optional(),
+    loeufPercentile: z.number().nullable().optional(),
+    regionalRelease: z.string().optional(), regionalSourceUrl: z.string().optional(), regionalSourceSha256: z.string().optional(),
+    regionalStatus: z.enum(REGIONAL_STATUSES).optional(),
     missense_z: z.number().nullable(),
     oe_mis: z.number().nullable(),
     pli: z.number().nullable(),
@@ -2507,6 +2523,16 @@ export interface DisruptionPredictorResult {
 }
 
 export interface GnomadConstraintData {
+  provenance?: ConstraintProvenance;
+  qualityFlags?: string[];
+  /** Retained for traceability when QC withholds the usable values; never used by the engine. */
+  rawMetrics?: { missense_z: number | null; oe_mis: number | null; pli: number | null; loeuf: number | null };
+  expectedCounts?: { syn: number | null; mis: number | null; lof: number | null };
+  loeufPercentile?: number | null;
+  regionalRelease?: string;
+  regionalSourceUrl?: string;
+  regionalSourceSha256?: string;
+  regionalStatus?: RegionalConstraintStatus;
   missense_z: number | null;
   oe_mis: number | null;
   pli: number | null;

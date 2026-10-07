@@ -379,6 +379,11 @@
   line-height: 1.5;
   color: var(--vh-muted-fg);
 }
+.vh-tick[data-kind="app"] {
+  background: transparent;
+  border-left: 1px dashed var(--vh-muted-fg);
+}
+.vcs-panel-note a { color: var(--cs-text-primary); text-decoration: underline; text-underline-offset: 2px; }
 
 /* ── Rail caption ──
    One line on the rows' own grid. The left cell scopes the rows ("Gene

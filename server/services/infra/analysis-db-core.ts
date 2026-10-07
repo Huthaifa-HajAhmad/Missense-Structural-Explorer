@@ -1,3 +1,4 @@
+import { CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
 import { DatabaseSync } from "node:sqlite";
 import path from "path";
 import fs from "fs";
@@ -240,6 +241,9 @@ export function executeGetVariantAnalysis(
   } catch (_) {
     return null;
   }
+
+  // Retire persisted engine conclusions made from rounded v2 or unverified regional data.
+  if (parsedPayload && Object.hasOwn(parsedPayload, "gnomadConstraint") && parsedModelVersions?.constraintRelease !== CONSTRAINT_RELEASE) return null;
 
   return {
     id: Number(row.id),

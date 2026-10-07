@@ -1,112 +1,77 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import { fetchGnomadGeneConstraint } from "./gnomad.ts";
-import { clearAllCaches } from "../infra/cache.ts";
-
-// Build the GraphQL envelope the fetcher parses. The RMC gate under test reads
-// exactly three inputs: the window's p_value, the track's passed_qc, and the
-// residue's containment in the window — everything else is held constant.
-function mockResponse({
-  passedQc = true,
-  pValue = 1e-6,
-  obsExp = 0.5,
-}: { passedQc?: boolean | null; pValue?: number | null; obsExp?: number } = {}) {
-  return {
-    data: {
-      gene: {
-        gnomad_constraint: { mis_z: 3.13, oe_mis: 0.26, pLI: 0.98, oe_lof_upper: 0.26 },
-        gnomad_v2_regional_missense_constraint: {
-          passed_qc: passedQc,
-          regions: [
-            { aa_start: "100", aa_stop: "200", obs_exp: obsExp, p_value: pValue },
-            { aa_start: "400", aa_stop: "500", obs_exp: 0.6, p_value: 1e-8 },
-          ],
-        },
-      },
-    },
-  };
+import { getConstraintIndex, indexConstraintSnapshot, type ConstraintRow, type RegionalRow } from "./constraint-snapshot.ts";
+import { CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
+const row: ConstraintRow = { gene: "TEST", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", canonical: true, mane: true,
+  missense_z: 3.13, oe_mis: 0.26, pli: 0.98, loeuf: 0.26, percentile: 5, flags: [], expected: { syn: 20, mis: 100, lof: 10 } };
+const region: RegionalRow = { transcriptId: row.transcriptId, chrom: "1", start: 100, end: 200, oe: 0.5, p: 1e-6, highCoverage: true };
+const coordinate = { chrom: "1", pos: 150, ref: "A", alt: "T", assembly: "GRCh38" as const };
+function index(overrides: Partial<ConstraintRow> = {}, regions = [region], rows?: ConstraintRow[]) {
+  return indexConstraintSnapshot({ schema: 1, release: CONSTRAINT_RELEASE, regionalRelease: REGIONAL_CONSTRAINT_RELEASE,
+    sourceSha256: "test", regionalSha256: "test", rows: rows ?? [{ ...row, ...overrides }], regions });
 }
-
-function mockFetch(response: object) {
-  const fetchSpy = vi.spyOn(global, "fetch");
-  fetchSpy.mockResolvedValueOnce({
-    ok: true,
-    json: async () => response,
-  } as any);
-  return fetchSpy;
+function fetch(overrides: Partial<ConstraintRow> = {}, regions = [region], options: Record<string, any> = {}) {
+  return fetchGnomadGeneConstraint("TEST", 999, { index: index(overrides, regions), transcriptId: row.transcriptId, coordinate, ...options });
 }
-
-describe("fetchGnomadGeneConstraint regional verdict gating", () => {
-  beforeEach(() => {
-    clearAllCaches(true);
+describe("pinned gnomAD gene and regional constraint", () => {
+  it("retains raw values at all classification boundaries", async () => {
+    expect(await fetch({ missense_z: 3.086, loeuf: 0.349 })).toMatchObject({ missense_z: 3.086, loeuf: 0.349, isPP2Constrained: false });
+    expect(await fetch({ oe_mis: 0.599 })).toMatchObject({ oe_mis: 0.599, isPP2Constrained: true });
   });
-
-  it("marks a residue inside a significant, QC-passed window as constrained", async () => {
-    const spy = mockFetch(mockResponse({ passedQc: true, pValue: 1e-6 }));
-    const res = await fetchGnomadGeneConstraint("MACO1", 150, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint).toMatchObject({
-      isConstrained: true,
-      oeRatio: 0.5,
-      pValue: 1e-6,
-      regionText: "100 to 200",
-    });
+  it("records separate pinned releases and exact transcript provenance", async () => {
+    expect(await fetch()).toMatchObject({ provenance: { release: "4.1.2", assembly: "GRCh38", transcriptId: row.transcriptId, selection: "matched" }, regionalRelease: "4.1.1", regionalStatus: "measured" });
   });
-
-  it("refuses the constrained call when the window's p-value does not clear 0.05, but keeps the span", async () => {
-    const spy = mockFetch(mockResponse({ passedQc: true, pValue: 0.4 }));
-    const res = await fetchGnomadGeneConstraint("MACO1", 150, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint?.isConstrained).toBe(false);
-    // The client distinguishes "matched, not significant" from "outside every
-    // window" by these still being present.
-    expect(res?.regionalConstraint?.regionText).toBe("100 to 200");
-    expect(res?.regionalConstraint?.pValue).toBe(0.4);
+  it("uses a unique MANE reference while withholding mismatched regional evidence", async () => {
+    expect(await fetch({}, [region], { transcriptId: "ENST99999999999" })).toMatchObject({ provenance: { selection: "mane-select" }, regionalStatus: "transcript-mismatch", regionalConstraint: null });
   });
-
-  it("refuses the constrained call when the RMC track failed QC, however significant the window", async () => {
-    const spy = mockFetch(mockResponse({ passedQc: false, pValue: 1e-6 }));
-    const res = await fetchGnomadGeneConstraint("MACO1", 150, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint?.isConstrained).toBe(false);
-    expect(res?.regionalConstraint?.regionText).toBe("100 to 200");
+  it("withholds regional evidence for a different transcript version", async () => {
+    expect(await fetch({}, [region], { transcriptId: `${row.transcriptId}.2` })).toMatchObject({ provenance: { selection: "mane-select" }, regionalStatus: "transcript-mismatch" });
   });
-
-  it("treats an omitted passed_qc (null) as unblocking — only an explicit failure gates", async () => {
-    const spy = mockFetch(mockResponse({ passedQc: null, pValue: 1e-6 }));
-    const res = await fetchGnomadGeneConstraint("MACO1", 150, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint?.isConstrained).toBe(true);
+  it("requires a verified genomic identity, ignoring protein residue numbers", async () => {
+    expect(await fetch({}, [region], { coordinate: null })).toMatchObject({ regionalStatus: "unverified-locus", regionalConstraint: null });
+    expect(await fetch({}, [region], { transcriptId: null })).toMatchObject({ regionalStatus: "unverified-locus" });
+    expect(await fetch({}, [region], { coordinate: { ...coordinate, assembly: "GRCh37" } })).toMatchObject({ regionalStatus: "unverified-locus" });
   });
-
-  it("refuses the constrained call when the window's p-value is missing", async () => {
-    const spy = mockFetch(mockResponse({ passedQc: true, pValue: null }));
-    const res = await fetchGnomadGeneConstraint("MACO1", 150, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint?.isConstrained).toBe(false);
+  it.each([100, 200])("matches inclusive endpoint %s", async pos => {
+    expect(await fetch({}, [region], { coordinate: { ...coordinate, pos } })).toMatchObject({ regionalStatus: "measured" });
   });
-
-  it("accepts a string-encoded p_value (GraphQL Float tolerance) as significant", async () => {
-    const spy = mockFetch(mockResponse({ passedQc: true, pValue: "6.6e-6" as any }));
-    const res = await fetchGnomadGeneConstraint("MACO1", 150, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint?.isConstrained).toBe(true);
+  it("withholds a locus outside released intervals", async () => {
+    expect(await fetch({}, [region], { coordinate: { ...coordinate, pos: 201 } })).toMatchObject({ regionalStatus: "outside-region", regionalConstraint: null });
   });
-
-  it("reports a residue outside every window as unconstrained with no span", async () => {
-    const spy = mockFetch(mockResponse());
-    const res = await fetchGnomadGeneConstraint("MACO1", 300, { bypassSqlite: true });
-    spy.mockRestore();
-
-    expect(res?.regionalConstraint).toMatchObject({
-      isConstrained: false,
-      regionText: null,
-      pValue: null,
-    });
+  it("refuses ambiguous overlapping intervals", async () => {
+    expect(await fetch({}, [region, { ...region, start: 150 }])).toMatchObject({ regionalStatus: "invalid-data", regionalConstraint: null });
+  });
+  it("requires explicit passed coverage QC", async () => {
+    expect(await fetch({}, [{ ...region, highCoverage: false }])).toMatchObject({ regionalStatus: "failed-qc", regionalConstraint: null });
+  });
+  it.each([-1, NaN, Infinity, 1.1, ""])("rejects invalid p value %s", async p => {
+    expect(await fetch({}, [{ ...region, p: p as number }])).toMatchObject({ regionalStatus: "invalid-data", regionalConstraint: null });
+  });
+  it("preserves a nonsignificant match", async () => {
+    expect(await fetch({}, [{ ...region, p: 0.05 }])).toMatchObject({ regionalStatus: "nonsignificant", regionalConstraint: { isConstrained: false, pValue: 0.05, oeRatio: 0.5 } });
+  });
+  it("does not call nondepleted regions constrained", async () => {
+    expect(await fetch({}, [{ ...region, oe: 1.2 }])).toMatchObject({ regionalStatus: "nonsignificant", regionalConstraint: { isConstrained: false } });
+  });
+  it.each([{ flags: ["low_coverage"] }, { expected: { syn: 0, mis: 100, lof: 10 } }])("withholds flagged or uncalibrated gene metrics", async overrides => {
+    expect(await fetch(overrides)).toMatchObject({ missense_z: null, loeuf: null, pli: null, isPP2Constrained: false, regionalStatus: "failed-qc" });
+  });
+  it("selects the sole protein-coding transcript when it is neither MANE nor canonical", async () => {
+    const sole = await fetchGnomadGeneConstraint("TEST", null, { index: index({}, [], [{ ...row, mane: false, canonical: false }]) });
+    expect(sole).toMatchObject({ missense_z: row.missense_z, provenance: { selection: "sole-transcript" } });
+  });
+  it("refuses genuinely ambiguous transcript identity without throwing, and reports a missing gene as null", async () => {
+    const two = [{ ...row, mane: false, canonical: false }, { ...row, mane: false, canonical: false, transcriptId: "ENST00000000002", geneId: "ENSG00000000002" }];
+    expect(await fetchGnomadGeneConstraint("TEST", null, { index: index({}, [], two) })).toBeNull();
+    expect(await fetchGnomadGeneConstraint("ABSENT", null, { index: index() })).toBeNull();
+  });
+  it("matches regional intervals for a lowercase contig", async () => {
+    expect(await fetch({}, [{ ...region, chrom: "X" }], { coordinate: { ...coordinate, chrom: "chrx" } })).toMatchObject({ regionalStatus: "measured" });
+  });
+  it("checks actual packaged v4.1.2 scores and corrected bins", async () => {
+    const bundled = getConstraintIndex();
+    expect(bundled.snapshot.rows.length).toBeGreaterThan(80000);
+    expect(await fetchGnomadGeneConstraint("BRCA1")).toMatchObject({ missense_z: 1.7336, loeuf: 0.92759, loeufPercentile: 51, provenance: { release: "4.1.2", transcriptId: "ENST00000357654" } });
+    expect(bundled.snapshot.rows.some(r => r.percentile === 99)).toBe(true);
   });
 });

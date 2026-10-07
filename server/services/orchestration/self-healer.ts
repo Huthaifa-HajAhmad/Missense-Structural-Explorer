@@ -10,7 +10,6 @@ import { persistVariantAnalysisPayload } from "./payload-assembler.ts";
 import {
   buildClinvarKey,
   buildGenosKey,
-  buildGnomadConstraintKey,
   buildGnomadFreqKey,
   buildPredictorsKey,
   buildUniprotFeaturesKey
@@ -119,15 +118,8 @@ export function healCachedAnalysisIfPossible(
     }
   }
 
-  // 4. gnomAD Constraint healing
-  if (status.gnomadConstraint === "timeout" || status.gnomadConstraint === "error") {
-    const gnomadConstraintCache = db.getExternalCache<any>(buildGnomadConstraintKey(context.gene));
-    if (gnomadConstraintCache?.data) {
-      payload.gnomadConstraint = gnomadConstraintCache.data;
-      if (payload.serviceStatus) payload.serviceStatus.gnomadConstraint = "ok";
-      didHeal = true;
-    }
-  }
+  // Constraint is served by the pinned local snapshot. A gene-only cached object cannot heal
+  // a transcript/coordinate-specific regional result; retry the analysis instead.
 
   // 5. UniProt Features healing
   if (context.uniprotId && (status.uniprotFeatures === "timeout" || status.uniprotFeatures === "error")) {

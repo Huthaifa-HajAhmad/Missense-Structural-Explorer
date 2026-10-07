@@ -5,6 +5,8 @@
   "type": "module",
   "packageManager": "npm@10.8.2",
   "scripts": {
+    "data:constraint": "tsx scripts/import-gnomad-constraint.ts",
+    "build:constraint": "node -e \"require('fs').cpSync('server/data/constraint','dist/constraint',{recursive:true})\"",
     "data:gencc": "tsx scripts/import-gencc-context.ts",
     "data:dgtex": "python scripts/import-dgtex-context.py",
     "data:g2p": "tsx scripts/import-g2p-context.ts",
@@ -13,7 +15,7 @@
     "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "build:workers": "esbuild server/workers/structural-diff-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/structural-diff-worker.cjs && esbuild server/workers/analysis-db-worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/analysis-db-worker.cjs",
     "build:protos": "node -e \"require('fs').cpSync('server/services/alphagenome/protos','dist/alphagenome/protos',{recursive:true})\"",
-    "build": "npm run build:client && npm run build:server && npm run build:workers && npm run build:protos",
+    "build": "npm run build:client && npm run build:server && npm run build:workers && npm run build:protos && npm run build:constraint",
     "start": "node dist/server.cjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsx scripts/check-boundaries.ts && node scripts/check-focus-indicators.mjs && tsx scripts/check-verify-parity.ts && tsc --noEmit",

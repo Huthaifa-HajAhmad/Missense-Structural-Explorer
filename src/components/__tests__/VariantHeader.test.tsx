@@ -85,6 +85,8 @@ describe("VariantHeader Component Tests", () => {
       gnomadVariantAssembly: "GRCh38",
     } as any,
     gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
       missense_z: 2.04,
       oe_mis: 0.72,
       pli: 0.99,
@@ -232,7 +234,7 @@ describe("VariantHeader Component Tests", () => {
     expect(screen.queryByTitle(/Splice alert/)).not.toBeInTheDocument();
   });
 
-  it("should render the gnomAD v2 constraint rail with compact labels, values and verdicts", () => {
+  it("should render the gnomAD v4.1.2 constraint rail with compact labels, values and verdicts", () => {
     const { container } = render(
       <Chrome
         gene="BRAF"
@@ -244,9 +246,9 @@ describe("VariantHeader Component Tests", () => {
 
     // The rows are scoped as GENE constraint in a visible caption, so a verdict beside the HGVS
     // cannot be read as a call on the variant.
-    expect(screen.getByRole("list", { name: /gnomAD v2 population constraint/ })).toBeInTheDocument();
-    expect(container.querySelector(".vh-rail-title")).toHaveTextContent("Gene constraint · gnomAD v2");
-    expect(container.querySelector(".vh-rail-axis")).toHaveTextContent(/tolerant.*constrained/);
+    expect(screen.getByRole("list", { name: /gnomAD v4.1.2 population constraint/ })).toBeInTheDocument();
+    expect(container.querySelector(".vh-rail-title")).toHaveTextContent("Gene constraint · gnomAD v4.1.2");
+    expect(container.querySelector(".vh-rail-axis")).toHaveTextContent(/less depleted.*constrained/);
     expect(container.querySelector(".vh-rail-meta")).not.toBeInTheDocument();
 
     // Compact metric labels — the full names live in the tooltip/sr-only copy
@@ -267,8 +269,8 @@ describe("VariantHeader Component Tests", () => {
     // Reference ranges are rendered as threshold ticks on the tracks
     expect(panel().getByText("2.0")).toBeInTheDocument();
     expect(panel().getByText("3.09")).toBeInTheDocument();
-    expect(panel().getByText("0.35")).toBeInTheDocument();
-    expect(panel().getByText("0.6")).toBeInTheDocument(); // LOEUF constraint cut
+    expect(panel().getByText("0.36")).toBeInTheDocument();
+    expect(panel().getByText("0.45")).toBeInTheDocument(); // LOEUF constraint cut
     expect(panel().getByText("1.0")).toBeInTheDocument(); // RMC baseline
 
     // Three threshold tracks, each with a marker for the observed value
@@ -302,12 +304,12 @@ describe("VariantHeader Component Tests", () => {
     // The reference sentence is the sr-only contract; the label, value and verdict are
     // already exposed as visible text, so repeating them here would double every row.
     expect(
-      panel().getByText(/Reference: not constrained below 2\.0 \(tolerant only at Z of 0 or less\), constrained from 2\.0, severe intolerance at or above 3\.09/)
+      panel().getByText(/Reference: app-defined display bands/)
     ).toBeInTheDocument();
     expect(
-      panel().getByText(/Reference: strong loss-of-function intolerance below 0\.35, constrained below 0\.60/)
+      panel().getByText(/Reference: strongest 10% of MANE Select genes/)
     ).toBeInTheDocument();
-    expect(panel().getByText(/Reference: unconstrained at O\/E ≈ 1\.0\./)).toBeInTheDocument();
+    expect(panel().getByText(/Reference: O\/E = 1.0 is the neutral baseline/)).toBeInTheDocument();
 
     const srOnly = Array.from(document.querySelectorAll(".vh-metric .vh-sr-only")).map((el) => el.textContent ?? "");
     // The RMC row's detail leads with the constrained block (window provenance,
@@ -343,6 +345,8 @@ describe("VariantHeader Component Tests", () => {
   it("should handle severe Missense Z, strong LoF intolerance, and unconstrained RMC", () => {
     const extremeResult: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.5,
         oe_mis: 0.45,
         pli: 1.0,
@@ -371,7 +375,7 @@ describe("VariantHeader Component Tests", () => {
     expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
     expect(panel().getByText("0.22")).toBeInTheDocument();
     expect(panel().getByText("Strong LoF intolerance")).toBeInTheDocument();
-    expect(panel().getByText("Expected variation")).toBeInTheDocument();
+    expect(panel().getByText("Outside regions")).toBeInTheDocument();
     // No observed ratio reported, so the metric renders the empty value state
     expect(panel().getByText("—")).toBeInTheDocument();
   });
@@ -379,6 +383,8 @@ describe("VariantHeader Component Tests", () => {
   it("should collapse a tiny RMC p-value into scientific notation", () => {
     const tinyP: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.13,
         oe_mis: 0.26,
         pli: 0.98,
@@ -412,6 +418,8 @@ describe("VariantHeader Component Tests", () => {
   it("should handle null and NaN constraint values gracefully", () => {
     const nanResult: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: NaN,
         oe_mis: null,
         pli: null,
@@ -491,6 +499,8 @@ describe("VariantHeader Component Tests", () => {
     const noPositionResult: Partial<AnalysisResult> = {
       transcriptId: "NM_018202.6",
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.13,
         oe_mis: 0.26,
         pli: 0.98,
@@ -521,6 +531,8 @@ describe("VariantHeader Component Tests", () => {
   it("still says a gene has no blocks when it genuinely has none", () => {
     const noBlocksResult: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 1.2,
         oe_mis: 1.1,
         pli: 0.1,
@@ -556,6 +568,8 @@ describe("VariantHeader Component Tests", () => {
   ])("formats the RMC p-value %s canonically", (pValue, expected) => {
     const result: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.13,
         oe_mis: 0.26,
         pli: 0.98,
@@ -583,6 +597,8 @@ describe("VariantHeader Component Tests", () => {
   it.each([0, -1, NaN, Infinity])("omits the RMC p-value when it is %s", (pValue) => {
     const result: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.13,
         oe_mis: 0.26,
         pli: 0.98,
@@ -612,6 +628,8 @@ describe("VariantHeader Component Tests", () => {
   it("labels a matched RMC window that did not reach significance as sub-threshold, not as expected variation", () => {
     const subThreshold: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.13,
         oe_mis: 0.26,
         pli: 0.98,
@@ -639,7 +657,7 @@ describe("VariantHeader Component Tests", () => {
     expect(row!.getAttribute("title")).toContain("did not reach significance");
     expect(row!.getAttribute("title")).toContain("p = 0.400");
     // The "outside every constrained sub-region" copy would be false here.
-    expect(panel().queryByText("Expected variation")).not.toBeInTheDocument();
+    expect(panel().queryByText("Outside regions")).not.toBeInTheDocument();
   });
 
   it("labels the coordinate build from the payload instead of assuming GRCh38", () => {
@@ -686,9 +704,11 @@ describe("VariantHeader Component Tests", () => {
     expect(list?.querySelectorAll("li.vh-metric")).toHaveLength(3);
   });
 
-  it("gates the ClinGen PP2 wording on the server's own flag, not the Z threshold alone", () => {
+  it("gates the App-defined PP2 proxy wording on the server's own flag, not the Z threshold alone", () => {
     const pp2NotMet: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         missense_z: 3.4,
         oe_mis: 0.72, // ≥ 0.6, so the pipeline's isPP2Constrained is false
         pli: 0.8,
@@ -706,11 +726,13 @@ describe("VariantHeader Component Tests", () => {
     // The Z severity itself still reports as severe...
     expect(panel().getByText("Severe intolerance")).toBeInTheDocument();
     // ...but PP2 is not claimed.
-    expect(panel().getByTitle(/ClinGen PP2 not met/)).toBeInTheDocument();
-    expect(panel().queryByTitle(/ClinGen PP2 is met/)).not.toBeInTheDocument();
+    expect(panel().getByTitle(/App-defined PP2 proxy not met/)).toBeInTheDocument();
+    expect(panel().queryByTitle(/App-defined PP2 proxy is met/)).not.toBeInTheDocument();
 
     const pp2Met: Partial<AnalysisResult> = {
       gnomadConstraint: {
+        provenance: { release: "4.1.2", assembly: "GRCh38", geneId: "ENSG00000000001", transcriptId: "ENST00000000001", transcriptVersion: "1", selection: "matched", sourceUrl: "https://gnomad.broadinstitute.org/downloads", sourceSha256: "test" },
+        regionalRelease: "4.1.1",
         ...pp2NotMet.gnomadConstraint,
         oe_mis: 0.26,
         isPP2Constrained: true,
@@ -721,7 +743,7 @@ describe("VariantHeader Component Tests", () => {
       <Chrome gene="GENE2" variant="p.Ala1Val" uniprotId="P00002" analysisResult={pp2Met as AnalysisResult} />
     );
 
-    expect(panel().getByTitle(/ClinGen PP2 is met/)).toBeInTheDocument();
+    expect(panel().getByTitle(/App-defined PP2 proxy is met/)).toBeInTheDocument();
   });
 
   it("keeps the band tones and verdicts in step with the thresholds", () => {

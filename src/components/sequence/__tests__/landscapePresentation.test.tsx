@@ -150,7 +150,8 @@ describe("the residues fill the card", () => {
 });
 
 describe("LandscapeOverview", () => {
-  const ctx = (clinvar: any[], regions: any[] | null = []) => ({ clinvar, gnomad: [], regions, transcript: null, regionsBasis: "gnomAD v2", errors: [] });
+  const ctx = (clinvar: any[], regions: any[] | null = [], regionsStatus: "available" | "none" | "withheld-mapping" | "unavailable" = regions === null ? "unavailable" : "none") =>
+    ({ clinvar, gnomad: [], regions, regionsStatus, transcript: null, regionsBasis: "gnomAD v4.1.1 genomic intervals", errors: [] });
   const props = (context: any) => ({
     length: 154,
     status: "ready" as const,
@@ -203,6 +204,13 @@ describe("LandscapeOverview", () => {
     render(<LandscapeOverview {...props(ctx([], null))} />);
     expect(screen.getByText("MISSENSE O/E")).toBeTruthy();
     expect(screen.getByText("Regional constraint not loaded")).toBeTruthy();
+  });
+
+  it("calls a withheld map withheld, not missing, when only the protein mapping is absent", () => {
+    render(<LandscapeOverview {...props(ctx([], null, "withheld-mapping"))} />);
+    expect(screen.getByText("MISSENSE O/E")).toBeTruthy();
+    expect(screen.getByText("Regional map withheld: no verified transcript-to-protein mapping")).toBeTruthy();
+    expect(screen.queryByText("Regional constraint not loaded")).toBeNull();
   });
 
   it("moves the window once, on release, after a drag", () => {

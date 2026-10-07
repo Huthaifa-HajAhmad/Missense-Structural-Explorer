@@ -93,11 +93,14 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
       recoveryAction: locusRecoveryAction(result),
     };
   } else {
-    const gnomadStatus = result?.serviceStatus?.gnomadFrequency ?? result?.metadata?.serviceStatus?.gnomadFrequency;
+    const constraintStatus = result?.serviceStatus?.gnomadConstraint ?? result?.metadata?.serviceStatus?.gnomadConstraint;
+    const frequencyStatus = result?.serviceStatus?.gnomadFrequency ?? result?.metadata?.serviceStatus?.gnomadFrequency;
+    const constraintFailed = constraintStatus === "timeout" || constraintStatus === "error";
+    const gnomadStatus = constraintFailed ? constraintStatus : frequencyStatus;
     if (gnomadStatus === "timeout" || gnomadStatus === "error") {
       runState = {
         label: "gnomAD did not answer",
-        detail: "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
+        detail: constraintFailed ? "Gene constraint could not be loaded on this run; constraint evidence is incomplete." : "The gnomAD frequency query did not complete on this run, so population evidence is incomplete.",
         retryable: true,
         recoveryAction: "retry",
       };
