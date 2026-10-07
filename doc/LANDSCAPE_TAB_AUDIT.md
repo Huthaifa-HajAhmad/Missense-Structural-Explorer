@@ -300,7 +300,10 @@ the mockup's illustrative numbers.
 - The ClinVar and gnomAD lanes come from gnomAD's GraphQL API (GRCh38, gnomAD's canonical
   transcript). The field names follow its public schema but could not be exercised from the
   development sandbox. A failed source shows as "not loaded", never as "none".
-- Regional constraint exists only for gnomAD v2 (GRCh37 canonical numbering), and the tab says so.
+- Regional constraint: superseded on 7 October (PR #72) — the regional lane now derives its basis
+  string from the pinned gnomAD release and carries an explicit status
+  (`available | none | withheld-mapping | unavailable`); a withheld mapping is named, never read
+  as a missing value.
 - Substitutions that need two or more nucleotide changes have no dbNSFP score. They are drawn
   hatched rather than filled from another source.
 
