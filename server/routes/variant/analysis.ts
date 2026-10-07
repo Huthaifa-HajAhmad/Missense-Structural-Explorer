@@ -200,10 +200,10 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     });
 
     try {
-      const [landscape, geneContext] = await Promise.all([
-        fetchLandscape(context.gene, undefined, undefined, context.uniprotId),
-        fetchLandscapeContext(context.gene)
-      ]);
+      // The regional lane is projected onto the transcript the residue axis is built on, so resolve
+      // the axis transcript before mapping the gene-wide context.
+      const landscape = await fetchLandscape(context.gene, undefined, undefined, context.uniprotId);
+      const geneContext = await fetchLandscapeContext(context.gene, landscape.meta?.transcript ?? null);
       res.json({
         positions: landscape.positions.map(({ substitutions: _omit, ...rest }) => rest),
         meta: landscape.meta,

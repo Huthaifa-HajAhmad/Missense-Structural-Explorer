@@ -16,6 +16,11 @@ export interface TranscriptExonStructure {
   strand: number;
   seqRegionName?: string;
   exons: EnsemblExonData[];
+  /** Coding-sequence bounds (1-based inclusive, genomic) and protein length, from Ensembl's Translation. */
+  cdsStart?: number;
+  cdsEnd?: number;
+  proteinLength?: number;
+  transcriptVersion?: string;
 }
 
 const exonCache = new LRUCache<string, TranscriptExonStructure>({ max: 500 });
@@ -201,16 +206,24 @@ export interface SpliceProximityResult {
  * 4. Ensembl REST API lookup (for `ENST...`).
  * 5. UCSC Genome Browser REST API fallback (`knownGene` for `ENST...`, `ncbiRefSeq` for `NM_...`).
  */
+export interface FetchExonOptions {
+  /** Only accept a structure that carries CDS bounds, for protein-residue mapping. */
+  requireCds?: boolean;
+}
+
+const hasCds = (s: TranscriptExonStructure) => s.cdsStart !== undefined && s.cdsEnd !== undefined;
+
 export async function fetchTranscriptExons(
   transcriptId: string,
   variantChrom?: string | null,
-  genomicPos?: number | null
+  genomicPos?: number | null,
+  options: FetchExonOptions = {}
 ): Promise<TranscriptExonStructure | null> {
   const cleanId = transcriptId.trim().split(".")[0]; // remove version suffix if any
 
   // 1. Check L1 Memory Cache
   const cached = exonCache.get(cleanId);
-  if (cached) return cached;
+  if (cached && (!options.requireCds || hasCds(cached))) return cached;
 
   // Single-flight in-flight promise deduplication
   const existing = inFlightExonFetches.get(cleanId);
@@ -220,8 +233,8 @@ export async function fetchTranscriptExons(
     // 2. Check L2 Persistent SQLite Cache
     try {
       const db = AnalysisDatabase.getInstance();
-      const l2Entry = await db.getExternalCacheAsync<TranscriptExonStructure>(`exon:${cleanId}`);
-      if (l2Entry?.data && Array.isArray(l2Entry.data.exons) && l2Entry.data.exons.length > 0) {
+      const l2Entry = await db.getExternalCacheAsync<TranscriptExonStructure>(`exon:v2:${cleanId}`);
+      if (l2Entry?.data && Array.isArray(l2Entry.data.exons) && l2Entry.data.exons.length > 0 && (!options.requireCds || hasCds(l2Entry.data))) {
         exonCache.set(cleanId, l2Entry.data);
         return l2Entry.data;
       }
@@ -265,10 +278,15 @@ export async function fetchTranscriptExons(
 
             if (exons.length > 0) {
               exons.sort((a, b) => a.start - b.start);
+              const translation = data?.Translation;
               structure = {
                 strand: data.strand !== undefined ? parseInt(data.strand, 10) : 1,
                 seqRegionName: data.seq_region_name,
-                exons
+                exons,
+                cdsStart: translation?.start !== undefined ? parseInt(translation.start, 10) : undefined,
+                cdsEnd: translation?.end !== undefined ? parseInt(translation.end, 10) : undefined,
+                proteinLength: translation?.length !== undefined ? parseInt(translation.length, 10) : undefined,
+                transcriptVersion: data.version !== undefined ? String(data.version) : undefined
               };
             }
           }
@@ -279,8 +297,9 @@ export async function fetchTranscriptExons(
         console.warn(`[Splice Resolver Error] Ensembl request failed for ${cleanId}:`, err.message);
       }
 
-      // 5. If Ensembl failed or timed out, fallback to UCSC knownGene
-      if (!structure && variantChrom && typeof genomicPos === "number" && Number.isFinite(genomicPos)) {
+      // 5. If Ensembl failed or timed out, fallback to UCSC knownGene. UCSC carries no CDS bounds,
+      // so a mapping caller that needs them must not accept this fallback.
+      if (!structure && !options.requireCds && variantChrom && typeof genomicPos === "number" && Number.isFinite(genomicPos)) {
         console.info(`[Splice Resolver] Falling back to UCSC Genome Browser knownGene for ${cleanId} at ${variantChrom}:${genomicPos}`);
         structure = await fetchExonsFromUcsc(cleanId, variantChrom, genomicPos, "knownGene");
       }
@@ -291,7 +310,7 @@ export async function fetchTranscriptExons(
       exonCache.set(cleanId, structure);
       try {
         const db = AnalysisDatabase.getInstance();
-        await db.saveExternalCacheAsync(`exon:${cleanId}`, structure, "transcript-exons", 90 * 86400);
+        await db.saveExternalCacheAsync(`exon:v2:${cleanId}`, structure, "transcript-exons", 90 * 86400);
       } catch (err: any) {
         console.warn(`[Splice Resolver] L2 SQLite write warning for ${cleanId}:`, err.message);
       }

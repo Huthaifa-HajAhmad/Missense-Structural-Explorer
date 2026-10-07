@@ -209,7 +209,7 @@ describe("LandscapeOverview", () => {
   it("calls a withheld map withheld, not missing, when only the protein mapping is absent", () => {
     render(<LandscapeOverview {...props(ctx([], null, "withheld-mapping"))} />);
     expect(screen.getByText("MISSENSE O/E")).toBeTruthy();
-    expect(screen.getByText("Regional map withheld: no verified transcript-to-protein mapping")).toBeTruthy();
+    expect(screen.getByText("Regional map withheld: transcript-to-protein mapping not verified")).toBeTruthy();
     expect(screen.queryByText("Regional constraint not loaded")).toBeNull();
   });
 

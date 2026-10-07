@@ -288,11 +288,11 @@ export function LandscapeOverview({
           "MISSENSE O/E",
           14,
           width > 0 &&
-            (context?.regions ?? []).map((r) => {
+            (context?.regions ?? []).map((r, i) => {
               const low = r.oe !== null && r.oe < 0.6;
               return (
                 <div
-                  key={`${r.start}-${r.end}`}
+                  key={`${r.start}-${r.end}-${i}`}
                   className="absolute top-[2px] h-[10px] overflow-hidden text-[9px] leading-[10px] pl-1 font-mono rounded-sm"
                   style={{
                     left: x(r.start),
@@ -308,7 +308,7 @@ export function LandscapeOverview({
             }),
           context?.regions === null
             ? context?.regionsStatus === "withheld-mapping"
-              ? "Regional map withheld: no verified transcript-to-protein mapping"
+              ? "Regional map withheld: transcript-to-protein mapping not verified"
               : "Regional constraint not loaded"
             : null
         )}
