@@ -343,7 +343,7 @@ describe("Splice Resolver and Distance Calculator Tests", () => {
       it("persists resolved structure into L2 SQLite and serves from cache on subsequent call", async () => {
         const db = AnalysisDatabase.getInstance();
         const testId = "ENST00000777777";
-        await db.saveExternalCacheAsync(`exon:${testId}`, {
+        await db.saveExternalCacheAsync(`exon:v2:${testId}`, {
           strand: 1,
           seqRegionName: "1",
           exons: [

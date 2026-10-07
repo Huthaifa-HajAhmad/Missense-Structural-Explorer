@@ -16,6 +16,11 @@ export interface TranscriptExonStructure {
   strand: number;
   seqRegionName?: string;
   exons: EnsemblExonData[];
+  /** Coding-sequence bounds (1-based inclusive, genomic) and protein length, from Ensembl's Translation. */
+  cdsStart?: number;
+  cdsEnd?: number;
+  proteinLength?: number;
+  transcriptVersion?: string;
 }
 
 const exonCache = new LRUCache<string, TranscriptExonStructure>({ max: 500 });
@@ -220,7 +225,7 @@ export async function fetchTranscriptExons(
     // 2. Check L2 Persistent SQLite Cache
     try {
       const db = AnalysisDatabase.getInstance();
-      const l2Entry = await db.getExternalCacheAsync<TranscriptExonStructure>(`exon:${cleanId}`);
+      const l2Entry = await db.getExternalCacheAsync<TranscriptExonStructure>(`exon:v2:${cleanId}`);
       if (l2Entry?.data && Array.isArray(l2Entry.data.exons) && l2Entry.data.exons.length > 0) {
         exonCache.set(cleanId, l2Entry.data);
         return l2Entry.data;
@@ -265,10 +270,15 @@ export async function fetchTranscriptExons(
 
             if (exons.length > 0) {
               exons.sort((a, b) => a.start - b.start);
+              const translation = data?.Translation;
               structure = {
                 strand: data.strand !== undefined ? parseInt(data.strand, 10) : 1,
                 seqRegionName: data.seq_region_name,
-                exons
+                exons,
+                cdsStart: translation?.start !== undefined ? parseInt(translation.start, 10) : undefined,
+                cdsEnd: translation?.end !== undefined ? parseInt(translation.end, 10) : undefined,
+                proteinLength: translation?.length !== undefined ? parseInt(translation.length, 10) : undefined,
+                transcriptVersion: data.version !== undefined ? String(data.version) : undefined
               };
             }
           }
@@ -291,7 +301,7 @@ export async function fetchTranscriptExons(
       exonCache.set(cleanId, structure);
       try {
         const db = AnalysisDatabase.getInstance();
-        await db.saveExternalCacheAsync(`exon:${cleanId}`, structure, "transcript-exons", 90 * 86400);
+        await db.saveExternalCacheAsync(`exon:v2:${cleanId}`, structure, "transcript-exons", 90 * 86400);
       } catch (err: any) {
         console.warn(`[Splice Resolver] L2 SQLite write warning for ${cleanId}:`, err.message);
       }

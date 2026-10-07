@@ -1,7 +1,10 @@
 import { fetchWithRetry, normalizeGeneSymbol } from "../infra/http-client.ts";
 import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
+import { getConstraintIndex } from "../external-api/constraint-snapshot.ts";
 import { REGIONAL_CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
+import { mapGenomicIntervalToProtein } from "../../../src/shared/constraintRegionMapping.ts";
 import type { LandscapeContext } from "../../../src/shared/contracts.ts";
+import { fetchTranscriptExons } from "./splice_resolver.ts";
 
 /**
  * Gene-wide context for the Landscape overview: where ClinVar and gnomAD have missense variants,
@@ -10,8 +13,9 @@ import type { LandscapeContext } from "../../../src/shared/contracts.ts";
  *
  * ClinVar and gnomAD come from gnomAD's GraphQL API on GRCh38, restricted to gnomAD's canonical
  * transcript so residue numbers match the landscape's MANE numbering in the usual case (gnomAD v4
- * canonical = MANE Select for most genes). Regional v4.1.1 data use genomic intervals; this protein-axis view withholds them
- * until a verified exon/protein mapping is available.
+ * canonical = MANE Select for most genes). Regional v4.1.1 intervals are genomic; they are projected
+ * onto the protein axis through the transcript's verified CDS model, and withheld when no model can
+ * be verified rather than projected blind.
  */
 
 import { classifyClinvar, type ClinvarClass } from "../../../src/shared/clinvarClassification.ts";
@@ -152,17 +156,48 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     sourceFailed = true;
     regionsStatus = "unavailable";
     errors.push("Regional constraint not loaded");
-  } else if (constraintRes.value?.hasRegionalData) {
-    // v4.1.1 intervals are GRCh38 genomic ranges. Rendering them on a protein axis without a
-    // verified exon/CDS mapping would recreate the transcript-numbering defect this migration
-    // fixes, so the lane is withheld — a refusal, not a missing value.
-    regionsStatus = "withheld-mapping";
-    errors.push(`Regional map withheld: gnomAD v${REGIONAL_CONSTRAINT_RELEASE} intervals require verified transcript-to-protein mapping.`);
-  } else {
+  } else if (!constraintRes.value?.hasRegionalData) {
     // Fulfilled null (no constraint record for this gene) or a transcript with no released interval
     // is a confirmed "no call", not an outage, so the answer stays cacheable.
     regionsStatus = "none";
     regions = [];
+  } else {
+    // Intervals exist. They are numbered on the constraint transcript; the Landscape residue axis is
+    // numbered on the gnomAD canonical transcript the ClinVar/gnomAD lanes use. If the two disagree,
+    // projecting would mislabel residues, so refuse.
+    const transcriptId = constraintRes.value.provenance?.transcriptId ?? null;
+    const landscapeTx = transcript?.split(".")[0] ?? null;
+    if (landscapeTx && transcriptId && landscapeTx !== transcriptId) {
+      regionsStatus = "withheld-mapping";
+      errors.push(`Regional map withheld: constraint transcript ${transcriptId} does not match the landscape transcript ${landscapeTx}.`);
+    } else {
+      const structure = transcriptId ? await fetchTranscriptExons(transcriptId) : null;
+      const model = structure && structure.exons.length > 0 && structure.cdsStart !== undefined && structure.cdsEnd !== undefined
+        ? { strand: structure.strand, cdsStart: structure.cdsStart, cdsEnd: structure.cdsEnd, exons: structure.exons }
+        : null;
+      if (!model) {
+        // The model source failed, or the transcript is not coding: withhold, and retry on the next
+        // request rather than caching a refusal that may be transient.
+        sourceFailed = true;
+        regionsStatus = "withheld-mapping";
+        errors.push(`Regional map withheld: no verified CDS model for ${transcriptId ?? "the constraint transcript"}.`);
+      } else {
+        const raw = transcriptId ? getConstraintIndex().regions.get(transcriptId) ?? [] : [];
+        const mapped = raw
+          .map((r) => ({ span: mapGenomicIntervalToProtein(model, r.start, r.end), oe: r.oe, p: r.p }))
+          .filter((r): r is { span: { start: number; end: number }; oe: number; p: number } => r.span !== null)
+          .map((r) => ({ start: r.span.start, end: r.span.end, oe: r.oe, pValue: r.p }))
+          .sort((x, y) => x.start - y.start);
+        if (mapped.length) {
+          regionsStatus = "available";
+          regions = mapped;
+        } else {
+          // Intervals exist but none fall in coding sequence: no protein-axis call, not a withheld map.
+          regionsStatus = "none";
+          regions = [];
+        }
+      }
+    }
   }
 
   const value: LandscapeContext = {
@@ -171,7 +206,9 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     regions,
     regionsStatus,
     transcript,
-    regionsBasis: `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} genomic intervals`,
+    regionsBasis: regionsStatus === "available"
+      ? `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} regional missense, protein residues`
+      : `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} genomic intervals`,
     errors
   };
   // Cache only when every source answered; a partial answer is retried on the next request.
