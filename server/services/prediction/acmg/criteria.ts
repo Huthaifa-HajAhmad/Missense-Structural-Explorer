@@ -358,15 +358,15 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         reason: `Allele frequency significantly higher than expected for disorder (${pct(maxFreq, 3)} > ${pct(FREQ.tooCommonForDisorder, 1)})${fallbackSuffix}.`,
       });
     } else {
-      // PM2 inheritance-mode awareness (dominant: ≤ 0.01%, recessive: ≤ 0.1%)
+      // PM2 local pLI-based ceiling (lower: ≤ 0.01%, higher: ≤ 0.1%); this does not establish inheritance
       let pm2Threshold: number = FREQ.extremelyRare;
-      let inheritanceModeText = "dominant/unknown";
+      let inheritanceModeText = "lower ceiling; pLI not available";
       if (gnomadConstraint?.pli !== null && gnomadConstraint?.pli !== undefined) {
         if (gnomadConstraint.pli < FREQ.recessivePlI) {
           pm2Threshold = FREQ.extremelyRareRecessive;
-          inheritanceModeText = `likely recessive (pLI < ${FREQ.recessivePlI})`;
+          inheritanceModeText = `higher ceiling (pLI < ${FREQ.recessivePlI})`;
         } else {
-          inheritanceModeText = `likely dominant (pLI ≥ ${FREQ.recessivePlI})`;
+          inheritanceModeText = `lower ceiling (pLI ≥ ${FREQ.recessivePlI})`;
         }
       }
 
@@ -374,7 +374,7 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
         if (!skipPathogenicComp) {
           criteria.push({
             code: "PM2",
-            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% threshold for ${inheritanceModeText} inheritance)${fallbackSuffix}. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).`,
+            reason: `Variant is extremely rare in population databases (frequency ${(maxFreq * 100).toFixed(4)}% ≤ ${(pm2Threshold * 100).toFixed(2)}% app-defined threshold: ${inheritanceModeText}; pLI does not establish disease-specific inheritance)${fallbackSuffix}. Applied at Supporting strength (ClinGen SVI 2020, PM2_Supporting).`,
           });
         }
       }

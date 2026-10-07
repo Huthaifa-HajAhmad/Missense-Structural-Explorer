@@ -54,8 +54,8 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
 
   const bands: Array<{ key: string; code: string | null; rule: string; label: string; tone: "danger" | "good" | "neutral" }> = [
     { key: "pp3", code: "PP3", rule: `≥ ${S.splicingPp3.toFixed(1)}`, label: "PP3 · splicing", tone: "danger" },
-    { key: "between", code: null, rule: `${S.splicingBp4Below.toFixed(1)}–<${S.splicingPp3.toFixed(1)}`, label: "Neither", tone: "neutral" },
-    { key: "bp4", code: "BP4", rule: `< ${S.splicingBp4Below.toFixed(1)}`, label: "BP4 · splicing", tone: "good" },
+    { key: "between", code: null, rule: `>${S.splicingBp4Below.toFixed(1)}–<${S.splicingPp3.toFixed(1)}`, label: "Neither", tone: "neutral" },
+    { key: "bp4", code: "BP4", rule: `\u2264 ${S.splicingBp4Below.toFixed(1)}`, label: "BP4 · splicing", tone: "good" },
   ];
 
   const md: any = (analysisResult as any).metadata ?? {};
@@ -94,8 +94,8 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <Step n={2} label="Splicing rule · Walker 2023" state={rule.code ? "done" : "idle"}>
             <span>
               {rule.state === "pp3" ? `≥ ${S.splicingPp3.toFixed(1)} → supports PP3`
-                : rule.state === "bp4" ? `< ${S.splicingBp4Below.toFixed(1)} → supports BP4`
-                : rule.state === "between" ? `≥ ${S.splicingBp4Below.toFixed(1)} and < ${S.splicingPp3.toFixed(1)} → neither`
+                : rule.state === "bp4" ? `\u2264 ${S.splicingBp4Below.toFixed(1)} → supports BP4`
+                : rule.state === "between" ? `> ${S.splicingBp4Below.toFixed(1)} and < ${S.splicingPp3.toFixed(1)} → neither`
                 : "Not applied — needs a SpliceAI score"}
             </span>
             <span className="spl-step__sub">SpliceAI decides it alone. Distance and dbscSNV do not.</span>
@@ -168,7 +168,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <ul>
             <li>
               The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for predicted splicing impact at a SpliceAI
-              max Δ ≥ {S.splicingPp3}, and BP4 below {S.splicingBp4Below}. This app&apos;s engine does not apply either: its PP3/BP4 comes from the
+              max Δ ≥ {S.splicingPp3}, and BP4 at or below {S.splicingBp4Below}. This app&apos;s engine does not apply either: its PP3/BP4 comes from the
               missense vote only, so the splicing reading here is shown beside it, never as a recorded code.
             </li>
             <li>

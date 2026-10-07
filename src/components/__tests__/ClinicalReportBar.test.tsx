@@ -54,6 +54,7 @@ describe("ClinicalReportBar", () => {
     renderScreen();
     expect(screen.getByTestId("report-verdict")).toHaveTextContent("Variant of Uncertain Significance (VUS)");
     const card = document.getElementById("report-classification")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Show all checked criteria" }));
     const ps3 = within(card).getByText("PS3").closest("tr")!;
     expect(ps3).toHaveTextContent("Not counted");
   });
@@ -91,7 +92,7 @@ describe("ClinicalReportBar", () => {
     const card = () => document.querySelector('[data-block="classification"]') as HTMLElement;
     fireEvent.click(within(card()).getByRole("button", { name: "Edit" }));
     fireEvent.change(within(card()).getByRole("textbox"), { target: { value: "My reading of the case." } });
-    fireEvent.click(within(card()).getByRole("button", { name: "Done" }));
+    fireEvent.click(within(card()).getByRole("button", { name: "Save text" }));
 
     expect(card()).toHaveTextContent("My reading of the case.");
     expect(card()).toHaveTextContent("Edited by the author");
@@ -117,5 +118,27 @@ describe("ClinicalReportBar", () => {
       </SettingsProvider>
     );
     expect(screen.getByTestId("report-empty")).toBeInTheDocument();
+  });
+});
+
+
+describe("report authoring transactions", () => {
+  it("cancels an edit without modifying the draft", () => {
+    renderScreen();
+    const card = document.getElementById("report-classification")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(card).getByRole("textbox"), { target: { value: "Discard this" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
+    expect(useVariantAnalysisStore.getState().reportEdits.classification).toBeUndefined();
+    expect(card).not.toHaveTextContent("Discard this");
+  });
+  it("saves intentional blank prose without clearing the protected verdict", () => {
+    renderScreen();
+    const card = document.getElementById("report-classification")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(card).getByRole("textbox"), { target: { value: "" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Save text" }));
+    expect(useVariantAnalysisStore.getState().reportEdits.classification?.text).toBe("");
+    expect(screen.getByTestId("report-verdict")).toHaveTextContent("VUS");
   });
 });

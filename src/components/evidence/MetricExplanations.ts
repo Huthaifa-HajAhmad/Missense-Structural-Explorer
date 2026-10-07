@@ -251,7 +251,7 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     name: "SpliceAI",
     category: "Deep Residual Splicing Network",
     description: "SpliceAI is a deep residual neural network that predicts, for each position, the probability of being a splice donor or acceptor from 10,000 nt of surrounding sequence (5,000 each side). A variant's delta scores are the change in those probabilities for acceptor gain, acceptor loss, donor gain and donor loss.",
-    interpretation: "Delta scores run from 0 to 1 and are changes in probability, not probabilities of disruption. The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for splicing at a max Δ ≥ 0.2 and BP4 below 0.1. The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision) as operating points, not strengths. This app's ACMG engine does not apply splicing criteria.",
+    interpretation: "Delta scores run from 0 to 1 and are changes in probability, not probabilities of disruption. The ClinGen SVI Splicing Subgroup (Walker 2023) applies PP3 for splicing at a max Δ ≥ 0.2 and BP4 at or below 0.1. The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision) as operating points, not strengths. This app's ACMG engine does not apply splicing criteria.",
     paperTitle: "Jaganathan et al. Cell (2019)",
     paperUrl: "https://doi.org/10.1016/j.cell.2018.12.015"
   },

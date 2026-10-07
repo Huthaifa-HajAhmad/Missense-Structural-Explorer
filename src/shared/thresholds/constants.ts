@@ -17,19 +17,11 @@ export const THRESHOLDS_METADATA = {
 
 export const THRESHOLDS = {
   spliceai: {
-    /**
-     * ClinGen SVI Splicing Subgroup (Walker et al. 2023, doi:10.1016/j.ajhg.2023.06.002): SpliceAI
-     * max delta score ≥ 0.2 supports PP3 for predicted splicing impact; a score below 0.1 supports
-     * BP4 (and BP7). Verified 2026-09 against the ClinGen Criteria Specification Registry text that
-     * cites Walker 2023 ("a score equal to or >0.2" / "based on a score <0.1"); the paper's own
-     * full text could not be fetched in that review. Between the two, neither criterion.
-     *
-     * These replaced `pathogenicSupporting: 0.20` / `benign: 0.02`. The 0.02 was cited to a "ClinGen
-     * SVI Recommendation (2019)" that does not exist; it made BP4 five times harder to reach than
-     * the published rule and called 0.02–0.1 "low disruption risk" instead of a BP4 reading.
+    /** Walker 2023, Table 1 and primary analysis: >=0.20 / <=0.10.
+     * Earlier registry wording used a strict lower boundary; the primary paper includes equality.
+     * These are splicing context bands, not criteria emitted by this engine.
      */
     splicingPp3: 0.2,
-    /** BP4 needs a score strictly BELOW this (Walker 2023, as quoted by the ClinGen registry: "<0.1"). */
     splicingBp4Below: 0.1,
     /**
      * The authors' characterised operating points (Jaganathan 2019; Illumina SpliceAI README: "0.2
@@ -513,7 +505,7 @@ export const THRESHOLD_NOTES: Record<string, string> = {
   loeuf:
     "gnomAD LOEUF (upper bound of observed/expected loss-of-function). gnomAD suggests < 0.6 as constrained. Loss-of-function constraint, not missense evidence; no ACMG criterion in this engine reads it.",
   spliceai:
-    "SpliceAI (Jaganathan 2019). Splicing PP3 at max ΔScore ≥ 0.20, BP4 below 0.10 (ClinGen SVI Splicing " +
+    "SpliceAI (Jaganathan 2019). Splicing PP3 at max ΔScore ≥ 0.20, BP4 at or below 0.10 (ClinGen SVI Splicing " +
     "Subgroup, Walker 2023). The authors characterise 0.2 (high recall), 0.5 (recommended) and 0.8 (high precision); " +
     "those are operating points, not ACMG strengths. A delta score is not a probability.",
   dbscsnv:

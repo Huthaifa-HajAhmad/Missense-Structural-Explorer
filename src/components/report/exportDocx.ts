@@ -29,7 +29,7 @@ export async function buildReportDocx(doc: ReportDocument): Promise<Blob> {
   const d = await import("docx");
   const {
     AlignmentType, BorderStyle, Document, Footer, HeadingLevel, Packer, PageNumber, Paragraph, ShadingType,
-    Table, TableCell, TableRow, TextRun, WidthType,
+    Table, TableCell, TableRow, TextRun, WidthType, ExternalHyperlink,
   } = d;
 
   const runs = (rs: ProseRun[]) => rs.map(r => new TextRun({ text: r.text, bold: r.bold }));
@@ -123,6 +123,8 @@ export async function buildReportDocx(doc: ReportDocument): Promise<Blob> {
     out.push(new Paragraph({ text: b.title, heading: HeadingLevel.HEADING_2, keepNext: true, spacing: { before: 320, after: 80 } }));
     const chipText = [...b.chips.map(c => c.label), ...(b.edited && !b.chips.some(c => /edited/i.test(c.label)) ? ["Edited by the author"] : [])].join("  ·  ");
     if (chipText) out.push(new Paragraph({ children: [new TextRun({ text: chipText, color: MUTED, size: 18, italics: true })], spacing: { after: 100 }, keepNext: true }));
+    for (const warning of b.warnings) out.push(new Paragraph({ children: [new TextRun({ text: warning, bold: true, size: 20, color: "8B5E1A" })], spacing: { after: 100 } }));
+    for (const ref of b.references) out.push(new Paragraph({ children: [new ExternalHyperlink({ link: ref.url, children: [new TextRun({ text: ref.label, style: "Hyperlink" })] })] }));
     if (b.verdict) {
       out.push(new Paragraph({ children: [new TextRun({ text: b.verdict.text ?? "Not classified", bold: true, size: 40, color: INK })], spacing: { after: 100 }, keepNext: true }));
       out.push(ladder(b), spacer());
@@ -150,7 +152,7 @@ export async function buildReportDocx(doc: ReportDocument): Promise<Blob> {
     }),
   ];
   if (f.omitted.length) end.push(new Paragraph({ children: [new TextRun({ text: `Not included by the author: ${f.omitted.join("; ")}.`, color: MUTED, size: 18 })], spacing: { after: 60 } }));
-  end.push(new Paragraph({ children: [new TextRun({ text: `Document ID ${f.documentId}: a checksum of the report text; it detects later changes and does not prove authorship.`, color: MUTED, size: 18 })] }));
+  end.push(new Paragraph({ children: [new TextRun({ text: `Document ID ${f.documentId}: a canonical content identifier, excluding export time and file format; it does not prove authorship.`, color: MUTED, size: 18 })] }));
 
   const file = new Document({
     creator: doc.meta.preparedBy || f.app,

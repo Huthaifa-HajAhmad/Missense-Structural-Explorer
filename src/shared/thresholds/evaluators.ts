@@ -165,7 +165,7 @@ export function evaluatePopEve(score: number | null | undefined): PredictorSigna
 
 /**
  * The splicing half of PP3/BP4: SpliceAI's max delta score on the ClinGen SVI Splicing Subgroup
- * bands (Walker et al. 2023) — ≥ 0.2 supports PP3, below 0.1 supports BP4, between is neither.
+ * bands (Walker et al. 2023) — ≥ 0.2 supports PP3, at or below 0.1 supports BP4, between is neither.
  *
  * ONE input decides it. The previous rule also returned "pathogenic" for any variant within 5 bp of
  * a junction and for a dbscSNV score ≥ 0.6, required > 12 bp from the junction before anything
@@ -186,7 +186,7 @@ export function evaluateSplicePredictor(
   const maxDs = spliceai?.max_ds;
   if (maxDs === null || maxDs === undefined || !Number.isFinite(maxDs)) return "unavailable";
   if (maxDs >= THRESHOLDS.spliceai.splicingPp3) return "pathogenic";
-  if (maxDs < THRESHOLDS.spliceai.splicingBp4Below) return "benign";
+  if (maxDs <= THRESHOLDS.spliceai.splicingBp4Below) return "benign";
   return "vus";
 }
 

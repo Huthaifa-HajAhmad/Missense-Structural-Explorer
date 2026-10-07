@@ -525,7 +525,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
           </table>
           <div className="spl-table-foot" aria-label="Legend">
             <span className="spl-legend__item"><i className="spl-legend__band" data-side="path" />PP3 · splicing ≥ {THRESHOLDS.spliceai.splicingPp3.toFixed(1)}</span>
-            <span className="spl-legend__item"><i className="spl-legend__band" data-side="benign" />BP4 · splicing &lt; {THRESHOLDS.spliceai.splicingBp4Below.toFixed(1)}</span>
+            <span className="spl-legend__item"><i className="spl-legend__band" data-side="benign" />BP4 · splicing &le; {THRESHOLDS.spliceai.splicingBp4Below.toFixed(1)}</span>
             <span className="spl-legend__item"><i className="spl-legend__tick" />Authors&apos; cut-point</span>
             <span className="spl-legend__item"><i className="spl-legend__marker" />This variant</span>
           </div>

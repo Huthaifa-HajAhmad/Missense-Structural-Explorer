@@ -135,7 +135,7 @@ describe("evidence blocks", () => {
     expect(comp.counted).toEqual(["PP3"]);
     expect(comp.chips.map(c => c.label)).toContain("PP3 counted");
     expect(comp.text).toContain("says tolerated");
-    expect(comp.table!.headers).toEqual(["Tool", "Score", "Call", "Role"]);
+    expect(comp.table!.headers).toEqual(["Tool", "Score", "Reading", "Role", "Method and caveats"]);
   });
 
   it("prints the stability engines with canonical signs and says it is not an ACMG input", () => {
@@ -293,5 +293,47 @@ describe("json", () => {
     expect(comp.drafted).toContain("says tolerated");
     expect(json.documentId).toBe(doc.footer.documentId);
     expect(json.schema).toBe("mse.report-document/1");
+  });
+});
+
+
+describe("report audit regression contracts", () => {
+  it("preserves intentionally blank edits instead of restoring generated prose", () => {
+    const doc = buildReportDocument(input({ edits: { summary: { text: "", base: "old" } } }));
+    expect(block(doc, "summary").text).toBe("");
+    expect(block(doc, "summary").edited).toBe(true);
+  });
+  it("exports the structured engine verdict and annotations in JSON", () => {
+    const doc = buildReportDocument(input());
+    const json: any = renderReportJson(doc);
+    expect(json.blocks.find((b: any) => b.key === "classification").verdict).toEqual(block(doc, "classification").verdict);
+    expect(json.blocks.find((b: any) => b.key === "summary").chips.some((c: any) => c.label === "AI-written")).toBe(true);
+    expect(renderReportText(doc)).toContain("AI-written");
+  });
+  it("carries evidence-change warnings in every document rendering", () => {
+    const doc = buildReportDocument(input({ edits: { computational: { text: "Author judgment", base: "old" } } }));
+    for (const rendered of [renderReportText(doc), renderReportHtml(doc), JSON.stringify(renderReportJson(doc))]) expect(rendered).toContain("Evidence changed after this text was edited");
+  });
+  it("detects changed score facts even when generated prose is identical", () => {
+    const original = input();
+    const baseDoc = buildReportDocument(original);
+    const base = block(baseDoc, "computational");
+    const changed = { ...original.result!, predictorData: { ...original.result!.predictorData!, caddPhred: 26.4 } };
+    const doc = buildReportDocument({ ...original, result: changed, edits: { computational: { text: "My reading", base: base.drafted, evidenceId: base.evidenceId } } });
+    expect(block(doc, "computational").drafted).toBe(base.drafted);
+    expect(block(doc, "computational").stale).toBe(true);
+  });
+  it("identifies canonical content without claiming an exact-file checksum", () => {
+    const doc = buildReportDocument(input());
+    const stamped = buildReportDocument(input({ generatedAt: "2030-01-01T00:00:00Z" }));
+    expect(stamped.footer.documentId).toBe(doc.footer.documentId);
+    expect(renderReportText(stamped)).toContain("excludes export time and file formatting");
+    const changed = buildReportDocument(input({ edits: { summary: { text: "Author", base: "old" } } }));
+    expect(changed.footer.documentId).not.toBe(doc.footer.documentId);
+  });
+  it("does not export executable citation URLs", () => {
+    const doc = buildReportDocument(input({ citations: [{ id: "paper", title: "Paper", authors: "Authors", journal: "Journal", year: 2026, url: "javascript:alert(1)" }] }));
+    expect(block(doc, "literature").references).toEqual([]);
+    expect(renderReportHtml(doc)).not.toContain("javascript:");
   });
 });
