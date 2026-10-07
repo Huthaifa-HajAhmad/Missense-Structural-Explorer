@@ -295,6 +295,9 @@ END
     it("should enrich alphagenome from predictor promise with colon or Ensembl coordinates", async () => {
       const { fetchConservationDataProgressive } = await import("../predictors.ts");
       const { setAlphaGenomeMockProvider } = await import("../alphagenome-bridge.ts");
+      // Only the AlphaGenome enrichment is under test. The sibling conservation and splice lookups
+      // reach live Ensembl, which made this test depend on CI network speed (25 s timeout on main).
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
 
       setAlphaGenomeMockProvider(async () => ({
         status: "live",
@@ -324,6 +327,7 @@ END
       expect(res.alphagenome?.acmgStrength).toBe("PP3_Moderate");
 
       setAlphaGenomeMockProvider(null);
+      vi.unstubAllGlobals();
     }, 25000);
 
     /**
