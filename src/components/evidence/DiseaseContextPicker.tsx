@@ -20,6 +20,7 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry 
         <option value="">{frames.length ? 'Choose a disease and inheritance' : !load || load.status === 'loading' ? 'Loading disease choices…' : 'Disease choices unavailable'}</option>
         {frames.map(frame => <option key={frame.key} value={frame.key}>{frame.label} · {frame.inheritance.label} · {frame.diseaseId}{frame.selectionSource === 'Gene2Phenotype' ? ' · G2P choice; no GenCC assertion' : ''}</option>)}
       </select>
+      {frames.length === 1 && selection.diseaseKey !== frames[0].key && <button type="button" className="ctx-button" onClick={() => onChange(selectDisease(selection, frames[0].key))}>Review the only curated disease: {frames[0].label}</button>}
       <p className="ctx-caption">Disease choice is shared across both context tabs. Your review systems stay selected when the disease changes.</p>
       {frames.some(f => f.selectionSource === 'Gene2Phenotype') && <p className="ctx-caption">Additional choices use verified G2P gene and MONDO IDs with the supported local allelic mapping. They do not imply GenCC validity coverage. Other allelic requirements and HPO-only choices remain to add.</p>}
       {!load || load.status === 'loading' ? <p role="status">{ENGINE_STATE_LABELS.running} — reading the installed GenCC snapshot.</p>

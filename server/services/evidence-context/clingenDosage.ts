@@ -10,7 +10,7 @@ import { DOSAGE_SOURCE_URL, dosageResponseSchema, parseDosageScore, type DosageR
 const rowSchema = z.object({
   symbol: z.string(), hgnc_id: z.string().nullable().optional(), location: z.string().nullable().optional(),
   haplo_assertion: z.unknown(), triplo_assertion: z.unknown(),
-  haplo_disease: z.string().nullable().optional(), haplo_mondo: z.string().nullable().optional(), haplo_history: z.string().nullable().optional(),
+  haplo_disease: z.string().nullable().optional(), haplo_mondo: z.string().nullable().optional(), haplo_disease_id: z.string().nullable().optional(), triplo_disease_id: z.string().nullable().optional(), haplo_history: z.string().nullable().optional(),
   triplo_disease: z.string().nullable().optional(), triplo_mondo: z.string().nullable().optional(), triplo_history: z.string().nullable().optional(),
   rawdate: z.string().nullable().optional(),
 });
@@ -44,8 +44,8 @@ export async function loadDosageContext(gene: string): Promise<DosageResponse> {
       ({ ...parseDosageScore(value), disease: disease || null, diseaseId: id && /^MONDO:\d+$/.test(id) ? id : null, history: history || null });
     return dosageResponseSchema.parse({ gene, status: 'ready', provenance, message: null, record: {
       symbol: row.symbol, geneId: row.hgnc_id, location: row.location ?? null,
-      haploinsufficiency: score(row.haplo_assertion, row.haplo_disease, row.haplo_mondo, row.haplo_history),
-      triplosensitivity: score(row.triplo_assertion, row.triplo_disease, row.triplo_mondo, row.triplo_history),
+      haploinsufficiency: score(row.haplo_assertion, row.haplo_disease, row.haplo_mondo ?? row.haplo_disease_id, row.haplo_history),
+      triplosensitivity: score(row.triplo_assertion, row.triplo_disease, row.triplo_mondo ?? row.triplo_disease_id, row.triplo_history),
       evaluatedAt: row.rawdate?.slice(0, 10) ?? null, reportUrl: `https://search.clinicalgenome.org/kb/gene-dosage/${row.hgnc_id}` } });
   } catch { return { gene, status: 'error', record: null, provenance: null, message: 'ClinGen did not return a complete, valid dosage table.' }; }
 }

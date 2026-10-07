@@ -41,7 +41,7 @@ export type DosageResponse = z.infer<typeof dosageResponseSchema>;
 
 /** Source value → state + code. Unknown codes (e.g. -5) are "not reported", never coerced to a score. */
 export function parseDosageScore(value: unknown): Pick<DosageScore, 'state' | 'code'> {
-  if (typeof value === 'string' && /^not yet evaluated/i.test(value.trim())) return { state: 'not-evaluated', code: null };
+  if (typeof value === 'string' && /^not (?:yet )?evaluated/i.test(value.trim())) return { state: 'not-evaluated', code: null };
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(/^\s*(\d+)\b/.exec(value)?.[1] ?? NaN) : NaN;
   return (DOSAGE_CODES as readonly number[]).includes(n) ? { state: 'scored', code: n as DosageCode } : { state: 'not-reported', code: null };
 }

@@ -29,7 +29,7 @@ export function DosageSensitivityCard({ load, selectedDiseaseId, onRetry }: {
         <thead><tr><th scope="col">Question</th><th scope="col">ClinGen call</th><th scope="col">Curated disease</th></tr></thead>
         <tbody>{evidence.readings.map(r => <Reading key={r.key} r={r} />)}</tbody>
       </table></div>
-      <p className="ctx-card__foot">Gene-level copy-number evidence{evidence.evaluatedAt ? `, last evaluated ${evidence.evaluatedAt}` : ''}. It does not show whether this missense change loses function, and casts no ACMG vote. <a className="ctx-link" href={evidence.reportUrl!} target="_blank" rel="noreferrer">ClinGen curation<ExternalLink size={12} aria-hidden="true" /></a></p>
+      <p className="ctx-card__foot">Gene-level copy-number evidence{evidence.evaluatedAt ? `, last evaluated ${evidence.evaluatedAt}` : ''}. It does not show whether this missense change loses function, and casts no ACMG vote. <a className="ctx-link" href={evidence.reportUrl!} target="_blank" rel="noreferrer">ClinGen curation<span className="ctx-sr-only"> (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a></p>
     </> : <div className="ctx-card__body" role="status">
       {evidence.state === 'loading' || evidence.state === 'not-requested' ? <p>{ENGINE_STATE_LABELS.running} — reading ClinGen dosage curation.</p>
         : evidence.state === 'not-found' ? <p>{evidence.message ?? 'No ClinGen dosage curation for this gene.'}</p>

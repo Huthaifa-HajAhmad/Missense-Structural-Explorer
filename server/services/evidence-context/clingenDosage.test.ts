@@ -12,6 +12,10 @@ describe('ClinGen dosage adapter', () => {
     expect(r.record?.triplosensitivity.state).toBe('not-reported'); expect(r.record?.evaluatedAt).toBe('2026-08-11');
     expect(r.provenance?.sha256).toMatch(/^[a-f0-9]{64}$/);
   });
+  it('reads the disease ID from either field name ClinGen uses', async () => {
+    const r = await (await load([row('G', { haplo_mondo: undefined, haplo_disease_id: 'MONDO:7' })]))('G');
+    expect(r.record?.haploinsufficiency.diseaseId).toBe('MONDO:7');
+  });
   it('reports not-found for an unlisted gene without guessing aliases', async () => {
     expect((await (await load([row('SOD1')]))('sod1')).status).toBe('not-found');
   });

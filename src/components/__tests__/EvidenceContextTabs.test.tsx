@@ -66,6 +66,27 @@ describe('context tab claims and interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(context.value.retryDosage).toHaveBeenCalledOnce();
   });
+  it('offers one-click selection when exactly one disease is curated, without choosing for the user', () => {
+    const onChange = vi.fn();
+    render(<DiseaseContextPicker gene="TEST" load={context.value.diseaseLoad} selection={context.value.selection} onChange={onChange} onRetry={vi.fn()} />);
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: /Review the only curated disease: Example disease/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ diseaseKey: frame.key }));
+  });
+  it('matches ClinVar conditions to the selected disease by identifier, never by name', () => {
+    context.value.selection.diseaseKey = frame.key;
+    const clinvar = (conditions: any[]) => ({ ...props.analysisState.result, clinvar: { classification: 'Pathogenic', reviewStatus: 'criteria provided', lastEvaluated: '', alleleFrequencies: [], trait: 'x', uid: '1', conditions } });
+    const view = (conditions: any[]) => render(<GeneDiseaseTab {...({ analysisState: { ...props.analysisState, result: clinvar(conditions) } } as any)} />);
+    let r = view([{ label: 'Example disease', xrefs: [{ source: 'OMIM', id: '1' }] }]);
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/records other conditions/)).toBeVisible();   // same name, different ID
+    r.unmount();
+    r = view([{ label: 'Renamed', xrefs: [{ source: 'MONDO', id: 'MONDO:1' }] }]);
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/lists the selected disease/)).toBeVisible();
+    expect(screen.getByText(/not attributed to this disease/)).toBeVisible();
+    r.unmount();
+    view([{ label: 'Old', xrefs: [] }]);
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/no usable identifiers/)).toBeVisible();
+  });
   it('leads with refutation and retains every submitter', () => {
     context.value.selection.diseaseKey = frame.key; render(<GeneDiseaseTab {...props} />);
     expect(screen.getByText('Disputed or refuted assertions require review.')).toBeInTheDocument();

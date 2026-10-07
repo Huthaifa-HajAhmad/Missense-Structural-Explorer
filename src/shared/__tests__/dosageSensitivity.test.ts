@@ -10,6 +10,7 @@ describe('ClinGen dosage score parsing', () => {
     expect(parseDosageScore(value)).toEqual({ state: 'scored', code });
   });
   it('keeps absence distinct from score 0', () => {
+    expect(parseDosageScore('Not evaluated')).toEqual({ state: 'not-evaluated', code: null });
     expect(parseDosageScore('Not yet evaluated')).toEqual({ state: 'not-evaluated', code: null });
     for (const v of [-5, null, undefined, '7', 'abc']) expect(parseDosageScore(v)).toEqual({ state: 'not-reported', code: null });
   });

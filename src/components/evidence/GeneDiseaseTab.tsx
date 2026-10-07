@@ -3,9 +3,10 @@ import { ExternalLink } from 'lucide-react';
 import type { TabComponentProps } from './types';
 import { useEvidenceContext } from '../../hooks/useEvidenceContext';
 import { buildGeneDiseaseEvidence } from '../../shared/diseaseFrame';
-import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { DiseaseContextPicker } from './DiseaseContextPicker';
+import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { MechanismContextCard } from './MechanismContextCard';
+import { VariantLocusCard } from './VariantLocusCard';
 import { DosageSensitivityCard } from './DosageSensitivityCard';
 import { validityTone } from '../../shared/diseaseFrame';
 
@@ -20,6 +21,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
     <header className="ctx-heading"><div><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Causal relationship, disease mechanism and variant context.</p></div></header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
+    <DosageSensitivityCard load={context.dosageLoad} selectedDiseaseId={evidence.selected?.diseaseId ?? null} onRetry={context.retryDosage} />
     {evidence.selected && <>
       <section className="ctx-card"><div className="ctx-card__body">
         <p className="ctx-eyebrow">{evidence.selected.inheritance.label} · <span className="ctx-mono">{evidence.selected.diseaseId}</span></p>
@@ -28,7 +30,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
         {!!evidence.adverse.length && <p className="ctx-notice" role="status">At least one submitter disputes or refutes this relationship. Read the assertions below before interpreting other context.</p>}
       </div></section>
       <section className="ctx-card"><div className="ctx-card__head"><h2>Causality assertions</h2><span className="ctx-caption">GenCC · each submitter retained</span></div>
-        {!evidence.assertions.length && <p className="ctx-card__body">{evidence.finding} The selected disease identity is supplied by {evidence.selected.selectionSource ?? 'GenCC'}; missing validity coverage does not refute the relationship.</p>}
+        {!evidence.assertions.length && <p className="ctx-card__body">{ENGINE_STATE_LABELS['no-result']} — {evidence.finding} The selected disease identity is supplied by {evidence.selected.selectionSource ?? 'GenCC'}; missing validity coverage does not refute the relationship.</p>}
         {!!evidence.assertions.length && <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Gene disease validity assertions"><table className="ctx-table">
           <thead><tr><th scope="col">Submitter</th><th scope="col">Validity</th><th scope="col">Assertion date</th><th scope="col">Source</th></tr></thead>
           <tbody>{evidence.assertions.map(assertion => <tr key={assertion.id}>
@@ -39,10 +41,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
         {!!evidence.assertions.length && <p className="ctx-card__foot">Levels are reported as submitted. They are not averaged or ranked into a consensus.</p>}
       </section>
       <MechanismContextCard frame={evidence.selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} />
-      <DosageSensitivityCard load={context.dosageLoad} selectedDiseaseId={evidence.selected.diseaseId} onRetry={context.retryDosage} />
-      <section className="ctx-card"><div className="ctx-card__head"><h2>Remaining evidence axes</h2></div><dl className="ctx-definition">
-        <div><dt>Variant locus</dt><dd>Disease-conditioned ClinVar context is not integrated yet. Functional domains remain available in their own tab.</dd></div>
-      </dl></section>
+      <VariantLocusCard clinvar={result.clinvar} frame={evidence.selected} />
     </>}
   </div>;
 }
