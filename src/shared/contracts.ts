@@ -1931,7 +1931,21 @@ export const REFUSAL_CODES = {
   ambiguousProteinNumbering: "AMBIGUOUS_PROTEIN_NUMBERING",
   /** The coordinate's REF allele matches no reference base on the build it was read against. */
   coordinateReferenceMismatch: "COORDINATE_REFERENCE_MISMATCH",
+  /** The coordinate translated to a non-missense consequence (intronic, synonymous, nonsense, frameshift, etc.) */
+  nonMissenseVariant: "NON_MISSENSE_VARIANT",
 } as const;
+
+export const nonMissenseRefusalSchema = z.object({
+  gene: z.string().optional(),
+  hgvsc: z.string().optional(),
+  hgvsp: z.string().optional(),
+  consequence: z.array(z.string()).optional(),
+  isCoding: z.boolean().optional(),
+  hasCodon: z.boolean().optional(),
+  reason: z.string().optional(),
+});
+
+export type NonMissenseRefusal = z.infer<typeof nonMissenseRefusalSchema>;
 
 export interface TranscriptMetadata {
   literatureAliases?: VerifiedLiteratureAlias[];
@@ -2548,6 +2562,8 @@ export interface AnalysisResult extends BiophysicalModelingData, TranscriptMetad
    * remedy is to state the build rather than to retype the coordinate.
    */
   buildHint?: BuildHint | null;
+  /** Present when the run was REFUSED because the coordinate translated to a non-missense consequence */
+  nonMissenseRefusal?: NonMissenseRefusal | null;
   analysis?: string | null;
   isFallback?: boolean;
   /** Stable degradation code — see src/shared/narrativeFallback.ts. */

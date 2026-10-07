@@ -6,10 +6,12 @@ import { apiRouter } from '../routes';
 import { loadGeneDiseaseContext } from '../services/evidence-context/store';
 import { fetchAdultExpression } from '../services/evidence-context/gtex';
 import { loadDevelopmentalExpression } from '../services/evidence-context/dgtex';
+import { loadDosageContext } from '../services/evidence-context/clingenDosage';
 vi.mock('../services/evidence-context/store', () => ({ loadGeneDiseaseContext: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', frames: [], provenance: null, message: 'Missing snapshot' })) }));
 vi.mock('../services/evidence-context/g2p', () => ({ loadMechanismContext: vi.fn(async () => ({ status: 'not-installed', records: [], provenance: null, message: 'Missing snapshot' })) }));
 vi.mock('../services/evidence-context/gtex', () => ({ fetchAdultExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-found', tissues: [], provenance: null, message: null })) }));
 vi.mock('../services/evidence-context/dgtex', () => ({ loadDevelopmentalExpression: vi.fn(async (gene: string) => ({ gene, status: 'not-installed', observations: [], provenance: null, message: 'Missing snapshot' })) }));
+vi.mock('../services/evidence-context/clingenDosage', () => ({ loadDosageContext: vi.fn(async (gene: string) => ({ gene, status: 'not-found', record: null, provenance: null, message: null })) }));
 
 describe('public reference evidence through the API router', () => {
   let server: Server; let base: string;
@@ -24,9 +26,10 @@ describe('public reference evidence through the API router', () => {
     await new Promise<void>(resolve => server.close(() => resolve()));
   });
   const request = (suffix: string, authenticated = true) => fetch(base + suffix, { headers: authenticated ? { Authorization: `Bearer ${token}` } : {} });
-  it('serves all three reference sources without an API token or Gemini key', async () => {
-    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development']) expect((await request(suffix, false)).status).toBe(200);
+  it('serves every reference sources without an API token or Gemini key', async () => {
+    for (const suffix of ['/RGS9', '/RGS9/expression', '/RGS9/development', '/RGS9/dosage']) expect((await request(suffix, false)).status).toBe(200);
     expect(loadGeneDiseaseContext).toHaveBeenCalledWith('RGS9');
+    expect(loadDosageContext).toHaveBeenCalledWith('RGS9');
     expect(fetchAdultExpression).toHaveBeenCalledWith('RGS9');
     expect(loadDevelopmentalExpression).toHaveBeenCalledWith('RGS9');
     vi.clearAllMocks();

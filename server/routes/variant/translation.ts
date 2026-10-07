@@ -27,7 +27,7 @@ import {
   type GenomeAssembly,
 } from "../../../src/shared/variantNotation.ts";
 import { withAssemblyAnnotation } from "../../../src/shared/assembly.ts";
-import type { BuildHint } from "../../../src/shared/contracts.ts";
+import { type BuildHint, REFUSAL_CODES } from "../../../src/shared/contracts.ts";
 import {
   resolveCoordinate,
   selectProteinConsequence,
@@ -871,13 +871,14 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         const valErrMessage: string = valErr?.message ?? String(valErr);
         const isNonMissense = isNonMissenseMessage(valErrMessage);
 
-        const errorCode = isNonMissense ? "NON_MISSENSE_VARIANT" : "UNPROCESSABLE_ENTITY";
+        const errorCode = isNonMissense ? REFUSAL_CODES.nonMissenseVariant : "UNPROCESSABLE_ENTITY";
         const errorMsg = isNonMissense
           ? `Genomic coordinate translated to non-missense consequence (${selectedTc.gene_symbol || "Gene"} ${selectedTc.hgvsp.split(":")[1] || selectedTc.hgvsp}): ${valErrMessage}`
           : `Resolved variant values are invalid: ${valErrMessage}`;
 
         sendError(res, 422, errorCode, errorMsg, compactDetails({
           gene: selectedTc.gene_symbol,
+          hgvsc: selectedTc.hgvsc,
           hgvsp: selectedTc.hgvsp,
           consequence: selectedTc.consequence_terms,
           uniprotId: verdict.canonicalAccession,

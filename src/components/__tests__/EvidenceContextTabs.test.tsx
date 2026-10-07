@@ -45,6 +45,48 @@ describe('context tab claims and interactions', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: frame.key } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ systems: ['hearing'], diseaseKey: frame.key }));
   });
+  it('shows ClinGen dosage as gene-level context scoped to the selected disease by exact ID', () => {
+    const score = (code: number, diseaseId: string | null) => ({ state: 'scored', code, disease: diseaseId ? 'Example disease' : null, diseaseId, history: null });
+    context.value.selection.diseaseKey = frame.key;
+    context.value.dosageLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', message: null, provenance: null, record: { symbol: 'TEST', geneId: 'HGNC:1', location: null,
+      haploinsufficiency: score(3, 'MONDO:1'), triplosensitivity: score(40, null), evaluatedAt: '2020-06-24', reportUrl: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1' } } };
+    render(<GeneDiseaseTab {...props} />);
+    const card = within(screen.getByTestId('dosage-card'));
+    expect(card.getByText('3: Sufficient evidence')).toBeVisible();
+    expect(card.getByText('40: Dosage sensitivity unlikely')).toBeVisible();
+    expect(card.getByText(/exact MONDO ID/)).toBeVisible();
+    expect(card.getByText(/casts no ACMG vote/)).toBeVisible();
+    expect(screen.queryByText(/dosage sensitivity is not integrated yet/i)).not.toBeInTheDocument();
+  });
+  it('says when dosage cannot be read and offers a retry', () => {
+    context.value.selection.diseaseKey = frame.key; context.value.retryDosage = vi.fn();
+    context.value.dosageLoad = { status: 'error', data: null, error: 'Request limit reached' };
+    render(<GeneDiseaseTab {...props} />);
+    expect(within(screen.getByTestId('dosage-card')).getByText('Request limit reached')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(context.value.retryDosage).toHaveBeenCalledOnce();
+  });
+  it('offers one-click selection when exactly one disease is curated, without choosing for the user', () => {
+    const onChange = vi.fn();
+    render(<DiseaseContextPicker gene="TEST" load={context.value.diseaseLoad} selection={context.value.selection} onChange={onChange} onRetry={vi.fn()} />);
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: /Review the only curated disease: Example disease/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ diseaseKey: frame.key }));
+  });
+  it('matches ClinVar conditions to the selected disease by identifier, never by name', () => {
+    context.value.selection.diseaseKey = frame.key;
+    const clinvar = (conditions: any[]) => ({ ...props.analysisState.result, clinvar: { classification: 'Pathogenic', reviewStatus: 'criteria provided', lastEvaluated: '', alleleFrequencies: [], trait: 'x', uid: '1', conditions } });
+    const view = (conditions: any[]) => render(<GeneDiseaseTab {...({ analysisState: { ...props.analysisState, result: clinvar(conditions) } } as any)} />);
+    let r = view([{ label: 'Example disease', xrefs: [{ source: 'OMIM', id: '1' }] }]);
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/records other conditions/)).toBeVisible();   // same name, different ID
+    r.unmount();
+    r = view([{ label: 'Renamed', xrefs: [{ source: 'MONDO', id: 'MONDO:1' }] }]);
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/lists the selected disease/)).toBeVisible();
+    expect(screen.getByText(/not attributed to this disease/)).toBeVisible();
+    r.unmount();
+    view([{ label: 'Old', xrefs: [] }]);
+    expect(within(screen.getByTestId('variant-locus-card')).getByText(/no usable identifiers/)).toBeVisible();
+  });
   it('leads with refutation and retains every submitter', () => {
     context.value.selection.diseaseKey = frame.key; render(<GeneDiseaseTab {...props} />);
     expect(screen.getByText('Disputed or refuted assertions require review.')).toBeInTheDocument();

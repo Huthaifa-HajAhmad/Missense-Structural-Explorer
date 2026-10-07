@@ -14,7 +14,7 @@ const result = (gene: string) => ({ metadata: { gene, uniprotId: 'P1', variant: 
 const data = (gene: string) => ({ gene, status: 'ready', frames: [], provenance: null, message: null });
 beforeEach(() => {
   fetchWithAuth.mockReset(); sessionStorage.clear();
-  useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, phenotypeSelections: {} });
+  useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, dosageContexts: {}, phenotypeSelections: {} });
 });
 describe('authenticated context loading and gene isolation', () => {
   it.each([[401, 'Access denied'], [429, 'Request limit reached'], [503, 'HTTP 503']])('reports HTTP %s without blaming the evidence provider', async (status, message) => {
@@ -54,5 +54,12 @@ describe('authenticated context loading and gene isolation', () => {
     fetchWithAuth.mockResolvedValueOnce({ ok: true, json: async () => data('A') });
     await act(async () => hook.result.current.retryDisease());
     expect(hook.result.current.diseaseLoad?.data?.gene).toBe('A');
+  });
+  it('re-asks on mount when the cached answer was "not installed", so a snapshot installed mid-session appears', async () => {
+    useVariantAnalysisStore.setState({ diseaseContexts: { A: { status: 'ready', data: { ...data('A'), status: 'not-installed' } as any } } });
+    fetchWithAuth.mockResolvedValue({ ok: true, json: async () => data('A') });
+    const hook = renderHook(() => useEvidenceContext(result('A')));
+    await waitFor(() => expect(hook.result.current.diseaseLoad?.data?.status).toBe('ready'));
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
   });
 });
