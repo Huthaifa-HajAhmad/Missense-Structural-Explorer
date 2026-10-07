@@ -3,9 +3,9 @@ import { useSettings } from "../../context/SettingsContext";
 import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import type { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
-import { buildReportDocument, type ReportDocument } from "../../shared/reportDocument";
+import { buildReportDocument, defaultReportSections, type ReportDocument } from "../../shared/reportDocument";
 import { reportInputFromRun, type ReportDraft } from "../../shared/reportInput";
-import { readReportDraft, reportDraftKey, writeReportDraft } from "../../stores/reportDraftStorage";
+import { readReportDraft, removeReportDraft, reportDraftKeys, writeReportDraft } from "../../stores/reportDraftStorage";
 
 /**
  * The Report document for the run on screen, from the same builder the copy-as-text path uses.
@@ -61,29 +61,74 @@ export function useReportDocument(result: AnalysisResult | null): { doc: ReportD
  */
 export function useReportDraftPersistence(gene: string, uniprotId: string, variant: string): void {
   const result = useVariantAnalysisStore(s => s.analysisState.result);
-  const reference = result?.metadata?.gene === gene && result?.metadata?.variant === variant
-    ? JSON.stringify([result.predictorData?.gnomadVariantAssembly ?? null, result.predictorData?.gnomadVariantId ?? null, (result.metadata as any)?.transcriptId ?? null]) : "";
-  const key = reportDraftKey(gene, uniprotId, variant, reference);
+  const { key, baseKey, reference, legacyReferenceKey } = reportDraftKeys(gene, uniprotId, variant, result);
   const setStatus = useVariantAnalysisStore(s => s.setReportDraftStatus);
   const loadReportDraft = useVariantAnalysisStore(s => s.loadReportDraft);
+  const recovery = useVariantAnalysisStore(s => s.reportDraftRecovery);
+  const setRecovery = useVariantAnalysisStore(s => s.setReportDraftRecovery);
   const sections = useVariantAnalysisStore(s => s.reportSections);
   const edits = useVariantAnalysisStore(s => s.reportEdits);
   const meta = useVariantAnalysisStore(s => s.reportMeta);
   const citations = useVariantAnalysisStore(s => s.reportCitations);
   const loadedKey = useRef<string | null>(null);
+  const loadedReference = useRef<{ baseKey: string | null; values: (string | null)[] } | null>(null);
+  const retiredSource = useRef<string | null>(null);
+  const migrationSource = useRef<string | null>(null);
 
   useEffect(() => {
+    const state = useVariantAnalysisStore.getState();
+    const current: ReportDraft = { sections: state.reportSections, edits: state.reportEdits, meta: state.reportMeta, citations: state.reportCitations };
+    const defaults = defaultReportSections();
+    const hasWork = (draft: ReportDraft) => Object.keys(draft.edits).length > 0 || draft.citations.length > 0 ||
+      Object.values(draft.meta).some(Boolean) || Object.entries(draft.sections).some(([k, v]) => v !== defaults[k as keyof typeof defaults]);
+    const previous = loadedReference.current;
+    const carriesPending = key !== loadedKey.current && previous?.baseKey === baseKey &&
+      previous.values.every((value, i) => value === null || value === reference[i]) && hasWork(current);
+    const saved = readReportDraft(key);
+    const pendingKey = key ? `${key}|pending` : null;
+    const sourceKey = carriesPending ? loadedKey.current : [pendingKey, legacyReferenceKey, key !== baseKey ? baseKey : null]
+      .find(candidate => candidate && readReportDraft(candidate)) ?? null;
+    const pending = carriesPending ? current : readReportDraft(sourceKey);
     loadedKey.current = null;
-    loadReportDraft(readReportDraft(key));
+    retiredSource.current = null;
+    migrationSource.current = null;
+    setRecovery(null);
+    if (key && sourceKey && pending && hasWork(pending) && saved && JSON.stringify(pending) !== JSON.stringify(saved)) {
+      // Bind the pending copy too, so an unresolved conflict cannot leak to another transcript.
+      loadReportDraft(pending);
+      if (pendingKey && sourceKey !== pendingKey) {
+        if (writeReportDraft(pendingKey, pending)) removeReportDraft(sourceKey);
+        else migrationSource.current = sourceKey;
+      }
+      setRecovery({ identity: key, sourceKey: pendingKey!, saved });
+      retiredSource.current = pendingKey;
+    } else {
+      const draft = saved ?? pending;
+      loadReportDraft(draft);
+      if (key && sourceKey && draft) {
+        if (writeReportDraft(key, draft)) removeReportDraft(sourceKey);
+        else retiredSource.current = sourceKey;
+      }
+    }
     loadedKey.current = key;
-  }, [key, loadReportDraft]);
+    loadedReference.current = { baseKey, values: reference };
+  }, [key, baseKey, legacyReferenceKey, loadReportDraft, setRecovery]);
 
   useEffect(() => {
     if (!key || loadedKey.current !== key || useVariantAnalysisStore.getState().reportSections !== sections) return;
     const draft: ReportDraft = { sections, edits, meta, citations };
+    const writeKey = recovery?.identity === key ? recovery.sourceKey : key;
+    const retire = recovery?.identity === key ? null : retiredSource.current;
+    const migrate = migrationSource.current;
     setStatus("saving");
-    const persist = () => setStatus(writeReportDraft(key, draft) ? "saved" : "session-only");
+    const write = () => {
+      const saved = writeReportDraft(writeKey, draft);
+      if (saved && migrate) { removeReportDraft(migrate); migrationSource.current = null; }
+      if (saved && retire) { removeReportDraft(retire); retiredSource.current = null; }
+      return saved;
+    };
+    const persist = () => setStatus(write() ? "saved" : "session-only");
     const t = setTimeout(persist, 300);
-    return () => { clearTimeout(t); writeReportDraft(key, draft); };
-  }, [key, sections, edits, meta, citations, setStatus]);
+    return () => { clearTimeout(t); write(); };
+  }, [key, sections, edits, meta, citations, recovery, setStatus]);
 }

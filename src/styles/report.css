@@ -250,6 +250,8 @@
 .rpt-review-link { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px; font: inherit; color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); cursor: pointer; }
 .rpt-review-link > span { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .rpt-draft-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.rpt-draft-recovery { padding: 10px; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-2); }
+.rpt-draft-recovery p { margin: 0; }
 .rpt-custom { margin-left: auto; letter-spacing: 0; text-transform: none; font-weight: 400; }
 .rpt-steps { list-style: none; margin: 10px 0 0; padding: 12px; border: 1px solid var(--cs-border); border-radius: 10px; }
 .rpt-step { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px; padding-bottom: 14px; }
