@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { genccSnapshotSchema } from './gencc.ts';
+import { genccSnapshotSchema, downloadGenccSnapshot } from './gencc.ts';
+import { installOnce } from './snapshotInstall.ts';
 import type { GeneDiseaseResponse } from '../../../src/shared/diseaseFrame.ts';
 
 let cached: { path: string; mtime: number; size: number; data: ReturnType<typeof genccSnapshotSchema.parse> } | null = null;
@@ -8,7 +9,10 @@ const flights = new Map<string, Promise<ReturnType<typeof genccSnapshotSchema.pa
 export async function loadGeneDiseaseContext(gene: string): Promise<GeneDiseaseResponse> {
   const target = path.resolve(process.env.GENCC_CONTEXT_PATH ?? 'data/gencc-context.json');
   try {
-    const info = await stat(target);
+    const info = await stat(target).catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT' || !await installOnce(target, downloadGenccSnapshot)) throw error;
+      return stat(target);
+    });
     let data = cached?.data;
     if (!cached || cached.path !== target || cached.mtime !== info.mtimeMs || cached.size !== info.size) {
       const key = `${target}|${info.mtimeMs}|${info.size}`;

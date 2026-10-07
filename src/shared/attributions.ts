@@ -114,7 +114,7 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     url: 'https://search.clinicalgenome.org/kb/gene-dosage', release: null,
     releaseNote: 'Fetched live and cached for a day; the response carries no release identifier, so none is invented.',
     citation: null, licence: 'ClinGen terms of use; attribution requested.',
-    usedBy: ['server/services/evidence-context/clingenDosage.ts', 'src/components/evidence/DosageSensitivityCard.tsx'],
+    usedBy: ['server/services/evidence-context/clingenDosage.ts', 'src/components/evidence/GeneDiseaseReadings.tsx'],
   },
   {
     id: 'alliance', name: 'Alliance of Genome Resources', provider: 'Alliance of Genome Resources', kind: 'dataset',
