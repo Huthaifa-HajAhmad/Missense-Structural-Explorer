@@ -186,7 +186,7 @@ describe("LandscapeOverview", () => {
     const title = markers[0].querySelector("title")!.textContent!;
     expect(title).toContain("p.Ala5Val · Pathogenic · 3★");
     expect(title).toContain("p.Ala5Asp");
-    expect(markers[0].querySelector("circle")!.getAttribute("fill")).toBe("var(--ls-pp3-strong)");
+    expect(markers[0].querySelector("circle")!.getAttribute("fill")).toBe("var(--ls-clinvar-plp)");
     measure.mockRestore();
   });
 

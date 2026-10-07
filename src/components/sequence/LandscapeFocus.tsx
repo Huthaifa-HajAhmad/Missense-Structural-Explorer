@@ -99,13 +99,20 @@ export function LandscapeFocus(props: Props) {
   const residueClass = props.residueClass ?? ((aa: string) => LETTER_CLASS[aa] ?? "hydrophobic");
   const [sizeRef, measured] = useMeasuredWidth<HTMLElement>();
   const colW = fitColumnWidth(measured, residues.length, columnWidthFor(width));
-  const cellH = Math.max(14, Math.min(20, Math.round(colW * 0.55)));
+  /*
+   * Cell height ≥ 24px (WCAG 2.5.8). The old 14–20px cells were under the hit-target floor on
+   * every pointer; the whole-window overview lives on the horizontal axis (columns still fit the
+   * measured width), so the taller rows are absorbed by vertical scroll, not by dropping columns.
+   * Floor 24, cap 26 so wide columns stay near-square.
+   */
+  const cellH = Math.max(24, Math.min(26, Math.round(colW * 0.55)));
   const ntW = colW / 3;
   const [readout, setReadout] = useState<string | null>(null);
   const heat = useRovingGrid<HTMLDivElement>();
   const lane = useRovingGrid<HTMLDivElement>();
   const residueRow = useRovingGrid<HTMLDivElement>();
   const summaryRow = useRovingGrid<HTMLDivElement>();
+  const consRow = useRovingGrid<HTMLDivElement>();
   const end = start + residues.length - 1;
   const cols = useMemo(() => residues.map((aa, i) => ({ aa, pos: start + i })), [residues, start]);
   const statWord = mode === "mean" ? "mean" : "max";
@@ -357,9 +364,9 @@ export function LandscapeFocus(props: Props) {
         })}
       </div>
 
-      <div className="flex items-end">
+      <div ref={consRow.ref} onFocus={consRow.onFocus} onKeyDown={consRow.onKeyDown} role="group" aria-label="phyloP conservation per residue, codon mean" className="flex items-end">
         <span className="ls-gutter self-center" style={{ width: GUTTER }}>PHYLOP</span>
-        {cols.map(({ pos }) => {
+        {cols.map(({ pos }, c) => {
           const row = rows.get(pos);
           const v = row?.phylop ?? null;
           const level = conservationLevel("phylop", v);
@@ -369,21 +376,23 @@ export function LandscapeFocus(props: Props) {
               : `Residue ${pos}: phyloP ${v.toFixed(2)}${row?.gerp != null ? `, GERP++ ${row.gerp.toFixed(2)}` : ""} (codon mean over ${row?.nucleotideCount ?? 0} nt)` +
                 (pos === target.pos && variantScores.phylop !== null ? ` · variant nucleotide phyloP ${variantScores.phylop.toFixed(2)}` : "");
           return (
-            <span
+            <button
               key={pos}
-              className="shrink-0 h-[20px] flex items-end justify-center"
+              type="button"
+              className="shrink-0 h-6 flex items-end justify-center cursor-pointer bg-transparent border-0 p-0"
               style={{ width: colW }}
+              data-rc={`0:${c}`}
               aria-label={label}
-              role="img"
-              onMouseEnter={() => setReadout(label)}
-              onMouseLeave={() => setReadout(null)}
+              onClick={() => onPickResidue(pos)}
+              {...track(pos, label)}
             >
               <span
+                aria-hidden="true"
                 className="ls-cons block rounded-t-sm"
                 data-level={level ?? "none"}
                 style={{ width: Math.max(8, colW - 8), height: v === null ? 2 : 3 + 15 * Math.min(1, Math.max(0, (v + 2) / 12)) }}
               />
-            </span>
+            </button>
           );
         })}
       </div>
@@ -409,13 +418,13 @@ export function LandscapeFocus(props: Props) {
           const label =
             v === null
               ? `Residue ${pos}: ${pending ? "loading" : hasNoRecord(row) ? "no dbNSFP missense record" : `no ${TOOL_NAME[colorBy]} score`}`
-              : `Residue ${pos} ${TOOL_NAME[colorBy]} ${statWord} ${f3(v)} over ${n} SNV-reachable substitution${n === 1 ? "" : "s"} · band ${bandLabel(colorBy, v)} (orientation only)` +
+              : `Residue ${pos} ${TOOL_NAME[colorBy]} ${statWord} ${f3(v)} over ${n} scored substitution${n === 1 ? "" : "s"} · band ${bandLabel(colorBy, v)} (orientation only)` +
                 (pos === target.pos ? ` · this variant ${colorBy === "revel" ? variantScores.revel?.toFixed(3) ?? "—" : variantScores.am?.toFixed(3) ?? "—"}` : "");
           return (
             <button
               key={pos}
               type="button"
-              className="ls-cell ls-band !h-[22px]"
+              className="ls-cell ls-band !h-6"
               data-band={bandKey(colorBy, v) ?? "none"}
               data-focus={pos === target.pos ? "target" : undefined}
               data-rc={`0:${c}`}

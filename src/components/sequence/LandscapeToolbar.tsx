@@ -29,24 +29,21 @@ function Segmented<T extends string | number>({
   onChange?: (v: T) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" role="radiogroup" aria-label={label}>
       <span className="text-[11px] font-semibold text-cs-text-secondary">{label}</span>
-      <div className="flex rounded-md border border-cs-border bg-cs-surface p-0.5" role="radiogroup" aria-label={label}>
-        {options.map((o) => (
-          <button
-            key={String(o.value)}
-            type="button"
-            role="radio"
-            aria-checked={value === o.value}
-            onClick={() => onChange?.(o.value)}
-            className={`px-2.5 py-1 rounded text-[11px] cursor-pointer ${
-              value === o.value ? "bg-cs-text-primary text-cs-surface font-semibold" : "text-cs-text-secondary hover:text-cs-text-primary"
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
+      {options.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange?.(o.value)}
+          className="ls-pill"
+          data-active={value === o.value ? "true" : undefined}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -91,13 +88,8 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
               disabled={empty}
               title={empty ? "Nothing to draw for this gene" : undefined}
               onClick={() => onView({ lanes: { ...view.lanes, [l.key]: !view.lanes[l.key] } })}
-              className={`px-2.5 py-1 rounded-md border text-[11px] ${
-                empty
-                  ? "bg-cs-surface text-cs-text-muted border-cs-border-subtle line-through cursor-not-allowed"
-                  : view.lanes[l.key]
-                    ? "bg-cs-text-primary text-cs-surface border-cs-text-primary font-semibold cursor-pointer"
-                    : "bg-cs-surface text-cs-text-secondary border-cs-border hover:text-cs-text-primary cursor-pointer"
-              }`}
+              className="ls-pill"
+              data-active={view.lanes[l.key] && !empty ? "true" : undefined}
             >
               {l.label}
             </button>
@@ -108,7 +100,7 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md border border-cs-accent-clay bg-cs-surface text-cs-accent-clay font-semibold cursor-pointer"
+          className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border border-cs-accent-clay bg-cs-surface text-cs-accent-clay font-semibold cursor-pointer"
         >
           <Crosshair className="w-3.5 h-3.5" />
           Back to residue {targetPos}
