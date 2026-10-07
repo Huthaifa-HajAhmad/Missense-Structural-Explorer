@@ -20,15 +20,17 @@ export const phenotypeSelectionSchema = z.object({
   diseaseKey: z.string().nullable(),
   systems: z.array(z.enum(REVIEW_SYSTEMS.map(s => s.id) as [ReviewSystemId, ...ReviewSystemId[]])),
   excludedSuggestions: z.array(z.string()),
+  /** HPO term ids the researcher accepted as review context. Never patient observations. */
+  acceptedTerms: z.array(z.string().regex(/^HP:\d{7}$/)).default([]),
   onset: z.enum(['unknown', 'antenatal', 'congenital', 'neonatal', 'infantile', 'childhood', 'juvenile', 'adult', 'young-adult', 'late']),
 });
 export type PhenotypeSelection = z.infer<typeof phenotypeSelectionSchema>;
 export function emptyPhenotypeSelection(): PhenotypeSelection {
-  return { diseaseKey: null, systems: [], excludedSuggestions: [], onset: 'unknown' };
+  return { diseaseKey: null, systems: [], excludedSuggestions: [], acceptedTerms: [], onset: 'unknown' };
 }
 export function selectDisease(selection: PhenotypeSelection, diseaseKey: string | null): PhenotypeSelection {
   // A frame change cannot replace the researcher's review systems or onset.
-  return { ...selection, diseaseKey, excludedSuggestions: [] };
+  return { ...selection, diseaseKey, excludedSuggestions: [], acceptedTerms: [] };
 }
 export function toggleReviewSystem(selection: PhenotypeSelection, system: ReviewSystemId): PhenotypeSelection {
   return { ...selection, systems: selection.systems.includes(system)

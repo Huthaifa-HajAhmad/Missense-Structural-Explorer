@@ -1,3 +1,11 @@
+/**
+ * The single list of public reference reads under `/evidence-context/:gene/<suffix>`. The router
+ * (server/routes/evidence-context.ts) must give each one a loader, and the public-read gate
+ * (server/middleware.ts) is built from it, so a new source cannot be added to one and forgotten in
+ * the other. Writes and unlisted paths stay authenticated.
+ */
+export const CONTEXT_SUFFIXES = ['development', 'dosage', 'models', 'alignment', 'pext', 'expression', 'hpo', 'phenotypes', 'hpa'] as const;
+export type ContextSuffix = typeof CONTEXT_SUFFIXES[number];
 /** Keep transport/validation failures distinct from a provider's evidence state. */
 export class ContextHttpError extends Error {
   constructor(public status: number) { super('Context HTTP request failed'); }

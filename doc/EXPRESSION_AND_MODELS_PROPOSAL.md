@@ -1,6 +1,6 @@
 # Expression & models — phenotype-driven biological context
 
-**Revision 5, 2026-10-06. Implemented: adult GTEx v10, pinned dGTEx V1 and audited shared context.**
+**Revision 6, 2026-10-07. Implemented: adult GTEx v10, pinned dGTEx V1, live Alliance orthologs + IMPC mouse screen, audited shared context.**
 Companion: [Gene–disease](GENE_DISEASE_PROPOSAL.md). Original survey:
 `research/EXPRESSION_AND_MODELS_PROPOSAL_REV2_1.md`; v1 appendix: `TISSUE_EXPRESSION_PROPOSAL.md`.
 This revision supersedes their conflicting implementation instructions.
@@ -186,12 +186,19 @@ report, with full evidence in an appendix.
 | Second slice, implemented | Pinned G2P mechanisms, raw support/modifiers, exact identity and explicit allelic scope | Pinned dGTEx V1, public age cohorts, donor counts and conservative medians |
 | Next | HPO-linked verified disease choices and report context | Pinned HPO suggestions/manual acceptance and annotation ancestry |
 | Following paired context | ClinGen reconciliation/dosage | Pinned HPA assay coverage/confidence |
-| Then | RCV/SCV condition-specific locus context | Alliance orthologs/alleles + assay-scoped IMPC + validated alignment |
+| Then; orthologs + IMPC implemented (rev 6) | RCV/SCV condition-specific locus context | **Done:** stringent Alliance orthologs (all listed, nested best-score flags) and IMPC screen per local system, live and cached 24 h, exact HGNC symbol anchor, truncated pages fail visibly. **Remaining:** Alliance allele/assay-scoped phenotypes, uPheno grouping, gapped isoform-aware residue alignment |
 | Development follow-up | Source lifecycle/crosswalk trace | Complement dGTEx V1 with BrainSpan/organ series and stage-specific Bgee where verified |
 | Position/context export | Main report/session integration | Base-level pext and tissue AlphaGenome tracks after contract checks |
 
 Open artifact gates: HPA coverage/release, complementary atlas age/tissue manifests, Bgee stage dimensions, organism
 assay controls, exact licences/releases, DECIPHER URL. No silent source refresh in a saved case.
+
+### Rev 6 notes (live-verified 2026-10-07)
+
+`/evidence-context/:gene/models` is a public GET. Alliance `/orthologs` now carries `geneSymbol.displayText`, so no second
+symbol lookup is needed (the audit's "no symbol field" no longer holds). IMPC `phenotype_status` is null for unscreened genes
+(FGFR3, SCN1A); the card says absence of data, never normal. IMPC top-level terms are grouped to review systems locally
+and unmapped terms are shown, not dropped. A partial result (IMPC down) is shown with retry and never cached.
 
 ## 7. Verification contracts
 

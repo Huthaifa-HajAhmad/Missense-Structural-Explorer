@@ -12,7 +12,7 @@ const frame = { key: 'TEST|MONDO:1|AD', geneId: 'HGNC:1', geneSymbol: 'TEST', di
 const props = { analysisState: { result: { metadata: { gene: 'TEST' } }, isLoading: false, error: null } } as any;
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 beforeEach(() => {
-  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(),
+  context.value = { gene: 'TEST', key: 'TEST|V', selection: emptyPhenotypeSelection(), setSelection: vi.fn(), retryDisease: vi.fn(), retryExpression: vi.fn(), retryDevelopment: vi.fn(), retryModels: vi.fn(), retryPhenotypes: vi.fn(), retryHpa: vi.fn(), retryHpo: vi.fn(), hpoIds: 'OMIM:1',
     developmentalLoad: { status: 'ready', data: { gene: 'TEST', status: 'not-installed', observations: [], counts: null, provenance: null, gencodeId: null, message: null } },
     diseaseLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', frames: [frame], provenance: null, message: null } },
     expressionLoad: { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, tissues: [{ id: 'Muscle_Skeletal', label: 'Skeletal muscle', ontologyId: null, value: 0, unit: 'TPM', sampleCount: 100, samplingSite: null }] } } };
@@ -127,5 +127,83 @@ describe('context tab claims and interactions', () => {
     expect(screen.getByText('inferred')).toBeInTheDocument();
     expect(screen.getByText('Modifier: restricted mutation set')).toBeInTheDocument();
     expect(screen.getByText(/do not establish applicability to this variant/)).toBeInTheDocument();
+  });
+  it('shows orthologs and the mouse screen per system without calling a quiet screen normal', () => {
+    context.value.selection.systems = ['vision', 'muscle'];
+    const ortholog = { id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: 'high', methodCount: 4 };
+    context.value.modelLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', orthologs: [ortholog], provenance: [], message: null,
+      impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping data available', phenotypingDataAvailable: true, embryoDataAvailable: false, significant: ['vision/eye phenotype'], notSignificant: ['muscle phenotype'] }] } } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('model-organisms-card'));
+    expect(card.getByText('Best match both directions')).toBeInTheDocument();
+    expect(card.getByText('Significant difference')).toBeInTheDocument();
+    expect(card.getByText('No significant difference')).toBeInTheDocument();
+    expect(card.getByText(/not that the mouse is normal/)).toBeInTheDocument();
+    expect(card.queryByText(/phenotypically normal/i)).toBeNull();
+  });
+  it('says an unscreened mouse is absent data and offers a retry when IMPC fails', () => {
+    const base = { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', provenance: [], message: null, orthologs: [{ id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: null, methodCount: 1 }] };
+    context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping not planned', phenotypingDataAvailable: false, embryoDataAvailable: false, significant: [], notSignificant: [] }] } } };
+    const { unmount } = render(<ExpressionModelsTab {...props} />);
+    expect(screen.getByText(/Absence of data is not a normal result/)).toBeInTheDocument(); unmount();
+    context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'error', screens: [] } } };
+    render(<ExpressionModelsTab {...props} />);
+    fireEvent.click(within(screen.getByTestId('model-organisms-card')).getByRole('button', { name: 'Try again' }));
+    expect(context.value.retryModels).toHaveBeenCalled();
+  });
+  it('offers HPO terms for acceptance one by one and adds a system only on an explicit click', () => {
+    context.value.selection = { ...emptyPhenotypeSelection(), diseaseKey: 'TEST|MONDO:1|AD', acceptedTerms: ['HP:0000002'] };
+    context.value.hpoLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, message: null, disease: { queried: 'OMIM:1', id: 'OMIM:1', name: 'Example disease', mondoId: 'MONDO:1' },
+      terms: [{ id: 'HP:0000001', name: 'Short stature', category: 'Skeletal system', frequency: 'Frequent', onset: null, sources: [] }, { id: 'HP:0000002', name: 'Myopia', category: 'Eye', frequency: null, onset: 'Childhood onset', sources: [] },
+        { id: 'HP:0000006', name: 'Autosomal dominant inheritance', category: 'Inheritance', frequency: null, onset: null, sources: [] }] } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('hpo-card'));
+    expect(card.getByText(/Matches your chosen disease by MONDO ID/)).toBeInTheDocument();
+    expect(card.queryByText('Autosomal dominant inheritance')).toBeNull();
+    expect(context.value.setSelection).not.toHaveBeenCalled();
+    fireEvent.click(card.getByRole('button', { name: /Add Vision to review/ }));
+    expect(context.value.setSelection).toHaveBeenCalledWith(expect.objectContaining({ systems: ['vision'] }));
+    fireEvent.click(card.getByRole('checkbox', { name: /Short stature/ }));
+    expect(context.value.setSelection).toHaveBeenLastCalledWith(expect.objectContaining({ acceptedTerms: ['HP:0000002', 'HP:0000001'] }));
+  });
+  it('shows the residue in each ortholog and refuses to map when the reference differs', () => {
+    const homology = { type: '1:1', species: 'mus_musculus', taxonId: 'NCBITaxon:10090', geneId: 'ENSMUSG1', proteinId: 'P', sourceAligned: 'ABCDE', targetAligned: 'ABQDE', humanIdentity: 90, orthologIdentity: 90, humanSimilarity: 95 };
+    context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
+    const result = { metadata: { gene: 'TEST', sequence: 'ABCDE', residueIndex: 3, wildType: 'C', mutant: 'Q' } };
+    const { unmount } = render(<ExpressionModelsTab {...props} analysisState={{ result, isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in Mouse/)).toBeInTheDocument(); unmount();
+    render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('residue-alignment-card')).getByText(/No residue is mapped/)).toBeInTheDocument();
+  });
+  it('places the variant on a pext region only with a verified GRCh38 locus', () => {
+    context.value.pextLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', geneId: 'E', chrom: '17', flags: ['low_max_pext'], provenance: null, message: null,
+      regions: [{ start: 100, stop: 110, mean: 0.5, tissues: [{ tissue: 'liver', value: 0.9 }] }] } };
+    const make = (assembly: string) => ({ metadata: { gene: 'TEST' }, predictorData: { gnomadVariantId: '17-105-A-T', gnomadVariantAssembly: assembly } });
+    const { unmount } = render(<ExpressionModelsTab {...props} analysisState={{ result: make('GRCh38'), isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('pext-card')).getByText('Liver')).toBeInTheDocument();
+    expect(within(screen.getByTestId('pext-card')).getByText(/low_max_pext/)).toBeInTheDocument(); unmount();
+    render(<ExpressionModelsTab {...props} analysisState={{ result: make('GRCh37'), isLoading: false, error: null } as any} />);
+    expect(within(screen.getByTestId('pext-card')).getByText(/no verified GRCh38 position/)).toBeInTheDocument();
+  });
+  it('marks model phenotypes that match the chosen disease and never reads an empty list as normal', () => {
+    context.value.hpoLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', provenance: null, message: null, disease: null, terms: [{ id: 'HP:0000505', name: 'Visual impairment', category: 'Eye', frequency: null, onset: null, sources: [] }] } };
+    const mouse = { taxonId: 'NCBITaxon:10090', species: 'Mouse', orthologId: 'MGI:1', symbol: 'Tst', status: 'ready', total: 1, phenotypes: [{ termId: 'MP:1', statement: 'abnormal eye physiology', annotations: 2, models: 1, humanTerms: ['HP:0000505'] }] };
+    const fish = { taxonId: 'NCBITaxon:7955', species: 'Zebrafish', orthologId: 'ZFIN:1', symbol: 'tst', status: 'ready', total: 0, phenotypes: [] };
+    context.value.phenotypesLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', mapping: 'available', provenance: [], message: null, species: [fish, mouse] } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('model-phenotypes-card'));
+    expect(card.getByText(/Same phenotype as: Visual impairment/)).toBeInTheDocument();
+    expect(card.getByText(/That is not evidence of a normal organism/)).toBeInTheDocument();
+  });
+  it('shows Protein Atlas cell-type enrichment on its own scale with a GTEx-overlap caveat', () => {
+    context.value.hpaLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', ensemblId: 'ENSG1', provenance: null, message: null,
+      rna: { specificity: 'Tissue enriched', distribution: 'Detected in many', enrichedTissues: [{ name: 'brain', value: 62.9 }] },
+      cells: { specificity: 'Group enriched', distribution: null, enrichedCells: [{ name: 'Rod photoreceptor cells', value: 906.3 }] },
+      protein: { evidence: 'Evidence at protein level', tissueSpecificity: 'Not detected', antibodies: ['HPA1'], reliabilityIhc: 'Enhanced', reliabilityIf: null } } };
+    render(<ExpressionModelsTab {...props} />);
+    const card = within(screen.getByTestId('hpa-card'));
+    expect(card.getByText('Rod photoreceptor cells')).toBeInTheDocument();
+    expect(card.getByText('nCPM')).toBeInTheDocument(); expect(card.getByText('nTPM')).toBeInTheDocument();
+    expect(card.getByText(/includes GTEx/)).toBeInTheDocument();
   });
 });

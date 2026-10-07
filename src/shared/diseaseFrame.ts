@@ -86,3 +86,14 @@ export function buildGeneDiseaseEvidence(data: GeneDiseaseResponse | null, selec
     causalityAvailable: assertions.length > 0, mechanismAvailable: !!selected &&
       scopeMechanismRecords(data?.mechanismContext?.records ?? [], selected).matching.length > 0 };
 }
+
+/**
+ * GenCC's ordinal classification, weakest to strongest. It positions one submitter's level on the
+ * scale; it is never averaged, and classifications outside it (animal model only, no known disease
+ * relationship) are not plotted rather than forced onto a rung.
+ */
+export const VALIDITY_SCALE = ['Refuted', 'Disputed', 'Limited', 'Supportive', 'Moderate', 'Strong', 'Definitive'] as const;
+export function validityPosition(level: string): number | null {
+  const i = VALIDITY_SCALE.findIndex(x => x.toLowerCase() === level.replace(/\s+evidence$/i, '').trim().toLowerCase());
+  return i < 0 ? null : i;
+}
