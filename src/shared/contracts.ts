@@ -1520,6 +1520,14 @@ export const landscapeContextSchema = z.object({
   })).nullable(),
   gnomad: z.array(z.object({ pos: z.number(), variants: z.number(), maxAc: z.number() })).nullable(),
   regions: z.array(z.object({ start: z.number(), end: z.number(), oe: z.number().nullable(), pValue: z.number().nullable() })).nullable(),
+  /**
+   * Why `regions` holds what it holds, so the lane never calls a withheld map "not loaded":
+   *   available        — protein-mapped intervals are present;
+   *   none             — the source answered; this transcript has no constrained interval;
+   *   withheld-mapping — intervals exist but no verified transcript→protein mapping is available;
+   *   unavailable      — the constraint source did not answer.
+   */
+  regionsStatus: z.enum(["available", "none", "withheld-mapping", "unavailable"]),
   transcript: z.string().nullable(),
   regionsBasis: z.string(),
   errors: z.array(z.string())

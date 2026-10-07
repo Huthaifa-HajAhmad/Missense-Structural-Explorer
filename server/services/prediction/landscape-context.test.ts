@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../external-api/gnomad.ts", () => ({
-  fetchGnomadGeneConstraint: vi.fn(async () => ({
-    hasRegionalData: true,
-    regions: [{ aa_start: "p.Met96", aa_stop: "p.Leu262", obs_exp: 0.412, p_value: 0.001 }]
-  }))
+  fetchGnomadGeneConstraint: vi.fn(async () => ({ hasRegionalData: true }))
 }));
 
-import { classifyClinvar, fetchLandscapeContext, missenseResidue, parseClinvar, parseGnomad, parseRegions } from "./landscape-context.ts";
+import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
+import { classifyClinvar, fetchLandscapeContext, missenseResidue, parseClinvar, parseGnomad } from "./landscape-context.ts";
 
 describe("landscape context parsing", () => {
   it("reads only missense HGVS", () => {
@@ -48,18 +46,50 @@ describe("landscape context parsing", () => {
     expect(gn).toEqual([{ pos: 116, variants: 2, maxAc: 10 }]);
   });
 
-  it("parses regional constraint spans", () => {
-    expect(parseRegions([{ aa_start: "p.Leu262", aa_stop: "p.Met96", obs_exp: 0.4123, p_value: "0.002" }])).toEqual([
-      { start: 96, end: 262, oe: 0.41, pValue: 0.002 }
-    ]);
+  it("withholds the regional map, naming the missing protein mapping, when the transcript has intervals", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true } as any);
+    const spy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("offline"));
+    const ctx = await fetchLandscapeContext("WITHHELDGENE");
+    expect(ctx.regions).toBeNull();
+    expect(ctx.regionsStatus).toBe("withheld-mapping");
+    expect(ctx.errors.join(" ")).toMatch(/Regional map withheld.*transcript-to-protein mapping/i);
+    spy.mockRestore();
+  });
+
+  it("reports a transcript with no regional interval as no call, not as withheld", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: false } as any);
+    const spy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("offline"));
+    const ctx = await fetchLandscapeContext("NOREGIONGENE");
+    expect(ctx.regions).toEqual([]);
+    expect(ctx.regionsStatus).toBe("none");
+    expect(ctx.errors.join(" ")).not.toMatch(/withheld/i);
+    spy.mockRestore();
+  });
+
+  it("caches a complete answer and does not re-fetch it on the next call", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: false } as any);
+    const gene = { canonical_transcript_id: "ENST1", clinvar_variants: [], variants: [] };
+    const spy = vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { gene } })
+    } as any);
+    const first = await fetchLandscapeContext("CACHEGENE");
+    const calls = spy.mock.calls.length;
+    const second = await fetchLandscapeContext("CACHEGENE");
+    expect(second).toBe(first);
+    expect(spy.mock.calls.length).toBe(calls);
+    expect(first.regionsStatus).toBe("none");
+    spy.mockRestore();
   });
 
   it("reports a failed source as not loaded, not as empty", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockRejectedValueOnce(new Error("constraint down"));
     const spy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("network down"));
-    const ctx = await fetchLandscapeContext("NAE1");
+    const ctx = await fetchLandscapeContext("FAILEDGENE");
     expect(ctx.clinvar).toBeNull();
     expect(ctx.gnomad).toBeNull();
     expect(ctx.regions).toBeNull();
+    expect(ctx.regionsStatus).toBe("unavailable");
     expect(ctx.regionsBasis).toContain("v4.1.1");
     expect(ctx.errors.length).toBe(3);
     spy.mockRestore();

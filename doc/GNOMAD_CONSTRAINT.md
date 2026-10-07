@@ -30,7 +30,7 @@ The header's Z bands are app-defined. Its PP2 text describes the app's input pro
 
 Legacy saved values without release provenance remain readable but are not interpreted using current thresholds. Persisted analyses from earlier constraint releases are retired on lookup; external cache schema v9 also retires the old rounded v2 entries. Gene-only cache healing cannot restore regional evidence.
 
-The Landscape overview uses a protein axis. Its old v2 regional lane mixed transcript numbering. It now reports unavailable protein mapping rather than projecting genomic ranges onto that axis. ClinVar and frequency lanes remain available; the header can show regional evidence when the verified genomic identity is present.
+The Landscape overview uses a protein axis. Its old v2 regional lane mixed transcript numbering and parsed amino-acid fields out of a genomic source. The lane now carries an explicit status — `available`, `none` (the source answered; no constrained sub-region), `withheld-mapping` (v4.1.1 intervals exist but no verified transcript-to-protein mapping), or `unavailable` (the source did not answer) — instead of calling every empty map "not loaded", and it never projects genomic ranges onto the axis. ClinVar and frequency lanes remain available; the header can show regional evidence when the verified genomic identity is present.
 
 ## Validation
 

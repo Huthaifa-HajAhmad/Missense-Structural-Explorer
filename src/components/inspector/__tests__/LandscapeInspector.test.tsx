@@ -48,7 +48,7 @@ describe("LandscapeInspector", () => {
           data: {
             positions: [],
             meta: {} as any,
-            context: { clinvar: [], gnomad: [{ pos: 116, variants: 2, maxAc: 10 }], regions: [{ start: 96, end: 262, oe: 0.41, pValue: 0.001 }], transcript: null, regionsBasis: "gnomAD v2", errors: [] }
+            context: { clinvar: [], gnomad: [{ pos: 116, variants: 2, maxAc: 10 }], regions: [{ start: 96, end: 262, oe: 0.41, pValue: 0.001 }], regionsStatus: "available", transcript: null, regionsBasis: "gnomAD v4.1.1 regional missense", errors: [] }
           }
         }
       } as any);
@@ -59,7 +59,7 @@ describe("LandscapeInspector", () => {
     const onSelect = vi.fn();
     render(<LandscapeInspector analysisResult={result} onSelectResidueIndex={onSelect} />);
     expect(screen.getByText("gnomAD: 2 missense, max AC 10")).toBeTruthy();
-    expect(screen.getByText("Regional O/E 0.41 (96–262, gnomAD v2)")).toBeTruthy();
+    expect(screen.getByText("Regional O/E 0.41 (96–262, gnomAD v4.1.1 regional missense)")).toBeTruthy();
     const v = screen.getAllByRole("button", { name: /^D→V AlphaMissense 0\.950/ })[0];
     fireEvent.click(v);
     expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ kind: "substitution", pos: 116, alt: "V" });
@@ -105,7 +105,7 @@ describe("LandscapeInspector", () => {
                 { pos: 116, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Gly" },
                 { pos: 116, cls: "plp", significance: "Pathogenic", stars: 2, hgvsp: "p.Asp116Val" }
               ],
-              gnomad: [], regions: [], transcript: null, regionsBasis: "gnomAD v2", errors: []
+              gnomad: [], regions: [], regionsStatus: "none", transcript: null, regionsBasis: "gnomAD v4.1.1 regional missense", errors: []
             }
           }
         }

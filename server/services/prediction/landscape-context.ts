@@ -1,5 +1,6 @@
 import { fetchWithRetry, normalizeGeneSymbol } from "../infra/http-client.ts";
 import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
+import { REGIONAL_CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
 
 /**
  * Gene-wide context for the Landscape overview: where ClinVar and gnomAD have missense variants,
@@ -44,6 +45,8 @@ export interface LandscapeContext {
   clinvar: ContextClinvar[] | null;
   gnomad: ContextGnomad[] | null;
   regions: ContextRegion[] | null;
+  /** Why `regions` holds what it holds; see the contract. Never infer the reason from `null`. */
+  regionsStatus: "available" | "none" | "withheld-mapping" | "unavailable";
   /** Transcript gnomAD numbered ClinVar/gnomAD residues on. */
   transcript: string | null;
   regionsBasis: string;
@@ -123,22 +126,6 @@ export function parseGnomad(rows: any[], canonical: string | null): ContextGnoma
   return [...byPos.values()].sort((a, b) => a.pos - b.pos);
 }
 
-export function parseRegions(regions: any[] | undefined): ContextRegion[] {
-  const out: ContextRegion[] = [];
-  for (const r of regions ?? []) {
-    const a = parseInt(String(r?.aa_start ?? "").replace(/\D/g, ""), 10);
-    const b = parseInt(String(r?.aa_stop ?? "").replace(/\D/g, ""), 10);
-    if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
-    out.push({
-      start: Math.min(a, b),
-      end: Math.max(a, b),
-      oe: typeof r?.obs_exp === "number" ? Number(r.obs_exp.toFixed(2)) : null,
-      pValue: typeof r?.p_value === "number" ? r.p_value : r?.p_value != null ? Number(r.p_value) : null
-    });
-  }
-  return out.sort((x, y) => x.start - y.start);
-}
-
 export async function fetchLandscapeContext(geneSymbol: string): Promise<LandscapeContext> {
   const gene = normalizeGeneSymbol(geneSymbol).toUpperCase();
   const hit = cache.get(gene);
@@ -162,25 +149,39 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
   let clinvar: ContextClinvar[] | null = null;
   let gnomad: ContextGnomad[] | null = null;
   let regions: ContextRegion[] | null = null;
+  let regionsStatus: LandscapeContext["regionsStatus"] = "unavailable";
+  // A withheld regional map is a stable, complete answer; only a source failure is worth retrying.
+  let sourceFailed = false;
 
   if (clinvarRes.status === "fulfilled" && clinvarRes.value) {
     transcript = clinvarRes.value.canonical_transcript_id ?? null;
     clinvar = parseClinvar(clinvarRes.value.clinvar_variants ?? [], transcript);
   } else {
+    sourceFailed = true;
     errors.push(`ClinVar not loaded: ${clinvarRes.status === "rejected" ? clinvarRes.reason?.message ?? "request failed" : "gene not found"}`);
   }
   if (gnomadRes.status === "fulfilled" && gnomadRes.value) {
     transcript = transcript ?? gnomadRes.value.canonical_transcript_id ?? null;
     gnomad = parseGnomad(gnomadRes.value.variants ?? [], gnomadRes.value.canonical_transcript_id ?? transcript);
   } else {
+    sourceFailed = true;
     errors.push(`gnomAD not loaded: ${gnomadRes.status === "rejected" ? gnomadRes.reason?.message ?? "request failed" : "gene not found"}`);
   }
   if (constraintRes.status === "fulfilled" && constraintRes.value) {
-    // v4 regions are genomic intervals. Rendering them on a protein axis without exon mapping
-    // would recreate the transcript-numbering defect this migration fixes.
-    regions = null;
-    errors.push("Regional protein map unavailable: gnomAD v4.1.1 intervals require verified transcript-to-protein mapping.");
+    if (constraintRes.value.hasRegionalData) {
+      // v4.1.1 intervals are GRCh38 genomic ranges. Rendering them on a protein axis without a
+      // verified exon/CDS mapping would recreate the transcript-numbering defect this migration
+      // fixes, so the lane is withheld — a refusal, not a missing value.
+      regionsStatus = "withheld-mapping";
+      errors.push(`Regional map withheld: gnomAD v${REGIONAL_CONSTRAINT_RELEASE} intervals require verified transcript-to-protein mapping.`);
+    } else {
+      // The source answered: this transcript genuinely has no constrained sub-region.
+      regionsStatus = "none";
+      regions = [];
+    }
   } else {
+    sourceFailed = true;
+    regionsStatus = "unavailable";
     errors.push("Regional constraint not loaded");
   }
 
@@ -188,12 +189,13 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     clinvar,
     gnomad,
     regions,
+    regionsStatus,
     transcript,
-    regionsBasis: "gnomAD v4.1.1 genomic intervals (protein mapping not verified)",
+    regionsBasis: `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} genomic intervals`,
     errors
   };
-  // Cache only a complete answer; a partial one is retried on the next request.
-  if (errors.length === 0) {
+  // Cache only when every source answered; a partial answer is retried on the next request.
+  if (!sourceFailed) {
     // Bounded: drop the oldest entry (Map keeps insertion order) rather than grow per gene forever.
     if (cache.size >= MAX_CACHED_GENES) cache.delete(cache.keys().next().value as string);
     cache.set(gene, { at: Date.now(), value });

@@ -155,7 +155,7 @@ describe("landscapeFinding on the queried residue's own ClinVar record", () => {
     { pos: 5, cls: "plp" as const, significance: "Pathogenic", stars: 2, hgvsp: "p.Ala5Thr" },
     { pos: 5, cls: "plp" as const, significance: "Pathogenic", stars: 3, hgvsp: "p.Ala5Val" }
   ];
-  const ctx = { clinvar, gnomad: [], regions: [], transcript: null, regionsBasis: "gnomAD v2", errors: [] };
+  const ctx = { clinvar, gnomad: [], regions: [], regionsStatus: "none" as const, transcript: null, regionsBasis: "gnomAD v4.1.1 genomic intervals", errors: [] };
   const base = {
     rows: [row(5, 0.5, { amCount: 6 })],
     window: { start: 1, end: 31 },
@@ -179,6 +179,11 @@ describe("landscapeFinding on the queried residue's own ClinVar record", () => {
     expect(clinvarIsQuery(clinvar[0], { pos: 5, mut: "V" })).toBe(false);
     expect(clinvarIsQuery(clinvar[2], { pos: 6, mut: "V" })).toBe(false);
     expect(clinvarIsQuery(clinvar[2], null)).toBe(false);
+  });
+
+  it("names a withheld regional map as withheld, not as a missing value", () => {
+    const f = landscapeFinding({ ...base, context: { ...ctx, regions: null, regionsStatus: "withheld-mapping" as const } });
+    expect(f.context).toContain("regional constraint withheld pending a verified transcript-to-protein mapping");
   });
 });
 
