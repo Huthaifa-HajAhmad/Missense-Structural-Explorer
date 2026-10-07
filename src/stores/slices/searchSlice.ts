@@ -16,6 +16,9 @@ export interface LandscapeViewState {
   lanes: { clinvar: boolean; gnomad: boolean; regions: boolean };
 }
 
+/** The Landscape rail's pill tabs; the choice outlives a re-render within the session. */
+export type LandscapeRailTab = "summary" | "substitutions" | "agreement" | "sources";
+
 /** Keyed by `gene|variant`; a selection from a previous query is ignored by comparing the key. */
 export interface LandscapeSelection {
   key: string;
@@ -49,6 +52,8 @@ export interface SearchState {
   landscapeExtra: { key: string; rows: LandscapeResidueItem[] } | null;
   /** Landscape display choices shared by the tab and its inspector rail. */
   landscapeView: LandscapeViewState;
+  /** Which rail pill tab is open; persisted for the session (not per query). */
+  landscapeRailTab: LandscapeRailTab;
   /** What the reader picked on the Landscape tab; keyed like `landscapeExtra`. */
   landscapeSelection: LandscapeSelection | null;
   /** Whole-protein summaries and gene context, keyed like `landscapeExtra`. */
@@ -88,6 +93,7 @@ export interface SearchActions {
   setSelectedGenomicVariant: (variant: any | null) => void;
   addLandscapeRows: (key: string, rows: LandscapeResidueItem[]) => void;
   setLandscapeView: (patch: Partial<LandscapeViewState>) => void;
+  setLandscapeRailTab: (tab: LandscapeRailTab) => void;
   setLandscapeSelection: (selection: LandscapeSelection | null) => void;
   setLandscapeOverview: (value: SearchState["landscapeOverview"]) => void;
   setSearchVal: (val: string) => void;
@@ -177,6 +183,7 @@ export const createSearchSlice: StateCreator<
   selectedGenomicVariant: null,
   landscapeExtra: null,
   landscapeView: { colorBy: "alphaMissense", lanes: { clinvar: true, gnomad: true, regions: true } },
+  landscapeRailTab: "summary",
   landscapeSelection: null,
   landscapeOverview: null,
   searchVal: initial.gene && initial.variant ? `${initial.gene} ${initial.variant}` : "",
@@ -212,6 +219,7 @@ export const createSearchSlice: StateCreator<
     })),
   setLandscapeView: (patch) =>
     set((state: any) => ({ landscapeView: { ...state.landscapeView, ...patch, lanes: { ...state.landscapeView.lanes, ...(patch.lanes ?? {}) } } })),
+  setLandscapeRailTab: (landscapeRailTab) => set({ landscapeRailTab }),
   setLandscapeSelection: (landscapeSelection) => set({ landscapeSelection }),
   setLandscapeOverview: (landscapeOverview) => set({ landscapeOverview }),
   setSearchVal: (searchVal) => set({ searchVal }),

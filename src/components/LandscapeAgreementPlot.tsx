@@ -13,11 +13,11 @@ interface Props {
 }
 
 const W = 320;
-const H = 170;
-const PAD_LEFT = 34;
-const PAD_BOTTOM = 26;
-const PAD_RIGHT = 10;
-const PAD_TOP = 10;
+const H = 178;
+const PAD_LEFT = 38;
+const PAD_BOTTOM = 30;
+const PAD_RIGHT = 14;
+const PAD_TOP = 14;
 const PLOT_W = W - PAD_LEFT - PAD_RIGHT;
 const PLOT_H = H - PAD_TOP - PAD_BOTTOM;
 
@@ -40,8 +40,9 @@ const LABEL: Record<Agreement, string> = {
 /**
  * REVEL against AlphaMissense for the loaded residues, read on the ClinGen bands. The dashed lines
  * are the calibrated PP3 / BP4 Supporting edges of each tool; the shaded corners are where both
- * tools agree. Dots are residue summaries (clickable); the diamond is the queried variant's own
- * pair of scores — a different kind of number, drawn with a different mark.
+ * tools agree. Dots are residue summaries (clickable and keyboard-reachable — each is a focusable
+ * point with a 24px hit circle, Enter selects); the diamond is the queried variant's own pair of
+ * scores — a different kind of number, drawn with a different mark.
  */
 export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, mode, selectedResidue, onSelectResidue }: Props) {
   const { points, omitted, counts } = useMemo(() => {
@@ -78,8 +79,10 @@ export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, 
     `. ${counts["both-pp3"]} both in the PP3 range, ${counts["both-bp4"]} both in the BP4 range, ${counts.discordant} discordant.` +
     (variantPoint ? " The diamond is the queried variant." : "");
 
+  const select = (pos: number) => onSelectResidue?.(pos);
+
   return (
-    <div className="flex flex-col gap-2 w-full">
+    <div className="lsr-scatter flex flex-col gap-2 w-full">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block overflow-visible" role="img" aria-label={summary}>
         <title>REVEL × AlphaMissense agreement</title>
         {/* Agreement corners */}
@@ -97,49 +100,70 @@ export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, 
         <line x1={x(0)} y1={y(0)} x2={x(0)} y2={y(1)} stroke="var(--cs-border)" strokeWidth={0.75} />
         {[0, 0.5, 1].map((v) => (
           <g key={`t-${v}`}>
-            <text x={x(v)} y={y(0) + 10} textAnchor="middle" className="font-mono text-[8px] fill-cs-text-muted">{v.toFixed(1)}</text>
-            <text x={x(0) - 5} y={y(v) + 3} textAnchor="end" className="font-mono text-[8px] fill-cs-text-muted">{v.toFixed(1)}</text>
+            <text x={x(v)} y={y(0) + 12} textAnchor="middle" className="font-mono text-[9px] fill-cs-text-muted">{v.toFixed(1)}</text>
+            <text x={x(0) - 6} y={y(v) + 3} textAnchor="end" className="font-mono text-[9px] fill-cs-text-muted">{v.toFixed(1)}</text>
           </g>
         ))}
-        <text x={x(revPp3)} y={y(1) - 2} textAnchor="middle" className="font-mono text-[7px] fill-cs-text-muted">{revPp3}</text>
-        <text x={x(revBp4)} y={y(1) - 2} textAnchor="middle" className="font-mono text-[7px] fill-cs-text-muted">{revBp4}</text>
-        <text x={x(1) + 2} y={y(amPp3) + 2} className="font-mono text-[7px] fill-cs-text-muted">{amPp3}</text>
-        <text x={x(1) + 2} y={y(amBp4) + 2} className="font-mono text-[7px] fill-cs-text-muted">{amBp4}</text>
-        <text x={PAD_LEFT + PLOT_W / 2} y={H - 4} textAnchor="middle" className="text-[9px] fill-cs-text-muted font-semibold">REVEL</text>
-        <text x={8} y={PAD_TOP + PLOT_H / 2} textAnchor="middle" transform={`rotate(-90 8,${PAD_TOP + PLOT_H / 2})`} className="text-[9px] fill-cs-text-muted font-semibold">AlphaMissense</text>
+        <text x={x(revPp3)} y={y(1) - 3} textAnchor="middle" className="font-mono text-[8px] fill-cs-text-muted">{revPp3}</text>
+        <text x={x(revBp4)} y={y(1) - 3} textAnchor="middle" className="font-mono text-[8px] fill-cs-text-muted">{revBp4}</text>
+        <text x={x(1) + 3} y={y(amPp3) + 2} className="font-mono text-[8px] fill-cs-text-muted">{amPp3}</text>
+        <text x={x(1) + 3} y={y(amBp4) + 2} className="font-mono text-[8px] fill-cs-text-muted">{amBp4}</text>
+        <text x={PAD_LEFT + PLOT_W / 2} y={H - 6} textAnchor="middle" className="text-[10px] fill-cs-text-secondary font-semibold">REVEL ({statWord})</text>
+        <text x={10} y={PAD_TOP + PLOT_H / 2} textAnchor="middle" transform={`rotate(-90 10,${PAD_TOP + PLOT_H / 2})`} className="text-[10px] fill-cs-text-secondary font-semibold">AlphaMissense ({statWord})</text>
 
         {points.length === 0 && !variantPoint && (
-          <text x={PAD_LEFT + PLOT_W / 2} y={PAD_TOP + PLOT_H / 2} textAnchor="middle" className="text-[9px] fill-cs-text-muted">
+          <text x={PAD_LEFT + PLOT_W / 2} y={PAD_TOP + PLOT_H / 2} textAnchor="middle" className="text-[10px] fill-cs-text-muted">
             {omitted > 0 ? "No residue scored by both predictors" : "No landscape scores"}
           </text>
         )}
 
-        {points.map((p) => (
-          <circle
-            key={p.pos}
-            cx={x(p.revel)}
-            cy={y(p.am)}
-            r={p.pos === selectedResidue ? 3.6 : 2.4}
-            fill={COLOR[p.cls]}
-            fillOpacity={0.75}
-            stroke={p.pos === selectedResidue ? "var(--cs-text-primary)" : "none"}
-            strokeWidth={1}
-            className={onSelectResidue ? "cursor-pointer" : undefined}
-            onClick={onSelectResidue ? () => onSelectResidue(p.pos) : undefined}
-          >
-            <title>{`Residue ${p.pos}: REVEL ${statWord} ${p.revel.toFixed(3)}, AlphaMissense ${statWord} ${p.am.toFixed(3)} (${LABEL[p.cls]})`}</title>
-          </circle>
-        ))}
+        {points.map((p) => {
+          const on = p.pos === selectedResidue;
+          return (
+            <g key={p.pos} className={onSelectResidue ? "lsr-scatter__pt" : undefined}>
+              {/* Hit target: the visible dot is 5–7px; the interactive circle is 24px across. */}
+              <circle cx={x(p.revel)} cy={y(p.am)} r={12} fill="transparent" pointerEvents={onSelectResidue ? "all" : "none"} />
+              <circle
+                cx={x(p.revel)}
+                cy={y(p.am)}
+                r={on ? 3.8 : 2.6}
+                fill={COLOR[p.cls]}
+                fillOpacity={0.85}
+                stroke={on ? "var(--cs-text-primary)" : "none"}
+                strokeWidth={1}
+                data-point="true"
+                tabIndex={onSelectResidue ? 0 : undefined}
+                aria-label={`Residue ${p.pos}: REVEL ${statWord} ${p.revel.toFixed(3)}, AlphaMissense ${statWord} ${p.am.toFixed(3)} (${LABEL[p.cls]})${onSelectResidue ? " — press Enter to select" : ""}`}
+                onClick={onSelectResidue ? () => select(p.pos) : undefined}
+                onKeyDown={
+                  onSelectResidue
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          select(p.pos);
+                        }
+                      }
+                    : undefined
+                }
+              >
+                <title>{`Residue ${p.pos}: REVEL ${statWord} ${p.revel.toFixed(3)}, AlphaMissense ${statWord} ${p.am.toFixed(3)} (${LABEL[p.cls]})`}</title>
+              </circle>
+            </g>
+          );
+        })}
 
         {variantPoint && (
-          <path
-            d={`M ${x(variantPoint.revel)} ${y(variantPoint.am) - 5} L ${x(variantPoint.revel) + 5} ${y(variantPoint.am)} L ${x(variantPoint.revel)} ${y(variantPoint.am) + 5} L ${x(variantPoint.revel) - 5} ${y(variantPoint.am)} Z`}
-            fill="var(--cs-accent-clay)"
-            stroke="var(--cs-surface-2)"
-            strokeWidth={1.5}
-          >
-            <title>{`This variant: REVEL ${variantPoint.revel.toFixed(3)}, AlphaMissense ${variantPoint.am.toFixed(3)}`}</title>
-          </path>
+          <g>
+            <circle cx={x(variantPoint.revel)} cy={y(variantPoint.am)} r={12} fill="transparent" pointerEvents="none" />
+            <path
+              d={`M ${x(variantPoint.revel)} ${y(variantPoint.am) - 5.5} L ${x(variantPoint.revel) + 5.5} ${y(variantPoint.am)} L ${x(variantPoint.revel)} ${y(variantPoint.am) + 5.5} L ${x(variantPoint.revel) - 5.5} ${y(variantPoint.am)} Z`}
+              fill="var(--cs-accent-clay)"
+              stroke="var(--cs-surface-2)"
+              strokeWidth={1.5}
+            >
+              <title>{`This variant: REVEL ${variantPoint.revel.toFixed(3)}, AlphaMissense ${variantPoint.am.toFixed(3)}`}</title>
+            </path>
+          </g>
         )}
       </svg>
 
