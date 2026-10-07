@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadModelOrganisms } from './modelOrganisms';
-afterEach(() => vi.unstubAllGlobals());
+import { resetAllianceReleaseCache } from './allianceRelease';
+afterEach(() => { vi.unstubAllGlobals(); resetAllianceReleaseCache(); });
 const row = (id: string, symbol: string, taxon: string, name: string, subject = 'HGNC:10004') => ({ stringencyFilter: 'stringent', geneToGeneOrthologyGenerated: {
   subjectGene: { primaryExternalId: subject }, objectGene: { primaryExternalId: id, geneSymbol: { displayText: symbol }, taxon: { curie: taxon, name } },
   isBestScore: { name: 'Yes' }, isBestScoreReverse: { name: 'No' }, confidence: { name: 'high' }, predictionMethodsMatched: [{}, {}] } });
-function mock(opts: { rows?: unknown[]; total?: number; impc?: 'ok' | 'down'; hgnc?: unknown[] } = {}) {
+function mock(opts: { rows?: unknown[]; total?: number; impc?: 'ok' | 'down'; hgnc?: unknown[]; release?: 'ok' | 'down' } = {}) {
   const rows = opts.rows ?? [row('MGI:1338824', 'Rgs9', 'NCBITaxon:10090', 'Mus musculus'), row('ZFIN:1', 'rgs9a', 'NCBITaxon:7955', 'Danio rerio')];
   const fetch = vi.fn(async (input: string | URL) => {
     const url = String(input);
     if (url.includes('genenames')) return new Response(JSON.stringify({ response: { numFound: 1, docs: opts.hgnc ?? [{ hgnc_id: 'HGNC:10004', symbol: decodeURIComponent(url.split('/').pop()!), status: 'Approved' }] } }));
+    if (url.includes('releaseInfo')) return opts.release === 'down' ? new Response('x', { status: 503 }) : new Response(JSON.stringify({ releaseVersion: '9.1.0', releaseDate: '2026-09-02T04:59:38.733+00:00' }));
     if (url.includes('alliancegenome')) return new Response(JSON.stringify({ results: rows, total: opts.total ?? rows.length }));
     if (opts.impc === 'down') return new Response('x', { status: 503 });
     return new Response(JSON.stringify({ response: { numFound: 1, docs: [{ mgi_accession_id: 'MGI:1338824', marker_symbol: 'Rgs9', phenotyping_data_available: true,
@@ -22,7 +24,12 @@ describe('model-organism adapter', () => {
     expect(result).toMatchObject({ status: 'ready', hgncId: 'HGNC:10004', impc: { status: 'ready', screens: [{ symbol: 'Rgs9', significant: ['vision/eye phenotype'] }] } });
     expect(result.orthologs[0]).toMatchObject({ species: 'Mouse', bestForward: true, bestReverse: false, methodCount: 2 });
     expect(result.provenance).toHaveLength(2);
-    await loadModelOrganisms('RGS9'); expect(fetch).toHaveBeenCalledTimes(3);
+    expect(result.provenance[0].release).toBe('9.1.0 (2026-09-02)');
+    await loadModelOrganisms('RGS9'); expect(fetch).toHaveBeenCalledTimes(4);
+  });
+  it('leaves the Alliance release unreported, without failing the read, when the release lookup is down', async () => {
+    mock({ release: 'down' }); const result = await loadModelOrganisms('RGS9B');
+    expect(result.status).toBe('ready'); expect(result.provenance[0].release).toBeNull();
   });
   it('does not resolve aliases and reports not-found', async () => {
     mock({ hgnc: [{ hgnc_id: 'HGNC:1', symbol: 'OTHER', status: 'Approved' }] });

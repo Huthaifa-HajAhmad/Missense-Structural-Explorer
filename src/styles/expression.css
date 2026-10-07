@@ -1,0 +1,52 @@
+/* Expression & models: the review frame, the finding, and the coverage strip. Tokens only. */
+.ctx-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ctx-field > .ctx-button { align-self: flex-start; }
+.ctx-status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.ctx-button--quiet { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+
+.xp-frame__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); gap: 16px; align-items: start; }
+@container (max-width: 640px) { .xp-frame__row { grid-template-columns: minmax(0, 1fr); } }
+
+.xp-hero__body { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 16px; }
+.xp-hero__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.xp-eyebrow { display: inline-flex; align-items: center; gap: 6px; }
+.xp-eyebrow > svg { color: var(--cs-accent-clay); }
+.xp-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin-top: 2px; }
+.xp-figure { font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold); letter-spacing: -0.01em; color: var(--cs-text-primary); line-height: 1.2; font-variant-numeric: proportional-nums; }
+.xp-figure__unit { font-size: 13px; font-weight: 500; color: var(--cs-text-muted); letter-spacing: 0; }
+.xp-hero__figure-label { font-size: 12px; color: var(--cs-text-muted); }
+.xp-hero__finding { max-width: 72ch; color: var(--cs-text-secondary); }
+.xp-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+
+/* One cell per review system: measured (top tissue and median) or not sampled by GTEx. */
+.xp-coverage { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.xp-coverage__cell { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-surface); min-width: 0; }
+.xp-coverage__cell[data-state="measured"] { border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border)); background: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface)); }
+.xp-coverage__name { font-size: 12px; color: var(--cs-text-muted); }
+.xp-coverage__value { color: var(--cs-text-primary); font-weight: 500; }
+.xp-coverage__cell[data-state="not-sampled"] .xp-coverage__value { color: var(--cs-text-secondary); font-weight: 400; }
+.xp-coverage__sub { font-size: 12px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
+.xp-callout { margin: 4px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); max-width: 72ch; }
+
+.xp-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2); }
+.xp-fact { padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.xp-fact + .xp-fact { border-left: 1px solid var(--cs-border-subtle); }
+.xp-fact dt { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }
+.xp-fact dd { margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.xp-fact__value { color: var(--cs-text-primary); font-weight: 500; overflow-wrap: anywhere; }
+.xp-fact[data-tone="muted"] .xp-fact__value { color: var(--cs-text-secondary); font-weight: 400; }
+.xp-fact__sub { font-size: 12px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
+@container (max-width: 760px) { .xp-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .xp-fact:nth-child(3) { border-left: 0; } .xp-fact:nth-child(n+3) { border-top: 1px solid var(--cs-border-subtle); } }
+@container (max-width: 420px) { .xp-facts { grid-template-columns: minmax(0, 1fr); } .xp-fact + .xp-fact { border-left: 0; border-top: 1px solid var(--cs-border-subtle); } }
+@media print { .xp-hero, .xp-coverage__cell, .xp-facts { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+
+/* Provenance: one closed disclosure per source, so seven sources are not seven screens. */
+.xp-prov { border-top: 1px solid var(--cs-border-subtle); padding: 8px 0; }
+.xp-prov > summary { cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; color: var(--cs-text-primary); list-style: none; min-height: 28px; }
+.xp-prov > summary::-webkit-details-marker { display: none; }
+.xp-prov > summary::before { content: "›"; display: inline-block; margin-right: 6px; color: var(--cs-text-muted); transition: transform 150ms ease; }
+.xp-prov[open] > summary::before { transform: rotate(90deg); }
+.xp-prov__name { flex: 1; min-width: 0; }
+.xp-prov__meta { font-size: 12px; color: var(--cs-text-muted); }
+.xp-prov > :not(summary) { margin-top: 8px; }
+.xp-prov:focus-within > summary:focus-visible, .xp-prov > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
