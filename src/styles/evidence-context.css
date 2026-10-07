@@ -55,3 +55,4 @@
 @media (hover: hover) { .ctx-chip:hover, .ctx-button:hover { background: var(--cs-surface-2); } }
 @container (max-width: 540px) { .ctx-definition > div { grid-template-columns: 1fr; gap: 4px; } .ctx-card__body { padding: 14px; } .ctx-finding { font-size: 20px; } }
 @media print { .ctx-button { display: none; } .ctx-table-wrap { overflow: visible; } .ctx-table { min-width: 0; } }
+.ctx-table td .ev-tier { white-space: normal; }

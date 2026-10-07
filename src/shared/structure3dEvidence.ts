@@ -1021,35 +1021,35 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const readings: Reading[] = [];
   if (comparison.state === "ready" && metrics) {
     if (!comparison.rigidBackbone) {
-    const local = fmt(metrics.localWindowRmsd, 2);
-    readings.push({
-      key: "local-rmsd",
-      label: "Local Cα RMSD",
-      note: `±${LOCAL_STRUCTURAL_WINDOW} residues around ${position ?? "the site"}`,
-      value: local ? `${local} Å` : null,
-      state: local ? "measured" : "not-measured",
-      caveat: measuredScope === "local"
+      const local = fmt(metrics.localWindowRmsd, 2);
+      readings.push({
+        key: "local-rmsd",
+        label: "Local Cα RMSD",
+        note: `±${LOCAL_STRUCTURAL_WINDOW} residues around ${position ?? "the site"}`,
+        value: local ? `${local} Å` : null,
+        state: local ? "measured" : "not-measured",
+        caveat: measuredScope === "local"
           ? `Measured inside the ±${LOCAL_ALIGNMENT_FIT_WINDOW} fitted window, so small by construction.`
           : null,
-    });
-    const global = fmt(metrics.globalRmsd, 2);
-    readings.push({
-      key: "global-rmsd",
-      label: "Whole-chain Cα RMSD",
-      note: measuredScope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
-      value: global ? `${global} Å` : null,
-      state: global ? "measured" : "not-measured",
-      caveat: "Two separate predictions: part of any difference can come from the predictions, not the substitution.",
-    });
-    const shift = fmt(metrics.maxCaDisplacement, 2);
-    readings.push({
-      key: "max-shift",
-      label: "Largest Cα shift",
-      note: `within ±${LOCAL_STRUCTURAL_WINDOW} residues`,
-      value: shift ? `${shift} Å` : null,
-      state: shift ? "measured" : "not-measured",
-      caveat: null,
-    });
+      });
+      const global = fmt(metrics.globalRmsd, 2);
+      readings.push({
+        key: "global-rmsd",
+        label: "Whole-chain Cα RMSD",
+        note: measuredScope === "global" ? "after a whole-chain fit" : `in the ±${LOCAL_ALIGNMENT_FIT_WINDOW} frame, not a whole-chain fit`,
+        value: global ? `${global} Å` : null,
+        state: global ? "measured" : "not-measured",
+        caveat: "Two separate predictions: part of any difference can come from the predictions, not the substitution.",
+      });
+      const shift = fmt(metrics.maxCaDisplacement, 2);
+      readings.push({
+        key: "max-shift",
+        label: "Largest Cα shift",
+        note: `within ±${LOCAL_STRUCTURAL_WINDOW} residues`,
+        value: shift ? `${shift} Å` : null,
+        state: shift ? "measured" : "not-measured",
+        caveat: null,
+      });
     }
     // Older results carry no paired wild type: the variant is then read against the template as
     // fetched, before RepairPDB, and the repair's own side-chain moves count as differences.
@@ -1352,7 +1352,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   const best = isAf ? bestCandidates[0]?.row ?? null : null;
   const loadedRow = rows.find(row => row.loaded);
   const relationshipNote =
-    isAf && input.wildType.customPdbUrl && loadedRow
+    isAf && effectiveMode === "wildtype" && input.wildType.customPdbUrl && loadedRow
       ? loadedRow.identity === "100%"
         ? "This experimental entry and AlphaFold represent the same wild-type protein sequence across the aligned range. A similar ribbon fold is expected; this view has not calculated an AlphaFold–PDB coordinate RMSD."
         : "This experimental entry is related to the queried protein. A similar ribbon fold does not mean the coordinates are identical; this view has not calculated an AlphaFold–PDB coordinate RMSD."

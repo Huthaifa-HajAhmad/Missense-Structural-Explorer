@@ -109,6 +109,14 @@ const REFERENCE_SOURCES: AttributionEntry[] = [
     usedBy: ['scripts/import-gencc-context.ts', 'server/services/evidence-context/gencc.ts', 'src/components/evidence/GeneDiseaseTab.tsx'],
   },
   {
+    id: 'clingen-dosage', name: 'ClinGen dosage sensitivity', provider: 'ClinGen Dosage Sensitivity Working Group', kind: 'dataset',
+    role: 'Gene-level haploinsufficiency and triplosensitivity calls with curated disease; context only, no ACMG vote.',
+    url: 'https://search.clinicalgenome.org/kb/gene-dosage', release: null,
+    releaseNote: 'Fetched live and cached for a day; the response carries no release identifier, so none is invented.',
+    citation: null, licence: 'ClinGen terms of use; attribution requested.',
+    usedBy: ['server/services/evidence-context/clingenDosage.ts', 'src/components/evidence/DosageSensitivityCard.tsx'],
+  },
+  {
     id: 'gtex', name: 'GTEx', provider: 'GTEx Consortium / Broad Institute', kind: 'dataset',
     role: 'Adult tissue median gene expression and RNA-seq cohort sample counts; context only.',
     url: 'https://gtexportal.org/', release: 'gtex_v10 / GENCODE v39',
@@ -800,6 +808,7 @@ export const QUERY_TRANSMISSION = {
   blurb:
     "A query is resolved by sending the notation, and then the identifiers it resolves to, to the hosts below. None of them receives a patient identifier: what leaves the machine is a gene symbol, an HGVS notation, a genomic coordinate, a UniProt accession, a PDB id, a RefSeq transcript id, a sequence, or a free-text literature query.",
   hosts: [
+    { host: "search.clinicalgenome.org", sent: "Nothing about the query: the whole public dosage table is downloaded and filtered on the server", note: "ClinGen dosage sensitivity context. The gene is matched locally, so no gene symbol leaves the machine." },
     { host: "gtexportal.org", sent: "Gene symbol, resolved GENCODE gene identifier and tissue metadata request", note: "Adult GTEx v10 expression context. Disease, onset and review-system selections stay in the browser." },
     { host: "rest.ensembl.org · grch37.rest.ensembl.org", sent: "Gene symbol, HGVS notation, transcript or genomic coordinate", note: "Ensembl VEP. The host is chosen from the genome build, so a GRCh37 notation never reaches the GRCh38 endpoint." },
     { host: "rest.variantvalidator.org", sent: "Gene symbol and HGVS notation", note: "Consulted for validation and isoform numbering only." },

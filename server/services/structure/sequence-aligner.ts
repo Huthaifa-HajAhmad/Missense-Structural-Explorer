@@ -408,6 +408,18 @@ export interface CoordinateResolutionResult {
 /** The largest residue number the PDB format's four columns can hold. */
 const MAX_PDB_RESSEQ = 9999;
 
+/**
+ * Per-atom records that copy an ATOM line's residue number and cannot be safely renumbered here.
+ *
+ * `ANISOU` carries anisotropic displacement, `SIGATM`/`SIGUIJ` the coordinate and B-factor sigmas.
+ * They were previously copied through verbatim, so after a renumbering pass they still carried the
+ * authors' numbers beside renumbered ATOM lines — and, because they were treated as metadata, the
+ * records of chains whose ATOM lines were dropped survived too. No downstream reader (FoldX, the
+ * viewer) takes them from this path, so they are dropped rather than given a second, contradictory
+ * numbering.
+ */
+const PER_ATOM_RECORDS_DROPPED = new Set(["CONECT", "ANISOU", "SIGATM", "SIGUIJ"]);
+
 const residueKey = (resSeq: number, insCode: string) => `${resSeq}|${insCode}`;
 
 /**
@@ -582,7 +594,7 @@ export function renumberChainToUniprot(
     const isAtom = line.startsWith("ATOM");
     const isHet = line.startsWith("HETATM");
     const isTer = line.startsWith("TER");
-    if (line.startsWith("CONECT")) continue;
+    if (PER_ATOM_RECORDS_DROPPED.has(line.substring(0, 6).trim())) continue;
     if (!isAtom && !isHet && !isTer) {
       out.push(line);
       continue;

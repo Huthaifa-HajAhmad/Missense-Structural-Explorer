@@ -176,6 +176,7 @@ export default function MolstarViewer({
 
   const warnings = model.notices.filter(n => n.tone === "warning");
   const hasVariant = Boolean(uniprotId || primaryPdbData || customPdbUrl);
+  const pocketTriggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className={`w-full ${heightClass === "h-full" ? "h-full min-h-0" : heightClass || "h-[650px]"}`}>
@@ -192,6 +193,7 @@ export default function MolstarViewer({
           onFocusSite={() => model.site.canAddressVariantSite && variantPosition && structure.focusResidue(variantPosition)}
           onBackToSite={() => onResidueClick(variantPosition)}
           pocketOpen={pocketOpen}
+          pocketTriggerRef={pocketTriggerRef}
           onTogglePocket={() => {
             const next = !pocketOpen;
             setPocketOpen(next);
@@ -233,6 +235,7 @@ export default function MolstarViewer({
               onClose={() => {
                 setPocketOpen(false);
                 setShowPocket(false);
+                requestAnimationFrame(() => pocketTriggerRef.current?.focus());
               }}
             />
           )}

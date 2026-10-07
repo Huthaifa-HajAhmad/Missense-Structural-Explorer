@@ -486,6 +486,16 @@ describe("ESM3 sequence shift overlay", () => {
     expect(entry.representations.find(option => option.id === "esm3")?.available).toBe(false);
     expect(entry.representation).not.toBe("esm3");
     expect(entry.canvas.relationshipNote).toMatch(/AlphaFold–PDB coordinate RMSD/);
+    const variantWithEntry = buildStructure3dEvidence(baseInput({
+      viewMode: "mutant", foldx: readyFoldx(),
+      wildType: {
+        provenance: { source: "alphafold", afdbVersion: "v6" },
+        customPdbUrl: "/api/v1/pdb/entry/1YOV?uniprot=Q13564&pos=116&wt=D",
+        entry: { numbering: "uniprot", chainId: "A", mapping: "sifts", reason: null },
+        scan: scanBFactors(CRYSTAL_TEXT), site: readResidueAt(CRYSTAL_TEXT, 116),
+      },
+    }));
+    expect(variantWithEntry.canvas.relationshipNote).toBeNull();
   });
 });
 

@@ -255,10 +255,12 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         sendError(res, 404, "NOT_FOUND", `Could not retrieve AlphaFold DB model for accession: ${validatedUniprot}.`);
         return;
       }
-      const afdbVersion = getResolvedAlphafoldVersion(validatedUniprot) || "v6";
+      const afdbVersion = getResolvedAlphafoldVersion(validatedUniprot);
       res.setHeader("Content-Type", "text/plain");
       res.setHeader("X-Template-Source", "alphafold");
-      res.setHeader("X-Template-AfdbVersion", afdbVersion);
+      // Only a version the resolved URL actually names is announced; a hardcoded default would stamp
+      // provenance with a version the bytes need not carry.
+      if (afdbVersion) res.setHeader("X-Template-AfdbVersion", afdbVersion);
       publishStructureRef(res, afData, {
         origin: "server",
         uniprotId: validatedUniprot,

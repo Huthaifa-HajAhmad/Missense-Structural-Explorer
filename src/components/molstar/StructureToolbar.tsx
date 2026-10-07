@@ -19,6 +19,7 @@ export interface StructureToolbarProps {
   onFocusSite: () => void;
   onBackToSite: () => void;
   pocketOpen: boolean;
+  pocketTriggerRef?: React.RefObject<HTMLButtonElement | null>;
   onTogglePocket: () => void;
   captureOpen: boolean;
   setCaptureOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -195,7 +196,7 @@ export function StructureToolbar(props: StructureToolbarProps) {
         </div>
         <div className="s3d-bar__tools">
           <button
-            type="button" className="s3d-btn" aria-pressed={props.pocketOpen}
+            ref={props.pocketTriggerRef} type="button" className="s3d-btn" aria-pressed={props.pocketOpen}
             onClick={props.onTogglePocket} title="Inspect the predicted pocket from the pipeline structure"
           >
             <ScanSearch aria-hidden="true" /><span>Pocket</span>

@@ -1289,7 +1289,11 @@ export function derivePocketNarrative(
     });
   }
 
-  if (status === "fallback_engine") {
+  const isFallback = status === "fallback_engine";
+  const fallbackHasMeasurements =
+    pocket?.pocketDistance != null || pocket?.cavityCentreDistance != null ||
+    pocket?.pocketScore != null || (pocket?.pocketResidues?.length ?? 0) > 0;
+  if (isFallback && !fallbackHasMeasurements) {
     /*
      * `fallback` in the runner's vocabulary means fpocket returned the pocket after
      * P2Rank did not. That is real cavity data, and reporting it as "P2Rank
@@ -1324,7 +1328,7 @@ export function derivePocketNarrative(
     });
   }
 
-  // ── status === "success" ──
+  // Success and measured fpocket fallback share geometry, but not score semantics.
   const finiteOrNull = (value: number | null | undefined): number | null =>
     value !== null && value !== undefined && Number.isFinite(value) ? value : null;
 
@@ -1387,7 +1391,7 @@ export function derivePocketNarrative(
 
   const proximityBand = classifyProximity(rawDistance, includesVariantResidue);
   const classification = spatialClassificationFor(proximityBand, reference);
-  const rankingBand = classifyPocketRanking(score);
+  const rankingBand = isFallback ? "unknown" : classifyPocketRanking(score);
 
   /*
    * Volume is only a volume when the payload says so.
@@ -1414,13 +1418,15 @@ export function derivePocketNarrative(
 
   const scoreSource = pocket?.provenance?.scoreSource;
   const rankingKind: PocketNarrative["ranking"]["kind"] =
-    scoreSource === "probability" ? "probability" : scoreSource === "rescaled_raw_score" ? "rescaled_raw_score" : "unverified";
+    isFallback ? "unverified" : scoreSource === "probability" ? "probability" : scoreSource === "rescaled_raw_score" ? "rescaled_raw_score" : "unverified";
   const profile = pocket?.provenance?.profile?.trim() || null;
   const rankingDisplay =
     score === null ? null : rankingKind === "probability" ? (score / 100).toFixed(2) : `${score}`;
   const profileClause = profile ? ` under its ${profile} profile` : "";
   let rankingClause: string;
-  if (score === null) {
+  if (isFallback) {
+    rankingClause = score === null ? "fpocket did not report a comparable pocket score." : `fpocket reported a score of ${score}; it is not a P2Rank probability or ranking.`;
+  } else if (score === null) {
     rankingClause = "P2Rank reported no score for that cavity.";
   } else if (rankingKind === "probability") {
     rankingClause = `P2Rank gives that cavity a ${rankingDisplay} probability of being a ligand-binding site${profileClause}.`;
@@ -1432,12 +1438,16 @@ export function derivePocketNarrative(
 
   const volumeClause = buildVolumeClause(volume, volumeBand, isMeasuredVolume, surfacePoints);
 
-  const plainLanguage = `${distanceClause} ${rankingClause} ${volumeClause}`;
+  const plainLanguage = `${isFallback ? "P2Rank did not return a result; these cavity measurements come from fpocket. " : ""}${distanceClause} ${rankingClause} ${volumeClause}`;
 
-  const bottomLine = buildPocketBottomLine(proximityBand, rankingBand);
+  const bottomLine = isFallback
+    ? "This is a geometric cavity result from fpocket. Do not compare its score or pocket boundaries with P2Rank results from other variants."
+    : buildPocketBottomLine(proximityBand, rankingBand);
 
   const caveats = [
-    "P2Rank detects cavity geometry, not function: it cannot tell whether a cavity actually binds a ligand in the cell.",
+    isFallback
+      ? "fpocket detects cavity geometry, not function; its score and boundaries are not interchangeable with P2Rank's."
+      : "P2Rank detects cavity geometry, not function: it cannot tell whether a cavity actually binds a ligand in the cell.",
     "Distances are measured between residue centres of mass in a single static conformation, so flexible loops and induced-fit motions are not represented.",
   ];
   if (rankingBand === "weak") {
@@ -1457,8 +1467,8 @@ export function derivePocketNarrative(
   return {
     status,
     headline: headlineByProximity[proximityBand],
-    badge: classification.label,
-    badgeTone: pocketBadgeTone(proximityBand, rankingBand),
+    badge: isFallback ? "fpocket fallback" : classification.label,
+    badgeTone: isFallback ? "warn" : pocketBadgeTone(proximityBand, rankingBand),
     plainLanguage,
     bottomLine,
     classification,

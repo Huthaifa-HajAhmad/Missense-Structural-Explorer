@@ -104,9 +104,12 @@ function ExperimentalEntries({ experimental, setCustomPdbUrl }: {
   setCustomPdbUrl: (url: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const entrySignature = experimental.rows.map(row => `${row.pdbId}:${row.loaded}`).join("|");
   useEffect(() => {
     if (experimental.rows.length > 0 && (experimental.rows.length <= 3 || experimental.rows.some(row => row.loaded))) setOpen(true);
-  }, [experimental.rows]);
+    // Reopen only when the list or selected entry changes, not on every evidence-model render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entrySignature]);
   return (
     <details className="s3d-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Browse experimental entries</summary>

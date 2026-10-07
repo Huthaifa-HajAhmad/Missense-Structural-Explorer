@@ -45,6 +45,27 @@ describe('context tab claims and interactions', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: frame.key } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ systems: ['hearing'], diseaseKey: frame.key }));
   });
+  it('shows ClinGen dosage as gene-level context scoped to the selected disease by exact ID', () => {
+    const score = (code: number, diseaseId: string | null) => ({ state: 'scored', code, disease: diseaseId ? 'Example disease' : null, diseaseId, history: null });
+    context.value.selection.diseaseKey = frame.key;
+    context.value.dosageLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', message: null, provenance: null, record: { symbol: 'TEST', geneId: 'HGNC:1', location: null,
+      haploinsufficiency: score(3, 'MONDO:1'), triplosensitivity: score(40, null), evaluatedAt: '2020-06-24', reportUrl: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1' } } };
+    render(<GeneDiseaseTab {...props} />);
+    const card = within(screen.getByTestId('dosage-card'));
+    expect(card.getByText('3: Sufficient evidence')).toBeVisible();
+    expect(card.getByText('40: Dosage sensitivity unlikely')).toBeVisible();
+    expect(card.getByText(/exact MONDO ID/)).toBeVisible();
+    expect(card.getByText(/casts no ACMG vote/)).toBeVisible();
+    expect(screen.queryByText(/dosage sensitivity is not integrated yet/i)).not.toBeInTheDocument();
+  });
+  it('says when dosage cannot be read and offers a retry', () => {
+    context.value.selection.diseaseKey = frame.key; context.value.retryDosage = vi.fn();
+    context.value.dosageLoad = { status: 'error', data: null, error: 'Request limit reached' };
+    render(<GeneDiseaseTab {...props} />);
+    expect(within(screen.getByTestId('dosage-card')).getByText('Request limit reached')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(context.value.retryDosage).toHaveBeenCalledOnce();
+  });
   it('leads with refutation and retains every submitter', () => {
     context.value.selection.diseaseKey = frame.key; render(<GeneDiseaseTab {...props} />);
     expect(screen.getByText('Disputed or refuted assertions require review.')).toBeInTheDocument();
