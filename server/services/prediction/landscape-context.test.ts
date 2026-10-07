@@ -49,10 +49,10 @@ describe("landscape context parsing", () => {
   });
 
   it("withholds the regional map, naming the missing CDS model, when the transcript has intervals", async () => {
-    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233" } } as any);
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233", transcriptVersion: "10" } } as any);
     vi.mocked(fetchTranscriptExons).mockResolvedValueOnce(null);
     const spy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("offline"));
-    const ctx = await fetchLandscapeContext("WITHHELDGENE");
+    const ctx = await fetchLandscapeContext("WITHHELDGENE", "ENST00000000233");
     expect(ctx.regions).toBeNull();
     expect(ctx.regionsStatus).toBe("withheld-mapping");
     expect(ctx.errors.join(" ")).toMatch(/Regional map withheld.*CDS model/i);
@@ -60,31 +60,50 @@ describe("landscape context parsing", () => {
   });
 
   it("projects the released intervals onto protein residues when the CDS model verifies", async () => {
-    // ARF5 (ENST00000000233) has three released genomic intervals; the model covers them all.
-    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233" } } as any);
+    // ARF5 (ENST00000000233): three released genomic intervals over the real 6-exon, 180-aa model.
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233", transcriptVersion: "10" } } as any);
     vi.mocked(fetchTranscriptExons).mockResolvedValueOnce({
-      strand: 1, seqRegionName: "7", cdsStart: 127588499, cdsEnd: 127591296, proteinLength: 933,
-      exons: [{ start: 127588499, end: 127591296 }]
+      strand: 1, seqRegionName: "7", cdsStart: 127588499, cdsEnd: 127591299, proteinLength: 180, transcriptVersion: "10",
+      exons: [
+        { start: 127588411, end: 127588565 }, { start: 127589083, end: 127589163 }, { start: 127589485, end: 127589594 },
+        { start: 127590066, end: 127590137 }, { start: 127590963, end: 127591088 }, { start: 127591213, end: 127591700 }
+      ]
     } as any);
     const gene = { canonical_transcript_id: "ENST00000000233", clinvar_variants: [], variants: [] };
     const spy = vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, json: async () => ({ data: { gene } }) } as any);
-    const ctx = await fetchLandscapeContext("MAPPEDGENE");
+    const ctx = await fetchLandscapeContext("MAPPEDGENE", "ENST00000000233");
     expect(ctx.regionsStatus).toBe("available");
-    expect(ctx.regions?.length).toBe(3);
-    expect(ctx.regions?.[0]).toMatchObject({ start: 1, end: 21 });
-    expect(ctx.regions?.at(-1)).toMatchObject({ start: 340, end: 933 });
+    expect(ctx.regions).toEqual([
+      { start: 1, end: 21, oe: 0.81832, pValue: 0.31528 },
+      { start: 21, end: 60, oe: 0.16758, pValue: 8.8515e-9 },
+      { start: 60, end: 180, oe: 0.63385, pValue: 0.0000034042 }
+    ]);
     expect(ctx.regionsBasis).toMatch(/protein residues/i);
     spy.mockRestore();
   });
 
   it("refuses to project intervals numbered on a different transcript than the axis", async () => {
     vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233" } } as any);
-    const gene = { canonical_transcript_id: "ENST99999999999", clinvar_variants: [], variants: [] };
+    const gene = { canonical_transcript_id: "ENST00000000233", clinvar_variants: [], variants: [] };
     const spy = vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, json: async () => ({ data: { gene } }) } as any);
-    const ctx = await fetchLandscapeContext("MISMATCHGENE");
+    const ctx = await fetchLandscapeContext("MISMATCHGENE", "ENST99999999999");
     expect(ctx.regionsStatus).toBe("withheld-mapping");
     expect(ctx.regions).toBeNull();
-    expect(ctx.errors.join(" ")).toMatch(/does not match the landscape transcript/i);
+    expect(ctx.errors.join(" ")).toMatch(/does not match the landscape axis transcript/i);
+    spy.mockRestore();
+  });
+
+  it("refuses to project through a transcript version that differs from the pinned release", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce({ hasRegionalData: true, provenance: { transcriptId: "ENST00000000233", transcriptVersion: "10" } } as any);
+    vi.mocked(fetchTranscriptExons).mockResolvedValueOnce({
+      strand: 1, seqRegionName: "7", cdsStart: 127588499, cdsEnd: 127591299, proteinLength: 180, transcriptVersion: "11",
+      exons: [{ start: 127588499, end: 127591299 }]
+    } as any);
+    const gene = { canonical_transcript_id: "ENST00000000233", clinvar_variants: [], variants: [] };
+    const spy = vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, json: async () => ({ data: { gene } }) } as any);
+    const ctx = await fetchLandscapeContext("VERSIONGENE", "ENST00000000233");
+    expect(ctx.regionsStatus).toBe("withheld-mapping");
+    expect(ctx.errors.join(" ")).toMatch(/transcript version 11 differs from the pinned 10/i);
     spy.mockRestore();
   });
 

@@ -111,7 +111,7 @@ export function parseGnomad(rows: any[], canonical: string | null): ContextGnoma
   return [...byPos.values()].sort((a, b) => a.pos - b.pos);
 }
 
-export async function fetchLandscapeContext(geneSymbol: string): Promise<LandscapeContext> {
+export async function fetchLandscapeContext(geneSymbol: string, expectedTranscript: string | null = null): Promise<LandscapeContext> {
   const gene = normalizeGeneSymbol(geneSymbol).toUpperCase();
   const hit = cache.get(gene);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
@@ -135,6 +135,7 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
   let gnomad: ContextGnomad[] | null = null;
   let regions: LandscapeContext["regions"] = null;
   let regionsStatus: LandscapeContext["regionsStatus"] = "unavailable";
+  let regionTx: string | null = null;
   // A withheld regional map is a stable, complete answer; only a source failure is worth retrying.
   let sourceFailed = false;
 
@@ -162,28 +163,36 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     regionsStatus = "none";
     regions = [];
   } else {
-    // Intervals exist. They are numbered on the constraint transcript; the Landscape residue axis is
-    // numbered on the gnomAD canonical transcript the ClinVar/gnomAD lanes use. If the two disagree,
-    // projecting would mislabel residues, so refuse.
-    const transcriptId = constraintRes.value.provenance?.transcriptId ?? null;
-    const landscapeTx = transcript?.split(".")[0] ?? null;
-    if (landscapeTx && transcriptId && landscapeTx !== transcriptId) {
+    // The intervals are numbered on the constraint transcript; the lane is drawn on the transcript
+    // the Landscape residue axis was built on (`expectedTranscript`). Both must be known and equal,
+    // or projecting would mislabel residues.
+    const constraintTx = constraintRes.value.provenance?.transcriptId ?? null;
+    const axisTx = expectedTranscript?.split(".")[0] ?? null;
+    const constraintVersion = constraintRes.value.provenance?.transcriptVersion ?? null;
+    if (!axisTx || !constraintTx || axisTx !== constraintTx) {
       regionsStatus = "withheld-mapping";
-      errors.push(`Regional map withheld: constraint transcript ${transcriptId} does not match the landscape transcript ${landscapeTx}.`);
+      errors.push(`Regional map withheld: the constraint transcript ${constraintTx ?? "(none)"} does not match the landscape axis transcript ${axisTx ?? "(unknown)"}.`);
     } else {
-      const structure = transcriptId ? await fetchTranscriptExons(transcriptId) : null;
-      const model = structure && structure.exons.length > 0 && structure.cdsStart !== undefined && structure.cdsEnd !== undefined
-        ? { strand: structure.strand, cdsStart: structure.cdsStart, cdsEnd: structure.cdsEnd, exons: structure.exons }
+      const structure = await fetchTranscriptExons(constraintTx, null, null, { requireCds: true });
+      const cdsStart = structure?.cdsStart;
+      const cdsEnd = structure?.cdsEnd;
+      const cds = structure && cdsStart !== undefined && cdsEnd !== undefined && structure.exons.length > 0
+        ? { strand: structure.strand, cdsStart, cdsEnd, exons: structure.exons, proteinLength: structure.proteinLength, transcriptVersion: structure.transcriptVersion }
         : null;
-      if (!model) {
+      if (!cds) {
         // The model source failed, or the transcript is not coding: withhold, and retry on the next
         // request rather than caching a refusal that may be transient.
         sourceFailed = true;
         regionsStatus = "withheld-mapping";
-        errors.push(`Regional map withheld: no verified CDS model for ${transcriptId ?? "the constraint transcript"}.`);
+        errors.push(`Regional map withheld: no verified CDS model for ${constraintTx}.`);
+      } else if (cds.transcriptVersion !== undefined && constraintVersion !== null && cds.transcriptVersion !== constraintVersion) {
+        // The live exon model is a different transcript version than the pinned release. Refuse
+        // rather than project through a model whose exon boundaries may have moved.
+        regionsStatus = "withheld-mapping";
+        errors.push(`Regional map withheld: Ensembl transcript version ${cds.transcriptVersion} differs from the pinned ${constraintVersion}.`);
       } else {
-        const raw = transcriptId ? getConstraintIndex().regions.get(transcriptId) ?? [] : [];
-        const mapped = raw
+        const model = { strand: cds.strand, cdsStart: cds.cdsStart, cdsEnd: cds.cdsEnd, exons: cds.exons, proteinLength: cds.proteinLength };
+        const mapped = (getConstraintIndex().regions.get(constraintTx) ?? [])
           .map((r) => ({ span: mapGenomicIntervalToProtein(model, r.start, r.end), oe: r.oe, p: r.p }))
           .filter((r): r is { span: { start: number; end: number }; oe: number; p: number } => r.span !== null)
           .map((r) => ({ start: r.span.start, end: r.span.end, oe: r.oe, pValue: r.p }))
@@ -191,6 +200,7 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
         if (mapped.length) {
           regionsStatus = "available";
           regions = mapped;
+          regionTx = constraintTx;
         } else {
           // Intervals exist but none fall in coding sequence: no protein-axis call, not a withheld map.
           regionsStatus = "none";
@@ -206,8 +216,8 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     regions,
     regionsStatus,
     transcript,
-    regionsBasis: regionsStatus === "available"
-      ? `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} regional missense, protein residues`
+    regionsBasis: regionsStatus === "available" && regionTx
+      ? `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} regional missense, ${regionTx} protein residues (Ensembl CDS)`
       : `gnomAD v${REGIONAL_CONSTRAINT_RELEASE} genomic intervals`,
     errors
   };

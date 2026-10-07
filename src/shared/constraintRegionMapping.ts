@@ -11,11 +11,13 @@
 export interface CdsModel {
   /** +1 for the forward strand, -1 for the reverse. */
   strand: number;
-  /** Coding-sequence genomic bounds, 1-based inclusive. */
+  /** Coding-sequence genomic bounds, 1-based inclusive. Ensembl includes the termination codon. */
   cdsStart: number;
   cdsEnd: number;
   /** Exon genomic bounds, 1-based inclusive (any order). */
   exons: ReadonlyArray<{ start: number; end: number }>;
+  /** Translated amino-acid length, excluding the stop codon. When set, results are clamped to it. */
+  proteinLength?: number;
 }
 
 /** Exonic segments inside the CDS, ordered in transcript direction. */
@@ -31,14 +33,19 @@ export function codingSegments(model: CdsModel): Array<{ start: number; end: num
   return segs;
 }
 
-/** Amino-acid length of the model's coding sequence (whole codons only). */
+/**
+ * Amino-acid length of the model's coding sequence. Ensembl CDS bounds include the termination
+ * codon, so supply `proteinLength` (Ensembl's `Translation.length`) for the translated length;
+ * without it the whole-codon count is returned.
+ */
 export function proteinLengthOf(model: CdsModel): number {
-  return Math.floor(codingSegments(model).reduce((n, s) => n + (s.end - s.start + 1), 0) / 3);
+  return model.proteinLength ?? Math.floor(codingSegments(model).reduce((n, s) => n + (s.end - s.start + 1), 0) / 3);
 }
 
 /**
  * The contiguous protein span a genomic interval covers on the CDS, or null when the interval
- * overlaps no coding base. Endpoints may be given in either order; the result is ascending.
+ * overlaps no coding base. Endpoints may be given in either order; the result is ascending and,
+ * when `proteinLength` is known, clamped to the translated residues (never the stop codon).
  */
 export function mapGenomicIntervalToProtein(model: CdsModel, a: number, b: number): { start: number; end: number } | null {
   const forward = model.strand >= 0;
@@ -61,5 +68,12 @@ export function mapGenomicIntervalToProtein(model: CdsModel, a: number, b: numbe
     offset += seg.end - seg.start + 1;
   }
   if (first === null || last === null) return null;
-  return { start: Math.floor(first / 3) + 1, end: Math.floor(last / 3) + 1 };
+  let start = Math.floor(first / 3) + 1;
+  let end = Math.floor(last / 3) + 1;
+  if (model.proteinLength !== undefined) {
+    start = Math.min(start, model.proteinLength);
+    end = Math.min(end, model.proteinLength);
+  }
+  if (end < 1 || start > end) return null;
+  return { start: Math.max(1, start), end };
 }
