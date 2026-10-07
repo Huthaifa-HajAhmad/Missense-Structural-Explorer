@@ -206,7 +206,7 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.site.substitution).toBe("Asp116Gly");
   });
 
-  it("never calls a crystallographic B-factor pLDDT", () => {
+  it("colours experimental B-factors relatively without claiming an unverified site value", () => {
     const m = buildStructure3dEvidence(
       baseInput({
         wildType: {
@@ -217,8 +217,8 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
         },
       })
     );
-    expect(m.site.confidence.kind).toBe("b-factor");
-    expect(m.site.confidence.text).toMatch(/^B-factor 94\.5 Å² · highest quarter of this entry$/);
+    expect(m.site.confidence.kind).toBe("none");
+    expect(m.site.canAddressVariantSite).toBe(false);
     expect(JSON.stringify(m.site)).not.toMatch(/pLDDT/);
     expect(m.colour.primary).toEqual({ theme: "bfactor-quartile" });
     expect(m.legend?.provenance).toBe("relative");
@@ -324,7 +324,7 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.experimental.best?.pdbId).toBe("1YOV");
   });
 
-  it("warns when a loaded entry's numbering puts another residue at the variant's position", () => {
+  it("does not compare an author-numbered entry position with the UniProt variant site", () => {
     const shifted = CRYSTAL_TEXT.replace(/ASP A 116/, "LEU A 116");
     const m = buildStructure3dEvidence(
       baseInput({
@@ -338,8 +338,23 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     );
     expect(m.canvas.primary?.name).toBe("PDB 9QN5");
     expect(m.canvas.primary?.numbering).toBe("entry");
-    expect(m.site.check.state).toBe("mismatch");
+    expect(m.site.check.state).toBe("unknown");
+    expect(m.site.canAddressVariantSite).toBe(false);
+    expect(m.site.confidence.kind).toBe("none");
     expect(m.notices.map(n => n.key)).toEqual(expect.arrayContaining(["numbering", "entry"]));
+  });
+
+  it("withholds site highlights and pLDDT when a numbered model disagrees with the query residue", () => {
+    const wrongSite = AF_TEXT.replaceAll("ASP", "LEU");
+    const m = buildStructure3dEvidence(baseInput({
+      wildType: {
+        provenance: { source: "alphafold", afdbVersion: "v6" }, customPdbUrl: null,
+        scan: scanBFactors(wrongSite), site: readResidueAt(wrongSite, 116),
+      },
+    }));
+    expect(m.site.check.state).toBe("mismatch");
+    expect(m.site.canAddressVariantSite).toBe(false);
+    expect(m.site.confidence.kind).toBe("none");
   });
 
   it("names the chain of an entry the server renumbered to UniProt, and asks for it in the variant's numbering", () => {
@@ -358,6 +373,8 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.canvas.primary?.numbering).toBe("uniprot");
     expect(m.canvas.primary?.kind).toMatch(/in UniProt numbering \(PDBe SIFTS\)/);
     expect(m.site.check.state).toBe("match");
+    expect(m.site.canAddressVariantSite).toBe(true);
+    expect(m.site.confidence.kind).toBe("b-factor");
     expect(m.notices.find(n => n.key === "entry")?.body).toMatch(/^Chain B is shown, renumbered to UniProt residue by residue through PDBe's SIFTS mapping/);
     expect(m.notices.find(n => n.key === "entry")?.body).toContain("and so are 6 residues with no UniProt position (tags, linkers or insertions)");
     const row = m.experimental.rows.find(r => r.pdbId === "9QN5")!;

@@ -1106,15 +1106,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   /* ── Site ─────────────────────────────────────────────────────────────── */
   const siteStructure = isAf ? input.wildType.site : deNovo.site;
   const siteIdentity = canvasWildType;
-  const canAddressVariantSite = siteIdentity?.numbering === "uniprot";
+  const hasVerifiedNumbering = siteIdentity?.numbering === "uniprot";
   const expected = wt3 ? wt3.toUpperCase() : null;
   let check: SiteContext["check"];
-  if (!canAddressVariantSite && siteIdentity && siteStructure && expected && siteStructure.resName !== expected) {
-    check = {
-      state: "mismatch",
-      text: `The structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at ${position}, not ${wt3}: its numbering does not follow UniProt here, so the highlighted residue is not the variant's.`,
-    };
-  } else if (!canAddressVariantSite && siteIdentity) {
+  if (!hasVerifiedNumbering && siteIdentity) {
     check = { state: "unknown", text: `${siteIdentity.name} keeps entry numbering, so the variant's UniProt residue is not highlighted or compared.` };
   } else if (!siteStructure) {
     check = siteIdentity
@@ -1127,9 +1122,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   } else {
     check = {
       state: "mismatch",
-      text: `The structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at ${position}, not ${wt3}: its numbering does not follow UniProt here, so the highlighted residue is not the variant's.`,
+      text: `The mapped structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at UniProt ${position}, not ${wt3}; the variant site is not highlighted or measured until the residue identity is reconciled.`,
     };
   }
+  const canAddressVariantSite = hasVerifiedNumbering && check.state === "match";
 
   let confidence: SiteContext["confidence"] = { kind: "none", value: null, text: "Not read", note: "No wild-type coordinates at the site." };
   const siteB = siteStructure?.caBFactor ?? null;
@@ -1145,7 +1141,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         ? `From ${siteIdentity!.name}, this view's wild type; AlphaFold DB band ${band.range}.`
         : `From ${siteIdentity!.name}, this view's wild type; displayed in the ${band.label.toLowerCase()} pLDDT band, not an AlphaFold DB classification.`,
     };
-  } else if (siteB !== null && channel?.kind === "temperature-factor") {
+  } else if (siteB !== null && canAddressVariantSite && channel?.kind === "temperature-factor") {
     const scan = isAf ? input.wildType.scan : null;
     const q = quartileOf(siteB, scan);
     confidence = {
@@ -1183,8 +1179,8 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       body: `FoldX built the variant on ${foldxTemplate.name}${input.wildType.customPdbUrl ? "" : `, not on ${canvasWildType?.name ?? "the AlphaFold model"}`}. The superposition and its measurements pair the variant with ${pairedByFoldx ? "FoldX's own wild type on that template" : "that template"}, so they describe the substitution rather than the difference between two structures.`,
     });
   }
-  if (check.state === "mismatch") {
-    notices.push({ key: "numbering", tone: "warning", title: "Highlighted residue is not the variant's", body: check.text });
+  if (check.state === "mismatch" || (!hasVerifiedNumbering && siteIdentity)) {
+    notices.push({ key: "numbering", tone: "warning", title: "Variant site not verified on these coordinates", body: check.text });
   }
   if (!isAf && deNovo.engines?.wildType && deNovo.engines?.variant && deNovo.engines.wildType !== deNovo.engines.variant) {
     notices.push({

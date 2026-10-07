@@ -374,6 +374,10 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 }
 .s3d-kv__note { display: block; margin-top: 1px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
+@container (max-width: 820px) {
+  .s3d-site[data-kind="selected"] { display: none; }
+}
+
 @container (max-width: 620px) {
   .s3d-bar__top { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .s3d-bar__top-actions { justify-content: flex-start; flex-wrap: wrap; }
@@ -385,7 +389,6 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 @container (max-width: 520px) {
   .s3d-bar { padding: 9px 10px; gap: 8px; }
   .s3d-bar__top-actions { gap: 4px; }
-  .s3d-site[data-kind="selected"] { display: none; }
   .s3d-family { order: -1; }
   .s3d-btn__text { display: none; }
   .s3d-seg { width: 100%; }

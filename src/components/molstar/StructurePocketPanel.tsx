@@ -113,12 +113,14 @@ export function StructurePocketPanel({
               type="button"
               className="s3d-btn"
               aria-pressed={showOnStructure}
-              disabled={!canShowOnStructure}
-              title={!canShowOnStructure ? "This pocket was detected on pipeline coordinates, not the entry on the canvas." : undefined}
+              disabled={!canShowOnStructure || residues.length === 0}
+              title={!canShowOnStructure
+                ? "This pocket was detected on pipeline coordinates, not the entry on the canvas."
+                : residues.length === 0 ? "The detector returned no lining residues to draw." : undefined}
               onClick={onToggleShow}
             >
               {showOnStructure ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-              {!canShowOnStructure ? "Pocket belongs to pipeline coordinates" : showOnStructure ? "Hide on the structure" : "Show on the structure"}
+              {!canShowOnStructure ? "Pocket belongs to pipeline coordinates" : residues.length === 0 ? "No lining residues to show" : showOnStructure ? "Hide on the structure" : "Show on the structure"}
             </button>
           </>
         ) : (

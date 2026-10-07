@@ -89,6 +89,7 @@ export default function MolstarViewer({
   const [pocketOpen, setPocketOpen] = useState(false);
   const [showPocket, setShowPocket] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -118,7 +119,8 @@ export default function MolstarViewer({
   // de novo fold or experimental entry simply because their residue numbers happen to coincide.
   const canDrawPocketOnCanvas = !customPdbUrl && model.canvas.primary?.origin === "afdb" && model.site.canAddressVariantSite;
   const pocketIndices = useMemo(
-    () => (canDrawPocketOnCanvas && pocket.status === "success" ? pocket.lining.byDistance.map(r => r.index) : []),
+    () => (canDrawPocketOnCanvas && (pocket.status === "success" || pocket.status === "fallback_engine")
+      ? pocket.lining.byDistance.map(r => r.index) : []),
     [canDrawPocketOnCanvas, pocket]
   );
 
@@ -135,6 +137,7 @@ export default function MolstarViewer({
     customPdbUrl: customPdbUrl || null,
     comparePdbData,
     allowFetch,
+    reloadNonce,
     colour: model.colour,
     plddtFilter: model.plddtFilter.available ? plddtFilter : "none",
     plddtScale: model.plddtFilter.available ? model.plddtFilter.scale : null,
@@ -253,6 +256,7 @@ export default function MolstarViewer({
             onSwitchToAlphaFold={onSwitchToAlphaFold}
             onClearEntry={() => actions.setCustomPdbUrl(null)}
             onOpenSettings={() => openSettingsTab("connections")}
+            onRetryLoad={() => setReloadNonce(nonce => nonce + 1)}
             onRetryStructural={onRetryStructural}
           />
         </div>

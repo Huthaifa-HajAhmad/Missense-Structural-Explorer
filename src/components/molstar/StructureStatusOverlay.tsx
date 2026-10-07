@@ -27,6 +27,7 @@ export interface StructureStatusProps {
   onSwitchToAlphaFold?: () => void;
   onClearEntry?: () => void;
   onOpenSettings?: () => void;
+  onRetryLoad?: () => void;
   onRetryStructural?: () => void;
 }
 
@@ -131,11 +132,11 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
                 <ArrowLeftRight aria-hidden="true" />
                 Back to the AlphaFold model
               </button>
-              {p.onRetryStructural && <button type="button" className="s3d-btn" onClick={p.onRetryStructural}>Retry structural analysis</button>}
+              {p.onRetryLoad && <button type="button" className="s3d-btn" onClick={p.onRetryLoad}>Retry loading coordinates</button>}
             </div>
           )}
-          {!p.customEntryLoaded && p.onRetryStructural && (
-            <div className="s3d-overlay__actions"><button type="button" className="s3d-btn" onClick={p.onRetryStructural}>Retry structural analysis</button></div>
+          {!p.customEntryLoaded && p.onRetryLoad && (
+            <div className="s3d-overlay__actions"><button type="button" className="s3d-btn" onClick={p.onRetryLoad}>Retry loading coordinates</button></div>
           )}
         </div>
       </div>

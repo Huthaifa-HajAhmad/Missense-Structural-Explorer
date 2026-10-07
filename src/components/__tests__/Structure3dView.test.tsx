@@ -5,6 +5,7 @@ import React from "react";
 import { StructureInspector } from "../inspector/StructureInspector";
 import { StructureToolbar } from "../molstar/StructureToolbar";
 import { StructureLegend } from "../molstar/StructureLegend";
+import { StructureStatusOverlay } from "../molstar/StructureStatusOverlay";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { buildStructure3dEvidence, type Structure3dInput } from "../../shared/structure3dEvidence";
 import { scanBFactors, readResidueAt } from "../../shared/coordinateText";
@@ -69,6 +70,22 @@ function seed(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   cleanup();
   seed();
+});
+
+describe("coordinate load recovery", () => {
+  it("retries the canvas load without silently rerunning structural analysis", () => {
+    const retryLoad = vi.fn();
+    const retryAnalysis = vi.fn();
+    const { getByRole } = render(<StructureStatusOverlay
+      family="alphafold" hasVariant loading={false} loadError="Coordinate parse failed"
+      deNovoFolding={false} deNovoError={null} deNovoLoaded={false}
+      proteinLength={null} scanWindowLength={null} customEntryLoaded={false}
+      onRetryLoad={retryLoad} onRetryStructural={retryAnalysis}
+    />);
+    fireEvent.click(getByRole("button", { name: "Retry loading coordinates" }));
+    expect(retryLoad).toHaveBeenCalledOnce();
+    expect(retryAnalysis).not.toHaveBeenCalled();
+  });
 });
 
 describe("3D rail — NAE1 p.Asp116Gly", () => {

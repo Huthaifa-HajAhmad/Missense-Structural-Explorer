@@ -1481,9 +1481,9 @@ export function derivePocketNarrative(
     },
     ranking: {
       band: rankingBand,
-      label: RANKING_LABELS[rankingBand],
+      label: isFallback ? "fpocket score" : RANKING_LABELS[rankingBand],
       score,
-      detail: RANKING_DETAILS[rankingBand],
+      detail: isFallback ? "An fpocket output; P2Rank ranking bands do not apply." : RANKING_DETAILS[rankingBand],
       display: rankingDisplay,
       kind: rankingKind,
       profile,

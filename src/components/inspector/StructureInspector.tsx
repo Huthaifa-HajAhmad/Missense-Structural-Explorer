@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -103,13 +103,7 @@ function ExperimentalEntries({ experimental, setCustomPdbUrl }: {
   experimental: ReturnType<typeof useStructure3dEvidence>["experimental"];
   setCustomPdbUrl: (url: string | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const entrySignature = experimental.rows.map(row => `${row.pdbId}:${row.loaded}`).join("|");
-  useEffect(() => {
-    if (experimental.rows.length > 0 && (experimental.rows.length <= 3 || experimental.rows.some(row => row.loaded))) setOpen(true);
-    // Reopen only when the list or selected entry changes, not on every evidence-model render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entrySignature]);
+  const [open, setOpen] = useState(() => experimental.rows.length <= 3 || experimental.rows.some(row => row.loaded));
   return (
     <details className="s3d-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Browse experimental entries</summary>

@@ -33,6 +33,7 @@ export interface UseMolstarStructureOptions {
   comparePdbData: string | null;
   /** Fetch the AlphaFold DB model when no coordinates are supplied. False in the ESMFold view. */
   allowFetch: boolean;
+  reloadNonce?: number;
   colour: ColourPlan;
   plddtFilter: PlddtFilter;
   /** 1 or 100; only set when the model says the primary B column holds pLDDT. */
@@ -105,6 +106,13 @@ function stillInTree(plugin: any, ref: string | undefined): boolean {
   return !!ref && !!plugin?.state?.data?.tree?.transforms?.has(ref);
 }
 
+/** Builders return selectors; the component manager requires hierarchy refs with representations. */
+export function resolveHierarchyComponent(plugin: any, selector: { ref: string } | null | undefined): any | null {
+  if (!selector?.ref) return null;
+  const component = plugin?.managers?.structure?.hierarchy?.current?.refs?.get(selector.ref);
+  return component?.kind === "structure-component" && Array.isArray(component.representations) ? component : null;
+}
+
 export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const {
     pluginRef,
@@ -115,6 +123,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     customPdbUrl,
     comparePdbData,
     allowFetch,
+    reloadNonce,
     colour,
     plddtFilter,
     plddtScale,
@@ -143,6 +152,13 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const polymer2Ref = useRef<any>(null);
   const highlightRefs = useRef<string[]>([]);
   const isLoadingRef = useRef(false);
+  const drawnSourceRef = useRef<{
+    primaryPdbData: string | null;
+    customPdbUrl: string | null;
+    comparePdbData: string | null;
+    uniprotId: string | null | undefined;
+    allowFetch: boolean;
+  } | null>(null);
   const [readyVersion, setReadyVersion] = useState(0);
 
   // Callbacks change identity every render; the load effect reads them through refs.
@@ -171,8 +187,15 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     let active = true;
 
     async function load() {
+      const drawn = drawnSourceRef.current;
+      const visualOnly = !!structureRef.current && !!drawn &&
+        drawn.primaryPdbData === primaryPdbData && drawn.customPdbUrl === customPdbUrl &&
+        drawn.comparePdbData === comparePdbData && drawn.uniprotId === uniprotId && drawn.allowFetch === allowFetch;
+      const cameraSnapshot = visualOnly ? plugin.canvas3d?.camera?.getSnapshot() : null;
       isLoadingRef.current = true;
-      setLoading(true);
+      // A filter/opacity adjustment may briefly rebuild components, but it is not a new
+      // coordinate fetch. Keep the previous camera and avoid the blocking load overlay.
+      setLoading(!visualOnly);
       setLoadError(null);
       try {
         await plugin.clear();
@@ -222,6 +245,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           // As with the AlphaFold fetch: published, and drawn from the store's echo, where the
           // model has scanned its B column and read its numbering.
           if (onEntryLoadedRef.current) {
+            isLoadingRef.current = false;
+            setLoading(false);
             onEntryLoadedRef.current(entry);
             return;
           }
@@ -240,6 +265,8 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           // Publish, and let the store's echo draw it: only then is the provenance, and so the
           // pLDDT colouring and filter, known. Drawing here would paint it plain and race the echo.
           if (onPdbTextLoadedRef.current) {
+            isLoadingRef.current = false;
+            setLoading(false);
             onPdbTextLoadedRef.current(text, {
               source: "alphafold",
               afdbVersion: res.headers.get("X-Template-AfdbVersion") || undefined,
@@ -310,9 +337,11 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         try {
           plugin.canvas3d?.camera && (plugin.canvas3d.camera.forceFull = true);
           plugin.canvas3d?.camera?.setState({ clipFar: false });
+          if (cameraSnapshot) plugin.canvas3d?.camera?.setState(cameraSnapshot, 0);
         } catch { /* camera props are best-effort */ }
 
         if (active) {
+          drawnSourceRef.current = { primaryPdbData, customPdbUrl, comparePdbData, uniprotId, allowFetch };
           isLoadingRef.current = false;
           setLoading(false);
           setReadyVersion(v => v + 1);
@@ -320,6 +349,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       } catch (err: any) {
         isLoadingRef.current = false;
         if (!active) return;
+        drawnSourceRef.current = null;
         console.error("[3D] Structure load failed:", err);
         setLoadError(err?.message || "The structure could not be drawn.");
         setLoading(false);
@@ -333,7 +363,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     };
     // Colour theme changes are handled below without reparsing coordinates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, allowFetch, visualStructureKey]);
+  }, [pluginCreated, uniprotId, gene, primaryPdbData, customPdbUrl, comparePdbData, allowFetch, visualStructureKey, reloadNonce]);
 
   useEffect(() => {
     if (!pluginCreated || !readyVersion || isLoadingRef.current) return;
@@ -342,7 +372,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     let active = true;
     async function updateColour() {
       try {
-        const primary = polymerRef.current;
+        const primary = resolveHierarchyComponent(plugin, polymerRef.current);
         if (primary) {
           const theme = themeRef(colour.primary, esm3Scores);
           await plugin.managers.structure.component.updateRepresentationsTheme([primary], {
@@ -350,7 +380,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           });
         }
         if (!active) return;
-        const secondary = polymer2Ref.current;
+        const secondary = resolveHierarchyComponent(plugin, polymer2Ref.current);
         if (secondary && colour.secondary) {
           const theme = themeRef(colour.secondary, esm3Scores);
           await plugin.managers.structure.component.updateRepresentationsTheme([secondary], {
