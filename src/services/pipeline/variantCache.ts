@@ -163,6 +163,22 @@ export function getCachedVariant(gene: string, variant: string, expected?: Analy
     if (!expected.uniprotId || (entry.uniprotId || "").toUpperCase() !== expected.uniprotId) return null;
     const copy = { ...entry };
     if (!analysisContextMatches(entry.analysisResult?.metadata?.pipelineContext, expected)) copy.analysisResult = undefined;
+    if (copy.analysisResult?.metadata?.pipelineStages) {
+      const stages = { ...copy.analysisResult.metadata.pipelineStages };
+      let hasRunning = false;
+      for (const [k, v] of Object.entries(stages)) {
+        if (v === "running") {
+          stages[k] = "complete";
+          hasRunning = true;
+        } 
+      }
+      if (hasRunning) {
+        copy.analysisResult = {
+          ...copy.analysisResult,
+          metadata: { ...copy.analysisResult.metadata, pipelineStages: stages }
+        };
+      }
+    }
     if (entry.biophysicsContext !== expected.simulationConditions) {
       // Coordinates remain reusable. Energetics, mutants and remote jobs do not cross conditions.
       for (const key of ["mutantPdb", "foldxWtPdb", "foldedResidueIndex", "foldingDdG", "foldingEnergetics", "foldingStatus", "dynamut2JobId", "dynamut2Status", "ddmutJobId", "ddmutStatus", "thermompnnJobId", "thermompnnStatus", "thermompnnError", "biophysicsAttemptedAt"] as const) delete copy[key];
@@ -267,6 +283,23 @@ export function setCachedVariant(
     uniprotId: (uniprotId || existing.uniprotId || "").trim(),
     timestamp: Date.now()
   };
+
+  if (updated.analysisResult?.metadata?.pipelineStages) {
+    const stages = { ...updated.analysisResult.metadata.pipelineStages };
+    let hasRunning = false;
+    for (const [k, v] of Object.entries(stages)) {
+      if (v === "running") {
+        stages[k] = "complete";
+        hasRunning = true;
+      }
+    }
+    if (hasRunning) {
+      updated.analysisResult = {
+        ...updated.analysisResult,
+        metadata: { ...updated.analysisResult.metadata, pipelineStages: stages }
+      };
+    }
+  }
 
   memoryVariantCache.delete(key);
   memoryVariantCache.set(key, updated);
