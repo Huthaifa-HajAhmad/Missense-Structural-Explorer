@@ -29,7 +29,8 @@ const REPO_ROOT = process.cwd();
 const GUARDED_SURFACES = [
   'src/components/evidence/DevelopmentalExpressionCard.tsx',
   'src/components/evidence/MechanismContextCard.tsx',
-  'src/components/evidence/GeneDiseaseTab.tsx',
+  'src/components/evidence/GeneDiseaseReadings.tsx',
+  'src/shared/geneDiseaseEvidence.ts',
   'src/components/evidence/ExpressionModelsTab.tsx',
   'src/components/evidence/DiseaseContextPicker.tsx',
   'src/components/inspector/EvidenceContextRail.tsx',

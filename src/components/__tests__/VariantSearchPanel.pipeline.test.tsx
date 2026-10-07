@@ -42,6 +42,26 @@ describe("pipeline rail engine-state parity", () => {
     expect(screen.getByLabelText("partial results")).toBeInTheDocument();
     expect(screen.getByText("6 of 6 settled")).toBeInTheDocument();
   });
+  it("settles rolling spinner and active tab dot to complete checkmark when all 6 stages have settled", () => {
+    const store = seed();
+    store.setFoldingStatus("success");
+    store.setFoldingEnergetics({ foldx: 2.5 });
+    renderPipeline();
+
+    // 1. Header shows Workspace ready with no rolling spinner
+    expect(screen.getByText("Workspace ready")).toBeInTheDocument();
+    expect(document.querySelector(".cs-spinner")).toBeNull();
+
+    // 2. Tab badge shows complete (green dot), not running (pulsing dot)
+    expect(screen.getByLabelText("complete")).toBeInTheDocument();
+    expect(screen.queryByLabelText("running")).toBeNull();
+
+    // 3. Counter reports 6 of 6 settled
+    expect(screen.getByText("6 of 6 settled")).toBeInTheDocument();
+
+    // 4. Explore-early hint notice is dismissed
+    expect(screen.queryByText(/No need to wait — the workspace is already live/)).toBeNull();
+  });
   it("truthfully displays 'Analysis failed' and structured non-missense refusal prompt on intronic coordinate refusal", () => {
     const store = useVariantAnalysisStore.getState();
     store.setAnalysisState({

@@ -1,48 +1,60 @@
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
+import { Network } from 'lucide-react';
 import type { TabComponentProps } from './types';
 import { useEvidenceContext } from '../../hooks/useEvidenceContext';
-import { buildGeneDiseaseEvidence } from '../../shared/diseaseFrame';
+import { buildGeneDiseaseModel } from '../../shared/geneDiseaseEvidence';
 import { DiseaseContextPicker } from './DiseaseContextPicker';
-import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { MechanismContextCard } from './MechanismContextCard';
 import { VariantLocusCard } from './VariantLocusCard';
-import { DosageSensitivityCard } from './DosageSensitivityCard';
-import { validityTone, validityPosition, VALIDITY_SCALE } from '../../shared/diseaseFrame';
-import { OrdinalScale } from './ContextCharts';
+import { GeneDiseaseReadings } from './GeneDiseaseReadings';
 
 export function GeneDiseaseTab({ analysisState }: TabComponentProps) {
   if (!analysisState.result) return null;
   return <GeneDiseaseContent result={analysisState.result} />;
 }
+
 function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps['analysisState']['result']> }) {
   const context = useEvidenceContext(result, false, true);
-  const evidence = buildGeneDiseaseEvidence(context.diseaseLoad?.data ?? null, context.selection.diseaseKey);
-  return <div className="ctx-screen" data-testid="gene-disease-screen">
-    <header className="ctx-heading"><div><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Causal relationship, disease mechanism and variant context.</p></div></header>
-    {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
+  const model = buildGeneDiseaseModel({ gene: context.gene, disease: context.diseaseLoad, selectedKey: context.selection.diseaseKey, dosage: context.dosageLoad });
+  const { verdict, selected, dosage } = model;
+  const hi = dosage.readings.find(r => r.key === 'haploinsufficiency');
+  const ts = dosage.readings.find(r => r.key === 'triplosensitivity');
+  const code = (r: typeof hi) => r ? (r.code !== null ? String(r.code) : r.call) : '—';
+  const genccAge = model.sources.gencc.age;
+  return <div className="gd-screen" data-testid="gene-disease-screen">
+    <header><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Causal relationship, disease mechanism and variant context.</p></header>
+    {context.identityChanged && <p className="gd-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
-    <DosageSensitivityCard load={context.dosageLoad} selectedDiseaseId={evidence.selected?.diseaseId ?? null} onRetry={context.retryDosage} />
-    {evidence.selected && <>
-      <section className="ctx-card"><div className="ctx-card__body">
-        <p className="ctx-eyebrow">{evidence.selected.inheritance.label} · <span className="ctx-mono">{evidence.selected.diseaseId}</span></p>
-        <h2 className="ctx-finding">{evidence.finding}</h2>
-        <p className="ctx-prose">{evidence.selected.label}. Gene–disease validity describes the relationship; it does not classify this variant.</p>
-        {!!evidence.adverse.length && <p className="ctx-notice" role="status">At least one submitter disputes or refutes this relationship. Read the assertions below before interpreting other context.</p>}
-      </div></section>
-      <section className="ctx-card"><div className="ctx-card__head"><h2>Causality assertions</h2><span className="ctx-caption">GenCC · each submitter retained</span></div>
-        {!evidence.assertions.length && <p className="ctx-card__body">{ENGINE_STATE_LABELS['no-result']} — {evidence.finding} The selected disease identity is supplied by {evidence.selected.selectionSource ?? 'GenCC'}; missing validity coverage does not refute the relationship.</p>}
-        {!!evidence.assertions.length && <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Gene disease validity assertions"><table className="ctx-table">
-          <thead><tr><th scope="col">Submitter</th><th scope="col">Validity</th><th scope="col">On the GenCC scale</th><th scope="col">Assertion date</th><th scope="col">Source</th></tr></thead>
-          <tbody>{evidence.assertions.map(assertion => <tr key={assertion.id}>
-            <th scope="row">{assertion.submitter}</th><td><span className="ev-tier" data-tone={validityTone(assertion.level)}>{assertion.level}</span></td><td><OrdinalScale levels={VALIDITY_SCALE} index={validityPosition(assertion.level)} label={`${assertion.submitter} classification`} /></td><td className="ctx-mono">{assertion.evaluatedAt?.slice(0, 10) ?? 'Not reported'}</td>
-            <td>{assertion.reportUrl ? <a className="ctx-link" href={assertion.reportUrl} target="_blank" rel="noreferrer">Report <ExternalLink size={12} aria-hidden="true" /></a> : 'Not linked'}</td>
-          </tr>)}</tbody>
-        </table></div>}
-        {!!evidence.assertions.length && <p className="ctx-card__foot">Levels are reported as submitted. The scale (weakest to strongest) places each one; they are not averaged or ranked into a consensus.</p>}
-      </section>
-      <MechanismContextCard frame={evidence.selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} />
-      <VariantLocusCard clinvar={result.clinvar} frame={evidence.selected} />
+
+    <section className="gd-card gd-hero" aria-labelledby="gd-finding-title" data-testid="gene-disease-finding" data-verdict={verdict.kind}>
+      <div className="gd-hero__body">
+        <div className="gd-hero__top">
+          <span className="eyebrow" id="gd-finding-title"><Network className="w-3.5 h-3.5" />Does this gene cause {selected ? 'this disease' : 'disease'}?</span>
+          <span className="ev-tier ev-tier--lg gd-verdict" data-tone={verdict.tone}>{verdict.label}</span>
+        </div>
+        <div className="gd-hero__figure"><span className="figure-headline gd-figure">{model.headline}</span>{model.headlineLabel && <span className="gd-hero__figure-label">{model.headlineLabel}</span>}</div>
+        <p className="detail-prose gd-hero__finding">{model.sentence}</p>
+      </div>
+      <dl className="gd-facts">
+        <div><dt>Disease</dt><dd>{selected ? <>{selected.label}<span className="gd-caption gd-block">{selected.inheritance.label} · <span className="gd-mono">{selected.diseaseId}</span></span></> : <span className="gd-caption">None chosen</span>}</dd></div>
+        <div><dt>Validity</dt><dd>{model.assertions.length ? <>{model.submitters.length} submitter{model.submitters.length === 1 ? '' : 's'}<span className="gd-caption gd-block">{model.latestAssertion ? `latest ${model.latestAssertion}` : 'no dates reported'}</span></> : <span className="gd-caption">No assertion</span>}</dd></div>
+        <div><dt>ClinGen dosage</dt><dd>{dosage.state === 'ready' ? <><span className="gd-mono">HI {code(hi)} · TS {code(ts)}</span><span className="gd-caption gd-block">gene-level, not variant-level</span></> : <span className="gd-caption">{model.sources.dosage.label}</span>}</dd></div>
+        <div><dt>Engine record</dt><dd>Context only<span className="gd-caption gd-block">No ACMG criterion added</span></dd></div>
+      </dl>
+      {(model.sources.gencc.release || genccAge || !!model.stale.length) && <p className="gd-hero__footnote" data-stale={model.stale.length ? true : undefined}>
+        {model.stale.length ? model.stale.map(a => `${a.source}: ${a.label}.`).join(' ')
+          : `GenCC ${[model.sources.gencc.release?.toLowerCase(), genccAge?.label.toLowerCase()].filter(Boolean).join(' · ')}.`}
+      </p>}
+    </section>
+
+    <section className="gd-section" aria-labelledby="gd-readings-title">
+      <h2 className="eyebrow" id="gd-readings-title">Source readings</h2>
+      <GeneDiseaseReadings model={model} onRetryDosage={context.retryDosage} />
+    </section>
+
+    {selected && <>
+      <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />
+      <VariantLocusCard clinvar={result.clinvar} frame={selected} />
     </>}
   </div>;
 }

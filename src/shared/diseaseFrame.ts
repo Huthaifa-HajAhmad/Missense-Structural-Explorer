@@ -64,14 +64,15 @@ export function addVerifiedMechanismChoices(data: GeneDiseaseResponse): GeneDise
 }
 
 /** Tone for a GenCC classification. Only dispute/refutation is flagged; strength is never ranked into a verdict. */
+export const ADVERSE_LEVEL = /^(disputed|refuted)( evidence)?$|^no known disease relationship$/i;
 export function validityTone(level: string): 'warning' | 'neutral' {
-  return /^(disputed|refuted)( evidence)?$/i.test(level) ? 'warning' : 'neutral';
+  return ADVERSE_LEVEL.test(level.trim()) ? 'warning' : 'neutral';
 }
 
 export function buildGeneDiseaseEvidence(data: GeneDiseaseResponse | null, selectedKey: string | null) {
   const selected = data?.frames.find(frame => frame.key === selectedKey) ?? null;
   const assertions = selected?.validity ?? [];
-  const adverse = assertions.filter(a => /^(disputed|refuted)( evidence)?$/i.test(a.level));
+  const adverse = assertions.filter(a => ADVERSE_LEVEL.test(a.level.trim()));
   const levels = [...new Set(assertions.map(a => a.level))];
   const disagreement = levels.length > 1;
   const finding = !selected ? 'Choose a disease to review its assertions.'
@@ -92,8 +93,8 @@ export function buildGeneDiseaseEvidence(data: GeneDiseaseResponse | null, selec
  * scale; it is never averaged, and classifications outside it (animal model only, no known disease
  * relationship) are not plotted rather than forced onto a rung.
  */
-export const VALIDITY_SCALE = ['Refuted', 'Disputed', 'Limited', 'Supportive', 'Moderate', 'Strong', 'Definitive'] as const;
+export const VALIDITY_SCALE = ['No known relationship', 'Refuted', 'Disputed', 'Limited', 'Supportive', 'Moderate', 'Strong', 'Definitive'] as const;
 export function validityPosition(level: string): number | null {
-  const i = VALIDITY_SCALE.findIndex(x => x.toLowerCase() === level.replace(/\s+evidence$/i, '').trim().toLowerCase());
+  const i = VALIDITY_SCALE.findIndex(x => x.toLowerCase() === level.replace(/\s+evidence$/i, '').replace(/^no known disease relationship$/i, 'No known relationship').trim().toLowerCase());
   return i < 0 ? null : i;
 }

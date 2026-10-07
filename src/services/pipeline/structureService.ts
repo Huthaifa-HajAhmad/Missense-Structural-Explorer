@@ -266,9 +266,7 @@ export async function fetchBindingPocket(
     console.warn("[Pocket Finder] Pocket detection notice:", err.message || err);
     sink.setPocketError(err.message || "Failed to load pocket coordinates.");
   } finally {
-    if (!signal?.aborted) {
-      sink.setIsPocketLoading(false);
-    }
+    sink.setIsPocketLoading(false);
   }
 }
 

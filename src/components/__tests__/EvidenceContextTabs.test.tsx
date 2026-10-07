@@ -27,9 +27,9 @@ describe('context tab claims and interactions', () => {
   it('explains unavailable choices and transport failures', () => {
     context.value.diseaseLoad = { status: 'error', data: null, error: 'Access denied. Public evidence access is unavailable on this server.' };
     render(<GeneDiseaseTab {...props} />);
-    expect(screen.getByRole('combobox')).toBeDisabled();
-    expect(screen.getByText('Disease choices unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();   // no dead, empty select
     expect(screen.getByText(/Access denied/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(screen.queryByText(/Expression and model-organism observations belong/)).not.toBeInTheDocument();
   });
   it('can recheck a newly installed validity source without reloading the application', () => {
@@ -55,7 +55,7 @@ describe('context tab claims and interactions', () => {
     expect(card.getByText('3: Sufficient evidence')).toBeVisible();
     expect(card.getByText('40: Dosage sensitivity unlikely')).toBeVisible();
     expect(card.getByText(/exact MONDO ID/)).toBeVisible();
-    expect(card.getByText(/casts no ACMG vote/)).toBeVisible();
+    expect(screen.getByText(/casts no ACMG vote/)).toBeVisible();
     expect(screen.queryByText(/dosage sensitivity is not integrated yet/i)).not.toBeInTheDocument();
   });
   it('says when dosage cannot be read and offers a retry', () => {
@@ -89,7 +89,8 @@ describe('context tab claims and interactions', () => {
   });
   it('leads with refutation and retains every submitter', () => {
     context.value.selection.diseaseKey = frame.key; render(<GeneDiseaseTab {...props} />);
-    expect(screen.getByText('Disputed or refuted assertions require review.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('gene-disease-finding')).getByText('Disputed, refuted or no known relationship')).toBeInTheDocument();
+    expect(screen.getByTestId('gene-disease-finding')).toHaveAttribute('data-verdict', 'adverse');
     expect(screen.getByRole('rowheader', { name: 'Submitter 0' })).toBeInTheDocument();
     expect(screen.getByRole('rowheader', { name: 'Submitter 1' })).toBeInTheDocument();
     expect(screen.getByText('Refuted Evidence')).toBeInTheDocument();
@@ -229,5 +230,59 @@ describe('context tab claims and interactions', () => {
     expect(card.getByText('Rod photoreceptor cells')).toBeInTheDocument();
     expect(card.getByText('nCPM')).toBeInTheDocument(); expect(card.getByText('nTPM')).toBeInTheDocument();
     expect(card.getByText(/includes GTEx/)).toBeInTheDocument();
+  });
+});
+
+describe('Gene–disease finding, cross-check and rail', () => {
+  const score = (code: number) => ({ state: 'scored', code, disease: null, diseaseId: null, history: null });
+  const dosage = (hi: number) => ({ status: 'ready', data: { gene: 'TEST', status: 'ready', message: null, provenance: null, record: { symbol: 'TEST', geneId: 'HGNC:1', location: null,
+    haploinsufficiency: score(hi), triplosensitivity: score(0), evaluatedAt: '2026-08-11', reportUrl: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1' } } });
+  it('reads ClinGen score 0 as no evidence available, never as tolerance, and does not draw it as a positive signal', () => {
+    context.value.selection.diseaseKey = frame.key; context.value.dosageLoad = dosage(0);
+    const { container } = render(<GeneDiseaseTab {...props} />);
+    expect(screen.getAllByText('0: No evidence available').length).toBe(2);
+    expect(container.querySelector('.ctx-scale__rung[data-quiet]')).not.toBeNull();
+  });
+  it('states in words when ClinGen dosage and Gene2Phenotype differ, with no ACMG vote', () => {
+    context.value.selection.diseaseKey = frame.key; context.value.dosageLoad = dosage(3);
+    context.value.diseaseLoad.data.frames = [{ ...frame, inheritance: { id: 'HP:0000006', label: 'Autosomal dominant' } }];
+    context.value.diseaseLoad.data.mechanismContext = { status: 'ready', provenance: null, message: null, records: [{ id: 'G2P1', geneId: 'HGNC:1', gene: 'TEST', diseaseId: 'MONDO:1', diseaseLabel: 'Example', allelicRequirement: 'monoallelic_autosomal', modifier: '', confidence: 'definitive', mechanism: 'gain of function', support: 'inferred', categorisation: '', evidence: '', consequence: '', variantTypes: '', publications: [], reviewedAt: null }] };
+    render(<GeneDiseaseTab {...props} />);
+    const check = screen.getByTestId('mechanism-crosscheck');
+    expect(check).toHaveAttribute('data-relation', 'differs');
+    expect(within(check).getByText(/neither source supplies an ACMG vote/)).toBeVisible();
+  });
+  it('shows a statement, not a disabled empty selector, when GenCC cannot be read, and keeps dosage', () => {
+    context.value.diseaseLoad = { status: 'ready', data: { gene: 'TEST', status: 'not-installed', frames: [], provenance: null, message: null } };
+    context.value.dosageLoad = dosage(3);
+    render(<GeneDiseaseTab {...props} />);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByTestId('gene-disease-finding')).toHaveAttribute('data-verdict', 'unavailable');
+    expect(screen.getByText('3: Sufficient evidence')).toBeVisible();
+  });
+});
+
+import { EvidenceContextRail } from '../inspector/EvidenceContextRail';
+import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
+import { evidenceContextIdentity } from '../../shared/evidenceContextIdentity';
+describe('Gene–disease inspector rail', () => {
+  it('renders the same model as a trace: the chosen disease, both scales with this review marked, and the engine record last', () => {
+    const result: any = { metadata: { gene: 'TEST' } };
+    const s: any = useVariantAnalysisStore;
+    s.setState({ gene: 'TEST', variant: 'p.A1B' });
+    const actions = s.getState();
+    actions.setDiseaseContext('TEST', { status: 'ready', data: { gene: 'TEST', status: 'ready', frames: [frame], provenance: { source: 'GenCC', url: 'https://thegencc.org', licence: 'CC0 1.0', release: 'Export of 2026-10-04', retrievedAt: '2026-10-06T00:00:00Z', sha256: 'a'.repeat(64) }, message: null } });
+    actions.setDosageContext('TEST', { status: 'ready', data: { gene: 'TEST', status: 'ready', message: null, provenance: null, record: { symbol: 'TEST', geneId: 'HGNC:1', location: null,
+      haploinsufficiency: { state: 'scored', code: 0, disease: null, diseaseId: null, history: null }, triplosensitivity: { state: 'scored', code: 0, disease: null, diseaseId: null, history: null }, evaluatedAt: '2026-08-11', reportUrl: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1' } } });
+    actions.setPhenotypeSelection(evidenceContextIdentity(result, 'TEST', 'p.A1B'), { ...emptyPhenotypeSelection(), diseaseKey: frame.key });
+    render(<EvidenceContextRail analysisResult={result} expression={false} />);
+    const rail = within(screen.getByTestId('gene-disease-rail'));
+    const steps = rail.getAllByRole('listitem').slice(0, 5);
+    expect(steps[0]).toHaveTextContent('Example disease · Autosomal dominant');
+    expect(steps[4]).toHaveTextContent('Context only. No ACMG criterion is added or changed.');
+    expect(rail.getByText('Export of 2026-10-04')).toBeVisible();
+    expect(within(rail.getByRole('list', { name: /ClinGen dosage evidence scale/ })).getByText('this gene')).toBeVisible();
+    expect(rail.getAllByText('this disease').length).toBeGreaterThan(0);
+    expect(rail.getByRole('link', { name: 'ClinGen curation for TEST' })).toHaveAttribute('href', expect.stringContaining('gene-dosage/HGNC:1'));
   });
 });

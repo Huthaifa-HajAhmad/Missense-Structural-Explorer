@@ -2,6 +2,7 @@ import React from 'react';
 import type { AnalysisResult } from '../../types';
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import { buildGeneDiseaseEvidence, type ContextProvenance } from '../../shared/diseaseFrame';
+import { GeneDiseaseRail } from './GeneDiseaseRail';
 import { REVIEW_SYSTEMS, ONSET_LABELS } from '../../shared/phenotypeFrame';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { buildDosageEvidence } from '../../shared/dosageSensitivity';
@@ -48,6 +49,7 @@ function Provenance({ provenance }: { provenance: ContextProvenance }) {
 
 export function EvidenceContextRail({ analysisResult, expression }: { analysisResult: AnalysisResult; expression: boolean }) {
   const state = useVariantAnalysisStore();
+  if (!expression) return <GeneDiseaseRail analysisResult={analysisResult} />;
   const gene = analysisResult.metadata?.gene || state.gene;
   const key = evidenceContextIdentity(analysisResult, state.gene, state.variant);
   const selection = state.phenotypeSelections[key];

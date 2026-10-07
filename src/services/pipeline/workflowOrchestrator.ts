@@ -644,6 +644,23 @@ export async function executeFullAnalysisWorkflow({
           analysisSink.setIsNarrativeLoading(false);
           analysisSink.setIsClinicalLoading(false);
           analysisSink.setIsBiophysicalLoading(false);
+          structureSink.setIsPocketLoading(false);
+          setAnalysisState((prev: any) => {
+            if (!prev?.result) return prev;
+            const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
+            let modified = false;
+            for (const [k, v] of Object.entries(stages)) {
+              if (v === "running") {
+                stages[k] = "complete";
+                modified = true;
+              }
+            }
+            const nextResult = modified
+              ? { ...prev.result, metadata: { ...prev.result.metadata, pipelineStages: stages } }
+              : prev.result;
+            setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: nextResult });
+            return modified ? { ...prev, result: nextResult } : prev;
+          });
         }
         return activeSignal.aborted || getActiveRequestId() !== requestId ? "aborted" : "completed";
       }
@@ -880,6 +897,7 @@ export async function executeFullAnalysisWorkflow({
             analysisSink.setIsNarrativeLoading(false);
             analysisSink.setIsClinicalLoading(false);
             analysisSink.setIsBiophysicalLoading(false);
+            structureSink.setIsPocketLoading(false);
             setAnalysisState((prev: any) => {
               if (!prev?.result) return prev;
               const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
@@ -890,9 +908,11 @@ export async function executeFullAnalysisWorkflow({
                   modified = true;
                 }
               }
-              return modified
-                ? { ...prev, result: { ...prev.result, metadata: { ...prev.result.metadata, pipelineStages: stages } } }
-                : prev;
+              const nextResult = modified
+                ? { ...prev.result, metadata: { ...prev.result.metadata, pipelineStages: stages } }
+                : prev.result;
+              setCachedVariant(targetGene, targetVariant, targetUniprot, { analysisResult: nextResult });
+              return modified ? { ...prev, result: nextResult } : prev;
             });
           }
         } else {
