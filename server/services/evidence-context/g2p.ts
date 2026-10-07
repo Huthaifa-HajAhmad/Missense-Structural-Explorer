@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
+import { installOnce } from './snapshotInstall.ts';
 import path from 'node:path';
 import { z } from 'zod';
 import { contextProvenanceSchema, mechanismContextSchema, type ContextProvenance } from '../../../src/shared/diseaseFrame.ts';
@@ -34,10 +36,24 @@ export function buildG2pSnapshot(csv: string, provenance: ContextProvenance) {
   }
   return g2pSnapshotSchema.parse({ schemaVersion: 1, rowCount: rows.length, genes, provenance });
 }
+export async function downloadG2pSnapshot() {
+  const response = await fetch(G2P_DOWNLOAD_URL, { signal: AbortSignal.timeout(60000) });
+  if (!response.ok) throw new Error(`G2P HTTP ${response.status}`);
+  return g2pSnapshotFromPayload(await response.text(), 'download');
+}
+export function g2pSnapshotFromPayload(csv: string, basis: 'download' | 'local-import') {
+  return buildG2pSnapshot(csv, { source: 'Gene2Phenotype', url: G2P_DOWNLOAD_URL,
+    licence: 'EMBL-EBI Terms of Use; source attribution requested', release: null,
+    retrievedAt: new Date().toISOString(), timestampBasis: basis, sha256: createHash('sha256').update(csv).digest('hex') });
+}
 let cached: { path: string; mtime: number; size: number; data: z.infer<typeof g2pSnapshotSchema> } | null = null;
 export async function loadMechanismContext(gene: string): Promise<z.infer<typeof mechanismContextSchema>> {
   try {
-    const target = path.resolve(process.env.G2P_CONTEXT_PATH ?? 'data/g2p-context.json'); const info = await stat(target);
+    const target = path.resolve(process.env.G2P_CONTEXT_PATH ?? 'data/g2p-context.json');
+    const info = await stat(target).catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT' || !await installOnce(target, downloadG2pSnapshot)) throw error;
+      return stat(target);
+    });
     if (!cached || cached.path !== target || cached.mtime !== info.mtimeMs || cached.size !== info.size) {
       const data = g2pSnapshotSchema.parse(JSON.parse(await readFile(target, 'utf8')));
       cached = { path: target, mtime: info.mtimeMs, size: info.size, data };

@@ -47,12 +47,15 @@ export function parseDosageScore(value: unknown): Pick<DosageScore, 'state' | 'c
 }
 
 export const DOSAGE_CODE_LABELS: Record<DosageCode, string> = {
-  3: 'Sufficient evidence', 2: 'Some evidence', 1: 'Little evidence', 0: 'No evidence',
+  3: 'Sufficient evidence', 2: 'Some evidence', 1: 'Little evidence', 0: 'No evidence available',
   30: 'Associated with a recessive phenotype', 40: 'Dosage sensitivity unlikely',
 };
 /** Accent marks evidence that copy number matters; everything else is neutral. No red/green: this is not a verdict. */
 export type DosageTone = 'accent' | 'neutral';
 const toneOf = (code: DosageCode | null): DosageTone => code === 3 || code === 2 ? 'accent' : 'neutral';
+
+/** ClinGen scores 0 as "no evidence available": nothing curated, not a finding that copy number is tolerated (that is 40). */
+export const DOSAGE_ZERO_NOTE = 'Score 0 means no evidence was found, not that copy-number change is tolerated.';
 
 export interface DosageReading {
   key: 'haploinsufficiency' | 'triplosensitivity'; name: string; asks: string;

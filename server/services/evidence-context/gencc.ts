@@ -1,5 +1,6 @@
 import { geneDiseaseResponseSchema, diseaseFrameKey, type DiseaseFrame, type ContextProvenance } from '../../../src/shared/diseaseFrame.ts';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 
 export const GENCC_DOWNLOAD_URL = 'https://thegencc.org/download/action/submissions-export-csv';
 export const genccSnapshotSchema = z.object({
@@ -19,6 +20,23 @@ export const genccSnapshotSchema = z.object({
   }
   if (count !== snapshot.rowCount) ctx.addIssue({ code: 'custom', message: 'GenCC assertion count mismatch' });
 });
+
+/**
+ * Download and validate the current GenCC export. `release` is the export's own Last-Modified date
+ * (GenCC regenerates it weekly), so the tab can say which export it read rather than "not reported".
+ */
+export async function downloadGenccSnapshot() {
+  const response = await fetch(GENCC_DOWNLOAD_URL, { signal: AbortSignal.timeout(90000), headers: { Accept: 'text/csv' } });
+  if (!response.ok) throw new Error(`GenCC HTTP ${response.status}`);
+  if (!(response.headers.get('content-type') ?? '').includes('text/csv')) throw new Error('GenCC did not return CSV');
+  const modified = Date.parse(response.headers.get('last-modified') ?? '');
+  const payload = await response.text();
+  return genccSnapshotFromPayload(payload, 'download', Number.isNaN(modified) ? null : `Export of ${new Date(modified).toISOString().slice(0, 10)}`);
+}
+export function genccSnapshotFromPayload(payload: string, basis: 'download' | 'local-import', release: string | null = null) {
+  return buildGenccSnapshot(payload, { source: 'GenCC', url: GENCC_DOWNLOAD_URL, licence: 'CC0 1.0', release,
+    retrievedAt: new Date().toISOString(), sha256: createHash('sha256').update(payload).digest('hex'), timestampBasis: basis });
+}
 
 /** RFC4180 quoted fields, including embedded newlines and doubled quotes; no line-splitting. */
 export function parseCsv(text: string): string[][] {

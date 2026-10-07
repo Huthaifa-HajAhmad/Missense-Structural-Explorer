@@ -3,6 +3,7 @@ import { ExternalLink } from 'lucide-react';
 import type { DiseaseFrame, GeneDiseaseResponse } from '../../shared/diseaseFrame';
 import { scopeMechanismRecords, type MechanismRecord } from '../../shared/mechanismContext';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
+import type { MechanismCrossCheck } from '../../shared/geneDiseaseEvidence';
 function Records({ records }: { records: MechanismRecord[] }) {
   return <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label="Gene2Phenotype mechanism records"><table className="ctx-table">
     <thead><tr><th scope="col">Mechanism</th><th scope="col">Support</th><th scope="col">Allelic requirement</th><th scope="col">Source</th></tr></thead>
@@ -19,8 +20,8 @@ function Records({ records }: { records: MechanismRecord[] }) {
     </tr>)}</tbody>
   </table></div>;
 }
-export function MechanismContextCard({ frame, context, onRetry }: {
-  frame: DiseaseFrame; context: GeneDiseaseResponse['mechanismContext']; onRetry: () => void;
+export function MechanismContextCard({ frame, context, onRetry, crossCheck = null }: {
+  frame: DiseaseFrame; context: GeneDiseaseResponse['mechanismContext']; onRetry: () => void; crossCheck?: MechanismCrossCheck | null;
 }) {
   const scope = scopeMechanismRecords(context?.records ?? [], frame);
   const id = useId();
@@ -28,6 +29,7 @@ export function MechanismContextCard({ frame, context, onRetry }: {
     {!context || context.status === 'not-installed' ? <div className="ctx-card__body" role="status"><p>{ENGINE_STATE_LABELS['not-installed']} — a Gene2Phenotype snapshot is not installed.</p><button type="button" className="ctx-button" onClick={onRetry}>Check again</button></div>
       : context.status === 'error' ? <div className="ctx-card__body ctx-notice" role="status"><span>{ENGINE_STATE_LABELS['upstream-error']} — mechanism records could not be read.</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></div>
       : <>
+        {crossCheck && <p className="ctx-card__body gd-crosscheck" data-relation={crossCheck.relation ?? 'none'} data-testid="mechanism-crosscheck"><strong>{crossCheck.relation === 'differs' ? 'ClinGen dosage and Gene2Phenotype differ' : crossCheck.relation === 'consistent' ? 'ClinGen dosage and Gene2Phenotype agree' : 'Not compared with ClinGen dosage'}.</strong> {crossCheck.sentence} Descriptive only: neither source supplies an ACMG vote.</p>}
         {!!scope.matching.length ? <>{scope.matching.some(r => r.modifier) && <p className="ctx-card__body ctx-notice">Source modifiers restrict some records to particular allelic or variant contexts. Disease identity and inheritance alone do not establish applicability to this variant.</p>}<Records records={scope.matching} /></> : <p className="ctx-card__body">No mechanism record has this exact gene, MONDO disease and a corresponding supported allelic requirement in the installed snapshot. This does not establish an unknown biological mechanism.</p>}
         {!!scope.unresolvedScope.length && <details className="ctx-details ctx-details--table"><summary>Same disease, unresolved allelic scope ({scope.unresolvedScope.length})</summary><p className="ctx-card__body">These records are not assigned to the selected inheritance. Review their allelic requirements and modifiers directly.</p><Records records={scope.unresolvedScope} /></details>}
         <p className="ctx-card__foot">Exact gene and MONDO IDs only. The local display mapping compares autosomal dominant ↔ monoallelic_autosomal and autosomal recessive ↔ biallelic_autosomal. Modifiers remain as submitted and are not resolved for this variant. Other allelic scopes remain separate. No broader disease or name-based joins.</p>
