@@ -1666,7 +1666,7 @@ export const analyzeVariantResponseSchema = z.object({
     uniparcId: z.string().nullable().optional()
   }).nullable().optional(),
   gnomadConstraint: z.object({
-    provenance: z.object({ release: z.string(), assembly: z.literal("GRCh38"), geneId: z.string(), transcriptId: z.string(), transcriptVersion: z.string(), selection: z.enum(["matched", "mane-select", "canonical"]), sourceUrl: z.string(), sourceSha256: z.string() }).optional(),
+    provenance: z.object({ release: z.string(), assembly: z.literal("GRCh38"), geneId: z.string(), transcriptId: z.string(), transcriptVersion: z.string(), selection: z.enum(["matched", "mane-select", "canonical", "sole-transcript"]), sourceUrl: z.string(), sourceSha256: z.string() }).optional(),
     qualityFlags: z.array(z.string()).optional(),
     rawMetrics: z.object({ missense_z: z.number().nullable(), oe_mis: z.number().nullable(), pli: z.number().nullable(), loeuf: z.number().nullable() }).optional(),
     expectedCounts: z.object({ syn: z.number().nullable(), mis: z.number().nullable(), lof: z.number().nullable() }).optional(),

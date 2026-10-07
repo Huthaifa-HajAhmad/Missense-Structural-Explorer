@@ -1,6 +1,7 @@
 import { fetchWithRetry, normalizeGeneSymbol } from "../infra/http-client.ts";
 import { fetchGnomadGeneConstraint } from "../external-api/gnomad.ts";
 import { REGIONAL_CONSTRAINT_RELEASE } from "../../../src/shared/constraintSource.ts";
+import type { LandscapeContext } from "../../../src/shared/contracts.ts";
 
 /**
  * Gene-wide context for the Landscape overview: where ClinVar and gnomAD have missense variants,
@@ -32,26 +33,6 @@ export interface ContextGnomad {
   variants: number;
   /** Highest allele count among them (exome + genome). */
   maxAc: number;
-}
-
-export interface ContextRegion {
-  start: number;
-  end: number;
-  oe: number | null;
-  pValue: number | null;
-}
-
-export interface LandscapeContext {
-  clinvar: ContextClinvar[] | null;
-  gnomad: ContextGnomad[] | null;
-  regions: ContextRegion[] | null;
-  /** Why `regions` holds what it holds; see the contract. Never infer the reason from `null`. */
-  regionsStatus: "available" | "none" | "withheld-mapping" | "unavailable";
-  /** Transcript gnomAD numbered ClinVar/gnomAD residues on. */
-  transcript: string | null;
-  regionsBasis: string;
-  /** Per-source failure notes, so an absent lane reads as "not loaded", never "none". */
-  errors: string[];
 }
 
 const GNOMAD_API = "https://gnomad.broadinstitute.org/api";
@@ -148,7 +129,7 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
   let transcript: string | null = null;
   let clinvar: ContextClinvar[] | null = null;
   let gnomad: ContextGnomad[] | null = null;
-  let regions: ContextRegion[] | null = null;
+  let regions: LandscapeContext["regions"] = null;
   let regionsStatus: LandscapeContext["regionsStatus"] = "unavailable";
   // A withheld regional map is a stable, complete answer; only a source failure is worth retrying.
   let sourceFailed = false;
@@ -167,22 +148,21 @@ export async function fetchLandscapeContext(geneSymbol: string): Promise<Landsca
     sourceFailed = true;
     errors.push(`gnomAD not loaded: ${gnomadRes.status === "rejected" ? gnomadRes.reason?.message ?? "request failed" : "gene not found"}`);
   }
-  if (constraintRes.status === "fulfilled" && constraintRes.value) {
-    if (constraintRes.value.hasRegionalData) {
-      // v4.1.1 intervals are GRCh38 genomic ranges. Rendering them on a protein axis without a
-      // verified exon/CDS mapping would recreate the transcript-numbering defect this migration
-      // fixes, so the lane is withheld — a refusal, not a missing value.
-      regionsStatus = "withheld-mapping";
-      errors.push(`Regional map withheld: gnomAD v${REGIONAL_CONSTRAINT_RELEASE} intervals require verified transcript-to-protein mapping.`);
-    } else {
-      // The source answered: this transcript genuinely has no constrained sub-region.
-      regionsStatus = "none";
-      regions = [];
-    }
-  } else {
+  if (constraintRes.status !== "fulfilled") {
     sourceFailed = true;
     regionsStatus = "unavailable";
     errors.push("Regional constraint not loaded");
+  } else if (constraintRes.value?.hasRegionalData) {
+    // v4.1.1 intervals are GRCh38 genomic ranges. Rendering them on a protein axis without a
+    // verified exon/CDS mapping would recreate the transcript-numbering defect this migration
+    // fixes, so the lane is withheld — a refusal, not a missing value.
+    regionsStatus = "withheld-mapping";
+    errors.push(`Regional map withheld: gnomAD v${REGIONAL_CONSTRAINT_RELEASE} intervals require verified transcript-to-protein mapping.`);
+  } else {
+    // Fulfilled null (no constraint record for this gene) or a transcript with no released interval
+    // is a confirmed "no call", not an outage, so the answer stays cacheable.
+    regionsStatus = "none";
+    regions = [];
   }
 
   const value: LandscapeContext = {

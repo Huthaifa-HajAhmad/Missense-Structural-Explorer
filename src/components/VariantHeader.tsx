@@ -140,7 +140,7 @@ function VariantHeader({ gene, variant, uniprotId, analysisResult, onProvideAlle
               ))}
             </ul>
             {provenance && <p className="vcs-panel-note">
-              Gene metrics: <a href={`https://gnomad.broadinstitute.org/gene/${provenance.geneId}?dataset=gnomad_r4`} target="_blank" rel="noopener noreferrer">{source}</a>, {provenance.assembly}, {provenance.transcriptId}.{provenance.transcriptVersion} ({provenance.selection === "matched" ? "annotated transcript" : provenance.selection === "mane-select" ? "MANE Select reference" : "canonical reference"}).
+              Gene metrics: <a href={`https://gnomad.broadinstitute.org/gene/${provenance.geneId}?dataset=gnomad_r4`} target="_blank" rel="noopener noreferrer">{source}</a>, {provenance.assembly}, {provenance.transcriptId}.{provenance.transcriptVersion} ({provenance.selection === "matched" ? "annotated transcript" : provenance.selection === "mane-select" ? "MANE Select reference" : provenance.selection === "sole-transcript" ? "sole protein-coding transcript" : "canonical reference"}).
               {analysisResult?.gnomadConstraint?.regionalRelease && <> Regional metrics: gnomAD v{analysisResult.gnomadConstraint.regionalRelease}.</>}
             </p>}
             <p className="vcs-panel-note">

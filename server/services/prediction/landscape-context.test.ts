@@ -82,6 +82,20 @@ describe("landscape context parsing", () => {
     spy.mockRestore();
   });
 
+  it("treats a gene absent from constraint as no call, not an outage, and caches it", async () => {
+    vi.mocked(fetchGnomadGeneConstraint).mockResolvedValueOnce(null);
+    const gene = { canonical_transcript_id: "ENST1", clinvar_variants: [], variants: [] };
+    const spy = vi.spyOn(global, "fetch").mockResolvedValue({ ok: true, json: async () => ({ data: { gene } }) } as any);
+    const first = await fetchLandscapeContext("ABSENTGENE");
+    expect(first.regionsStatus).toBe("none");
+    expect(first.regions).toEqual([]);
+    const calls = spy.mock.calls.length;
+    const second = await fetchLandscapeContext("ABSENTGENE");
+    expect(second).toBe(first);
+    expect(spy.mock.calls.length).toBe(calls);
+    spy.mockRestore();
+  });
+
   it("reports a failed source as not loaded, not as empty", async () => {
     vi.mocked(fetchGnomadGeneConstraint).mockRejectedValueOnce(new Error("constraint down"));
     const spy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("network down"));

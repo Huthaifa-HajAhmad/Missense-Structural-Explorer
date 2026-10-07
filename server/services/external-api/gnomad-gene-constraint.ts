@@ -27,9 +27,12 @@ export async function fetchGnomadGeneConstraint(geneSymbol: string, _aaPos?: num
   const requestedVersion = options.transcriptId?.split(".")[1];
   const exact = requested ? candidates.find(r => r.transcriptId === requested && (!requestedVersion || r.transcriptVersion === requestedVersion)) : undefined;
   const unique = (list: ConstraintRow[]) => list.length === 1 ? list[0] : undefined;
-  const row = exact ?? unique(candidates.filter(r => r.mane)) ?? unique(candidates.filter(r => r.canonical));
-  // Ambiguous identity is not an invitation to select the first transcript.
-  if (!row) throw new Error(`No unique MANE/canonical constraint transcript for ${gene}`);
+  // A single protein-coding transcript for the gene is unambiguous even when it is annotated as
+  // neither MANE nor canonical; its gene metrics are still the gene's metrics.
+  const row = exact ?? unique(candidates.filter(r => r.mane)) ?? unique(candidates.filter(r => r.canonical)) ?? unique(candidates);
+  // More than one candidate with no unique MANE/canonical is genuine ambiguity: refuse with no call
+  // rather than guessing. Never throw — an annotation gap is not a provider outage the user can retry.
+  if (!row) return null;
   const flags = [...row.flags];
   const calibrated = Object.values(row.expected).every(n => typeof n === "number" && Number.isFinite(n) && n > 0);
   if (!calibrated) flags.push("missing-or-zero-expected-variants");
@@ -39,7 +42,7 @@ export async function fetchGnomadGeneConstraint(geneSymbol: string, _aaPos?: num
     pli: usable ? row.pli : null, loeuf: usable ? row.loeuf : null,
     isPP2Constrained: usable && isPp2Constrained(row.missense_z, row.oe_mis) === true,
     provenance: { release: index.snapshot.release, assembly: "GRCh38", geneId: row.geneId, transcriptId: row.transcriptId,
-      transcriptVersion: row.transcriptVersion, selection: exact ? "matched" : row.mane ? "mane-select" : "canonical",
+      transcriptVersion: row.transcriptVersion, selection: exact ? "matched" : row.mane ? "mane-select" : row.canonical ? "canonical" : "sole-transcript",
       sourceUrl: CONSTRAINT_URL, sourceSha256: index.snapshot.sourceSha256 },
     qualityFlags: [...new Set(flags)], expectedCounts: row.expected,
     rawMetrics: { missense_z: row.missense_z, oe_mis: row.oe_mis, pli: row.pli, loeuf: row.loeuf },
@@ -55,7 +58,7 @@ export async function fetchGnomadGeneConstraint(geneSymbol: string, _aaPos?: num
       !Number.isSafeInteger(coordinate.pos) || coordinate.pos < 1 || !/^[ACGT]$/.test(coordinate.ref) || !/^[ACGT]$/.test(coordinate.alt) || coordinate.ref === coordinate.alt) return result;
   const regions = index.regions.get(row.transcriptId);
   if (!regions?.length) { result.regionalStatus = "no-regions"; return result; }
-  const matches = regions.filter(r => r.chrom === coordinate.chrom.replace(/^chr/i, "") && coordinate.pos >= r.start && coordinate.pos <= r.end);
+  const matches = regions.filter(r => r.chrom === coordinate.chrom.replace(/^chr/i, "").toUpperCase() && coordinate.pos >= r.start && coordinate.pos <= r.end);
   if (!matches.length) { result.regionalStatus = "outside-region"; return result; }
   if (matches.length !== 1) { result.regionalStatus = "invalid-data"; return result; }
   const region = matches[0];

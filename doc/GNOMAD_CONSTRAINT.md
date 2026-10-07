@@ -15,11 +15,11 @@ npm run data:constraint
 npm run build:constraint
 ```
 
-The importer streams the approximately 574 MB BGZF source, keeps the needed columns without rounding, validates records, and downloads the 3.8 MB regional TSV. It records hashes of both original sources and the compact snapshot. No intermediate raw download is stored. A future release upgrade must update `src/shared/constraintSource.ts`, regenerate the snapshot, review threshold guidance, and update the persisted-analysis retirement policy together. Do not silently refresh data at startup.
+The importer streams the approximately 574 MB BGZF source, keeps the needed columns without rounding, validates records, and downloads the 3.8 MB regional TSV. It records hashes of both original sources and the compact snapshot, and refuses to write a snapshot unless the downloaded bytes match the pinned `CONSTRAINT_SOURCE_SHA256` / `REGIONAL_SOURCE_SHA256`, so a silent upstream replacement cannot redefine a release. No intermediate raw download is stored. A future release upgrade must update `src/shared/constraintSource.ts` (release constants and pinned source hashes), regenerate the snapshot, review threshold guidance, and update the persisted-analysis retirement policy together. Do not silently refresh data at startup.
 
 ## Identity and quality rules
 
-- Exact Ensembl transcript identity is preferred. An explicitly supplied version must agree. Otherwise a unique MANE Select reference is preferred, then a unique canonical reference. Ambiguous reference selection fails visibly; row order never decides.
+- Exact Ensembl transcript identity is preferred. An explicitly supplied version must agree. Otherwise a unique MANE Select reference is preferred, then a unique canonical reference, then a sole protein-coding transcript for the gene. Ambiguous reference selection yields no call — never a thrown provider error the user is told to retry — and row order never decides.
 - A reference transcript's gene metrics are identified as reference context. Regional calls require an exact annotated transcript and a locus already verified by the pipeline's allele-identity resolver.
 - Regional coordinates are GRCh38 **1-based inclusive** genomic ranges, not amino-acid positions. Both endpoints are tested; overlapping matches are refused. The regional file uses chromosome names with `chr`, normalized at import. Indels, unknown builds and protein-only positions do not produce a regional call.
 - Gene flags, missing/zero expected counts, and regional low-coverage flags withhold interpretation. The payload retains the quality flags, expected counts, raw metrics, transcript/version, release, source URL and source hashes. Only usable metrics reach the engine.

@@ -4,7 +4,7 @@ import { mkdir, writeFile, rename } from "node:fs/promises";
 import { createGunzip, gzipSync } from "node:zlib";
 import { Readable, Transform } from "node:stream";
 import { createInterface } from "node:readline";
-import { CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_RELEASE, CONSTRAINT_URL, REGIONAL_CONSTRAINT_URL } from "../src/shared/constraintSource.ts";
+import { CONSTRAINT_RELEASE, REGIONAL_CONSTRAINT_RELEASE, CONSTRAINT_URL, REGIONAL_CONSTRAINT_URL, CONSTRAINT_SOURCE_SHA256, REGIONAL_SOURCE_SHA256 } from "../src/shared/constraintSource.ts";
 import type { ConstraintRow, RegionalRow, ConstraintSnapshot } from "../server/services/external-api/constraint-snapshot.ts";
 
 const missing = new Set(["", "NA", "NaN", "nan", "None", "null"]);
@@ -66,15 +66,21 @@ async function main() {
   rows.sort((a,b) => a.transcriptId.localeCompare(b.transcriptId));
   regions.sort((a,b) => a.transcriptId.localeCompare(b.transcriptId) || a.start-b.start);
   if (rows.length < 18000 || regions.length < 18000) throw new Error("Incomplete constraint snapshot");
+  // The source bytes for a pinned release are immutable. Refuse to mint a snapshot from anything
+  // else, so a silent upstream replacement cannot redefine a release without an explicit review.
+  if (sourceSha256 !== CONSTRAINT_SOURCE_SHA256) throw new Error(`Gene constraint source hash changed (${sourceSha256}); review the release before updating CONSTRAINT_SOURCE_SHA256.`);
+  if (regionalSha256 !== REGIONAL_SOURCE_SHA256) throw new Error(`Regional constraint source hash changed (${regionalSha256}); review the release before updating REGIONAL_SOURCE_SHA256.`);
   const snapshot: ConstraintSnapshot = { schema: 1, release: CONSTRAINT_RELEASE, regionalRelease: REGIONAL_CONSTRAINT_RELEASE, sourceSha256, regionalSha256, rows, regions };
   const bytes = gzipSync(JSON.stringify(snapshot), { level: 9 });
   const dir = "server/data/constraint";
   await mkdir(dir, { recursive: true });
   const target = `${dir}/gnomad-4.1.2.json.gz`;
   await writeFile(`${target}.tmp`, bytes); await rename(`${target}.tmp`, target);
-  await writeFile(`${dir}/manifest.json`, JSON.stringify({ schema: 1, release: CONSTRAINT_RELEASE, regionalRelease: REGIONAL_CONSTRAINT_RELEASE,
+  const manifest = JSON.stringify({ schema: 1, release: CONSTRAINT_RELEASE, regionalRelease: REGIONAL_CONSTRAINT_RELEASE,
     sourceUrl: CONSTRAINT_URL, regionalUrl: REGIONAL_CONSTRAINT_URL, sourceSha256, regionalSha256,
-    snapshotSha256: createHash("sha256").update(bytes).digest("hex"), transcripts: rows.length, regions: regions.length }, null, 2)+"\n");
+    snapshotSha256: createHash("sha256").update(bytes).digest("hex"), transcripts: rows.length, regions: regions.length }, null, 2)+"\n";
+  // Written via a temp file + rename too: a truncated manifest would break the loader's JSON.parse.
+  await writeFile(`${dir}/manifest.json.tmp`, manifest); await rename(`${dir}/manifest.json.tmp`, `${dir}/manifest.json`);
   console.log(`Wrote ${target} (${bytes.length} bytes)`);
 }
 if (process.argv[1]?.endsWith("import-gnomad-constraint.ts")) await main();

@@ -56,9 +56,17 @@ describe("pinned gnomAD gene and regional constraint", () => {
   it.each([{ flags: ["low_coverage"] }, { expected: { syn: 0, mis: 100, lof: 10 } }])("withholds flagged or uncalibrated gene metrics", async overrides => {
     expect(await fetch(overrides)).toMatchObject({ missense_z: null, loeuf: null, pli: null, isPP2Constrained: false, regionalStatus: "failed-qc" });
   });
-  it("distinguishes selection failure from a missing gene", async () => {
-    await expect(fetchGnomadGeneConstraint("TEST", null, { index: index({}, [], [{ ...row, mane: false, canonical: false }]) })).rejects.toThrow("No unique");
+  it("selects the sole protein-coding transcript when it is neither MANE nor canonical", async () => {
+    const sole = await fetchGnomadGeneConstraint("TEST", null, { index: index({}, [], [{ ...row, mane: false, canonical: false }]) });
+    expect(sole).toMatchObject({ missense_z: row.missense_z, provenance: { selection: "sole-transcript" } });
+  });
+  it("refuses genuinely ambiguous transcript identity without throwing, and reports a missing gene as null", async () => {
+    const two = [{ ...row, mane: false, canonical: false }, { ...row, mane: false, canonical: false, transcriptId: "ENST00000000002", geneId: "ENSG00000000002" }];
+    expect(await fetchGnomadGeneConstraint("TEST", null, { index: index({}, [], two) })).toBeNull();
     expect(await fetchGnomadGeneConstraint("ABSENT", null, { index: index() })).toBeNull();
+  });
+  it("matches regional intervals for a lowercase contig", async () => {
+    expect(await fetch({}, [{ ...region, chrom: "X" }], { coordinate: { ...coordinate, chrom: "chrx" } })).toMatchObject({ regionalStatus: "measured" });
   });
   it("checks actual packaged v4.1.2 scores and corrected bins", async () => {
     const bundled = getConstraintIndex();
