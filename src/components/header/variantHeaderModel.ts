@@ -13,6 +13,7 @@ import type { AnalysisResult } from "../../types";
 import { parseVariantCoordinate } from "../../shared/variantCoordinate";
 import { variantNumberingView } from "../../shared/numbering";
 import { isFallbackLocus, locusFailureKind, locusRecoveryAction, fallbackCause, fallbackLocusShortLabel } from "../../shared/locusResolution";
+import { describeSplicePlacement } from "../../shared/splicingEvidence";
 import { buildConstraintMetrics, type VhMetric } from "./constraintMetrics";
 
 export type TierTone = "good" | "clay" | "warn" | "muted";
@@ -32,6 +33,12 @@ export interface VariantHeaderModel {
    * chrome: this is the fixed slot the strip renders it in.
    */
   runState: { label: string; detail: string; retryable: boolean; recoveryAction: "retry" | "provide-allele" | null } | null;
+  /**
+   * Proximity to a splice junction, when the pipeline resolved one, worded in splice-site
+   * numbering. CONTEXT, not a finding — the identity bar renders it as the last chip, and the
+   * copy says distance alone is not evidence of a splicing effect.
+   */
+  splicePlacement: { short: string; long: string } | null;
 }
 
 export interface VariantHeaderInput {
@@ -107,7 +114,8 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
     }
   }
 
-  return {    gene,
+  return {
+    gene,
     headlineVariant,
     modelledBasis,
     transcript: displayTranscript
@@ -124,6 +132,10 @@ export function buildVariantHeaderModel({ gene, variant, uniprotId, analysisResu
     uniprotId: uniprotId || null,
     metrics: buildConstraintMetrics(result),
     runState,
+    splicePlacement:
+      result?.conservationData?.spliceProximity?.isNearSpliceSite
+        ? describeSplicePlacement(result)
+        : null,
   };
 }
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Scissors } from "lucide-react";
 import { CopyBtn } from "./CopyBtn";
 import type { VariantHeaderModel } from "./variantHeaderModel";
 
@@ -10,12 +10,16 @@ import type { VariantHeaderModel } from "./variantHeaderModel";
  * The variant IS the page's subject on every analysis view, so it takes the title slot the breadcrumb
  * used to hold — the sidebar already says where you are and the page's H1 names the page.
  *
- * The identifiers drop in a fixed order as the bar narrows (UniProt, then the coordinate, then the
- * transcript; see `.vid` container queries) and never wrap: the full set is in the Population rail's
- * Variant lineage. The gene and HGVS never drop.
+ * Splice proximity rides here as the last chip: it is CONTEXT about the variant's placement, not a
+ * finding, and it reads on every evidence page — which is what this bar is for. Its words ("−6
+ * donor", "Near splice site") carry the meaning; the scissors only say it is the splicing chip.
+ *
+ * The identifiers drop in a fixed order as the bar narrows (splice context first, then UniProt,
+ * then the coordinate, then the transcript; see `.vid` container queries) and never wrap: the full
+ * set is in the Population rail's Variant lineage. The gene and HGVS never drop.
  */
 export function VariantIdentity({ model }: { model: VariantHeaderModel }) {
-  const { gene, headlineVariant, transcript, coordinate, uniprotId } = model;
+  const { gene, headlineVariant, transcript, coordinate, uniprotId, splicePlacement } = model;
   return (
     <div className="vid" role="group" aria-label="Active variant">
       <span className="vid-title">
@@ -66,6 +70,24 @@ export function VariantIdentity({ model }: { model: VariantHeaderModel }) {
           >
             <ExternalLink size={11} strokeWidth={2} />
           </a>
+        </span>
+      )}
+
+      {splicePlacement && (
+        <span
+          className="vid-chip vid-chip--splice"
+          data-testid="splice-proximity-chip"
+          title={`${splicePlacement.long}. Distance from a splice junction is context, not evidence of a splicing effect — see RNA splicing.`}
+        >
+          <span className="vh-sr-only">Splicing context </span>
+          <Scissors className="vid-splice-icon" size={11} strokeWidth={1.75} aria-hidden="true" />
+          <span className="vid-value">{splicePlacement.short}</span>
+          <span className="vid-tag" data-tone="muted">
+            Near splice site
+          </span>
+          <span className="vh-sr-only">
+            Near a splice site: variant is {splicePlacement.long}. Distance is context, not evidence of a splicing effect.
+          </span>
         </span>
       )}
     </div>
