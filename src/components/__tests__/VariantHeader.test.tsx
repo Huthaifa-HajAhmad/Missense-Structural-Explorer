@@ -187,7 +187,10 @@ describe("VariantHeader Component Tests", () => {
     );
 
     const chip = screen.getByTestId("splice-proximity-chip");
-    expect(chip).not.toHaveClass("vh-chip--alert");
+    // The chip lives in the IDENTITY bar now (last chip of the active-variant group), not the
+    // constraint strip: it reads on every evidence page, which is what that bar is for.
+    expect(chip.className).toBe("vid-chip vid-chip--splice");
+    expect(chip.closest('[role="group"][aria-label="Active variant"]')).not.toBeNull();
     expect(chip).toHaveTextContent("4 bp");
     expect(chip).toHaveTextContent("Near splice site");
     expect(chip.getAttribute("title")).toMatch(/context, not evidence/);
@@ -196,7 +199,7 @@ describe("VariantHeader Component Tests", () => {
 
   it("words an oriented position in splice-site numbering", () => {
     render(
-      <VariantHeader
+      <Chrome
         gene="SLC12A4"
         variant="p.Gln867His"
         uniprotId="Q9UP95"

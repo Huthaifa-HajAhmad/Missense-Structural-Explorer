@@ -340,6 +340,12 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     isFolding,
     structureProvenance: prov,
     hidePending: input.hidePending,
+    /**
+     * The session-lapse record `foldxService` writes onto the run's energetics when a remote
+     * engine collection was refused. Absent on older runs, which resolves to no pause.
+     */
+    energeticsAuthLapsed:
+      (e?.energeticsAuthLapsed as EngineFacts["energeticsAuthLapsed"]) ?? null,
   };
 
   const outcomes = buildEngineOutcomes(facts);

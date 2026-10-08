@@ -56,6 +56,22 @@ function nae1(overrides: Record<string, unknown> = {}) {
 }
 
 describe("energeticsEvidence — the NAE1 p.Asp116Gly reference run", () => {
+  it("carries the session-lapse record into the paused outcome", () => {
+    // The run remembered which engines its expired session severed (foldxService writes this
+    // onto the run's energetics); the evidence model must reflect the cause, not "No result".
+    const ev = nae1({
+      foldingEnergetics: { ...NAE1, thermompnn: null, energeticsAuthLapsed: { dynamut2: true } },
+      dynamut2Status: null,
+      thermompnnStatus: null,
+    });
+    const dynamut2 = ev.readings.find(r => r.key === "dynamut2")!;
+    expect(dynamut2.outcome.state).toBe("paused");
+    expect(dynamut2.outcome.label).toBe("Paused");
+    expect(dynamut2.outcome.reason).toContain("Relink");
+    // An engine the session lapse never touched keeps its own truth.
+    expect(ev.readings.find(r => r.key === "thermompnn")!.outcome.state).toBe("no-result");
+  });
+
   it("counts engines by their own marks instead of averaging a probability", () => {
     const ev = nae1();
     expect(ev.coverage.computed).toBe(3);

@@ -62,6 +62,8 @@ export interface NucleotidePick {
 }
 
 interface Props {
+  /** The dedicated focus tab reads substitutions; nucleotide scores live in the nucleotide tab. */
+  showNucleotides?: boolean;
   residues: string[];
   start: number;
   target: TargetMutation;
@@ -440,6 +442,7 @@ export function LandscapeFocus(props: Props) {
         })}
       </div>
 
+      {props.showNucleotides !== false && <>
       <div className="flex justify-between gap-3 px-4 pt-2 mt-2 border-t border-cs-border-subtle text-[12px] text-cs-text-secondary">
         <span className="font-semibold text-cs-text-primary">
           Nucleotides · coding strand{strand === "-" ? " (−), complemented" : strand === "+" ? " (+)" : ""} · three columns under each residue
@@ -453,6 +456,7 @@ export function LandscapeFocus(props: Props) {
         </div>
       )}
       {ntLane()}
+      </>}
     </section>
   );
 }

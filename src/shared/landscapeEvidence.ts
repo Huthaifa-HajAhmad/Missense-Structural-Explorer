@@ -387,6 +387,7 @@ export function landscapeVerdict(input: {
   mode: SummaryMode;
   /** The substitution the reader picked on the tab, when one is selected. */
   selectedAlt?: string | null;
+  provenance?: { am?: string | null; revel?: string | null; table?: string | null };
 }): {
   kind: "variant" | "substitution" | "residue";
   label: string;
@@ -397,6 +398,7 @@ export function landscapeVerdict(input: {
   isQuery: boolean;
   calls: Array<LandscapeVerdictCall>;
   rank: { rank: number; of: number } | null;
+  mismatch: string | null;
   /** dbNSFP row exists with scores (else "no record" state). */
   hasRecord: boolean;
 } {
@@ -420,8 +422,9 @@ export function landscapeVerdict(input: {
     const am = own ? variantAm ?? hit?.am ?? null : hit?.am ?? null;
     const revel = own ? variantRevel ?? hit?.revel ?? null : hit?.revel ?? null;
     // The rank orders the table's own values against each other, so it uses the table's score.
-    const rankAm = hit?.am ?? am;
-    const rank = rankAm !== null && subs.length > 1 ? { rank: subs.filter((x) => (x.am as number) > rankAm).length + 1, of: subs.length } : null;
+    const mismatch = own ? variantSentence(target, variantRevel, variantAm, row ? [row] : [], input.provenance).mismatch : null;
+    const rankAm = hit?.am ?? null;
+    const rank = !mismatch && rankAm !== null && subs.length > 1 ? { rank: subs.filter((x) => (x.am as number) > rankAm).length + 1, of: subs.length } : null;
     return {
       kind: own ? "variant" : "substitution",
       label: wtLetter ? `${aaName}${alt}` : `${alt} at ${aaName}`,
@@ -435,6 +438,7 @@ export function landscapeVerdict(input: {
         { tool: "alphaMissense", score: am, band: bandLabel("alphaMissense", am) }
       ],
       rank,
+      mismatch,
       hasRecord
     };
   }
@@ -452,6 +456,7 @@ export function landscapeVerdict(input: {
         { tool: "alphaMissense", score: variantAm, band: bandLabel("alphaMissense", variantAm) }
       ],
       rank: null,
+      mismatch: null,
       hasRecord
     };
   }
@@ -470,6 +475,7 @@ export function landscapeVerdict(input: {
       { tool: "alphaMissense", score: am, band: bandLabel("alphaMissense", am) }
     ],
     rank: null,
+    mismatch: null,
     hasRecord
   };
 }
@@ -495,7 +501,7 @@ function variantSentence(
   let context = "";
   const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
   const own = subs.find((x) => x.alt === target.mut);
-  if (am !== null && own && subs.length > 1 && agree(am, own.am)) {
+  if (am !== null && own && subs.length > 1 && agree(am, own.am) && (revel === null || own.revel === null || agree(revel, own.revel))) {
     const rank = subs.filter((x) => (x.am as number) > (own.am as number)).length + 1;
     // "of the N substitutions scored here" — the set is what dbNSFP scored, which can be fewer
     // than the SNV-reachable set. The old wording ("of 6 SNV-reachable substitutions") claimed a

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { computeRuleBasedACMG } from "./acmg.ts";
 import { computeConsensusVerdict } from "../../../src/shared/thresholds.ts";
 import { 
@@ -18,9 +18,12 @@ import {
  * both before EVERY test in the file, not just the new block, so ordering stops mattering.
  */
 beforeEach(async () => {
-  const { resetHostStateForTests } = await import("../infra/http-client.ts");
+  const { resetHostStateForTests, setBackoffScaleForTests } = await import("../infra/http-client.ts");
   const { transcriptMappingCache } = await import("./predictors/transcript-resolver.ts");
   resetHostStateForTests();
+  // This file drives providers to failure on purpose; the retry decisions are what it asserts, not
+  // how long the loop sleeps (1.5-3 s of real time per failing call otherwise).
+  setBackoffScaleForTests(0.01);
   transcriptMappingCache.clear();
 });
 
@@ -254,6 +257,16 @@ END
   });
 
   describe("Progressive Conservation Merge", () => {
+    // Hermetic by default. The sibling conservation and splice lookups inside the progressive merge
+    // reach live Ensembl, which made these tests cost 1.5-3.8 s each on network speed (and flake when
+    // it was slow). A test that needs a particular response installs its own `fetch` after this.
+    beforeEach(() => {
+      vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it("should progressively merge async PDB mapping and predictor enrichment into base conservation data", async () => {
       const { fetchConservationDataProgressive } = await import("../predictors.ts");
 

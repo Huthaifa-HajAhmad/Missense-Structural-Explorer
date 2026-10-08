@@ -55,6 +55,17 @@ export interface FoldxExecutionOptions {
   };
 }
 
+/** Multiplier on the poll wait below. 1 in the app; only {@link setPollDelayScaleForTests} changes it. */
+let pollDelayScale = 1;
+
+/**
+ * Test hook: shrink the real 2-5 s wall-clock wait between FoldX job polls. The poll DECISIONS (what is
+ * published, when the budget expires — that reads `Date.now()` — and when it stops) are unaffected.
+ */
+export function setPollDelayScaleForTests(scale: number): void {
+  pollDelayScale = scale;
+}
+
 /**
  * Runs FoldX and records how it ended in the Console.
  *
@@ -182,6 +193,18 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
   sink.setFoldingError(null);
   sink.setFoldingStatus(null);
   /**
+   * A fresh run carries fresh credentials at request time, so a previous attempt's
+   * session-lapse record cannot survive into it: the flag must not outlive the run it names.
+   * Guarded like `setFoldingProgress`: a partial sink (see the test doubles) keeps compiling,
+   * and the reset must never become the run's reported error.
+   */
+  if (sink.setFoldingEnergetics) {
+    sink.setFoldingEnergetics((prev: any) => ({
+      ...((prev && typeof prev === "object") ? prev : {}),
+      energeticsAuthLapsed: {}
+    }));
+  }
+  /**
    * No phase yet, and that is the honest report: the submit request is resolving a structure
    * server-side, so nothing has been queued. The UI renders "Running" with an age and no stage
    * claim until the server names one — the alternative (a locally guessed stage) is what produced
@@ -250,6 +273,33 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
     if (payload.thermompnnStatus === "pending" && !payload.thermompnnJobId) {
       sink.setThermompnnStatus(null);
     }
+  };
+
+  /**
+   * Marks the remote engines an expired session severed, by keying `energeticsAuthLapsed` on the
+   * run's energetics.
+   *
+   * An engine that was pending WITH a job id is deliberately not marked: its poller still owns a
+   * route to an answer, and the flag must not outrank whatever that poller reports. Only engines
+   * with no id and no poller — the ones `settleUnreachableRemoteEngines` clears into an unpauseable
+   * "No result" — are recorded, because the resolver can name their cause only through this flag.
+   *
+   * Merged rather than replaced: a second lapse in the same run cannot erase the first.
+   */
+  const noteAuthExpiredEngines = (): void => {
+    const lapsedEngines: Partial<Record<"dynamut2" | "ddmut" | "thermompnn", boolean>> = {};
+    if (lastRemoteState.dynamut2Status === "pending" && !lastRemoteState.dynamut2JobId) lapsedEngines.dynamut2 = true;
+    if (lastRemoteState.ddmutStatus === "pending" && !lastRemoteState.ddmutJobId) lapsedEngines.ddmut = true;
+    if (lastRemoteState.thermompnnStatus === "pending" && !lastRemoteState.thermompnnJobId) lapsedEngines.thermompnn = true;
+    if (!lapsedEngines.dynamut2 && !lapsedEngines.ddmut && !lapsedEngines.thermompnn) return;
+    if (!sink.setFoldingEnergetics) return;
+    sink.setFoldingEnergetics((prev: any) => ({
+      ...((prev && typeof prev === "object") ? prev : {}),
+      energeticsAuthLapsed: {
+        ...(((prev?.energeticsAuthLapsed ?? {}) as Record<string, boolean>)),
+        ...lapsedEngines
+      }
+    }));
   };
 
   try {
@@ -437,8 +487,19 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
             timeout: CLIENT_REMOTE_SUBMISSION_WAIT_MS
           });
           if (signal.aborted || getActiveRequestId() !== requestId) return;
+          /**
+           * A terminal 401 means the run outlived its own authorization — the app's session or
+           * token was refused after re-auth and the retry had already happened. Whatever this
+           * run knows about its engines is the last truth there will be, so the interrupted
+           * engines are marked BEFORE the settle clears their pending statuses (the pause flag
+           * re-labels the cleared rows; the settle itself is what stops the spinner).
+           */
+          const subResAuthLapsed = subRes.status === 401;
           const sub = subRes.ok ? await readJsonWithTimeout(subRes, CLIENT_FOLDX_POLL_REQUEST_MS) : null;
           if (signal.aborted || getActiveRequestId() !== requestId) return;
+          if (subResAuthLapsed) {
+            noteAuthExpiredEngines();
+          }
           if (sub?.settled) {
             if (sub.dynamut2JobId) sink.setDynamut2JobId(sub.dynamut2JobId);
             if (sub.dynamut2Status) sink.setDynamut2Status(sub.dynamut2Status);
@@ -533,7 +594,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
         }
 
         // Wait with progressive backoff
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, delay * pollDelayScale));
         delay = Math.min(5000, delay + 500);
 
         if (signal.aborted || getActiveRequestId() !== requestId) return;

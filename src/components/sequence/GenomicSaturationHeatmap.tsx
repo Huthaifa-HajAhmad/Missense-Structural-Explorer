@@ -463,8 +463,8 @@ export const GenomicSaturationHeatmap = memo(function GenomicSaturationHeatmap({
             <p className="text-[11px] text-cs-text-muted mt-0.5">
               Each cell is one possible SNV, shaded by its genome-wide rank on AlphaGenome's composite AVI score
               (Phred 10 = top 10%, 20 = top 1%). A rank, not a probability and not an ACMG band; AlphaMissense is one of
-              the AVI's inputs, so this panel is not independent of the AM row above. Columns are nucleotides, not
-              residues: hover a cell to highlight its residue in the grid.
+              the AVI's inputs, so these ranks are not independent evidence from AlphaMissense. Columns are nucleotides, not
+              residues: hover or select a cell to inspect its mapped residue.
             </p>
           </div>
         </div>

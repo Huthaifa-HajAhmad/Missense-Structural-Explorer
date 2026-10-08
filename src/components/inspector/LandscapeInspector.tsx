@@ -1,9 +1,9 @@
 import React from "react";
-import { Activity, ScatterChart, BookOpen, Bookmark } from "lucide-react";
+import { BookOpen, Bookmark, Crosshair } from "lucide-react";
 import { AnalysisResult, UniprotFeatureItem } from "../../types";
 import type { LandscapeResidueItem } from "../../shared/contracts";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
-import { selectResidueLetter, type LandscapeRailTab } from "../../stores/slices/searchSlice";
+import { selectResidueLetter } from "../../stores/slices/searchSlice";
 import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
@@ -19,13 +19,11 @@ import {
   readsAsSentence,
   residueCount,
   residueRange,
-  residueSummary,
   TOOL_DISPLAY,
   type LandscapeTool,
   type SummaryMode
 } from "../../shared/landscapeEvidence";
 import { useMeasuredWidth } from "../sequence/useMeasuredWidth";
-import LandscapeAgreementPlot from "../LandscapeAgreementPlot";
 
 interface LandscapeInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -39,13 +37,6 @@ interface LandscapeInspectorProps {
 }
 
 const TOOL_NAME = TOOL_DISPLAY;
-
-const RAIL_TABS: Array<{ id: LandscapeRailTab; label: string }> = [
-  { id: "summary", label: "Summary" },
-  { id: "substitutions", label: "Substitutions" },
-  { id: "agreement", label: "Agreement" },
-  { id: "sources", label: "Sources" }
-];
 
 const SOURCES = [
   { label: "REVEL — Ioannidis et al., Am J Hum Genet 2016", doi: "10.1016/j.ajhg.2016.08.016" },
@@ -187,8 +178,6 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const gene = useVariantAnalysisStore((s) => s.gene);
   const variant = useVariantAnalysisStore((s) => s.variant);
   const uniprotId = useVariantAnalysisStore((s) => s.uniprotId);
-  const activeTab = useVariantAnalysisStore((s) => s.landscapeRailTab);
-  const setActiveTab = useVariantAnalysisStore((s) => s.setLandscapeRailTab);
   const extraKey = landscapeKey(gene, variant, uniprotId);
   const extraRows = useVariantAnalysisStore((s) => (s.landscapeExtra?.key === extraKey ? s.landscapeExtra.rows : null));
   const selection = useVariantAnalysisStore((s) => (s.landscapeSelection?.key === extraKey ? s.landscapeSelection : null));
@@ -210,26 +199,22 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     }
     return [...map.values()].sort((a, b) => a.residx - b.residx);
   }, [analysisResult?.landscapeData, extraRows]);
-  const scoredRows = rows.filter((r) => residueCount(r, "revel") > 0 || residueCount(r, "alphaMissense") > 0);
-  const plottedSpan = scoredRows.length
-    ? `residues ${scoredRows[0].residx}–${scoredRows[scoredRows.length - 1].residx} loaded, ${scoredRows.length} scored`
-    : "no scored residues";
   const activeRow = activeResIndex ? rows.find((r) => r.residx === activeResIndex) : undefined;
 
   const target = React.useMemo(() => {
     const raw = variant || analysisResult?.metadata?.variant || "";
+    const one = (s: string) => s.length === 3 ? AMINO_ACID_MAP_3_TO_1[s.toUpperCase()] || s : s.toUpperCase();
     let parsed: { pos: number; wt: string; mut: string } | null = null;
     if (raw && !isGenomicOrCdnaNotation(raw) && !/^(?:chr)?[\dXYM]+[-:]/i.test(raw)) {
       const m = raw.match(/^(?:p\.)?([A-Za-z]{1,3})(\d+)([A-Za-z]{1,3})?$/);
       if (m) {
-        const one = (s: string) => (s.length === 3 ? AMINO_ACID_MAP_3_TO_1[s.toUpperCase()] || s : s);
         parsed = { pos: parseInt(m[2], 10), wt: one(m[1]), mut: one(m[3] || "") };
       }
     }
     return {
       pos: analysisResult?.metadata?.residueIndex ?? parsed?.pos ?? null,
-      wt: analysisResult?.metadata?.wildType || parsed?.wt || "",
-      mut: analysisResult?.metadata?.mutant || parsed?.mut || ""
+      wt: one(analysisResult?.metadata?.wildType || parsed?.wt || ""),
+      mut: one(analysisResult?.metadata?.mutant || parsed?.mut || "")
     };
   }, [variant, analysisResult?.metadata?.variant, analysisResult?.metadata?.residueIndex, analysisResult?.metadata?.wildType, analysisResult?.metadata?.mutant]);
 
@@ -253,7 +238,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     variantRevel: variantScores.revel,
     variantAm: variantScores.alphaMissense,
     mode: metricMode,
-    selectedAlt
+    selectedAlt,
+    provenance: { am: analysisResult?.predictorData?.amProvenance, revel: analysisResult?.conservationData?.revelProvenance, table: provenanceLine(meta) }
   });
   // The per-tool block repeats "this variant 0.853" only when the verdict row does not already
   // carry it (it does for a variant-level verdict).
@@ -284,21 +270,6 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
   const g = !selection || selection.kind === "nucleotide" ? selectedGenomicVariant : null;
   const codingChange =
     g && g.strand === "-" && !g.isRef ? ` (coding ${complementBase(String(g.ref))}>${complementBase(String(g.alt))})` : "";
-
-  /* Tablist: one roving tab stop, arrow / Home / End move, selection follows focus. */
-  const onTablistKey = (e: React.KeyboardEvent) => {
-    const keys = RAIL_TABS.map((t) => t.id);
-    const at = keys.indexOf(activeTab);
-    let next: number | null = null;
-    if (e.key === "ArrowRight") next = (at + 1) % keys.length;
-    else if (e.key === "ArrowLeft") next = (at - 1 + keys.length) % keys.length;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = keys.length - 1;
-    if (next === null) return;
-    e.preventDefault();
-    setActiveTab(RAIL_TABS[next].id);
-    (e.currentTarget.querySelector<HTMLElement>(`#lsr-tab-${RAIL_TABS[next].id}`))?.focus();
-  };
 
   const toolBlock = (tool: LandscapeTool) => {
     const range = residueRange(activeRow, tool);
@@ -344,34 +315,15 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
   return (
     <div className="lsr-root flex flex-col gap-3 text-xs font-sans">
-      <div className="lsr-tabs" role="tablist" aria-label="Landscape inspector" onKeyDown={onTablistKey}>
-        {RAIL_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`lsr-tab-${t.id}`}
-            aria-selected={activeTab === t.id}
-            aria-controls={`lsr-panel-${t.id}`}
-            tabIndex={activeTab === t.id ? 0 : -1}
-            data-active={activeTab === t.id ? "true" : undefined}
-            className="ls-pill lsr-tab"
-            onClick={() => setActiveTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="lsr-selection-heading"><span className="lsr-eyebrow">{storeHoveredRes ? 'Previewing residue' : 'Selected residue'}</span>
+        {target.pos && <button type="button" className="lsr-return" onClick={() => {
+          setSelection({ key: extraKey, kind: 'substitution', pos: target.pos!, alt: target.mut || undefined });
+          onSelectResidueIndex?.(target.pos!);
+        }}><Crosshair size={13} /> Query {target.wt}{target.pos}{target.mut}</button>}
       </div>
-
-      {/* Every tab's aria-controls resolves: the panels of the other tabs are present but hidden. */}
-      {RAIL_TABS.filter((t) => t.id !== activeTab).map((t) => (
-        <div key={t.id} role="tabpanel" id={`lsr-panel-${t.id}`} aria-labelledby={`lsr-tab-${t.id}`} hidden />
-      ))}
-
-      {activeTab === "summary" && (
-        <div role="tabpanel" id="lsr-panel-summary" aria-labelledby="lsr-tab-summary" className="lsr-panelbox">
+      <section aria-label="Selected residue summary" className="lsr-panelbox">
           {!hasSelection ? (
-            <div className="lsr-empty">Nothing is selected yet. Hover or click a residue on the tab, or pick a nucleotide in the exon panel.</div>
+            <div className="lsr-empty">Select a residue or substitution to inspect its scores and supporting records. Hover previews a residue; click keeps the selection.</div>
           ) : (
             <div className="lsr-card flex flex-col gap-2.5">
               {g && (
@@ -436,6 +388,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                       <div className="lsr-readsas">
                         <span className="font-semibold">Reads as</span> · {readsAsSentence(verdict)}
                       </div>
+                      {verdict.mismatch && <p className="lsr-mismatch" role="note">{verdict.mismatch}</p>}
                       <div className="lsr-verdict" role="list" aria-label="What the scores are read on">
                         {verdict.calls.map((c) => (
                           <div key={c.tool} className="lsr-verdict__row" role="listitem">
@@ -502,18 +455,11 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
               </div>
             </section>
           )}
-        </div>
-      )}
+      </section>
 
-      {activeTab === "substitutions" && (
-        <div role="tabpanel" id="lsr-panel-substitutions" aria-labelledby="lsr-tab-substitutions" className="lsr-panelbox">
-          {!activeResIndex ? (
-            <div className="lsr-empty">No residue is selected. Pick one on the tab to see its substitutions.</div>
-          ) : noRecord ? (
-            <div className="lsr-empty">dbNSFP has no missense record at residue {activeResIndex} — there is nothing to break down.</div>
-          ) : !activeRow ? (
-            <div className="lsr-empty">No residue scores are loaded for residue {activeResIndex}.</div>
-          ) : (
+      {activeResIndex && activeRow && !noRecord && <section aria-label="Substitution scores" className="lsr-panelbox">
+        <h4 className="lsr-section-title">Substitutions at {resSymbol}{activeResIndex}</h4>
+        <p className="lsr-help">Select a letter to inspect that substitution.</p>
             <div className="lsr-card flex flex-col gap-3">
               {toolBlock("revel")}
               {toolBlock("alphaMissense")}
@@ -523,38 +469,10 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                 <span className="text-cs-text-muted">{activeRow.nucleotideCount ?? 0} nt</span>
               </div>
             </div>
-          )}
-        </div>
-      )}
+      </section>}
 
-      {activeTab === "agreement" && (
-        <div role="tabpanel" id="lsr-panel-agreement" aria-labelledby="lsr-tab-agreement" className="lsr-panelbox">
-          {!rows.some((r) => residueCount(r, "revel") > 0 && residueCount(r, "alphaMissense") > 0) ? (
-            <div className="lsr-empty">No residue has both a REVEL and an AlphaMissense score, so there is nothing to plot.</div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <span className="lsr-eyebrow flex items-center gap-1.5">
-                <ScatterChart className="w-3.5 h-3.5 text-cs-accent-clay" />
-                REVEL × AlphaMissense
-              </span>
-              <span className="text-[10px] font-mono text-cs-text-muted">{plottedSpan} · residue {metricMode}s</span>
-              <div className="rounded-lg border border-cs-border-subtle bg-cs-surface-2 p-2">
-                <LandscapeAgreementPlot
-                  rows={rows}
-                  variantRevel={variantScores.revel}
-                  variantAm={variantScores.alphaMissense}
-                  mode={metricMode}
-                  selectedResidue={activeResIndex}
-                  onSelectResidue={onSelectResidueIndex}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeTab === "sources" && (
-        <div role="tabpanel" id="lsr-panel-sources" aria-labelledby="lsr-tab-sources" className="lsr-panelbox">
+      <details className="lsr-sources">
+        <summary>Sources & method</summary>
           <section className="flex flex-col gap-2">
             <span className="lsr-eyebrow flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5 text-cs-accent-clay" />
@@ -563,8 +481,6 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
             <div className="text-[11px] text-cs-text-secondary leading-snug flex flex-col gap-1.5">
               <span className="font-mono text-[10px]">{provenanceLine(meta)}</span>
               {meta?.window && <span>Scores loaded for residues {meta.window.start}–{meta.window.end}{meta.retrievedAt ? `, retrieved ${new Date(meta.retrievedAt).toLocaleString()}` : ""}.</span>}
-              <details>
-                <summary className="cursor-pointer font-semibold text-cs-text-primary select-none w-fit rounded focus-visible:outline-2 focus-visible:outline-cs-accent-clay">Method and citations</summary>
                 <div className="flex flex-col gap-1.5 pt-2">
                   <span>
                     Each SNV is counted once, on one transcript. REVEL and AlphaMissense are summarised over a residue's
@@ -580,11 +496,9 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                     ))}
                   </ul>
                 </div>
-              </details>
             </div>
           </section>
-        </div>
-      )}
+      </details>
     </div>
   );
 };

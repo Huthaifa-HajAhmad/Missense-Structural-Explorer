@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { executeFoldxPipeline } from "../foldxService";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { executeFoldxPipeline, setPollDelayScaleForTests } from "../foldxService";
 import { getCachedVariant, setCachedVariant, clearClientVariantCache } from "../variantCache";
 import { biophysicsContextOf, createAnalysisCacheContext } from "../analysisContext";
 import {
@@ -8,6 +8,11 @@ import {
   DEFAULT_UI_BIOPHYSICS_CONDITIONS,
 } from "../../../shared/biophysicsConditions";
 import { DEFAULT_USER_SETTINGS } from "../../../components/settings/defaults";
+
+// The poll loop waits 2-5 s of real time between polls; these tests assert what it publishes, not how
+// long it waits.
+beforeAll(() => setPollDelayScaleForTests(0.01));
+afterAll(() => setPollDelayScaleForTests(1));
 
 /** The biophysical sink surface `executeFoldxPipeline` is allowed to write to. */
 const makeSink = () => ({
@@ -475,6 +480,107 @@ describe("foldxService", () => {
     expect(sink.setDdmutStatus).toHaveBeenCalledWith("unavailable");
   });
 
+  it("marks the engines a refused session severed, and clears the record when a fresh run starts", async () => {
+    // The remote-submission collection got a terminal 401 after re-auth. The engines left
+    // pending with no job id have no route to a result AND a known cause; they must resolve as
+    // Paused rather than a causeless "No result", while an engine with a live poller is not
+    // claimed (its route still exists).
+    const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
+      if (url.includes("/generate-mutant")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "success",
+            pdb: "ATOM",
+            ddG: 1.5,
+            energetics: { foldx: 1.5 },
+            dynamut2Status: "pending",
+            dynamut2JobId: null,
+            ddmutStatus: "pending",
+            ddmutJobId: "d3d-mu7-live",
+            remoteSubmissionToken: "c0ffee00-2222-4333-8444-555555555555"
+          })
+        };
+      }
+      expect(url).toBe("/api/v1/remote-submissions/c0ffee00-2222-4333-8444-555555555555");
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: "UNAUTHORIZED", message: "Unauthorized: Invalid or missing API token." } })
+      };
+    });
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    // The updater chain on foldingEnergetics must end at exactly the one interrupted engine,
+    // starting from the fresh run's cleared record.
+    const updates = sink.setFoldingEnergetics.mock.calls.map((call: any[]) => call[0]);
+    const finalEnergetics = updates.reduce(
+      (acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater),
+      undefined
+    );
+    expect(finalEnergetics.energeticsAuthLapsed).toEqual({ dynamut2: true });
+
+    // The spinner still settles: the pause NAMES the state, it does not keep an engine running.
+    expect(sink.setDynamut2Status).toHaveBeenCalledWith(null);
+    // An engine whose poller was live keeps running; it is not claimed by the lapse.
+    expect(finalEnergetics.energeticsAuthLapsed.ddmut).toBeUndefined();
+  });
+
+  it("does not claim a pause when the session lapse touches no interrupted engine", async () => {
+    // All pending engines had ids: the 401 severed nothing the resolver could mislabel, so the
+    // energetics record stays empty and every engine keeps its own state.
+    const fetchWithAuth: any = vi.fn(async (url: string): Promise<any> => {
+      if (url.includes("/generate-mutant")) {
+        return {
+          ok: true,
+          json: async () => ({
+            status: "success",
+            pdb: "ATOM",
+            ddG: 1.5,
+            energetics: { foldx: 1.5 },
+            dynamut2Status: "pending",
+            dynamut2JobId: "dyn-live",
+            ddmutStatus: "pending",
+            ddmutJobId: "ddm-live",
+            remoteSubmissionToken: "beefcafe-2222-4333-8444-555555555555"
+          })
+        };
+      }
+      expect(url).toBe("/api/v1/remote-submissions/beefcafe-2222-4333-8444-555555555555");
+      return { ok: false, status: 401, json: async () => ({ error: { code: "UNAUTHORIZED" } }) };
+    });
+    const sink: any = makeSink();
+
+    await executeFoldxPipeline({
+      uniprotId: "P00439",
+      variant: "p.Arg408Trp",
+      residueIndex: 408,
+      fetchWithAuth,
+      sink,
+      signal: new AbortController().signal,
+      requestId: 1,
+      getActiveRequestId: () => 1
+    });
+
+    const updates = sink.setFoldingEnergetics.mock.calls.map((call: any[]) => call[0]);
+    const finalEnergetics = updates.reduce(
+      (acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater),
+      undefined
+    );
+    expect(finalEnergetics.energeticsAuthLapsed).toEqual({});
+  });
+
   it("settles pending engines on the ERROR exits, not only on the terminal commits", async () => {
     /**
      * The defect: the settle helper ran on the three terminal commits only, and it was defined
@@ -768,10 +874,13 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    const updater = sink.setFoldingEnergetics.mock.calls[0][0];
-    const prev = {};
-    const updated = typeof updater === "function" ? updater(prev) : updater;
-    expect(updated.structureProvenance).toEqual(
+    // Every foldingEnergetics write in order — the store applies updaters sequentially, and a
+    // run now starts by clearing any previous session-lapse record before the payload arrives.
+    const finalEnergetics = sink.setFoldingEnergetics.mock.calls
+      .map((call: any[]) => call[0])
+      .reduce((acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater), {});
+
+    expect(finalEnergetics.structureProvenance).toEqual(
       expect.objectContaining({
         source: "experimental",
         pdbId: "6N7E",
@@ -847,9 +956,11 @@ describe("foldxService", () => {
       getActiveRequestId: () => 1
     });
 
-    const updater = sink.setFoldingEnergetics.mock.calls[0][0];
-    const updated = typeof updater === "function" ? updater({}) : updater;
-    expect(updated.structureProvenance).toEqual(
+    const finalEnergetics = sink.setFoldingEnergetics.mock.calls
+      .map((call: any[]) => call[0])
+      .reduce((acc: any, updater: any) => (typeof updater === "function" ? updater(acc) : updater), {});
+
+    expect(finalEnergetics.structureProvenance).toEqual(
       expect.objectContaining({
         source: "experimental",
         pdbId: "6n7e",

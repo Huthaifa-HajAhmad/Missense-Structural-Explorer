@@ -10,6 +10,8 @@ import { aviRankBand } from "../shared/alphagenomeEvidence";
 import { AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
 import { LandscapeLegend } from "./sequence/LandscapeLegend";
 import { LandscapeToolbar } from "./sequence/LandscapeToolbar";
+import { WorkspaceTabs } from "./ui/WorkspaceTabs";
+import { LandscapeAgreement } from "./sequence/LandscapeAgreement";
 import { LandscapeOverview } from "./sequence/LandscapeOverview";
 import { LandscapeFocus, type NucleotidePick } from "./sequence/LandscapeFocus";
 import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
@@ -129,6 +131,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   windowSize = 31,
   setWindowSize
 }: SequenceVisualizerProps) {
+  const [workspaceTab, setWorkspaceTab] = useState<'map' | 'focus' | 'agreement' | 'nucleotides'>('map');
+  const workspaceTabs = [{ id: 'map', label: 'Whole protein' }, { id: 'focus', label: 'Focus residue' }, { id: 'agreement', label: 'Predictor agreement' }, { id: 'nucleotides', label: 'Nucleotide map' }] as const;
   const { settings } = useSettings();
   const { apiClient } = useApiClient();
   const storeHoveredIndex = useVariantAnalysisStore((s) => s.hoveredResidueIndex);
@@ -379,8 +383,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
       : null;
 
   return (
-    <div id="sequence-alignment-visualizer" className="flex flex-col gap-4 animate-fade-in text-cs-text-primary w-full p-6">
-      <div className="flex items-center gap-2.5 pb-3 border-b border-cs-border-subtle">
+    <div id="sequence-alignment-visualizer" className="landscape-canvas text-cs-text-primary">
+      <div className="landscape-canvas__heading">
         <div className="p-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
           <Dna className="w-4 h-4 text-cs-accent-clay" />
         </div>
@@ -394,6 +398,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         </div>
       </div>
 
+      <WorkspaceTabs id="landscape" label="Landscape views" tabs={workspaceTabs} value={workspaceTab} onChange={setWorkspaceTab} />
+      {workspaceTabs.filter(tab => tab.id !== workspaceTab).map(tab => <div key={tab.id} role="tabpanel" id={`landscape-panel-${tab.id}`} aria-labelledby={`landscape-tab-${tab.id}`} hidden />)}
+      <div role="tabpanel" id={`landscape-panel-${workspaceTab}`} aria-labelledby={`landscape-tab-${workspaceTab}`} className="landscape-canvas__content">
       {!uniprotId ? (
         <div className="text-center py-12 text-cs-text-muted text-sm">Run an analysis to see the residue landscape around the variant.</div>
       ) : pendingSequence ? (
@@ -411,7 +418,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <section className="ls-finding" aria-label="Landscape finding">
+          {workspaceTab === "focus" && <section className="ls-finding" aria-label="Landscape finding">
             <div className="ls-finding__head">
               <span className="font-semibold uppercase tracking-wider text-[10px]">Finding · residues {range.start}–{range.end}</span>
               <span className="font-mono text-[10px] text-cs-text-muted truncate">{provenanceLine(landscapeMeta)}</span>
@@ -422,8 +429,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
               ) : (
                 <>
                   {finding.variant && <span className="font-semibold">{finding.variant}</span>}
-                  <span>{finding.window}</span>
-                  {finding.context && <span className="text-cs-text-secondary">{finding.context}</span>}
+                  <details className="ls-finding__details"><summary>Window summary & context</summary>
+                    <p>{finding.window}</p>
+                    {finding.context && <p className="text-cs-text-secondary">{finding.context}</p>}
+                  </details>
                   <span className="text-[12px] text-cs-text-muted">
                     PM1 context only: no ACMG code is proposed here. Band colours on residue summaries orient; they do not score evidence.
                   </span>
@@ -436,9 +445,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
                 </>
               )}
             </div>
-          </section>
+          </section>}
 
-          <LandscapeToolbar
+          {(workspaceTab === "map" || workspaceTab === "focus") && <LandscapeToolbar
+            scope={workspaceTab === "map" ? "overview" : "focus"}
             view={view}
             onView={setView}
             mode={metricMode}
@@ -457,9 +467,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
               setSelection({ key, kind: "substitution", pos: targetPos, alt: mutation.mut || undefined });
               onResidueClick?.(targetPos);
             }}
-          />
+          />}
 
-          <LandscapeOverview
+          {workspaceTab === "map" && <LandscapeOverview
             length={sequence.length}
             status={overview?.status ?? "idle"}
             error={overview?.error}
@@ -474,9 +484,13 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             onPick={pickOverview}
             onRetry={retryOverview}
             pageStep={windowSize}
-          />
+            onExplore={() => setWorkspaceTab("focus")}
+          />}
+          {workspaceTab === "map" && <LandscapeLegend overview colorBy="alphaMissense" laneVisible={false} />}
 
+          {workspaceTab === "focus" && <>
           <LandscapeFocus
+            showNucleotides={false}
             residues={residues}
             start={range.start}
             target={mutation}
@@ -503,22 +517,27 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             residueClass={residueClass}
           />
 
-          <LandscapeLegend colorBy={view.colorBy} laneVisible={laneStatus === "ready" && codons.size > 0} />
+          <LandscapeLegend colorBy={view.colorBy} laneVisible={false} />
 
-          <GenomicSaturationHeatmap
+          </>}
+          {workspaceTab === "agreement" && <LandscapeAgreement key={`${key}-${metricMode}`} rows={[...landscapeMap.values()].sort((a, b) => a.residx - b.residx)}
+            mode={metricMode} onMode={setMetricMode} variantRevel={variantScores.revel} variantAm={variantScores.am}
+            selectedResidue={residueIndex} onSelect={pickResidue} onHover={onHover} />}
+          {workspaceTab === "nucleotides" && <GenomicSaturationHeatmap
             region={region}
             genomicPos={genomicPos}
             genomicAlt={parsedGenomic?.alt || null}
-            defaultExpanded={false}
+            defaultExpanded={true}
             mutationIndex={targetPos}
             residueIndex={residueIndex}
             hoveredResidueIndex={hoveredResidueIndex}
             onResidueClick={onResidueClick}
             onResidueHover={onHover}
             onSelectGenomicVariant={handleSelectGenomicVariant}
-          />
+          />}
         </div>
       )}
+      </div>
     </div>
   );
 });

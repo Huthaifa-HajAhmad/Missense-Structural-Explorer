@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import os from 'os';
 import path from 'path';
 import {defineConfig, configDefaults} from 'vitest/config';
 
@@ -51,6 +52,14 @@ export default defineConfig(() => {
        */
       exclude: [...configDefaults.exclude, 'scratch/**'],
       globals: true,
+      /**
+       * Use every core on CI. Vitest's default is `cores - 1`, which on the 2-vCPU runner a private
+       * repository gets is ONE worker — the whole suite ran serially. Measured on run 37794034476:
+       * the 417 s step was ~365 s of per-file work (tests 178 + import 71 + environment 56 + setup 44 +
+       * transform 16) executed one file at a time. Locally the default is left alone: a developer's
+       * machine is also running an editor, a dev server and, often, other agents.
+       */
+      maxWorkers: process.env.CI ? os.availableParallelism() : undefined,
       setupFiles: './src/test/setup.ts',
       /**
        * A real margin over the retry backoff, because the default is thinner than it looks.

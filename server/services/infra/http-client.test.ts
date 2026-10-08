@@ -34,20 +34,23 @@ afterEach(() => {
 describe("fetchWithRetry — Retry-After bounds", () => {
   it("does not sleep on the final attempt (no trailing delay before throwing)", async () => {
     const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async () => response503("10000"));
+    // Fake clock: this used to spend a real 10 s asleep on the one legitimate mid-loop backoff.
+    vi.useFakeTimers();
 
-    const started = Date.now();
-    await expect(
-      // delay=0 keeps exponential jitter negligible; the only possible long wait would
-      // be an honoured Retry-After on the last attempt.
-      fetchWithRetry("https://example.test/x", { timeout: 50 }, 2, 0)
-    ).rejects.toThrow();
-    const elapsed = Date.now() - started;
+    let settled = false;
+    const pending = fetchWithRetry("https://example.test/x", { timeout: 50 }, 2, 0)
+      .catch(e => e)
+      .finally(() => {
+        settled = true;
+      });
+    // Exactly one clamped (10 s) sleep separates the two attempts. If the loop also slept after the
+    // final attempt there would be a second 10 s timer pending and the call would not have settled.
+    await vi.advanceTimersByTimeAsync(10_000);
 
+    expect(settled).toBe(true);
+    expect(await pending).toBeInstanceOf(Error);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    // With the final-attempt sleep removed, only the single mid-loop sleep can occur and
-    // it is clamped to 10s — but crucially we must NOT see two honoured 10s sleeps (20s).
-    expect(elapsed).toBeLessThan(19_000);
-  }, 30_000);
+  });
 
   it("returns the last response when a 5xx is not retryable away", async () => {
     vi.spyOn(global, "fetch").mockImplementation(async () => response503("0"));
