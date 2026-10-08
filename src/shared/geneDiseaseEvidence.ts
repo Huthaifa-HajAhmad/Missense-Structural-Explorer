@@ -126,7 +126,7 @@ export function buildGeneDiseaseModel(input: {
     headline = 'Gene-level evidence only';
     sentence = 'Disease-specific validity needs the GenCC snapshot, which is not available here. ClinGen dosage below is gene-level and does not depend on it.';
   } else if (!base.selected) {
-    verdict = { kind: 'unselected', label: 'Choose a disease', tone: 'neutral' };
+    verdict = frames.length ? { kind: 'unselected', label: 'Choose a disease', tone: 'neutral' } : { kind: 'unselected', label: 'No curated disease', tone: 'muted' };
     headline = frames.length ? `${frames.length} disease${frames.length === 1 ? '' : 's'}` : 'None listed';
     headlineLabel = frames.length ? 'curated for this gene by the installed sources' : '';
     sentence = frames.length

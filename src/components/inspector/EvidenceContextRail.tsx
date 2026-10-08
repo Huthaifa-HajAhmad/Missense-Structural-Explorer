@@ -3,6 +3,7 @@ import type { AnalysisResult } from '../../types';
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import { buildGeneDiseaseEvidence, type ContextProvenance } from '../../shared/diseaseFrame';
 import { GeneDiseaseRail } from './GeneDiseaseRail';
+import { Step, Provenance, slotState, type Slot } from './RailParts';
 import { REVIEW_SYSTEMS, ONSET_LABELS } from '../../shared/phenotypeFrame';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { buildDosageEvidence } from '../../shared/dosageSensitivity';
@@ -10,43 +11,10 @@ import { hpoQueryIds } from '../../shared/hpoAnnotation';
 import { buildExpressionFinding } from '../../shared/expressionTabEvidence';
 import { evidenceContextIdentity } from '../../shared/evidenceContextIdentity';
 
-type Slot = { status: 'loading' | 'ready' | 'error'; data: unknown; error?: string } | undefined;
 const asProvenance = (value: unknown): ContextProvenance[] => {
   const p = (value as { provenance?: ContextProvenance | ContextProvenance[] | null } | null)?.provenance;
   return !p ? [] : Array.isArray(p) ? p : [p];
 };
-/** One word for what a source returned, in the shared engine vocabulary. */
-function slotState(slot: Slot): { label: string; tone: 'good' | 'muted' | 'warning' } {
-  if (!slot || slot.status === 'loading') return { label: ENGINE_STATE_LABELS.running, tone: 'muted' };
-  if (slot.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' };
-  const status = (slot.data as { status?: string } | null)?.status;
-  if (status === 'not-installed') return { label: ENGINE_STATE_LABELS['not-installed'], tone: 'muted' };
-  if (status === 'not-found' || status === 'no-pext') return { label: ENGINE_STATE_LABELS['no-result'], tone: 'muted' };
-  if (status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' };
-  return { label: 'Read', tone: 'good' };
-}
-const day = (iso: string) => iso.slice(0, 10);
-const basisLabel = (p: ContextProvenance) => p.timestampBasis === 'local-import' ? 'Imported' : p.timestampBasis === 'download' ? 'Retrieved' : 'Recorded';
-
-function Step({ n, label, state, children }: { n: number; label: string; state?: 'warn'; children: React.ReactNode }) {
-  return <li className="rail-step" data-state={state}>
-    <span className="rail-step__n" aria-hidden="true">{n}</span>
-    <div className="rail-step__body"><span className="rail-step__label">{label}</span><div className="rail-step__value">{children}</div></div>
-  </li>;
-}
-function Provenance({ provenance }: { provenance: ContextProvenance }) {
-  return <details className="xp-prov" aria-label={`${provenance.source} provenance`}>
-    <summary><span className="xp-prov__name">{provenance.source}</span><span className="xp-prov__meta">{provenance.release ?? `${basisLabel(provenance)} ${day(provenance.retrievedAt)}`}</span></summary>
-    <dl className="rail-kv">
-      <div className="rail-kv__row"><dt>Release</dt><dd>{provenance.release ?? 'Not reported'}</dd></div>
-      <div className="rail-kv__row"><dt>{basisLabel(provenance)}</dt><dd className="ctx-mono">{day(provenance.retrievedAt)}</dd></div>
-      <div className="rail-kv__row"><dt>Terms</dt><dd>{provenance.licence}</dd></div>
-    </dl>
-    <a className="ctx-link" href={provenance.url} target="_blank" rel="noreferrer">Source endpoint</a>
-    <p className="ctx-caption">Snapshot fingerprint</p><p className="ctx-hash ctx-mono">{provenance.sha256}</p>
-  </details>;
-}
-
 export function EvidenceContextRail({ analysisResult, expression }: { analysisResult: AnalysisResult; expression: boolean }) {
   const state = useVariantAnalysisStore();
   if (!expression) return <GeneDiseaseRail analysisResult={analysisResult} />;

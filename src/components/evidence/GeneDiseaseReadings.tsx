@@ -53,6 +53,7 @@ export function GeneDiseaseReadings({ model, onRetryDosage }: { model: GeneDisea
             model.verdict.kind === 'loading' ? <Empty title={ENGINE_STATE_LABELS.running}>Reading GenCC validity assertions.</Empty>
               : !gencc.available && !model.frameCount
               ? <Empty title={`GenCC ${gencc.label.toLowerCase()}`}>Disease-level validity is not readable on this server; the reason and a retry are in the disease choice above.</Empty>
+              : !model.selected && !model.frameCount ? <Empty title="No curated disease">The installed snapshot lists no disease for this gene, so there are no validity assertions to read.</Empty>
               : !model.selected ? <Empty title="No disease chosen">Choose a disease above to read its validity assertions.</Empty>
               : <Empty title={`${ENGINE_STATE_LABELS['no-result']} — not curated`}>{model.sentence}</Empty>)}
         </tbody>
