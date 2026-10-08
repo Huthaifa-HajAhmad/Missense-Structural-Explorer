@@ -20,6 +20,7 @@ import {
   residueCount,
   residueRange,
   residueSummary,
+  TOOL_DISPLAY,
   type LandscapeTool,
   type SummaryMode
 } from "../../shared/landscapeEvidence";
@@ -37,7 +38,7 @@ interface LandscapeInspectorProps {
   selectedGenomicVariant?: any | null;
 }
 
-const TOOL_NAME: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
+const TOOL_NAME = TOOL_DISPLAY;
 
 const RAIL_TABS: Array<{ id: LandscapeRailTab; label: string }> = [
   { id: "summary", label: "Summary" },
@@ -91,6 +92,12 @@ export function placeStripChips(stripWidth: number, chips: Array<{ alt: string; 
   const sorted = [...chips].sort((a, b) => a.v - b.v || a.alt.localeCompare(b.alt));
   const anchorOf = (v: number) => Math.min(Math.max(v * W - STRIP_CHIP_W / 2, 0), W - STRIP_CHIP_W);
   if (n === 0) return [];
+  // The tight run does not fit: spread the chips evenly edge to edge. They overlap by the same
+  // amount each, and the stems still tie every chip to its true position.
+  if (n > 1 && n * STRIP_CHIP_W + (n - 1) * STRIP_CHIP_GAP > W) {
+    const step = (W - STRIP_CHIP_W) / (n - 1);
+    return sorted.map((c, i) => ({ alt: c.alt, value: c.v, anchorLeft: anchorOf(c.v), chipLeft: i * step }));
+  }
   const lefts = sorted.map((c) => anchorOf(c.v));
   for (let i = 1; i < n; i++) lefts[i] = Math.max(lefts[i], lefts[i - 1] + STRIP_CHIP_W + STRIP_CHIP_GAP);
   if (lefts[n - 1] > W - STRIP_CHIP_W) {
@@ -99,6 +106,9 @@ export function placeStripChips(stripWidth: number, chips: Array<{ alt: string; 
   }
   return sorted.map((c, i) => ({ alt: c.alt, value: c.v, anchorLeft: anchorOf(c.v), chipLeft: lefts[i] }));
 }
+
+/** A chip the collision pass moved off its true position (and so needs an anchor dot and stem). */
+const isMoved = (p: StripPlacement) => Math.abs(p.chipLeft - p.anchorLeft) > 2;
 
 /**
  * Every scored substitution at a residue as a letter chip over the calibrated bands. A chip the
@@ -131,8 +141,7 @@ function SubstitutionStrip({
         ))}
       </div>
       {placements.map((p) => {
-        const moved = Math.abs(p.chipLeft - p.anchorLeft) > 2;
-        return moved ? <span key={`a-${p.alt}`} className="lsr-strip__anchor" aria-hidden="true" style={{ left: `${p.anchorLeft + STRIP_CHIP_W / 2}px` }} /> : null;
+        return isMoved(p) ? <span key={`a-${p.alt}`} className="lsr-strip__anchor" aria-hidden="true" style={{ left: `${p.anchorLeft + STRIP_CHIP_W / 2}px` }} /> : null;
       })}
       {placements.map((p) => {
         const on = p.alt === highlight || p.alt === target;
@@ -153,8 +162,7 @@ function SubstitutionStrip({
         );
       })}
       {placements.map((p) => {
-        const moved = Math.abs(p.chipLeft - p.anchorLeft) > 2;
-        return moved ? <span key={`s-${p.alt}`} className="lsr-strip__stem" aria-hidden="true" style={{ left: `${p.chipLeft + STRIP_CHIP_W / 2}px` }} /> : null;
+        return isMoved(p) ? <span key={`s-${p.alt}`} className="lsr-strip__stem" aria-hidden="true" style={{ left: `${p.chipLeft + STRIP_CHIP_W / 2}px` }} /> : null;
       })}
       <span className="lsr-strip__axis" aria-hidden="true">
         <span>0</span>
@@ -325,7 +333,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
         </div>
         {own !== null && (
           <div className="text-[10px] font-mono text-cs-accent-clay">
-            ◆ this variant {own.toFixed(3)} · {verdict.calls.find((c) => c.tool === tool)?.band ?? ""}
+            ◆ this variant {own.toFixed(3)} · {bandLabel(tool, own)}
           </div>
         )}
       </div>
@@ -354,6 +362,11 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
           </button>
         ))}
       </div>
+
+      {/* Every tab's aria-controls resolves: the panels of the other tabs are present but hidden. */}
+      {RAIL_TABS.filter((t) => t.id !== activeTab).map((t) => (
+        <div key={t.id} role="tabpanel" id={`lsr-panel-${t.id}`} aria-labelledby={`lsr-tab-${t.id}`} hidden />
+      ))}
 
       {activeTab === "summary" && (
         <div role="tabpanel" id="lsr-panel-summary" aria-labelledby="lsr-tab-summary" className="lsr-panelbox">
@@ -412,8 +425,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                       there is no REVEL, AlphaMissense or conservation score to show. That is absence of data, not a benign reading.
                       {isTarget && (variantScores.revel !== null || variantScores.alphaMissense !== null) && (
                         <span className="block font-mono text-[11px] text-cs-accent-clay mt-1.5">
-                          ◆ this variant{variantScores.revel !== null ? ` REVEL ${variantScores.revel.toFixed(3)} · ${verdict.calls.find((c) => c.tool === "revel")?.band ?? ""}` : ""}
-                          {variantScores.alphaMissense !== null ? ` AlphaMissense ${variantScores.alphaMissense.toFixed(3)} · ${verdict.calls.find((c) => c.tool === "alphaMissense")?.band ?? ""}` : ""}
+                          ◆ this variant{variantScores.revel !== null ? ` REVEL ${variantScores.revel.toFixed(3)} · ${bandLabel("revel", variantScores.revel)}` : ""}
+                          {variantScores.alphaMissense !== null ? ` AlphaMissense ${variantScores.alphaMissense.toFixed(3)} · ${bandLabel("alphaMissense", variantScores.alphaMissense)}` : ""}
                         </span>
                       )}
                     </div>
@@ -516,7 +529,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
       {activeTab === "agreement" && (
         <div role="tabpanel" id="lsr-panel-agreement" aria-labelledby="lsr-tab-agreement" className="lsr-panelbox">
-          {scoredRows.length === 0 ? (
+          {!rows.some((r) => residueCount(r, "revel") > 0 && residueCount(r, "alphaMissense") > 0) ? (
             <div className="lsr-empty">No residue has both a REVEL and an AlphaMissense score, so there is nothing to plot.</div>
           ) : (
             <div className="flex flex-col gap-2">

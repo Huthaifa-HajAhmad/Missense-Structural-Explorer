@@ -346,7 +346,7 @@ function bandPhrase(tool: LandscapeTool, call: LandscapeVerdictCall | undefined)
   return `in ${side} for ${TOOL_DISPLAY[tool]} (${call.score.toFixed(3)} · ${call.band})`;
 }
 
-const TOOL_DISPLAY: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
+export const TOOL_DISPLAY: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
 
 /**
  * The verdict as one plain sentence for the rail's tinted lead box — the first thing a reader
@@ -367,7 +367,7 @@ export function readsAsSentence(verdict: {
       ? `The queried substitution ${verdict.label} reads`
       : verdict.kind === "substitution"
         ? `Substitution ${verdict.label} reads`
-        : `Residue ${verdict.label}'s ${verdict.stat} (orientation only) reads`;
+        : `${/^Residue\b/.test(verdict.label) ? verdict.label : `Residue ${verdict.label}`}'s ${verdict.stat} (orientation only) reads`;
   return `${what} ${clauses}.`;
 }
 
@@ -401,7 +401,9 @@ export function landscapeVerdict(input: {
   hasRecord: boolean;
 } {
   const { target, residx, row, variantRevel, variantAm, mode, selectedAlt } = input;
-  const aaName = target && residx === target.pos && target.wt ? `${target.wt}${residx}` : residx !== null ? `Residue ${residx}` : "";
+  // The wild-type letter: the queried one on its own residue, else dbNSFP's reference amino acid.
+  const wtLetter = target && residx === target.pos && target.wt ? target.wt : row?.aaref || null;
+  const aaName = residx === null ? "" : wtLetter ? `${wtLetter}${residx}` : `Residue ${residx}`;
   const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
   const hasRecord = Boolean(row && (residueCount(row, "revel") > 0 || residueCount(row, "alphaMissense") > 0));
   const isTargetResidue = Boolean(target && residx === target.pos && target.pos > 0);
@@ -412,12 +414,17 @@ export function landscapeVerdict(input: {
   if (alt && hasRecord) {
     const hit = row?.substitutions?.find((x) => x.alt === alt) ?? null;
     const own = isTargetResidue && alt === target!.mut;
-    const am = hit?.am ?? (own ? variantAm : null);
-    const revel = hit?.revel ?? (own ? variantRevel : null);
-    const rank = am !== null && subs.length > 1 ? { rank: subs.filter((x) => (x.am as number) > am).length + 1, of: subs.length } : null;
+    // The queried variant is read on the pipeline's variant-level score (the one the rest of the
+    // app reports); the table value only stands in when the pipeline has none. A disagreement
+    // between the two is surfaced by the finding's mismatch caution, never hidden here.
+    const am = own ? variantAm ?? hit?.am ?? null : hit?.am ?? null;
+    const revel = own ? variantRevel ?? hit?.revel ?? null : hit?.revel ?? null;
+    // The rank orders the table's own values against each other, so it uses the table's score.
+    const rankAm = hit?.am ?? am;
+    const rank = rankAm !== null && subs.length > 1 ? { rank: subs.filter((x) => (x.am as number) > rankAm).length + 1, of: subs.length } : null;
     return {
       kind: own ? "variant" : "substitution",
-      label: `${aaName}${alt}`,
+      label: wtLetter ? `${aaName}${alt}` : `${alt} at ${aaName}`,
       scope: own
         ? "The queried substitution's own scores — a variant-level score, so its band applies to the variant."
         : `One substitution at residue ${residx} — a variant-level score, so its band applies to it.`,
@@ -527,7 +534,7 @@ function releaseGap(pipeline: string | null, table: string | null): string | nul
   const pv = v(pipeline);
   const tv = v(table);
   if (pv && tv && pv.toLowerCase() !== tv.toLowerCase())
-    return `The predictors read ${pv} (${pipeline}), while this tab's table is ${tv} — a different release is the likely cause.`;
+    return `The predictors read ${pipeline.toLowerCase().includes(pv.toLowerCase()) ? pipeline : `${pv} (${pipeline})`}, while this tab's table is ${tv} — a different release is the likely cause.`;
   if (pv && tv) return "Both sides report the same dbNSFP release, so the readings disagree for another reason (numbering or a stale cache).";
   return null;
 }

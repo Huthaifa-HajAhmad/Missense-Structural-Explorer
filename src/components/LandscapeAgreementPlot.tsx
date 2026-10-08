@@ -117,12 +117,16 @@ export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, 
           </text>
         )}
 
+        {/* Hit targets: the visible dot is 5–7px; the interactive circle is 24px across. All of them
+            are drawn first so no neighbour's hit area can sit over another point's dot. */}
+        {onSelectResidue &&
+          points.map((p) => (
+            <circle key={`hit-${p.pos}`} cx={x(p.revel)} cy={y(p.am)} r={12} fill="transparent" pointerEvents="all" className="cursor-pointer" onClick={() => select(p.pos)} />
+          ))}
         {points.map((p) => {
           const on = p.pos === selectedResidue;
           return (
             <g key={p.pos} className={onSelectResidue ? "lsr-scatter__pt" : undefined}>
-              {/* Hit target: the visible dot is 5–7px; the interactive circle is 24px across. */}
-              <circle cx={x(p.revel)} cy={y(p.am)} r={12} fill="transparent" pointerEvents={onSelectResidue ? "all" : "none"} />
               <circle
                 cx={x(p.revel)}
                 cy={y(p.am)}

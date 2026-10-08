@@ -297,6 +297,22 @@ describe("landscapeVerdict", () => {
     ]
   } as any;
 
+  it("names an off-target residue by dbNSFP's reference letter and never doubles 'Residue'", () => {
+    const off = { ...row116, residx: 115, aaref: "K" };
+    const picked = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean", selectedAlt: "V" });
+    expect(picked.label).toBe("K115V");
+    const residue = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
+    expect(readsAsSentence(residue)).toMatch(/^Residue K115's mean/);
+    const noRef = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: { ...row116, residx: 115 }, variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
+    expect(readsAsSentence(noRef)).toMatch(/^Residue 115's mean/);
+    expect(readsAsSentence(noRef)).not.toMatch(/Residue Residue/);
+  });
+
+  it("reads the queried variant on the pipeline score when the table's differs", () => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 116, row: row116, variantRevel: 0.5, variantAm: 0.6, mode: "mean" });
+    expect(v.calls.map((c) => c.score)).toEqual([0.5, 0.6]);
+  });
+
   it("reads a picked substitution at its own dbNSFP scores, variant-level", () => {
     const v = landscapeVerdict({
       target: { pos: 116, wt: "D", mut: "G" },
@@ -405,7 +421,7 @@ describe("the pipeline's variant score is cross-checked against the dbNSFP table
       meta: meta({ sourceVersion: "dbNSFP 4.8a" }),
       predictorProvenance: { am: "local dbNSFP 5.0 (local)", revel: null }
     });
-    expect(f.cautions[0]).toMatch(/The predictors read dbNSFP 5\.0 \(local dbNSFP 5\.0 \(local\)\), while this tab's table is dbNSFP 4\.8a — a different release is the likely cause\./);
+    expect(f.cautions[0]).toMatch(/The predictors read local dbNSFP 5\.0 \(local\), while this tab's table is dbNSFP 4\.8a — a different release is the likely cause\./);
   });
 
   it("says the readings disagree for another reason when the releases match", () => {

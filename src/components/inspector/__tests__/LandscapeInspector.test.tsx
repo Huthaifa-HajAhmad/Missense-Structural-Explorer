@@ -212,6 +212,15 @@ describe("placeStripChips", () => {
     }
   });
 
+  it("spreads nine chips evenly, edge to edge, when the strip is too narrow for them", () => {
+    const chips = "ACDEFGHIK".split("").map((alt, i) => ({ alt, v: 0.5 + i * 0.001 }));
+    const placed = placeStripChips(200, chips);
+    expect(placed[0].chipLeft).toBe(0);
+    expect(placed[8].chipLeft).toBeCloseTo(200 - 24, 6);
+    const gaps = placed.slice(1).map((p, i) => p.chipLeft - placed[i].chipLeft);
+    for (const g of gaps) expect(g).toBeCloseTo(gaps[0], 6);
+  });
+
   it("walks a right-edge crowd back inside instead of clipping it", () => {
     const placed = placeStripChips(300, [
       { alt: "A", v: 0.96 },

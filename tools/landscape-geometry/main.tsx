@@ -233,7 +233,7 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
   out.push({ name: "tabs: four pills, exactly one aria-selected", pass: tabs.length === 4 && selected.length === 1, detail: `${tabs.length} tabs, ${selected.length} selected` });
   const smallPills = tabs.filter((t) => t.getBoundingClientRect().height < 23.5 || t.getBoundingClientRect().width < 23.5);
   out.push({ name: "targets: rail pills are at least 24px", pass: smallPills.length === 0 && tabs.length > 0, detail: smallPills.length ? `${smallPills.length} under 24px` : `${tabs.length} pills ≥ 24px` });
-  out.push({ name: "tabs: panels are labelled by their tab (aria-controls ↔ tabpanel id)", pass: tabs.every((t) => host.querySelector(`#${t.getAttribute("aria-controls")}`) === null || true) && Boolean(host.querySelector("[role='tabpanel'][aria-labelledby='lsr-tab-summary']")), detail: "summary panel wired" });
+  out.push({ name: "tabs: panels are labelled by their tab (aria-controls ↔ tabpanel id)", pass: tabs.length > 0 && tabs.every((t) => host.querySelector(`[role='tabpanel']#${t.getAttribute("aria-controls")}`)?.getAttribute("aria-labelledby") === t.id), detail: "every tab's panel exists and is labelled by it" });
 
   /* Summary tab: the lead box, then the verdict */
   const readsAs = host.querySelector(".lsr-readsas");
@@ -307,7 +307,7 @@ function tabChecks(host: HTMLElement): Check[] {
 
   const heat = Array.from(host.querySelectorAll<HTMLElement>("[role='group']")).find((g) => (g.getAttribute("aria-label") ?? "").includes("Substitution heatmap"));
   const entry = heat?.querySelector<HTMLElement>("[data-rc][tabindex='0']");
-  out.push({ name: "keyboard: Tab lands on the queried heatmap cell", pass: Boolean(entry && entry.getAttribute("data-entry") !== undefined && (entry.getAttribute("aria-label") ?? "").startsWith("A5V")), detail: entry?.getAttribute("aria-label")?.slice(0, 60) ?? "no entry" });
+  out.push({ name: "keyboard: Tab lands on the queried heatmap cell", pass: Boolean(entry && entry.hasAttribute("data-entry") && (entry.getAttribute("aria-label") ?? "").startsWith("A5V")), detail: entry?.getAttribute("aria-label")?.slice(0, 60) ?? "no entry" });
 
   const cons = Array.from(host.querySelectorAll<HTMLElement>("[role='group']")).find((g) => (g.getAttribute("aria-label") ?? "").includes("phyloP"));
   const consCells = cons ? cons.querySelectorAll<HTMLElement>("button[data-rc]") : [];
