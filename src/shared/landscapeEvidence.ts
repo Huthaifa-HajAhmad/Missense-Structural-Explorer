@@ -98,6 +98,53 @@ export function calibrationSourceShort(tool: CalibratedToolKey): string {
 }
 
 /**
+ * The seven band swatches as numeric spans on [0, 1], from `calibration.ts` directly.
+ *
+ * The substitution strip used to re-parse the legend's *formatted* range strings
+ * ("0.644–0.773", "≥ 0.932") back into geometry — an inverse of a display string that broke
+ * silently the day a range was reworded. This is the one numeric source for drawing; `legendSteps`
+ * stays textual for the legend. Half-open spans tile [0, 1]; a strength the source does not publish
+ * (e.g. AlphaMissense BP4 Strong) gets no span, exactly as it gets no legend row.
+ */
+export function bandSpans(tool: LandscapeTool): Array<{ key: BandKey; lo: number; hi: number }> {
+  const b = PP3_BP4_CALIBRATION[tool].bp4;
+  const p = PP3_BP4_CALIBRATION[tool].pp3;
+  const out: Array<{ key: BandKey; lo: number; hi: number }> = [];
+  // BP4 side runs from 0 upward, strongest first; VeryStrong folds into the Strong swatch,
+  // the same fold `bandKey` makes.
+  const strongEdge = b.Strong ?? b.VeryStrong;
+  let lo = 0;
+  if (strongEdge !== undefined) {
+    out.push({ key: "bp4-strong", lo: 0, hi: strongEdge });
+    lo = strongEdge;
+  }
+  if (b.Moderate !== undefined) {
+    out.push({ key: "bp4-moderate", lo, hi: b.Moderate });
+    lo = b.Moderate;
+  }
+  const bp4Sup = b.Supporting;
+  if (bp4Sup !== undefined) {
+    out.push({ key: "bp4-supporting", lo, hi: bp4Sup });
+    lo = bp4Sup;
+  }
+  // Indeterminate middle: between the two Supporting edges.
+  const pp3Sup = p.Supporting;
+  if (bp4Sup !== undefined && pp3Sup !== undefined) {
+    out.push({ key: "indeterminate", lo: bp4Sup, hi: pp3Sup });
+  } else if (pp3Sup !== undefined) {
+    out.push({ key: "indeterminate", lo: 0, hi: pp3Sup });
+    lo = pp3Sup;
+  }
+  // PP3 side runs to 1, weakest first; the strongest band holds whatever remains.
+  if (pp3Sup !== undefined) {
+    out.push({ key: "pp3-supporting", lo: pp3Sup, hi: p.Moderate ?? p.Strong ?? 1 });
+    if (p.Moderate !== undefined) out.push({ key: "pp3-moderate", lo: p.Moderate, hi: p.Strong ?? 1 });
+    if (p.Strong !== undefined) out.push({ key: "pp3-strong", lo: p.Strong, hi: 1 });
+  }
+  return out;
+}
+
+/**
  * Conservation shading, 0–3. The breaks are this app's display breaks, not evidence: GERP++ RS
  * 2 / 4 (Davydov 2010 read RS > 2 as constrained), phyloP100way 1.5 / 4. The only published
  * evidence bands are ClinGen's phyloP (PP3 ≥ 7.367, BP4 ≤ 1.879) — level 3 for phyloP is set at
@@ -166,6 +213,12 @@ export interface LandscapeFindingInput {
   /** Gene-wide context; `undefined` while loading, `null` when it failed. */
   context?: LandscapeContext | null;
   domains?: Array<{ name: string; start: number; end: number }>;
+  /**
+   * The predictors pipeline's own provenance for the variant-level scores (`predictorData
+   * .amProvenance` / `conservationData.revelProvenance`). When the cross-check below finds the
+   * pipeline and dbNSFP tables disagreeing, the releases are named so the reader can see WHY.
+   */
+  predictorProvenance?: { am?: string | null; revel?: string | null } | null;
 }
 
 export interface LandscapeFinding {
@@ -183,6 +236,10 @@ export interface LandscapeFinding {
 
 const f3 = (n: number) => n.toFixed(3);
 
+/** Two readings of one substitution agree at the precision both surfaces print (3dp). */
+const agree = (a: number | null, b: number | null): boolean =>
+  a !== null && b !== null && Math.abs(a - b) < 0.0005;
+
 /**
  * The tab's headline, stated from data only. It names no ACMG criterion as met: PM1 (hotspot /
  * critical domain) needs expert review of regional data this tab only partly shows, and the band
@@ -195,6 +252,17 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
   const scored = inWindow.filter((r) => residueSummary(r, "alphaMissense", mode) !== null);
   const width = window.end - window.start + 1;
   const cautions: string[] = [];
+
+  // The queried substitution's sentence, and a cross-check of the two tables that touch it:
+  // the headline shows the pipeline's variant-level score, while any rank is read within the
+  // dbNSFP table. When they disagree the rank is withheld and the mismatch is named, so the
+  // sentence can never show a score that ranks differently from the rank it states.
+  const variantRead = variantSentence(target, variantRevel, variantAm, rows, {
+    am: input.predictorProvenance?.am ?? null,
+    revel: input.predictorProvenance?.revel ?? null,
+    table: meta?.sourceVersion ?? null
+  });
+  if (variantRead.mismatch) cautions.push(variantRead.mismatch);
 
   for (const flag of meta?.qualityFlags ?? []) {
     if (flag.startsWith("ref-mismatch:")) {
@@ -218,7 +286,7 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
   if (scored.length === 0) {
     return {
       window: `No AlphaMissense residue summaries were returned for residues ${window.start}–${window.end}.`,
-      variant: variantSentence(target, variantRevel, variantAm, rows),
+      variant: variantRead.text,
       context,
       cautions,
       empty: true
@@ -227,32 +295,199 @@ export function landscapeFinding(input: LandscapeFindingInput): LandscapeFinding
 
   const pp3 = scored.filter((r) => bandKey("alphaMissense", residueSummary(r, "alphaMissense", mode))?.startsWith("pp3")).length;
   const bp4 = scored.filter((r) => bandKey("alphaMissense", residueSummary(r, "alphaMissense", mode))?.startsWith("bp4")).length;
+  // The remainder is stated so the counts reconcile: PP3 + BP4 + indeterminate = scored.
+  const indet = scored.length - pp3 - bp4;
   const stat = mode === "mean" ? "mean" : "maximum";
   const windowText =
-    `Of ${scored.length} scored residues in ${window.start}–${window.end} (${width} aa), ${pp3} ${pp3 === 1 ? "has" : "have"} a ${stat} AlphaMissense score in the PP3 range and ${bp4} in the BP4 range` +
+    `Of ${scored.length} scored residues in ${window.start}–${window.end} (${width} aa), ${pp3} ${pp3 === 1 ? "has" : "have"} a ${stat} AlphaMissense score in the PP3 range, ${bp4} in the BP4 range and ${indet} ${indet === 1 ? "remains" : "remain"} indeterminate` +
     ` (ClinGen bands, ${calibrationSourceShort("alphaMissense")}; on residue summaries they orient, they do not score evidence).`;
   // A residue with no dbNSFP missense record (a codon the database does not score) is a gap in the data,
   // not a benign reading, so the finding names it instead of letting the count quietly skip it.
-  const unscored = inWindow.filter((r) => residueSummary(r, "alphaMissense", mode) === null).map((r) => r.residx);
-  const gapText = unscored.length
-    ? ` No dbNSFP missense record for residue${unscored.length === 1 ? "" : "s"} ${unscored.slice(0, 4).join(", ")}${unscored.length > 4 ? ` and ${unscored.length - 4} more` : ""}.`
-    : "";
+  // A residue that does carry REVEL but no AlphaMissense score is a different gap; the old text called
+  // both "no dbNSFP missense record", which was false for the second kind.
+  const unscored = inWindow.filter((r) => residueSummary(r, "alphaMissense", mode) === null);
+  const noRecord = unscored.filter((r) => residueCount(r, "revel") === 0 && residueCount(r, "alphaMissense") === 0).map((r) => r.residx);
+  const noAm = unscored.filter((r) => !noRecord.includes(r.residx)).map((r) => r.residx);
+  const nameList = (xs: number[], suffix: string) =>
+    xs.length ? ` No dbNSFP missense record for residue${xs.length === 1 ? "" : "s"} ${xs.slice(0, 4).join(", ")}${xs.length > 4 ? ` and ${xs.length - 4} more` : ""}${suffix}` : "";
+  const gapText =
+    nameList(noRecord, ".") +
+    (noAm.length
+      ? ` No AlphaMissense score for residue${noAm.length === 1 ? "" : "s"} ${noAm.slice(0, 4).join(", ")}${noAm.length > 4 ? ` and ${noAm.length - 4} more` : ""} (dbNSFP has a REVEL record there).`
+      : "");
 
-  return { window: windowText + gapText, variant: variantSentence(target, variantRevel, variantAm, rows), context, cautions, empty: false };
+  return { window: windowText + gapText, variant: variantRead.text, context, cautions, empty: false };
+}
+
+/* ─────────────────────────── rail verdict ─────────────────────────── */
+/**
+ * The chip colour for a band as the design system reads it: PP3 red, BP4 good, the middle neutral,
+ * nothing muted. One mapping so the tab, the rail and any future surface never disagree.
+ */
+export function bandTone(band: string | null | undefined): "danger" | "good" | "neutral" | "muted" {
+  if (!band) return "muted";
+  if (band.startsWith("PP3")) return "danger";
+  if (band.startsWith("BP4")) return "good";
+  return "neutral";
+}
+
+export interface LandscapeVerdictCall {
+  tool: LandscapeTool;
+  score: number | null;
+  /** Formatted band ("PP3 Moderate"), or null without a score. */
+  band: string | null;
+}
+
+/** One plain clause for a tool's band, as the 'Reads as' lead box states it. */
+function bandPhrase(tool: LandscapeTool, call: LandscapeVerdictCall | undefined): string {
+  if (!call || call.score === null) return `no ${TOOL_DISPLAY[tool]} score`;
+  if (!call.band || call.band === "Indeterminate") return `indeterminate for ${TOOL_DISPLAY[tool]} (${call.score.toFixed(3)})`;
+  const side = call.band.startsWith("PP3") ? "the PP3 range" : "the BP4 range";
+  return `in ${side} for ${TOOL_DISPLAY[tool]} (${call.score.toFixed(3)} · ${call.band})`;
+}
+
+export const TOOL_DISPLAY: Record<LandscapeTool, string> = { revel: "REVEL", alphaMissense: "AlphaMissense" };
+
+/**
+ * The verdict as one plain sentence for the rail's tinted lead box — the first thing a reader
+ * meets. Names what the reading applies to, then each tool's band. Same precedence as
+ * `landscapeVerdict` (picked substitution → queried variant → residue summary, orientation only).
+ */
+export function readsAsSentence(verdict: {
+  kind: "variant" | "substitution" | "residue";
+  label: string;
+  scope: string;
+  stat: "mean" | "max";
+  isQuery: boolean;
+  calls: Array<LandscapeVerdictCall>;
+}): string {
+  const clauses = verdict.calls.map((c) => bandPhrase(c.tool, c)).join(" and ");
+  const what =
+    verdict.kind === "variant" && verdict.isQuery
+      ? `The queried substitution ${verdict.label} reads`
+      : verdict.kind === "substitution"
+        ? `Substitution ${verdict.label} reads`
+        : `${/^Residue\b/.test(verdict.label) ? verdict.label : `Residue ${verdict.label}`}'s ${verdict.stat} (orientation only) reads`;
+  return `${what} ${clauses}.`;
+}
+
+/**
+ * What the rail's verdict chips are read on, decided in one place so the chips can never show a
+ * residue summary while implying a variant-level call. Precedence: a picked substitution → the
+ * queried variant → the residue summary (orientation only). The old rail drew the two strips first
+ * and left the reader to find the verdict in a second line of small text.
+ */
+export function landscapeVerdict(input: {
+  target: { pos: number; wt: string; mut: string } | null;
+  /** The residue being read, or null. */
+  residx: number | null;
+  row: Parameters<typeof residueSummary>[0];
+  variantRevel: number | null;
+  variantAm: number | null;
+  mode: SummaryMode;
+  /** The substitution the reader picked on the tab, when one is selected. */
+  selectedAlt?: string | null;
+}): {
+  kind: "variant" | "substitution" | "residue";
+  label: string;
+  scope: string;
+  /** The residue statistic the reading is taken on (for the residue kind). */
+  stat: SummaryMode;
+  /** True when the scored substitution IS the queried variant. */
+  isQuery: boolean;
+  calls: Array<LandscapeVerdictCall>;
+  rank: { rank: number; of: number } | null;
+  /** dbNSFP row exists with scores (else "no record" state). */
+  hasRecord: boolean;
+} {
+  const { target, residx, row, variantRevel, variantAm, mode, selectedAlt } = input;
+  // The wild-type letter: the queried one on its own residue, else dbNSFP's reference amino acid.
+  const wtLetter = target && residx === target.pos && target.wt ? target.wt : row?.aaref || null;
+  const aaName = residx === null ? "" : wtLetter ? `${wtLetter}${residx}` : `Residue ${residx}`;
+  const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
+  const hasRecord = Boolean(row && (residueCount(row, "revel") > 0 || residueCount(row, "alphaMissense") > 0));
+  const isTargetResidue = Boolean(target && residx === target.pos && target.pos > 0);
+
+  // A picked substitution — the reader clicked a letter. Its own dbNSFP scores; the queried
+  // variant's pipeline score stands in when the picked letter is the query itself.
+  const alt = selectedAlt ?? (isTargetResidue ? target!.mut : null);
+  if (alt && hasRecord) {
+    const hit = row?.substitutions?.find((x) => x.alt === alt) ?? null;
+    const own = isTargetResidue && alt === target!.mut;
+    // The queried variant is read on the pipeline's variant-level score (the one the rest of the
+    // app reports); the table value only stands in when the pipeline has none. A disagreement
+    // between the two is surfaced by the finding's mismatch caution, never hidden here.
+    const am = own ? variantAm ?? hit?.am ?? null : hit?.am ?? null;
+    const revel = own ? variantRevel ?? hit?.revel ?? null : hit?.revel ?? null;
+    // The rank orders the table's own values against each other, so it uses the table's score.
+    const rankAm = hit?.am ?? am;
+    const rank = rankAm !== null && subs.length > 1 ? { rank: subs.filter((x) => (x.am as number) > rankAm).length + 1, of: subs.length } : null;
+    return {
+      kind: own ? "variant" : "substitution",
+      label: wtLetter ? `${aaName}${alt}` : `${alt} at ${aaName}`,
+      scope: own
+        ? "The queried substitution's own scores — a variant-level score, so its band applies to the variant."
+        : `One substitution at residue ${residx} — a variant-level score, so its band applies to it.`,
+      stat: mode,
+      isQuery: own,
+      calls: [
+        { tool: "revel", score: revel, band: bandLabel("revel", revel) },
+        { tool: "alphaMissense", score: am, band: bandLabel("alphaMissense", am) }
+      ],
+      rank,
+      hasRecord
+    };
+  }
+
+  // The queried variant, no substitution picked: the pipeline's variant-level scores.
+  if (isTargetResidue && (variantRevel !== null || variantAm !== null)) {
+    return {
+      kind: "variant",
+      label: `${target!.wt}${target!.pos}${target!.mut}`,
+      scope: "The queried substitution's own scores — a variant-level score, so its band applies to the variant.",
+      stat: mode,
+      isQuery: true,
+      calls: [
+        { tool: "revel", score: variantRevel, band: bandLabel("revel", variantRevel) },
+        { tool: "alphaMissense", score: variantAm, band: bandLabel("alphaMissense", variantAm) }
+      ],
+      rank: null,
+      hasRecord
+    };
+  }
+
+  // A residue: the summary orients the eye and never scores evidence.
+  const revel = residueSummary(row, "revel", mode);
+  const am = residueSummary(row, "alphaMissense", mode);
+  return {
+    kind: "residue",
+    label: aaName,
+    scope: `Residue ${mode} over its scored substitutions — orientation only; a band here is not variant-level evidence.`,
+    stat: mode,
+    isQuery: isTargetResidue,
+    calls: [
+      { tool: "revel", score: revel, band: bandLabel("revel", revel) },
+      { tool: "alphaMissense", score: am, band: bandLabel("alphaMissense", am) }
+    ],
+    rank: null,
+    hasRecord
+  };
 }
 
 function variantSentence(
   target: LandscapeFindingInput["target"],
   revel: number | null,
   am: number | null,
-  rows: LandscapeResidueItem[]
-): string | null {
-  if (!target || target.pos <= 0) return null;
+  rows: LandscapeResidueItem[],
+  provenance?: { am?: string | null; revel?: string | null; table?: string | null }
+): { text: string | null; mismatch: string | null } {
+  if (!target || target.pos <= 0) return { text: null, mismatch: null };
   const name = target.wt && target.mut ? `${target.wt}${target.pos}${target.mut}` : `Residue ${target.pos}`;
   const parts: string[] = [];
   if (revel !== null) parts.push(`REVEL ${f3(revel)} (${bandLabel("revel", revel)})`);
   if (am !== null) parts.push(`AlphaMissense ${f3(am)} (${bandLabel("alphaMissense", am)})`);
-  if (parts.length === 0) return `${name}: no variant-level REVEL or AlphaMissense score was returned.`;
+  if (parts.length === 0)
+    return { text: `${name}: no variant-level REVEL or AlphaMissense score was returned.`, mismatch: null };
 
   const row = rows.find((r) => r.residx === target.pos);
   const range = residueRange(row, "alphaMissense");
@@ -260,15 +495,48 @@ function variantSentence(
   let context = "";
   const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
   const own = subs.find((x) => x.alt === target.mut);
-  if (am !== null && own && subs.length > 1) {
+  if (am !== null && own && subs.length > 1 && agree(am, own.am)) {
     const rank = subs.filter((x) => (x.am as number) > (own.am as number)).length + 1;
-    context = `; it ranks ${rank} of ${subs.length} SNV-reachable substitutions at residue ${target.pos} by AlphaMissense (1 = highest)`;
+    // "of the N substitutions scored here" — the set is what dbNSFP scored, which can be fewer
+    // than the SNV-reachable set. The old wording ("of 6 SNV-reachable substitutions") claimed a
+    // coverage of the codon that the scored subset does not have.
+    context = `; it ranks ${rank} of the ${subs.length} substitutions with an AlphaMissense score at residue ${target.pos} (1 = highest)`;
   } else if (am !== null && range && n > 1) {
     const [lo, hi] = range;
     const where = am >= hi ? "the highest" : am <= lo ? "the lowest" : "within the range";
     context = `; among the ${n} scored substitutions at residue ${target.pos} (AlphaMissense ${f3(lo)}–${f3(hi)}) it is ${where}`;
   }
-  return `${name}: ${parts.join(" · ")}${context}.`;
+
+  // A mismatch between the pipeline's variant-level score and the dbNSFP table (next to the
+  // "this variant" marker and any rank) is a data-quality fact, not a reading: name both values
+  // and both sources. When both sides name their release and the releases differ, that is the
+  // likely cause and the reader is told; when the releases agree, the numbers disagreeing points
+  // at a reading or numbering problem instead.
+  const mismatchParts: string[] = [];
+  const ownSub = row?.substitutions?.find((x) => x.alt === target.mut) ?? null;
+  if (am !== null && ownSub?.am != null && !agree(am, ownSub.am))
+    mismatchParts.push(`AlphaMissense ${f3(am)} from the predictors pipeline vs ${f3(ownSub.am)} in dbNSFP`);
+  if (revel !== null && ownSub?.revel != null && !agree(revel, ownSub.revel))
+    mismatchParts.push(`REVEL ${f3(revel)} from the predictors pipeline vs ${f3(ownSub.revel)} in dbNSFP`);
+  let mismatch: string | null = null;
+  if (mismatchParts.length) {
+    const why = releaseGap(provenance?.am ?? null, provenance?.table ?? null) ?? releaseGap(provenance?.revel ?? null, provenance?.table ?? null);
+    mismatch = `The predictors pipeline and dbNSFP disagree on ${name}: ${mismatchParts.join("; ")}.${why ? ` ${why}` : " The two fetch paths read different releases or numberings; re-run the analysis to refresh both."} The substitution ranking is withheld while the tables disagree.`;
+  }
+
+  return { text: `${name}: ${parts.join(" · ")}${context}.`, mismatch };
+}
+
+/** When the pipeline's provenance and the landscape table name different releases, say so. */
+function releaseGap(pipeline: string | null, table: string | null): string | null {
+  if (!pipeline || !table) return null;
+  const v = (s: string) => s.match(/dbNSFP\s*[\d.]+[a-z]?/i)?.[0] ?? null;
+  const pv = v(pipeline);
+  const tv = v(table);
+  if (pv && tv && pv.toLowerCase() !== tv.toLowerCase())
+    return `The predictors read ${pipeline.toLowerCase().includes(pv.toLowerCase()) ? pipeline : `${pv} (${pipeline})`}, while this tab's table is ${tv} — a different release is the likely cause.`;
+  if (pv && tv) return "Both sides report the same dbNSFP release, so the readings disagree for another reason (numbering or a stale cache).";
+  return null;
 }
 
 /** True when a ClinVar missense record is the queried substitution itself (same residue, same alternative). */

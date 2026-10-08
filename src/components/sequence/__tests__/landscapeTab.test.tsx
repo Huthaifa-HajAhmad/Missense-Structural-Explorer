@@ -193,7 +193,7 @@ describe("SequenceVisualizer states", () => {
         predictorData={{ amPathogenicity: 0.362 }}
       />
     );
-    expect(screen.getByText(/^D116G: REVEL 0\.231 \(BP4\) · AlphaMissense 0\.362 \(Indeterminate\); it ranks 2 of 3/)).toBeTruthy();
+    expect(screen.getByText(/^D116G: REVEL 0\.231 \(BP4\) · AlphaMissense 0\.362 \(Indeterminate\); it ranks 2 of the 3 substitutions with an AlphaMissense score/)).toBeTruthy();
     expect(screen.getByRole("slider", { name: "Focus window position" })).toBeTruthy();
     expect(screen.getByRole("group", { name: /Substitution heatmap/ })).toBeTruthy();
     sequenceState.sequence = "";

@@ -306,9 +306,13 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         mode: metricMode,
         meta: landscapeMeta,
         context: overview?.status === "ready" ? overview.data?.context ?? null : overview?.status === "error" ? null : undefined,
-        domains
+        domains,
+        predictorProvenance: {
+          am: predictorData?.amProvenance ?? null,
+          revel: conservationData?.revelProvenance ?? null
+        }
       }),
-    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta, overview, domains]
+    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta, overview, domains, predictorData?.amProvenance, conservationData?.revelProvenance]
   );
 
   const pickResidue = useCallback(

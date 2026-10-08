@@ -300,7 +300,10 @@ the mockup's illustrative numbers.
 - The ClinVar and gnomAD lanes come from gnomAD's GraphQL API (GRCh38, gnomAD's canonical
   transcript). The field names follow its public schema but could not be exercised from the
   development sandbox. A failed source shows as "not loaded", never as "none".
-- Regional constraint exists only for gnomAD v2 (GRCh37 canonical numbering), and the tab says so.
+- Regional constraint: superseded on 7 October (PR #72) — the regional lane now derives its basis
+  string from the pinned gnomAD release and carries an explicit status
+  (`available | none | withheld-mapping | unavailable`); a withheld mapping is named, never read
+  as a missing value.
 - Substitutions that need two or more nucleotide changes have no dbNSFP score. They are drawn
   hatched rather than filled from another source.
 
@@ -341,3 +344,149 @@ from two screenshots of the shipped tab. Tests: `landscape.test.ts` (window quer
 viewer does not read it from this tab). `?focus=` URL state for the window. A residue-dense overview
 (whole protein ClinVar per-class counts) beyond one marker per residue. The V6 gap is stated from the
 data as returned; the cause (split codon) is inferred, not confirmed against dbNSFP's documentation.
+---
+
+## 12. Integrity audit + first-sight rebuild (7 October 2026)
+
+Audited and rebuilt against **SOD1 p.Ala5Val (P00441)**, GRCh38 21:31659783 C>T, dbNSFP 4.8a via
+myvariant.info, transcript ENST00000270142 (Ensembl canonical). Workflow:
+`.agents/skills/evidence-tab-refactor` (integrity checklist + data-presentation reference).
+Order of priorities kept: true → traceable → legible → beautiful. Engine rules untouched: PM1
+(hot-spot) remains unimplemented and is presented as context only; density is context, not evidence.
+
+Surfaces in scope: `src/components/SequenceVisualizer.tsx` (tab host), `sequence/LandscapeOverview.tsx`,
+`sequence/LandscapeFocus.tsx`, `sequence/LandscapeLegend.tsx`, `sequence/LandscapeToolbar.tsx`,
+`LandscapeAgreementPlot.tsx`, `inspector/LandscapeInspector.tsx`, shared model
+`src/shared/landscapeEvidence.ts`, server `server/services/prediction/landscape-aggregate.ts`.
+
+Severity: **Critical** changes a classification · **High** asserts something false to a curator ·
+**Medium** misleads without changing a call · **Low** drift/wording.
+
+### Integrity findings
+
+| # | Sev | Finding | Evidence | Fix |
+|---|-----|---------|----------|-----|
+| I1 | **High** | Conservation "codon mean" was wrong for every myvariant-sourced window: `candidateFromMyVariantHit` required `chr…:g.<pos><ref>><alt>`, but myvariant ids are `chr21:31659783C>T` — so `nucleotideKey` was always null and in `aggregateLandscape` the same nucleotide's three alt SNVs were counted as **three nucleotides** in the GERP++/phyloP mean and in `nucleotideCount` ("2 nt" on the tab could never be trusted). This completes §1 S11, whose earlier fix only covered candidates that already carried a parsed nucleotide key. | `landscape-aggregate.ts` regex; three alt rows at one position map to one nucleotide key | `parseNucleotideKey()` accepts `chr…:<pos>` with any allele suffix; aggregate falls back to it, and to the per-SNV key only when no nucleotide can be parsed (local rows without genomic columns) — the fallback can over-count by alts but can never merge two different nucleotides. Test: `landscape.test.ts › nucleotide identity`. |
+| I2 | **High** | The rank/at-residue wording "ranks 4 of 6 **SNV-reachable** substitutions" claimed codon coverage the data does not have: the denominator is dbNSFP's *scored* set (a codon can admit up to 9 SNV-reachable missense substitutions; only the scored subset is ranked). Same overclaim in the overview header and the summary-row aria-label. | SOD1 residue 5: GCT admits 6, which happen to be all scored — but the wording generalised wrongly for every other residue | The UI now says "ranks N of the M **substitutions with an AlphaMissense score**"; overview header now "residue mean over its **scored missense substitutions**"; the server field doc corrected so the claim cannot be re-introduced. |
+| I3 | **Medium** | The finding counted PP3 and BP4 residues but never the remainder, so "of 29 scored … 3 in the PP3 range and 11 in the BP4 range" left 15 residues unaccounted for. | `landscapeFinding` window sentence | The sentence now states "and 15 remain indeterminate" (singular/plural handled); counts reconcile. |
+| I4 | **Medium** | Gap wording was false for one gap kind: a residue with a REVEL record but no AlphaMissense score was reported as "No dbNSFP missense record", which is not what happened. Extends §11 P3. | `landscapeFinding` | Two distinct gaps are named: "No dbNSFP missense record for residue X." and "No AlphaMissense score for residue Y (dbNSFP has a REVEL record there)." |
+| I5 | **Medium** | The rail's substitution strip re-parsed **formatted legend range strings** ("0.644–0.773", "≥ 0.932") back into geometry via `stepSpan()` — an inverse of a display string that breaks silently when a range is reworded. | old `LandscapeInspector.SubstitutionStrip` | `bandSpans(tool)` reads `calibration.ts` directly; the formats stay in `legendSteps`. Unit-tested against the published edges (REVEL Pejaver 2022 Table 2; AlphaMissense Bergquist 2025 Table 1, as verified in the Predictors review). |
+| I6 | **Low** | The rail's scatter heading said "scored residues 1–35" — a first/last span that implied contiguity over the pipeline's ±25 window plus fetched extra windows, next to the tab's stated 1–31 window. | rail heading | Now "residues a–b loaded, N scored · residue means" — the loaded range and the plotted count, and the statistic named. |
+
+Verified true and left as-is: the ClinGen band thresholds (one source, `calibration.ts`, no retyped
+copies — `grep` clean); the "PM1 context only: no ACMG code is proposed here" disclaimer; the AVI
+lane's "not an ACMG band · contains AlphaMissense" non-independence caveat; the queried variant
+excluded from its own residue's P/LP count (§11 P2); the variant's own scores drawn as a diamond,
+apart from the residue-summary dots; indeterminate as a named middle band, not 0; absence of a
+dbNSFP record never rendered as 0 or benign (§11 P3).
+
+### UI findings (the rail was "difficult to comprehend from first sight")
+
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| U1 | High | **The verdict was not first.** The reader met two gradient strips with overlapping letter chips; the actual call (score + band per tool) was a second line of small text. | A verdict block leads the Selection card: per tool, a mono score (13px) beside an `ev-tier` chip coloured by the band (PP3 red / BP4 good / middle neutral / none muted), then one line naming **what it is read on** — "The queried variant … a variant-level score, so its band applies to the variant" / "Selected substitution …" / a plain residue pick → "Residue mean over its scored substitutions — orientation only; a band here is not variant-level evidence." Decided in one shared function, `landscapeVerdict()`, so the rail can never present a residue summary as a variant-level call. |
+| U2 | High | **Letter chips overlapped.** Chips sat at their raw score with no collision pass — S (0.88) and V (0.95) drew on top of each other on the audited case. | `placeStripChips()`: sorted left→right, min chip+4px gap, right-edge crowd walked back inside with a 0 floor; a moved chip carries a stem to an anchor dot at its true position, so a letter can never read as sitting on the wrong band. Chips 24×24px (WCAG 2.5.8; they were 18×20). Verified at real widths by the geometry harness, light and dark. |
+| U3 | Medium | ClinVar/gnomAD/regional context was three 10px mono blobs. | Key/value rows: 78px muted label column, mono value, `overflow-wrap: anywhere` — a long ClinVar list wraps instead of truncating mid-record. |
+| U4 | Medium | The scatter's ticks were 8px, its axis labels 9px, and the mode word ("residue means") lived only in a screen-reader summary. | Tick/axis fonts raised, axis titles carry the mode ("REVEL (mean)"), and a 10px mono line above the plot states "residues a–b loaded, N scored · residue means". |
+| U5 | Low | The per-tool block repeated the summary score the verdict already carried (kind=variant). | The block now carries the strip + range + count; the score/band once, in the verdict; "◆ this variant …" only when the verdict row does not already hold it. |
+
+### UX / a11y findings
+
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| X1 | Medium | The phyloP track was mouse-only (`role="img"` spans with `onMouseEnter`): keyboard users could never read conservation. | PhyloP cells are buttons in their own roving grid (one tab stop, arrows inside), same hover/keyboard readout; clicking selects the residue. Geometry case `tab` pins one stop over its 31 cells. |
+| X2 | Medium | Scatter dots (r≈2.4) had no keyboard access and no usable hit target. | Each plotted residue is a focusable circle (`tabIndex`, Enter/Space selects, aria-label with values + band class) over a transparent 24px hit circle. |
+
+## 13. Pill-tab inspector, ≥24px cells, ClinVar token (7 October 2026 — follow-up decisions)
+
+Adopted from the approved pattern (Lioran.ai automation editor): pill tabs at the top of the
+inspector, a tinted lead box stating the verdict, pill groups on the toolbar, small-caps section
+labels with key/value rows. No libraries, no colour/glow/animation additions; the protein schematic
+stays custom SVG.
+
+| Item | What changed | Where |
+|---|---|---|
+| Pill tabs | The rail is now four pills — **Summary / Substitutions / Agreement / Sources** — dark-filled active, outlined inactive, one row, ≥24px targets. Proper tablist semantics: `role=tablist/tab/tabpanel`, `aria-selected`/`aria-controls`, roving tabindex, Arrow/Home/End (selection follows focus). The choice persists for the session in the store (`landscapeRailTab`). | `inspector/LandscapeInspector.tsx`, `stores/slices/searchSlice.ts` |
+| Summary tab | A tinted lead box "**Reads as** · …" states the verdict as one plain sentence, built in the shared model (`readsAsSentence(verdict)`), before the per-tool score+band rows and the key/value context rows. "Go to domain" keeps its nav section here. Sources of truth unchanged — no new aggregation. | `landscapeEvidence.ts`, `LandscapeInspector.tsx` |
+| Substitutions tab | The two per-tool strips and chips, plus the conservation row; the no-record state is one sentence, not a box. | `LandscapeInspector.tsx` |
+| Agreement tab | The REVEL × AlphaMissense scatter with labelled axes/bands, focusable points. | `LandscapeAgreementPlot.tsx` |
+| Sources tab | Provenance line, load window, method and citations behind one disclosure, collapsed by default. | `LandscapeInspector.tsx` |
+| Toolbar pills | "Colour by / Residue summary / Focus width" segmented radios and the "Lanes" toggles now use the same pill group style (`.ls-pill`), so the tab and its inspector speak one visual language. Radiogroup semantics kept; finding-block wording untouched. | `sequence/LandscapeToolbar.tsx`, `landscape.css` |
+| Cell height (route A) | Every interactive focus-grid cell is now ≥24px tall for **all** pointers (heatmap rows, nucleotide lanes, summary row, phyloP row; floor 24, cap 26). Route A chosen over the `pointer: coarse` fallback because the whole-window overview lives on the horizontal axis — columns still fit the measured width — and the taller stack (~650–750px) is absorbed by the tab's vertical scroll without losing the window. The geometry harness asserts 814 cells ≥24px and the grid staying ≤ ~800px at 1010px. | `LandscapeFocus.tsx`, `landscape.css` |
+| ClinVar token | The overview's P/LP markers get their own token `--ls-clinvar-plp` (magenta, 90% mix) — kept apart from the PP3 band red so the ClinVar lane cannot be read as a predictor band; filled-circle shape unchanged. Legend relabelled "ClinVar P/LP (assertion, not a score band)". Harness: contrast 3.43:1 (light) / ≥3:1 (dark), RGB distance to PP3 red ≥ 81. | `landscape.css`, `LandscapeOverview.tsx` |
+| Doc merge | This audit (§11) and the 7 October review are one document again; the standalone `doc/LANDSCAPE_TAB_REVIEW.md` was deleted. The geometry harness stays wired through one `package.json` line (`test:geometry:landscape`, part of `verify:geometry`). | `doc/` |
+
+### Effect on SOD1 p.Ala5Val
+
+- Finding: "… 3 … in the PP3 range, 11 in the BP4 range and **15 remain indeterminate**"; residues 1
+  and 6 keep their named gaps.
+- Variant sentence: "it ranks 4 of **the 6 substitutions with an AlphaMissense score** at residue 5 (1 = highest)".
+- Rail: "Reads as · The queried substitution A5V reads in the PP3 range for REVEL (0.853 · PP3
+  Moderate) and in the PP3 range for AlphaMissense (0.840 · PP3)." — then evidence and context.
+- Overview ClinVar lane: magenta markers + relabelled legend, unmistakable next to the AM bars.
+
+### Verification (this round)
+
+- `npx tsc --noEmit` (direct) — clean.
+- `npm run lint` — boundaries 0 violations; focus indicators pass; verify parity pass.
+- `npx vitest run` — full suite green (4173 passed at the 7 October first pass; re-run for this round below).
+- Geometry harnesses: header 116/116, function-track 241/241, landscape 35/35 (screenshot eyeballed,
+  light + dark).
+
+### Rank cross-check (added in the same round, after review)
+
+The rank clause in the headline ("it ranks 4 of the 6 …") is read **within one table only** — the
+dbNSFP per-transcript substitution list — never by ranking the pipeline's score against dbNSFP
+rows. Because the headline shows the pipeline's variant-level score, the two readings are now
+**cross-checked** before the rank is stated:
+
+- Agree at printed precision (3dp) → the rank is stated normally.
+- Disagree → the rank is **withheld**; the sentence falls back to the source-honest range reading
+  ("among the N scored substitutions … it is within the range"), and a caution names both readings
+  and both sources ("the predictors pipeline … vs … in dbNSFP"), shown with the warn glyph in the
+  finding block. The same cross-check covers a REVEL mismatch beside the "◆ this variant" marker.
+
+Every number stays reproducible from one source; a disagreement is surfaced as data quality, never
+averaged away. Pinned by `landscapeEvidence.test.ts › the pipeline's variant score is cross-checked
+against the dbNSFP table` (agree / disagree / REVEL-only cases).
+
+### Provenance plumbing and the consolidation decision (same round)
+
+There is no single "the dbNSFP table" behind the predictors service to consolidate onto: the
+variant-level AlphaMissense is read through a tiered ladder (VEP AlphaMissense plugin → local dbNSFP
+sqlite → myvariant.info, twice), each tier capable of carrying a **different release**, and the
+landscape reads dbNSFP through its own two paths (myvariant window, local sqlite). Consolidating the
+sourcing would couple the engine's number (`predictorData.amPathogenicity` feeds PP3/BP4 in
+`criteria.ts`) to the tab's cache and latency, can flip band-edge classifications, and needs the
+engine's own test suite as its acceptance gate — an owner decision, not a tab change.
+
+So the recommendation, implemented in stages:
+
+1. **Provenance, not sourcing (done).** `predictorData.amProvenance` / `revelProvenance` (and
+   `conservationData.revelProvenance`) now name the tier that produced the score and its release
+   where known — "VEP AlphaMissense plugin", "local dbNSFP 5.0", "myvariant.info dbNSFP (release not
+   stated)", "query.dbnsfp.org (release not stated)", "Genos Web Query". Additive only: no score
+   changes. The rank cross-check reads it: when the two sides name different dbNSFP releases, the
+   caution says that is the likely cause; same release, disagreeing numbers → "numbering or a stale
+   cache"; releases unknown → re-run advice.
+2. **Single-reader consolidation (deferred, owner decision).** Worth doing only if the cross-check
+   ever fires on real data (it has not: on SOD1 p.Ala5Val the pipeline and dbNSFP readings agree at
+   printed precision). If pursued: one dbNSFP reader module (the landscape's transcript-policy
+   reading) reused as the predictors' later tier, VEP kept first; acceptance = the acmg criteria
+   suite re-run green plus a stated position on marginal band-edge calls.
+
+Pinned: `vep-orchestrator.test.ts` asserts the tier provenance on the VEP and coordinate-fallback
+paths; `landscapeEvidence.test.ts` pins the release-gap / same-release / unknown-release caution
+wording.
+
+### Sources
+
+- Pejaver V, et al. Am J Hum Genet 2022;109:2163–2177. doi:10.1016/j.ajhg.2022.10.013 (REVEL Table 2).
+- Bergquist T, et al. Genet Med 2025;27:101402. doi:10.1016/j.gim.2025.101402 (AlphaMissense Table 1).
+- Cheng J, et al. Science 2023;381:eadg7492. doi:10.1126/science.adg7492.
+- Ioannidis NM, et al. Am J Hum Genet 2016. doi:10.1016/j.ajhg.2016.08.016 (REVEL).
+- Davydov EV, et al. PLoS Comput Biol 2010. doi:10.1371/journal.pcbi.1001025 (GERP++).
+- Pollard KS, et al. Genome Res 2010. doi:10.1101/gr.097857.109 (phyloP).
+- Liu X, et al. Genome Med 2020. doi:10.1186/s13073-020-00803-9 (dbNSFP).
+- AlphaGenome AVI: DeepMind AlphaGenome (preprints cited in `src/shared/alphagenomeEvidence.ts`);
+  composite score contains AlphaMissense — shown as non-independent on the tab.

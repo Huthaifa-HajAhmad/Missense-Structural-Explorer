@@ -22,6 +22,10 @@
   --ls-rank-3: color-mix(in srgb, var(--cs-accent-clay) 72%, var(--cs-surface));
   --ls-rank-4: var(--cs-accent-clay);
   --ls-hatch: repeating-linear-gradient(135deg, color-mix(in srgb, var(--cs-border) 80%, transparent) 0 1.5px, transparent 1.5px 5px);
+  /* ClinVar P/LP is an ASSERTION, not a score band: its own hue (magenta), kept apart from the
+     PP3 red the predictor bands use, so the overview's ClinVar lane cannot be read as an
+     AlphaMissense band. */
+  --ls-clinvar-plp: color-mix(in srgb, var(--cs-accent-mag) 90%, var(--cs-surface));
 }
 
 .ls-band[data-band="pp3-strong"]     { background: color-mix(in srgb, var(--cs-danger) 72%, var(--cs-surface)); color: #fff; }
@@ -130,10 +134,12 @@
 .ls-finding__body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--cs-text-primary); }
 .ls-finding__caution { font-size: 12px; color: var(--cs-text-warning); }
 
-/* Substitution heatmap and aligned nucleotide lane */
+/* Substitution heatmap and aligned nucleotide lane. Cell height comes from
+   --ls-cell-h (≥ 24px, WCAG 2.5.8) and is shared by the heatmap rows, the
+   nucleotide lanes and the codon row, so the whole lane stack stays aligned. */
 .ls-sub {
   flex-shrink: 0;
-  height: var(--ls-cell-h, 14px);
+  height: var(--ls-cell-h, 24px);
   margin-right: 1px;
   border-radius: 2px;
   border: 1px solid transparent;
@@ -150,12 +156,12 @@
 .ls-sub[data-band="unscored"]       { background: var(--cs-surface); border-color: var(--cs-border-subtle); }
 .ls-sub[data-band="unreachable"]    { background: var(--ls-hatch), var(--cs-surface); border-color: var(--cs-border-subtle); }
 .ls-sub[data-band="norecord"]    { background: var(--cs-bg-subtle); border-color: transparent; }
-.ls-sub[data-band="reference"]      { background: var(--cs-surface); border-color: var(--cs-border-subtle); color: var(--cs-text-muted); font-size: 9px; line-height: 12px; }
+.ls-sub[data-band="reference"]      { background: var(--cs-surface); border-color: var(--cs-border-subtle); color: var(--cs-text-muted); font-size: 9px; line-height: 22px; }
 .ls-sub[data-focus="target"]   { outline: 2px solid var(--cs-accent-clay); outline-offset: -1px; position: relative; z-index: 2; }
 .ls-sub[data-focus="selected"] { outline: 2px solid var(--cs-text-primary); outline-offset: -1px; position: relative; z-index: 3; }
 .ls-sub:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; position: relative; z-index: 4; }
 
-.ls-nt { flex-shrink: 0; height: calc(var(--ls-cell-h, 14px) - 1px); padding: 0; border: 0; cursor: pointer; }
+.ls-nt { flex-shrink: 0; height: var(--ls-cell-h, 24px); padding: 0; border: 0; cursor: pointer; }
 .ls-nt[data-rank="0"] { background: var(--ls-rank-0); }
 .ls-nt[data-rank="1"] { background: var(--ls-rank-1); }
 .ls-nt[data-rank="2"] { background: var(--ls-rank-2); }
@@ -181,3 +187,190 @@
   color: var(--cs-text-muted);
   user-select: none;
 }
+
+/* ==========================================================================
+   Landscape pill groups (ls-pill). Shared by the rail's tablist and the main
+   panel's toolbar (Colour by / Residue summary / Focus width / Lanes), so the
+   tab speaks one visual language: dark-filled active pill, outlined inactive.
+   ========================================================================== */
+.ls-pill {
+  min-height: 24px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface);
+  color: var(--cs-text-secondary);
+  font-family: var(--cs-font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ls-pill:hover { color: var(--cs-text-primary); border-color: var(--cs-text-muted); }
+.ls-pill[data-active="true"] {
+  background: var(--cs-text-primary);
+  border-color: var(--cs-text-primary);
+  color: var(--cs-surface);
+}
+.ls-pill[data-active="true"]:hover { color: var(--cs-surface); }
+.ls-pill:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+.ls-pill:disabled {
+  background: var(--cs-surface);
+  color: var(--cs-text-muted);
+  border-color: var(--cs-border-subtle);
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+.ls-pill:disabled:hover { color: var(--cs-text-muted); border-color: var(--cs-border-subtle); }
+
+/* ==========================================================================
+   Landscape inspector rail (lsr-). The rail reads the same shared model as the
+   tab; verdict first, evidence below, context as key/value rows.
+   ========================================================================== */
+
+.lsr-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.lsr-panelbox { display: flex; flex-direction: column; gap: 8px; }
+
+.lsr-empty {
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 10px;
+  background: var(--cs-surface-2);
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--cs-text-secondary);
+  line-height: 1.5;
+}
+
+.lsr-card {
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 10px;
+  background: var(--cs-surface-2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The tinted lead box: the verdict as one plain sentence, read first. */
+.lsr-readsas {
+  border: 1px solid color-mix(in srgb, var(--cs-text-indigo-on-soft) 22%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 8%, var(--cs-surface));
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cs-text-primary);
+}
+
+.lsr-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--cs-text-muted);
+}
+
+.lsr-verdict { display: flex; flex-direction: column; gap: 5px; }
+.lsr-verdict__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lsr-verdict__score {
+  font-family: var(--cs-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-primary);
+}
+.lsr-scope { font-size: 11px; line-height: 1.45; color: var(--cs-text-secondary); }
+
+.lsr-kv { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 3px 10px; align-items: start; }
+.lsr-kv__row { display: contents; }
+.lsr-kv__label { color: var(--cs-text-muted); font-size: 11px; }
+.lsr-kv__value {
+  font-family: var(--cs-font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--cs-text-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.lsr-strip__meta {
+  font-family: var(--cs-font-mono);
+  font-size: 11px;
+  color: var(--cs-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Substitution strip: letter chips over the calibrated bands. A chip the collision
+   pass moved carries a stem to its anchor dot, so a letter never reads as sitting
+   on the wrong band. Chips are 24×24px — the hit-target floor (WCAG 2.5.8). */
+.lsr-strip { position: relative; height: 60px; }
+.lsr-strip__bands {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 33px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--cs-border-subtle);
+  overflow: hidden;
+}
+.lsr-strip__bands .ls-band { position: absolute; top: 0; height: 100%; }
+.lsr-strip__anchor {
+  position: absolute;
+  top: 28px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--cs-text-secondary);
+  transform: translateX(-2.5px);
+}
+.lsr-strip__stem {
+  position: absolute;
+  top: 23px;
+  width: 1.5px;
+  height: 10px;
+  background: color-mix(in srgb, var(--cs-text-muted) 60%, transparent);
+  transform: translateX(-0.75px);
+}
+.lsr-strip__chip {
+  position: absolute;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  transform: translateX(-12px);
+  border-radius: 4px;
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface);
+  color: var(--cs-text-primary);
+  font-family: var(--cs-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.lsr-strip__chip:hover { border-color: var(--cs-text-secondary); }
+.lsr-strip__chip[data-on="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); z-index: 2; }
+.lsr-strip__chip[data-query="true"] { box-shadow: 0 0 0 1.5px var(--cs-accent-clay); z-index: 1; }
+.lsr-strip__chip:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; z-index: 3; }
+.lsr-strip__axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 47px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--cs-font-mono);
+  font-size: 9px;
+  color: var(--cs-text-muted);
+}
+
+/* Agreement scatter: every point is focusable and Enter selects it. */
+.lsr-scatter circle[data-point="true"] { cursor: pointer; }
+.lsr-scatter circle[data-point="true"]:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }

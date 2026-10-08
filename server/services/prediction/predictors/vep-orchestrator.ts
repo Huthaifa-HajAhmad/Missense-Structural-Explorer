@@ -2,7 +2,7 @@ import { z } from "zod";
 import { predictorCache, getCachedOrFetch } from "../../infra/cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { buildPredictorsKey } from "../../infra/cache-keys.ts";
-import { queryLocalDbnsfpVariant } from "../dbnsfp_local.ts";
+import { queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
 import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
@@ -115,6 +115,8 @@ function buildPredictorFromVep(
   const amPathogenicity = (tc.alphamissense && tc.alphamissense.am_pathogenicity !== undefined) ? safeParseFloat(tc.alphamissense.am_pathogenicity) : null;
   const amClass = (tc.alphamissense && tc.alphamissense.am_class) ? String(tc.alphamissense.am_class) : null;
   const caddPhred = tc.cadd_phred !== undefined ? safeParseFloat(tc.cadd_phred) : null;
+  // Provenance for the Landscape tab's rank cross-check: which release this score came from.
+  const amProvenance = amPathogenicity !== null ? "VEP AlphaMissense plugin" : undefined;
 
   const chr = first.seq_region_name;
   const startPos = first.start;
@@ -143,6 +145,7 @@ function buildPredictorFromVep(
     available: true,
     amPathogenicity,
     amClass,
+    amProvenance,
     caddPhred,
     gnomadVariantId,
     gnomadVariantAssembly: gnomadVariantId ? assembly : null,
@@ -246,6 +249,9 @@ async function fetchPredictorsViaCoordinateMyVariant(
         amClass = predStr === "A" ? "ambiguous" : predStr === "P" ? "pathogenic" : predStr === "B" ? "benign" : String(rawPred);
       }
     }
+    // myvariant.info serves the hit but not the dbNSFP release it was built from; the tier is
+    // still named so a cross-check mismatch is diagnosable rather than mysterious.
+    const amProvenance = amPathogenicity !== null ? "myvariant.info dbNSFP (release not stated)" : undefined;
 
     const caddData = hit.dbnsfp?.cadd || hit.cadd;
     let caddPhred: number | null = null;
@@ -258,6 +264,7 @@ async function fetchPredictorsViaCoordinateMyVariant(
       available: true,
       amPathogenicity,
       amClass,
+      amProvenance,
       caddPhred,
       gnomadVariantId: `${normChrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`,
       gnomadVariantAssembly: "GRCh38",
@@ -445,6 +452,7 @@ export async function fetchPredictorsFallback(
 
   let amPathogenicity: number | null = null;
   let amClass: string | null = null;
+  let amProvenance: string | undefined = undefined;
   let caddPhred: number | null = null;
   let gnomadVariantId: string | null = null;
   /** dbNSFP's own GRCh38 position for the matched record — the independent recovery route. */
@@ -458,6 +466,7 @@ export async function fetchPredictorsFallback(
         if (localData.alphamissense !== undefined && localData.alphamissense !== null) {
           amPathogenicity = safeParseFloat(localData.alphamissense);
           amClass = amPathogenicity !== null ? (amPathogenicity >= 0.564 ? "likely_pathogenic" : amPathogenicity <= 0.34 ? "likely_benign" : "ambiguous") : null;
+          amProvenance = amPathogenicity !== null ? readLocalDbnsfpVersion() ?? "local dbNSFP (version not recorded)" : undefined;
         }
         // Local protein-row CADD is allele-specific and has not been bound to a verified
         // genomic identity. Only the matched, fully queried MyVariant allele may supply it.
@@ -513,6 +522,7 @@ export async function fetchPredictorsFallback(
                 const rawAm = Array.isArray(amData) ? amData[0] : amData;
                 amPathogenicity = safeParseFloat(rawAm.am_pathogenicity ?? rawAm.score ?? rawAm.pathogenicity);
                 amClass = rawAm.am_class ? String(rawAm.am_class) : (rawAm.pred ? String(rawAm.pred) : null);
+                amProvenance = amPathogenicity !== null ? "myvariant.info dbNSFP (release not stated)" : undefined;
               }
               if (caddData && caddPhred === null) {
                 const rawCadd = Array.isArray(caddData) ? caddData[0] : caddData;
@@ -619,6 +629,7 @@ export async function fetchPredictorsFallback(
     available: hasAnyData,
     amPathogenicity,
     amClass,
+    amProvenance,
     caddPhred,
     gnomadVariantId,
     gnomadVariantAssembly,

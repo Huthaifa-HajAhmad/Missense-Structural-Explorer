@@ -1031,6 +1031,15 @@ export const predictorDataSchema = z.object({
   amPathogenicity: z.number().nullable(),
   amClass: z.string().nullable(),
   caddPhred: z.number().nullable(),
+  /**
+   * Where the variant-level AlphaMissense / REVEL score was read from — the service tier and the
+   * data release it carries, when known (e.g. "VEP AlphaMissense plugin", "local dbNSFP 5.0",
+   * "myvariant.info dbNSFP (release not stated)"). Purely additive provenance: it never changes
+   * the score itself. The Landscape tab's rank cross-check reads it to name a release gap when
+   * its own table — also dbNSFP, via its own fetch path — disagrees with this score.
+   */
+  amProvenance: z.string().nullable().optional(),
+  revelProvenance: z.string().nullable().optional(),
   gnomadVariantId: z.string().nullable().optional(),
   /**
    * Genome build that `gnomadVariantId`'s numeric coordinates belong to.
@@ -1285,6 +1294,11 @@ export function generateAtlasUrls(
 export const conservationDataSchema = z.object({
   available: z.boolean().optional(),
   revel: z.number().nullable(),
+  /**
+   * Where the variant-level REVEL score was read from (tier + release when known). Additive
+   * provenance only; see `predictorDataSchema.revelProvenance`.
+   */
+  revelProvenance: z.string().nullable().optional(),
   gerp: z.number().nullable(),
   phylop: z.number().nullable(),
   consurf: z.number().nullable(),

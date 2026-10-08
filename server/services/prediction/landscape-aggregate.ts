@@ -67,9 +67,11 @@ export interface LandscapePositionData {
   /** Distinct nucleotides behind `gerp` / `phylop`. */
   nucleotideCount: number;
   /**
-   * The SNV-reachable missense substitutions at this residue, one entry per alternative amino
+   * The missense substitutions dbNSFP scores at this residue, one entry per alternative amino
    * acid. AlphaMissense scores the amino-acid change, so it is one value; REVEL scores the SNV, so
-   * when two SNVs give the same amino acid the higher REVEL is kept. Omitted from whole-protein
+   * when two SNVs give the same amino acid the higher REVEL is kept. This set can be smaller than
+   * the codon's SNV-reachable set (substitutions needing two nucleotide changes are absent), so
+   * surfaces must say "scored", not "SNV-reachable", when they count it. Omitted from whole-protein
    * summaries to keep that payload small.
    */
   substitutions?: SubstitutionScore[];
@@ -134,6 +136,19 @@ export function toFiniteOrNull(raw: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * The nucleotide a variant id names, whatever allele suffix it carries: "chr7:117287507G>A",
+ * "chr7:g.117287507G>A" and "chr7:117287507" all read as "chr7:117287507". The previous pattern
+ * required the full `g.<pos><ref>><alt>` shape, which myvariant.info's ids do not use — so every
+ * myvariant-sourced candidate had `nucleotideKey: null`, and in `aggregateLandscape` the same
+ * nucleotide's three alt SNVs were counted as three nucleotides in the codon-mean GERP++/phyloP
+ * (and in `nucleotideCount`, shown on the tab as "2 nt").
+ */
+export function parseNucleotideKey(id: string): string | null {
+  const m = id.match(/^(chr[^:]+):(?:g\.)?(\d+)/i);
+  return m ? `${m[1].toLowerCase()}:${m[2]}` : null;
+}
+
 /** A dbNSFP multi-value field as a list: arrays stay arrays, "a;b;c" strings split. */
 export function asList(raw: unknown): unknown[] {
   if (raw === null || raw === undefined) return [];
@@ -188,8 +203,9 @@ export function candidateFromMyVariantHit(hit: any): SnvCandidate | null {
   if (!d) return null;
 
   const id: string = typeof hit._id === "string" ? hit._id : "";
-  const g = id.match(/^(chr[^:]+):g\.(\d+)([ACGT])>([ACGT])$/i);
-  const nucleotideKey = g ? `${g[1].toLowerCase()}:${g[2]}` : null;
+  // myvariant.info ids carry no "g." separator ("chr7:117287507G>A"), so the old full-allele
+  // pattern never matched and the nucleotide key was always null — see `parseNucleotideKey`.
+  const nucleotideKey = parseNucleotideKey(id);
 
   const rawPos = d.aa?.pos ?? d.aapos ?? d.aa_pos ?? d["aa.pos"];
   const positions = asList(rawPos)
@@ -354,7 +370,10 @@ export function aggregateLandscape(candidates: SnvCandidate[], opts: AggregateOp
     const b = bucket(r.pos);
     // Conservation belongs to the nucleotide, whatever the substitution, so it is recorded before
     // the missense filter: a synonymous SNV's nucleotide is still part of the codon.
-    const nt = c.nucleotideKey ?? c.variantKey;
+    // When no nucleotide can be parsed (some cached local rows carry no genomic coordinate), the
+    // per-SNV key stands in: it can over-count a nucleotide by its alts, but it can never merge
+    // two different nucleotides, so the mean stays right about what was actually read.
+    const nt = c.nucleotideKey ?? parseNucleotideKey(c.variantKey) ?? c.variantKey;
     if (c.gerp !== null) b.gerp.set(nt, c.gerp);
     if (c.phylop !== null) b.phylop.set(nt, c.phylop);
     if (c.aaref) b.aaref.set(c.aaref, (b.aaref.get(c.aaref) ?? 0) + 1);

@@ -133,7 +133,7 @@ export function LandscapeOverview({
     <section className="ls-panel px-4 py-3 flex flex-col gap-1.5" aria-label="Whole-protein overview">
       <div className="flex justify-between gap-3 text-[12px] text-cs-text-secondary">
         <span className="font-semibold text-cs-text-primary">Whole protein · 1–{length} · drag, click or use the arrow keys to move the focus window</span>
-        <span className="text-cs-text-muted">AlphaMissense residue {mode} over SNV-reachable substitutions</span>
+        <span className="text-cs-text-muted">AlphaMissense residue {mode} over its scored missense substitutions</span>
       </div>
 
       {domains.length > 0 &&
@@ -247,11 +247,13 @@ export function LandscapeOverview({
                 return (
                   <g key={c.pos} className="cursor-pointer" onClick={() => onPick(c.pos)}>
                     <line x1={cx} y1={8} x2={cx} y2={16} stroke="var(--cs-text-muted)" strokeWidth={1} />
+                    {/* The assertion's own token — magenta, never the PP3 band red: the lane states
+                        a ClinVar classification, not a predictor band. */}
                     <circle
                       cx={cx}
                       cy={5}
                       r={3.5}
-                      fill={c.cls === "plp" ? "var(--ls-pp3-strong)" : c.cls === "blb" ? "var(--cs-surface)" : "var(--cs-text-muted)"}
+                      fill={c.cls === "plp" ? "var(--ls-clinvar-plp)" : c.cls === "blb" ? "var(--cs-surface)" : "var(--cs-text-muted)"}
                       stroke={c.cls === "blb" ? "var(--ls-bp4-strong)" : "none"}
                       strokeWidth={1.5}
                     >
@@ -317,7 +319,7 @@ export function LandscapeOverview({
         <span className="min-w-[240px] font-mono text-cs-text-secondary">{hoverText ?? `Focus ${box.start}–${box.end}`}</span>
         {lanes.clinvar && (context?.clinvar?.length ?? 0) > 0 && (
           <>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--ls-pp3-strong)" }} />ClinVar P/LP</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--ls-clinvar-plp)" }} />ClinVar P/LP (assertion, not a score band)</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full border-[1.5px]" style={{ borderColor: "var(--ls-bp4-strong)" }} />B/LB</span>
             <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-cs-text-muted" />VUS / conflicting</span>
           </>

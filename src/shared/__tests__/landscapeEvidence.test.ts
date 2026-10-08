@@ -3,12 +3,16 @@ import {
   agreementClass,
   bandKey,
   bandLabel,
+  bandSpans,
+  bandTone,
   complementBase,
   conservationLevel,
   displayBase,
   landscapeFinding,
   landscapeKey,
+  landscapeVerdict,
   clinvarIsQuery,
+  readsAsSentence,
   snvReachableAminoAcids,
   translateCodon,
   legendSteps,
@@ -112,7 +116,7 @@ describe("landscapeFinding", () => {
       meta: meta()
     });
     expect(f.empty).toBe(false);
-    expect(f.window).toMatch(/Of 3 scored residues in 115–118 \(4 aa\), 1 has a mean AlphaMissense score in the PP3 range and 1 in the BP4 range/);
+    expect(f.window).toMatch(/Of 3 scored residues in 115–118 \(4 aa\), 1 has a mean AlphaMissense score in the PP3 range, 1 in the BP4 range and 1 remains indeterminate/);
     expect(f.variant).toBe(
       "D116G: REVEL 0.231 (BP4) · AlphaMissense 0.362 (Indeterminate); among the 7 scored substitutions at residue 116 (AlphaMissense 0.100–0.600) it is within the range."
     );
@@ -201,6 +205,234 @@ describe("provenanceLine", () => {
     expect(provenanceLine(meta())).toBe("dbNSFP 4.4a via myvariant.info · ENST00000290810 (MANE Select)");
     expect(provenanceLine(meta({ sourceVersion: null, cached: true }))).toMatch(/dbNSFP version not reported.*cached$/);
     expect(provenanceLine(null)).toBe("Source not reported");
+  });
+});
+
+describe("bandSpans", () => {
+  // Source of the numbers: PP3_BP4_CALIBRATION (Pejaver 2022 Table 2 / Bergquist 2025 Table 1).
+  it("tiles REVEL's published bands across [0, 1] with no gap and no overlap", () => {
+    const spans = bandSpans("revel");
+    let pos = 0;
+    for (const s of spans) {
+      expect(s.lo).toBeCloseTo(pos, 10);
+      pos = s.hi;
+    }
+    expect(pos).toBeCloseTo(1, 10);
+    // The folded Strong swatch runs from 0 to the Moderate edge (VeryStrong 0.003 folds in).
+    expect(spans.find((s) => s.key === "bp4-strong")).toMatchObject({ lo: 0, hi: 0.016 });
+    expect(spans.find((s) => s.key === "bp4-moderate")).toMatchObject({ lo: 0.016, hi: 0.183 });
+    expect(spans.find((s) => s.key === "indeterminate")).toMatchObject({ lo: 0.29, hi: 0.644 });
+    expect(spans.find((s) => s.key === "pp3-moderate")).toMatchObject({ lo: 0.773, hi: 0.932 });
+  });
+
+  it("omits a strength the source does not publish (AlphaMissense BP4 Strong)", () => {
+    const spans = bandSpans("alphaMissense");
+    expect(spans.find((s) => s.key === "bp4-strong")).toBeUndefined();
+    expect(spans.find((s) => s.key === "bp4-moderate")).toMatchObject({ lo: 0, hi: 0.099 });
+    let pos = 0;
+    for (const s of spans) {
+      expect(s.lo).toBeCloseTo(pos, 10);
+      pos = s.hi;
+    }
+    expect(pos).toBeCloseTo(1, 10);
+  });
+});
+
+describe("bandTone", () => {
+  it("maps bands to the design-system chip tones", () => {
+    expect(bandTone("PP3")).toBe("danger");
+    expect(bandTone("PP3 Moderate")).toBe("danger");
+    expect(bandTone("BP4")).toBe("good");
+    expect(bandTone("BP4 Strong")).toBe("good");
+    expect(bandTone("Indeterminate")).toBe("neutral");
+    expect(bandTone(null)).toBe("muted");
+  });
+});
+
+describe("readsAsSentence", () => {
+  it("names the queried substitution and both tools' bands in one plain sentence", () => {
+    expect(
+      readsAsSentence({
+        kind: "variant", label: "A5V", scope: "x", stat: "mean", isQuery: true,
+        calls: [
+          { tool: "revel", score: 0.853, band: "PP3 Moderate" },
+          { tool: "alphaMissense", score: 0.8401, band: "PP3" }
+        ]
+      })
+    ).toBe("The queried substitution A5V reads in the PP3 range for REVEL (0.853 · PP3 Moderate) and in the PP3 range for AlphaMissense (0.840 · PP3).");
+  });
+
+  it("says 'indeterminate' and 'no score' in words, never as a number or a blank", () => {
+    expect(
+      readsAsSentence({
+        kind: "variant", label: "D116G", scope: "x", stat: "mean", isQuery: true,
+        calls: [
+          { tool: "revel", score: 0.231, band: "BP4" },
+          { tool: "alphaMissense", score: 0.362, band: "Indeterminate" }
+        ]
+      })
+    ).toBe("The queried substitution D116G reads in the BP4 range for REVEL (0.231 · BP4) and indeterminate for AlphaMissense (0.362).");
+    expect(
+      readsAsSentence({
+        kind: "residue", label: "A5", scope: "x", stat: "mean", isQuery: false,
+        calls: [
+          { tool: "revel", score: 0.831, band: "PP3 Moderate" },
+          { tool: "alphaMissense", score: null, band: null }
+        ]
+      })
+    ).toBe("Residue A5's mean (orientation only) reads in the PP3 range for REVEL (0.831 · PP3 Moderate) and no AlphaMissense score.");
+  });
+});
+
+describe("landscapeVerdict", () => {
+  const row116 = {
+    residx: 116,
+    amMean: 0.47, amMin: 0.1, amMax: 0.95, amCount: 3,
+    revelMean: 0.41, revelMin: 0.1, revelMax: 0.9, revelCount: 3,
+    gerp: 4.8, phylop: 7.6, nucleotideCount: 3,
+    substitutions: [
+      { alt: "G", am: 0.362, revel: 0.231 },
+      { alt: "V", am: 0.95, revel: 0.9 },
+      { alt: "N", am: 0.1, revel: 0.1 }
+    ]
+  } as any;
+
+  it("names an off-target residue by dbNSFP's reference letter and never doubles 'Residue'", () => {
+    const off = { ...row116, residx: 115, aaref: "K" };
+    const picked = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean", selectedAlt: "V" });
+    expect(picked.label).toBe("K115V");
+    const residue = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
+    expect(readsAsSentence(residue)).toMatch(/^Residue K115's mean/);
+    const noRef = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: { ...row116, residx: 115 }, variantRevel: 0.231, variantAm: 0.362, mode: "mean" });
+    expect(readsAsSentence(noRef)).toMatch(/^Residue 115's mean/);
+    expect(readsAsSentence(noRef)).not.toMatch(/Residue Residue/);
+  });
+
+  it("reads the queried variant on the pipeline score when the table's differs", () => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 116, row: row116, variantRevel: 0.5, variantAm: 0.6, mode: "mean" });
+    expect(v.calls.map((c) => c.score)).toEqual([0.5, 0.6]);
+  });
+
+  it("reads a picked substitution at its own dbNSFP scores, variant-level", () => {
+    const v = landscapeVerdict({
+      target: { pos: 116, wt: "D", mut: "G" },
+      residx: 116,
+      row: row116,
+      variantRevel: 0.231,
+      variantAm: 0.362,
+      mode: "mean",
+      selectedAlt: "V"
+    });
+    expect(v.kind).toBe("substitution");
+    expect(v.label).toBe("D116V");
+    // 0.95 sits in Bergquist's +2 bin [0.906, 0.971] → Moderate, not Strong (Strong ≥ 0.99).
+    expect(v.calls.find((c) => c.tool === "alphaMissense")).toMatchObject({ score: 0.95, band: "PP3 Moderate" });
+    // Rank of the picked substitution among the scored set.
+    expect(v.rank).toEqual({ rank: 1, of: 3 });
+  });
+
+  it("falls back to the queried variant's own scores when no substitution is picked", () => {
+    const v = landscapeVerdict({
+      target: { pos: 116, wt: "D", mut: "G" },
+      residx: 116,
+      row: row116,
+      variantRevel: 0.231,
+      variantAm: 0.362,
+      mode: "mean"
+    });
+    expect(v.kind).toBe("variant");
+    expect(v.label).toBe("D116G");
+    expect(v.calls.map((c) => c.band)).toEqual(["BP4", "Indeterminate"]);
+    expect(v.scope).toMatch(/variant-level/);
+  });
+
+  it("reads a plain residue pick on the residue summary and names it orientation only", () => {
+    const v = landscapeVerdict({
+      target: { pos: 5, wt: "A", mut: "V" },
+      residx: 116,
+      row: row116,
+      variantRevel: 0.853,
+      variantAm: 0.8401,
+      mode: "mean"
+    });
+    expect(v.kind).toBe("residue");
+    expect(v.isQuery).toBe(false);
+    expect(v.calls.find((c) => c.tool === "alphaMissense")).toMatchObject({ score: 0.47, band: "Indeterminate" });
+    expect(v.scope).toMatch(/orientation only/);
+    expect(v.rank).toBeNull();
+  });
+});
+
+describe("a residue with a REVEL record but no AlphaMissense score", () => {
+  it("is named as a scoring gap, not as 'no dbNSFP missense record'", () => {
+    const rows = [row(5, 0.5), row(6, null, { revelMean: 0.3, revelCount: 6 }), row(7, 0.2)];
+    const f = landscapeFinding({ rows, window: { start: 5, end: 7 }, target: null, variantRevel: null, variantAm: null, mode: "mean", meta: meta() });
+    expect(f.window).toContain("No AlphaMissense score for residue 6 (dbNSFP has a REVEL record there).");
+  });
+});
+
+describe("the pipeline's variant score is cross-checked against the dbNSFP table", () => {
+  const base = {
+    window: { start: 5, end: 5 },
+    target: { pos: 5, wt: "A", mut: "V" } as const,
+    variantRevel: 0.853,
+    variantAm: 0.8401,
+    mode: "mean" as const,
+    meta: meta()
+  };
+  const subsRow = (am: number | null, revel: number | null): LandscapeResidueItem =>
+    row(5, 0.7, {
+      amMin: 0.2,
+      amMax: 0.95,
+      amCount: 2,
+      revelMean: 0.86,
+      revelCount: 2,
+      substitutions: [
+        { alt: "V", am, revel },
+        { alt: "T", am: 0.9, revel: 0.87 }
+      ] as any
+    });
+
+  it("states the rank when the two tables agree at printed precision", () => {
+    const f = landscapeFinding({ ...base, rows: [subsRow(0.8401, 0.853)] });
+    expect(f.variant).toMatch(/it ranks 2 of the 2 substitutions with an AlphaMissense score at residue 5/);
+    expect(f.cautions).toEqual([]);
+  });
+
+  it("withholds the rank and names the mismatch when the AlphaMissense readings disagree", () => {
+    // dbNSFP cached an older table (0.790) than the pipeline read (0.8401).
+    const f = landscapeFinding({ ...base, rows: [subsRow(0.79, 0.853)] });
+    expect(f.variant).not.toMatch(/ranks/);
+    expect(f.variant).toMatch(/among the 2 scored substitutions at residue 5/);
+    expect(f.cautions[0]).toMatch(/disagree on A5V: AlphaMissense 0\.840 from the predictors pipeline vs 0\.790 in dbNSFP/);
+    expect(f.cautions[0]).toMatch(/ranking is withheld/);
+  });
+
+  it("also names a disagreement in the RELEV reading, without touching the rank wording", () => {
+    const f = landscapeFinding({ ...base, variantRevel: 0.7, rows: [subsRow(0.8401, 0.853)] });
+    expect(f.variant).toMatch(/it ranks 2 of the 2/); // rank unaffected (it reads AlphaMissense only)
+    expect(f.cautions[0]).toMatch(/REVEL 0\.700 from the predictors pipeline vs 0\.853 in dbNSFP/);
+  });
+
+  it("names a dbNSFP release gap as the likely cause when the two sides say their releases", () => {
+    const f = landscapeFinding({
+      ...base,
+      rows: [subsRow(0.79, 0.853)],
+      meta: meta({ sourceVersion: "dbNSFP 4.8a" }),
+      predictorProvenance: { am: "local dbNSFP 5.0 (local)", revel: null }
+    });
+    expect(f.cautions[0]).toMatch(/The predictors read local dbNSFP 5\.0 \(local\), while this tab's table is dbNSFP 4\.8a — a different release is the likely cause\./);
+  });
+
+  it("says the readings disagree for another reason when the releases match", () => {
+    const f = landscapeFinding({
+      ...base,
+      rows: [subsRow(0.79, 0.853)],
+      meta: meta({ sourceVersion: "dbNSFP 4.8a" }),
+      predictorProvenance: { am: "myvariant.info dbNSFP (release not stated)", revel: null }
+    });
+    // The pipeline's provenance carries no release, so no gap can be asserted.
+    expect(f.cautions[0]).toMatch(/re-run the analysis to refresh both\./);
   });
 });
 

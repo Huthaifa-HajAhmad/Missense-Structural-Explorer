@@ -96,7 +96,9 @@ vi.mock("../prediction/landscape.ts", () => ({
 }));
 
 vi.mock("../prediction/dbnsfp_local.ts", () => ({
-  isLocalDbnsfpAvailable: vi.fn(() => false)
+  isLocalDbnsfpAvailable: vi.fn(() => false),
+  queryLocalDbnsfpVariant: vi.fn(async () => null),
+  readLocalDbnsfpVersion: vi.fn(() => null)
 }));
 
 vi.mock("../orchestration/self-healer.ts", () => ({
