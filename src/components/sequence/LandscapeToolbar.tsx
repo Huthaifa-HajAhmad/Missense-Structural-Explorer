@@ -56,7 +56,7 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
     { key: "regions", label: "Regional O/E" }
   ];
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+    <div className="landscape-toolbar">
       <Segmented
         label="Colour by"
         options={[

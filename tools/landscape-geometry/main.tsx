@@ -222,18 +222,13 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
   // Let the initial render flush before measuring anything.
   await nextFrame();
   await nextFrame();
-  const clickTab = (id: string) => {
-    const tab = host.querySelector<HTMLElement>(`[role='tab'][aria-controls='lsr-panel-${id}']`);
-    if (tab) tab.click();
-  };
-
-  /* tablist semantics + pill sizes */
-  const tabs = Array.from(host.querySelectorAll<HTMLElement>(".lsr-tab"));
-  const selected = tabs.filter((t) => t.getAttribute("aria-selected") === "true");
-  out.push({ name: "tabs: four pills, exactly one aria-selected", pass: tabs.length === 4 && selected.length === 1, detail: `${tabs.length} tabs, ${selected.length} selected` });
-  const smallPills = tabs.filter((t) => t.getBoundingClientRect().height < 23.5 || t.getBoundingClientRect().width < 23.5);
-  out.push({ name: "targets: rail pills are at least 24px", pass: smallPills.length === 0 && tabs.length > 0, detail: smallPills.length ? `${smallPills.length} under 24px` : `${tabs.length} pills ≥ 24px` });
-  out.push({ name: "tabs: panels are labelled by their tab (aria-controls ↔ tabpanel id)", pass: tabs.length > 0 && tabs.every((t) => host.querySelector(`[role='tabpanel']#${t.getAttribute("aria-controls")}`)?.getAttribute("aria-labelledby") === t.id), detail: "every tab's panel exists and is labelled by it" });
+  const tabs = host.querySelectorAll('[role="tab"]');
+  out.push({ name: "inspector: workspace navigation is outside the rail", pass: tabs.length === 0, detail: `${tabs.length} rail tabs` });
+  const summary = host.querySelector('[aria-label="Selected residue summary"]');
+  const substitutions = host.querySelector('[aria-label="Substitution scores"]');
+  out.push({ name: "inspector: selection and substitutions remain visible together", pass: Boolean(summary && substitutions), detail: "both sections present" });
+  const sources = host.querySelector<HTMLDetailsElement>('.lsr-sources');
+  out.push({ name: "inspector: sources use a closed disclosure", pass: Boolean(sources && !sources.open), detail: "sources available without replacing selection" });
 
   /* Summary tab: the lead box, then the verdict */
   const readsAs = host.querySelector(".lsr-readsas");
@@ -246,7 +241,6 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
   out.push({ name: "summary: context reads as key/value rows, query marked apart", pass: Boolean(kv && kvText.includes("p.Ala5Ser Pathogenic") && kvText.includes("(queried)")), detail: kvText.slice(0, 90) });
 
   /* Substitutions tab: the strips and their chips */
-  clickTab("substitutions");
   await nextFrame();
   await nextFrame();
   const chips = Array.from(host.querySelectorAll<HTMLElement>(".lsr-strip__chip"));
@@ -278,16 +272,11 @@ async function railChecks(host: HTMLElement): Promise<Check[]> {
   }
   out.push({ name: "contrast: chip letters ≥ 4.5:1 on their chip", pass: Number.isFinite(worst) && worst >= 4.5, detail: `worst ${worst.toFixed(2)}:1` });
 
-  /* Agreement tab: the scatter */
-  clickTab("agreement");
-  await nextFrame();
-  await nextFrame();
-  const points = Array.from(host.querySelectorAll<SVGCircleElement>("circle[data-point]"));
-  const unkeyed = points.filter((p) => p.tabIndex !== 0);
-  out.push({ name: "keyboard: every scatter point is focusable", pass: points.length > 0 && unkeyed.length === 0, detail: `${points.length} points, ${unkeyed.length} not focusable` });
-  const hit = host.querySelector<SVGCircleElement>("circle[fill='transparent']");
-  const hitBox = hit ? hit.getBBox() : null;
-  out.push({ name: "targets: scatter hit circles are 24px across", pass: Boolean(hitBox && hitBox.width >= 23.5), detail: hitBox ? `${hitBox.width.toFixed(1)}px` : "no hit circle" });
+  const queryButton = host.querySelector<HTMLElement>('.lsr-return');
+  const queryRect = queryButton?.getBoundingClientRect();
+  out.push({ name: "inspector: return-to-query target is at least 24px", pass: Boolean(queryRect && queryRect.height >= 24 && queryRect.width >= 24), detail: `${queryRect?.width} ? ${queryRect?.height}` });
+  queryButton?.focus();
+  out.push({ name: "inspector: query action supports keyboard focus", pass: Boolean(queryButton && document.activeElement === queryButton), detail: "query action focused" });
 
   /* The rail never scrolls sideways */
   const railRoot = host.querySelector<HTMLElement>(".lsr-root");

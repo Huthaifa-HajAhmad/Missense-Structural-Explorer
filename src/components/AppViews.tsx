@@ -350,7 +350,7 @@ export function AppViews({
           <span className="text-xs font-mono text-slate-400">Loading view...</span>
         </div>
       }>
-        <div className="data-screen-layout">
+        <div className={`data-screen-layout${masterView === "landscape" ? " landscape-workspace" : ""}`}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (
@@ -497,14 +497,14 @@ export function AppViews({
 
             {/* LANDSCAPE VIEW — always mounted to preserve canvas/WebGL state */}
             <div
-              className="flex flex-col h-full overflow-y-auto w-full"
-              style={{ display: masterView === "landscape" ? "flex" : "none", background: "var(--cs-bg)" }}
+              className="landscape-main flex flex-col h-full overflow-y-auto w-full"
+              style={{ display: masterView === "landscape" ? "flex" : "none" }}
             >
               <SequenceVisualizer
                 uniprotId={uniprotId}
                 gene={gene}
                 variant={variant}
-                residueIndex={viewMode === "mutant" ? foldedResidueIndex : selectedResidueIndex}
+                residueIndex={selectedResidueIndex}
                 targetResidue={landscapeTarget}
                 hoveredResidueIndex={hoveredResidueIndex}
                 predictorData={analysisState.result?.predictorData}

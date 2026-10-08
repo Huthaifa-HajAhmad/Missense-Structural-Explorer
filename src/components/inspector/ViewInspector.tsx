@@ -95,7 +95,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   /* Main renamed `energetics` and `landscape`; the 3D branch renamed the three structure entries.
      Each side's renames are kept. */
   energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached", Icon: Activity },
-  landscape: { title: "Landscape", subtitle: "Selection, display and sources", Icon: Map },
+  landscape: { title: "Residue inspector", subtitle: "Selection, scores & provenance", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
   report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },
   literature: { title: "Evidence Lineage", subtitle: "How this list was obtained", Icon: BookOpen },
@@ -378,6 +378,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         width: inspectorWidth,
         minWidth: inspectorWidth,
       }}
+      data-landscape={activeView === "landscape" || undefined}
       aria-label="Context & Provenance Inspector"
     >
       {/* ── Left-edge resize handle (mouse + keyboard) ── */}
@@ -397,7 +398,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       />
 
       {/* ── Inspector Header ── */}
-      <div className="px-4 py-3.5 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface-2 flex-shrink-0">
+      <div className="inspector-heading px-4 py-3.5 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface-2 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <div className="p-1.5 rounded-lg bg-cs-accent-clay/10 text-cs-accent-clay shrink-0">
             <Icon className="w-4 h-4" />
@@ -424,7 +425,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       </div>
 
       {/* ── Dynamic Inspector Sub-view ── */}
-      <div ref={bodyRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
+      <div ref={bodyRef} className="inspector-body flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
         {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
           <StructureInspector
             family={activeView === "structure_esmfold" ? "esmfold" : "alphafold"}
