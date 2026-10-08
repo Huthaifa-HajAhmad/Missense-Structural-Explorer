@@ -328,6 +328,10 @@ export function classifyRawDdg(
  * `no-result`      the run ended without producing a value and no cause is known.
  *                  This is the honest answer where the UI previously said "Standby" (which
  *                  implies waiting) or left an engine spinning on "In Progress" forever.
+ * `paused`         the run's authorization expired mid-flight and the engine never had a route
+ *                  to a value. Different from `failed` (nothing was calculated wrong) and from
+ *                  `no-result` (the cause IS known and the fix is a relink, not a re-run of the
+ *                  engine itself).
  * `skipped`        the user chose to hide a pending engine (never changes coverage)
  */
 export type EngineState =
@@ -339,6 +343,7 @@ export type EngineState =
   | "upstream-error"
   | "failed"
   | "no-result"
+  | "paused"
   | "skipped";
 
 export const ENGINE_STATE_IDS: readonly EngineState[] = [
@@ -350,6 +355,7 @@ export const ENGINE_STATE_IDS: readonly EngineState[] = [
   "upstream-error",
   "failed",
   "no-result",
+  "paused",
   "skipped",
 ];
 
@@ -366,6 +372,7 @@ export const ENGINE_STATE_LABELS: Record<EngineState, string> = {
   "upstream-error": "Provider error",
   failed: "Failed",
   "no-result": "No result",
+  paused: "Paused",
   skipped: "Hidden",
 };
 
@@ -381,6 +388,7 @@ const STATE_TONES: Record<EngineState, EngineTone> = {
   "upstream-error": "warn",
   failed: "danger",
   "no-result": "warn",
+  paused: "warn",
   skipped: "muted",
 };
 
@@ -395,6 +403,7 @@ export type EngineProblem =
   | "coverage-miss"
   | "upstream-busy"
   | "upstream-error"
+  | "auth-expired"
   | "not-configured";
 
 /**
@@ -468,6 +477,7 @@ const PROBLEM_TO_STATE: Record<EngineProblem, EngineState> = {
   "upstream-busy": "upstream-busy",
   "upstream-error": "upstream-error",
   "not-configured": "not-installed",
+  "auth-expired": "paused",
 };
 
 /**
@@ -517,6 +527,8 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
         : "The calculation failed for this variant.";
     case "no-result":
       return "The run ended without returning a value for this engine.";
+    case "paused":
+      return "The session expired before this engine could report its result. Relink the session in the Services rail, then retry.";
     case "skipped":
       return "Hidden while still running. This does not affect the engine count.";
     default:
@@ -705,6 +717,39 @@ export interface EngineFacts {
   structureProvenance?: StructureProvenance | null;
   /** Presentation-only: collapse still-running rows. Never changes coverage. */
   hidePending?: boolean;
+  /**
+   * Which remote engines a run's expired authorization cut off, keyed by id.
+   *
+   * `foldxService` records this when the remote-submission collection got a terminal 401: the
+   * FoldX value and any engine the server had already answered are unaffected, but every engine
+   * still waiting on a job id had its route to a result severed and previously resolved as a
+   * bare "No result" — a state with no cause, while the cause was precisely known. RaSP and
+   * FoldX are absent by construction (neither reports through the app's session).
+   */
+  energeticsAuthLapsed?: { dynamut2?: boolean; ddmut?: boolean; thermompnn?: boolean; stabilityoracle?: boolean } | null;
+}
+
+/**
+ * The problem kind for an engine a run's expired session cut off.
+ *
+ * Precedence inside the pause, so it is claimed only where it is the best knowledge available:
+ * a value the run already holds outranks it (the engine resolves `computed`), an engine a live
+ * poller still owns keeps `running`, and a provider that actually ANSWERED — `done` with no
+ * value, or its own `error` — keeps its own truth. Below that, the interruption is what happened.
+ *
+ * Callers pair this with `energeticsAuthLapsed` facts, which carry the exact engine ids.
+ */
+function interruptedProblemFor(
+  interrupted: boolean,
+  status: RemoteStatus,
+  value: number | null,
+  runActive: boolean
+): EngineProblem | null {
+  if (!interrupted) return null;
+  if (value !== null) return null;
+  if (runActive) return null;
+  if (status === "done" || status === "error") return null;
+  return "auth-expired";
 }
 
 /**
@@ -798,6 +843,8 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
             : null;
 
   const raspReason = typeof facts.raspReason === "string" ? facts.raspReason : null;
+  const lapsed = (facts.energeticsAuthLapsed ?? null) as Partial<Record<EnergyEngineId, boolean>> | null;
+  const interruptedFor = (id: EnergyEngineId): boolean => Boolean(lapsed?.[id]);
   const templateProvenance = facts.structureProvenance
     ? {
         source: facts.structureProvenance.source as ProvenanceSource | undefined,
@@ -805,6 +852,13 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
         resolution: facts.structureProvenance.resolution,
       }
     : null;
+
+  const dynamut2RunActive = isFolding || remoteRunActive(facts.dynamut2Status, facts.dynamut2);
+  const ddmutRunActive = isFolding || remoteRunActive(facts.ddmutStatus, facts.ddmut);
+  const thermompnnRunActive = isFolding || remoteRunActive(facts.thermompnnStatus, facts.thermompnn);
+  const stabilityoracleRunActive =
+    facts.stabilityoracleStatus === "pending" ||
+    (isFolding && !facts.stabilityoracleStatus && noValue(facts.stabilityoracle));
 
   const observations: EngineObservation[] = [
     {
@@ -821,17 +875,21 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       id: "dynamut2",
       value: facts.dynamut2 ?? null,
       status: facts.dynamut2Status ?? null,
-      problem: absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status),
+      problem:
+        interruptedProblemFor(interruptedFor("dynamut2"), facts.dynamut2Status ?? null, facts.dynamut2 ?? null, dynamut2RunActive) ??
+        absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status),
       detail: facts.dynamut2Error ?? null,
-      runActive: isFolding || remoteRunActive(facts.dynamut2Status, facts.dynamut2),
+      runActive: dynamut2RunActive,
     },
     {
       id: "ddmut",
       value: facts.ddmut ?? null,
       status: facts.ddmutStatus ?? null,
-      problem: absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus),
+      problem:
+        interruptedProblemFor(interruptedFor("ddmut"), facts.ddmutStatus ?? null, facts.ddmut ?? null, ddmutRunActive) ??
+        absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus),
       detail: facts.ddmutError ?? null,
-      runActive: isFolding || remoteRunActive(facts.ddmutStatus, facts.ddmut),
+      runActive: ddmutRunActive,
     },
     {
       id: "rasp",
@@ -850,17 +908,21 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       id: "thermompnn",
       value: facts.thermompnn ?? null,
       status: facts.thermompnnStatus ?? null,
-      problem: absenceProblemFor(getEngine("thermompnn"), facts.thermompnnStatus),
+      problem:
+        interruptedProblemFor(interruptedFor("thermompnn"), facts.thermompnnStatus ?? null, facts.thermompnn ?? null, thermompnnRunActive) ??
+        absenceProblemFor(getEngine("thermompnn"), facts.thermompnnStatus),
       detail: facts.thermompnnError ?? null,
-      runActive: isFolding || remoteRunActive(facts.thermompnnStatus, facts.thermompnn),
+      runActive: thermompnnRunActive,
     },
     {
       id: "stabilityoracle",
       value: facts.stabilityoracle ?? null,
       status: facts.stabilityoracleStatus ?? null,
       detail: facts.stabilityoracleError ?? null,
-      problem: absenceProblemFor(getEngine("stabilityoracle"), facts.stabilityoracleStatus),
-      runActive: facts.stabilityoracleStatus === "pending" || (isFolding && !facts.stabilityoracleStatus && noValue(facts.stabilityoracle)),
+      problem:
+        interruptedProblemFor(interruptedFor("stabilityoracle"), facts.stabilityoracleStatus ?? null, facts.stabilityoracle ?? null, stabilityoracleRunActive) ??
+        absenceProblemFor(getEngine("stabilityoracle"), facts.stabilityoracleStatus),
+      runActive: stabilityoracleRunActive,
     },
   ];
 
