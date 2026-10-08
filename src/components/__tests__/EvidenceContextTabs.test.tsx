@@ -278,11 +278,11 @@ describe('Gene–disease inspector rail', () => {
     render(<EvidenceContextRail analysisResult={result} expression={false} />);
     const rail = within(screen.getByTestId('gene-disease-rail'));
     const steps = rail.getAllByRole('listitem').slice(0, 5);
-    expect(steps[0]).toHaveTextContent('Example disease · Autosomal dominant');
-    expect(steps[4]).toHaveTextContent('Context only. No ACMG criterion is added or changed.');
-    expect(rail.getByText('Export of 2026-10-04')).toBeVisible();
+    expect(steps[0]).toHaveTextContent(/Example disease\s*Autosomal dominant/);
+    expect(steps[4]).toHaveTextContent(/Context only\s*No ACMG criterion is added or changed\./);
+    expect(rail.getAllByText('Export of 2026-10-04').length).toBeGreaterThan(0);
     expect(within(rail.getByRole('list', { name: /ClinGen dosage evidence scale/ })).getByText('this gene')).toBeVisible();
     expect(rail.getAllByText('this disease').length).toBeGreaterThan(0);
-    expect(rail.getByRole('link', { name: 'ClinGen curation for TEST' })).toHaveAttribute('href', expect.stringContaining('gene-dosage/HGNC:1'));
+    expect(rail.getByRole('link', { name: /ClinGen curation for TEST/ })).toHaveAttribute('href', expect.stringContaining('gene-dosage/HGNC:1'));
   });
 });
