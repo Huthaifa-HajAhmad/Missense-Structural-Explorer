@@ -265,7 +265,7 @@
 .rpt-review { padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); }
 .rpt-review > summary { cursor: pointer; color: var(--cs-text-secondary); min-height: 24px; }
 .rpt-review > summary > span { margin-left: 4px; color: var(--cs-text-muted); }
-.rpt-review p { margin: 8px 0; max-width: 80ch; }
+.rpt-review p { margin: 8px 0; }
 .rpt-review[open] { border-left: 3px solid var(--cs-warn); }
 .rpt-references { padding: 10px 16px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); }
 .rpt-references summary { cursor: pointer; min-height: 24px; }
@@ -274,7 +274,8 @@
 .rpt-compare > summary { cursor: pointer; min-height: 28px; }
 .rpt-compare > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; padding-top: 8px; }
 .rpt-compare p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.rpt-prose p, .rpt-prose ul { max-width: 80ch; }
+/* Prose fills the card like every other screen: a narrow ch cap left a dead hole between the
+   paragraph's last line and the card's right edge. The 80ch cap was the outlier on this tab. */
 .rpt-card__head { flex-wrap: wrap; padding-block: 7px; gap: 8px; }
 .rpt-card:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .rpt-card { scroll-margin-top: 16px; }

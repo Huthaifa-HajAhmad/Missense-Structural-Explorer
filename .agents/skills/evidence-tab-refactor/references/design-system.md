@@ -24,8 +24,9 @@ Reuse the tokens and global type classes; copy layout values into your own prefi
 | `card-title` | a card's own header |
 | `pop-mono` / `readout*` | any number, code, accession; always `tabular-nums` |
 | `ev-tier` (+ `chip-code` for ACMG codes/identifiers, `ev-tier--lg` for a verdict) | chips |
-Numbers mono and right-aligned in tables; words sans. Max prose width ~72ch. Sentence case in copy;
-uppercase only through `eyebrow`/table heads. UK English.
+Numbers mono and right-aligned in tables; words sans. Prose fills its card — no `ch` max-width cap
+(a `72ch` cap left paragraphs stopping short of the card's right edge on wide windows; it was removed
+across the tabs). Sentence case in copy; uppercase only through `eyebrow`/table heads. UK English.
 
 ## Chips: `ev-tier[data-tone]`
 `danger` pathogenic/PP3 · `good` benign/BP4 · `neutral` indeterminate or a reading · `muted` absent,

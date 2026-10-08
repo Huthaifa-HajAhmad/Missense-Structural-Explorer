@@ -29,7 +29,7 @@
 .gd-hero__figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
 .gd-hero .figure-headline.gd-figure { font-family: var(--cs-font-sans); font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold); letter-spacing: -0.01em; color: var(--cs-text-primary); line-height: 1.2; }
 .gd-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.gd-hero__finding { color: var(--cs-text-secondary); max-width: 72ch; }
+.gd-hero__finding { color: var(--cs-text-secondary); }
 .gd-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; white-space: normal; }
 .gd-hero[data-verdict="adverse"] { border-color: color-mix(in srgb, var(--cs-text-warning) 45%, var(--cs-border)); }
 .gd-hero[data-verdict="adverse"] .gd-hero__finding { color: var(--cs-text-primary); }

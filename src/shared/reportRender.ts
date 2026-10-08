@@ -117,7 +117,8 @@ h2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--mute
 h3{font-size:14px;color:var(--ink);margin:12px 0 4px}
 /* A 60-character case reference, an HGVS string or a checksum must wrap, not clip or widen the page. */
 td,th,dd,p,li{overflow-wrap:anywhere;word-break:break-word}dd{min-width:0}
-.prose p{margin:0 0 8px;max-width:72ch}.prose ul{margin:0 0 8px;padding-left:20px}.prose strong{color:var(--ink);font-weight:600}
+/* Prose fills the document column; a 72ch cap left every paragraph stopping short of the right edge. */
+.prose p{margin:0 0 8px}.prose ul{margin:0 0 8px;padding-left:20px}.prose strong{color:var(--ink);font-weight:600}
 .chip{display:inline-block;margin-left:6px;padding:2px 7px;border:1px solid var(--line);border-radius:6px;font:500 10.5px/1.3 'Source Code Pro',ui-monospace,monospace;letter-spacing:0;text-transform:none;color:var(--sec);vertical-align:1px}
 .chip.danger{color:var(--path);border-color:var(--path)}.chip.good{color:var(--ben);border-color:var(--ben)}.chip.warning{color:var(--warn);background:var(--warnbg);border-color:transparent}.chip.accent{color:var(--clay);border-color:var(--clay)}.chip.dashed{border-style:dashed}
 .verdict{font-size:22px;font-weight:600;color:var(--ink);margin:2px 0 10px}
