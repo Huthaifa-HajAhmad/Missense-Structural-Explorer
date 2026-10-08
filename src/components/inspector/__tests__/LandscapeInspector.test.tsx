@@ -64,41 +64,32 @@ describe("LandscapeInspector", () => {
     });
   });
 
-  it("lists the residue's substitutions as letters and opens one on click (Substitutions tab)", () => {
+  it("lists the residue's substitutions as letters and opens one on click without leaving the selection", () => {
     const onSelect = vi.fn();
     render(<LandscapeInspector analysisResult={result} onSelectResidueIndex={onSelect} />);
     // Context reads as key/value rows on the Summary tab; the basis comes from the payload (PR #72).
     expect(screen.getByText("2 missense, max AC 10")).toBeTruthy();
     expect(screen.getByText("0.41 (96–262, gnomAD v4.1.1 regional missense)")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Substitutions" }));
     const v = screen.getAllByRole("button", { name: /^D→V AlphaMissense 0\.950/ })[0];
     fireEvent.click(v);
     expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ kind: "substitution", pos: 116, alt: "V" });
     expect(onSelect).toHaveBeenCalledWith(116);
   });
 
-  it("keeps the pill-tab choice for the session", () => {
-    const { unmount } = render(<LandscapeInspector analysisResult={result} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Substitutions" }));
-    unmount();
+  it("keeps the selection and substitutions visible without inspector tabs", () => {
     render(<LandscapeInspector analysisResult={result} />);
-    expect(screen.getByRole("tab", { name: "Substitutions" }).getAttribute("aria-selected")).toBe("true");
-    // Every scored substitution is a letter chip on its tool's band axis.
-    expect(screen.getAllByRole("button", { name: /^D→V AlphaMissense 0\.950/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Selected residue summary' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Substitution scores' })).toBeTruthy();
   });
 
-  it("moves the roving tab stop with the arrow keys and Home/End", () => {
-    render(<LandscapeInspector analysisResult={result} />);
-    const tabs = ["Summary", "Substitutions", "Agreement", "Sources"].map((n) => screen.getByRole("tab", { name: n }));
-    expect(tabs.filter((t) => t.tabIndex === 0)).toHaveLength(1);
-    fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: "Substitutions" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Substitutions" }).tabIndex).toBe(0);
-    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Substitutions" }));
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Substitutions" }), { key: "End" });
-    expect(screen.getByRole("tab", { name: "Sources" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: "Sources" }), { key: "Home" });
-    expect(screen.getByRole("tab", { name: "Summary" }).getAttribute("aria-selected")).toBe("true");
+  it("returns to the query and clears a previously selected substitution", () => {
+    const onSelect = vi.fn();
+    act(() => useVariantAnalysisStore.setState({ selectedResidueIndex: 115 }));
+    render(<LandscapeInspector analysisResult={result} onSelectResidueIndex={onSelect} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Query D116G' }));
+    expect(onSelect).toHaveBeenCalledWith(116);
+    expect(useVariantAnalysisStore.getState().landscapeSelection).toMatchObject({ pos: 116, kind: 'substitution', alt: 'G' });
   });
 
   it("leads with the verdict on the Summary tab: the 'Reads as' box, then the per-tool rows", () => {
@@ -178,9 +169,8 @@ describe("LandscapeInspector", () => {
     expect(screen.getByText("p.Asp116Gly Pathogenic (queried); p.Asp116Val Pathogenic")).toBeTruthy();
   });
 
-  it("keeps the method and citations behind one disclosure (Sources tab)", () => {
+  it("keeps the method and citations behind one disclosure below the selection", () => {
     const { container } = render(<LandscapeInspector analysisResult={result} />);
-    fireEvent.click(screen.getByRole("tab", { name: "Sources" }));
     const d = container.querySelector("details")!;
     expect(d.open).toBe(false);
     expect(d.textContent).toContain("Pejaver et al.");
