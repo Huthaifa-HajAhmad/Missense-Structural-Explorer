@@ -686,9 +686,13 @@ export interface EngineFacts {
   stabilityoracle?: number | null;
   dynamut2Status?: RemoteStatus;
   ddmutStatus?: RemoteStatus;
+  raspStatus?: RemoteStatus;
   dynamut2Error?: string | null;
   ddmutError?: string | null;
+  raspError?: string | null;
   thermompnnStatus?: RemoteStatus;
+  stabilityoracleStatus?: RemoteStatus;
+  stabilityoracleError?: string | null;
   raspReason?: string | null;
   /** From `energetics.raspCoverage`; absent on older payloads. */
   raspCoverage?: RaspCoverage | null;
@@ -778,9 +782,10 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
   const isFolding = Boolean(facts.isFolding);
   const noValue = (v: number | null | undefined) => (v ?? null) === null;
 
-  // A cause is only asserted once the run has settled: while folding, the FoldX flags may still
-  // describe the previous run, and claiming a failure mid-flight would be wrong.
-  const foldxProblem: EngineProblem | null = isFolding
+  // A cause is only suppressed before FoldX reports its own terminal state. Once a partial result
+  // arrives, the rest of the engines may still be running without keeping FoldX itself pending.
+  const foldxStillRunning = isFolding && (facts.foldingStatus === null || facts.foldingStatus === undefined);
+  const foldxProblem: EngineProblem | null = foldxStillRunning
     ? null
     : facts.foldxBinaryMissing
       ? "binary-missing"
@@ -807,7 +812,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       value: facts.foldxMean ?? facts.foldxDdg ?? null,
       problem: foldxProblem,
       detail: facts.foldingError ?? null,
-      runActive: isFolding,
+      runActive: foldxStillRunning,
       // Mirrors the consensus, which excludes FoldX after a failed repair or a missing binary.
       excludeFromConsensus: Boolean(facts.foldxRepairFailed || facts.foldxBinaryMissing),
       templateProvenance,
@@ -831,14 +836,15 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
     {
       id: "rasp",
       value: facts.rasp ?? null,
+      status: facts.raspStatus ?? null,
       // "Not covered" is asserted from the server actually reporting a miss, not from the mere
       // absence of a value while a run is in flight.
-      problem: !isFolding && noValue(facts.rasp) && raspReason
+      problem: noValue(facts.rasp) && facts.raspStatus !== "pending" && raspReason
         ? classifyRaspMissReason(raspReason)
         : null,
-      detail: raspReason,
+      detail: facts.raspError ?? raspReason,
       coverage: facts.raspCoverage ?? null,
-      runActive: isFolding && noValue(facts.rasp),
+      runActive: facts.raspStatus === "pending" || (isFolding && !facts.raspStatus && noValue(facts.rasp)),
     },
     {
       id: "thermompnn",
@@ -851,7 +857,10 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
     {
       id: "stabilityoracle",
       value: facts.stabilityoracle ?? null,
-      runActive: isFolding && noValue(facts.stabilityoracle),
+      status: facts.stabilityoracleStatus ?? null,
+      detail: facts.stabilityoracleError ?? null,
+      problem: absenceProblemFor(getEngine("stabilityoracle"), facts.stabilityoracleStatus),
+      runActive: facts.stabilityoracleStatus === "pending" || (isFolding && !facts.stabilityoracleStatus && noValue(facts.stabilityoracle)),
     },
   ];
 

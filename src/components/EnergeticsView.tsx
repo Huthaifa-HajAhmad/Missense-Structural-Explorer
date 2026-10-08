@@ -93,10 +93,14 @@ function formatElapsed(elapsedMs: number | null): string | null {
 const ProgressPanel = memo(function ProgressPanel({
   onHidePendingEngines,
   progress,
+  evidence,
+  foldingStatus,
   canHidePending,
 }: {
   onHidePendingEngines: () => void;
   progress: FoldxProgress | null;
+  evidence: EnergeticsEvidence;
+  foldingStatus: EnergeticsViewProps["foldingStatus"];
   canHidePending: boolean;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -110,6 +114,33 @@ const ProgressPanel = memo(function ProgressPanel({
     progress && progress.elapsedMs !== null ? progress.elapsedMs + Math.max(0, nowMs - progress.receivedAt) : null
   );
   const queued = progress?.phase === "queued";
+  const returned = evidence.readings.filter(reading => reading.ddg !== null).length;
+  const outstandingEngineSummary = evidence.readings
+    .filter(reading => reading.ddg === null)
+    .map(reading => {
+      const state = queued && reading.outcome.state === "running" ? "Pending" : ENGINE_STATE_LABELS[reading.outcome.state];
+      return `${reading.name}: ${state.toLowerCase()}`;
+    })
+    .join(", ");
+  const foldxFinished = foldingStatus === "success" || foldingStatus === "failed" || foldingStatus === "unavailable";
+  const otherEnginesRunning = evidence.readings.filter(reading => reading.key !== "foldx" && reading.outcome.state === "running").length;
+  const title = foldingStatus === "success"
+    ? "FoldX score ready"
+    : foldingStatus === "failed" || foldingStatus === "unavailable"
+      ? "FoldX finished · collecting other engine results"
+      : queued
+        ? "Energetics job queued"
+        : "Energetics calculations in progress";
+  const currentActivity = foldxFinished
+    ? otherEnginesRunning > 0
+      ? `FoldX has finished. ${otherEnginesRunning} independent engine${otherEnginesRunning === 1 ? " is" : "s are"} still running.`
+      : "FoldX has finished; the remaining results are being assembled."
+    : queued
+      ? "Waiting for a compute worker to start this job."
+    : view?.detail ?? "The compute server has not reported a stage yet.";
+  const repairNote = !foldxFinished && progress?.phase === "repairing"
+    ? "FoldX does not report a percentage for structure repair. A first repair can take a few minutes; the repaired template is reused on later variants."
+    : null;
   const queueNote =
     queued && progress?.queuePosition !== null && progress.queuePosition !== undefined
       ? progress.queuePosition === 0
@@ -118,13 +149,17 @@ const ProgressPanel = memo(function ProgressPanel({
       : null;
 
   return (
-    <section className="nrg-card nrg-progress" aria-live="polite" data-testid="energetics-progress">
+    <section className="nrg-card nrg-progress" aria-label="Energetics run progress" data-testid="energetics-progress">
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {returned} of {evidence.readings.length} engine scores returned. {outstandingEngineSummary || "All engine scores returned."} {currentActivity}
+      </p>
       <div className="nrg-progress__head">
         <span className="nrg-progress__title">
           <Activity className="w-4 h-4" aria-hidden="true" />
-          FoldX is running
+          {title}
         </span>
         <span className="nrg-progress__meta">
+          <span className="nrg-progress__count">{returned} of {evidence.readings.length} scores ready</span>
           {elapsed && <span className="nrg-mono">Elapsed: {elapsed}</span>}
           {queueNote && <span>{queueNote}</span>}
           {canHidePending && (
@@ -139,12 +174,12 @@ const ProgressPanel = memo(function ProgressPanel({
           )}
         </span>
       </div>
-      <ol className="nrg-progress__steps">
+      <ol className="nrg-progress__steps" aria-label="FoldX stages">
         {FOLDX_PHASES.map((phase, index) => {
           const stageNumber = index + 1;
           const stage = describeFoldxPhase(phase)!;
-          const isActive = view?.stage === stageNumber;
-          const isPast = Boolean(view) && view!.stage > stageNumber;
+          const isActive = !foldxFinished && view?.stage === stageNumber;
+          const isPast = foldxFinished || (Boolean(view) && view!.stage > stageNumber);
           return (
             <li
               key={phase}
@@ -160,9 +195,30 @@ const ProgressPanel = memo(function ProgressPanel({
         })}
       </ol>
       <p className="nrg-progress__now">
-        Current stage:{" "}
-        <strong>{view ? view.detail : "not reported by the compute server yet."}</strong>
+        {foldxFinished ? "FoldX:" : queued ? "Queue:" : "Current stage:"}{" "}
+        <strong>{currentActivity}</strong>
       </p>
+      {repairNote && <p className="nrg-progress__note">{repairNote}</p>}
+      <ul className="nrg-progress__engines" aria-label="Engine result status">
+        {evidence.readings.map(reading => {
+          const state = reading.outcome.state;
+          const displayState = queued && state === "running" ? "pending" : state;
+          const stateLabel = reading.ddg !== null
+            ? "Ready"
+            : queued && state === "running"
+              ? "Pending"
+              : ENGINE_STATE_LABELS[state];
+          return (
+            <li key={reading.key} className="nrg-progress__engine" data-state={displayState}>
+              <span className="nrg-progress__engine-mark" aria-hidden="true" />
+              <span className="nrg-progress__engine-copy">
+                <span className="nrg-progress__engine-name">{reading.name}</span>
+                <span className="nrg-progress__engine-state">{stateLabel}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 });
@@ -261,11 +317,11 @@ function StructureFact({ evidence }: { evidence: EnergeticsEvidence }) {
   );
 }
 
-function CaveatChips({ reading }: { reading: EnergeticsReading }) {
-  if (reading.caveats.length === 0) return null;
+function CaveatChips({ caveats, inline = false }: { caveats: EnergeticsReading["caveats"]; inline?: boolean }) {
+  if (caveats.length === 0) return null;
   return (
-    <span className="nrg-caveats">
-      {reading.caveats.map(c => (
+    <span className={`nrg-caveats${inline ? " nrg-caveats--inline" : ""}`}>
+      {caveats.map(c => (
         <span
           key={c}
           className="ev-tier"
@@ -292,6 +348,9 @@ function ReadingRow({
   const state = reading.outcome.state;
   const running = state === "running" || state === "skipped";
   const ddgText = has ? signedDdg(reading.ddg, unit).replace(/ (kcal|kJ)\/mol$/, "") : null;
+  const isTitleCaveat = (c: EnergeticsReading["caveats"][number]) => reading.key === "rasp" && c === "rosetta-surrogate";
+  const titleCaveats = reading.caveats.filter(isTitleCaveat);
+  const detailCaveats = reading.caveats.filter(c => !isTitleCaveat(c));
   return (
     <tr data-testid={`energetics-${reading.key}`} data-state={state}>
       <th scope="row">
@@ -306,9 +365,10 @@ function ReadingRow({
           >
             <Info className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
+          <CaveatChips caveats={titleCaveats} inline />
         </span>
         <span className="nrg-subject__note">{reading.description}</span>
-        <CaveatChips reading={reading} />
+        <CaveatChips caveats={detailCaveats} />
         {reading.note && <span className="nrg-subject__note nrg-subject__fact">{reading.note}</span>}
       </th>
       <td className="nrg-num">
@@ -442,7 +502,9 @@ const EnergeticsView = memo(function EnergeticsView({
           <ProgressPanel
             onHidePendingEngines={handleHidePendingEngines}
             progress={foldingProgress}
-            canHidePending={evidence.coverage.computed > 0}
+            evidence={evidence}
+            foldingStatus={foldingStatus}
+            canHidePending={evidence.readings.some(reading => reading.ddg !== null)}
           />
         )}
 
