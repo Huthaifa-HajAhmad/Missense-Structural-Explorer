@@ -55,6 +55,17 @@ export interface FoldxExecutionOptions {
   };
 }
 
+/** Multiplier on the poll wait below. 1 in the app; only {@link setPollDelayScaleForTests} changes it. */
+let pollDelayScale = 1;
+
+/**
+ * Test hook: shrink the real 2-5 s wall-clock wait between FoldX job polls. The poll DECISIONS (what is
+ * published, when the budget expires — that reads `Date.now()` — and when it stops) are unaffected.
+ */
+export function setPollDelayScaleForTests(scale: number): void {
+  pollDelayScale = scale;
+}
+
 /**
  * Runs FoldX and records how it ended in the Console.
  *
@@ -583,7 +594,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
         }
 
         // Wait with progressive backoff
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, delay * pollDelayScale));
         delay = Math.min(5000, delay + 500);
 
         if (signal.aborted || getActiveRequestId() !== requestId) return;

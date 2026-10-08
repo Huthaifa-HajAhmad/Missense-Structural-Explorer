@@ -52,13 +52,31 @@ export const UPSTREAM_USER_AGENT =
   "Missense-Structural-Explorer/1.0 (+https://missense-resolve.duckdns.org; structural variant analysis)";
 
 /**
+ * Multiplier on every retry sleep. 1 in production; only {@link setBackoffScaleForTests} changes it.
+ */
+let backoffScale = 1;
+
+/**
+ * Test hook: shrink (or, with 0, skip) the real wall-clock time `fetchWithRetry` spends in backoff.
+ *
+ * A suite that deliberately fails providers otherwise pays 1.5-3 s of REAL sleep per call, which is
+ * where several test files spent most of their time on CI. The retry DECISIONS (attempt counts,
+ * Retry-After clamping, deadline checks) are computed before the sleep and are unaffected; only how
+ * long the loop waits is scaled. Restore with `setBackoffScaleForTests(1)`.
+ */
+export function setBackoffScaleForTests(scale: number): void {
+  backoffScale = scale;
+}
+
+/**
  * Sleep that aborts as soon as `signal` fires.
  *
  * The previous implementation awaited a bare timer, so a caller abort (including
  * the resolution ladder's deadline) could not interrupt a backoff already in
  * progress — the cancellation was only observed at the top of the next attempt.
  */
-function abortableSleep(ms: number, signal?: AbortSignal | null): Promise<void> {
+function abortableSleep(rawMs: number, signal?: AbortSignal | null): Promise<void> {
+  const ms = rawMs * backoffScale;
   if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
   if (signal.aborted) return Promise.reject(signal.reason ?? new Error("Aborted"));
 

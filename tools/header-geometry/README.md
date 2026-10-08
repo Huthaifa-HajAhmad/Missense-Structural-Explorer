@@ -41,8 +41,8 @@ The assertions were verified to fail against the pre-fix CSS:
 A Chromium-based browser. Discovery order: `$GEOMETRY_BROWSER`, `$CHROME_PATH`, then
 the usual Edge/Chrome install paths on Windows, macOS and Linux. If none is found the
 check exits 2 with that message. On a GitHub `ubuntu-latest` runner
-`/usr/bin/google-chrome` is preinstalled, so the script is CI-ready as-is — it is not
-wired into `.github/workflows/ci.yml` yet, and each run needs ~15s (one vite build
+`/usr/bin/google-chrome` is preinstalled, and the script runs in `.github/workflows/ci.yml`
+as part of `npm run verify:geometry`. Each run needs ~15s (one vite build
 plus one headless render).
 
 ## Not covered

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { executeFoldxPipeline } from "../foldxService";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { executeFoldxPipeline, setPollDelayScaleForTests } from "../foldxService";
 import { getCachedVariant, setCachedVariant, clearClientVariantCache } from "../variantCache";
 import { biophysicsContextOf, createAnalysisCacheContext } from "../analysisContext";
 import {
@@ -8,6 +8,11 @@ import {
   DEFAULT_UI_BIOPHYSICS_CONDITIONS,
 } from "../../../shared/biophysicsConditions";
 import { DEFAULT_USER_SETTINGS } from "../../../components/settings/defaults";
+
+// The poll loop waits 2-5 s of real time between polls; these tests assert what it publishes, not how
+// long it waits.
+beforeAll(() => setPollDelayScaleForTests(0.01));
+afterAll(() => setPollDelayScaleForTests(1));
 
 /** The biophysical sink surface `executeFoldxPipeline` is allowed to write to. */
 const makeSink = () => ({
