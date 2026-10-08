@@ -348,8 +348,28 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
   });
 
   const BIOSIG_MAX_AGE_MS = 300 * 1000; // 300s (5 min) max wait for remote academic server queue
-  const finishBioSigUnavailable = (res: any, jobId: string, tool: "dynamut2" | "ddmut", error: string) => {
-    const payload = { jobId, status: "UNAVAILABLE", prediction: null, error };
+  /**
+   * `reason` is what lets the client tell the two UNAVAILABLE answers apart:
+   *   "stale"     — the job outlived the staleness window and is no longer polled upstream; terminal.
+   *   "transient" — one upstream poll failed while the job may well still be running; the client
+   *                 keeps listening at a slow cadence (`retryable: true`).
+   * A job past its window is stale however the upstream poll went, so staleness wins.
+   */
+  const finishBioSigUnavailable = (
+    res: any,
+    jobId: string,
+    tool: "dynamut2" | "ddmut",
+    error: string,
+    isStale = false
+  ) => {
+    const payload = {
+      jobId,
+      status: "UNAVAILABLE",
+      prediction: null,
+      error: isStale ? `${tool === "dynamut2" ? "DynaMut2" : "DDMut"} remained unfinished after the 5-minute polling window.` : error,
+      reason: isStale ? "stale" : "transient",
+      retryable: !isStale
+    };
     broadcastJobUpdate({ ...payload, tool });
     return res.json(payload);
   };
@@ -418,11 +438,11 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollDynaMut2Job(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 upstream server currently unavailable.");
+        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 upstream server currently unavailable.", isStale);
       }
       if (result.status !== "DONE" && isStale) {
         await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
-        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 remained unfinished after the 5-minute polling window.");
+        return finishBioSigUnavailable(res, jobId, "dynamut2", "DynaMut2 remained unfinished after the 5-minute polling window.", true);
       }
 
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: result.status });
@@ -454,7 +474,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     } catch (err: any) {
       console.warn(`[Route Warning] DynaMut2 job polling failed for ${jobId}:`, err.message);
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-      return finishBioSigUnavailable(res, jobId, "dynamut2", `DynaMut2 upstream unavailable: ${err.message}`);
+      return finishBioSigUnavailable(res, jobId, "dynamut2", `DynaMut2 upstream unavailable: ${err.message}`, isStale);
     }
   });
 
@@ -473,11 +493,11 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const result = await pollDdmutJob(jobId);
       if (!result || result.status === "ERROR") {
         await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut upstream server currently unavailable.");
+        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut upstream server currently unavailable.", isStale);
       }
       if (result.status !== "DONE" && isStale) {
         await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "TIMEOUT" });
-        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut remained unfinished after the 5-minute polling window.");
+        return finishBioSigUnavailable(res, jobId, "ddmut", "DDMut remained unfinished after the 5-minute polling window.", true);
       }
 
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: result.status });
@@ -498,7 +518,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     } catch (err: any) {
       console.warn(`[Route Warning] DDMut job polling failed for ${jobId}:`, err.message);
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
-      return finishBioSigUnavailable(res, jobId, "ddmut", `DDMut upstream unavailable: ${err.message}`);
+      return finishBioSigUnavailable(res, jobId, "ddmut", `DDMut upstream unavailable: ${err.message}`, isStale);
     }
   });
 

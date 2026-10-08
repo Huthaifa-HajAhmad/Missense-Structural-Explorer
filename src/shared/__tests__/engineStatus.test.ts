@@ -780,3 +780,27 @@ describe("engineStatus — the exclusion is stated, not inferred", () => {
     }
   });
 });
+
+describe("engineStatus — a listening remote engine says so", () => {
+  const build = (facts: Parameters<typeof buildEngineOutcomes>[0]) =>
+    buildEngineOutcomes(facts).find(o => o.id === "dynamut2")!;
+
+  it("stays Running but explains that the provider missed a poll and the value may still arrive", () => {
+    const o = build({ dynamut2Status: "pending", dynamut2Listening: true });
+    expect(o.state).toBe("running");
+    expect(o.label).toBe("Running");
+    expect(o.reason).toMatch(/did not answer in time/);
+    expect(o.reason).toMatch(/Still listening/);
+  });
+  it("uses the plain copy when not listening", () => {
+    expect(build({ dynamut2Status: "pending" }).reason).toBe("Calculation in progress.");
+  });
+  it("ignores a stale listening flag once the engine is no longer running", () => {
+    const failed = build({ dynamut2Status: "unavailable", dynamut2Listening: true });
+    expect(failed.state).toBe("upstream-busy");
+    expect(failed.reason).not.toMatch(/listening/i);
+    const done = build({ dynamut2: -1, dynamut2Status: "done", dynamut2Listening: true });
+    expect(done.state).toBe("computed");
+    expect(done.reason).toBe("");
+  });
+});

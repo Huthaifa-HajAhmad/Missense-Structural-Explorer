@@ -90,6 +90,12 @@ describe("useJobPoller Hook", () => {
     await vi.advanceTimersByTimeAsync(3000);
     await vi.advanceTimersByTimeAsync(3000);
 
+    // Three transient failures no longer end the job: it keeps listening.
+    expect(onStatusChange).not.toHaveBeenCalled();
+    expect(onToolFailed).not.toHaveBeenCalled();
+
+    // The listening window closes at 5 minutes and only then is the engine unavailable.
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
     expect(onStatusChange).toHaveBeenCalledWith("unavailable");
     expect(onToolFailed).toHaveBeenCalledWith("DDMut");
     expect(notifyOnce).toHaveBeenCalledWith("DDMut_job-456_unavailable", "error", expect.any(String));
