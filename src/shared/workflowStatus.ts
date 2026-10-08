@@ -44,14 +44,35 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
   });
   const computed = evidence.readings.find(reading => reading.ddg !== null);
   const failed = evidence.missing.filter(reading => ["failed", "upstream-error", "upstream-busy"].includes(reading.outcome.state));
+  /**
+   * An engine interrupted when the session expired is neither a provider failure nor an
+   * unknown absence: its cause is known and its fix is a relink, not a re-run of the engine.
+   * The rail must say so rather than counting it as "Available" beside the FoldX value that
+   * did come back.
+   */
+  const pausedByName = evidence.missing
+    .filter(reading => reading.outcome.state === "paused")
+    .map(reading => reading.name);
   if (params.isFolding || evidence.running.length) {
     return { status: "progress", desc: computed ? 
       `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · Other engines running` : describeFoldxPhase(params.foldingPhase)?.detail ?? "Stability engines running..." };
   }
   if (computed) {
-    return { status: failed.length ? "degraded" : "complete", desc: `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · ${failed.length ? "Some engines unavailable" : "Available"}` };
+    return {
+      status: failed.length || pausedByName.length ? "degraded" : "complete",
+      desc: `ΔΔG = ${computed.ddg! > 0 ? "+" : ""}${formatDdg(computed.ddg)} · ${
+        failed.length
+          ? "Some engines unavailable"
+          : pausedByName.length
+          ? "Some engines paused — session expired, relink in Services"
+          : "Available"
+      }`
+    };
   }
   if (failed.length) return { status: "error", desc: `${failed.map(reading => reading.name).join(", ")} failed or unavailable · Open Energetics to retry` };
+  if (pausedByName.length) {
+    return { status: "unavailable", desc: `${pausedByName.join(", ")} paused by an expired session · Relink in Services and retry` };
+  }
   if (params.foldingStatus || energetics || result?.metadata?.pipelineStages?.core === "complete") {
     return { status: "unavailable", desc: "Stability engines settled without a numeric result · Open Energetics for details" };
   }

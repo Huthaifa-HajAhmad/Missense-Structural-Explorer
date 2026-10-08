@@ -278,15 +278,17 @@ describe("engineStatus — resolution honesty rules", () => {
           ? { id: "ddmut", value: null, status: "pending", runActive: true }
           : state === "skipped"
             ? { id: "ddmut", value: null, status: "pending", runActive: true, hidden: true }
-            : state === "not-installed"
-              ? { id: "thermompnn", value: null, status: "unavailable" }
-              : state === "not-covered"
-                ? { id: "rasp", value: null, detail: "Residue position is not present in the pre-computed database" }
-                : state === "upstream-busy"
-                  ? { id: "ddmut", value: null, status: "unavailable" }
-                  : state === "upstream-error"
-                    ? { id: "ddmut", value: null, status: "error" }
-                    : state === "failed"
+            : state === "paused"
+              ? { id: "dynamut2", value: null, problem: "auth-expired" }
+              : state === "not-installed"
+                ? { id: "thermompnn", value: null, status: "unavailable" }
+                : state === "not-covered"
+                  ? { id: "rasp", value: null, detail: "Residue position is not present in the pre-computed database" }
+                  : state === "upstream-busy"
+                    ? { id: "ddmut", value: null, status: "unavailable" }
+                    : state === "upstream-error"
+                      ? { id: "ddmut", value: null, status: "error" }
+                      : state === "failed"
                       ? { id: "foldx", value: null, problem: "pipeline-failed" }
                       : { id: "stabilityoracle", value: null };
       const outcome = resolveEngineOutcome(probe);
@@ -421,6 +423,63 @@ describe("engineStatus — absence is attributed per engine, not by one rule", (
 
   it("reports an engine with no channel at all as no-result rather than guessing", () => {
     expect(byId.stabilityoracle.state).toBe("no-result");
+  });
+});
+
+describe("engineStatus — a session that expired mid-run pauses the engines it severed", () => {
+  /**
+   * The run's own `energeticsAuthLapsed` record names exactly the engines the terminal 401 cut
+   * off. A bare cleared status previously resolved to "No result" — true but causeless — while
+   * the cause was precisely known and the fix is a relink, not a re-run of the engine.
+   */
+  const built = buildEngineOutcomes({
+    foldxMean: -0.8,
+    foldxSd: 0.1,
+    foldingStatus: "success",
+    dynamut2Status: null,
+    ddmutStatus: null,
+    thermompnnStatus: null,
+    energeticsAuthLapsed: { dynamut2: true, thermompnn: true },
+  });
+  const byId = Object.fromEntries(built.map(o => [o.id, o]));
+
+  it("resolves a severed engine as Paused with a relink remedy", () => {
+    expect(byId.dynamut2.state).toBe("paused");
+    expect(byId.dynamut2.label).toBe("Paused");
+    expect(byId.dynamut2.reason).toContain("Relink");
+    // A paused engine returned nothing, so it stays in the missing bucket, never in running.
+    expect(byId.dynamut2.contributesToConsensus).toBe(false);
+  });
+
+  it("does not claim the pause for an engine the run never severed", () => {
+    // DDMut was not recorded: its own pre-existing cause wins (no-result here).
+    expect(byId.ddmut.state).toBe("no-result");
+    expect(byId.ddmut.reason).not.toContain("Relink");
+  });
+
+  it("values and answers outrank the pause", () => {
+    // A value from this or an earlier attempt beats the interrupted state entirely.
+    expect(buildEngineOutcomes({
+      dynamut2: -1.2,
+      dynamut2Status: null,
+      energeticsAuthLapsed: { dynamut2: true },
+    }).find(o => o.id === "dynamut2")!.state).toBe("computed");
+    // A provider that actually answered keeps its own truth.
+    expect(buildEngineOutcomes({
+      dynamut2: null,
+      dynamut2Status: "done",
+      energeticsAuthLapsed: { dynamut2: true },
+    }).find(o => o.id === "dynamut2")!.state).toBe("no-result");
+  });
+
+  it("keeps a live poller out of the pause while it still has a route to an answer", () => {
+    // pending + runActive: the poller is live; the interruption never touched this engine.
+    expect(buildEngineOutcomes({
+      dynamut2: null,
+      dynamut2Status: "pending",
+      isFolding: true,
+      energeticsAuthLapsed: { dynamut2: true },
+    }).find(o => o.id === "dynamut2")!.state).toBe("running");
   });
 });
 
