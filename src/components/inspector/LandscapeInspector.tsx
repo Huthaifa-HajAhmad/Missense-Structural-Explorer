@@ -203,18 +203,18 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
   const target = React.useMemo(() => {
     const raw = variant || analysisResult?.metadata?.variant || "";
+    const one = (s: string) => s.length === 3 ? AMINO_ACID_MAP_3_TO_1[s.toUpperCase()] || s : s.toUpperCase();
     let parsed: { pos: number; wt: string; mut: string } | null = null;
     if (raw && !isGenomicOrCdnaNotation(raw) && !/^(?:chr)?[\dXYM]+[-:]/i.test(raw)) {
       const m = raw.match(/^(?:p\.)?([A-Za-z]{1,3})(\d+)([A-Za-z]{1,3})?$/);
       if (m) {
-        const one = (s: string) => (s.length === 3 ? AMINO_ACID_MAP_3_TO_1[s.toUpperCase()] || s : s);
         parsed = { pos: parseInt(m[2], 10), wt: one(m[1]), mut: one(m[3] || "") };
       }
     }
     return {
       pos: analysisResult?.metadata?.residueIndex ?? parsed?.pos ?? null,
-      wt: analysisResult?.metadata?.wildType || parsed?.wt || "",
-      mut: analysisResult?.metadata?.mutant || parsed?.mut || ""
+      wt: one(analysisResult?.metadata?.wildType || parsed?.wt || ""),
+      mut: one(analysisResult?.metadata?.mutant || parsed?.mut || "")
     };
   }, [variant, analysisResult?.metadata?.variant, analysisResult?.metadata?.residueIndex, analysisResult?.metadata?.wildType, analysisResult?.metadata?.mutant]);
 
@@ -238,7 +238,8 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
     variantRevel: variantScores.revel,
     variantAm: variantScores.alphaMissense,
     mode: metricMode,
-    selectedAlt
+    selectedAlt,
+    provenance: { am: analysisResult?.predictorData?.amProvenance, revel: analysisResult?.conservationData?.revelProvenance, table: provenanceLine(meta) }
   });
   // The per-tool block repeats "this variant 0.853" only when the verdict row does not already
   // carry it (it does for a variant-level verdict).
@@ -387,6 +388,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
                       <div className="lsr-readsas">
                         <span className="font-semibold">Reads as</span> · {readsAsSentence(verdict)}
                       </div>
+                      {verdict.mismatch && <p className="lsr-mismatch" role="note">{verdict.mismatch}</p>}
                       <div className="lsr-verdict" role="list" aria-label="What the scores are read on">
                         {verdict.calls.map((c) => (
                           <div key={c.tool} className="lsr-verdict__row" role="listitem">

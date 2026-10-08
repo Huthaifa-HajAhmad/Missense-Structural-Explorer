@@ -167,7 +167,7 @@ describe("LandscapeOverview", () => {
     pageStep: 31
   });
 
-  it("draws one ClinVar marker per residue, worst class first, and lists every record on hover", () => {
+  it("keeps ClinVar assertion classes separate and preserves every record in count bins", () => {
     // jsdom measures every box as 0 wide, and the strip draws nothing until it has a width.
     const measure = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, width: 1540, top: 0, height: 44, right: 1540, bottom: 44, x: 0, y: 0, toJSON: () => ({}) });
     const { container } = render(
@@ -181,19 +181,21 @@ describe("LandscapeOverview", () => {
         )}
       />
     );
-    const markers = container.querySelectorAll("svg[role='img'] g");
-    expect(markers).toHaveLength(1);
+    const markers = container.querySelectorAll("svg g[role='button']");
+    expect(markers).toHaveLength(2);
     const title = markers[0].querySelector("title")!.textContent!;
     expect(title).toContain("p.Ala5Val · Pathogenic · 3★");
-    expect(title).toContain("p.Ala5Asp");
-    expect(markers[0].querySelector("circle")!.getAttribute("fill")).toBe("var(--ls-clinvar-plp)");
+    expect(title).toContain("p.Ala5Thr");
+    expect(markers[1].querySelector("title")!.textContent).toContain("p.Ala5Asp");
+    expect(markers[0].getAttribute("aria-label")).toContain("2 ClinVar P / LP records across 1 residue position(s)");
+    expect(markers[0].querySelectorAll("rect")[1].getAttribute("fill")).toBe("var(--ls-clinvar-plp)");
     measure.mockRestore();
   });
 
   it("omits the domain and regional-constraint rows when the gene has none, and says so once", () => {
     render(<LandscapeOverview {...props(ctx([]))} />);
-    expect(screen.queryByText("DOMAINS")).toBeNull();
-    expect(screen.queryByText("MISSENSE O/E")).toBeNull();
+    expect(screen.queryByText("Domains")).toBeNull();
+    expect(screen.queryByText("Missense O/E")).toBeNull();
     expect(screen.getByText("no UniProt domain or region annotated")).toBeTruthy();
     expect(screen.getByText("no regional missense constraint call for this gene")).toBeTruthy();
     // The O/E explanation is for bars that are drawn.
@@ -202,13 +204,13 @@ describe("LandscapeOverview", () => {
 
   it("keeps the row and says so when regional constraint failed to load", () => {
     render(<LandscapeOverview {...props(ctx([], null))} />);
-    expect(screen.getByText("MISSENSE O/E")).toBeTruthy();
+    expect(screen.getByText("Missense O/E")).toBeTruthy();
     expect(screen.getByText("Regional constraint not loaded")).toBeTruthy();
   });
 
   it("calls a withheld map withheld, not missing, when only the protein mapping is absent", () => {
     render(<LandscapeOverview {...props(ctx([], null, "withheld-mapping"))} />);
-    expect(screen.getByText("MISSENSE O/E")).toBeTruthy();
+    expect(screen.getByText("Missense O/E")).toBeTruthy();
     expect(screen.getByText("Regional map withheld: transcript-to-protein mapping not verified")).toBeTruthy();
     expect(screen.queryByText("Regional constraint not loaded")).toBeNull();
   });
@@ -229,6 +231,13 @@ describe("LandscapeOverview", () => {
 });
 
 describe("LandscapeLegend", () => {
+  it("keeps whole-protein keys specific to its score bars", () => {
+    render(<LandscapeLegend overview colorBy="alphaMissense" laneVisible={false} />);
+    expect(screen.getAllByText(/AlphaMissense bands/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("SNV-reachable, no score")).toBeNull();
+    expect(screen.queryByText(/phyloP bar/)).toBeNull();
+  });
+
   it("shows the bands of the tool the grid is coloured by and keeps the rest behind one disclosure", () => {
     const { container, rerender } = render(<LandscapeLegend colorBy="alphaMissense" laneVisible={false} />);
     expect(screen.getAllByText(/AlphaMissense bands/).length).toBeGreaterThan(0);

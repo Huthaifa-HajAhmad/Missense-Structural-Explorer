@@ -193,9 +193,16 @@ describe("SequenceVisualizer states", () => {
         predictorData={{ amPathogenicity: 0.362 }}
       />
     );
-    expect(screen.getByText(/^D116G: REVEL 0\.231 \(BP4\) · AlphaMissense 0\.362 \(Indeterminate\); it ranks 2 of the 3 substitutions with an AlphaMissense score/)).toBeTruthy();
     expect(screen.getByRole("slider", { name: "Focus window position" })).toBeTruthy();
+    expect(screen.queryByRole("group", { name: /Substitution heatmap/ })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    expect(screen.getByText(/^D116G: REVEL 0\.231 \(BP4\) · AlphaMissense 0\.362 \(Indeterminate\); it ranks 2 of the 3 substitutions with an AlphaMissense score/)).toBeTruthy();
+    expect(screen.queryByRole("slider")).toBeNull();
     expect(screen.getByRole("group", { name: /Substitution heatmap/ })).toBeTruthy();
+    expect(screen.queryByText(/Nucleotides ? coding strand/)).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Nucleotide map" }));
+    expect(screen.queryByRole("group", { name: /Substitution heatmap/ })).toBeNull();
+    expect(screen.queryByRole("slider")).toBeNull();
     sequenceState.sequence = "";
   });
 });

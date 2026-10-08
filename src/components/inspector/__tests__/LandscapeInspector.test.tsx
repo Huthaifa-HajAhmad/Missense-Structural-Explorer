@@ -64,6 +64,16 @@ describe("LandscapeInspector", () => {
     });
   });
 
+  it("normalizes three-letter metadata and warns instead of ranking disagreeing query scores", () => {
+    const conflicting = { ...result, metadata: { ...result.metadata, wildType: "Asp", mutant: "Gly" },
+      predictorData: { amPathogenicity: 0.108 } };
+    render(<LandscapeInspector analysisResult={conflicting} />);
+    expect(screen.getByRole("button", { name: "Query D116G" })).toBeTruthy();
+    expect(screen.getByText(/queried substitution D116G reads/)).toBeTruthy();
+    expect(screen.getByRole("note").textContent).toContain("AlphaMissense 0.108 from the predictors pipeline vs 0.362 in dbNSFP");
+    expect(screen.queryByText(/^Ranks/)).toBeNull();
+  });
+
   it("lists the residue's substitutions as letters and opens one on click without leaving the selection", () => {
     const onSelect = vi.fn();
     render(<LandscapeInspector analysisResult={result} onSelectResidueIndex={onSelect} />);
