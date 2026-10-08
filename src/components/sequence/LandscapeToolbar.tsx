@@ -4,6 +4,7 @@ import type { SummaryMode } from "../../shared/landscapeEvidence";
 import type { LandscapeViewState } from "../../stores/slices/searchSlice";
 
 interface Props {
+  scope?: "overview" | "focus";
   view: LandscapeViewState;
   onView: (patch: Partial<LandscapeViewState>) => void;
   mode: SummaryMode;
@@ -49,7 +50,7 @@ function Segmented<T extends string | number>({
 }
 
 /** Controls live beside what they change; the inspector rail keeps only the selection. */
-export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, targetPos, available, awayFromTarget, onBack }: Props) {
+export function LandscapeToolbar({ scope, view, onView, mode, onMode, width, onWidth, targetPos, available, awayFromTarget, onBack }: Props) {
   const lanes: Array<{ key: keyof LandscapeViewState["lanes"]; label: string }> = [
     { key: "clinvar", label: "ClinVar" },
     { key: "gnomad", label: "gnomAD" },
@@ -57,7 +58,7 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
   ];
   return (
     <div className="landscape-toolbar">
-      <Segmented
+      {scope !== "overview" && <Segmented
         label="Colour by"
         options={[
           { value: "alphaMissense", label: "AlphaMissense" },
@@ -65,7 +66,7 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
         ]}
         value={view.colorBy}
         onChange={(colorBy) => onView({ colorBy })}
-      />
+      />}
       <Segmented
         label="Residue summary"
         options={[
@@ -76,7 +77,7 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
         onChange={onMode}
       />
       <Segmented label="Focus width" options={[15, 21, 31, 41].map((w) => ({ value: w, label: String(w) }))} value={width} onChange={onWidth} />
-      <div className="flex items-center gap-2">
+      {scope !== "focus" && <div className="flex items-center gap-2">
         <span className="text-[11px] font-semibold text-cs-text-secondary">Lanes</span>
         {lanes.map((l) => {
           const empty = available?.[l.key] === false;
@@ -95,7 +96,7 @@ export function LandscapeToolbar({ view, onView, mode, onMode, width, onWidth, t
             </button>
           );
         })}
-      </div>
+      </div>}
       {awayFromTarget && (
         <button
           type="button"

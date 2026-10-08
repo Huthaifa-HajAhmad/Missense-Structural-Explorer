@@ -18,6 +18,8 @@ const SHORT: Record<BandKey, string> = {
 };
 
 interface Props {
+  /** Only show keys for marks present in the whole-protein chart. */
+  overview?: boolean;
   /** The scale the grid is coloured by; only its bands are drawn in the always-visible key. */
   colorBy: LandscapeTool;
   /** Whether the nucleotide lane has any cells, so its key is only offered when it is on screen. */
@@ -30,7 +32,7 @@ interface Props {
  * nucleotide-lane ramp, the conservation steps and their caveats are one disclosure away. Every number
  * comes from `calibration.ts` or `CONSERVATION_BREAKS`; nothing is typed here.
  */
-export function LandscapeLegend({ colorBy, laneVisible }: Props) {
+export function LandscapeLegend({ colorBy, laneVisible, overview = false }: Props) {
   const ranges = TOOLS.map((t) => {
     const byKey = new Map(legendSteps(t.key).map((s) => [s.key, s.range]));
     return { ...t, byKey };
@@ -56,14 +58,14 @@ export function LandscapeLegend({ colorBy, laneVisible }: Props) {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px]">
+      {!overview && <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px]">
         <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="unscored" />SNV-reachable, no score</span>
         <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="unreachable" />needs ≥ 2 nucleotide changes</span>
         <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="norecord" />no dbNSFP record at this residue</span>
         <span className="flex items-center gap-1.5"><span className="ls-swatch ls-sub" data-band="reference">·</span>reference residue</span>
         <span className="flex items-center gap-1.5"><span className="ls-swatch" style={{ outline: "2px solid var(--cs-accent-clay)", outlineOffset: -1 }} />queried variant</span>
         <span className="text-cs-text-muted">phyloP bar: taller and darker = more conserved</span>
-      </div>
+      </div>}
 
       <details className="group">
         <summary className="cursor-pointer text-[11px] font-semibold text-cs-text-primary select-none w-fit rounded focus-visible:outline-2 focus-visible:outline-cs-accent-clay">
@@ -102,7 +104,7 @@ export function LandscapeLegend({ colorBy, laneVisible }: Props) {
           <p className="text-[11px] leading-snug text-cs-text-muted">
             REVEL bands: {calibrationSourceShort("revel")}. AlphaMissense bands: {calibrationSourceShort("alphaMissense")}. Heatmap cells are
             single substitutions, so their band applies to that substitution. The bands were calibrated for single variants: in the summary
-            row and the overview, which show residue summaries (mean or max over SNV-reachable missense substitutions), the colour is for
+            row and the overview, which show residue summaries (mean or max over scored missense substitutions), the colour is for
             orientation and does not count as PP3/BP4.
           </p>
 
@@ -124,7 +126,7 @@ export function LandscapeLegend({ colorBy, laneVisible }: Props) {
             </div>
           )}
 
-          <div className="flex flex-col gap-1.5 border-t border-cs-border-subtle pt-3">
+          {!overview && <div className="flex flex-col gap-1.5 border-t border-cs-border-subtle pt-3">
             <span className="font-semibold text-cs-text-primary">Conservation shade — codon mean, stronger shade = more conserved</span>
             <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px]">
               {(["gerp", "phylop"] as const).map((tool) => {
@@ -144,7 +146,7 @@ export function LandscapeLegend({ colorBy, laneVisible }: Props) {
               Conservation is not pathogenicity. The breaks are this app's display steps; the only published evidence bands are ClinGen's
               for phyloP (PP3 ≥ {phylopPp3}, the darkest step; BP4 ≤ {phylopBp4}, Pejaver 2022). GERP++ has no PP3 band.
             </p>
-          </div>
+          </div>}
         </div>
       </details>
     </div>

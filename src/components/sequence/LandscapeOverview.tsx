@@ -1,9 +1,18 @@
 import React, { useMemo, useState } from "react";
-import type { LandscapeContext, LandscapeResidueItem } from "../../shared/contracts";
-import { bandKey, residueSummary, type SummaryMode } from "../../shared/landscapeEvidence";
+import type {
+  LandscapeContext,
+  LandscapeResidueItem,
+} from "../../shared/contracts";
+import {
+  bandKey,
+  residueSummary,
+  type SummaryMode,
+} from "../../shared/landscapeEvidence";
 import type { LandscapeViewState } from "../../stores/slices/searchSlice";
 import type { DomainSpan } from "./types";
 import { useMeasuredWidth } from "./useMeasuredWidth";
+import { useRovingGrid } from "./useRovingGrid";
+import { overviewBins, proteinTicks } from "./overviewBins";
 
 interface Props {
   length: number;
@@ -16,23 +25,20 @@ interface Props {
   targetPos: number;
   mode: SummaryMode;
   lanes: LandscapeViewState["lanes"];
-  /** Moves the focus window only (strip click, arrow keys); selects nothing. */
   onMove: (pos: number) => void;
-  /** Selects a residue (a ClinVar marker). */
   onPick: (pos: number) => void;
   onRetry?: () => void;
-  /** Keyboard step for PageUp/PageDown: one focus width. */
   pageStep: number;
+  onExplore?: () => void;
 }
+const SCORE_H = 144;
+const CLASSES = [
+  { key: "plp", label: "P / LP", color: "var(--ls-clinvar-plp)" },
+  { key: "other", label: "VUS / other", color: "var(--cs-text-muted)" },
+  { key: "blb", label: "B / LB", color: "var(--ls-bp4-strong)" },
+] as const;
 
-const GUTTER = 96;
-const BAR_H = 44;
-
-/**
- * The whole protein on one strip: domains, AlphaMissense residue summaries, ClinVar and gnomAD
- * missense positions, and regional missense constraint. The outlined box is the focus window;
- * clicking or arrow keys move it.
- */
+/** A shared protein axis with separate, explicitly labelled evidence tracks. */
 export function LandscapeOverview({
   length,
   status,
@@ -47,291 +53,612 @@ export function LandscapeOverview({
   onMove,
   onPick,
   onRetry,
-  pageStep
+  pageStep,
+  onExplore,
 }: Props) {
   const [ref, measured] = useMeasuredWidth<HTMLDivElement>();
   const width = Math.max(0, measured);
   const [hover, setHover] = useState<number | null>(null);
-  /** While dragging, the box follows the pointer and the window moves once, on release. */
   const [drag, setDrag] = useState<number | null>(null);
-  const x = (pos: number) => ((pos - 1) / Math.max(1, length)) * width;
+  const clinvarGrid = useRovingGrid<HTMLDivElement>();
+  const populationGrid = useRovingGrid<HTMLDivElement>();
+  const [detail, setDetail] = useState<string | null>(null);
+  const [jump, setJump] = useState("");
   const unit = width / Math.max(1, length);
+  const x = (pos: number) => (pos - 1) * unit;
   const posAt = (clientX: number, el: Element) => {
     const rect = el.getBoundingClientRect();
-    return Math.min(length, Math.max(1, Math.floor(((clientX - rect.left) / Math.max(1, rect.width)) * length) + 1));
+    return Math.min(
+      length,
+      Math.max(
+        1,
+        Math.floor(((clientX - rect.left) / Math.max(1, rect.width)) * length) +
+          1,
+      ),
+    );
   };
-
-  const bars = useMemo(() => {
-    if (!positions) return [];
-    return positions
-      .map((p) => ({ pos: p.residx, v: residueSummary(p, "alphaMissense", mode) }))
-      .filter((b): b is { pos: number; v: number } => b.v !== null);
-  }, [positions, mode]);
+  const bars = useMemo(
+    () =>
+      (positions ?? [])
+        .map((p) => ({
+          pos: p.residx,
+          v: residueSummary(p, "alphaMissense", mode),
+        }))
+        .filter(
+          (b): b is { pos: number; v: number } =>
+            b.v !== null && b.pos >= 1 && b.pos <= length,
+        ),
+    [positions, mode, length],
+  );
   const byPos = useMemo(() => new Map(bars.map((b) => [b.pos, b.v])), [bars]);
-  /*
-   * One marker per residue, in the most severe class there (P/LP over uncertain over B/LB): several
-   * records at one residue used to be drawn on top of each other, so on a saturated protein the count
-   * could not be read. The tooltip lists every record.
-   */
-  const clinvarByPos = useMemo(() => {
-    const rank = { plp: 3, other: 2, blb: 1 } as const;
-    const m = new Map<number, { cls: "plp" | "blb" | "other"; records: NonNullable<LandscapeContext["clinvar"]> }>();
-    for (const c of context?.clinvar ?? []) {
-      const cur = m.get(c.pos);
-      if (!cur) m.set(c.pos, { cls: c.cls, records: [c] });
-      else {
-        cur.records.push(c);
-        if (rank[c.cls] > rank[cur.cls]) cur.cls = c.cls;
-      }
-    }
-    return [...m.entries()].map(([pos, v]) => ({ pos, ...v }));
-  }, [context?.clinvar]);
+  const cv = useMemo(
+    () =>
+      CLASSES.map((cls) => ({
+        ...cls,
+        ...overviewBins(
+          (context?.clinvar ?? []).filter((c) => c.cls === cls.key),
+          length,
+          width,
+        ),
+      })),
+    [context?.clinvar, length, width],
+  );
+  const gn = useMemo(
+    () => overviewBins(context?.gnomad ?? [], length, width),
+    [context?.gnomad, length, width],
+  );
+  const gnMax = Math.max(
+    0,
+    ...gn.bins.map((b) => b.items.reduce((n, g) => n + g.variants, 0)),
+  );
   const center = Math.round((window.start + window.end) / 2);
   const size = window.end - window.start + 1;
-  const box =
+  const start =
     drag === null
-      ? window
-      : (() => {
-          const start = Math.min(Math.max(1, length - size + 1), Math.max(1, drag - Math.floor(size / 2)));
-          return { start, end: Math.min(length, start + size - 1) };
-        })();
-
+      ? window.start
+      : Math.min(
+          Math.max(1, length - size + 1),
+          Math.max(1, drag - Math.floor(size / 2)),
+        );
+  const box =
+    drag === null ? window : { start, end: Math.min(length, start + size - 1) };
   const onKey = (e: React.KeyboardEvent) => {
-    const step = { ArrowLeft: -1, ArrowRight: 1, PageUp: -pageStep, PageDown: pageStep } as Record<string, number>;
-    if (e.key in step) onMove(Math.min(length, Math.max(1, center + step[e.key])));
+    const steps: Record<string, number> = {
+      ArrowLeft: -1,
+      ArrowRight: 1,
+      PageUp: -pageStep,
+      PageDown: pageStep,
+    };
+    if (e.key in steps)
+      onMove(Math.min(length, Math.max(1, center + steps[e.key])));
     else if (e.key === "Home") onMove(1);
     else if (e.key === "End") onMove(length);
     else return;
     e.preventDefault();
   };
-
-  const hoverText = (() => {
-    if (hover === null) return null;
-    const v = byPos.get(hover);
-    const cv = context?.clinvar?.filter((c) => c.pos === hover) ?? [];
-    const gn = context?.gnomad?.find((g) => g.pos === hover);
-    return [
-      `Residue ${hover}`,
-      v !== undefined ? `AlphaMissense ${mode} ${v.toFixed(3)}` : "no score",
-      cv.length ? `ClinVar ${cv.map((c) => c.significance).join(", ")}` : null,
-      gn ? `gnomAD ${gn.variants} missense (max AC ${gn.maxAc})` : null
-    ]
-      .filter(Boolean)
-      .join(" · ");
-  })();
-
-  const laneRow = (label: string, height: number, children: React.ReactNode, note?: string | null) => (
-    <div className="flex items-center">
-      <span className="ls-gutter" style={{ width: GUTTER }}>{label}</span>
-      <div className="relative flex-grow" style={{ height }}>
-        {note ? <span className="text-[10px] text-cs-text-muted leading-none">{note}</span> : children}
-      </div>
+  const markers = (height: number) => (
+    <>
+      <rect
+        x={x(box.start)}
+        y={0}
+        width={Math.max(2, (box.end - box.start + 1) * unit)}
+        height={height}
+        fill="var(--cs-text-primary)"
+        fillOpacity={0.04}
+        stroke="var(--cs-text-primary)"
+        strokeOpacity={0.4}
+        rx={2}
+      />
+      {targetPos > 0 && targetPos <= length && (
+        <line
+          x1={x(targetPos) + unit / 2}
+          x2={x(targetPos) + unit / 2}
+          y1={0}
+          y2={height}
+          stroke="var(--cs-accent-clay)"
+          strokeWidth={1.5}
+          strokeDasharray="3 3"
+        />
+      )}
+    </>
+  );
+  const track = (label: string, content: React.ReactNode) => (
+    <div className="ls-overview__track">
+      <span className="ls-overview__label">{label}</span>
+      <div className="ls-overview__plot">{content}</div>
     </div>
   );
-
+  const binAction = (
+    items: readonly { pos: number }[],
+    a: number,
+    b: number,
+  ) => {
+    const distinct = new Set(items.map((i) => i.pos));
+    if (distinct.size === 1) {
+      onPick(items[0].pos);
+      onExplore?.();
+    } else onMove(Math.round((a + b) / 2));
+  };
+  const hoverText =
+    hover === null
+      ? `Focus ${box.start}–${box.end}`
+      : `Residue ${hover} · AlphaMissense ${mode} ${byPos.has(hover) ? byPos.get(hover)!.toFixed(3) : "not scored"}`;
   return (
-    <section className="ls-panel px-4 py-3 flex flex-col gap-1.5" aria-label="Whole-protein overview">
-      <div className="flex justify-between gap-3 text-[12px] text-cs-text-secondary">
-        <span className="font-semibold text-cs-text-primary">Whole protein · 1–{length} · drag, click or use the arrow keys to move the focus window</span>
-        <span className="text-cs-text-muted">AlphaMissense residue {mode} over its scored missense substitutions</span>
-      </div>
-
-      {domains.length > 0 &&
-        laneRow(
-          "DOMAINS",
-          14,
-          width > 0 &&
-            domains.map((d, i) => (
-              <div
-                key={`${d.name}-${i}`}
-                className="ls-domain absolute top-[2px] overflow-hidden"
-                style={{ left: x(d.start), width: Math.max(2, (d.end - d.start + 1) * unit) }}
-                title={`${d.name} (${d.start}–${d.end})`}
-              >
-                <span className="px-1 text-[9px] leading-[10px] font-mono text-cs-text-primary truncate block">{d.name}</span>
-              </div>
-            ))
-        )}
-
-      <div className="flex items-end">
-        <span className="ls-gutter self-center" style={{ width: GUTTER }}>AM</span>
-        <div
-          ref={ref}
-          className="relative flex-grow cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-cs-accent-clay"
-          style={{ height: BAR_H, touchAction: "pan-y" }}
-          role="slider"
-          tabIndex={0}
-          aria-label="Focus window position"
-          aria-valuemin={1}
-          aria-valuemax={length}
-          aria-valuenow={center}
-          aria-valuetext={`Residues ${window.start} to ${window.end}`}
-          onKeyDown={onKey}
-          onClick={(e) => onMove(posAt(e.clientX, e.currentTarget))}
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-            setDrag(posAt(e.clientX, e.currentTarget));
+    <section
+      className="ls-panel ls-overview"
+      aria-label="Whole-protein overview"
+    >
+      <header className="ls-overview__header">
+        <div>
+          <h4>Whole protein</h4>
+          <p>
+            1–{length.toLocaleString()} residues · drag or click the score track
+            to move the focus window
+          </p>
+        </div>
+        <form
+          className="ls-overview__jump"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const n = Number(jump);
+            if (Number.isInteger(n) && n >= 1 && n <= length) onMove(n);
           }}
-          onPointerMove={(e) => {
-            const pos = posAt(e.clientX, e.currentTarget);
-            setHover(pos);
-            if (drag !== null) setDrag(pos);
-          }}
-          onPointerUp={(e) => {
-            if (drag === null) return;
-            onMove(posAt(e.clientX, e.currentTarget));
-            setDrag(null);
-          }}
-          onPointerCancel={() => setDrag(null)}
-          onMouseLeave={() => setHover(null)}
         >
-          {status === "loading" && <span className="absolute inset-0 flex items-center text-[11px] text-cs-text-muted">Loading whole-protein scores…</span>}
-          {status === "error" && (
-            <span className="absolute inset-0 flex items-center gap-2 text-[11px] text-cs-text-warning">
-              Whole-protein scores not loaded{error ? `: ${error}` : ""}
-              {onRetry && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRetry();
-                  }}
-                  className="px-2 py-0.5 rounded border border-cs-border bg-cs-surface text-cs-text-primary cursor-pointer"
-                >
-                  Retry
-                </button>
-              )}
-            </span>
-          )}
-          {width > 0 && (
-            <svg width={width} height={BAR_H} className="block" aria-hidden="true">
-              <rect x={0} y={BAR_H - 1} width={width} height={1} fill="var(--cs-border-subtle)" />
-              {bars.map((b) => {
-                const h = 3 + b.v * (BAR_H - 5);
-                return (
+          <label>
+            Go to residue
+            <input
+              type="number"
+              min={1}
+              max={length}
+              step={1}
+              value={jump}
+              onChange={(e) => setJump(e.target.value)}
+              placeholder={String(center)}
+            />
+          </label>
+          <button type="submit" className="viz-action">
+            Go
+          </button>
+        </form>
+      </header>
+      <div className="ls-overview__scope">
+        <span>
+          AlphaMissense · residue {mode} over scored substitutions · orientation
+          only
+        </span>
+        <span>
+          {bars.length.toLocaleString()} / {length.toLocaleString()} residues
+          scored
+        </span>
+      </div>
+      {track(
+        "AM score",
+        <div className="ls-overview__score-wrap">
+          <div className="ls-overview__y-axis" aria-hidden="true">
+            <span>1</span>
+            <span>0.5</span>
+            <span>0</span>
+          </div>
+          <div
+            ref={ref}
+            className="ls-overview__slider"
+            style={{ height: SCORE_H, touchAction: "pan-y" }}
+            role="slider"
+            tabIndex={0}
+            aria-label="Focus window position"
+            aria-valuemin={1}
+            aria-valuemax={length}
+            aria-valuenow={center}
+            aria-valuetext={`Residues ${window.start} to ${window.end}`}
+            onKeyDown={onKey}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              setDrag(posAt(e.clientX, e.currentTarget));
+            }}
+            onPointerMove={(e) => {
+              const n = posAt(e.clientX, e.currentTarget);
+              setHover(n);
+              if (drag !== null) setDrag(n);
+            }}
+            onPointerUp={(e) => {
+              if (drag !== null) onMove(posAt(e.clientX, e.currentTarget));
+              setDrag(null);
+            }}
+            onPointerCancel={() => setDrag(null)}
+            onMouseLeave={() => setHover(null)}
+          >
+            {status === "loading" && (
+              <span className="ls-overview__state">
+                Loading whole-protein scores…
+              </span>
+            )}
+            {status === "error" && (
+              <span className="ls-overview__state">
+                Whole-protein scores not loaded{error ? `: ${error}` : ""}
+              </span>
+            )}
+            {status === "ready" && bars.length === 0 && (
+              <span className="ls-overview__state">
+                No whole-protein AlphaMissense scores returned.
+              </span>
+            )}
+            {width > 0 && (
+              <svg width={width} height={SCORE_H} aria-hidden="true">
+                {[0, 0.5, 1].map((v) => (
+                  <line
+                    key={v}
+                    x1={0}
+                    x2={width}
+                    y1={1 + (1 - v) * (SCORE_H - 2)}
+                    y2={1 + (1 - v) * (SCORE_H - 2)}
+                    stroke="var(--cs-border-subtle)"
+                    strokeDasharray={v === 0 ? undefined : "3 4"}
+                  />
+                ))}
+                {bars.map((b) => (
                   <rect
                     key={b.pos}
                     x={x(b.pos)}
-                    y={BAR_H - h}
-                    width={Math.max(1, unit - (unit > 3 ? 0.5 : 0))}
-                    height={h}
+                    y={1 + (1 - b.v) * (SCORE_H - 2)}
+                    width={Math.max(0.1, unit - (unit > 3 ? 0.5 : 0))}
+                    height={Math.max(1, b.v * (SCORE_H - 2))}
                     fill={`var(--ls-${bandKey("alphaMissense", b.v)})`}
                   />
-                );
-              })}
-              <rect x={x(targetPos)} y={0} width={Math.max(1.5, unit)} height={BAR_H} fill="var(--cs-accent-clay)" opacity={0.9} />
-              <rect
-                x={x(box.start)}
-                y={1}
-                width={Math.max(3, (box.end - box.start + 1) * unit)}
-                height={BAR_H - 2}
-                fill="var(--cs-text-primary)"
-                fillOpacity={0.05}
-                stroke="var(--cs-text-primary)"
-                strokeWidth={1.5}
-                rx={2}
-              />
-            </svg>
+                ))}
+                {markers(SCORE_H)}
+              </svg>
+            )}
+          </div>
+        </div>,
+      )}
+      {status === "error" && onRetry && (
+        <button
+          type="button"
+          className="viz-action self-start"
+          onClick={onRetry}
+        >
+          Retry whole-protein scores
+        </button>
+      )}
+      {track(
+        "Residue",
+        width > 0 && (
+          <svg
+            width={width}
+            height={34}
+            className="ls-overview__axis"
+            aria-hidden="true"
+          >
+            {proteinTicks(length).map((p) => (
+              <g key={p}>
+                <line
+                  x1={x(p) + unit / 2}
+                  x2={x(p) + unit / 2}
+                  y1={0}
+                  y2={5}
+                  stroke="var(--cs-border)"
+                />
+                <text
+                  x={p === length ? width : x(p)}
+                  y={21}
+                  textAnchor={
+                    p === 1 ? "start" : p === length ? "end" : "middle"
+                  }
+                >
+                  {p.toLocaleString()}
+                </text>
+              </g>
+            ))}
+          </svg>
+        ),
+      )}
+      {domains.length > 0 &&
+        track(
+          "Domains",
+          <div className="relative h-7">
+            {domains.map((d, i) => (
+              <div
+                key={i}
+                className="ls-domain absolute overflow-hidden"
+                style={{
+                  left: x(d.start),
+                  width: Math.max(2, (d.end - d.start + 1) * unit),
+                  height: 22,
+                }}
+                title={`${d.name} (${d.start}–${d.end})`}
+              >
+                <span className="text-[11px] px-1 truncate block">
+                  {d.name}
+                </span>
+              </div>
+            ))}
+          </div>,
+        )}
+      {lanes.clinvar && (
+        <div
+          className="ls-overview__group"
+          role={cv.some((c) => c.bins.length > 0) ? "group" : undefined}
+          aria-label="ClinVar missense counts by assertion class"
+          ref={clinvarGrid.ref}
+          onFocus={clinvarGrid.onFocus}
+          onKeyDown={clinvarGrid.onKeyDown}
+        >
+          <div className="ls-overview__scope">
+            <strong>ClinVar missense</strong>
+            <span>
+              Records per{" "}
+              {cv[0].size === 1 ? "residue" : `${cv[0].size}-residue bin`} ·
+              separate assertion classes
+            </span>
+          </div>
+          {context?.clinvar == null ? (
+            <p className="ls-overview__missing">
+              {status === "ready"
+                ? "ClinVar not loaded"
+                : "ClinVar context pending"}
+            </p>
+          ) : context.clinvar.length === 0 ? (
+            <p className="ls-overview__missing">
+              No ClinVar missense records returned.
+            </p>
+          ) : (
+            cv.map((cls, rowIndex) => {
+              const max = Math.max(0, ...cls.bins.map((b) => b.items.length));
+              return (
+                <React.Fragment key={cls.key}>
+                  {track(
+                    `${cls.label} · max ${max}`,
+                    <svg width={width} height={32} role="presentation">
+                      <line
+                        x1={0}
+                        x2={width}
+                        y1={31}
+                        y2={31}
+                        stroke="var(--cs-border-subtle)"
+                      />
+                      {cls.bins.map((b) => {
+                        const label = `Residues ${b.start}–${b.end}: ${b.items.length} ClinVar ${cls.label} records across ${new Set(b.items.map((c) => c.pos)).size} residue position(s)`;
+                        return (
+                          <g
+                            key={b.start}
+                            data-rc={`${rowIndex}:${(b.start - 1) / cls.size}`}
+                            data-entry={
+                              b.start <= targetPos && b.end >= targetPos
+                                ? ""
+                                : undefined
+                            }
+                            tabIndex={-1}
+                            role="button"
+                            aria-label={label}
+                            onMouseEnter={() => setDetail(label)}
+                            onMouseLeave={() => setDetail(null)}
+                            onFocus={() => setDetail(label)}
+                            onBlur={() => setDetail(null)}
+                            className="ls-overview__bin"
+                            onClick={() => binAction(b.items, b.start, b.end)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                binAction(b.items, b.start, b.end);
+                              }
+                            }}
+                          >
+                            <title>{`${label}\n${b.items.map((c) => `${c.hgvsp} · ${c.significance}${c.stars !== null ? ` · ${c.stars}★` : ""}`).join("\n")}`}</title>
+                            <rect
+                              x={x(b.start)}
+                              y={1}
+                              width={Math.max(1, (b.end - b.start + 1) * unit)}
+                              height={31}
+                              fill="transparent"
+                            />
+                            <rect
+                              x={x(b.start)}
+                              y={31 - (b.items.length / Math.max(1, max)) * 27}
+                              width={Math.max(
+                                1,
+                                (b.end - b.start + 1) * unit - 1,
+                              )}
+                              height={(b.items.length / Math.max(1, max)) * 27}
+                              rx={1}
+                              fill={cls.color}
+                            />
+                          </g>
+                        );
+                      })}
+                      {cls.bins.length === 0 && (
+                        <text x={8} y={20} className="ls-overview__empty-class">
+                          No records
+                        </text>
+                      )}
+                      <g pointerEvents="none">{markers(32)}</g>
+                    </svg>,
+                  )}
+                </React.Fragment>
+              );
+            })
+          )}
+          {context?.clinvar && context.clinvar.length > 0 && (
+            <p className="ls-overview__missing">
+              Each class has its own count scale; classifications are
+              assertions, not predictor score bands. Hover or focus a bin for
+              exact counts; activate it to explore its residues.
+            </p>
           )}
         </div>
-      </div>
-
-      {lanes.clinvar &&
-        laneRow(
-          "CLINVAR",
-          16,
-          width > 0 && (
-            <svg width={width} height={16} className="block overflow-visible" role="img" aria-label={`${context?.clinvar?.length ?? 0} ClinVar missense variants at ${clinvarByPos.length} residues`}>
-              {clinvarByPos.map((c) => {
-                const cx = x(c.pos) + unit / 2;
-                return (
-                  <g key={c.pos} className="cursor-pointer" onClick={() => onPick(c.pos)}>
-                    <line x1={cx} y1={8} x2={cx} y2={16} stroke="var(--cs-text-muted)" strokeWidth={1} />
-                    {/* The assertion's own token — magenta, never the PP3 band red: the lane states
-                        a ClinVar classification, not a predictor band. */}
-                    <circle
-                      cx={cx}
-                      cy={5}
-                      r={3.5}
-                      fill={c.cls === "plp" ? "var(--ls-clinvar-plp)" : c.cls === "blb" ? "var(--cs-surface)" : "var(--cs-text-muted)"}
-                      stroke={c.cls === "blb" ? "var(--ls-bp4-strong)" : "none"}
-                      strokeWidth={1.5}
+      )}
+      {lanes.gnomad && (
+        <div
+          className="ls-overview__group"
+          role={gn.bins.length > 0 ? "group" : undefined}
+          aria-label="gnomAD missense variant counts on a logarithmic scale"
+          ref={populationGrid.ref}
+          onFocus={populationGrid.onFocus}
+          onKeyDown={populationGrid.onKeyDown}
+        >
+          <div className="ls-overview__scope">
+            <strong>gnomAD missense</strong>
+            <span>
+              Variant count per{" "}
+              {gn.size === 1 ? "residue" : `${gn.size}-residue bin`} · log₁₀(1 +
+              count) · max {gnMax}
+            </span>
+          </div>
+          {context?.gnomad == null ? (
+            <p className="ls-overview__missing">
+              {status === "ready"
+                ? "gnomAD not loaded"
+                : "gnomAD context pending"}
+            </p>
+          ) : context.gnomad.length === 0 ? (
+            <p className="ls-overview__missing">
+              No gnomAD missense variants returned.
+            </p>
+          ) : (
+            track(
+              "Variants",
+              <svg
+                width={width}
+                height={46}
+                role="group"
+                aria-label="gnomAD missense variant counts on a logarithmic scale"
+              >
+                <line
+                  x1={0}
+                  x2={width}
+                  y1={45}
+                  y2={45}
+                  stroke="var(--cs-border-subtle)"
+                />
+                {gn.bins.map((b) => {
+                  const count = b.items.reduce((n, g) => n + g.variants, 0);
+                  const h =
+                    (Math.log10(1 + count) /
+                      Math.log10(1 + Math.max(1, gnMax))) *
+                    40;
+                  const label = `Residues ${b.start}–${b.end}: ${count} gnomAD missense variants, maximum allele count ${Math.max(...b.items.map((g) => g.maxAc))}`;
+                  return (
+                    <g
+                      key={b.start}
+                      className="ls-overview__bin"
+                      data-rc={`0:${(b.start - 1) / gn.size}`}
+                      data-entry={
+                        b.start <= targetPos && b.end >= targetPos
+                          ? ""
+                          : undefined
+                      }
+                      tabIndex={-1}
+                      role="button"
+                      aria-label={label}
+                      onMouseEnter={() => setDetail(label)}
+                      onMouseLeave={() => setDetail(null)}
+                      onFocus={() => setDetail(label)}
+                      onBlur={() => setDetail(null)}
+                      onClick={() => binAction(b.items, b.start, b.end)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          binAction(b.items, b.start, b.end);
+                        }
+                      }}
                     >
-                      <title>{c.records.map((r) => `${r.hgvsp} · ${r.significance}${r.stars !== null ? ` · ${r.stars}★` : ""}`).join("\n")}</title>
-                    </circle>
-                  </g>
-                );
-              })}
-            </svg>
-          ),
-          status === "ready" && context?.clinvar === null ? "ClinVar not loaded" : null
-        )}
-
-      {lanes.gnomad &&
-        laneRow(
-          "GNOMAD",
-          10,
-          width > 0 && (
-            <svg width={width} height={10} className="block" role="img" aria-label={`gnomAD missense at ${context?.gnomad?.length ?? 0} residues`}>
-              {(context?.gnomad ?? []).map((g) => (
-                <circle key={g.pos} cx={x(g.pos) + unit / 2} cy={5} r={Math.min(4, 1.6 + Math.log10(g.maxAc + 1))} fill="var(--cs-text-secondary)">
-                  <title>{`Residue ${g.pos}: ${g.variants} missense, max AC ${g.maxAc}`}</title>
-                </circle>
-              ))}
-            </svg>
-          ),
-          status === "ready" && context?.gnomad === null ? "gnomAD not loaded" : null
-        )}
-
+                      <title>{label}</title>
+                      <rect
+                        x={x(b.start)}
+                        y={1}
+                        width={Math.max(1, (b.end - b.start + 1) * unit)}
+                        height={44}
+                        fill="transparent"
+                      />
+                      <rect
+                        x={x(b.start)}
+                        y={45 - h}
+                        width={Math.max(1, (b.end - b.start + 1) * unit - 1)}
+                        height={h}
+                        rx={1}
+                        fill="var(--cs-text-muted)"
+                      />
+                    </g>
+                  );
+                })}
+                <g pointerEvents="none">{markers(46)}</g>
+              </svg>,
+            )
+          )}
+        </div>
+      )}
       {lanes.regions &&
         status === "ready" &&
         (context?.regions === null || (context?.regions?.length ?? 0) > 0) &&
-        laneRow(
-          "MISSENSE O/E",
-          14,
-          width > 0 &&
-            (context?.regions ?? []).map((r, i) => {
-              const low = r.oe !== null && r.oe < 0.6;
-              return (
+        track(
+          "Missense O/E",
+          context?.regions === null ? (
+            <p className="ls-overview__missing">
+              {context.regionsStatus === "withheld-mapping"
+                ? "Regional map withheld: transcript-to-protein mapping not verified"
+                : "Regional constraint not loaded"}
+            </p>
+          ) : (
+            <div className="relative h-7">
+              {context?.regions?.map((r, i) => (
                 <div
-                  key={`${r.start}-${r.end}-${i}`}
-                  className="absolute top-[2px] h-[10px] overflow-hidden text-[9px] leading-[10px] pl-1 font-mono rounded-sm"
+                  key={i}
+                  className="absolute h-6 rounded text-[11px] px-1 overflow-hidden"
                   style={{
                     left: x(r.start),
                     width: Math.max(2, (r.end - r.start + 1) * unit),
-                    background: low ? "var(--cs-text-secondary)" : "var(--ls-indeterminate)",
-                    color: low ? "var(--cs-surface)" : "var(--cs-text-primary)"
+                    background:
+                      r.oe !== null && r.oe < 0.6
+                        ? "var(--cs-text-secondary)"
+                        : "var(--ls-indeterminate)",
+                    color:
+                      r.oe !== null && r.oe < 0.6
+                        ? "var(--cs-surface)"
+                        : "var(--cs-text-primary)",
                   }}
-                  title={`Residues ${r.start}–${r.end}: missense O/E ${r.oe ?? "—"}${r.pValue !== null ? `, p ${r.pValue}` : ""} (${context?.regionsBasis ?? ""})`}
+                  title={`Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})`}
                 >
                   O/E {r.oe ?? "—"}
                 </div>
-              );
-            }),
-          context?.regions === null
-            ? context?.regionsStatus === "withheld-mapping"
-              ? "Regional map withheld: transcript-to-protein mapping not verified"
-              : "Regional constraint not loaded"
-            : null
+              ))}
+            </div>
+          ),
         )}
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-cs-text-muted" style={{ paddingLeft: GUTTER }}>
-        <span className="min-w-[240px] font-mono text-cs-text-secondary">{hoverText ?? `Focus ${box.start}–${box.end}`}</span>
-        {lanes.clinvar && (context?.clinvar?.length ?? 0) > 0 && (
-          <>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--ls-clinvar-plp)" }} />ClinVar P/LP (assertion, not a score band)</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full border-[1.5px]" style={{ borderColor: "var(--ls-bp4-strong)" }} />B/LB</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-cs-text-muted" />VUS / conflicting</span>
-          </>
+      <footer className="ls-overview__footer">
+        <span className="font-mono ls-overview__readout">
+          {detail ?? hoverText}
+        </span>
+        {targetPos > 0 && targetPos <= length && (
+          <button
+            type="button"
+            onClick={() => onMove(targetPos)}
+            className="ls-overview__query"
+          >
+            ↳ Query residue {targetPos}
+          </button>
         )}
-        {(context?.regions?.length ?? 0) > 0 && (
-          <span>O/E: solid bar = fewer missense observed than expected (O/E &lt; 0.6) ({context?.regionsBasis ?? ""})</span>
+        <span>Outline: focus window · dashed line: query</span>
+        {onExplore && (
+          <button type="button" className="viz-action" onClick={onExplore}>
+            Explore focus {box.start}–{box.end} →
+          </button>
         )}
-        {status === "ready" && domains.length === 0 && <span>no UniProt domain or region annotated</span>}
-        {lanes.regions && status === "ready" && context?.regions?.length === 0 && (
-          <span>no regional missense constraint call for this gene</span>
+      </footer>
+      <p className="ls-overview__missing">
+        Protein-wide context does not assign ACMG evidence. Unscored residues
+        remain empty; zero is a scored value at the baseline.
+      </p>
+      {status === "ready" && domains.length === 0 && (
+        <p className="ls-overview__missing">
+          no UniProt domain or region annotated
+        </p>
+      )}
+      {lanes.regions &&
+        status === "ready" &&
+        context?.regions?.length === 0 && (
+          <p className="ls-overview__missing">
+            no regional missense constraint call for this gene
+          </p>
         )}
-      </div>
     </section>
   );
 }

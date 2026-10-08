@@ -297,6 +297,21 @@ describe("landscapeVerdict", () => {
     ]
   } as any;
 
+  it("withholds query ranking and carries the same source mismatch as the finding", () => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 116, row: row116,
+      variantRevel: 0.231, variantAm: 0.108, mode: "mean" });
+    expect(v.rank).toBeNull();
+    expect(v.mismatch).toContain("AlphaMissense 0.108 from the predictors pipeline vs 0.362 in dbNSFP");
+    expect(v.mismatch).toContain("ranking is withheld");
+  });
+
+  it("never ranks a query that is absent from the table against the table's scored substitutions", () => {
+    const v = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "C" }, residx: 116, row: row116,
+      variantRevel: 0.752, variantAm: 0.01, mode: "mean" });
+    expect(v.calls[1].score).toBe(0.01);
+    expect(v.rank).toBeNull();
+  });
+
   it("names an off-target residue by dbNSFP's reference letter and never doubles 'Residue'", () => {
     const off = { ...row116, residx: 115, aaref: "K" };
     const picked = landscapeVerdict({ target: { pos: 116, wt: "D", mut: "G" }, residx: 115, row: off, variantRevel: 0.231, variantAm: 0.362, mode: "mean", selectedAlt: "V" });
@@ -408,9 +423,9 @@ describe("the pipeline's variant score is cross-checked against the dbNSFP table
     expect(f.cautions[0]).toMatch(/ranking is withheld/);
   });
 
-  it("also names a disagreement in the RELEV reading, without touching the rank wording", () => {
+  it("withholds ranking consistently when REVEL disagrees", () => {
     const f = landscapeFinding({ ...base, variantRevel: 0.7, rows: [subsRow(0.8401, 0.853)] });
-    expect(f.variant).toMatch(/it ranks 2 of the 2/); // rank unaffected (it reads AlphaMissense only)
+    expect(f.variant).not.toMatch(/it ranks/);
     expect(f.cautions[0]).toMatch(/REVEL 0\.700 from the predictors pipeline vs 0\.853 in dbNSFP/);
   });
 

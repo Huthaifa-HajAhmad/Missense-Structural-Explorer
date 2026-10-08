@@ -131,8 +131,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   windowSize = 31,
   setWindowSize
 }: SequenceVisualizerProps) {
-  const [workspaceTab, setWorkspaceTab] = useState<'map' | 'agreement' | 'nucleotides'>('map');
-  const workspaceTabs = [{ id: 'map', label: 'Residue map' }, { id: 'agreement', label: 'Predictor agreement' }, { id: 'nucleotides', label: 'Nucleotide map' }] as const;
+  const [workspaceTab, setWorkspaceTab] = useState<'map' | 'focus' | 'agreement' | 'nucleotides'>('map');
+  const workspaceTabs = [{ id: 'map', label: 'Whole protein' }, { id: 'focus', label: 'Focus residue' }, { id: 'agreement', label: 'Predictor agreement' }, { id: 'nucleotides', label: 'Nucleotide map' }] as const;
   const { settings } = useSettings();
   const { apiClient } = useApiClient();
   const storeHoveredIndex = useVariantAnalysisStore((s) => s.hoveredResidueIndex);
@@ -418,7 +418,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {workspaceTab === "map" && <section className="ls-finding" aria-label="Landscape finding">
+          {workspaceTab === "focus" && <section className="ls-finding" aria-label="Landscape finding">
             <div className="ls-finding__head">
               <span className="font-semibold uppercase tracking-wider text-[10px]">Finding · residues {range.start}–{range.end}</span>
               <span className="font-mono text-[10px] text-cs-text-muted truncate">{provenanceLine(landscapeMeta)}</span>
@@ -447,7 +447,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             </div>
           </section>}
 
-          {workspaceTab === "map" && <LandscapeToolbar
+          {(workspaceTab === "map" || workspaceTab === "focus") && <LandscapeToolbar
+            scope={workspaceTab === "map" ? "overview" : "focus"}
             view={view}
             onView={setView}
             mode={metricMode}
@@ -468,8 +469,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             }}
           />}
 
-          {workspaceTab === "map" && <>
-          <LandscapeOverview
+          {workspaceTab === "map" && <LandscapeOverview
             length={sequence.length}
             status={overview?.status ?? "idle"}
             error={overview?.error}
@@ -484,9 +484,13 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             onPick={pickOverview}
             onRetry={retryOverview}
             pageStep={windowSize}
-          />
+            onExplore={() => setWorkspaceTab("focus")}
+          />}
+          {workspaceTab === "map" && <LandscapeLegend overview colorBy="alphaMissense" laneVisible={false} />}
 
+          {workspaceTab === "focus" && <>
           <LandscapeFocus
+            showNucleotides={false}
             residues={residues}
             start={range.start}
             target={mutation}
@@ -513,7 +517,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             residueClass={residueClass}
           />
 
-          <LandscapeLegend colorBy={view.colorBy} laneVisible={laneStatus === "ready" && codons.size > 0} />
+          <LandscapeLegend colorBy={view.colorBy} laneVisible={false} />
 
           </>}
           {workspaceTab === "agreement" && <LandscapeAgreement key={`${key}-${metricMode}`} rows={[...landscapeMap.values()].sort((a, b) => a.residx - b.residx)}

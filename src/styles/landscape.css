@@ -480,3 +480,32 @@
   .landscape-workspace .inspector-body { overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) { .workspace-tabs button { transition: none; } }
+/* Whole protein uses its own space; all tracks share the same residue axis. */
+.ls-overview { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.ls-overview__header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
+.ls-overview__header h4 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
+.ls-overview__header p { margin: 4px 0 0; font-size: 12px; color: var(--cs-text-secondary); }
+.ls-overview__jump { display: flex; align-items: end; gap: 8px; }
+.ls-overview__jump label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--cs-text-secondary); }
+.ls-overview__jump input { width: 100px; height: 32px; padding: 4px 8px; background: var(--cs-surface); color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: 8px; }
+.ls-overview__scope { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; color: var(--cs-text-secondary); font-size: 11.5px; }
+.ls-overview__scope strong { color: var(--cs-text-primary); font-size: 12px; font-weight: 600; }
+.ls-overview__track { display: flex; align-items: center; gap: 32px; }
+.ls-overview__label { width: 76px; flex-shrink: 0; text-align: right; color: var(--cs-text-secondary); font-size: 11px; }
+.ls-overview__plot { flex: 1; min-width: 0; }
+.ls-overview__score-wrap { position: relative; }
+.ls-overview__y-axis { position: absolute; right: calc(100% + 8px); top: -6px; bottom: -6px; display: flex; flex-direction: column; justify-content: space-between; font: 10px 'Source Code Pro Variable', monospace; color: var(--cs-text-muted); }
+.ls-overview__slider { position: relative; cursor: crosshair; background: var(--cs-surface-2); border-radius: 4px; }
+.ls-overview__state { position: absolute; inset: 12px; font-size: 12px; color: var(--cs-text-secondary); }
+.ls-overview__axis text { fill: var(--cs-text-secondary); font: 11px 'Source Code Pro Variable', monospace; }
+.ls-overview__group { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--cs-border-subtle); padding-top: 14px; }
+.ls-overview__missing { margin: 0; font-size: 11.5px; color: var(--cs-text-secondary); line-height: 1.5; }
+.ls-overview__footer { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; padding-top: 14px; border-top: 1px solid var(--cs-border-subtle); font-size: 11.5px; color: var(--cs-text-secondary); }
+.ls-overview__query { color: var(--cs-accent-clay); cursor: pointer; min-height: 28px; border-radius: 4px; }
+.ls-overview__bin { cursor: pointer; }
+.ls-overview :is(button,input,[role="slider"],[role="button"]):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.lsr-mismatch { padding: 12px; border-radius: 10px; border: 1px solid var(--cs-border); background: var(--cs-surface-2); color: var(--cs-text-warning); font-size: 12px; line-height: 1.6; }
+@media (max-width: 600px) { .ls-overview { padding: 14px; } .ls-overview__label { width: 52px; } }
+.ls-overview__empty-class { fill: var(--cs-text-muted); font: 11px 'Source Sans 3 Variable', sans-serif; }
+
+.ls-overview__readout { flex-basis: 100%; min-height: 18px; }
