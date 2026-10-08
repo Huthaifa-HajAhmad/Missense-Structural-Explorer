@@ -620,6 +620,25 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
           noteThermompnnError(pollData.thermompnnError);
         }
 
+        /** Independent estimates and the FoldX score are merged as soon as the worker publishes them. */
+        const engineUpdates = pollData.engineUpdates;
+        if (engineUpdates && typeof engineUpdates === "object") {
+          const { foldxStatus: partialFoldxStatus, ...partialEnergetics } = engineUpdates;
+          if (Object.keys(partialEnergetics).length > 0) {
+            sink.setFoldingEnergetics((prev: any) => ({ ...(prev ?? {}), ...partialEnergetics }));
+          }
+          if (partialFoldxStatus === "success" || partialFoldxStatus === "failed" || partialFoldxStatus === "unavailable") {
+            const partialFoldx = typeof partialEnergetics.foldxMean === "number"
+              ? partialEnergetics.foldxMean
+              : (typeof partialEnergetics.foldx === "number" ? partialEnergetics.foldx : null);
+            sink.setFoldingDdG(partialFoldx);
+            sink.setFoldingStatus(partialFoldxStatus);
+            if (partialFoldxStatus !== "success" && typeof partialEnergetics.foldxError === "string") {
+              sink.setFoldingError(partialEnergetics.foldxError);
+            }
+          }
+        }
+
         if (pollData.status === "completed" || pollData.status === "failed") {
           if (!foldxCommitted) {
             foldxCommitted = true;

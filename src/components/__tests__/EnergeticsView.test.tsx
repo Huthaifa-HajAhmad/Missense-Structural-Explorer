@@ -328,13 +328,14 @@ describe("EnergeticsView — FoldX progress banner", () => {
   it("names the reported stage and the queue position, and shows no age while queued", () => {
     const { container } = renderView({
       isFolding: true,
+      foldingStatus: null,
       foldingProgress: { phase: "queued", elapsedMs: null, queuePosition: 2, receivedAt: Date.now() },
     });
 
     const text = container.textContent ?? "";
     expect(text).toContain("1. Queued");
     expect(text).toContain("2 jobs ahead");
-    expect(text).toContain("Waiting for a free force-field worker");
+    expect(text).toContain("Waiting for a compute worker to start this job");
     // A queued job has no execution clock: an "Elapsed" here would be measuring the spinner.
     expect(text).not.toContain("Elapsed:");
   });
@@ -342,11 +343,12 @@ describe("EnergeticsView — FoldX progress banner", () => {
   it("says the stage is unreported rather than guessing one", () => {
     const { container } = renderView({
       isFolding: true,
+      foldingStatus: null,
       foldingProgress: { phase: null, elapsedMs: 4_000, queuePosition: null, receivedAt: Date.now() },
     });
 
     const text = container.textContent ?? "";
-    expect(text).toContain("not reported by the compute server yet");
+    expect(text).toContain("has not reported a stage yet");
     /**
      * No stage may be claimed. The stepper LABELS are always on screen — they are the legend of what
      * a FoldX run consists of — so the assertion is about which cell is active, which the cell
@@ -359,6 +361,7 @@ describe("EnergeticsView — FoldX progress banner", () => {
   it("reports the age of the JOB, from the duration the server measured", () => {
     const { container } = renderView({
       isFolding: true,
+      foldingStatus: null,
       foldingProgress: { phase: "repairing", elapsedMs: 65_000, queuePosition: null, receivedAt: Date.now() },
     });
 
@@ -370,6 +373,18 @@ describe("EnergeticsView — FoldX progress banner", () => {
     const active = container.querySelectorAll('[data-foldx-stage][data-active="true"]');
     expect(active).toHaveLength(1);
     expect(active[0].getAttribute("data-foldx-stage")).toBe("2");
+  });
+
+  it("once FoldX has its own result, says so and keeps the other engines in view", () => {
+    const { container } = renderView({
+      isFolding: true,
+      foldingStatus: "success",
+      foldingProgress: { phase: "scoring", elapsedMs: 90_000, queuePosition: null, receivedAt: Date.now() },
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("FoldX score ready");
+    expect(container.querySelectorAll('[data-foldx-stage][data-active="true"]')).toHaveLength(0);
+    expect(container.querySelectorAll(".nrg-progress__engine")).toHaveLength(6);
   });
 
   it("offers the hide control only once a row has settled", () => {
@@ -385,6 +400,7 @@ describe("EnergeticsView — FoldX progress banner", () => {
     // With one engine settled there is something to reveal, so the control is offered.
     const withResults = renderView({
       isFolding: true,
+      foldingStatus: null,
       foldingProgress: { phase: "modelling", elapsedMs: 1_000, queuePosition: null, receivedAt: Date.now() },
     });
     expect(within(withResults.container).getByText("Hide pending engines")).toBeInTheDocument();

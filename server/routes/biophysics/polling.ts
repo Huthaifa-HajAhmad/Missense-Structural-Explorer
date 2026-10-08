@@ -28,6 +28,35 @@ import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import { recordJobInRegistry, getRegistryPath, type RegistryJob } from "../shared.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 
+/** FoldX and independent engine values that are safe to publish before the overall job settles. */
+function engineUpdatesFromJob(jobData: any, remoteJobs: any): Record<string, unknown> | undefined {
+  const updates: Record<string, unknown> = {
+    ...(jobData?.structureProvenance ? { structureProvenance: jobData.structureProvenance } : {}),
+    ...(jobData?.foldxUpdate ?? {}),
+  };
+
+  if (remoteJobs?.raspStatus != null || remoteJobs?.raspVal !== undefined) {
+    updates.rasp = typeof remoteJobs.raspVal === "number" ? remoteJobs.raspVal : null;
+    if (remoteJobs.raspStatus != null) updates.raspStatus = remoteJobs.raspStatus;
+    if (typeof remoteJobs.raspReason === "string") updates.raspReason = remoteJobs.raspReason;
+    if (remoteJobs.raspSource === "experimental" || remoteJobs.raspSource === "alphafold") updates.raspSource = remoteJobs.raspSource;
+    if (remoteJobs.raspCoverage) updates.raspCoverage = remoteJobs.raspCoverage;
+    if (remoteJobs.raspError !== undefined) updates.raspError = remoteJobs.raspError;
+  }
+
+  if (remoteJobs?.stabilityoracleStatus != null || remoteJobs?.stabilityoracleVal !== undefined) {
+    updates.stabilityoracle = typeof remoteJobs.stabilityoracleVal === "number" ? remoteJobs.stabilityoracleVal : null;
+    if (remoteJobs.stabilityoracleStatus != null) updates.stabilityoracleStatus = remoteJobs.stabilityoracleStatus;
+    if (remoteJobs.stabilityoracleError !== undefined) updates.stabilityoracleError = remoteJobs.stabilityoracleError;
+  }
+
+  if (remoteJobs?.thermompnnStatus != null || remoteJobs?.thermompnnVal !== undefined) {
+    updates.thermompnn = typeof remoteJobs.thermompnnVal === "number" ? remoteJobs.thermompnnVal : null;
+  }
+
+  return Object.keys(updates).length ? updates : undefined;
+}
+
 function parseMutationParam(mutation: string): { wtLetter: string; mutLetter: string; posNum: number; chainParam: string } | null {
   if (!mutation || typeof mutation !== "string" || mutation.length > 50) return null;
   const clean = mutation.replace(/^p\./i, "").trim();
@@ -283,7 +312,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         ddmutStatus: remoteJobs.ddmutStatus,
         thermompnnJobId: remoteJobs.thermompnnJobId,
         thermompnnStatus: remoteJobs.thermompnnStatus,
-        thermompnnError: remoteJobs.thermompnnError
+        thermompnnError: remoteJobs.thermompnnError,
+        engineUpdates: engineUpdatesFromJob(jobData, remoteJobs)
       });
     } catch (err: any) {
       console.error(`[Route Error] FoldX job polling failed for ${jobId}:`, err.message);

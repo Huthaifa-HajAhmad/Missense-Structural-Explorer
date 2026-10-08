@@ -787,7 +787,15 @@ export function enrichBiophysicalResult(
     thermompnnStatus: "pending" | "done" | "unavailable" | "error" | string | null;
     thermompnnError: string | null;
     thermompnnVal: number | null;
+    raspStatus: "pending" | "done" | "unavailable" | "error" | string | null;
+    raspVal: number | null;
+    raspReason: string | null;
+    raspSource: RaspSource | null;
+    raspCoverage: RaspCoverage | null;
+    raspError: string | null;
+    stabilityoracleStatus: "pending" | "done" | "unavailable" | "error" | string | null;
     stabilityoracleVal: number | null;
+    stabilityoracleError: string | null;
   }> | null,
   structureProvenance: any = null,
   posNum: number = 0
@@ -806,9 +814,13 @@ export function enrichBiophysicalResult(
   const localSidechainRmsdReference = foldxRawResult?.energetics?.localSidechainRmsdReference ?? null;
   const foldxRawDdGs = foldxRawResult?.energetics?.rawDdGs ?? null;
   const foldxSeed = foldxRawResult?.energetics?.seed ?? null;
-  const rasp = foldxRawResult?.energetics?.rasp ?? null;
-  const raspReason = foldxRawResult?.energetics?.raspReason ?? undefined;
+  const rasp = jobs.raspVal ?? foldxRawResult?.energetics?.rasp ?? null;
+  const raspReason = jobs.raspReason ?? foldxRawResult?.energetics?.raspReason ?? undefined;
+  const raspStatus = jobs.raspStatus ?? foldxRawResult?.energetics?.raspStatus ?? null;
+  const raspError = jobs.raspError ?? foldxRawResult?.energetics?.raspError ?? null;
   const stabilityoracleVal = jobs.stabilityoracleVal ?? foldxRawResult?.energetics?.stabilityoracle ?? null;
+  const stabilityoracleStatus = jobs.stabilityoracleStatus ?? foldxRawResult?.energetics?.stabilityoracleStatus ?? null;
+  const stabilityoracleError = jobs.stabilityoracleError ?? foldxRawResult?.energetics?.stabilityoracleError ?? null;
   const thermompnnVal = jobs.thermompnnVal ?? foldxRawResult?.energetics?.thermompnn ?? null;
   const dynamut2Val = jobs.dynamut2Val ?? foldxRawResult?.energetics?.dynamut2 ?? null;
   const ddmutVal = jobs.ddmutVal ?? foldxRawResult?.energetics?.ddmut ?? null;
@@ -817,6 +829,8 @@ export function enrichBiophysicalResult(
   if (jobs.dynamut2Status === "pending" && dynamut2Val === null) pendingTools.push("DynaMut2");
   if (jobs.ddmutStatus === "pending" && ddmutVal === null) pendingTools.push("DDMut");
   if (jobs.thermompnnStatus === "pending" && thermompnnVal === null) pendingTools.push("ThermoMPNN");
+  if (raspStatus === "pending" && rasp === null) pendingTools.push("RaSP");
+  if (stabilityoracleStatus === "pending" && stabilityoracleVal === null) pendingTools.push("StabilityOracle");
 
   const evidenceComplete = pendingTools.length === 0;
   const foldxRepairFailed = foldxRawResult?.energetics?.foldxRepairFailed ?? false;
@@ -903,11 +917,15 @@ export function enrichBiophysicalResult(
       ddmut: ddmutVal,
       rasp,
       raspReason,
+      raspStatus,
+      raspError,
       // Which RaSP table served the value, and what the installed index covers (for "not covered").
-      ...(foldxRawResult?.energetics?.raspSource ? { raspSource: foldxRawResult.energetics.raspSource } : {}),
-      ...(foldxRawResult?.energetics?.raspCoverage ? { raspCoverage: foldxRawResult.energetics.raspCoverage } : {}),
+      ...((jobs.raspSource ?? foldxRawResult?.energetics?.raspSource) ? { raspSource: jobs.raspSource ?? foldxRawResult.energetics.raspSource } : {}),
+      ...((jobs.raspCoverage ?? foldxRawResult?.energetics?.raspCoverage) ? { raspCoverage: jobs.raspCoverage ?? foldxRawResult.energetics.raspCoverage } : {}),
       thermompnn: thermompnnVal,
       stabilityoracle: stabilityoracleVal,
+      stabilityoracleStatus,
+      stabilityoracleError,
       /**
        * The agreement count, not a probability. `consensusProbability` / `consensusConfMin/Max` are no
        * longer emitted: they came from hand-typed curves (see `thresholds/consensus.ts`). Old cached

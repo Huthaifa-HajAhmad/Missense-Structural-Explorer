@@ -33,7 +33,6 @@ import {
   submitOrJoinFoldxJob,
 } from "../../services/infra/foldx-job-registry.ts";
 import { runStabilityOracleAnalysis } from "../../services/stabilityoracle.ts";
-import { fetchUniprotSequence } from "../../services/uniprot.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import {
   performGeminiBiophysicalAnalysis,
@@ -508,7 +507,14 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   thermompnnStatus: "pending",
                   thermompnnError: null,
                   thermompnnVal: null,
-                  stabilityoracleVal: null
+                  stabilityoracleVal: null,
+                  stabilityoracleStatus: "pending",
+                  stabilityoracleError: null,
+                  raspVal: null,
+                  raspStatus: "pending",
+                  raspReason: null,
+                  raspSource: null,
+                  raspError: null
                 }
               });
             }
@@ -588,7 +594,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let d2Promise = Promise.resolve();
         let ddmutPromise = Promise.resolve();
         let tmPromise = Promise.resolve();
-        let stabilityOraclePromise = Promise.resolve();
 
         const existingDynamut2 = cachedFoldx?.energetics?.dynamut2;
         const needDynamut2 = ownsRemoteSubmissions && (typeof existingDynamut2 !== "number");
@@ -600,7 +605,6 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         const needThermompnn = ownsRemoteSubmissions && (typeof existingThermompnn !== "number");
 
         const existingStabilityoracle = cachedFoldx?.energetics?.stabilityoracle;
-        const needStabilityoracle = ownsRemoteSubmissions && (typeof existingStabilityoracle !== "number");
 
         if (typeof existingDynamut2 === "number") {
           dynamut2Status = "done";
@@ -733,32 +737,10 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             });
         }
 
-        if (needStabilityoracle) {
-          stabilityOraclePromise = (async () => {
-            const sequence = await fetchUniprotSequence(uniprotId).catch(() => "");
-            return runStabilityOracleAnalysis(
-              "UNKNOWN",
-              `${wtLetter}${posNum}${mutLetter}`,
-              uniprotId,
-              sequence,
-              effectiveWtPdb
-            );
-          })()
-            .then(async (resObj) => {
-              if (resObj) {
-                stabilityoracleVal = resObj.ddG;
-              }
-              await updateQueueJobRemoteData({ stabilityoracleVal });
-            })
-            .catch(err => {
-              console.warn("[StabilityOracle Background Error] Failed:", err.message);
-            });
-        }
-
         // Give remote submissions up to 1.5s to acquire job IDs on fast connections before responding,
         // while allowing slower background submissions to continue without blocking indefinitely.
         await Promise.race([
-          Promise.allSettled([d2Promise, ddmutPromise, tmPromise, stabilityOraclePromise]),
+          Promise.allSettled([d2Promise, ddmutPromise, tmPromise]),
           new Promise(r => setTimeout(r, 1500))
         ]);
 
@@ -779,14 +761,22 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               );
               if (soRes) {
                 finalStabilityoracleVal = soRes.ddG;
-                if (cachedFoldx.energetics) {
-                  cachedFoldx.energetics.stabilityoracle = finalStabilityoracleVal;
-                }
-                writeMutantToCache(foldxCacheKey, cachedFoldx);
               }
+              if (cachedFoldx.energetics) {
+                cachedFoldx.energetics.stabilityoracle = finalStabilityoracleVal;
+                cachedFoldx.energetics.stabilityoracleStatus = "done";
+                cachedFoldx.energetics.stabilityoracleError = null;
+              }
+              writeMutantToCache(foldxCacheKey, cachedFoldx);
             } catch (soErr: any) {
               console.warn("[StabilityOracle Cache Backfill Warning]:", soErr.message);
+              if (cachedFoldx.energetics) {
+                cachedFoldx.energetics.stabilityoracleStatus = "error";
+                cachedFoldx.energetics.stabilityoracleError = soErr.message;
+              }
             }
+          } else if (cachedFoldx.energetics) {
+            cachedFoldx.energetics.stabilityoracleStatus = "done";
           }
 
           let finalThermompnnVal = thermompnnVal ?? cachedFoldx?.energetics?.thermompnn ?? null;
@@ -827,6 +817,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                 cachedFoldx.energetics.raspReason = raspRes.reason;
                 cachedFoldx.energetics.raspSource = raspRes.source;
                 cachedFoldx.energetics.raspCoverage = getRaspCoverage() ?? undefined;
+                cachedFoldx.energetics.raspStatus = "done";
+                cachedFoldx.energetics.raspError = null;
                 // Persist only a real score: a miss may be a store fault that a rebuild will fix.
                 if (typeof raspRes.score === "number") writeMutantToCache(foldxCacheKey, cachedFoldx);
               }

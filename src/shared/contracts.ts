@@ -150,6 +150,9 @@ export const energeticsDataSchema = z.object({
   dynamut2: nullableFiniteNumber.optional(),
   ddmut: nullableFiniteNumber.optional(),
   rasp: nullableFiniteNumber.optional(),
+  /** Lookup lifecycle; `done` with no score means the installed table returned no estimate. */
+  raspStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
+  raspError: z.string().nullable().optional(),
   thermompnn: nullableFiniteNumber.optional(),
   consensusVerdict: z.string().nullable().optional(),
   raspReason: z.string().optional(),
@@ -166,6 +169,8 @@ export const energeticsDataSchema = z.object({
   pendingTools: z.array(z.string()).optional(),
   rawDdGs: z.array(z.number()).nullable().optional(),
   stabilityoracle: nullableFiniteNumber.optional(),
+  stabilityoracleStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
+  stabilityoracleError: z.string().nullable().optional(),
   /**
    * @deprecated No longer produced. They came from hand-typed curves (`thresholds/consensus.ts`) and
    * are kept only so payloads cached before their retirement still parse. Nothing may read them.
@@ -1464,6 +1469,10 @@ export const generateMutantResponseSchema = z.object({
   thermompnnJobId: z.string().nullable().optional(),
   thermompnnStatus: z.string().nullable().optional(),
   thermompnnError: z.string().nullable().optional(),
+  /** Values from independent engines that finish while the FoldX job is still running. */
+  engineUpdates: energeticsDataSchema.partial().extend({
+    foldxStatus: z.enum(["success", "failed", "unavailable"]).optional(),
+  }).optional(),
   provenance: structureProvenanceSchema.passthrough().optional()
 }).passthrough();
 
