@@ -1,7 +1,16 @@
-import "@testing-library/jest-dom";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+
+/**
+ * jest-dom's matchers only mean something where there is a DOM, and importing it is not free: it pulls
+ * in a CSS parser and the ARIA/accessibility tables, and this file runs once per test FILE. Run
+ * 37808183466 spent 71 s of its 300 s in setup across 333 files; 258 of them are node-environment files
+ * that never touch a matcher. Loading it only under jsdom keeps the matchers wherever `document` exists.
+ */
+if (typeof document !== "undefined") {
+  await import("@testing-library/jest-dom/vitest");
+}
 
 /**
  * Test-environment safety: no test may read or write the repository's real state.
