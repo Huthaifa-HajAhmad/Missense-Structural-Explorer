@@ -413,6 +413,11 @@ export interface EngineObservation {
   detail?: string | null;
   /** True while the owning run is still in flight. */
   runActive?: boolean;
+  /**
+   * True when the provider missed a poll but the job is still being listened for. Only meaningful
+   * while the engine is `running`; it changes the explanation, never the state or the label.
+   */
+  listening?: boolean;
   /** True when the user has hidden still-running engines. Affects presentation, never coverage. */
   hidden?: boolean;
   /**
@@ -490,12 +495,14 @@ export function raspCoverageSentence(coverage?: RaspCoverage | null): string {
   return `The installed RaSP table covers ${n} human proteins with experimental structures, not the whole proteome.`;
 }
 
-function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string | null, coverage?: RaspCoverage | null): string {
+function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string | null, coverage?: RaspCoverage | null, listening = false): string {
   switch (state) {
     case "computed":
       return "";
     case "running":
-      return "Calculation in progress.";
+      return listening
+        ? `${engine.name}'s provider did not answer in time. Still listening — the value will appear here if it arrives.`
+        : "Calculation in progress.";
     case "not-installed":
       return engine.id === "stabilityoracle" || engine.id === "thermompnn"
         ? "Not available in this deployment — the local model service is not running."
@@ -629,7 +636,7 @@ export function resolveEngineOutcome(obs: EngineObservation): EngineOutcome {
           : null;
 
   const exclusionNote = "Shown for reference only — excluded from the consensus.";
-  const baseReason = foldxCause ?? reasonFor(state, engine, detail, obs.coverage);
+  const baseReason = foldxCause ?? reasonFor(state, engine, detail, obs.coverage, Boolean(obs.listening));
 
   return {
     id: obs.id,
@@ -689,6 +696,9 @@ export interface EngineFacts {
   raspStatus?: RemoteStatus;
   dynamut2Error?: string | null;
   ddmutError?: string | null;
+  /** Remote engines whose provider missed a poll while the job is still being listened for. */
+  dynamut2Listening?: boolean;
+  ddmutListening?: boolean;
   raspError?: string | null;
   thermompnnStatus?: RemoteStatus;
   stabilityoracleStatus?: RemoteStatus;
@@ -824,6 +834,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       problem: absenceProblemFor(getEngine("dynamut2"), facts.dynamut2Status),
       detail: facts.dynamut2Error ?? null,
       runActive: isFolding || remoteRunActive(facts.dynamut2Status, facts.dynamut2),
+      listening: Boolean(facts.dynamut2Listening),
     },
     {
       id: "ddmut",
@@ -832,6 +843,7 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       problem: absenceProblemFor(getEngine("ddmut"), facts.ddmutStatus),
       detail: facts.ddmutError ?? null,
       runActive: isFolding || remoteRunActive(facts.ddmutStatus, facts.ddmut),
+      listening: Boolean(facts.ddmutListening),
     },
     {
       id: "rasp",

@@ -189,11 +189,13 @@ export function useBiophysicalModeling(
     fetchWithAuth,
     onStatusChange: setDynamut2Status,
     onError: message => recordRemoteError("dynamut2", message),
+    onListening: () => setFoldingEnergetics((prev: any) => (prev ? { ...prev, dynamut2Listening: true } : prev)),
     onToolFailed: tool => {
       setFoldingEnergetics((prev: any) => {
         if (!prev) return prev;
         return {
           ...prev,
+          dynamut2Listening: false,
           pendingTools: prev.pendingTools ? prev.pendingTools.filter((t: string) => t !== tool) : []
         };
       });
@@ -203,6 +205,7 @@ export function useBiophysicalModeling(
         ...(prev || {}),
         dynamut2: data.prediction,
         dynamut2Error: null,
+        dynamut2Listening: false,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DynaMut2") : []
       }));
     },
@@ -218,11 +221,13 @@ export function useBiophysicalModeling(
     fetchWithAuth,
     onStatusChange: setDdmutStatus,
     onError: message => recordRemoteError("ddmut", message),
+    onListening: () => setFoldingEnergetics((prev: any) => (prev ? { ...prev, ddmutListening: true } : prev)),
     onToolFailed: tool => {
       setFoldingEnergetics((prev: any) => {
         if (!prev) return prev;
         return {
           ...prev,
+          ddmutListening: false,
           pendingTools: prev.pendingTools ? prev.pendingTools.filter((t: string) => t !== tool) : []
         };
       });
@@ -232,6 +237,7 @@ export function useBiophysicalModeling(
         ...(prev || {}),
         ddmut: data.prediction,
         ddmutError: null,
+        ddmutListening: false,
         pendingTools: prev?.pendingTools ? prev.pendingTools.filter((t: string) => t !== "DDMut") : []
       }));
     },

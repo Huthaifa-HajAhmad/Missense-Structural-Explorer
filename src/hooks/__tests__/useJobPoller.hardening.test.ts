@@ -56,6 +56,35 @@ describe("remote job terminal-state safety", () => {
     expect(options.onError).toHaveBeenCalledWith("Provider still queued after 5 minutes");
     expect(options.onSuccess).not.toHaveBeenCalled();
   });
+  it("keeps listening after a retryable UNAVAILABLE and adopts a later DONE", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ status: "UNAVAILABLE", retryable: true, reason: "transient", error: "upstream down" }) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ status: "DONE", prediction: -1.5 }) });
+    const options = { ...config(fetch), onListening: vi.fn(), maxElapsedMs: 600000 };
+    renderHook(() => useJobPoller(options));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(options.onListening).toHaveBeenCalledOnce();
+    expect(options.onStatusChange).not.toHaveBeenCalled();
+    expect(streams[0].close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(45000);
+    expect(options.onStatusChange).toHaveBeenCalledExactlyOnceWith("done");
+    expect(options.onSuccess).toHaveBeenCalledWith(expect.objectContaining({ prediction: -1.5 }));
+  });
+  it("treats a stale UNAVAILABLE as terminal even if marked retryable", async () => {
+    const options = config(vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ status: "UNAVAILABLE", reason: "stale", retryable: false, error: "5-minute window" }) }));
+    renderHook(() => useJobPoller(options));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(options.onStatusChange).toHaveBeenCalledExactlyOnceWith("unavailable");
+  });
+  it("listens on an SSE retryable UNAVAILABLE and stops at the listening window", async () => {
+    const options = { ...config(vi.fn().mockReturnValue(new Promise(() => {}))), onListening: vi.fn(), maxElapsedMs: 600000 };
+    renderHook(() => useJobPoller(options));
+    streams[0].onmessage({ data: JSON.stringify({ type: "job_update", jobId: "123", status: "UNAVAILABLE", retryable: true, error: "blip" }) });
+    expect(options.onListening).toHaveBeenCalledOnce();
+    expect(options.onStatusChange).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(options.onStatusChange).toHaveBeenCalledExactlyOnceWith("unavailable");
+  });
   it("does not apply a decoded old-job response after switching jobs", async () => {
     const body = deferred<any>();
     const fetch = vi.fn()

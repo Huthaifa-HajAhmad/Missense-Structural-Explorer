@@ -324,6 +324,8 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     raspStatus: e?.raspStatus,
     dynamut2Error: typeof e?.dynamut2Error === "string" ? e.dynamut2Error : null,
     ddmutError: typeof e?.ddmutError === "string" ? e.ddmutError : null,
+    dynamut2Listening: e?.dynamut2Listening === true,
+    ddmutListening: e?.ddmutListening === true,
     raspError: typeof e?.raspError === "string" ? e.raspError : null,
     thermompnnStatus: input.thermompnnStatus,
     stabilityoracleStatus: e?.stabilityoracleStatus,

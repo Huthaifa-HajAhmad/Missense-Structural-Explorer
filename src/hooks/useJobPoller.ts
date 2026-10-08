@@ -11,9 +11,14 @@ export interface JobPollerConfig<TData = any, TStatus = string> {
   onStatusChange: (status: any) => void;
   onError?: (errMessage: string) => void;
   onToolFailed?: (toolName: string) => void;
+  /** Fired once when a transient failure turns the poll into slow "keep listening" mode. */
+  onListening?: (message: string) => void;
   notifyOnce?: (key: string, type: "warn" | "error" | "success" | "info", message: string) => void;
   maxAttempts?: number;
   maxElapsedMs?: number;
+  /** Longest a job is listened for after a transient failure — mirrors the server's staleness window. */
+  listenWindowMs?: number;
+  listenIntervalMs?: number;
 }
 
 export function useJobPoller<TData = any>({
@@ -27,9 +32,12 @@ export function useJobPoller<TData = any>({
   onStatusChange,
   onError,
   onToolFailed,
+  onListening,
   notifyOnce,
   maxAttempts = 60,
-  maxElapsedMs = 10 * 60 * 1000
+  maxElapsedMs = 10 * 60 * 1000,
+  listenWindowMs = 5 * 60 * 1000,
+  listenIntervalMs = 45 * 1000
 }: JobPollerConfig<TData>) {
   const endpointRef = useRef(endpoint);
   endpointRef.current = endpoint;
@@ -43,6 +51,8 @@ export function useJobPoller<TData = any>({
   onErrorRef.current = onError;
   const onToolFailedRef = useRef(onToolFailed);
   onToolFailedRef.current = onToolFailed;
+  const onListeningRef = useRef(onListening);
+  onListeningRef.current = onListening;
   const notifyOnceRef = useRef(notifyOnce);
   notifyOnceRef.current = notifyOnce;
   const buildQueryParamsRef = useRef(buildQueryParams);
@@ -58,6 +68,7 @@ export function useJobPoller<TData = any>({
     let attempt = 0;
     let stopped = false;
     let consecutiveTransientErrors = 0;
+    let listening = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let deadlineId: ReturnType<typeof setTimeout> | undefined;
     let eventSource: EventSource | null = null;
@@ -88,6 +99,28 @@ export function useJobPoller<TData = any>({
         nextStatus === "done" ? `${toolName} prediction completed.` : `${toolName} prediction failed: ${error || "No result returned"}`);
       return true;
     };
+    /**
+     * A transient failure (one upstream poll that did not answer, or three failed HTTP polls) does not
+     * end the job: it may still be running upstream. Keep the stream open and poll slowly until the
+     * server calls it stale or the listening window closes. Returns true when it ended the poll instead.
+     */
+    const enterListening = (reason: string): boolean => {
+      if (stopped) return true;
+      if (listening) return false;
+      const remaining = Math.min(maxElapsedMs, listenWindowMs) - (Date.now() - pollStart);
+      if (remaining <= 0) {
+        finish("unavailable", `${toolName} did not recover: ${reason}`);
+        return true;
+      }
+      listening = true;
+      consecutiveTransientErrors = 0;
+      clearTimeout(deadlineId);
+      deadlineId = setTimeout(() => finish("unavailable", `${toolName} did not recover within the listening window: ${reason}`), remaining);
+      onListeningRef.current?.(reason);
+      notifyOnceRef.current?.(`${toolName}_${jobId}_listening`, "info",
+        `${toolName} did not answer in time — still listening; the value will appear if it arrives.`);
+      return false;
+    };
     const consume = (data: any): boolean => {
       const normStatus = typeof data?.status === "string" ? data.status.toUpperCase() : "";
       if (["DONE", "SUCCESS", "COMPLETED"].includes(normStatus)) {
@@ -98,6 +131,9 @@ export function useJobPoller<TData = any>({
           onSuccessRef.current(result);
         }
         return true;
+      }
+      if (normStatus === "UNAVAILABLE" && data.retryable === true && data.reason !== "stale") {
+        return enterListening(data.error || `${toolName} provider did not answer.`);
       }
       if (["ERROR", "FAILED", "UNAVAILABLE"].includes(normStatus)) {
         finish(normStatus === "UNAVAILABLE" ? "unavailable" : "error",
@@ -126,10 +162,10 @@ export function useJobPoller<TData = any>({
       }
     }
 
-    const getBackoffDelay = (attempts: number) => attempts < 5 ? 3000 : attempts < 15 ? 5000 : 10000;
+    const getBackoffDelay = (attempts: number) => listening ? listenIntervalMs : attempts < 5 ? 3000 : attempts < 15 ? 5000 : 10000;
     const poll = async () => {
       if (stopped) return;
-      if (attempt >= maxAttempts || Date.now() - pollStart >= maxElapsedMs) {
+      if ((!listening && attempt >= maxAttempts) || Date.now() - pollStart >= maxElapsedMs) {
         finish("unavailable", `${toolName} prediction timed out (poll limit reached)`);
         return;
       }
@@ -139,10 +175,7 @@ export function useJobPoller<TData = any>({
         const response = await fetchWithAuthRef.current(url, { signal: controller.signal });
         if (stopped) return;
         if ([429, 502, 503, 504].includes(response.status)) {
-          if (++consecutiveTransientErrors >= 3) {
-            finish("unavailable", `${toolName} predictor is currently unavailable (HTTP ${response.status})`);
-            return;
-          }
+          if (++consecutiveTransientErrors >= 3 && enterListening(`${toolName} predictor is currently unavailable (HTTP ${response.status}).`)) return;
         } else if (!response.ok) {
           finish("error", `${toolName} job lookup failed (HTTP ${response.status})`);
           return;
@@ -152,21 +185,19 @@ export function useJobPoller<TData = any>({
           consecutiveTransientErrors = 0;
           if (consume(data)) return;
           const state = typeof data?.status === "string" ? data.status.toUpperCase() : "";
-          if (!["PENDING", "QUEUED", "RUNNING", "PROCESSING"].includes(state)) {
+          // UNAVAILABLE only survives consume() when it was a retryable answer, i.e. we are listening.
+          if (!["PENDING", "QUEUED", "RUNNING", "PROCESSING", "UNAVAILABLE"].includes(state)) {
             finish("error", `${toolName} returned an invalid job status: ${state || "missing"}`);
             return;
           }
         }
       } catch (error: any) {
         if (stopped) return;
-        if (++consecutiveTransientErrors >= 3) {
-          finish("unavailable", `${toolName} job polling failed: ${error?.message || "Network error"}`);
-          return;
-        }
+        if (++consecutiveTransientErrors >= 3 && enterListening(`${toolName} job polling failed: ${error?.message || "Network error"}.`)) return;
       }
       if (!stopped) timeoutId = setTimeout(poll, getBackoffDelay(++attempt));
     };
     void poll();
     return stop;
-  }, [jobId, status, toolName, maxAttempts, maxElapsedMs]);
+  }, [jobId, status, toolName, maxAttempts, maxElapsedMs, listenWindowMs, listenIntervalMs]);
 }
