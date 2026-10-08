@@ -12,6 +12,17 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  # Manual run, for trying a runner image before adopting it (see the RUNNER note below). A dispatched
+  # run is not a `push`, so `cd.yml` - which gates on `event == 'push'` - never deploys it.
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner image to run on'
+        type: choice
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+          - ubuntu-26.04
 
 # A superseded push cancels its own run. Deployment waits on this workflow, so time spent finishing a
 # stale run is latency added to the deploy of the newer commit.
@@ -19,21 +30,41 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# TWO jobs, not three. Measured profile of the serial shape:
-#   npm ci 79s -> lint 6s -> tests+coverage 199s -> build 22s  = 371s (6m11s)
-# The split into three was optimised for wall-clock, which is the right objective when minutes are
-# free and the wrong one when they are not: GitHub bills every job separately and rounds each up to
-# the whole minute, so a split job pays its own checkout, its own setup-node and its own `npm ci`.
-# On 2026-09-29 the account was at 90% of its 2,000 included minutes (1,800 used), driven almost
-# entirely by this workflow plus the CD run that each push to main triggers.
+# ONE job. History of the shape, all measured:
+#   serial   : npm ci 79s -> lint 6s -> tests+coverage 199s -> build 22s  = 371s (6m11s)
+#   3 jobs   : optimised for wall-clock; each paid its own checkout + setup-node + `npm ci`
+#   2 jobs   : `quality` + `geometry` (31s of harness behind 88s of setup, billed as a whole 2 min)
+#   1 job    : this file. GitHub bills every job separately and rounds each up to the whole minute, and
+#              the account is the binding constraint (90% of 2,000 included minutes on 2026-09-29), so
+#              a job that exists to run 31s of work is a job that costs 2 minutes.
 #
-# `build` therefore moves back inside `quality`: measured at 22s, it costs one more step rather than
-# one more job's setup. The PR artifact upload moves with it.
+# The geometry harnesses used to be separate for two reasons, both dissolved here. "It needs a Chromium
+# toolchain" — `ubuntu-latest` ships Chrome, so there is nothing extra to install. "Its failure artifact
+# is only meaningful next to its own steps" — the upload step is now conditioned on that step's own
+# outcome (`steps.geometry.outcome`), so a lint failure still never uploads renders for a run that did
+# not happen.
 #
-# `geometry` stays a separate job deliberately. It needs a Chromium toolchain rather than the Node
-# one, and its failure artifact (`if: failure()`) is only meaningful next to its own steps — merging
-# it would make a lint failure attempt an upload for a geometry run that never happened. It is the
-# next candidate if minutes tighten again.
+# INDEPENDENT GATES ALL REPORT. A failing step normally skips the rest of its job, which in one job would
+# mean a test failure hides a geometry failure (two parallel jobs used to show both). Every gate after
+# `lint` therefore runs on `!cancelled() && steps.lint.outcome == 'success'`: install/audit/lint still
+# fail fast, but past that point one red run lists every red gate instead of one per push. The cheap
+# gates run first so the first red appears early; the long test step is last.
+#
+# THE TEST STEP IS THE RUN. Run 37794034476 (PR #80): 9m04s for `quality`, of which `test:coverage`
+# was 419s. This is a PRIVATE repository, so `ubuntu-latest` is the standard 2-vCPU runner, and
+# Vitest's default of `cores - 1` is ONE worker: the 4,273 tests ran serially (tests 178s + import 71s
+# + environment 56s + setup 44s + transform 16s = 365s of per-file work). `vite.config.ts` now uses
+# every core on CI. Sharding was considered and rejected: each shard repays ~90s of setup, so it buys
+# wall-clock by spending exactly the billed minutes this file is trying to save. Two workers do it for
+# free. Real-time retry/poll sleeps and live-Ensembl calls inside tests were also removed (see
+# `setBackoffScaleForTests` in http-client.ts and `setPollDelayScaleForTests` in foldxService.ts).
+#
+# THE RUNNER IS PINNED. `ubuntu-latest` begins migrating to Ubuntu 26.04 on 2026-10-19 and completes
+# 2026-11-19 (actions/runner-images#14748) — a rollout over weeks, so for that window `latest` would
+# mean either image depending on the run. A pinned image makes a red run mean the change. To adopt
+# 26.04 deliberately, run this workflow by hand (Actions -> Continuous Integration -> Run workflow)
+# with `runner` = `ubuntu-26.04`: it exercises Chrome discovery for the geometry harnesses and Node 22
+# there without touching any PR. Move the default below once that is green.
 #
 # RUN THE SAME SCRIPTS LOCALLY. `npm run verify` is this workflow's gate set in one command:
 # lint + test:coverage + verify:geometry + build. The point is not to run the gates twice — it is that
@@ -52,27 +83,31 @@ concurrency:
 # the deployed VM. The deployment state-machine tests now use the runner's bundled Python standard
 # library, without uv, model dependencies, or a separate Python setup step.
 #
-# Coverage is not the cost worth attacking: 49s with coverage vs 48s without, measured locally. The
-# runner is simply slower than a dev machine, which is what sharding would address.
+# Coverage stays on: it carries the coverage thresholds in `vite.config.ts`, so it is a gate, not a
+# report. The old note here ("49s with coverage vs 48s without") was measured against a 2,176-test suite;
+# re-measured on 2026-10-08 at 4,267 tests with two workers: 158s without, 176s with (+11%). Dropping it
+# from PR runs would save ~18s locally and forfeit the threshold gate, so it stays.
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 20
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      # NO `cache: 'npm'` HERE. `setup-node` cached ~/.npm as a single entry that grew to 644 MB and
-      # blew the 500 MB Actions storage allowance on GitHub Free. Measured on 2026-09-29: the
-      # account's Actions block was 176 MB of STORAGE overage, not a minutes overage — minutes were
-      # 1,930 of 2,000 (215 CI runs = 1,084 min, 203 CD runs = 846 min). `npm ci --prefer-offline`
-      # still reads the npm cache the runner image ships, so dropping this costs less than a fully
-      # cold install would suggest.
+      # NO npm cache. `package.json` declares `packageManager`, and `setup-node@v5` turns on npm caching
+      # for any project that does — silently, with no `cache:` input — so this step was restoring and
+      # re-saving a ~669 MB `~/.npm` entry (run 37794034476: "Cache Size: ~669 MB"). That entry is what
+      # blew the 500 MB Actions storage allowance on GitHub Free (measured 2026-09-29: 176 MB of STORAGE
+      # overage, not minutes), and it bought nothing: `npm ci` took 77s WITH the warm cache, because
+      # extracting and linking dominates, not downloading. `package-manager-cache: false` is the switch
+      # that actually turns it off. `npm ci --prefer-offline` still reads the cache the runner image ships.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+          package-manager-cache: false
 
       # The "Cache Vitest results" step that used to sit here is gone, for two measured reasons.
       # The path was `node_modules/.vitest`, which is not Vitest's cache directory — that is
@@ -81,7 +116,7 @@ jobs:
       # the step cached nothing. Its key also interpolated `github.sha`, so it could never be hit
       # exactly and every run would have written a fresh entry had the path existed.
       - name: Install Node dependencies
-        # `--prefer-offline` uses the npm cache setup-node restored; `--no-audit`/`--fund` skip work
+        # `--prefer-offline` uses the npm cache the runner image ships; `--no-audit`/`--fund` skip work
         # that the explicit audit step already does.
         run: npm ci --prefer-offline --no-audit --fund=false
 
@@ -106,92 +141,79 @@ jobs:
         run: npm run audit
 
       - name: Run linter
+        id: lint
         # boundaries + focus indicators + verify-parity + tsc --noEmit
         run: npm run lint
 
-      - name: Run tests and collect coverage
-        run: npm run test:coverage
-
-      - name: Test deployment failure paths
-        run: npm run test:deployment
-
-      - name: Test evidence context imports
-        run: npm run test:evidence-context-import
-
-      # Was its own job, running in parallel with the tests. Both were already paying for their own
-      # checkout, setup-node and `npm ci`; the build is 22s, so the parallelism bought wall-clock at
-      # the price of a whole second job's billed setup. See the header comment.
-      - name: Run production build verification
-        run: npm run build
-
-      - name: Upload PR build preview artifact
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v6
-        with:
-          name: pr-build-preview
-          path: dist/
-          retention-days: 7
-
-      - name: Generate CI Summary Report
-        if: always()
-        run: |
-          echo "### 🚀 CI Quality & Build Report" >> $GITHUB_STEP_SUMMARY
-          echo "- **Event**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Quality Gates**: Architectural boundaries, TypeScript typecheck, coverage thresholds, and the production build passed." >> $GITHUB_STEP_SUMMARY
-
-  # Measured layout. Both harnesses bundle the real component with the real stylesheet, render it in
-  # headless Chromium and assert geometry jsdom cannot see: getBBox, computed styles, :focus-visible,
-  # and the rendered effect of a filter. They exist because two layout regressions in the variant
-  # header and four in the Functional Domains track were previously verified only by eye.
-  #
-  # One step, one script (`verify:geometry`), which is also what `npm run verify` calls. A failing
-  # step already skips the rest of its job, so splitting them bought no extra reporting.
-  #
-  # A Chromium-based browser is required. The harnesses search the usual locations per platform and
-  # take `GEOMETRY_BROWSER` / `CHROME_PATH` as an override, failing with that instruction rather
-  # than a stack trace. `ubuntu-latest` ships Chrome at /usr/bin/google-chrome.
-  #
-  # `ubuntu-latest` ships Chrome, which the runners discover at /usr/bin/google-chrome. Deployment
-  # gates on this workflow's overall conclusion, so a geometry failure stops a deploy.
-  geometry:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      # NO `cache: 'npm'` HERE. `setup-node` cached ~/.npm as a single entry that grew to 644 MB and
-      # blew the 500 MB Actions storage allowance on GitHub Free. Measured on 2026-09-29: the
-      # account's Actions block was 176 MB of STORAGE overage, not a minutes overage — minutes were
-      # 1,930 of 2,000 (215 CI runs = 1,084 min, 203 CD runs = 846 min). `npm ci --prefer-offline`
-      # still reads the npm cache the runner image ships, so dropping this costs less than a fully
-      # cold install would suggest.
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22'
-
-      - name: Install Node dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
-
-      - name: Variant header and Functional Domains geometry
+      # Measured layout. The harnesses bundle the real component with the real stylesheet, render it in
+      # headless Chromium and assert geometry jsdom cannot see: getBBox, computed styles, :focus-visible,
+      # and the rendered effect of a filter. They exist because two layout regressions in the variant
+      # header and four in the Functional Domains track were previously verified only by eye.
+      #
+      # One step, one script (`verify:geometry`), which is also what `npm run verify` calls. A
+      # Chromium-based browser is required. The harnesses search the usual locations per platform and
+      # take `GEOMETRY_BROWSER` / `CHROME_PATH` as an override, failing with that instruction rather
+      # than a stack trace. The Ubuntu runner images ship Chrome at /usr/bin/google-chrome. Deployment
+      # gates on this workflow's overall conclusion, so a geometry failure stops a deploy.
+      - name: Variant header, Functional Domains and Landscape geometry
+        id: geometry
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
         env:
           # Makes the harness save the render it measured, for the artifact step below.
           TRACK_SHOT: "1"
+          LAND_SHOT: "1"
         run: npm run verify:geometry
 
       # A geometry failure is only actionable next to the render that produced it, and each
-      # harness's dist/ is a self-contained page.
+      # harness's dist/ is a self-contained page. Keyed to the geometry step's OWN outcome: in a single
+      # job `failure()` alone is true for any earlier failure, which would upload renders that were
+      # never produced.
       - name: Upload geometry renders
-        if: failure()
+        if: ${{ !cancelled() && steps.geometry.outcome == 'failure' }}
         uses: actions/upload-artifact@v6
         with:
           name: geometry-renders
           path: |
             tools/header-geometry/dist/
             tools/function-track-geometry/dist/
+            tools/landscape-geometry/dist/
+            tools/landscape-geometry/landscape-geometry.png
             tools/function-track-geometry/function-track.png
           retention-days: 7
+
+      - name: Test deployment failure paths
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
+        run: npm run test:deployment
+
+      - name: Test evidence context imports
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
+        run: npm run test:evidence-context-import
+
+      - name: Run production build verification
+        id: build
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
+        run: npm run build
+
+      - name: Upload PR build preview artifact
+        if: ${{ github.event_name == 'pull_request' && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pr-build-preview
+          path: dist/
+          retention-days: 7
+
+      # Last because it is the long one. Everything above has already reported.
+      - name: Run tests and collect coverage
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
+        run: npm run test:coverage
+
+      - name: Generate CI Summary Report
+        if: always()
+        run: |
+          echo "### 🚀 CI Quality & Build Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Result**: \`${{ job.status }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event**: \`${{ github.event_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runner image**: \`${{ inputs.runner || 'ubuntu-24.04' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Gates**: architectural boundaries, TypeScript typecheck, geometry, deployment and evidence-context tests, production build, and tests with coverage thresholds." >> $GITHUB_STEP_SUMMARY

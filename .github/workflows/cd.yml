@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Pinned to match ci.yml: `ubuntu-latest` migrates to 26.04 over 2026-10-19..11-19, and a production
+    # deploy should not be the first thing to meet a new image. Move both together (see ci.yml).
+    runs-on: ubuntu-24.04
     # Hard ceiling on the whole job. Cutting the confirmation window (see DEPLOY_CONFIRM_SECONDS
     # below) leaves roughly 20 s of real work, but the cost that actually hurt sat OUTSIDE that
     # window: in run 36710716430 the SSH step spent 40 min 31 s between drone-ssh printing its
