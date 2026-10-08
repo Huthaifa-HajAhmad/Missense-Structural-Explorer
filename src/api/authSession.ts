@@ -10,6 +10,57 @@ let sessionRefreshPromise: Promise<{ sessionId: string; expiresAt: number } | nu
 let lastReauthFailureTime = 0;
 const REAUTH_COOLDOWN_MS = 30000;
 
+// ── Auth-lapse signal ────────────────────────────────────────────────────────────────────────────
+// The single choke-point every app API call passes through also knows, and only it knows, when an
+// authorization refusal survived the built-in re-auth attempt. A session that lapsed while the app
+// idled exposed itself only as a warn line in the dev console: background consumers (the energetics
+// remote-submission poll, for one) treat any non-OK response as "nothing came back" and settle
+// silently. Surfaces that CAN act — the Services rail's inline relink — subscribe here instead of
+// re-deriving the failure from UI state that never records it.
+
+export interface AuthLapse {
+  /** When the terminal 401 was seen. */
+  at: number;
+  /** The refused relative URL, credential-free (no query string). */
+  url: string;
+  status: 401;
+}
+
+let authLapse: AuthLapse | null = null;
+const authLapseListeners = new Set<(lapse: AuthLapse | null) => void>();
+
+/** The most recent terminal 401, or null while authorization works. */
+export function getAuthLapse(): AuthLapse | null {
+  return authLapse;
+}
+
+export function subscribeAuthLapse(listener: (lapse: AuthLapse | null) => void): () => void {
+  authLapseListeners.add(listener);
+  return () => authLapseListeners.delete(listener);
+}
+
+/** A refused URL that never parsed keeps its path part alone; query stays out of the signal. */
+function sanitizeAuthLapseUrl(raw: string): string {
+  const queryStart = raw.indexOf("?");
+  if (queryStart === -1) return raw;
+  const path = raw.slice(0, queryStart);
+  return path.length > 0 ? path : "/";
+}
+
+function setAuthLapse(next: AuthLapse): void {
+  const dedupChanged = !authLapse || authLapse.url !== next.url;
+  authLapse = next;
+  // On re-fire for the same refused URL skip notification: the pending long-poll retries would
+  // otherwise tick the panel every cycle. `at` still advances for readers that re-subscribe.
+  if (dedupChanged) authLapseListeners.forEach(l => l(authLapse));
+}
+
+function clearAuthLapse(): void {
+  if (!authLapse) return;
+  authLapse = null;
+  authLapseListeners.forEach(l => l(null));
+}
+
 export function clearInvalidApiKey(key?: string): void {
   if (key) {
     invalidApiKeys.delete(key);
@@ -496,6 +547,26 @@ export function useAuthSession() {
           }
         } catch {
           // If re-auth fetch fails (e.g. network), return original 401 response
+        }
+      }
+
+      // Authorization that survived the built-in re-auth attempt is a lapse surfaces can act on:
+      // publish it (and clear it again as soon as an authorized call succeeds). Only relative
+      // routes are covered — external third-party APIs manage their own credentials.
+      if (isRelativeOrSameOrigin) {
+        if (response.status === 401) {
+          let refusedPath = url;
+          try {
+            // The query can carry variant context; the path is what identifies the refusal and
+            // keeps deduplication stable across identical retries.
+            refusedPath = new URL(url, window.location.origin).pathname;
+          } catch {
+            // A malformed URL keeps its raw path; the label still works.
+            refusedPath = sanitizeAuthLapseUrl(url);
+          }
+          setAuthLapse({ at: Date.now(), url: refusedPath, status: 401 });
+        } else if (response.ok) {
+          clearAuthLapse();
         }
       }
 

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import {
   RefreshCw,
   Settings,
@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
+import { useApiConnections } from "../../hooks/useApiConnections";
+import { getAuthLapse, subscribeAuthLapse } from "../../api/authSession";
 
 interface LiveTelemetryPanelProps {
   onConfigureClick?: (tab: "connections" | "api") => void;
@@ -77,6 +79,21 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 }) => {
   const { diagnostics, capabilities, loading, refresh } = useDiagnostics();
   const { settings, serverGeminiReady, openSettingsTab } = useSettings();
+  const { linking, linkError, linkGeminiKey } = useApiConnections();
+
+  /**
+   * The Gemini row's session states move with the clock while nothing re-renders the panel. A
+   * 15 s tick is what keeps "Session active · 12 min" counting down and what flips the row to
+   * "expired" the moment the 15-minute session lapses — without it the row could claim an active
+   * session for hours, which is precisely the lie that hid the expiry from the reader before.
+   */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const authLapse = useSyncExternalStore(subscribeAuthLapse, getAuthLapse, getAuthLapse);
 
   const handleConfigure = (tab: "connections" | "api" = "connections") => {
     if (onConfigureClick) {
@@ -211,15 +228,39 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     : "Offline";
 
   // 6. Gemini Clinical AI
+  //
+  // The session is a 15-minute token that renews only while queries flow; idle and it lapses
+  // silently. The old derivation folded "had a session, and it died" into "Key Ready" with a
+  // green dot — the exact state that hid an expiry from the reader until a background 401
+  // surfaced in the dev console and nothing else. States that a click can fix from here relink
+  // inline; states the reader can reach on their own stay in Settings.
   const isGeminiSessionActive = Boolean(
-    settings.geminiSessionId && Date.now() < (settings.geminiSessionExpiresAt || 0)
+    settings.geminiSessionId && now < (settings.geminiSessionExpiresAt || 0)
   );
-  const geminiReady = serverGeminiReady || isGeminiSessionActive || Boolean(settings.geminiApiKey);
-  const geminiWarning = !serverGeminiReady && !isGeminiSessionActive && !settings.geminiApiKey;
-  const geminiStatusText = serverGeminiReady
+  const sessionMinutesLeft = Math.max(
+    0,
+    Math.ceil(((settings.geminiSessionExpiresAt || 0) - now) / 60000)
+  );
+  const keyLinkable = Boolean(settings.geminiApiKey?.trim());
+  const sessionLapsed = keyLinkable && Boolean(settings.geminiSessionId) && !isGeminiSessionActive;
+  // A refused authorization that survived re-auth, regardless of which credential it was.
+  const authLost = authLapse !== null;
+  // Ready means nothing needs a reader's action: a server environment key, a live session, or a
+  // stored key that self-heals into one on the next query. A session that EXPIRED is different —
+  // background calls with no route through a Gemini endpoint keep getting refused — so only
+  // that, and a live auth refusal, wear the warning.
+  const geminiReady = serverGeminiReady || isGeminiSessionActive || (keyLinkable && !sessionLapsed);
+  const geminiWarning = authLost || sessionLapsed || (!serverGeminiReady && !keyLinkable && !isGeminiSessionActive);
+  const geminiStatusText = linking
+    ? "Linking…"
+    : authLost
+    ? "Authorization refused — Relink"
+    : serverGeminiReady
     ? "Server Key Active"
     : isGeminiSessionActive
-    ? "Session Active"
+    ? `Session Active · ${sessionMinutesLeft} min`
+    : sessionLapsed
+    ? "Session Lapsed — Relink"
     : settings.geminiApiKey
     ? "Key Ready"
     : "Key Required";
@@ -339,11 +380,27 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "gemini",
       name: "Gemini Clinical AI",
       category: "compute",
-      description: "DeepMind clinical ACMG interpretation",
+      description: linkError && !linking
+        ? `Relink failed: ${linkError}`
+        : "DeepMind clinical ACMG interpretation",
       statusText: geminiStatusText,
       isReady: geminiReady,
       isWarning: geminiWarning,
-      onAction: () => handleConfigure("api")
+      actionLabel:
+        linking
+          ? "Linking the Gemini key…"
+          : sessionLapsed || authLost
+          ? "Relink the stored Gemini key now"
+          : undefined,
+      /**
+       * The row is the action. A lapsed session or a refused authorization needs no Settings
+       * trip when the key is on file: a click re-runs the same link handshake Settings does,
+       * and the row flips back to its counted-ready state. Anything the row cannot self-serve
+       * keeps the old route into Settings.
+       */
+      onAction: (sessionLapsed || authLost) && keyLinkable && !linking
+        ? () => linkGeminiKey()
+        : () => handleConfigure(keyLinkable ? "api" : "connections")
     },
     {
       id: "foldx",
