@@ -4,7 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { extractErrorMessage, useApiClient } from "./apiClient";
 import { SettingsProvider } from "./context/SettingsContext";
-import { clearInvalidApiKey } from "./api/authSession";
+import { clearInvalidApiKey, getAuthLapse, subscribeAuthLapse, type AuthLapse } from "./api/authSession";
 
 describe("extractErrorMessage Unit Tests", () => {
   it("extracts nested error.message from standardized backend JSON error", async () => {
@@ -507,5 +507,65 @@ describe("useApiClient Domain Methods & Delegation", () => {
     const calledHeaders = narrativeCall?.[1]?.headers || {};
     expect(calledHeaders["x-custom-client"]).toBe("UnitTester");
     expect(calledHeaders["X-Gemini-Session-ID"]).toBe("valid-session");
+  });
+
+  it("records a terminal 401 as an auth lapse and clears it when authorization recovers", async () => {
+    expect(getAuthLapse()).toBeNull();
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyKeyLapse"
+      })
+    );
+
+    let attempt = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/v1/session/keys") {
+        // The re-auth handshake refuses the stored key: the terminal 401 path.
+        return Promise.resolve(new Response("Unauthorized", { status: 401 }));
+      }
+      if (url === "/api/v1/remote-submissions/abcdefab-1234-4cde-8abc-abcdefabcdef") {
+        attempt++;
+        return Promise.resolve(
+          attempt < 3
+            ? new Response(
+                JSON.stringify({ error: { code: "UNAUTHORIZED", message: "Unauthorized: Invalid or missing API token." } }),
+                { status: 401, headers: { "Content-Type": "application/json" } }
+              )
+            : new Response(JSON.stringify({ settled: false }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" }
+              })
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events: (AuthLapse | null)[] = [];
+    const unsubscribe = subscribeAuthLapse(lapse => events.push(lapse));
+
+    try {
+      const { result } = renderHook(() => useApiClient(), { wrapper });
+
+      const refused = await result.current.fetchWithAuth(
+        "/api/v1/remote-submissions/abcdefab-1234-4cde-8abc-abcdefabcdef"
+      );
+      expect(refused.status).toBe(401);
+      expect(getAuthLapse()?.url).toBe("/api/v1/remote-submissions/abcdefab-1234-4cde-8abc-abcdefabcdef");
+      expect(getAuthLapse()?.status).toBe(401);
+
+      // A second refusal for the same route is deduplicated — long-poll retries must not tick
+      // the panel — and a later authorized relative call clears the lapse.
+      await result.current.fetchWithAuth("/api/v1/remote-submissions/abcdefab-1234-4cde-8abc-abcdefabcdef");
+      await result.current.fetchWithAuth("/api/v1/remote-submissions/abcdefab-1234-4cde-8abc-abcdefabcdef");
+      expect(getAuthLapse()).toBeNull();
+
+      expect(events).toHaveLength(2);
+      expect(events[0]?.url).toBe("/api/v1/remote-submissions/abcdefab-1234-4cde-8abc-abcdefabcdef");
+      expect(events[1]).toBeNull();
+    } finally {
+      unsubscribe();
+    }
   });
 });

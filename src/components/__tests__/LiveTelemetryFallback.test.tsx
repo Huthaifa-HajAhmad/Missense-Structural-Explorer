@@ -274,3 +274,86 @@ describe("LiveTelemetryPanel — summary tone", () => {
     }
   });
 });
+
+describe("LiveTelemetryPanel — Gemini session honesty", () => {
+  const geminiRow = () => {
+    const row = document.querySelector('[data-service-id="gemini"]');
+    if (!row) throw new Error("Gemini row not rendered");
+    return row as HTMLElement;
+  };
+
+  beforeEach(() => {
+    h.state.current = null;
+    sessionStorage.removeItem("missenseTransientCredentials");
+  });
+
+  it("names a live session and counts down, because 'Session Active' alone cannot age", () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyKeyTick",
+        geminiSessionId: "live-session",
+        geminiSessionExpiresAt: Date.now() + 6 * 60 * 1000
+      })
+    );
+    setDiagnostics(svc());
+    renderPanel();
+
+    const status = within(geminiRow()).getByText(/^Session Active · \d+ min/);
+    expect(status.textContent).toMatch(/Session Active · 6 min/);
+  });
+
+  it("shows a lapsed-while-idle session in the warning tone with an inline relink", async () => {
+    sessionStorage.setItem(
+      "missenseTransientCredentials",
+      JSON.stringify({
+        geminiApiKey: "AIzaSyKeyStale",
+        geminiSessionId: "this-session-ago",
+        geminiSessionExpiresAt: Date.now() - 1000
+      })
+    );
+    // Everything else ready, so the row's own readiness is the only thing that moves the count.
+    h.state.current = {
+      status: "ok",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      foldxReady: true,
+      geminiReady: false,
+      modelServerReady: true,
+      p2rankReady: true,
+      serviceHealth: {
+        ensembl: svc(), clinvar: svc(), myvariant: svc(), uniprot: svc(), europepmc: svc(), alphagenome: svc()
+      }
+    };
+
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/v1/session/keys") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ sessionId: "reinrelieved", expiresAt: Date.now() + 15 * 60 * 1000 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          })
+        );
+      }
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPanel();
+
+    const row = geminiRow();
+    const pill = within(row).getByText("Session Lapsed — Relink");
+    // The warning tint, not the nominal quiet text: a lapsed session needs the reader's eye.
+    expect(pill.className).toMatch(/cs-bg-warning/);
+    // The row must say what clicking does.
+    expect(row.getAttribute("aria-label")).toBe("Relink the stored Gemini key now");
+    // Ready count reflects it: the summary no longer claims a service that lapses is online.
+    expect(screen.getByTitle(/services online/i).textContent).toMatch(/9\/10/);
+
+    // The row is the action: one click re-runs the same handshake Settings does.
+    fireEvent.click(row);
+    await screen.findByText(/^Session Active ·/);
+
+    const linkCall = fetchMock.mock.calls.find((call: any[]) => call[0] === "/api/v1/session/keys");
+    expect(linkCall).toBeDefined();
+    expect(JSON.parse(linkCall?.[1]?.body)).toEqual({ apiKey: "AIzaSyKeyStale" });
+  });
+});
