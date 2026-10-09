@@ -34,6 +34,7 @@ beforeEach(() => {
   s.loadReportDraft(null);
   s.setReportDraftRecovery(null);
   s.setNotifications(() => []);
+  s.setReportView("document");
 });
 
 describe("ReportInspector", () => {
@@ -102,5 +103,18 @@ describe("ReportInspector", () => {
     fireEvent.click(screen.getByRole("button", { name: choice }));
     expect(useVariantAnalysisStore.getState().reportDraftRecovery).toBeNull();
     expect(useVariantAnalysisStore.getState().reportMeta.title).toBe(choice === "Use saved draft" ? "Saved reference draft" : "Pending author work");
+  });
+
+  it("brings a block's part of the document on screen before jumping to it", () => {
+    useVariantAnalysisStore.getState().setReportView("evidence");
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Go to Author's notes" }));
+    expect(useVariantAnalysisStore.getState().reportView).toBe("writing");
+  });
+
+  it("leads with a review status that names the sections in the export", () => {
+    mount();
+    expect(screen.getByText("Ready to export. No author edit is out of date.")).toBeInTheDocument();
+    expect(screen.getByText(/sections in$/)).toBeInTheDocument();
   });
 });

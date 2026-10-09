@@ -221,7 +221,7 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
     <section tabIndex={-1} id={`report-${block.key}`} className="rpt-card report-section" data-block={block.key} data-edited={block.edited ? "" : undefined}>
       <header className="rpt-card__head">
         <IncludeTick block={block} onToggle={onToggle} />
-        <h2 className="eyebrow rpt-label">{block.title}</h2>
+        <h2 className="rpt-card__title">{block.title}</h2>
         <span className="rpt-card__chips">
           {block.chips.map(c => <ReportChipView key={c.label} chip={c} />)}
         </span>
@@ -239,7 +239,7 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
         {block.warnings.map(w => <p key={w}>{w}</p>)}
       </details> : null}
       {block.stale ? (
-        <div className="rpt-callout" role="status">
+        <div className="rpt-callout">
           <p><strong>The evidence changed after you edited this.</strong> Your wording is kept. Review the current draft and evidence before accepting it.</p>
           <details className="rpt-compare"><summary>Compare with current draft</summary><div><p><strong>Your text</strong><br />{block.text || "Intentionally blank"}</p><p><strong>Current draft</strong><br />{block.drafted || "No generated text"}</p></div></details>
           <button type="button" className="rpt-btn" onClick={onKeepMine}>Keep my text</button>
@@ -254,7 +254,7 @@ export function ReportBlockCard({ block, editing, onToggle, onStartEdit, onStopE
       <BlockTable block={isClassification && !showAllCriteria && block.table ? { ...block, table: { ...block.table, rows: block.table.rows.filter(r => r[2] === "Met" || r[2] === "Withheld") } } : block} />
       {isClassification && block.table && block.table.rows.some(r => r[2] !== "Met" && r[2] !== "Withheld") ? <button type="button" className="rpt-btn rpt-table-toggle" aria-expanded={showAllCriteria} onClick={() => setShowAllCriteria(v => !v)}>{showAllCriteria ? "Show counted criteria" : "Show all checked criteria"}</button> : null}
 
-      {block.references.length ? <details className="rpt-references"><summary>Sources ? {block.references.length}</summary>{block.references.map(r => <a key={r.url} href={r.url} target="_blank" rel="noreferrer">{r.label}</a>)}</details> : null}
+      {block.references.length ? <details className="rpt-references"><summary>Sources <span>{block.references.length}</span></summary>{block.references.map(r => <a key={r.url} href={r.url} target="_blank" rel="noreferrer">{r.label}</a>)}</details> : null}
       {(block.caption || block.reads.length > 0) ? (
         <footer className="rpt-card__foot">
           {block.caption ? <span>{block.caption}</span> : null}
@@ -282,10 +282,10 @@ export function LeftOutCard({ blocks, onInclude }: { blocks: ReportBlock[]; onIn
   return (
     <section className="rpt-card report-section" aria-label="Not in this report" data-testid="report-left-out">
       <header className="rpt-card__head">
-        <h2 className="eyebrow rpt-label">Not in this report</h2>
+        <h2 className="rpt-card__title">Not in this report</h2>
       </header>
       {blocks.map(b => (
-        <div key={b.key} className="rpt-left" id={`report-${b.key}`}>
+        <div key={b.key} className="rpt-left" id={`report-${b.key}`} tabIndex={-1}>
           <span className="rpt-left__name">{b.title}</span>
           <span className="rpt-dim">left out by you</span>
           <button type="button" className="rpt-btn" data-variant="quiet" onClick={() => onInclude(b.key)}>Include</button>

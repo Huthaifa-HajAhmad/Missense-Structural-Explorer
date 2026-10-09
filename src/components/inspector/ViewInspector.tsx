@@ -99,7 +99,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
   energetics: { title: "Evidence Lineage", subtitle: "How the ΔΔG reading was reached", Icon: Activity },
   landscape: { title: "Residue inspector", subtitle: "Selection, scores & provenance", Icon: Map },
   insights: { title: "Synthesis Provenance", subtitle: "AI Telemetry & ACMG Rules Trace", Icon: FlaskConical },
-  report: { title: "Report Generator", subtitle: "Section Filters & Report Fingerprint", Icon: FileText },
+  report: { title: "Report builder", subtitle: "Export, contents & review", Icon: FileText },
   literature: { title: "Evidence Lineage", subtitle: "How this list was obtained", Icon: BookOpen },
   console: { title: "Developer Console", subtitle: "Telemetry & Logs", Icon: SlidersHorizontal },
   /* The inspector rail is hidden on the About view, but the record is exhaustive

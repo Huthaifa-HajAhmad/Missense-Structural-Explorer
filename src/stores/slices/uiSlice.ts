@@ -1,6 +1,6 @@
 import { StateCreator } from "zustand";
 import type { PerturbationModelId } from "../../shared/perturbationModels";
-import { defaultReportSections, sectionsForPreset, type BlockKey, type ReportCitation, type ReportEdit, type ReportPresetId } from "../../shared/reportDocument";
+import { defaultReportSections, sectionsForPreset, type BlockKey, type ReportGroupId, type ReportCitation, type ReportEdit, type ReportPresetId } from "../../shared/reportDocument";
 import type { ReportDraft } from "../../shared/reportInput";
 
 export interface NotificationItem {
@@ -27,6 +27,8 @@ export interface ReportDraftRecovery { identity: string; sourceKey: string; save
 
 export const DEFAULT_REPORT_META: ReportMeta = { title: "", preparedBy: "", caseRef: "" };
 
+export type ReportView = "document" | ReportGroupId;
+
 export interface UiState {
   viewMode: "wildtype" | "mutant" | "superimposed";
   isHowToInspectOpen: boolean;
@@ -40,6 +42,11 @@ export interface UiState {
   reportMeta: ReportMeta;
   /** Papers pinned from the Literature tab; the report cites only these. */
   reportCitations: ReportCitation[];
+  /**
+   * Which part of the document the Report screen shows: all of it, or one of `REPORT_GROUPS`. Stored
+   * because the rail's contents list jumps to a block and must be able to bring its part on screen.
+   */
+  reportView: ReportView;
   /**
    * Which protein-language model card is selected on the Structural Perturbation tab.
    *
@@ -72,6 +79,7 @@ export interface UiActions {
   /** Replace the whole draft (sections, edits, meta, citations), e.g. when the variant changes. */
   loadReportDraft: (draft: ReportDraft | null) => void;
   setReportDraftRecovery: (recovery: ReportDraftRecovery | null) => void;
+  setReportView: (view: ReportView) => void;
   setActivePerturbationModel: (model: PerturbationModelId) => void;
 }
 
@@ -91,6 +99,7 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   setReportDraftRecovery: (reportDraftRecovery) => set({ reportDraftRecovery }),
   reportMeta: { ...DEFAULT_REPORT_META },
   reportCitations: [],
+  reportView: "document",
   activePerturbationModel: "saprot",
 
   setViewMode: (viewMode) => set({ viewMode }),
@@ -115,6 +124,7 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
       return { reportEdits: next };
     }),
   setReportDraftStatus: (reportDraftStatus) => set({ reportDraftStatus }),
+  setReportView: (reportView) => set({ reportView }),
   setReportMeta: (patch) => set((state) => ({ reportMeta: { ...state.reportMeta, ...patch } })),
   pinReportCitation: (citation) =>
     set((state) =>

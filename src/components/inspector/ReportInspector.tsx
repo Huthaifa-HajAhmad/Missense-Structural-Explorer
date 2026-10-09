@@ -6,7 +6,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { generateProvenanceManifest } from "../../shared/provenance";
 import { formatEvidenceCode } from "../../shared/thresholds";
-import { REPORT_PRESETS, BLOCK_ORDER, exportedBlocks, REPORT_SOURCES, type ReportPresetId } from "../../shared/reportDocument";
+import { REPORT_PRESETS, REPORT_GROUPS, BLOCK_ORDER, exportedBlocks, reportGroupOf, REPORT_SOURCES, type BlockKey, type ReportPresetId } from "../../shared/reportDocument";
 import { renderReportHtml, renderReportJson, renderReportText } from "../../shared/reportRender";
 import { deriveAiStatus } from "../report/reportStatus";
 import { narrativeFreshness, readNarrativeEvidenceStamp } from "../../shared/narrativeEvidence";
@@ -84,6 +84,8 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const sections = useVariantAnalysisStore(s => s.reportSections);
   const edits = useVariantAnalysisStore(s => s.reportEdits);
   const loadDraft = useVariantAnalysisStore(s => s.loadReportDraft);
+  const reportView = useVariantAnalysisStore(s => s.reportView);
+  const setReportView = useVariantAnalysisStore(s => s.setReportView);
   const draftFile = useRef<HTMLInputElement>(null);
   const [activeSection, setActiveSection] = useState("identity");
   const [format, setFormat] = useState("html");
@@ -97,7 +99,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
     }, { rootMargin: "-5% 0px -65% 0px" });
     BLOCK_ORDER.forEach(key => { const el = document.getElementById(`report-${key}`); if (el) observer.observe(el); });
     return () => observer.disconnect();
-  }, [analysisResult, sections, doc.footer.documentId]);
+  }, [analysisResult, sections, doc.footer.documentId, reportView]);
   const [copied, setCopied] = useState(false);
   const [docxBusy, setDocxBusy] = useState(false);
   const [pptxBusy, setPptxBusy] = useState(false);
@@ -232,9 +234,16 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
     downloadBlob(`${stem}_evidence_bundle.json`, "application/json", JSON.stringify(bundle, null, 2));
   };
 
-  const jump = (key: string) => {
-    const el = document.getElementById(`report-${key}`);
-    el?.scrollIntoView({ block: "start" }); el?.focus({ preventScroll: true }); setActiveSection(key);
+  /** A block filed under another view pill is not mounted; bring its part on screen, then scroll. */
+  const jump = (key: BlockKey) => {
+    const go = () => {
+      const el = document.getElementById(`report-${key}`);
+      el?.scrollIntoView({ block: "start" }); el?.focus({ preventScroll: true }); setActiveSection(key);
+    };
+    if (reportView !== "document" && reportGroupOf(key) !== reportView) {
+      setReportView(reportGroupOf(key));
+      requestAnimationFrame(go);
+    } else go();
   };
   const requestExport = async () => {
     setExportRequest(`Export requested: ${format.toUpperCase()} at ${new Date().toLocaleTimeString()}`);
@@ -249,24 +258,50 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
     catch (err) { addNotification("error", err instanceof Error ? err.message : "Could not reopen this draft."); }
     finally { if (draftFile.current) draftFile.current.value = ""; }
   };
-  const groups = [
-    { name: "Case and interpretation", keys: ["identity", "classification", "contrast", "needed"] },
-    { name: "Evidence readings", keys: ["computational", "population", "splicing", "function", "structure", "stability", "assembly", "language-models"] },
-    { name: "Writing and sources", keys: ["literature", "summary", "notes", "method"] },
-  ];
   const reviewBlocks = doc.blocks.filter(b => b.included && (b.stale || b.key === "summary" && !b.empty && b.warnings.length > 0 || b.verdict?.recordMismatch));
 
   return (
     <div className="rpt-rail" data-testid="report-rail">
       <div className="rpt-export-primary">
-        <label htmlFor="rpt-format" className="eyebrow">Export report <span>{includedCount} sections</span></label>
+        <label htmlFor="rpt-format" className="rpt-rail-title">Export report <span>{includedCount} sections</span></label>
         <div><select id="rpt-format" value={format} onChange={e => setFormat(e.target.value)}>
           <option value="html">Web page (.html)</option><option value="pdf">PDF / print</option><option value="docx">Word (.docx)</option><option value="pptx">PowerPoint summary</option><option value="text">Copy as text</option><option value="json">Document (.json)</option>
         </select><button type="button" className="rpt-btn" data-variant="primary" disabled={docxBusy || pptxBusy} onClick={() => void requestExport()}><Download size={14} />{docxBusy || pptxBusy ? "Building" : format === "text" ? "Copy" : format === "pdf" ? "Print" : "Download"}</button></div>
-        {exportRequest ? <p role="status" className="rpt-dim">{exportRequest}</p> : null}
+        <p role="status" className="rpt-dim">{exportRequest ?? ""}</p>
       </div>
+      <section className="rpt-rail-section" aria-labelledby="rpt-rail-status">
+        <h3 className="rpt-rail-title" id="rpt-rail-status">Review status</h3>
+        <div className="rpt-status" data-state={reviewBlocks.length ? "review" : "ready"}>
+          <p role="status">{staleCount
+            ? `${staleCount} edited ${staleCount === 1 ? "section needs" : "sections need"} review: the evidence changed after you wrote it.`
+            : reviewBlocks.length
+              ? "Read the flagged sections below before you export."
+              : "Ready to export. No author edit is out of date."}</p>
+          <div className="rpt-status__counts">
+            <span><strong>{includedCount}</strong> of {populatedCount} sections in</span>
+            <span><strong>{editedCount}</strong> edited</span>
+          </div>
+          {reviewBlocks.map(b => <button key={b.key} type="button" className="rpt-review-link" onClick={() => jump(b.key)}>{b.title}<span>{b.stale ? "Evidence changed" : b.verdict?.recordMismatch ? "Recorded tier differs" : "Unverified synthesis"}</span></button>)}
+        </div>
+      </section>
+      <section className="rpt-rail-section" aria-labelledby="rpt-rail-sections">
+        <h3 className="rpt-rail-title" id="rpt-rail-sections"><FileText size={14} aria-hidden="true" />Contents{!activePreset ? <span className="rpt-custom">Custom</span> : null}</h3>
+        <p className="rpt-rail-help">Ticked sections go into every export. The arrow opens a section in the report.</p>
+        <div className="rpt-seg" role="group" aria-label="Preset">
+          {(Object.keys(REPORT_PRESETS) as ReportPresetId[]).map(id => <button key={id} type="button" aria-pressed={activePreset === id} title={REPORT_PRESETS[id].hint} onClick={() => applyPreset(id)}>{REPORT_PRESETS[id].label}</button>)}
+        </div>
+        {REPORT_GROUPS.map(group => <details key={group.id} className="rpt-contents-group" open><summary>{group.label}</summary><ul className="rpt-list">
+          {doc.blocks.filter(b => group.keys.includes(b.key)).map(b => <li key={b.key} className="rpt-list__row" data-off={b.included ? undefined : ""} data-active={activeSection === b.key ? "" : undefined}>
+            <label className="rpt-contents-label"><input type="checkbox" checked={b.included} aria-label={`${b.included ? "Leave out" : "Include"} ${b.title}`} onChange={() => toggle(b.key)} /><span>{b.title}</span></label>
+            <span className="rpt-list__meta">{metaFor(b)}</span>
+            <button type="button" className="rpt-jump" aria-label={`Go to ${b.title}`} onClick={() => jump(b.key)} disabled={!b.included && b.empty}>&#8599;</button>
+          </li>)}
+        </ul></details>)}
+        <p className="rpt-p rpt-dim">{includedCount} of {populatedCount} populated sections in the export. Empty sections are skipped. Presets choose contents, not page count.</p>
+      </section>
       <section className="rpt-rail-section" aria-labelledby="rpt-rail-doc">
-        <h3 className="eyebrow" id="rpt-rail-doc"><UserRound size={14} />Document</h3>
+        <h3 className="rpt-rail-title" id="rpt-rail-doc"><UserRound size={14} aria-hidden="true" />Document</h3>
+        <p className="rpt-rail-help">Document fields go into report exports; draft files preserve your edits. Do not enter patient identifiers.</p>
         <div className="rpt-field"><label htmlFor="rpt-title">Title</label><input id="rpt-title" value={meta.title} placeholder={doc.title} onChange={e => setMeta({ title: e.target.value })} /></div>
         <div className="rpt-field"><label htmlFor="rpt-by">Prepared by</label><input id="rpt-by" value={meta.preparedBy} placeholder="Name, affiliation" onChange={e => setMeta({ preparedBy: e.target.value })} /></div>
         <div className="rpt-field"><label htmlFor="rpt-case">Case reference</label><input id="rpt-case" value={meta.caseRef} placeholder="Optional" onChange={e => setMeta({ caseRef: e.target.value })} /></div>
@@ -280,29 +315,9 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
             <button type="button" className="rpt-btn" onClick={() => { loadDraft(draftRecovery.saved); setDraftRecovery(null); }}>Use saved draft</button>
           </div>
         </div>}
-        <p className="rpt-p rpt-dim">Do not enter patient identifiers. Document fields go into report exports; draft files preserve your edits.</p>
-      </section>
-      <section className="rpt-rail-section" aria-labelledby="rpt-rail-review">
-        <h3 className="eyebrow" id="rpt-rail-review">Review status</h3>
-        <p className="rpt-p">{staleCount ? `${staleCount} edited sections need review.` : "No stale author edits detected."}</p>
-        {reviewBlocks.map(b => <button key={b.key} type="button" className="rpt-review-link" onClick={() => jump(b.key)}>{b.title}<span>{b.stale ? "Evidence changed" : b.verdict?.recordMismatch ? "Recorded tier differs" : "Unverified synthesis"}</span></button>)}
-      </section>
-      <section className="rpt-rail-section" aria-labelledby="rpt-rail-sections">
-        <h3 className="eyebrow" id="rpt-rail-sections"><FileText size={14} />Contents{!activePreset ? <span className="rpt-custom">Custom</span> : null}</h3>
-        <div className="rpt-seg" role="group" aria-label="Preset">
-          {(Object.keys(REPORT_PRESETS) as ReportPresetId[]).map(id => <button key={id} type="button" aria-pressed={activePreset === id} title={REPORT_PRESETS[id].hint} onClick={() => applyPreset(id)}>{REPORT_PRESETS[id].label}</button>)}
-        </div>
-        {groups.map(group => <details key={group.name} className="rpt-contents-group" open><summary>{group.name}</summary><ul className="rpt-list">
-          {doc.blocks.filter(b => group.keys.includes(b.key)).map(b => <li key={b.key} className="rpt-list__row" data-off={b.included ? undefined : ""} data-active={activeSection === b.key ? "" : undefined}>
-            <label className="rpt-contents-label"><input type="checkbox" checked={b.included} aria-label={`${b.included ? "Leave out" : "Include"} ${b.title}`} onChange={() => toggle(b.key)} /><span>{b.title}</span></label>
-            <span className="rpt-list__meta">{metaFor(b)}</span>
-            <button type="button" className="rpt-jump" aria-label={`Go to ${b.title}`} onClick={() => jump(b.key)} disabled={!b.included && b.empty}>&#8599;</button>
-          </li>)}
-        </ul></details>)}
-        <p className="rpt-p rpt-dim">{includedCount} of {populatedCount} populated sections in the export. Empty sections are skipped. Presets choose contents, not page count.</p>
       </section>
       <section className="rpt-rail-section" aria-labelledby="rpt-rail-summary">
-        <h3 className="eyebrow" id="rpt-rail-summary"><Sparkles size={14} />Written summary</h3>
+        <h3 className="rpt-rail-title" id="rpt-rail-summary"><Sparkles size={14} aria-hidden="true" />Written summary</h3>
         <span className="ev-tier" data-tone={aiStatus.tone === "good" ? "good" : aiStatus.tone === "warn" ? "warning" : aiStatus.tone === "bad" ? "danger" : "muted"}>{aiStatus.label}</span>
         <p className="rpt-p">{aiStatus.detail}</p>
         <div className="rpt-draft-actions">
