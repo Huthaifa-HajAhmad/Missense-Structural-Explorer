@@ -86,6 +86,43 @@ export interface FetchAlphaGenomeOptions {
 }
 
 /**
+ * Which key and endpoint an AlphaGenome request may use.
+ *
+ * THE RULE: the server's own key only ever goes to the server's own endpoint.
+ *
+ * The endpoint can come from the request (`x-alphagenome-url`, `alphagenomeApiUrl`), so a researcher can
+ * point at their own proxy. The key used to fall back to `ALPHAGENOME_API_KEY` regardless of where the
+ * request was going, which let any caller have the server send its key, as a Bearer token, to a URL of
+ * their choosing. Now a request-supplied endpoint gets a request-supplied key or none.
+ *
+ * The guard compares against the server key's VALUE, not where the argument came from, because several
+ * callers merge the env key into `apiKey` before calling the bridge. Whatever they pass, the server key
+ * cannot reach a foreign endpoint. The GPN path has the same rule for `HF_TOKEN` (`variant-parser.ts`).
+ *
+ * `customEndpoint` also keeps that proxy's answers out of the shared cache: a result from one user's
+ * proxy must not be served to everyone for 30 days.
+ */
+export interface AlphaGenomeAccess {
+  apiKey: string | null;
+  endpoint: string | null;
+  customEndpoint: boolean;
+}
+
+function normaliseEndpoint(url: string): string {
+  return url.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+export function resolveAlphaGenomeAccess(apiKey?: string | null, apiUrl?: string | null): AlphaGenomeAccess {
+  const serverKey = process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey || null;
+  const serverEndpoint = process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl || null;
+  const endpoint = apiUrl || serverEndpoint;
+  const customEndpoint = Boolean(apiUrl) && (!serverEndpoint || normaliseEndpoint(apiUrl as string) !== normaliseEndpoint(serverEndpoint));
+  let key = apiKey || serverKey;
+  if (customEndpoint && serverKey && key === serverKey) key = null;
+  return { apiKey: key, endpoint, customEndpoint };
+}
+
+/**
  * Fetches AlphaGenome Variant Impact (AVI) scores and biological modality attributions.
  * Protected by an in-memory 30-day LRU cache, singleFlight deduplication, and a 2.5-second fast deadline.
  */
@@ -118,8 +155,7 @@ export async function fetchAlphaGenome(
   const normChrom = chrom.toLowerCase().startsWith("chr") ? chrom : `chr${chrom}`;
   const normRef = ref.toUpperCase();
   const normAlt = alt.toUpperCase();
-  const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-  const endpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
+  const { apiKey: effectiveApiKey, endpoint, customEndpoint } = resolveAlphaGenomeAccess(apiKey, apiUrl);
   const hasCredentials = Boolean(effectiveApiKey || endpoint);
   const assembly = !(signalOrOptions instanceof AbortSignal) ? (signalOrOptions?.assembly ?? null) : null;
   const cacheKey = buildAlphaGenomeKey(normChrom, pos, normRef, normAlt, assembly);
@@ -130,7 +166,14 @@ export async function fetchAlphaGenome(
     return cached;
   }
 
-  return defaultCacheRegistry.singleFlight(cacheKey, async () => {
+  // A request aimed at its own proxy is private: it neither shares a flight with, nor writes to, the
+  // cache every other user reads (see resolveAlphaGenomeAccess).
+  const remember = (...args: Parameters<typeof alphagenomeCache.set>): void => {
+    if (!customEndpoint) alphagenomeCache.set(...args);
+  };
+  const flightKey = customEndpoint ? `${cacheKey}|endpoint:${endpoint}` : cacheKey;
+
+  return defaultCacheRegistry.singleFlight(flightKey, async () => {
     const doubleChecked = alphagenomeCache.get(cacheKey);
     const isDoubleNegative = Boolean(doubleChecked?.message?.includes("not indexed"));
     if (doubleChecked && (!hasCredentials || doubleChecked.status === "live" || isDoubleNegative)) {
@@ -151,7 +194,7 @@ export async function fetchAlphaGenome(
         }
         const res = await mockProvider(normChrom, pos, normRef, normAlt, combinedSignal);
         if (res && (res.status === "live" || res.message?.includes("not indexed"))) {
-          alphagenomeCache.set(cacheKey, res);
+          remember(cacheKey, res);
         }
         return res;
       } catch (err: any) {
@@ -201,7 +244,7 @@ export async function fetchAlphaGenome(
           { signal: combinedSignal, timeoutMs: 2500 }
         );
         if (grpcResult && (grpcResult.status === "live" || grpcResult.message?.includes("not indexed"))) {
-          alphagenomeCache.set(cacheKey, grpcResult);
+          remember(cacheKey, grpcResult);
         }
         return grpcResult;
       } catch (grpcErr: any) {
@@ -298,12 +341,12 @@ export async function fetchAlphaGenome(
         atlasUrl: urls.trackPredictionsUrl,
         message: "Upstream AlphaGenome payload failed schema validation"
       };
-      alphagenomeCache.set(cacheKey, failData, { ttl: 300_000 });
+      remember(cacheKey, failData, { ttl: 300_000 });
       return failData;
     }
 
     const data = validated.data!;
-    alphagenomeCache.set(cacheKey, data);
+    remember(cacheKey, data);
     return data;
   } catch (err: any) {
     const errorResult: AlphaGenomeAviData = {
@@ -319,7 +362,7 @@ export async function fetchAlphaGenome(
       atlasUrl: urls.trackPredictionsUrl,
       message: err.message || "AlphaGenome query timed out / unavailable"
     };
-    alphagenomeCache.set(cacheKey, errorResult, { ttl: 300_000 });
+    remember(cacheKey, errorResult, { ttl: 300_000 });
     return errorResult;
   }
   });
@@ -364,8 +407,7 @@ export async function fetchAlphaGenomeRegionSaturation(
     : "";
   const cacheKey = `alphagenome:region:${normChrom}:${start}-${end}:${transcriptId || "all"}${exonKey}`;
 
-  const effectiveApiKey = apiKey || process.env.ALPHAGENOME_API_KEY || CONFIG.services.alphagenomeApiKey;
-  const baseEndpoint = apiUrl || process.env.ALPHAGENOME_API_URL || CONFIG.services.alphagenomeUrl;
+  const { apiKey: effectiveApiKey, endpoint: baseEndpoint, customEndpoint } = resolveAlphaGenomeAccess(apiKey, apiUrl);
   const hasCredentials = Boolean(effectiveApiKey || baseEndpoint);
 
   const cached = alphagenomeRegionCache.get(cacheKey);
@@ -374,7 +416,14 @@ export async function fetchAlphaGenomeRegionSaturation(
     return cached;
   }
 
-  return defaultCacheRegistry.singleFlight(cacheKey, async () => {
+  // A request aimed at its own proxy is private: it neither shares a flight with, nor writes to, the
+  // cache every other user reads (see resolveAlphaGenomeAccess).
+  const remember = (...args: Parameters<typeof alphagenomeRegionCache.set>): void => {
+    if (!customEndpoint) alphagenomeRegionCache.set(...args);
+  };
+  const flightKey = customEndpoint ? `${cacheKey}|endpoint:${baseEndpoint}` : cacheKey;
+
+  return defaultCacheRegistry.singleFlight(flightKey, async () => {
     const doubleChecked = alphagenomeRegionCache.get(cacheKey);
     const isDoubleNegative = Boolean(doubleChecked?.message?.includes("not indexed"));
     if (doubleChecked && (!hasCredentials || doubleChecked.status === "live" || isDoubleNegative)) {
@@ -394,7 +443,7 @@ export async function fetchAlphaGenomeRegionSaturation(
         }
         const res = await mockRegionProvider(parsed.data, combinedSignal);
         if (res && (res.status === "live" || res.message?.includes("not indexed"))) {
-          alphagenomeRegionCache.set(cacheKey, res);
+          remember(cacheKey, res);
         }
         return res;
       } catch (err: any) {
@@ -443,7 +492,7 @@ export async function fetchAlphaGenomeRegionSaturation(
           { signal: combinedSignal, timeoutMs: 3500 }
         );
         if (grpcResult && (grpcResult.status === "live" || grpcResult.message?.includes("not indexed"))) {
-          alphagenomeRegionCache.set(cacheKey, grpcResult);
+          remember(cacheKey, grpcResult);
         }
         return grpcResult;
       } catch (grpcErr: any) {
@@ -594,12 +643,12 @@ export async function fetchAlphaGenomeRegionSaturation(
           atlasLocusUrl: locusUrl,
           message: "Upstream AlphaGenome payload failed schema validation"
         };
-        alphagenomeRegionCache.set(cacheKey, failData, { ttl: 300_000 });
+        remember(cacheKey, failData, { ttl: 300_000 });
         return failData;
       }
 
       const data = validated.data;
-      alphagenomeRegionCache.set(cacheKey, data);
+      remember(cacheKey, data);
       return data;
     } catch (err: any) {
       const errorResult: AlphaGenomeRegionSaturationResponse = {
@@ -616,7 +665,7 @@ export async function fetchAlphaGenomeRegionSaturation(
         atlasLocusUrl: locusUrl,
         message: err.message || "AlphaGenome region query timed out / unavailable"
       };
-      alphagenomeRegionCache.set(cacheKey, errorResult, { ttl: 300_000 });
+      remember(cacheKey, errorResult, { ttl: 300_000 });
       return errorResult;
     }
   });

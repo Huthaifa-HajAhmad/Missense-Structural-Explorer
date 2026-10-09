@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   calculateAlphaGenomeAcmgStrength,
   generateAtlasUrls,
@@ -8,7 +8,8 @@ import {
   setAlphaGenomeMockProvider,
   setAlphaGenomeRegionMockProvider,
   alphagenomeCache,
-  alphagenomeRegionCache
+  alphagenomeRegionCache,
+  resolveAlphaGenomeAccess
 } from "./alphagenome-bridge.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 
@@ -499,6 +500,70 @@ describe("AlphaGenome Bridge Service Tests", () => {
         expect(res?.topModality).toBe("AlphaMissense");
       } finally {
         setAtlasGrpcClientFactory(null);
+      }
+    });
+  });
+
+  describe("the server's key only goes to the server's endpoint", () => {
+    const SERVER_KEY = "server_secret_key";
+    const SERVER_URL = "https://alphagenome.server.test/v1";
+    let saved: { key?: string; url?: string };
+
+    beforeEach(() => {
+      saved = { key: process.env.ALPHAGENOME_API_KEY, url: process.env.ALPHAGENOME_API_URL };
+      process.env.ALPHAGENOME_API_KEY = SERVER_KEY;
+      process.env.ALPHAGENOME_API_URL = SERVER_URL;
+    });
+
+    afterEach(() => {
+      if (saved.key === undefined) delete process.env.ALPHAGENOME_API_KEY; else process.env.ALPHAGENOME_API_KEY = saved.key;
+      if (saved.url === undefined) delete process.env.ALPHAGENOME_API_URL; else process.env.ALPHAGENOME_API_URL = saved.url;
+    });
+
+    it("uses the server key for the server endpoint, including a request that names it", () => {
+      expect(resolveAlphaGenomeAccess(null, null)).toEqual({ apiKey: SERVER_KEY, endpoint: SERVER_URL, customEndpoint: false });
+      expect(resolveAlphaGenomeAccess(null, "https://AlphaGenome.server.test/v1/")).toMatchObject({ apiKey: SERVER_KEY, customEndpoint: false });
+    });
+
+    it("sends no key to a request-chosen endpoint unless the request brought its own", () => {
+      expect(resolveAlphaGenomeAccess(null, "https://attacker.example/collect")).toEqual({
+        apiKey: null, endpoint: "https://attacker.example/collect", customEndpoint: true,
+      });
+      expect(resolveAlphaGenomeAccess("user_own_key", "https://lab-proxy.example")).toMatchObject({ apiKey: "user_own_key", customEndpoint: true });
+    });
+
+    it("strips the server key even when a caller already merged it into apiKey", () => {
+      expect(resolveAlphaGenomeAccess(SERVER_KEY, "https://attacker.example/collect").apiKey).toBeNull();
+    });
+
+    it("a request-chosen endpoint receives no Authorization header and its answer stays out of the shared cache", async () => {
+      const originalFetch = global.fetch;
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ avi_phred: 30, avi_raw: 0.5 }) });
+      global.fetch = fetchMock as unknown as typeof fetch;
+      try {
+        const res = await fetchAlphaGenome("chr3", 3000, "A", "G", { apiUrl: "https://attacker.example/collect" });
+        expect(res?.status).toBe("live");
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe("https://attacker.example/collect");
+        expect((init as RequestInit).headers).not.toHaveProperty("Authorization");
+        expect(alphagenomeCache.size).toBe(0);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("the server endpoint still authenticates and caches as before", async () => {
+      const originalFetch = global.fetch;
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ avi_phred: 30, avi_raw: 0.5 }) });
+      global.fetch = fetchMock as unknown as typeof fetch;
+      try {
+        await fetchAlphaGenome("chr3", 3001, "A", "G");
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe(SERVER_URL);
+        expect((init as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${SERVER_KEY}` });
+        expect(alphagenomeCache.size).toBe(1);
+      } finally {
+        global.fetch = originalFetch;
       }
     });
   });
