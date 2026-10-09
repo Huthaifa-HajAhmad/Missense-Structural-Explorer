@@ -200,6 +200,18 @@ describe("LandscapeOverview", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("draws at most one score bar per pixel column on a very long protein", () => {
+    const measure = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, width: 1000, top: 0, height: 44, right: 1000, bottom: 44, x: 0, y: 0, toJSON: () => ({}) });
+    const positions = Array.from({ length: 5000 }, (_, i) => ({ residx: i + 1, amMean: (i % 100) / 100, amMax: (i % 100) / 100, amCount: 3, revelMean: null, revelCount: 0 }));
+    const { container } = render(<LandscapeOverview {...props(ctx([]))} length={5000} positions={positions as any} />);
+    const slider = screen.getByRole("slider");
+    const bars = slider.querySelectorAll("svg rect[fill^='var(--ls-']");
+    expect(bars.length).toBeGreaterThan(0);
+    expect(bars.length).toBeLessThanOrEqual(1000);
+    expect(container.textContent).toContain("each bar is the highest score in 5 residues");
+    measure.mockRestore();
+  });
+
   it("explains the O/E bars and shows the gnomAD basis when regions are drawn", () => {
     render(<LandscapeOverview {...props(ctx([], [{ start: 1, end: 10, oe: 0.4, pValue: 0.01 }]))} />);
     expect(screen.getByText(/solid bar = fewer missense observed than expected \(O\/E < 0\.6\)/)).toBeTruthy();

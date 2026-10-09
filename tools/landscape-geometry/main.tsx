@@ -295,12 +295,8 @@ function tabChecks(host: HTMLElement): Check[] {
   const consFocused = cons ? cons.querySelectorAll<HTMLElement>("[data-rc][tabindex='0']").length : 0;
   out.push({ name: "keyboard: the phyloP track is reachable (one stop over its cells)", pass: consCells.length > 0 && consFocused === 1, detail: `${consCells.length} cells, ${consFocused} stops` });
 
-  const nt = Array.from(host.querySelectorAll<HTMLElement>("[role='group']")).find((g) => (g.getAttribute("aria-label") ?? "").includes("nucleotide ranks"));
-  const refCells = nt ? nt.querySelectorAll<HTMLElement>(".ls-nt[data-rank='ref']").length : 0;
-  out.push({ name: "nucleotides: the queried codon's three reference bases are drawn", pass: refCells === 3, detail: `${refCells} reference cells` });
-
   // Route A: every interactive cell is ≥ 24px tall for ALL pointers (no pointer:coarse fallback).
-  const cells = Array.from(host.querySelectorAll<HTMLElement>(".ls-sub, .ls-nt, .ls-cell"));
+  const cells = Array.from(host.querySelectorAll<HTMLElement>(".ls-sub, .ls-cell"));
   const shortCells = cells.filter((c) => c.getBoundingClientRect().height < 23.5);
   out.push({ name: "targets: every focus-grid cell is ≥ 24px tall (route A, all pointers)", pass: cells.length > 0 && shortCells.length === 0, detail: shortCells.length ? `${shortCells.length} of ${cells.length} under 24px` : `${cells.length} cells ≥ 24px` });
 

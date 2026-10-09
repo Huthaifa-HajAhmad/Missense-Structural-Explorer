@@ -92,6 +92,38 @@ export function LandscapeOverview({
     [positions, mode, length],
   );
   const byPos = useMemo(() => new Map(bars.map((b) => [b.pos, b.v])), [bars]);
+  /*
+   * One drawn bar per pixel column at most. A 34,000-residue protein in a 1,000 px track would
+   * otherwise put 34,000 sub-pixel rects in the DOM; when residues are narrower than a pixel the
+   * column shows the highest residue score inside it (stated under the track), and the hover
+   * readout still reads each residue exactly.
+   */
+  const colSpan = unit >= 1 || unit <= 0 ? 1 : Math.ceil(1 / unit);
+  const scoreBars = useMemo(() => {
+    if (colSpan === 1) return bars.map((b) => ({ pos: b.pos, span: 1, v: b.v }));
+    const cols = new Map<number, { pos: number; span: number; v: number }>();
+    for (const b of bars) {
+      const first = Math.floor((b.pos - 1) / colSpan) * colSpan + 1;
+      const cur = cols.get(first);
+      if (!cur || b.v > cur.v) cols.set(first, { pos: first, span: colSpan, v: b.v });
+    }
+    return [...cols.values()];
+  }, [bars, colSpan]);
+  /* Pointer moves re-render this component on every pixel; the bars only change with data or width. */
+  const scoreRects = useMemo(
+    () =>
+      scoreBars.map((b) => (
+        <rect
+          key={b.pos}
+          x={(b.pos - 1) * unit}
+          y={1 + (1 - b.v) * (SCORE_H - 2)}
+          width={Math.max(0.1, b.span * unit - (unit > 3 ? 0.5 : 0))}
+          height={Math.max(1, b.v * (SCORE_H - 2))}
+          fill={`var(--ls-${bandKey("alphaMissense", b.v)})`}
+        />
+      )),
+    [scoreBars, unit],
+  );
   const cv = useMemo(
     () =>
       CLASSES.map((cls) => ({
@@ -240,6 +272,7 @@ export function LandscapeOverview({
         <span>
           {bars.length.toLocaleString()} / {length.toLocaleString()} residues
           scored
+          {colSpan > 1 && ` · each bar is the highest score in ${colSpan} residues`}
         </span>
       </div>
       {track(
@@ -306,16 +339,7 @@ export function LandscapeOverview({
                     strokeDasharray={v === 0 ? undefined : "3 4"}
                   />
                 ))}
-                {bars.map((b) => (
-                  <rect
-                    key={b.pos}
-                    x={x(b.pos)}
-                    y={1 + (1 - b.v) * (SCORE_H - 2)}
-                    width={Math.max(0.1, unit - (unit > 3 ? 0.5 : 0))}
-                    height={Math.max(1, b.v * (SCORE_H - 2))}
-                    fill={`var(--ls-${bandKey("alphaMissense", b.v)})`}
-                  />
-                ))}
+                {scoreRects}
                 {markers(SCORE_H)}
               </svg>
             )}
