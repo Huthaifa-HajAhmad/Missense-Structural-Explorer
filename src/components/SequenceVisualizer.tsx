@@ -319,6 +319,24 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta, overview, domains, predictorData?.amProvenance, conservationData?.revelProvenance]
   );
 
+  /* The finding card only renders on the Focus tab; its data-quality cautions must reach every tab. */
+  const cautions = useMemo(
+    () =>
+      workspaceTab === "nucleotides" && codonMismatches > 0
+        ? [
+            ...finding.cautions,
+            `${codonMismatches} AlphaGenome codon${codonMismatches === 1 ? "" : "s"} did not translate to the residue shown and ${codonMismatches === 1 ? "is" : "are"} left out of the nucleotide shading: its transcript numbering may differ from this sequence.`
+          ]
+        : finding.cautions,
+    [finding.cautions, workspaceTab, codonMismatches]
+  );
+  const agreementRows = useMemo(() => [...landscapeMap.values()].sort((a, b) => a.residx - b.residx), [landscapeMap]);
+  /* Switching tabs unmounts the control that was focused; land on the tab the reader just chose. */
+  const exploreFocus = useCallback(() => {
+    setWorkspaceTab("focus");
+    requestAnimationFrame(() => document.getElementById("landscape-tab-focus")?.focus());
+  }, []);
+
   const pickResidue = useCallback(
     (pos: number) => {
       setSelection({ key, kind: "residue", pos });
@@ -447,6 +465,17 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             </div>
           </section>}
 
+          {workspaceTab !== "focus" && landscapeData && cautions.length > 0 && <section className="ls-finding" aria-label="Landscape data cautions">
+            <div className="ls-finding__body">
+              {cautions.map((c) => (
+                <span key={c} className="ls-finding__caution flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  {c}
+                </span>
+              ))}
+            </div>
+          </section>}
+
           {(workspaceTab === "map" || workspaceTab === "focus") && <LandscapeToolbar
             scope={workspaceTab === "map" ? "overview" : "focus"}
             view={view}
@@ -484,7 +513,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             onPick={pickOverview}
             onRetry={retryOverview}
             pageStep={windowSize}
-            onExplore={() => setWorkspaceTab("focus")}
+            onExplore={exploreFocus}
           />}
           {workspaceTab === "map" && <LandscapeLegend overview colorBy="alphaMissense" laneVisible={false} />}
 
@@ -520,7 +549,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
           <LandscapeLegend colorBy={view.colorBy} laneVisible={false} />
 
           </>}
-          {workspaceTab === "agreement" && <LandscapeAgreement key={`${key}-${metricMode}`} rows={[...landscapeMap.values()].sort((a, b) => a.residx - b.residx)}
+          {workspaceTab === "agreement" && <LandscapeAgreement key={key} rows={agreementRows}
+            label={[gene, variant].filter(Boolean).join(" ")} provenance={provenanceLine(landscapeMeta)}
             mode={metricMode} onMode={setMetricMode} variantRevel={variantScores.revel} variantAm={variantScores.am}
             selectedResidue={residueIndex} onSelect={pickResidue} onHover={onHover} />}
           {workspaceTab === "nucleotides" && <GenomicSaturationHeatmap

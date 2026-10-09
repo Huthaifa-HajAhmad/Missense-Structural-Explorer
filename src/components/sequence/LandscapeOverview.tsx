@@ -393,7 +393,7 @@ export function LandscapeOverview({
           </div>
           {context?.clinvar == null ? (
             <p className="ls-overview__missing">
-              {status === "ready"
+              {status === "ready" || status === "error"
                 ? "ClinVar not loaded"
                 : "ClinVar context pending"}
             </p>
@@ -505,7 +505,7 @@ export function LandscapeOverview({
           </div>
           {context?.gnomad == null ? (
             <p className="ls-overview__missing">
-              {status === "ready"
+              {status === "ready" || status === "error"
                 ? "gnomAD not loaded"
                 : "gnomAD context pending"}
             </p>
@@ -598,6 +598,7 @@ export function LandscapeOverview({
                 : "Regional constraint not loaded"}
             </p>
           ) : (
+            <>
             <div className="relative h-7">
               {context?.regions?.map((r, i) => (
                 <div
@@ -615,12 +616,17 @@ export function LandscapeOverview({
                         ? "var(--cs-surface)"
                         : "var(--cs-text-primary)",
                   }}
-                  title={`Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})`}
+                  title={`Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})${r.pValue != null ? `, p ${r.pValue}` : ""}`}
                 >
                   O/E {r.oe ?? "—"}
                 </div>
               ))}
             </div>
+            <p className="ls-overview__missing">
+              solid bar = fewer missense observed than expected (O/E &lt; 0.6); light bar = O/E ≥ 0.6 or not reported.
+              Basis: {context?.regionsBasis}
+            </p>
+            </>
           ),
         )}
       <footer className="ls-overview__footer">

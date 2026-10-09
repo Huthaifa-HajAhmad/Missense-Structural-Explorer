@@ -202,6 +202,19 @@ describe("LandscapeOverview", () => {
     expect(screen.queryByText(/solid bar = fewer missense observed/)).toBeNull();
   });
 
+  it("explains the O/E bars and shows the gnomAD basis when regions are drawn", () => {
+    render(<LandscapeOverview {...props(ctx([], [{ start: 1, end: 10, oe: 0.4, pValue: 0.01 }]))} />);
+    expect(screen.getByText(/solid bar = fewer missense observed than expected \(O\/E < 0\.6\)/)).toBeTruthy();
+    expect(screen.getByText(/gnomAD v4\.1\.1 genomic intervals/)).toBeTruthy();
+  });
+
+  it("says ClinVar and gnomAD are not loaded, not pending, when the overview request failed", () => {
+    render(<LandscapeOverview {...props(null)} status="error" error="request failed" />);
+    expect(screen.getByText("ClinVar not loaded")).toBeTruthy();
+    expect(screen.getByText("gnomAD not loaded")).toBeTruthy();
+    expect(screen.queryByText(/context pending/)).toBeNull();
+  });
+
   it("keeps the row and says so when regional constraint failed to load", () => {
     render(<LandscapeOverview {...props(ctx([], null))} />);
     expect(screen.getByText("Missense O/E")).toBeTruthy();

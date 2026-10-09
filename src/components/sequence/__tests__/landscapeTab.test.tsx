@@ -199,10 +199,31 @@ describe("SequenceVisualizer states", () => {
     expect(screen.getByText(/^D116G: REVEL 0\.231 \(BP4\) · AlphaMissense 0\.362 \(Indeterminate\); it ranks 2 of the 3 substitutions with an AlphaMissense score/)).toBeTruthy();
     expect(screen.queryByRole("slider")).toBeNull();
     expect(screen.getByRole("group", { name: /Substitution heatmap/ })).toBeTruthy();
-    expect(screen.queryByText(/Nucleotides ? coding strand/)).toBeNull();
+    expect(screen.queryByText(/Nucleotides · coding strand/)).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Nucleotide map" }));
     expect(screen.queryByRole("group", { name: /Substitution heatmap/ })).toBeNull();
     expect(screen.queryByRole("slider")).toBeNull();
+    sequenceState.sequence = "";
+  });
+});
+
+describe("SequenceVisualizer data cautions", () => {
+  it("shows source-quality cautions on the Whole protein tab, not only on Focus residue", () => {
+    sequenceState.sequence = "M".repeat(100) + "SGSFVEESPENLLDNDPSFFCRFTVVVATQL" + "A".repeat(50);
+    render(
+      <SequenceVisualizer
+        uniprotId="Q13564"
+        gene="NAE1"
+        variant="p.Asp116Gly"
+        residueIndex={116}
+        landscapeData={[...rows.values()]}
+        landscapeMeta={{ source: "dbnsfp-local", sourceVersion: "dbNSFP 4.9a", transcriptBasis: "mane", transcript: "ENST1", cached: false, qualityFlags: ["truncated:5000"] } as any}
+        conservationData={{ revel: 0.231 }}
+        predictorData={{ amPathogenicity: 0.362 }}
+      />
+    );
+    expect(screen.getByRole("tab", { name: "Whole protein", selected: true })).toBeTruthy();
+    expect(screen.getByText(/The source stopped at its row limit/)).toBeTruthy();
     sequenceState.sequence = "";
   });
 });

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import type { LandscapeResidueItem } from '../../shared/contracts';
 import { agreementClass, residueSummary, type Agreement, type SummaryMode } from '../../shared/landscapeEvidence';
@@ -11,12 +11,29 @@ const GROUPS: { id: Agreement | 'all'; label: string }[] = [
   { id: 'other', label: 'Either indeterminate' },
 ];
 
-export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm, selectedResidue, onSelect, onHover }: {
+/** Contiguous residue runs the rows cover, e.g. "91–141, 300–330": the plotted set is only what has been loaded. */
+export function coveredRuns(rows: LandscapeResidueItem[]): string {
+  const pos = rows.map(r => r.residx).sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < pos.length;) {
+    let j = i;
+    while (j + 1 < pos.length && pos[j + 1] === pos[j] + 1) j++;
+    runs.push(pos[i] === pos[j] ? `${pos[i]}` : `${pos[i]}–${pos[j]}`);
+    i = j + 1;
+  }
+  return runs.join(', ');
+}
+
+export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm, selectedResidue, onSelect, onHover, label, provenance }: {
+  label?: string; provenance?: string;
   rows: LandscapeResidueItem[]; mode: SummaryMode; onMode?: (mode: SummaryMode) => void; variantRevel: number | null; variantAm: number | null;
   selectedResidue: number | null; onSelect: (pos: number) => void; onHover: (pos: number | null) => void;
 }) {
   const [filter, setFilter] = useState<Agreement | 'all'>('all');
   const [brush, setBrush] = useState<{ x0: number; x1: number; y0: number; y1: number } | null>(null);
+  // A dragged region is in score units of the current summary; it means something else after Mean ↔ Max.
+  useEffect(() => setBrush(null), [mode]);
+  const covered = useMemo(() => coveredRuns(rows), [rows]);
   const paired = useMemo(() => rows.flatMap(row => {
     const revel = residueSummary(row, 'revel', mode);
     const am = residueSummary(row, 'alphaMissense', mode);
@@ -28,11 +45,11 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
     const csv = [`residue,summary,REVEL,AlphaMissense,agreement`, ...filtered.map(p =>
       `${p.row.residx},${mode},${p.revel},${p.am},${p.group}`)].join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = `landscape-agreement-${mode}.csv`; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = `landscape-agreement-${(label ?? 'protein').replace(/[^\w.-]+/g, '-')}-${mode}.csv`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return <VisualizationPanel title="Where do the predictors disagree?"
-    description={`REVEL × AlphaMissense · residue ${mode}s across the loaded positions`}
+    description={`REVEL × AlphaMissense · residue ${mode}s · loaded residues only: ${covered || 'none'}`}
     actions={<div className="viz-header-actions"><div className="viz-mode" role="group" aria-label="Residue summary">{(['mean', 'max'] as const).map(value => <button type="button" key={value} aria-pressed={mode === value} onClick={() => onMode?.(value)}>{value === 'mean' ? 'Mean' : 'Max'}</button>)}</div><button type="button" className="viz-action" onClick={exportCsv} disabled={!filtered.length}><Download size={14} /> Export CSV</button></div>}
     note="Each circle summarizes a residue’s scored substitutions. The diamond is the queried variant’s own scores. Bands on residue summaries provide context; they do not assign ACMG evidence.">
     <div className="viz-filters" role="group" aria-label="Filter predictor agreement">

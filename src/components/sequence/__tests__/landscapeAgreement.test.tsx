@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { LandscapeAgreement } from '../LandscapeAgreement';
+import { LandscapeAgreement, coveredRuns } from '../LandscapeAgreement';
 import type { LandscapeResidueItem } from '../../../shared/contracts';
 
 const rows = [
@@ -33,6 +33,22 @@ describe('Landscape agreement exploration', () => {
     fireEvent.click(within(table).getByRole('button', { name: 'Residue 1' }));
     expect(select).toHaveBeenCalledWith(1);
     expect(screen.getByText(/The diamond is the queried variant/)).toBeTruthy();
+  });
+  it('names the loaded residues it covers, with gaps', () => {
+    expect(coveredRuns([{ residx: 5 }, { residx: 6 }, { residx: 7 }, { residx: 20 }] as LandscapeResidueItem[])).toBe('5–7, 20');
+    setup();
+    expect(screen.getByText(/loaded residues only: 1–4/)).toBeTruthy();
+  });
+  it('clears a dragged region when the Mean/Max summary changes, but keeps the group filter', () => {
+    const props = { rows, variantRevel: 0.9, variantAm: 0.95, selectedResidue: 2, onSelect: () => {}, onHover: () => {} };
+    const { rerender } = render(<LandscapeAgreement {...props} mode="mean" />);
+    fireEvent.click(screen.getByRole('button', { name: /^Discordant/ }));
+    fireEvent.click(screen.getByText('Set score range'));
+    fireEvent.change(screen.getByLabelText('REVEL maximum'), { target: { value: '0.2' } });
+    expect(screen.getByRole('button', { name: 'Clear region' })).toBeTruthy();
+    rerender(<LandscapeAgreement {...props} mode="max" />);
+    expect(screen.queryByRole('button', { name: 'Clear region' })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Discordant/ }).getAttribute('aria-pressed')).toBe('true');
   });
   it('supports precise region selection with keyboard-accessible numeric fields and reset', () => {
     setup();
