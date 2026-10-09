@@ -179,3 +179,25 @@ export function identifyAlphaFoldHeader(pdbText: string | null | undefined): { v
   }
   return null;
 }
+
+/** First-model protein Cα atoms only. Ambiguous chains/insertion codes are never linked by number. */
+export function indexStructureResidues(text: string | null): ReadonlyMap<number, ResidueAt> {
+  const residues = new Map<number, ResidueAt>();
+  const ambiguous = new Set<number>();
+  for (const line of text?.split(/\r?\n/) ?? []) {
+    if (line.startsWith("ENDMDL")) break;
+    if (!line.startsWith("ATOM  ") || atomName(line) !== "CA") continue;
+    const position = resSeq(line);
+    if (!Number.isInteger(position) || position < 1) continue;
+    const chain = line.slice(21, 22).trim().toUpperCase();
+    const resName = line.slice(17, 20).trim().toUpperCase();
+    const previous = residues.get(position);
+    if (line.slice(26, 27).trim() || (previous && (previous.chain !== chain || previous.resName !== resName))) ambiguous.add(position);
+    if (!previous) {
+      const b = bFactor(line);
+      residues.set(position, { chain, resName, caBFactor: Number.isFinite(b) ? b : null });
+    }
+  }
+  for (const position of ambiguous) residues.delete(position);
+  return residues;
+}

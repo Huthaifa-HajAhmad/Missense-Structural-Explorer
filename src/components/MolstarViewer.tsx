@@ -1,3 +1,5 @@
+import { linkedPickPosition, type StructureSelection } from "../shared/structureSelection";
+import type { ResidueAt } from "../shared/coordinateText";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
@@ -14,6 +16,11 @@ import { derivePocketNarrative } from "../shared/residueShiftEvidence";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../shared/structure3dEvidence";
 
 export interface MolstarViewerProps {
+  active?: boolean;
+  /** Cα residues of the primary coordinates, keyed by UniProt position (see `indexStructureResidues`). */
+  coordinateIndex: ReadonlyMap<number, ResidueAt>;
+  /** The selected/previewed residue and its provenance; the canvas only highlights `state: "available"`. */
+  selection: StructureSelection;
   /** The 3D evidence model (`useStructure3dEvidence`), built once by the caller. */
   model: Structure3dEvidence;
   /** Coordinates for the primary structure; null lets the viewer load `customPdbUrl` or fetch. */
@@ -28,7 +35,6 @@ export interface MolstarViewerProps {
   onModeChange: (mode: ViewMode) => void;
   onAlignmentScopeChange?: (scope: AlignmentScope) => void;
   onSwitchToAlphaFold?: () => void;
-  onSwitchToEsmFold?: () => void;
   onOpenPocketTab?: () => void;
   onRetryPocket?: () => void;
   onRetryStructural?: () => void;
@@ -44,6 +50,7 @@ export interface MolstarViewerProps {
  * `compareVariant`) the component accepted and ignored.
  */
 export default function MolstarViewer({
+  active = true, coordinateIndex, selection,
   model,
   primaryPdbData,
   comparePdbData,
@@ -54,13 +61,12 @@ export default function MolstarViewer({
   onModeChange,
   onAlignmentScopeChange,
   onSwitchToAlphaFold,
-  onSwitchToEsmFold,
   onOpenPocketTab,
   onRetryPocket,
   onRetryStructural,
   heightClass,
 }: MolstarViewerProps) {
-  const { theme, settings, showPolarContacts, openSettingsTab } = useSettings();
+  const { isDark, settings, showPolarContacts, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const actions = useVariantAnalysisActions();
 
@@ -82,7 +88,6 @@ export default function MolstarViewer({
   const esmFoldingError = useVariantAnalysisStore(s => s.esmFoldingError);
   const esmFoldWtPdb = useVariantAnalysisStore(s => s.esmFoldWtPdb);
 
-  const isDark = theme !== "light";
   const residueColorHex = parseInt((settings.residueColor || "#C46849").replace("#", ""), 16);
 
   const [plddtFilter, setPlddtFilter] = useState<PlddtFilter>("none");
@@ -107,9 +112,16 @@ export default function MolstarViewer({
 
   const plugin = useMolstarPlugin({
     isDark,
-    onResidueHover: actions.setHoveredResidueIndex,
-    onResidueClick,
+    onResidueHover: (index, pick) => actions.setHoveredResidueIndex(linkedPickPosition(active, model, coordinateIndex, index, pick)),
+    onResidueClick: (index, pick) => {
+      const linked = linkedPickPosition(active, model, coordinateIndex, index, pick);
+      if (linked) onResidueClick(linked);
+    },
   });
+
+  useEffect(() => {
+    if (!active) actions.setHoveredResidueIndex(null);
+  }, [active, actions.setHoveredResidueIndex]);
 
   const pocket = useMemo(
     () => derivePocketNarrative(computedPocket as any, { isLoading: isPocketLoading, error: pocketError, variantResidueIndex: variantPosition, variantResidueChain: chain }),
@@ -144,7 +156,7 @@ export default function MolstarViewer({
     esm3Scores: model.representation === "esm3" ? esm3Scores : null,
     variantPosition,
     canAddressVariantSite: model.site.canAddressVariantSite,
-    selectedResidue,
+    selectedResidue: selection.state === "available" ? selection.position : null,
     showPolarContacts,
     show3DLabels: settings.show3DLabels !== false,
     residueColorHex: Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849,
@@ -194,7 +206,7 @@ export default function MolstarViewer({
           onPlddtFilterChange={setPlddtFilter}
           onAlignmentScopeChange={onAlignmentScopeChange}
           onFocusSite={() => model.site.canAddressVariantSite && variantPosition && structure.focusResidue(variantPosition)}
-          onBackToSite={() => onResidueClick(variantPosition)}
+          onFocusSelection={selection.state === "available" && selection.position ? () => structure.focusResidue(selection.position!) : undefined}
           pocketOpen={pocketOpen}
           pocketTriggerRef={pocketTriggerRef}
           onTogglePocket={() => {
@@ -209,8 +221,6 @@ export default function MolstarViewer({
           onCopy={async () => setCopyState((await plugin.handleCopyCapture()) ? "copied" : "failed")}
           copyState={copyState}
           onOpenGuide={() => actions.setIsHowToInspectOpen(true)}
-          onSwitchToAlphaFold={onSwitchToAlphaFold}
-          onSwitchToEsmFold={onSwitchToEsmFold}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
         />

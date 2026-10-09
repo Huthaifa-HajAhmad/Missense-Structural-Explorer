@@ -56,6 +56,27 @@
 }
 .s3d-viewer:fullscreen { border-radius: 0; border: 0; }
 
+/* Navigation above one persistent WebGL canvas. */
+.structure-workspace__header { display: flex; flex-direction: column; gap: 16px; padding: 24px 24px 0; flex-shrink: 0; }
+.structure-workspace__canvas { padding: 16px; min-height: 480px; }
+.structure-workspace .s3d-viewer { border-radius: 12px; border-color: var(--cs-border-subtle); }
+.structure-workspace .s3d-viewer:fullscreen { border-radius: 0; border: 0; }
+.structure-main { overflow-y: auto; }
+.structure-workspace .s3d-seg { border: 0; background: transparent; padding: 0; gap: 6px; }
+.structure-workspace .s3d-seg__btn { border-radius: 999px; border: 1px solid var(--cs-border); min-height: 34px; padding: 6px 12px; }
+.structure-workspace .s3d-seg__btn[aria-checked="true"],
+.structure-workspace .s3d-seg__btn[aria-checked="true"]:hover { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
+.s3d-site:disabled { cursor: default; opacity: .55; }
+.s3d-selection { padding: 16px; margin-bottom: 20px; background: var(--cs-surface-2); border-radius: 12px; }
+.s3d-selection h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--cs-text-primary); }
+.s3d-selection__summary { margin: 0 0 10px; font-size: 13px; color: var(--cs-text-primary); }
+.s3d-selection__source { margin: 8px 0 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: var(--cs-text-secondary); }
+@media (max-width: 1000px) {
+  .structure-workspace .structure-main { height: auto; overflow: visible; }
+  .structure-workspace__header { padding: 20px 16px 0; }
+  .structure-workspace__canvas { height: min(650px, 65dvh); min-height: 420px; flex: none; padding: 12px; }
+}
+
 /* ── Toolbar ─────────────────────────────────────────────────── */
 .s3d-bar {
   display: flex;
@@ -114,10 +135,6 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   background: var(--cs-surface-2);
 }
 .s3d-site[data-kind="unmapped"] { color: var(--cs-text-muted); border-color: var(--cs-border); background: var(--cs-surface-2); }
-.s3d-family { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface-2); }
-.s3d-family__btn { min-height: 28px; padding: 2px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); cursor: pointer; }
-.s3d-family__btn[aria-pressed="true"] { background: var(--cs-surface); color: var(--cs-text-primary); box-shadow: var(--cs-shadow-sm); }
-.s3d-family__btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 /* Segmented control: Wild type / Variant / Superposition */
 .s3d-seg {
@@ -216,7 +233,6 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 .s3d-select:focus-visible,
 .s3d-btn:focus-visible,
 .s3d-site:focus-visible,
-.s3d-family__btn:focus-visible,
 .s3d-menu__item:focus-visible,
 .s3d-residue:focus-visible,
 .s3d-legend__toggle:focus-visible,
@@ -375,10 +391,6 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 .s3d-kv__note { display: block; margin-top: 1px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 @container (max-width: 820px) {
-  .s3d-site[data-kind="selected"] { display: none; }
-}
-
-@container (max-width: 620px) {
   .s3d-bar__top { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .s3d-bar__top-actions { justify-content: flex-start; flex-wrap: wrap; }
   .s3d-bar__bottom { justify-content: space-between; }
@@ -389,10 +401,10 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 @container (max-width: 520px) {
   .s3d-bar { padding: 9px 10px; gap: 8px; }
   .s3d-bar__top-actions { gap: 4px; }
-  .s3d-family { order: -1; }
   .s3d-btn__text { display: none; }
   .s3d-seg { width: 100%; }
-  .s3d-seg__btn { flex: 1; justify-content: center; padding-inline: 5px; }
+  .s3d-seg__btn,
+  .structure-workspace .s3d-seg__btn { flex: 1; justify-content: center; padding-inline: 5px; }
   .s3d-bar__divider { display: none; }
   .s3d-display-wrap { flex: 1 1 auto; }
   .s3d-btn--display { width: 100%; max-width: none; justify-content: flex-start; }

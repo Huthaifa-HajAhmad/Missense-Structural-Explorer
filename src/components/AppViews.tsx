@@ -8,6 +8,11 @@ import ClinicalInsightsCard from "./ClinicalInsightsCard";
 import ClinicalReportBar from "./ClinicalReportBar";
 import DevConsolePanel from "./DevConsolePanel";
 import AboutView from "./AboutView";
+import { WorkspaceLayout } from "./ui/WorkspaceLayout";
+import { WorkspaceSelection } from "./ui/WorkspaceSelection";
+import { WorkspaceTabs } from "./ui/WorkspaceTabs";
+import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
+import { landscapeKey } from "../shared/landscapeEvidence";
 import ViewInspector from "./inspector/ViewInspector";
 import { ErrorBoundary } from "./ErrorBoundary";
 import LiteratureView from "./LiteratureView";
@@ -178,8 +183,13 @@ export function AppViews({
   const handleCopyReport = propsHandleCopyReport || actions?.handleCopyReport;
 
   const { apiClient } = useApiClient();
-  const isEsm = masterView === "structure_esmfold";
   const isStructureActive = masterView === "structure" || masterView === "structure_alphafold" || masterView === "structure_esmfold";
+
+  // Preserve the model family while hidden; navigating to Landscape must not reload the canvas.
+  const [lastStructureFamily, setLastStructureFamily] = useState<"alphafold" | "esmfold" | null>(null);
+  const activeFamily = masterView === "structure_esmfold" ? "esmfold" : "alphafold";
+  if (isStructureActive && lastStructureFamily !== activeFamily) setLastStructureFamily(activeFamily);
+  const isEsm = (lastStructureFamily ?? (contextSettings.defaultStructureModel === "esmfold" ? "esmfold" : "alphafold")) === "esmfold";
 
   /**
    * One 3D model for the canvas and the toolbar. It decides which modes exist and falls back when
@@ -214,6 +224,12 @@ export function AppViews({
     if (customPdbUrl) return { primary: customPdbEntry && customPdbEntry.url === customPdbUrl ? customPdbEntry.text : null, compare: null };
     return { primary: pdbText || null, compare: null };
   }, [isEsm, structureModel.viewMode, esmFoldWtPdb, esmFoldMutPdb, esmFoldAlignedPdb, mutantPdb, storeFoldxReferencePdb, storeFoldxAlignedPdb, customPdbUrl, customPdbEntry, pdbText]);
+
+  const structureResidues = useMemo(() => indexStructureResidues(canvasData.primary), [canvasData.primary]);
+  const structureSelection = useMemo(() => buildStructureSelection(structureModel, structureResidues, selectedResidueIndex), [structureModel, structureResidues, selectedResidueIndex]);
+  const structureInspectorSelection = useMemo(() => isStructureActive && hoveredResidueIndex
+    ? { ...buildStructureSelection(structureModel, structureResidues, hoveredResidueIndex), preview: true }
+    : structureSelection, [isStructureActive, hoveredResidueIndex, structureModel, structureResidues, structureSelection]);
 
   const alignmentRequestIdRef = useRef(0);
 
@@ -316,8 +332,31 @@ export function AppViews({
    */
   const handleResidueClickMemo = useCallback((idx: number | null) => {
     if (!idx) return;
+    const store = useVariantAnalysisStore.getState();
+    const key = landscapeKey(gene, variant, uniprotId);
+    if (store.landscapeSelection?.pos !== idx || store.landscapeSelection.key !== key) {
+      store.setLandscapeSelection({ key, kind: "residue", pos: idx });
+      store.setSelectedGenomicVariant(null);
+    }
     setSelectedResidueIndex(idx);
-  }, [setSelectedResidueIndex]);
+  }, [setSelectedResidueIndex, gene, variant, uniprotId]);
+
+  /** Returns to the queried substitution: same selection kind the Landscape's own "Query" buttons set. */
+  const handleReturnToVariant = useCallback(() => {
+    if (!variantPosition) return;
+    const store = useVariantAnalysisStore.getState();
+    store.setLandscapeSelection({ key: landscapeKey(gene, variant, uniprotId), kind: "substitution", pos: variantPosition, alt: landscapeTarget?.mut || undefined });
+    store.setSelectedGenomicVariant(null);
+    setSelectedResidueIndex(variantPosition);
+  }, [variantPosition, landscapeTarget?.mut, setSelectedResidueIndex, gene, variant, uniprotId]);
+
+  /** The clicked button lives in the pane that is about to be hidden; hand focus to the destination. */
+  const navigateWorkspace = (view: MasterView) => {
+    useVariantAnalysisStore.getState().setHoveredResidueIndex(null);
+    setMasterView(view);
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>(view === "landscape"
+      ? '.landscape-main [role="tab"][aria-selected="true"]' : '[data-workspace-focus="structure"]')?.focus());
+  };
 
   /**
    * Shared by the main Residue Shifts tab and the inspector's pocket narrative:
@@ -350,7 +389,7 @@ export function AppViews({
           <span className="text-xs font-mono text-slate-400">Loading view...</span>
         </div>
       }>
-        <div className={`data-screen-layout${masterView === "landscape" ? " landscape-workspace" : ""}`}>
+        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : undefined}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (
@@ -454,10 +493,21 @@ export function AppViews({
 
             {/* STRUCTURE VIEW — deferred mount on first open, then kept in DOM to preserve Molstar WebGL context */}
             <div
-              className="h-full w-full flex flex-col min-h-0"
+              className="structure-main h-full w-full flex flex-col min-h-0"
+              onMouseLeave={() => useVariantAnalysisStore.getState().setHoveredResidueIndex(null)}
               style={{ display: isStructureActive ? "flex" : "none" }}
             >
-              <div className="flex-1 min-h-0 relative">
+              <header className="structure-workspace__header">
+                <div className="workspace-heading"><h2 tabIndex={-1} data-workspace-focus="structure">3D structure</h2><p>Inspect the selected residue in its structural context.</p></div>
+                <WorkspaceSelection position={selectedResidueIndex} variantPosition={variantPosition} destination="Open Landscape"
+                  onNavigate={() => navigateWorkspace("landscape")} onReset={handleReturnToVariant} />
+                <WorkspaceTabs id="structure-family" label="Structure model" value={isEsm ? "esmfold" : "alphafold"}
+                  tabs={[{ id: "alphafold", label: "AlphaFold & FoldX" }, { id: "esmfold", label: "ESMFold" }]}
+                  onChange={family => setMasterView(family === "esmfold" ? "structure_esmfold" : "structure_alphafold")} />
+              </header>
+              <div className="structure-workspace__canvas flex-1 min-h-0 relative" role="tabpanel"
+                id={`structure-family-panel-${isEsm ? "esmfold" : "alphafold"}`}
+                aria-labelledby={`structure-family-tab-${isEsm ? "esmfold" : "alphafold"}`}>
                 {hasEverMountedStructure && (
                   <ErrorBoundary
                     name="3D Structure"
@@ -471,6 +521,9 @@ export function AppViews({
                     }>
                       <MolstarViewerLazy
                         model={structureModel}
+                        coordinateIndex={structureResidues}
+                        selection={structureSelection}
+                        active={isStructureActive}
                         primaryPdbData={canvasData.primary}
                         comparePdbData={canvasData.compare}
                         allowFetch={!isEsm && structureModel.viewMode === "wildtype" && !customPdbUrl}
@@ -480,7 +533,6 @@ export function AppViews({
                         onModeChange={setViewMode}
                         onAlignmentScopeChange={handleAlignmentScopeChange}
                         onSwitchToAlphaFold={() => setMasterView("structure_alphafold")}
-                        onSwitchToEsmFold={() => setMasterView("structure_esmfold")}
                         onOpenPocketTab={() => {
                           setActiveEvidenceTab("structure");
                           setMasterView("evidence");
@@ -500,6 +552,11 @@ export function AppViews({
               className="landscape-main flex flex-col h-full overflow-y-auto w-full"
               style={{ display: masterView === "landscape" ? "flex" : "none" }}
             >
+              <div className="landscape-workspace__selection">
+                <WorkspaceSelection position={selectedResidueIndex} variantPosition={variantPosition} destination="Inspect in 3D"
+                  onNavigate={() => navigateWorkspace(isEsm ? "structure_esmfold" : "structure_alphafold")}
+                  onReset={handleReturnToVariant} />
+              </div>
               <SequenceVisualizer
                 uniprotId={uniprotId}
                 gene={gene}
@@ -633,6 +690,7 @@ export function AppViews({
           {masterView !== "search" && masterView !== "console" && masterView !== "about" && (
             <ViewInspector
               activeView={masterView}
+              structureSelection={structureInspectorSelection}
               onViewChange={setMasterView}
               analysisResult={analysisState.result}
               isFolding={isFolding}
@@ -677,7 +735,7 @@ export function AppViews({
               onRetryNarrative={handleRetryNarrative}
             />
           )}
-        </div>
+        </WorkspaceLayout>
       </Suspense>
     </main>
   );

@@ -6,6 +6,7 @@ import '@fontsource-variable/source-code-pro';
 import '../../src/index.css';
 import { SettingsProvider, useSettings } from '../../src/context/SettingsContext';
 import SequenceVisualizer from '../../src/components/SequenceVisualizer';
+import { WorkspaceLayout } from '../../src/components/ui/WorkspaceLayout';
 import ViewInspector from '../../src/components/inspector/ViewInspector';
 import { useVariantAnalysisStore as store } from '../../src/stores/useVariantAnalysisStore';
 import { landscapeKey } from '../../src/shared/landscapeEvidence';
@@ -61,7 +62,7 @@ function Preview() {
       <span><strong>Missense & Fold</strong> <span style={{ marginLeft: 24 }}>{long ? "Synthetic 1,500-residue density fixture · S205C" : "SOD1 · p.Ala5Val"}</span></span>
       <span style={{ fontSize: 12 }}>Layout review · test fixtures, not live evidence <button className="viz-action" style={{ marginLeft: 16 }} onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button></span>
     </header>
-    <main style={{ flex: 1, minHeight: 0 }}><div className="data-screen-layout landscape-workspace">
+    <main style={{ flex: 1, minHeight: 0 }}><WorkspaceLayout kind="landscape">
       <div className="data-screen-primary"><div className="landscape-main" style={{ overflowY: 'auto' }}>
         <SequenceVisualizer uniprotId={accession} gene={gene} variant={variant} residueIndex={selected}
           targetResidue={target} onResidueClick={select} predictorData={result.predictorData}
@@ -71,7 +72,7 @@ function Preview() {
       <ViewInspector activeView="landscape" onViewChange={() => {}} analysisResult={result} isFolding={false}
         isBiophysicalLoading={false} isClinicalLoading={false} gene={gene} variant={variant}
         onSelectResidueIndex={select} metricMode={mode} />
-    </div></main>
+    </WorkspaceLayout></main>
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<SettingsProvider><Preview /></SettingsProvider>);

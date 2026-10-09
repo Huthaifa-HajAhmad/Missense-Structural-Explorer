@@ -298,7 +298,6 @@ export interface SiteContext {
   confidence: { kind: "plddt" | "b-factor" | "none"; value: number | null; text: string; note: string };
   region: string | null;
   burial: string | null;
-  selected: number | null;
   /** True only when the canvas uses verified UniProt residue numbering. */
   canAddressVariantSite: boolean;
 }
@@ -1165,7 +1164,6 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       input.burial && (input.burial.label || input.burial.rsa !== null)
         ? `${input.burial.label ?? "Accessibility measured"}${input.burial.rsa !== null ? ` · RSA ${Math.round(input.burial.rsa * 100)}%` : ""}${input.burial.structure ? ` · on ${input.burial.structure}` : ""}`
         : null,
-    selected: input.selectedResidue !== null && input.selectedResidue !== position ? input.selectedResidue : null,
     canAddressVariantSite,
   };
 
