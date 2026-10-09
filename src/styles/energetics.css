@@ -29,6 +29,57 @@
 .nrg-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; container-type: inline-size; }
 
 .nrg-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
+
+/* Exploration workspace: the comparison is the primary figure, details follow a pinned method. */
+.energetics-workspace .nrg-screen { max-width: none; gap: 20px; padding: 24px; }
+.nrg-query { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 0; font-size: 13px; }
+.nrg-query strong { color: var(--cs-text-primary); }
+.nrg-query span { color: var(--cs-text-muted); }
+.nrg-navigation { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+.nrg-navigation .workspace-tabs { flex: 1; min-width: 240px; }
+.nrg-inspect-button { min-height: 36px; padding: 6px 12px; border: 1px solid var(--cs-border); border-radius: 18px; color: var(--cs-text-primary); background: var(--cs-surface); font-size: 13px; }
+.nrg-inspect-button:focus-visible, .nrg-selected-method:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.nrg-hero[data-compact="true"] .nrg-summary { padding-top: 14px; }
+.nrg-comparison-caution { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); font-size: 13px; }
+.nrg-method-button:hover { color: var(--cs-text-accent); }
+.nrg-inspect-button:hover, .nrg-missing-methods button:hover { background: var(--cs-surface-2); }
+.nrg-chart-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; width: 100%; padding-top: 6px; }
+.nrg-chart-controls label { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; font-size: 13px; }
+.nrg-chart-controls select { padding: 6px 10px; background: var(--cs-surface-2); color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: 8px; min-height: 34px; }
+.nrg-chart-controls input { width: 16px; height: 16px; accent-color: var(--cs-accent-clay); }
+.nrg-axis-guide { display: flex; justify-content: space-between; gap: 16px; padding: 12px 24px 0 112px; color: var(--cs-text-secondary); font-size: 12px; }
+.nrg-chart-readout { min-height: 58px; margin: 0; padding: 14px 22px; background: var(--cs-surface-2); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; }
+.nrg-chart-key { display: inline-flex; align-items: center; gap: 8px; }
+.nrg-chart-key i { width: 10px; height: 10px; border-radius: 50%; background: var(--cs-accent-clay); }
+.nrg-chart-key i[data-hollow] { background: var(--cs-surface); border: 2px solid var(--cs-text-secondary); }
+.nrg-missing-methods { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 22px; }
+.nrg-missing-methods > span { width: 100%; font-size: 12px; color: var(--cs-text-muted); }
+.nrg-missing-methods button { display: flex; flex-direction: column; text-align: left; gap: 2px; border: 1px solid var(--cs-border); border-radius: 10px; padding: 8px 12px; color: var(--cs-text-primary); background: var(--cs-surface); min-height: 44px; }
+.nrg-missing-methods small { color: var(--cs-text-secondary); }
+.nrg-missing-methods button[aria-pressed="true"] { border-color: var(--cs-accent-clay); background: var(--cs-surface-2); }
+.nrg-chart-help { padding: 14px 22px; border-top: 1px solid var(--cs-border-subtle); }
+.nrg-chart-help summary, .nrg-lineage > summary { cursor: pointer; min-height: 32px; color: var(--cs-text-primary); font-weight: 600; }
+.nrg-chart-help p { margin: 10px 0; font-size: 13px; line-height: 1.65; }
+.nrg-method-button { border: 0; background: none; color: var(--cs-text-primary); font-weight: 600; padding: 6px 0; text-align: left; min-height: 32px; }
+.nrg-table tr[data-selected="true"] { background: var(--cs-surface-2); }
+.nrg-selected-method { margin: 0 0 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-surface-2); }
+.nrg-selected-method h2 { color: var(--cs-text-primary); font-size: 21px; margin: 8px 0; font-weight: 600; }
+.nrg-selected-method p { margin: 10px 0; font-size: 13px; line-height: 1.6; }
+.nrg-selected-value { font-size: 23px; font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-primary); margin: 16px 0 8px; }
+.nrg-selected-method dl { margin: 16px 0 0; }
+.nrg-selected-method dl > div { padding: 10px 0; border-top: 1px solid var(--cs-border-subtle); }
+.nrg-selected-method dt { font-size: 12px; color: var(--cs-text-muted); }
+.nrg-selected-method dd { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--cs-text-primary); }
+.nrg-selected-caveat { border-left: 2px solid var(--cs-text-warning); padding-left: 10px; }
+.nrg-lineage > summary { padding: 10px 0; }
+.nrg-chart-controls :focus-visible, .nrg-missing-methods button:focus-visible, .nrg-method-button:focus-visible, .nrg-chart-help summary:focus-visible, .nrg-lineage summary:focus-visible, .nrg-screen [role="tabpanel"]:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+@media (max-width: 1000px) {
+  .energetics-workspace .nrg-scroll { height: auto; overflow: visible; }
+}
+@container (max-width: 560px) {
+  .energetics-workspace .nrg-screen { padding: 16px; }
+  .nrg-axis-guide { padding-left: 16px; }
+}
 .nrg-dim { color: var(--cs-text-muted); }
 
 .nrg-screen .eyebrow,

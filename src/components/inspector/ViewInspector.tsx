@@ -26,6 +26,7 @@ import PerturbationRail from "./PerturbationRail";
 import ResidueShiftInspector from "./ResidueShiftInspector";
 import SplicingRail from "./SplicingRail";
 import EnergeticsInspector from "./EnergeticsInspector";
+import type { EnergyEngineId } from '../../shared/engineStatus';
 import LandscapeInspector from "./LandscapeInspector";
 import InsightsInspector from "./InsightsInspector";
 import LiteratureInspector from "./LiteratureInspector";
@@ -33,6 +34,7 @@ import type { LiteratureEvidence } from "../../shared/literatureEvidence";
 import ReportInspector from "./ReportInspector";
 
 export interface ViewInspectorProps {
+  selectedEnergyEngine?: EnergyEngineId | null;
   structureSelection?: StructureSelection;
   activeView: MasterView;
   onViewChange: (view: MasterView) => void;
@@ -132,6 +134,7 @@ const MAX_REVEAL_ATTEMPTS = 6;
 const REVEAL_RETRY_MS = 16;
 
 export const ViewInspector: React.FC<ViewInspectorProps> = ({
+  selectedEnergyEngine = null,
   structureSelection,
   activeView,
   onViewChange,
@@ -505,6 +508,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
 
         {activeView === "energetics" && (
           <EnergeticsInspector
+            selectedEngine={selectedEnergyEngine}
             analysisResult={analysisResult}
             foldingEnergetics={foldingEnergetics}
             foldingStatus={foldingStatus}

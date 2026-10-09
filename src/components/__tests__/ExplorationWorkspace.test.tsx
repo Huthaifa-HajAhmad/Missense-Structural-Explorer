@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React, { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import AppViews from '../AppViews';
 import type { MasterView } from '../MasterSidebar';
 import { SettingsProvider } from '../../context/SettingsContext';
@@ -18,8 +18,8 @@ vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (positio
 </div> }));
 afterEach(cleanup);
 
-function Workspace() {
-  const [view, setView] = useState<MasterView>('landscape');
+function Workspace({ initialView = 'landscape' }: { initialView?: MasterView }) {
+  const [view, setView] = useState<MasterView>(initialView);
   const [mode, setMode] = useState<'mean' | 'max'>('mean');
   const [width, setWidth] = useState(31);
   return <SettingsProvider><AppViews masterView={view} setMasterView={setView} pushErrorEntry={vi.fn()} setIsSettingsOpen={vi.fn()}
@@ -35,6 +35,25 @@ const seed = () => store.setState({ gene: 'TEST', variant: 'p.Ala5Val', uniprotI
   pdbText: null, customPdbUrl: null, esmFoldWtPdb: null, esmFoldMutPdb: null, viewMode: 'wildtype',
 });
 beforeEach(seed);
+
+it('links Energetics records to the inspector, retains plot controls, and resets selection for a new query', async () => {
+  store.setState({ foldingEnergetics: { foldx: 2, foldxMean: 2, dynamut2: 0.5 } as any, foldingStatus: 'success' });
+  const ui = render(<Workspace initialView="energetics" />);
+  await ui.findByRole('img', { name: 'Stability estimates by method' });
+  fireEvent.change(ui.getByRole('combobox', { name: 'Order' }), { target: { value: 'value' } });
+  fireEvent.click(ui.getByRole('checkbox', { name: 'Local guides' }));
+  fireEvent.click(ui.getByRole('tab', { name: 'Engine records' }));
+  fireEvent.click(ui.getByRole('button', { name: 'DynaMut2' }));
+  expect(ui.getByRole('heading', { name: 'DynaMut2' })).toBeInTheDocument();
+  expect(store.getState().selectedResidueIndex).toBe(5);
+  expect(store.getState().analysisState.result?.metadata?.residueIndex).toBe(5);
+  fireEvent.click(ui.getByRole('tab', { name: 'Comparison' }));
+  expect(await ui.findByRole('combobox', { name: 'Order' })).toHaveValue('value');
+  expect(ui.getByRole('checkbox', { name: 'Local guides' })).toBeChecked();
+  act(() => store.setState({ variant: 'p.Ala6Val' }));
+  expect(ui.getByRole('heading', { name: 'Explore an estimate' })).toBeInTheDocument();
+  expect(await ui.findByRole('combobox', { name: 'Order' })).toHaveValue('method');
+});
 
 async function openStructure(ui: ReturnType<typeof render>) {
   fireEvent.click(ui.getByRole('tab', { name: 'Focus residue' }));

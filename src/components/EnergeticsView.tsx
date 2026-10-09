@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useEffect, useMemo, useCallback, memo, lazy, Suspense } from "react";
 import { Activity, AlertTriangle, ExternalLink, Info, ListChecks, Scale } from "lucide-react";
 import { AnalysisState, EnergeticsData } from "../types";
 import { useSettings } from "../context/SettingsContext";
@@ -21,12 +21,20 @@ import {
 } from "../shared/energeticsEvidence";
 import { DdgRuler } from "./energetics/DdgRuler";
 import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../shared/foldxPhase";
+import { WorkspaceTabs } from './ui/WorkspaceTabs';
+import type { EnergyEngineId } from '../shared/engineStatus';
+import { energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates, type EnergeticsChartOptions } from '../shared/energeticsComparison';
+import { requestInspectorFocus, INSPECTOR_SECTIONS } from '../lib/inspectorFocus';
+
+const EnergeticsComparison = lazy(() => import('./energetics/EnergeticsComparison'));
+const ENERGY_TABS = [{ id: 'comparison', label: 'Comparison' }, { id: 'records', label: 'Engine records' }] as const;
 
 /**
  * Energetics — predicted change in folding stability (ΔΔG).
  *
  * ONE QUESTION: do the stability engines predict that this substitution destabilizes the fold, and
- * how far do they agree? Three tiers, top to bottom — the Population/Predictors shape:
+ * how far do they agree? Comparison opens with a compact finding and an interactive dot plot.
+ * Engine records retains the detailed Population/Predictors evidence shape:
  *
  *   1. THE FINDING — the agreement chip, the median ΔΔG with its range, one sentence saying what the
  *      engines say together (and where they disagree), the engines as a tally by call, the one
@@ -45,10 +53,12 @@ import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../shared/
  *
  * INVARIANTS
  *   • Every number, state and call comes from `buildEnergeticsEvidence`; this file classifies nothing.
- *   • Each fact is stated once: values in the table, the count in the tally, meaning in the sentence.
+ *   • Comparison and Engine records share one evidence model and one selected method.
  */
 
 interface EnergeticsViewProps {
+  selectedEngine?: EnergyEngineId | null;
+  onSelectEngine?: (key: EnergyEngineId) => void;
   isDark: boolean;
   classCard: string;
   classCardHeader: string;
@@ -339,10 +349,14 @@ function ReadingRow({
   reading,
   unit,
   onKnowledge,
+  selected,
+  onSelect,
 }: {
   reading: EnergeticsReading;
   unit: EnergyUnit;
   onKnowledge: (key: string) => void;
+  selected: boolean;
+  onSelect: (key: EnergyEngineId) => void;
 }) {
   const has = reading.ddg !== null;
   const state = reading.outcome.state;
@@ -352,10 +366,10 @@ function ReadingRow({
   const titleCaveats = reading.caveats.filter(isTitleCaveat);
   const detailCaveats = reading.caveats.filter(c => !isTitleCaveat(c));
   return (
-    <tr data-testid={`energetics-${reading.key}`} data-state={state}>
+    <tr data-testid={`energetics-${reading.key}`} data-state={state} data-selected={selected}>
       <th scope="row">
         <span className="nrg-subject__line">
-          <span className="nrg-subject__name">{reading.name}</span>
+          <button type="button" className="nrg-method-button" aria-pressed={selected} onClick={() => onSelect(reading.key)}>{reading.name}</button>
           <button
             type="button"
             className="nrg-info"
@@ -414,6 +428,8 @@ function ReadingRow({
 }
 
 const EnergeticsView = memo(function EnergeticsView({
+  selectedEngine = null,
+  onSelectEngine,
   classCard,
   analysisState,
   foldingDdG,
@@ -428,6 +444,11 @@ const EnergeticsView = memo(function EnergeticsView({
   foldingProgress = null,
   foldingError = null,
 }: EnergeticsViewProps) {
+  const [tab, setTab] = useState<'comparison' | 'records'>('comparison');
+  const [chartOptions, setChartOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: false, showMarks: false });
+  const [localSelection, setLocalSelection] = useState<EnergyEngineId | null>(null);
+  const selected = onSelectEngine ? selectedEngine : localSelection;
+  const selectEngine = onSelectEngine ?? setLocalSelection;
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
   /**
    * Presentation-only: collapses the rows of engines that are still running. It cannot change the
@@ -452,12 +473,12 @@ const EnergeticsView = memo(function EnergeticsView({
         thermompnnError,
         foldingError,
         isFolding,
-        plddt: disruptionPredictor?.plddt ?? null,
+        plddt: disruptionPredictor?.plddt ?? result?.disruptionPredictor?.plddt ?? null,
         hidePending: hidePendingEngines,
       }),
     [
       foldingDdG, foldingStatus, foldingEnergetics, dynamut2Status, ddmutStatus, thermompnnStatus,
-      thermompnnError, foldingError, isFolding, disruptionPredictor?.plddt, hidePendingEngines,
+      thermompnnError, foldingError, isFolding, disruptionPredictor?.plddt, result?.disruptionPredictor?.plddt, hidePendingEngines,
     ]
   );
 
@@ -493,10 +514,14 @@ const EnergeticsView = memo(function EnergeticsView({
         <header className="nrg-header">
           <h1 className="screen-title">Energetics</h1>
           <p className="screen-tab-description">
-            Predicted change in folding stability (ΔΔG, positive = destabilizing) from six engines, each
-            judged on its own mark.
+            How might this substitution change protein stability?
           </p>
+          <p className="nrg-query"><strong>{result.metadata?.gene} {result.metadata?.variant}</strong><span>Estimates refer to this queried substitution.</span></p>
         </header>
+        <div className="nrg-navigation">
+          <WorkspaceTabs id="energetics" label="Energetics views" tabs={ENERGY_TABS} value={tab} onChange={setTab} />
+          {selected && <button type="button" className="nrg-inspect-button" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityMethod)}>Inspect {evidence.readings.find(r => r.key === selected)?.name} →</button>}
+        </div>
 
         {isFolding && !hidePendingEngines && (
           <ProgressPanel
@@ -509,7 +534,7 @@ const EnergeticsView = memo(function EnergeticsView({
         )}
 
         {/* ── 1. The finding ─────────────────────────────────────────────────────────────── */}
-        <section className="nrg-card nrg-hero" aria-labelledby="nrg-finding-title" data-testid="energetics-finding">
+        <section className="nrg-card nrg-hero" data-compact={tab === 'comparison'} aria-labelledby="nrg-finding-title" data-testid="energetics-finding">
           <div className="nrg-hero__head">
             <span className="eyebrow" id="nrg-finding-title">
               <Activity className="w-3.5 h-3.5" aria-hidden="true" />
@@ -520,7 +545,7 @@ const EnergeticsView = memo(function EnergeticsView({
             </span>
           </div>
 
-          <div className="nrg-hero__figure">
+          {tab === 'records' && <div className="nrg-hero__figure">
             <span className="nrg-hero__value" data-testid="energetics-median">
               {medianNum}
               {medianUnit && <span className="nrg-hero__unit">{medianUnit}</span>}
@@ -532,7 +557,7 @@ const EnergeticsView = memo(function EnergeticsView({
                   ? "Single engine — not a median"
                   : `Median of ${agreement.nCounted} engines · range ${signedDdg(agreement.min, unit)} to ${signedDdg(agreement.max, unit)}`}
             </span>
-          </div>
+          </div>}
 
           <p className="nrg-summary" data-tone={summary.tone} data-testid="energetics-summary">
             {summary.tone === "warning" ? (
@@ -541,27 +566,28 @@ const EnergeticsView = memo(function EnergeticsView({
               <span className="nrg-summary__dot" aria-hidden="true" />
             )}
             <span>
-              <strong>{summary.lead}</strong>
-              {summary.rest.map(sentence => ` ${sentence}`).join("")}
+              {tab === 'records' ? <><strong>{summary.lead}</strong>{summary.rest.map(sentence => ` ${sentence}`).join("")}</>
+                : <><strong>{energeticsComparisonFinding(evidence)}</strong> {returnedEnergyEstimates(evidence)} of {evidence.coverage.intended} methods returned a value; {agreement.nCounted} counted.</>}
             </span>
           </p>
 
-          <EngineTally evidence={evidence} />
+          {tab === 'records' && <EngineTally evidence={evidence} />}
+          {tab === 'comparison' && energeticsComparisonCautions(evidence).map(note => <p className="nrg-comparison-caution" key={note}>{note}</p>)}
 
           <p className="nrg-principle">
             <Scale className="w-3.5 h-3.5" aria-hidden="true" />
             <span>
-              <strong>Destabilization is not pathogenicity.</strong> ΔΔG estimates misfolding risk only; a
+              {tab === 'comparison' ? 'These predictions describe folding stability, not whether a variant causes disease.' : <><strong>Destabilization is not pathogenicity.</strong> ΔΔG estimates misfolding risk only; a
               gain-of-function or interface variant can be pathogenic and stable. It feeds no ACMG criterion
-              here, and no engine&apos;s mark is a published clinical cut-point.
+              here, and no engine&apos;s mark is a published clinical cut-point.</>}
             </span>
           </p>
 
-          <div className="nrg-facts">
+          {tab === 'records' && <div className="nrg-facts">
             <div className="nrg-fact">
               <span className="nrg-fact__label">Engines returned</span>
               <span className="nrg-fact__value">
-                {evidence.coverage.computed} of {evidence.coverage.intended}
+                {returnedEnergyEstimates(evidence)} of {evidence.coverage.intended}
               </span>
               <span className="nrg-fact__sub">
                 {evidence.running.length > 0 ? `${evidence.running.length} running` : `${evidence.missing.length} without a value`}
@@ -582,11 +608,16 @@ const EnergeticsView = memo(function EnergeticsView({
               <span className="nrg-fact__value">Not an ACMG input</span>
               <span className="nrg-fact__sub">Informational evidence</span>
             </div>
-          </div>
+          </div>}
         </section>
 
+        <div id={`energetics-panel-${tab}`} role="tabpanel" aria-labelledby={`energetics-tab-${tab}`} tabIndex={0}>
+        {tab === 'comparison' && <Suspense fallback={<p role="status">Loading stability comparison…</p>}>
+          <EnergeticsComparison evidence={evidence} unit={unit} selected={selected} onSelect={selectEngine} options={chartOptions} onOptions={setChartOptions} />
+        </Suspense>}
+
         {/* ── 2. Readings ──────────────────────────────────────────────────────────────────── */}
-        <section className="nrg-section" aria-labelledby="nrg-readings-title">
+        {tab === 'records' && <section className="nrg-section" aria-labelledby="nrg-readings-title">
           <h2 className="eyebrow" id="nrg-readings-title">
             <ListChecks className="w-3.5 h-3.5" aria-hidden="true" />
             Engine readings
@@ -620,7 +651,7 @@ const EnergeticsView = memo(function EnergeticsView({
                     </th>
                   </tr>
                   {rows.map(r => (
-                    <ReadingRow key={r.key} reading={r} unit={unit} onKnowledge={setKnowledgeKey} />
+                    <ReadingRow key={r.key} reading={r} unit={unit} onKnowledge={setKnowledgeKey} selected={selected === r.key} onSelect={selectEngine} />
                   ))}
                 </tbody>
               ))}
@@ -633,7 +664,8 @@ const EnergeticsView = memo(function EnergeticsView({
               <span className="nrg-legend__item"><i className="nrg-legend__marker" data-off-scale />Beyond the axis</span>
             </div>
           </div>
-        </section>
+        </section>}
+        </div>
       </div>
     </div>
   );

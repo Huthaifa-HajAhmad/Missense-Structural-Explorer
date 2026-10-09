@@ -11,6 +11,7 @@ import AboutView from "./AboutView";
 import { WorkspaceLayout } from "./ui/WorkspaceLayout";
 import { WorkspaceSelection } from "./ui/WorkspaceSelection";
 import { WorkspaceTabs } from "./ui/WorkspaceTabs";
+import type { EnergyEngineId } from '../shared/engineStatus';
 import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import ViewInspector from "./inspector/ViewInspector";
@@ -132,6 +133,10 @@ export function AppViews({
   const gene = state?.gene ?? storeGene;
   const variant = state?.variant ?? storeVariant;
   const uniprotId = state?.uniprotId ?? storeUniprotId;
+  const energyQueryKey = JSON.stringify([gene, variant, uniprotId]);
+  const [energySelection, setEnergySelection] = useState<{ query: string; engine: EnergyEngineId } | null>(null);
+  const selectedEnergyEngine = energySelection?.query === energyQueryKey ? energySelection.engine : null;
+  const selectEnergyEngine = useCallback((engine: EnergyEngineId) => setEnergySelection({ query: energyQueryKey, engine }), [energyQueryKey]);
   const selectedResidueIndex = state?.selectedResidueIndex ?? storeSelectedResidueIndex;
   // The author's Report draft follows the variant, so papers pinned on the Literature tab are kept.
   useReportDraftPersistence(gene, uniprotId, variant);
@@ -389,7 +394,7 @@ export function AppViews({
           <span className="text-xs font-mono text-slate-400">Loading view...</span>
         </div>
       }>
-        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "report" ? "report" : undefined}>
+        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : undefined}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (
@@ -468,6 +473,9 @@ export function AppViews({
                 onError={handleEnergeticsError}
               >
                 <EnergeticsView
+                  key={energyQueryKey}
+                  selectedEngine={selectedEnergyEngine}
+                  onSelectEngine={selectEnergyEngine}
                   isDark={isDark}
                   classCard="h-full flex flex-col border-0 rounded-none shadow-none"
                   classCardHeader={classCardHeader}
@@ -689,6 +697,7 @@ export function AppViews({
           {/* DYNAMIC CONTEXT & PROVENANCE INSPECTOR (HIDDEN ON SEARCH, CONSOLE & ABOUT VIEWS) */}
           {masterView !== "search" && masterView !== "console" && masterView !== "about" && (
             <ViewInspector
+              selectedEnergyEngine={selectedEnergyEngine}
               activeView={masterView}
               structureSelection={structureInspectorSelection}
               onViewChange={setMasterView}

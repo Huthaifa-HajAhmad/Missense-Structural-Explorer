@@ -1,0 +1,9 @@
+/* Shared scientific figure shell. Geometry and labels belong to the chart; colours belong here. */
+.viz-frame { margin: 0; min-width: 0; border: 1px solid var(--cs-border); border-radius: 16px; background: var(--cs-surface); overflow: hidden; }
+.viz-frame__head { padding: 20px 22px 14px; display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: flex-start; }
+.viz-frame__head h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; color: var(--cs-text-primary); }
+.viz-frame__head p { margin: 0; font-size: 14px; color: var(--cs-text-secondary); }
+.viz-frame__foot { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 14px 22px; border-top: 1px solid var(--cs-border-subtle); font-size: 12px; color: var(--cs-text-secondary); }
+.viz-frame__empty { padding: 30px 22px; margin: 0; color: var(--cs-text-secondary); }
+.viz-frame svg:focus-visible, .viz-frame [tabindex]:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -3px; }
+.viz-frame .ts-chart-host { font-family: var(--cs-font-sans); }

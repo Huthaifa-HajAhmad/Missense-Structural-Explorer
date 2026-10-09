@@ -74,11 +74,15 @@ function renderView(overrides: Record<string, unknown> = {}) {
     foldingError: "Simulation timed out after 5 minutes.",
     ...overrides,
   };
-  return render(
+  const rendered = render(
     <SettingsProvider>
       <EnergeticsView {...(props as any)} />
     </SettingsProvider>
   );
+  // These existing scientific contracts exercise the detailed records, now a named workspace tab.
+  const records = within(rendered.container).queryByRole('tab', { name: 'Engine records' });
+  if (records) fireEvent.click(records);
+  return rendered;
 }
 
 describe("EnergeticsView — the observed single-engine run", () => {
