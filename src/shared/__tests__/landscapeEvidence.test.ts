@@ -417,16 +417,22 @@ describe("the pipeline's variant score is cross-checked against the dbNSFP table
   it("withholds the rank and names the mismatch when the AlphaMissense readings disagree", () => {
     // dbNSFP cached an older table (0.790) than the pipeline read (0.8401).
     const f = landscapeFinding({ ...base, rows: [subsRow(0.79, 0.853)] });
+    // NO positioning of the query among the table's scores at all: "among the 2 scored…/the
+    // highest" is a comparison the mismatched rows cannot support.
     expect(f.variant).not.toMatch(/ranks/);
-    expect(f.variant).toMatch(/among the 2 scored substitutions at residue 5/);
+    expect(f.variant).not.toMatch(/among the 2 scored substitutions/);
     expect(f.cautions[0]).toMatch(/disagree on A5V: AlphaMissense 0\.840 from the predictors pipeline vs 0\.790 in dbNSFP/);
     expect(f.cautions[0]).toMatch(/ranking is withheld/);
   });
 
-  it("withholds ranking consistently when REVEL disagrees", () => {
+  it("withholds ranking and its range sentence when REVEL disagrees", () => {
     const f = landscapeFinding({ ...base, variantRevel: 0.7, rows: [subsRow(0.8401, 0.853)] });
     expect(f.variant).not.toMatch(/it ranks/);
+    // The range sentence formerly still claimed "the highest" while the caution below it said the
+    // ranking was withheld — the two sentences disagreed on one screen.
+    expect(f.variant).not.toMatch(/highest|lowest/);
     expect(f.cautions[0]).toMatch(/REVEL 0\.700 from the predictors pipeline vs 0\.853 in dbNSFP/);
+    expect(f.cautions[0]).toMatch(/ranking is withheld/);
   });
 
   it("names a dbNSFP release gap as the likely cause when the two sides say their releases", () => {

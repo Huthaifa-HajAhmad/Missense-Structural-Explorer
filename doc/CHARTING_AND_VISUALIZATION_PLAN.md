@@ -1,5 +1,11 @@
 # Charting and visualisation plan
 
+**9 October 2026 update:** Energetics now uses TanStack Charts 1.1.0 in production, with a shared
+figure shell, CSS-token theme and pure evidence-to-chart model. See
+[the implementation and verification record](ENERGETICS_VISUALIZATION_REVIEW.md).
+This supersedes the generic-chart library choice and pilot sequence below; the original draft
+remains as design history. Tested custom biological rulers and schematics remain in use.
+
 Status: draft, 2026-10-04. Written to start a new thread; it is self-contained.
 Origin: the Functional domains audit (`doc/FUNCTIONAL_DOMAINS_PRESENTATION_AUDIT.md`, section D) and the follow-up
 comparison of evilcharts, Amicro, shadcn chart (Recharts) and Vega-Lite.

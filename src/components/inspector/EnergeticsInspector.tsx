@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { BookOpen, Database, GitBranch, Ruler, SlidersHorizontal } from "lucide-react";
 import { AnalysisResult, EnergeticsData } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
-import { ENGINE_STATE_LABELS, raspCoverageSentence, type EnergyUnit } from "../../shared/engineStatus";
+import { ENGINE_STATE_LABELS, raspCoverageSentence, getEngine, type EnergyUnit, type EnergyEngineId } from "../../shared/engineStatus";
 import type { RaspCoverage } from "../../shared/raspIndex";
 import {
   AGREEMENT_CHIP,
@@ -11,6 +11,8 @@ import {
   listNames,
   markText,
   signedDdg,
+  ENERGETICS_CAVEAT_TEXT,
+  ENERGETICS_GROUP_LABEL,
 } from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
@@ -33,6 +35,7 @@ import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
  */
 
 interface EnergeticsInspectorProps {
+  selectedEngine?: EnergyEngineId | null;
   analysisResult: AnalysisResult | null;
   foldingEnergetics?: EnergeticsData | null;
   foldingStatus?: "failed" | "success" | "unavailable" | null;
@@ -72,6 +75,7 @@ const REFERENCES: Array<{ citation: string; doi: string }> = [
 ];
 
 export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
+  selectedEngine = null,
   analysisResult,
   foldingEnergetics,
   foldingStatus,
@@ -108,12 +112,37 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   );
 
   const { agreement, coverage, structure } = evidence;
+  const selected = evidence.readings.find(r => r.key === selectedEngine);
   const raspCoverage = ((foldingEnergetics as any)?.raspCoverage as RaspCoverage | undefined) ?? null;
   const withValue = evidence.readings.filter(r => r.ddg !== null);
   const structureWarn = structure?.repairState === "unrepaired" || structure?.repairState === "failed" || evidence.lowPlddt !== null;
 
   return (
     <div className="nrg-rail" data-testid="energetics-rail">
+      <section className="nrg-selected-method" id={INSPECTOR_SECTIONS.stabilityMethod} tabIndex={-1} aria-labelledby="nrg-selected-title">
+        <span className="sr-only" role="status" aria-atomic="true">
+          {selected ? `${selected.name} pinned${selected.ddg !== null ? ` · ${signedDdg(selected.ddg, unit)}` : ''}` : 'No method pinned yet'}
+        </span>
+        <span className="eyebrow">Method inspector</span>
+        <h2 id="nrg-selected-title">{selected?.name ?? 'Explore an estimate'}</h2>
+        {selected ? <>
+          <p>{selected.description}</p>
+          <div className="nrg-selected-value">{signedDdg(selected.ddg, unit)}</div>
+          <span className="ev-tier" data-tone={selected.callTone}>{selected.ddg === null ? selected.outcome.label : selected.callLabel}</span>
+          <p>{selected.ddg === null ? absenceText(selected) : selected.counted ? 'Included in the overall agreement reading.' : 'Shown for reference; excluded from the overall agreement reading.'}</p>
+          <dl>
+            <div><dt>Substitution</dt><dd>{analysisResult?.metadata?.gene} {analysisResult?.metadata?.variant}</dd></div>
+            <div><dt>Method family</dt><dd>{ENERGETICS_GROUP_LABEL[selected.group]}</dd></div>
+            <div><dt>Structure basis</dt><dd>{selected.group === 'lookup' ? 'Precomputed table; may use a different structure from this run.' : structure?.label ?? 'Not reported'}{selected.group !== 'lookup' && structure?.pdbId ? ` · ${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ''}` : ''}</dd></div>
+            <div><dt>Sign convention</dt><dd>{getEngine(selected.key).nativeSign === 'negative-destabilizing' ? 'Provider sign reversed for comparison; positive here means less stable folding.' : 'Positive means less stable folding.'}</dd></div>
+            <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined, not a clinical cut-point.</dd></div>
+          </dl>
+          {selected.note && <p>{selected.note}</p>}
+          {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{ENERGETICS_CAVEAT_TEXT[c].detail}</p>)}
+        </> : <p>Select a point in Comparison or a method in Engine records to see its value, assumptions and limitations here.</p>}
+      </section>
+      <details className="nrg-lineage" open={!selected || undefined}>
+        <summary>How the overall reading was reached</summary>
       {/* ── 1. How the reading was reached ── */}
       <section
         className="nrg-rsec"
@@ -305,6 +334,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
         </ul>
       </section>
 
+      </details>
       {/* ── 6. Display ── */}
       <section className="nrg-rsec" aria-labelledby="nrg-rail-units">
         <h3 className="eyebrow" id="nrg-rail-units">Energy units</h3>

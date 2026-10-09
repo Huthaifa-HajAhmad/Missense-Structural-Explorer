@@ -37,7 +37,8 @@ export const INSPECTOR_SECTIONS = {
   /** Relocated ACMG/AMP evidence-code key in the Thresholds inspector pane. */
   thresholdKey: "inspector-threshold-key",
   /** Stability engine telemetry in the Energetics inspector. */
-  stabilityTelemetry: "inspector-stability-telemetry"
+  stabilityTelemetry: "inspector-stability-telemetry",
+  stabilityMethod: "inspector-stability-method"
 } as const;
 
 export type InspectorSectionId = (typeof INSPECTOR_SECTIONS)[keyof typeof INSPECTOR_SECTIONS];

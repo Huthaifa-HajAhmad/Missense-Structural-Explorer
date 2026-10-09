@@ -1,6 +1,7 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { GeneDiseaseModel, AssertionRow } from '../../shared/geneDiseaseEvidence';
+import { safeExternalHref } from '../../shared/externalLink';
 import { VALIDITY_SCALE, validityPosition, validityTone } from '../../shared/diseaseFrame';
 import type { DosageReading } from '../../shared/dosageSensitivity';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
@@ -21,7 +22,9 @@ function AssertionLine({ a }: { a: AssertionRow }) {
     <th scope="row">{a.submitter}{a.expertPanel && <span className="gd-caption gd-block">Expert panel curation</span>}</th>
     <td><span className="ev-tier" data-tone={validityTone(a.level)}>{a.level}</span></td>
     <td><OrdinalScale levels={VALIDITY_SCALE} index={validityPosition(a.level)} label={`${a.submitter} classification`} /></td>
-    <td>{a.reportUrl ? <a className="ctx-link" href={a.reportUrl} target="_blank" rel="noreferrer">Report<span className="ctx-sr-only"> from {a.submitter} (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a> : <span className="gd-caption">Not linked</span>}</td>
+    <td>{(() => { const href = safeExternalHref(a.reportUrl); return href
+      ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">Report<span className="ctx-sr-only"> from {a.submitter} (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a>
+      : <span className="gd-caption">Not linked</span>; })()}</td>
     <td className="gd-mono">{a.evaluatedAt ?? <span className="gd-caption">Not reported</span>}</td>
   </tr>;
 }
@@ -69,7 +72,9 @@ export function GeneDiseaseReadings({ model, onRetryDosage }: { model: GeneDisea
     <p className="gd-foot">
       <span>Levels are shown as submitted; the position marks one submitter’s level on GenCC’s scale and is never averaged or ranked into a consensus.
         {' '}Dosage is gene-level copy-number evidence{dosage.evaluatedAt ? `, last evaluated ${dosage.evaluatedAt}` : ''}. It does not show whether this missense change loses function, and casts no ACMG vote.</span>
-      {dosage.reportUrl && <a className="ctx-link" href={dosage.reportUrl} target="_blank" rel="noreferrer">ClinGen curation<span className="ctx-sr-only"> (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a>}
+      {(() => { const href = safeExternalHref(dosage.reportUrl); return href
+        ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">ClinGen curation<span className="ctx-sr-only"> (opens in a new tab)</span><ExternalLink size={12} aria-hidden="true" /></a>
+        : null; })()}
     </p>
   </div>;
 }

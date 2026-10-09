@@ -150,6 +150,29 @@ export function useBiophysicalModeling(
     addNotification(type, msg);
   }, [addNotification]);
 
+  /**
+   * A new job id for an engine also means a new poll lifecycle. The "still listening" flag is per
+   * job: it is set when one job's stream goes silent, and the paths that end a job clear it — but
+   * dropping a job (`clearXxxPoll`) or submitting a retry only swap the job id, which left the old
+   * flag on and showed "Still listening" over a freshly queued request. Clear it on exact job-id
+   * transitions, so a flag set for one job cannot outlive the job it describes — and so a
+   * mount-time restore of a live job keeps its own flag.
+   */
+  const prevDynamut2JobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = prevDynamut2JobRef.current;
+    prevDynamut2JobRef.current = dynamut2JobId;
+    if (previous === null || previous === dynamut2JobId) return;
+    setFoldingEnergetics((prev: any) => (prev?.dynamut2Listening ? { ...prev, dynamut2Listening: false } : prev));
+  }, [dynamut2JobId, setFoldingEnergetics]);
+  const prevDdmutJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = prevDdmutJobRef.current;
+    prevDdmutJobRef.current = ddmutJobId;
+    if (previous === null || previous === ddmutJobId) return;
+    setFoldingEnergetics((prev: any) => (prev?.ddmutListening ? { ...prev, ddmutListening: false } : prev));
+  }, [ddmutJobId, setFoldingEnergetics]);
+
   const clearDynaMutPoll = useCallback(() => {
     if (dynamutPollIntervalRef.current) {
       clearTimeout(dynamutPollIntervalRef.current as any);
