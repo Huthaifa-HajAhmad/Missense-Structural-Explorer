@@ -169,3 +169,10 @@ Scope: branch `fix/locus-outcome-reconciliation`, based on `5520daf`; isolated w
 Implementation entry points: [locus policy](../src/shared/locusResolution.ts), [genetic-code proof](../src/shared/proteinAlleleIdentity.ts), [verified identity](../server/services/prediction/predictors/allele-identity.ts), [population producer](../server/services/external-api/core-data-fetcher.ts), [cache healing](../server/services/orchestration/self-healer.ts), [API contract](API.md), [browser regression harness](../tools/header-geometry/main.tsx).
 
 Primary sources: [Ensembl VEP HGVS endpoint](https://rest.ensembl.org/documentation/info/vep_hgvs_get), [MyVariant query contract](https://docs.myvariant.info/en/latest/doc/variant_query_service.html), and [NCBI genetic code Table 1](https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi#SG1) / [printable table v4.6](https://ftp.ncbi.nlm.nih.gov/entrez/misc/data/gc.prt). No new calibrated cut-point was introduced, so existing threshold paper/DOI references remain governing rather than being replaced by API documentation.
+
+
+## 9 October 2026 ? visualization workspace
+
+This tab now uses the shared comparison/source-record workspace and a pinned-reading
+inspector. Scientific rules are unchanged. The implementation, presentation corrections,
+reference contracts and validation are recorded in [Evidence workspace review](EVIDENCE_WORKSPACE_REVIEW.md).

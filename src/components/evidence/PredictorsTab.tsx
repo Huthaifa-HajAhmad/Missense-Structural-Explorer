@@ -20,6 +20,9 @@ import {
 import { buildLadderEvidence } from "../../shared/ladderEvidence";
 import { ScoreRuler } from "./predictors/ScoreRuler";
 import { StrengthLadder } from "./predictors/StrengthLadder";
+import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { buildPredictorComparison } from '../../shared/evidenceComparison';
+const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
 
 /**
  * In-silico predictors.
@@ -269,7 +272,7 @@ function ReadingRow({
     <tr data-testid={`predictor-${reading.key}`} data-votes={reading.votes || undefined}>
       <th scope="row" className="prd-subject">
         <span className="prd-subject__line">
-          <span className="prd-subject__name">{reading.name}</span>
+          <span className="prd-subject__name"><InspectReadingButton tab="predictors" readingKey={reading.key}>{reading.name}</InspectReadingButton></span>
           {reading.knowledgeKey && (
             <button
               type="button"
@@ -410,6 +413,7 @@ function InformationalCard({ evidence }: { evidence: PredictorEvidence }) {
 }
 
 export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSettings, onTabChange }: TabComponentProps) {
+  const workspace = useEvidenceWorkspace('predictors');
   const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const { settings, openSettingsTab } = useSettings();
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
@@ -457,6 +461,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           counted them.
         </p>
       </header>
+      <EvidenceViewTabs tab="predictors" />
+      <EvidencePanel tab="predictors">
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="prd-card prd-hero" aria-labelledby="prd-finding-title" data-testid="predictor-finding">
@@ -480,7 +486,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           </span>
         </p>
 
-        <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />
+        {!workspace.comparison && <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />}
 
         <VoteRow evidence={evidence} />
         <ReferenceRow evidence={evidence} />
@@ -496,6 +502,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       </section>
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
+      {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={buildPredictorComparison(evidence, ladder)} title="Where do the predictors agree?" description="Compare each tool’s published evidence-strength band. These are individual readings, not criteria to add together." /></React.Suspense>}
+      {!workspace.comparison && <>
       <InformationalCard evidence={evidence} />
 
       {/* ── 3. Readings ────────────────────────────────────────────────────────────────────── */}
@@ -524,7 +532,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
             </thead>
             {groupReadings(evidence.readings).map(({ group, rows }) => {
               const collapsible = group !== "vote";
-              const open = !collapsible || expanded.has(group);
+              const open = !collapsible || (workspace.enabled ? workspace.expanded.includes(group) : expanded.has(group));
               const scored = rows.filter(r => r.score !== null).length;
               return (
               <tbody key={group} data-group={group} data-collapsed={open ? undefined : "true"}>
@@ -538,7 +546,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
                           type="button"
                           className="prd-group__toggle"
                           aria-expanded={open}
-                          onClick={() => toggleGroup(group)}
+                          onClick={() => workspace.enabled ? workspace.toggleGroup(group) : toggleGroup(group)}
                         >
                           {open ? "Hide" : `Show ${scored} of ${rows.length} scored`}
                         </button>
@@ -570,6 +578,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           </div>
         </div>
       </section>
+      </>}
+      </EvidencePanel>
     </div>
   );
 }

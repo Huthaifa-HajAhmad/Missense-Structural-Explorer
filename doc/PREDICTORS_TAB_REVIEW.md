@@ -86,3 +86,10 @@ labelled in the rail as classified by an earlier engine.
 - Orenbuch R, et al. Proteome-wide model for human disease genetics. Nat Genet 2025;57:3165–3174. doi:10.1038/s41588-025-02400-1
 - Avsec Ž, et al. AlphaGenome. bioRxiv 2025. doi:10.1101/2025.06.25.661532
 - Dinh T, et al. Compressing the collective knowledge of ESM into a single protein language model. Nat Methods 2026. doi:10.1038/s41592-026-03050-9
+
+
+## 9 October 2026 ? visualization workspace
+
+This tab now uses the shared comparison/source-record workspace and a pinned-reading
+inspector. Scientific rules are unchanged. The implementation, presentation corrections,
+reference contracts and validation are recorded in [Evidence workspace review](EVIDENCE_WORKSPACE_REVIEW.md).

@@ -199,7 +199,7 @@ describe("what the score is made of", () => {
     renderTab({ alphagenome: GZF1 });
     expect(screen.queryByText(/steric|hydrophobic packing|AlphaFold Structural/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Mostly evidence this workspace already reads\./);
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/88% of the score comes from AlphaMissense \(88%\)/);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/88% of reported attribution magnitude comes from AlphaMissense \(88%\)/);
   });
 
   it("says a conservation-led score is re-read evidence too — not only an AlphaMissense-led one", () => {
@@ -209,8 +209,8 @@ describe("what the score is made of", () => {
     renderTab({ alphagenome: NAE1 });
     const finding = screen.getByTestId("avi-composition");
     expect(finding).toHaveTextContent(/Mostly evidence this workspace already reads\./);
-    expect(finding).toHaveTextContent(/77% of the score comes from conservation \(51%\) and AlphaMissense \(26%\)/);
-    expect(finding).toHaveTextContent(/AlphaGenome's own molecular predictions add 23%, led by splicing \(\+0\.176\)/);
+    expect(finding).toHaveTextContent(/77% of reported attribution magnitude comes from conservation \(51%\) and AlphaMissense \(26%\)/);
+    expect(finding).toHaveTextContent(/AlphaGenome's own molecular predictions account for 23%, led by splicing \(\+0\.176\)/);
     expect(within(screen.getByTestId("avi-origin-split")).getByText("23% new from AlphaGenome")).toBeInTheDocument();
   });
 
@@ -218,7 +218,7 @@ describe("what the score is made of", () => {
     renderTab({ alphagenome: { status: "live", aviPhred: 18.2, featureAttributions: { Splicing: 0.6, AlphaMissense: 0.2, Cactus: 0.1 } } });
     const finding = screen.getByTestId("avi-composition");
     expect(finding).toHaveTextContent(/Mostly AlphaGenome's own predictions\./);
-    expect(finding).toHaveTextContent(/67% of the score comes from AlphaGenome's predicted molecular effects, led by splicing/);
+    expect(finding).toHaveTextContent(/67% of reported attribution magnitude comes from AlphaGenome's predicted molecular effects, led by splicing/);
   });
 
   it("bands the table by origin: new from AlphaGenome first, then evidence read elsewhere", () => {
@@ -253,7 +253,7 @@ describe("what the score is made of", () => {
 
   it("does not elect a feature from an all-zero vector", () => {
     renderTab({ alphagenome: { status: "live", aviPhred: 22.7, featureAttributions: { Splicing: 0, AlphaMissense: 0 } } });
-    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Every attribution is zero/);
+    expect(screen.getByTestId("avi-composition")).toHaveTextContent(/Every returned attribution is zero/);
   });
 
   it("explains a live score that arrived without attributions", () => {

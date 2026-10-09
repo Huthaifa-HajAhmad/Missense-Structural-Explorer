@@ -9,6 +9,7 @@ import ClinicalReportBar from "./ClinicalReportBar";
 import DevConsolePanel from "./DevConsolePanel";
 import AboutView from "./AboutView";
 import { WorkspaceLayout } from "./ui/WorkspaceLayout";
+import { EvidenceWorkspaceProvider } from './evidence/EvidenceWorkspace';
 import { WorkspaceSelection } from "./ui/WorkspaceSelection";
 import { WorkspaceTabs } from "./ui/WorkspaceTabs";
 import type { EnergyEngineId } from '../shared/engineStatus';
@@ -394,7 +395,8 @@ export function AppViews({
           <span className="text-xs font-mono text-slate-400">Loading view...</span>
         </div>
       }>
-        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : undefined}>
+        <EvidenceWorkspaceProvider result={analysisState.result}>
+        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && ['clinical', 'predictors', 'alphagenome'].includes(activeEvidenceTab) ? 'evidence' : undefined}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (
@@ -745,6 +747,7 @@ export function AppViews({
             />
           )}
         </WorkspaceLayout>
+        </EvidenceWorkspaceProvider>
       </Suspense>
     </main>
   );

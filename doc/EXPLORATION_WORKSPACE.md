@@ -20,6 +20,11 @@ Report also uses the frame (`kind="report"`): a heading, view pills for the docu
 can bring a block's part on screen), one panel per block and a rail led by a review-status box. It
 has no residue selection, so it does not use `WorkspaceSelection`.
 
+Population, Predictors and AlphaGenome now opt in with `kind="evidence"`. Their per-variant
+display state lives in `EvidenceWorkspaceProvider`: view, pinned reading, feature filter and
+expanded record groups. These selections do not change the protein residue or queried variant.
+See [the Evidence workspace review](EVIDENCE_WORKSPACE_REVIEW.md) for figure and inspector contracts.
+
 Paths above are relative to `src/`. `WorkspaceLayout` opts in with `kind="landscape"` or
 `kind="structure"`; existing views retain their layout until deliberately migrated. Keep biological
 rules out of shared UI components. No new runtime dependency or chart engine was introduced.

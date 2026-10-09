@@ -5,6 +5,10 @@ import { useSettings } from "../../context/SettingsContext";
 import { useApiClient } from "../../apiClient";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { buildAttributionComparison } from '../../shared/evidenceComparison';
+import { AlphaGenomeGuide } from './AlphaGenomeGuide';
+const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
 import {
   AVI_GROUP_LABEL,
   AVI_GROUP_NOTE,
@@ -192,7 +196,7 @@ function FeatureRow({ row, scale }: { row: AviFeatureReading; scale: BarScale })
   return (
     <tr data-testid={`avi-feature-${row.id}`}>
       <th scope="row" className="ag-feature">
-        <span className="ag-feature__name">{row.name}</span>
+        <span className="ag-feature__name"><InspectReadingButton tab="alphagenome" readingKey={row.id}>{row.name}</InspectReadingButton></span>
         <span className="ag-feature__note">{note}</span>
       </th>
       <td title={has ? `${row.name}: ${fmtSigned(row.shap as number)} (${(row.shap as number) >= 0 ? "raises" : "lowers"} the score)` : `${row.name}: not attributed`}>
@@ -208,15 +212,16 @@ function FeatureRow({ row, scale }: { row: AviFeatureReading; scale: BarScale })
 const MINOR_SHARE = 0.02;
 
 function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
+  const workspace = useEvidenceWorkspace('alphagenome');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const head = (
     <div className="ag-card__head">
       <h2 className="ag-card__label" id="ag-contrib-title">
         What the score is made of
         <span className="ag-card__meta">
-          18 SHAP contributions
+          Feature contributions (SHAP)
           {ev.raw !== null && ev.origins && (
-            <> · they sum to the raw score <span className="ag-mono">{ev.raw.toFixed(4)}</span></>
+            <> · reported raw score <span className="ag-mono">{ev.raw.toFixed(4)}</span></>
           )}
         </span>
       </h2>
@@ -260,7 +265,7 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
             // Rows carrying ≥ 2% of the attribution are always shown; the rest fold behind one row
             // per band, so the table leads with what moved the score. Nothing is dropped — the fold
             // says how many rows it holds and opens in place.
-            const open = expanded[o.origin] ?? false;
+            const open = workspace.enabled ? workspace.expanded.includes(o.origin) : expanded[o.origin] ?? false;
             const major = o.rows.filter(r => r.share !== null && r.share >= MINOR_SHARE);
             const minor = o.rows.filter(r => !(r.share !== null && r.share >= MINOR_SHARE));
             const foldable = minor.length > 1 || (major.length > 0 && minor.length > 0);
@@ -290,7 +295,7 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
                         type="button"
                         className="ag-link"
                         aria-expanded={open}
-                        onClick={() => setExpanded(s => ({ ...s, [o.origin]: !open }))}
+                        onClick={() => workspace.enabled ? workspace.toggleGroup(o.origin) : setExpanded(s => ({ ...s, [o.origin]: !open }))}
                       >
                         <ChevronDown className="w-3.5 h-3.5 ag-fold__icon" aria-hidden="true" />
                         {open
@@ -321,6 +326,7 @@ function AlphaGenomeTabBody({
   onOpenSettings,
   onTabChange,
 }: TabComponentProps & { result: NonNullable<TabComponentProps["analysisState"]["result"]> }) {
+  const workspace = useEvidenceWorkspace('alphagenome');
   const { settings, openSettingsTab } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const [copied, setCopied] = useState(false);
@@ -372,10 +378,11 @@ function AlphaGenomeTabBody({
       <header>
         <h1 className="screen-title">AlphaGenome</h1>
         <p className="screen-tab-description">
-          How Google DeepMind&apos;s variant-impact score (AVI) ranks this change genome-wide, and how much of that rank
-          is new evidence rather than scores read on other tabs.
+          Explore this DNA change’s genome-wide rank and the inputs behind its predicted impact.
         </p>
       </header>
+      <EvidenceViewTabs tab="alphagenome" comparisonLabel="Understand the score" />
+      <EvidencePanel tab="alphagenome">
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="ag-card" aria-labelledby="ag-finding-title" data-testid="avi-finding">
@@ -414,7 +421,7 @@ function AlphaGenomeTabBody({
             )}
 
             <RankRuler phred={ev.phred as number} topPercent={ev.topPercent} />
-            <OriginSplit ev={ev} />
+            {!workspace.comparison && <OriginSplit ev={ev} />}
           </div>
         ) : (
           <div className="ag-statement" data-testid="avi-absence">
@@ -446,16 +453,16 @@ function AlphaGenomeTabBody({
           </div>
         )}
 
-        {scored && (
+        {scored && !workspace.comparison && (
           <dl className="ag-facts" data-testid="avi-facts">
             <Fact label="Genome-wide rank" sub={ev.quantile !== null ? <>quantile <span className="ag-mono">{ev.quantile.toFixed(5)}</span></> : "quantile not reported"}>
               <span className="ag-mono">Phred {(ev.phred as number).toFixed(1)}</span>
             </Fact>
             <Fact label="New from AlphaGenome" sub={ev.origins ? "its 10 molecular predictions" : "not attributed"}>
-              {ev.newShare !== null ? <>{fmtShare(ev.newShare)} of the score</> : <span className="ag-dim">—</span>}
+              {ev.newShare !== null ? <>{fmtShare(ev.newShare)} of reported magnitude</> : <span className="ag-dim">—</span>}
             </Fact>
             <Fact
-              label="Largest molecular effect"
+              label="Largest molecular contribution"
               sub={
                 lm?.id === "MERGED_SPLICING" ? (
                   onTabChange ? (
@@ -464,7 +471,7 @@ function AlphaGenomeTabBody({
                       <ArrowRight className="w-3 h-3" aria-hidden="true" />
                     </button>
                   ) : "compare with the RNA splicing tab"
-                ) : lm ? "largest effect across biosamples" : ev.origins ? "every molecular contribution is zero" : "not attributed"
+                ) : lm ? "attribution to the raw AVI score" : ev.origins ? "no non-zero molecular contribution returned" : "not attributed"
               }
             >
               {lm ? (
@@ -498,7 +505,11 @@ function AlphaGenomeTabBody({
       </section>
 
       {/* ── 2. What the score is made of ───────────────────────────────────────────────────── */}
-      {ev.assessed && <Contributions ev={ev} />}
+      {workspace.comparison && <>
+        <AlphaGenomeGuide evidence={ev} />
+        <React.Suspense fallback={<p>Loading feature contributions…</p>}><EvidenceComparison tab="alphagenome" model={buildAttributionComparison(ev, workspace.filter)} title="What contributes to this score?" description="Each mark is one input’s contribution to the raw AVI score. Molecular predictions are clay; other inputs are grey. Select a feature to understand it." /></React.Suspense>
+      </>}
+      {!workspace.comparison && ev.assessed && <Contributions ev={ev} />}
 
       {/* ── 3. The Atlas ───────────────────────────────────────────────────────────────────── */}
       <section className="ag-card" aria-labelledby="ag-atlas-title" data-testid="avi-atlas">
@@ -549,6 +560,7 @@ function AlphaGenomeTabBody({
           ))}
         </ul>
       </section>
+      </EvidencePanel>
     </div>
   );
 }

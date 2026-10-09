@@ -1,4 +1,6 @@
 import React from "react";
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
+import { buildPopulationComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, Dna, ExternalLink, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { THRESHOLDS } from "../../shared/thresholds";
@@ -136,6 +138,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
 
   return (
     <div className="pop-rail" data-testid="population-rail">
+      <EvidenceReadingInspector tab="clinical" rows={buildPopulationComparison(evidence).rows} />
       {/* ── 1. How the verdict was reached ── */}
       <section className="rail-section" aria-labelledby="rail-trace-title">
         <h3 className="eyebrow" id="rail-trace-title">

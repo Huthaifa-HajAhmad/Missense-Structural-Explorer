@@ -38,7 +38,8 @@ export const INSPECTOR_SECTIONS = {
   thresholdKey: "inspector-threshold-key",
   /** Stability engine telemetry in the Energetics inspector. */
   stabilityTelemetry: "inspector-stability-telemetry",
-  stabilityMethod: "inspector-stability-method"
+  stabilityMethod: "inspector-stability-method",
+  evidenceReading: "inspector-evidence-reading"
 } as const;
 
 export type InspectorSectionId = (typeof INSPECTOR_SECTIONS)[keyof typeof INSPECTOR_SECTIONS];

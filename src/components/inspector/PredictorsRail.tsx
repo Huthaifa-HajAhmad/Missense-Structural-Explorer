@@ -1,9 +1,12 @@
 import React from "react";
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
+import { buildPredictorComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, GitBranch, Ruler, Scale } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { CALIBRATION_SOURCES, formatEvidenceCode } from "../../shared/thresholds";
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
+import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import {
   CLINGEN_CLASS_BANDS,
   CLINGEN_POINTS,
@@ -62,8 +65,11 @@ const pointsPct = (v: number) => ((v - POINTS_MIN) / (POINTS_MAX - POINTS_MIN)) 
 
 export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisResult }) {
   const { settings } = useSettings();
+  const isLoading = useVariantAnalysisStore(s => s.analysisState?.isLoading ?? false);
+  const isModelLoading = useVariantAnalysisStore(s => Boolean(s.isBiophysicalLoading || s.isStructuralLoading));
   const evidence = buildPredictorEvidence({
     result: analysisResult,
+    isLoading, isModelLoading,
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
   });
   const ev = buildLadderEvidence({ result: analysisResult, predictor: evidence });
@@ -109,6 +115,7 @@ export function PredictorsRail({ analysisResult }: { analysisResult: AnalysisRes
 
   return (
     <div className="prd-rail" data-testid="predictors-rail">
+      <EvidenceReadingInspector tab="predictors" rows={buildPredictorComparison(evidence, ev).rows} />
       {/* ── 1. How the verdict was reached ── */}
       <section className="prd-rsec" aria-labelledby="prd-rail-trace">
         <h3 className="eyebrow" id="prd-rail-trace">
