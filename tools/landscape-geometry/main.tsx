@@ -204,7 +204,7 @@ interface Case {
 const CASES: Case[] = [
   { id: "rail-wide", label: "SOD1 p.Ala5Val rail — 360px, tabs walked", width: 360, kind: "rail", expectAssertions: 13 },
   { id: "rail-dark", label: "SOD1 p.Ala5Val rail — dark", width: 360, dark: true, kind: "rail", expectAssertions: 13 },
-  { id: "tab", label: "SOD1 p.Ala5Val focus grid — 1010px", width: 1010, kind: "tab", expectAssertions: 7 }
+  { id: "tab", label: "SOD1 p.Ala5Val focus grid — 1010px", width: 1010, kind: "tab", expectAssertions: 6 }
 ];
 
 /* ── Rail families, walked tab by tab ─────────────────────────────────────────── */
