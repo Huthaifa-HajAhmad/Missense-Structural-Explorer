@@ -142,3 +142,27 @@ describe("report authoring transactions", () => {
     expect(screen.getByTestId("report-verdict")).toHaveTextContent("VUS");
   });
 });
+
+describe("report views", () => {
+  beforeEach(() => useVariantAnalysisStore.getState().setReportView("document"));
+
+  it("shows one part of the document per pill and says exports still take every ticked section", () => {
+    renderScreen();
+    expect(document.getElementById("report-classification")).not.toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence readings" }));
+    expect(screen.getByRole("tab", { name: "Evidence readings" })).toHaveAttribute("aria-selected", "true");
+    // Hidden, not unmounted: the browser's print of this screen still carries the whole document.
+    expect(document.getElementById("report-classification")!.closest("[hidden]")).not.toBeNull();
+    expect(document.getElementById("report-computational")!.closest("[hidden]")).toBeNull();
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("Exports still include every ticked section");
+  });
+
+  it("lists a left-out block only under its own part", () => {
+    renderScreen();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Leave out RNA splicing" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Interpretation" }));
+    expect(screen.queryByTestId("report-left-out")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence readings" }));
+    expect(within(screen.getByTestId("report-left-out")).getByText("RNA splicing")).toBeInTheDocument();
+  });
+});

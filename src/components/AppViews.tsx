@@ -389,7 +389,7 @@ export function AppViews({
           <span className="text-xs font-mono text-slate-400">Loading view...</span>
         </div>
       }>
-        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : undefined}>
+        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "report" ? "report" : undefined}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (

@@ -1,9 +1,11 @@
 /* ============================================================
    REPORT — an editable document built from blocks, and its builder rail
    ------------------------------------------------------------
-   Same voice as Population Data and Insights: one tint per card (head and foot bars), flat rows split
-   by a hairline, one uppercase label style, red/green only for ACMG direction, clay for links, dashed
-   only for "edited" and "unconfirmed". Prefix `rpt-`.
+   Same frame as Landscape (`workspace.css`, `landscape.css`): two rounded panes, a heading with an
+   icon tile, pills that give each part of the document its own space, then one panel per block —
+   a plain header with a sentence-case title, flat rows split by a hairline, a tinted note bar at the
+   foot. Red/green only for ACMG direction, clay for links and focus, dashed only for "edited" and
+   "unconfirmed". Prefix `rpt-`.
    ============================================================ */
 
 .rpt-screen,
@@ -13,39 +15,39 @@
   line-height: 1.5;
   color: var(--cs-text-secondary);
 }
-.rpt-screen { display: flex; flex-direction: column; gap: 18px; padding: 24px; max-width: 1100px; width: 100%; margin-inline: auto; container-type: inline-size; }
+.rpt-screen {
+  --rpt-pad: 20px;
+  display: flex; flex-direction: column; gap: 20px;
+  height: 100%; overflow-y: auto; scrollbar-gutter: stable;
+  padding: 24px; width: 100%; container-type: inline-size;
+}
+/* The pane sets the measure; layout.css's 1100px reading column was for the old full-bleed page. */
+.rpt-screen.report-page > * { max-width: none; margin-inline: 0; }
 .rpt-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
 .rpt-strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .rpt-dim { color: var(--cs-text-muted); }
 .rpt-p { margin: 0; }
 
-.rpt-label {
-  font-size: var(--cs-font-size-badge);
-  font-weight: var(--cs-font-weight-semibold);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--cs-text-muted);
-}
-
 .rpt-card {
   background: var(--cs-surface);
-  border: 1px solid var(--cs-border);
-  border-radius: var(--cs-radius-card, 12px);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 16px;
   overflow: hidden;
 }
 .rpt-card__head {
   display: flex; align-items: center; gap: 10px;
-  min-height: 40px; padding: 0 16px;
-  background: var(--cs-surface-2);
+  min-height: 52px; padding: 0 var(--rpt-pad);
+  background: var(--cs-surface);
   border-bottom: 1px solid var(--cs-border-subtle);
 }
 .rpt-card__head h2 { margin: 0; }
+.rpt-card__title { font-size: 15px; font-weight: var(--cs-font-weight-semibold); letter-spacing: -.01em; line-height: 1.3; color: var(--cs-text-primary); }
 .rpt-card__chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .rpt-card__spacer { flex: 1; }
 .rpt-card__foot {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
-  min-height: 40px; padding: 8px 16px;
-  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
+  min-height: 44px; padding: 12px var(--rpt-pad);
+  font-size: 12px; line-height: 1.6; color: var(--cs-text-secondary);
   background: var(--cs-surface-2);
   border-top: 1px solid var(--cs-border-subtle);
 }
@@ -68,7 +70,7 @@
 .rpt-btn[data-variant="quiet"] { color: var(--cs-text-accent); background: transparent; border-color: transparent; }
 .rpt-btn[data-variant="quiet"]:hover { text-decoration: underline; background: transparent; }
 .rpt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.rpt-btn:focus-visible, .rpt-check:focus-visible, .rpt-link:focus-visible, .rpt-edit__area:focus-visible {
+.rpt-btn:focus-visible, .rpt-link:focus-visible, .rpt-edit__area:focus-visible {
   outline: 2px solid var(--cs-accent-clay); outline-offset: 2px;
 }
 .rpt-link {
@@ -78,30 +80,14 @@
 }
 .rpt-link:hover { text-decoration: underline; }
 
-/* Include tick: a real button so it takes the keyboard. */
-.rpt-check {
-  appearance: none; cursor: pointer; flex: none;
-  width: 24px; height: 24px; padding: 0; position: relative;
-  border: 1.5px solid var(--cs-text-secondary); border-radius: 4px; background: var(--cs-surface);
-}
-.rpt-check[aria-checked="true"] { background: var(--cs-accent-clay); border-color: var(--cs-accent-clay); }
-.rpt-check[aria-checked="true"]::after {
-  content: ""; position: absolute; left: 4px; top: 3px; width: 8px; height: 4px;
-  border-left: 2px solid var(--cs-surface); border-bottom: 2px solid var(--cs-surface);
-  transform: rotate(-45deg);
-}
-
-/* ── Document header ───────────────────────────────────────── */
-.rpt-doc-head h1 { margin: 0; }
-.rpt-doc-head p { margin: 2px 0 0; }
 
 /* ── Classification ────────────────────────────────────────── */
-.rpt-hero { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 6px; }
+.rpt-hero { display: flex; flex-direction: column; gap: 8px; padding: 20px var(--rpt-pad) 6px; }
 .rpt-hero__figure {
   margin: 0; font-size: var(--cs-font-size-display); font-weight: var(--cs-font-weight-semibold);
   letter-spacing: -0.01em; line-height: 1.2; color: var(--cs-text-primary);
 }
-.rpt-tiers { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 6px 20px 14px; }
+.rpt-tiers { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; margin: 6px var(--rpt-pad) 16px; }
 .rpt-tier {
   padding: 8px 4px 0; text-align: center;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
@@ -114,7 +100,7 @@
 .rpt-tier[data-active][data-side="benign"] { border-top-color: var(--cs-good); }
 
 /* ── Prose, facts, tables ──────────────────────────────────── */
-.rpt-prose { padding: 12px 16px; max-width: none; color: var(--cs-text-primary); }
+.rpt-prose { padding: 14px var(--rpt-pad); max-width: none; color: var(--cs-text-primary); }
 .rpt-hero + .rpt-prose, .rpt-hero ~ .rpt-prose { padding-top: 6px; }
 .rpt-prose p { margin: 0 0 8px; }
 .rpt-prose p:last-child { margin-bottom: 0; }
@@ -124,7 +110,7 @@
 .rpt-prose strong { font-weight: var(--cs-font-weight-semibold); }
 
 .rpt-facts { margin: 0; }
-.rpt-facts > div { display: grid; grid-template-columns: 168px minmax(0, 1fr); column-gap: 12px; padding: 9px 16px; border-top: 1px solid var(--cs-border-subtle); }
+.rpt-facts > div { display: grid; grid-template-columns: 168px minmax(0, 1fr); column-gap: 12px; padding: 10px var(--rpt-pad); border-top: 1px solid var(--cs-border-subtle); }
 .rpt-facts > div:first-child { border-top: 0; }
 .rpt-facts dt { color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); padding-top: 1px; }
 .rpt-facts dd { margin: 0; color: var(--cs-text-primary); }
@@ -145,7 +131,7 @@
 
 /* ── Callouts and empty statements ─────────────────────────── */
 .rpt-callout {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 11px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px var(--rpt-pad);
   border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-prose);
 }
 .rpt-callout::before {
@@ -154,7 +140,7 @@
 }
 .rpt-callout p { margin: 0; flex: 1 1 260px; }
 .rpt-callout strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
-.rpt-empty { padding: 14px 16px; display: flex; gap: 10px; }
+.rpt-empty { padding: 16px var(--rpt-pad); display: flex; gap: 10px; }
 .rpt-empty::before {
   content: ""; flex: none; width: 8px; height: 8px; margin-top: 7px;
   border: 1.5px solid var(--cs-text-muted); border-radius: 50%;
@@ -162,7 +148,7 @@
 .rpt-empty p { margin: 0; max-width: none; }
 
 /* ── Editor ────────────────────────────────────────────────── */
-.rpt-edit { margin: 12px 16px; border: 1px solid var(--cs-accent-clay); border-radius: 8px; background: var(--cs-surface); }
+.rpt-edit { margin: 14px var(--rpt-pad); border: 1px solid var(--cs-accent-clay); border-radius: 8px; background: var(--cs-surface); }
 .rpt-edit__tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--cs-border-subtle); }
 .rpt-edit__tools .rpt-dim { margin-left: auto; font-size: var(--cs-font-size-caption); }
 .rpt-edit__area {
@@ -173,7 +159,7 @@
 .rpt-edit__area:focus-visible { outline-offset: -2px; }
 
 /* ── Left-out list ─────────────────────────────────────────── */
-.rpt-left { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 10px 16px; border-top: 1px solid var(--cs-border-subtle); }
+.rpt-left { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 12px var(--rpt-pad); border-top: 1px solid var(--cs-border-subtle); }
 .rpt-left:first-of-type { border-top: 0; }
 .rpt-left__name { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .rpt-left__note { grid-column: 2; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
@@ -214,7 +200,7 @@
 
 @media print {
   .rpt-tier { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .rpt-btn, .rpt-check, .rpt-link { display: none; }
+  .rpt-btn, .rpt-link { display: none; }
 }
 
 /* Report owns its rail layout: no coupling to Population's inspector classes. */
@@ -264,12 +250,12 @@
 .rpt-source-links { display: flex; flex-direction: column; gap: 8px; margin-block: 10px; }
 .rpt-source-links a, .rpt-references a { color: var(--cs-text-accent); text-underline-offset: 3px; overflow-wrap: anywhere; }
 .rpt-source-links a:focus-visible, .rpt-references a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.rpt-review { padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); }
+.rpt-review { padding: 10px var(--rpt-pad); border-bottom: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); }
 .rpt-review > summary { cursor: pointer; color: var(--cs-text-secondary); min-height: 24px; }
 .rpt-review > summary > span { margin-left: 4px; color: var(--cs-text-muted); }
 .rpt-review p { margin: 8px 0; }
 .rpt-review[open] { border-left: 3px solid var(--cs-warn); }
-.rpt-references { padding: 10px 16px; border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); }
+.rpt-references { padding: 10px var(--rpt-pad); border-top: 1px solid var(--cs-border-subtle); font-size: var(--cs-font-size-caption); }
 .rpt-references summary { cursor: pointer; min-height: 24px; }
 .rpt-references a { display: block; padding: 4px 0; }
 .rpt-compare { flex-basis: 100%; }
@@ -281,12 +267,14 @@
 .rpt-card__head { flex-wrap: wrap; padding-block: 7px; gap: 8px; }
 .rpt-card:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .rpt-card { scroll-margin-top: 16px; }
-.rpt-table-toggle { margin: 8px 16px 12px; }
+.rpt-table-toggle { margin: 10px var(--rpt-pad) 14px; }
 .rpt-table details { max-width: 52ch; font-size: var(--cs-font-size-caption); }
 .rpt-table summary { cursor: pointer; min-height: 24px; color: var(--cs-text-accent); white-space: nowrap; }
 .rpt-table details p { margin: 6px 0 0; }
 .rpt-table summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .rpt-table th, .rpt-table td { padding-inline: 12px; }
+.rpt-table th:first-child, .rpt-table td:first-child { padding-left: var(--rpt-pad); }
+.rpt-table th:last-child, .rpt-table td:last-child { padding-right: var(--rpt-pad); }
 .rpt-facts dd { overflow-wrap: anywhere; }
 .rpt-screen [data-block="identity"] .rpt-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
 .rpt-screen [data-block="identity"] .rpt-facts > div { grid-template-columns: 100px minmax(0,1fr); border-top: 1px solid var(--cs-border-subtle); }
@@ -297,4 +285,58 @@
   .rpt-card__chips { flex-basis: 100%; order: 2; }
 }
 @media (max-width: 700px) { .rpt-screen { padding: 12px; } }
-@media print { .rpt-export-primary, .rpt-tick, .rpt-table-toggle { display: none; } }
+@media print { .rpt-export-primary, .rpt-tick, .rpt-table-toggle, .rpt-screen > .workspace-tabs, .rpt-view-note, .rpt-heading__icon { display: none; } }
+
+/* ── Workspace frame: heading, view pills, panel stack (Landscape's `landscape-canvas`) ── */
+.rpt-heading { display: flex; align-items: flex-start; gap: 12px; }
+.rpt-heading__icon {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin-top: 2px;
+  color: var(--cs-accent-clay); background: var(--cs-surface-2);
+  border: 1px solid var(--cs-border-subtle); border-radius: 8px;
+}
+.rpt-heading__text { flex: 1; min-width: 0; }
+.rpt-heading__kicker { margin: 0 0 2px; font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }
+.rpt-heading__title { margin: 0; font-size: 20px; font-weight: var(--cs-font-weight-semibold); letter-spacing: -.025em; line-height: 1.25; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+.rpt-heading__sub { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--cs-text-secondary); }
+.rpt-heading__chips { display: inline-flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+.rpt-screen > .workspace-tabs { margin-top: -4px; }
+.rpt-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.rpt-view-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
+.rpt-references summary > span, .rpt-review > summary > span {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px;
+  font-family: var(--cs-font-mono); font-size: 10.5px; color: var(--cs-text-secondary);
+  background: var(--cs-surface-2); border-radius: 999px;
+}
+.rpt-review > summary, .rpt-references > summary { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-semibold); }
+
+/* ── Rail: Landscape inspector voice (`lsr-section-title`, `lsr-help`, `lsr-readsas`) ── */
+.rpt-rail-title { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.rpt-rail-title svg { color: var(--cs-accent-clay); }
+.rpt-rail-help { margin: -4px 0 0; font-size: 12px; line-height: 1.5; color: var(--cs-text-secondary); }
+.rpt-rail-section > h3.rpt-rail-title { color: var(--cs-text-primary); }
+.rpt-status {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  font-size: 13px; line-height: 1.5; color: var(--cs-text-primary);
+  background: color-mix(in srgb, var(--cs-text-indigo-on-soft) 8%, var(--cs-surface));
+  border: 1px solid color-mix(in srgb, var(--cs-text-indigo-on-soft) 22%, transparent);
+  border-radius: 10px;
+}
+.rpt-status[data-state="review"] {
+  background: color-mix(in srgb, var(--cs-warn) 10%, var(--cs-surface));
+  border-color: color-mix(in srgb, var(--cs-warn) 35%, transparent);
+}
+.rpt-status p { margin: 0; }
+.rpt-status__counts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--cs-text-secondary); }
+.rpt-status__counts strong { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-primary); font-weight: 600; }
+.rpt-status .rpt-review-link { background: var(--cs-surface); }
+.report-workspace .rpt-export-primary { padding-top: 0; }
+.report-workspace .rpt-rail-section { padding: 20px 0; gap: 12px; }
+.report-workspace .rpt-rail-section:last-child { border-bottom: 0; }
+.rpt-rail-section > summary { font-size: 13px; }
+
+@container (max-width: 640px) {
+  .rpt-stack { --rpt-pad: 14px; }
+  .rpt-heading__chips { display: none; }
+}
+/* A paper report is the whole document: sections outside the chosen pill print too. */
+@media print { .rpt-part[hidden] { display: block !important; } }
