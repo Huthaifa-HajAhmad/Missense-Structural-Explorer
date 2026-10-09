@@ -23,7 +23,6 @@ interface Props {
   /** The scale the grid is coloured by; only its bands are drawn in the always-visible key. */
   colorBy: LandscapeTool;
   /** Whether the nucleotide lane has any cells, so its key is only offered when it is on screen. */
-  laneVisible: boolean;
 }
 
 /**
@@ -32,7 +31,7 @@ interface Props {
  * nucleotide-lane ramp, the conservation steps and their caveats are one disclosure away. Every number
  * comes from `calibration.ts` or `CONSERVATION_BREAKS`; nothing is typed here.
  */
-export function LandscapeLegend({ colorBy, laneVisible, overview = false }: Props) {
+export function LandscapeLegend({ colorBy, overview = false }: Props) {
   const ranges = TOOLS.map((t) => {
     const byKey = new Map(legendSteps(t.key).map((s) => [s.key, s.range]));
     return { ...t, byKey };
@@ -107,24 +106,6 @@ export function LandscapeLegend({ colorBy, laneVisible, overview = false }: Prop
             row and the overview, which show residue summaries (mean or max over scored missense substitutions), the colour is for
             orientation and does not count as PP3/BP4.
           </p>
-
-          {laneVisible && (
-            <div className="flex flex-col gap-1.5 border-t border-cs-border-subtle pt-3">
-              <span className="font-semibold text-cs-text-primary">Nucleotide lane — AlphaGenome AVI genome-wide rank</span>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px]">
-                {["below top 10%", "top 10%", "top 1%", "top 0.1%", "top 0.01%"].map((label, level) => (
-                  <span key={label} className="flex items-center gap-1.5">
-                    <span className="ls-swatch ls-nt" data-rank={String(level)} />
-                    {label}
-                  </span>
-                ))}
-              </div>
-              <p className="text-[11px] leading-snug text-cs-text-muted">
-                A rank among all possible SNVs, not a probability and not an ACMG band. AlphaMissense is one of the AVI's inputs, so this
-                lane is not independent of the heatmap.
-              </p>
-            </div>
-          )}
 
           {!overview && <div className="flex flex-col gap-1.5 border-t border-cs-border-subtle pt-3">
             <span className="font-semibold text-cs-text-primary">Conservation shade — codon mean, stronger shade = more conserved</span>

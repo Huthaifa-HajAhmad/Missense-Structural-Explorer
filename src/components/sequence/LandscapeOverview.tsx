@@ -64,6 +64,7 @@ export function LandscapeOverview({
   const populationGrid = useRovingGrid<HTMLDivElement>();
   const [detail, setDetail] = useState<string | null>(null);
   const [jump, setJump] = useState("");
+  const [jumpInvalid, setJumpInvalid] = useState(false);
   const unit = width / Math.max(1, length);
   const x = (pos: number) => (pos - 1) * unit;
   const posAt = (clientX: number, el: Element) => {
@@ -91,6 +92,38 @@ export function LandscapeOverview({
     [positions, mode, length],
   );
   const byPos = useMemo(() => new Map(bars.map((b) => [b.pos, b.v])), [bars]);
+  /*
+   * One drawn bar per pixel column at most. A 34,000-residue protein in a 1,000 px track would
+   * otherwise put 34,000 sub-pixel rects in the DOM; when residues are narrower than a pixel the
+   * column shows the highest residue score inside it (stated under the track), and the hover
+   * readout still reads each residue exactly.
+   */
+  const colSpan = unit >= 1 || unit <= 0 ? 1 : Math.ceil(1 / unit);
+  const scoreBars = useMemo(() => {
+    if (colSpan === 1) return bars.map((b) => ({ pos: b.pos, span: 1, v: b.v }));
+    const cols = new Map<number, { pos: number; span: number; v: number }>();
+    for (const b of bars) {
+      const first = Math.floor((b.pos - 1) / colSpan) * colSpan + 1;
+      const cur = cols.get(first);
+      if (!cur || b.v > cur.v) cols.set(first, { pos: first, span: colSpan, v: b.v });
+    }
+    return [...cols.values()];
+  }, [bars, colSpan]);
+  /* Pointer moves re-render this component on every pixel; the bars only change with data or width. */
+  const scoreRects = useMemo(
+    () =>
+      scoreBars.map((b) => (
+        <rect
+          key={b.pos}
+          x={(b.pos - 1) * unit}
+          y={1 + (1 - b.v) * (SCORE_H - 2)}
+          width={Math.max(0.1, b.span * unit - (unit > 3 ? 0.5 : 0))}
+          height={Math.max(1, b.v * (SCORE_H - 2))}
+          fill={`var(--ls-${bandKey("alphaMissense", b.v)})`}
+        />
+      )),
+    [scoreBars, unit],
+  );
   const cv = useMemo(
     () =>
       CLASSES.map((cls) => ({
@@ -198,10 +231,13 @@ export function LandscapeOverview({
         </div>
         <form
           className="ls-overview__jump"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(jump);
-            if (Number.isInteger(n) && n >= 1 && n <= length) onMove(n);
+            const valid = jump.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= length;
+            setJumpInvalid(!valid);
+            if (valid) onMove(n);
           }}
         >
           <label>
@@ -212,13 +248,20 @@ export function LandscapeOverview({
               max={length}
               step={1}
               value={jump}
-              onChange={(e) => setJump(e.target.value)}
+              aria-invalid={jumpInvalid || undefined}
+              aria-describedby={jumpInvalid ? "ls-jump-error" : undefined}
+              onChange={(e) => (setJump(e.target.value), setJumpInvalid(false))}
               placeholder={String(center)}
             />
           </label>
           <button type="submit" className="viz-action">
             Go
           </button>
+          {jumpInvalid && (
+            <span id="ls-jump-error" role="alert" className="text-[11px] text-cs-danger">
+              Enter a residue from 1 to {length.toLocaleString()}.
+            </span>
+          )}
         </form>
       </header>
       <div className="ls-overview__scope">
@@ -229,6 +272,7 @@ export function LandscapeOverview({
         <span>
           {bars.length.toLocaleString()} / {length.toLocaleString()} residues
           scored
+          {colSpan > 1 && ` · each bar is the highest score in ${colSpan} residues`}
         </span>
       </div>
       {track(
@@ -295,16 +339,7 @@ export function LandscapeOverview({
                     strokeDasharray={v === 0 ? undefined : "3 4"}
                   />
                 ))}
-                {bars.map((b) => (
-                  <rect
-                    key={b.pos}
-                    x={x(b.pos)}
-                    y={1 + (1 - b.v) * (SCORE_H - 2)}
-                    width={Math.max(0.1, unit - (unit > 3 ? 0.5 : 0))}
-                    height={Math.max(1, b.v * (SCORE_H - 2))}
-                    fill={`var(--ls-${bandKey("alphaMissense", b.v)})`}
-                  />
-                ))}
+                {scoreRects}
                 {markers(SCORE_H)}
               </svg>
             )}
@@ -378,7 +413,7 @@ export function LandscapeOverview({
         <div
           className="ls-overview__group"
           role={cv.some((c) => c.bins.length > 0) ? "group" : undefined}
-          aria-label="ClinVar missense counts by assertion class"
+          aria-label={cv.some((c) => c.bins.length > 0) ? "ClinVar missense counts by assertion class" : undefined}
           ref={clinvarGrid.ref}
           onFocus={clinvarGrid.onFocus}
           onKeyDown={clinvarGrid.onKeyDown}
@@ -393,7 +428,7 @@ export function LandscapeOverview({
           </div>
           {context?.clinvar == null ? (
             <p className="ls-overview__missing">
-              {status === "ready"
+              {status === "ready" || status === "error"
                 ? "ClinVar not loaded"
                 : "ClinVar context pending"}
             </p>
@@ -490,7 +525,7 @@ export function LandscapeOverview({
         <div
           className="ls-overview__group"
           role={gn.bins.length > 0 ? "group" : undefined}
-          aria-label="gnomAD missense variant counts on a logarithmic scale"
+          aria-label={gn.bins.length > 0 ? "gnomAD missense variant counts on a logarithmic scale" : undefined}
           ref={populationGrid.ref}
           onFocus={populationGrid.onFocus}
           onKeyDown={populationGrid.onKeyDown}
@@ -505,7 +540,7 @@ export function LandscapeOverview({
           </div>
           {context?.gnomad == null ? (
             <p className="ls-overview__missing">
-              {status === "ready"
+              {status === "ready" || status === "error"
                 ? "gnomAD not loaded"
                 : "gnomAD context pending"}
             </p>
@@ -519,8 +554,7 @@ export function LandscapeOverview({
               <svg
                 width={width}
                 height={46}
-                role="group"
-                aria-label="gnomAD missense variant counts on a logarithmic scale"
+                role="presentation"
               >
                 <line
                   x1={0}
@@ -598,6 +632,7 @@ export function LandscapeOverview({
                 : "Regional constraint not loaded"}
             </p>
           ) : (
+            <>
             <div className="relative h-7">
               {context?.regions?.map((r, i) => (
                 <div
@@ -615,12 +650,17 @@ export function LandscapeOverview({
                         ? "var(--cs-surface)"
                         : "var(--cs-text-primary)",
                   }}
-                  title={`Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})`}
+                  title={`Residues ${r.start}–${r.end}: O/E ${r.oe ?? "not reported"} (${context.regionsBasis})${r.pValue != null ? `, p ${r.pValue}` : ""}`}
                 >
                   O/E {r.oe ?? "—"}
                 </div>
               ))}
             </div>
+            <p className="ls-overview__missing">
+              solid bar = fewer missense observed than expected (O/E &lt; 0.6); light bar = O/E ≥ 0.6 or not reported.
+              Basis: {context?.regionsBasis}
+            </p>
+            </>
           ),
         )}
       <footer className="ls-overview__footer">

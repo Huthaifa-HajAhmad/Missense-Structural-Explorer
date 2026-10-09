@@ -507,10 +507,14 @@ function variantSentence(
     // than the SNV-reachable set. The old wording ("of 6 SNV-reachable substitutions") claimed a
     // coverage of the codon that the scored subset does not have.
     context = `; it ranks ${rank} of the ${subs.length} substitutions with an AlphaMissense score at residue ${target.pos} (1 = highest)`;
-  } else if (am !== null && range && n > 1) {
+  } else if (am !== null && range && n > 1 && own) {
+    // Only place the variant in the table's range when the table holds that substitution; otherwise the
+    // ordinal claim would be about a substitution the table does not contain.
     const [lo, hi] = range;
     const where = am >= hi ? "the highest" : am <= lo ? "the lowest" : "within the range";
     context = `; among the ${n} scored substitutions at residue ${target.pos} (AlphaMissense ${f3(lo)}–${f3(hi)}) it is ${where}`;
+  } else if (am !== null && n > 1 && target.mut && !own) {
+    context = `; dbNSFP has no row for ${target.mut} at residue ${target.pos}, so it is not placed among that residue's ${n} scored substitutions`;
   }
 
   // A mismatch between the pipeline's variant-level score and the dbNSFP table (next to the

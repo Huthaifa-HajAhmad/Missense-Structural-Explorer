@@ -53,10 +53,19 @@ export function useRovingGrid<T extends HTMLElement>() {
         const [dr, dc] = step[e.key];
         let rr = r + dr;
         let cc = c + dc;
-        // Skip gaps (a residue with no codon in the lane) rather than stopping at them.
-        while (rr >= 0 && rr <= maxR && cc >= 0 && cc <= maxC && !(next = find(rr, cc))) {
-          rr += dr;
-          cc += dc;
+        if (dr !== 0) {
+          // Vertical: land on the nearest cell of the next row that has any, so rows of sparse
+          // cells (a ClinVar class with few bins) never dead-end the arrow keys.
+          for (; rr >= 0 && rr <= maxR && !next; rr += dr) {
+            let best = Infinity;
+            all.forEach((x, i) => {
+              const [xr, xc] = coords[i];
+              if (xr === rr && Math.abs(xc - c) < best) (best = Math.abs(xc - c)), (next = x);
+            });
+          }
+        } else {
+          // Horizontal: skip gaps (a residue with no codon in the lane) rather than stopping at them.
+          while (cc >= 0 && cc <= maxC && !(next = find(rr, cc))) cc += dc;
         }
       } else if (e.key === "Home") next = find(r, 0) ?? all.find((x) => x.dataset.rc!.startsWith(`${r}:`)) ?? null;
       else if (e.key === "End") {

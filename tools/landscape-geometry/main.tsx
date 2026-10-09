@@ -131,7 +131,6 @@ function setStoreState(): void {
     selectedResidueIndex: 5,
     hoveredResidueIndex: null,
     selectedGenomicVariant: null,
-    landscapeRailTab: "summary",
     landscapeSelection: { key: KEY, kind: "substitution", pos: 5, alt: "V" },
     landscapeOverview: { key: KEY, status: "ready", error: null, data: { positions: [], meta: {} as any, context: SOD1_LANDSCAPE_CONTEXT } as any }
   });
@@ -158,18 +157,11 @@ function mountTab(host: HTMLElement): void {
     variantScores: { revel: SOD1_VARIANT_SCORES.revel, am: SOD1_VARIANT_SCORES.am, gerp: 3.21, phylop: 6.73 },
     domains: [{ name: "Cu/Zn superoxide dismutase", start: 1, end: 153 }],
     selected: { key: KEY, kind: "substitution", pos: 5, alt: "V" },
-    selectedGenomic: { pos: 31659783, alt: "T" },
     hoveredPos: null,
     loadingWindow: false,
     codons,
-    strand: "+",
-    laneStatus: "ready",
-    codonMismatches: 0,
-    genomicPos: 31659783,
-    genomicAlt: "T",
     onPickResidue: () => {},
     onPickSubstitution: () => {},
-    onPickNucleotide: () => {},
     onHover: () => {}
   } as any);
   const overview = React.createElement(LandscapeOverview, {
@@ -212,7 +204,7 @@ interface Case {
 const CASES: Case[] = [
   { id: "rail-wide", label: "SOD1 p.Ala5Val rail — 360px, tabs walked", width: 360, kind: "rail", expectAssertions: 13 },
   { id: "rail-dark", label: "SOD1 p.Ala5Val rail — dark", width: 360, dark: true, kind: "rail", expectAssertions: 13 },
-  { id: "tab", label: "SOD1 p.Ala5Val focus grid — 1010px", width: 1010, kind: "tab", expectAssertions: 7 }
+  { id: "tab", label: "SOD1 p.Ala5Val focus grid — 1010px", width: 1010, kind: "tab", expectAssertions: 6 }
 ];
 
 /* ── Rail families, walked tab by tab ─────────────────────────────────────────── */
@@ -303,12 +295,8 @@ function tabChecks(host: HTMLElement): Check[] {
   const consFocused = cons ? cons.querySelectorAll<HTMLElement>("[data-rc][tabindex='0']").length : 0;
   out.push({ name: "keyboard: the phyloP track is reachable (one stop over its cells)", pass: consCells.length > 0 && consFocused === 1, detail: `${consCells.length} cells, ${consFocused} stops` });
 
-  const nt = Array.from(host.querySelectorAll<HTMLElement>("[role='group']")).find((g) => (g.getAttribute("aria-label") ?? "").includes("nucleotide ranks"));
-  const refCells = nt ? nt.querySelectorAll<HTMLElement>(".ls-nt[data-rank='ref']").length : 0;
-  out.push({ name: "nucleotides: the queried codon's three reference bases are drawn", pass: refCells === 3, detail: `${refCells} reference cells` });
-
   // Route A: every interactive cell is ≥ 24px tall for ALL pointers (no pointer:coarse fallback).
-  const cells = Array.from(host.querySelectorAll<HTMLElement>(".ls-sub, .ls-nt, .ls-cell"));
+  const cells = Array.from(host.querySelectorAll<HTMLElement>(".ls-sub, .ls-cell"));
   const shortCells = cells.filter((c) => c.getBoundingClientRect().height < 23.5);
   out.push({ name: "targets: every focus-grid cell is ≥ 24px tall (route A, all pointers)", pass: cells.length > 0 && shortCells.length === 0, detail: shortCells.length ? `${shortCells.length} of ${cells.length} under 24px` : `${cells.length} cells ≥ 24px` });
 

@@ -32,3 +32,9 @@ export const AMINO_ACID_MAP_3_TO_1: Record<string, string> = {
   ALA: "A", ARG: "R", ASN: "N", ASP: "D", CYS: "C", GLN: "Q", GLU: "E", GLY: "G", HIS: "H", ILE: "I",
   LEU: "L", LYS: "K", MET: "M", PHE: "F", PRO: "P", SER: "S", THR: "T", TRP: "W", TYR: "Y", VAL: "V"
 };
+
+/** One-letter code for a one- or three-letter amino acid; "" when a three-letter name is not recognised (e.g. "Ter"). */
+export function toOneLetter(value: string | null | undefined): string {
+  const t = (value ?? "").trim();
+  return t.length === 3 ? AMINO_ACID_MAP_3_TO_1[t.toUpperCase()] || "" : t.toUpperCase();
+}

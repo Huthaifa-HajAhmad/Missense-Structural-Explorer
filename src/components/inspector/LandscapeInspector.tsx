@@ -4,7 +4,7 @@ import { AnalysisResult, UniprotFeatureItem } from "../../types";
 import type { LandscapeResidueItem } from "../../shared/contracts";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { selectResidueLetter } from "../../stores/slices/searchSlice";
-import { AMINO_ACID_MAP_FULL, AMINO_ACID_MAP_3_TO_1 } from "../sequence/sequenceConstants";
+import { AMINO_ACID_MAP_FULL, toOneLetter } from "../sequence/sequenceConstants";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../aminoAcids";
 import { isGenomicOrCdnaNotation } from "../../shared/variantNotation.ts";
 import {
@@ -203,7 +203,7 @@ export const LandscapeInspector: React.FC<LandscapeInspectorProps> = ({
 
   const target = React.useMemo(() => {
     const raw = variant || analysisResult?.metadata?.variant || "";
-    const one = (s: string) => s.length === 3 ? AMINO_ACID_MAP_3_TO_1[s.toUpperCase()] || s : s.toUpperCase();
+    const one = (s: string) => toOneLetter(s) || s.trim();
     let parsed: { pos: number; wt: string; mut: string } | null = null;
     if (raw && !isGenomicOrCdnaNotation(raw) && !/^(?:chr)?[\dXYM]+[-:]/i.test(raw)) {
       const m = raw.match(/^(?:p\.)?([A-Za-z]{1,3})(\d+)([A-Za-z]{1,3})?$/);

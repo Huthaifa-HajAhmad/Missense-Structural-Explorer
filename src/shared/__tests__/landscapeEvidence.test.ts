@@ -118,7 +118,7 @@ describe("landscapeFinding", () => {
     expect(f.empty).toBe(false);
     expect(f.window).toMatch(/Of 3 scored residues in 115–118 \(4 aa\), 1 has a mean AlphaMissense score in the PP3 range, 1 in the BP4 range and 1 remains indeterminate/);
     expect(f.variant).toBe(
-      "D116G: REVEL 0.231 (BP4) · AlphaMissense 0.362 (Indeterminate); among the 7 scored substitutions at residue 116 (AlphaMissense 0.100–0.600) it is within the range."
+      "D116G: REVEL 0.231 (BP4) · AlphaMissense 0.362 (Indeterminate); dbNSFP has no row for G at residue 116, so it is not placed among that residue's 7 scored substitutions."
     );
     expect(`${f.window} ${f.variant}`).not.toMatch(/PM1|met\b/);
     expect(f.cautions).toEqual([]);

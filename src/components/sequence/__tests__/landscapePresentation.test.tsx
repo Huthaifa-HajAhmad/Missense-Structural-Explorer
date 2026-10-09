@@ -46,17 +46,11 @@ function focus(over: Record<string, unknown> = {}) {
       variantScores={{ revel: 0.853, am: 0.8401, gerp: null, phylop: null }}
       domains={[]}
       selected={null}
-      selectedGenomic={null}
       hoveredPos={null}
       loadingWindow={false}
       codons={new Map()}
-      strand="+"
-      laneStatus="ready"
-      genomicPos={null}
-      genomicAlt={null}
       onPickResidue={vi.fn()}
       onPickSubstitution={vi.fn()}
-      onPickNucleotide={vi.fn()}
       onHover={vi.fn()}
       {...over}
     />
@@ -131,12 +125,6 @@ describe("rows that only said they were empty are not drawn", () => {
     focus({ domains: [{ name: "Cu/Zn", start: 1, end: 10 }] });
     expect(screen.getByText("DOMAIN")).toBeTruthy();
   });
-
-  it("collapses an AlphaGenome lane with no codon in view to one sentence", () => {
-    const { container } = focus({ laneStatus: "ready", codons: new Map() });
-    expect(screen.getByText(/none of residues 4–7 lie in it/)).toBeTruthy();
-    expect(container.querySelectorAll(".ls-nt").length).toBe(0);
-  });
 });
 
 describe("the residues fill the card", () => {
@@ -202,6 +190,41 @@ describe("LandscapeOverview", () => {
     expect(screen.queryByText(/solid bar = fewer missense observed/)).toBeNull();
   });
 
+  it("says why a residue jump was refused instead of ignoring it", () => {
+    render(<LandscapeOverview {...props(ctx([]))} />);
+    const input = screen.getByLabelText("Go to residue");
+    fireEvent.change(input, { target: { value: "999" } });
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+    expect(screen.getByRole("alert").textContent).toBe("Enter a residue from 1 to 154.");
+    fireEvent.change(input, { target: { value: "70" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("draws at most one score bar per pixel column on a very long protein", () => {
+    const measure = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, width: 1000, top: 0, height: 44, right: 1000, bottom: 44, x: 0, y: 0, toJSON: () => ({}) });
+    const positions = Array.from({ length: 5000 }, (_, i) => ({ residx: i + 1, amMean: (i % 100) / 100, amMax: (i % 100) / 100, amCount: 3, revelMean: null, revelCount: 0 }));
+    const { container } = render(<LandscapeOverview {...props(ctx([]))} length={5000} positions={positions as any} />);
+    const slider = screen.getByRole("slider");
+    const bars = slider.querySelectorAll("svg rect[fill^='var(--ls-']");
+    expect(bars.length).toBeGreaterThan(0);
+    expect(bars.length).toBeLessThanOrEqual(1000);
+    expect(container.textContent).toContain("each bar is the highest score in 5 residues");
+    measure.mockRestore();
+  });
+
+  it("explains the O/E bars and shows the gnomAD basis when regions are drawn", () => {
+    render(<LandscapeOverview {...props(ctx([], [{ start: 1, end: 10, oe: 0.4, pValue: 0.01 }]))} />);
+    expect(screen.getByText(/solid bar = fewer missense observed than expected \(O\/E < 0\.6\)/)).toBeTruthy();
+    expect(screen.getByText(/gnomAD v4\.1\.1 genomic intervals/)).toBeTruthy();
+  });
+
+  it("says ClinVar and gnomAD are not loaded, not pending, when the overview request failed", () => {
+    render(<LandscapeOverview {...props(null)} status="error" error="request failed" />);
+    expect(screen.getByText("ClinVar not loaded")).toBeTruthy();
+    expect(screen.getByText("gnomAD not loaded")).toBeTruthy();
+    expect(screen.queryByText(/context pending/)).toBeNull();
+  });
+
   it("keeps the row and says so when regional constraint failed to load", () => {
     render(<LandscapeOverview {...props(ctx([], null))} />);
     expect(screen.getByText("Missense O/E")).toBeTruthy();
@@ -232,24 +255,22 @@ describe("LandscapeOverview", () => {
 
 describe("LandscapeLegend", () => {
   it("keeps whole-protein keys specific to its score bars", () => {
-    render(<LandscapeLegend overview colorBy="alphaMissense" laneVisible={false} />);
+    render(<LandscapeLegend overview colorBy="alphaMissense" />);
     expect(screen.getAllByText(/AlphaMissense bands/).length).toBeGreaterThan(0);
     expect(screen.queryByText("SNV-reachable, no score")).toBeNull();
     expect(screen.queryByText(/phyloP bar/)).toBeNull();
   });
 
   it("shows the bands of the tool the grid is coloured by and keeps the rest behind one disclosure", () => {
-    const { container, rerender } = render(<LandscapeLegend colorBy="alphaMissense" laneVisible={false} />);
+    const { container, rerender } = render(<LandscapeLegend colorBy="alphaMissense" />);
     expect(screen.getAllByText(/AlphaMissense bands/).length).toBeGreaterThan(0);
     expect(container.querySelectorAll("details table")).toHaveLength(1);
     // The full two-tool table and the caveats are inside a closed <details>.
     const details = container.querySelector("details")!;
     expect(details.open).toBe(false);
     expect(details.textContent).toContain("Conservation is not pathogenicity");
-    // The nucleotide-lane key is offered only when the lane is on screen.
     expect(details.textContent).not.toContain("AlphaGenome AVI genome-wide rank");
-    rerender(<LandscapeLegend colorBy="revel" laneVisible />);
+    rerender(<LandscapeLegend colorBy="revel" />);
     expect(screen.getAllByText(/REVEL bands/).length).toBeGreaterThan(0);
-    expect(container.querySelector("details")!.textContent).toContain("AlphaGenome AVI genome-wide rank");
   });
 });
