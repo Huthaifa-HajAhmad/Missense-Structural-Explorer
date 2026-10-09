@@ -6,14 +6,13 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { useApiClient } from "../apiClient";
 import { parseGenomicCoordinateString, type LandscapeMeta, type LandscapeResidueItem } from "../shared/contracts";
 import { landscapeFinding, landscapeKey, provenanceLine, type SummaryMode } from "../shared/landscapeEvidence";
-import { aviRankBand } from "../shared/alphagenomeEvidence";
-import { AMINO_ACID_MAP_3_TO_1 } from "./sequence/sequenceConstants";
+import { AMINO_ACID_MAP_3_TO_1, toOneLetter } from "./sequence/sequenceConstants";
 import { LandscapeLegend } from "./sequence/LandscapeLegend";
 import { LandscapeToolbar } from "./sequence/LandscapeToolbar";
 import { WorkspaceTabs } from "./ui/WorkspaceTabs";
 import { LandscapeAgreement } from "./sequence/LandscapeAgreement";
 import { LandscapeOverview } from "./sequence/LandscapeOverview";
-import { LandscapeFocus, type NucleotidePick } from "./sequence/LandscapeFocus";
+import { LandscapeFocus } from "./sequence/LandscapeFocus";
 import { GenomicSaturationHeatmap } from "./sequence/GenomicSaturationHeatmap";
 import { alignCodonsToSequence, codonsByResidue, useAlphaGenomeRegion } from "./sequence/useAlphaGenomeRegion";
 import type { DomainSpan, TargetMutation, VariantScores } from "./sequence/types";
@@ -89,12 +88,7 @@ export function resolveTarget(
 ): TargetMutation {
   const parsed = parseTargetMutation(variant, null);
   const pos = resolved?.pos && resolved.pos > 0 ? resolved.pos : parsed.pos;
-  const one = (v: string | null | undefined) => {
-    if (!v) return "";
-    const t = v.trim();
-    return t.length === 3 ? AMINO_ACID_MAP_3_TO_1[t.toUpperCase()] || "" : t.toUpperCase();
-  };
-  return { pos, wt: one(resolved?.wt) || parsed.wt, mut: one(resolved?.mut) || parsed.mut };
+  return { pos, wt: toOneLetter(resolved?.wt) || parsed.wt, mut: toOneLetter(resolved?.mut) || parsed.mut };
 }
 
 /** The residue range a window of `size` centred on `center` covers inside a protein of `length`. */
@@ -109,9 +103,10 @@ export function windowRange(center: number, size: number, length: number): { sta
 }
 
 /**
- * The Landscape tab: finding → controls → whole-protein overview → focus window (residues,
- * every substitution, conservation, codon-aligned nucleotides) → legend → exon panel. Everything
- * shares one residue axis and one selection, which the inspector rail reads.
+ * The Landscape workspace: four pill tabs on one residue axis and one selection, which the
+ * inspector reads. Whole protein (overview and gene context), Focus residue (finding, residues,
+ * every substitution, conservation, legend), Predictor agreement, and Nucleotide map. Data cautions
+ * render above every tab but Focus residue, whose finding card carries them itself.
  */
 const SequenceVisualizer = memo(function SequenceVisualizer({
   uniprotId,
@@ -151,7 +146,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   const setView = useVariantAnalysisStore((s) => s.setLandscapeView);
   const selection = useVariantAnalysisStore((s) => (s.landscapeSelection?.key === key ? s.landscapeSelection : null));
   const setSelection = useVariantAnalysisStore((s) => s.setLandscapeSelection);
-  const selectedGenomicVariant = useVariantAnalysisStore((s) => s.selectedGenomicVariant);
   const overview = useVariantAnalysisStore((s) => (s.landscapeOverview?.key === key ? s.landscapeOverview : null));
   const setOverview = useVariantAnalysisStore((s) => s.setLandscapeOverview);
 
@@ -262,7 +256,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     () => alignCodonsToSequence(codonsByResidue(region.data?.positions, strand), sequence),
     [region.data, strand, sequence]
   );
-  const laneStatus = !region.params ? "none" : region.pending ? "pending" : region.error ? "error" : "ready";
 
   const residueClass = useCallback(
     (res: string) => {
@@ -351,27 +344,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
     },
     [key, setSelection, onResidueClick]
   );
-  const pickNucleotide = useCallback(
-    (pick: NucleotidePick) => {
-      useVariantAnalysisStore.getState().setSelectedGenomicVariant({
-        chrom: region.params?.chrom,
-        pos: pick.position.pos,
-        ref: pick.position.ref,
-        alt: pick.genomicAlt,
-        isRef: false,
-        phred: pick.phred,
-        rankBand: aviRankBand(pick.phred)?.label ?? null,
-        topModality: pick.position.variants[pick.genomicAlt]?.topModality ?? pick.position.topModality ?? null,
-        codonIndex: pick.codonIndex,
-        codonPosition: pick.codonPosition,
-        isExonic: pick.position.isExonic,
-        strand
-      });
-      setSelection({ key, kind: "nucleotide", pos: pick.codonIndex });
-      onResidueClick?.(pick.codonIndex);
-    },
-    [key, setSelection, onResidueClick, region.params?.chrom, strand]
-  );
   const pickOverview = useCallback(
     (pos: number) => {
       setCenter(pos);
@@ -395,11 +367,6 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   if (sequenceLoading) sawLoad.current = uniprotId;
   const pendingSequence = sequenceLoading || (!hasSequence && !sequenceError && sawLoad.current !== uniprotId);
   const awayFromTarget = targetPos > 0 && (targetPos < range.start || targetPos > range.end);
-  const selectedGenomic =
-    selectedGenomicVariant && typeof selectedGenomicVariant.pos === "number"
-      ? { pos: selectedGenomicVariant.pos, alt: String(selectedGenomicVariant.alt ?? "").toUpperCase() }
-      : null;
-
   return (
     <div id="sequence-alignment-visualizer" className="landscape-canvas text-cs-text-primary">
       <div className="landscape-canvas__heading">
@@ -491,6 +458,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
               regions: overview?.status !== "ready" || (overview.data?.context?.regions?.length ?? 0) > 0
             }}
             awayFromTarget={awayFromTarget}
+            onStep={(direction) => setCenter(Math.round((range.start + range.end) / 2) + direction * windowSize)}
+            canStep={{ previous: range.start > 1, next: range.end < sequence.length }}
             onBack={() => {
               setCenter(targetPos);
               setSelection({ key, kind: "substitution", pos: targetPos, alt: mutation.mut || undefined });
@@ -515,11 +484,10 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             pageStep={windowSize}
             onExplore={exploreFocus}
           />}
-          {workspaceTab === "map" && <LandscapeLegend overview colorBy="alphaMissense" laneVisible={false} />}
+          {workspaceTab === "map" && <LandscapeLegend overview colorBy="alphaMissense" />}
 
           {workspaceTab === "focus" && <>
           <LandscapeFocus
-            showNucleotides={false}
             residues={residues}
             start={range.start}
             target={mutation}
@@ -530,23 +498,16 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             variantScores={variantScores}
             domains={domains}
             selected={selection}
-            selectedGenomic={selectedGenomic}
             hoveredPos={hoveredResidueIndex ?? null}
             loadingWindow={!landscapeData || extraLoading}
             codons={codons}
-            strand={strand}
-            laneStatus={laneStatus}
-            codonMismatches={codonMismatches}
-            genomicPos={genomicPos}
-            genomicAlt={parsedGenomic?.alt || null}
             onPickResidue={pickResidue}
             onPickSubstitution={pickSubstitution}
-            onPickNucleotide={pickNucleotide}
             onHover={onHover}
             residueClass={residueClass}
           />
 
-          <LandscapeLegend colorBy={view.colorBy} laneVisible={false} />
+          <LandscapeLegend colorBy={view.colorBy} />
 
           </>}
           {workspaceTab === "agreement" && <LandscapeAgreement key={key} rows={agreementRows}

@@ -64,6 +64,7 @@ export function LandscapeOverview({
   const populationGrid = useRovingGrid<HTMLDivElement>();
   const [detail, setDetail] = useState<string | null>(null);
   const [jump, setJump] = useState("");
+  const [jumpInvalid, setJumpInvalid] = useState(false);
   const unit = width / Math.max(1, length);
   const x = (pos: number) => (pos - 1) * unit;
   const posAt = (clientX: number, el: Element) => {
@@ -198,10 +199,13 @@ export function LandscapeOverview({
         </div>
         <form
           className="ls-overview__jump"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             const n = Number(jump);
-            if (Number.isInteger(n) && n >= 1 && n <= length) onMove(n);
+            const valid = jump.trim() !== "" && Number.isInteger(n) && n >= 1 && n <= length;
+            setJumpInvalid(!valid);
+            if (valid) onMove(n);
           }}
         >
           <label>
@@ -212,13 +216,20 @@ export function LandscapeOverview({
               max={length}
               step={1}
               value={jump}
-              onChange={(e) => setJump(e.target.value)}
+              aria-invalid={jumpInvalid || undefined}
+              aria-describedby={jumpInvalid ? "ls-jump-error" : undefined}
+              onChange={(e) => (setJump(e.target.value), setJumpInvalid(false))}
               placeholder={String(center)}
             />
           </label>
           <button type="submit" className="viz-action">
             Go
           </button>
+          {jumpInvalid && (
+            <span id="ls-jump-error" role="alert" className="text-[11px] text-cs-danger">
+              Enter a residue from 1 to {length.toLocaleString()}.
+            </span>
+          )}
         </form>
       </header>
       <div className="ls-overview__scope">
@@ -378,7 +389,7 @@ export function LandscapeOverview({
         <div
           className="ls-overview__group"
           role={cv.some((c) => c.bins.length > 0) ? "group" : undefined}
-          aria-label="ClinVar missense counts by assertion class"
+          aria-label={cv.some((c) => c.bins.length > 0) ? "ClinVar missense counts by assertion class" : undefined}
           ref={clinvarGrid.ref}
           onFocus={clinvarGrid.onFocus}
           onKeyDown={clinvarGrid.onKeyDown}
@@ -490,7 +501,7 @@ export function LandscapeOverview({
         <div
           className="ls-overview__group"
           role={gn.bins.length > 0 ? "group" : undefined}
-          aria-label="gnomAD missense variant counts on a logarithmic scale"
+          aria-label={gn.bins.length > 0 ? "gnomAD missense variant counts on a logarithmic scale" : undefined}
           ref={populationGrid.ref}
           onFocus={populationGrid.onFocus}
           onKeyDown={populationGrid.onKeyDown}
@@ -519,8 +530,7 @@ export function LandscapeOverview({
               <svg
                 width={width}
                 height={46}
-                role="group"
-                aria-label="gnomAD missense variant counts on a logarithmic scale"
+                role="presentation"
               >
                 <line
                   x1={0}

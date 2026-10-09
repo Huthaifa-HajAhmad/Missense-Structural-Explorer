@@ -24,6 +24,9 @@ export function coveredRuns(rows: LandscapeResidueItem[]): string {
   return runs.join(', ');
 }
 
+/** Drag results are fractions of the plot; snap them to the 0.01 the range fields step in. */
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
 export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm, selectedResidue, onSelect, onHover, label, provenance }: {
   label?: string; provenance?: string;
   rows: LandscapeResidueItem[]; mode: SummaryMode; onMode?: (mode: SummaryMode) => void; variantRevel: number | null; variantAm: number | null;
@@ -39,6 +42,7 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
     const am = residueSummary(row, 'alphaMissense', mode);
     return revel === null || am === null ? [] : [{ row, revel, am, group: agreementClass(revel, am)! }];
   }), [rows, mode]);
+  const reversed = brush !== null && (brush.x0 > brush.x1 || brush.y0 > brush.y1);
   const filtered = paired.filter(p => (filter === 'all' || p.group === filter)
     && (!brush || (p.revel >= brush.x0 && p.revel <= brush.x1 && p.am >= brush.y0 && p.am <= brush.y1)));
   const exportCsv = () => {
@@ -62,14 +66,17 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
       {brush ? <button type="button" className="viz-action" onClick={() => setBrush(null)}>Clear region</button> : <span>Drag to select a region · select a point to inspect</span>}
     </div>
     <details className="viz-range"><summary>Set score range</summary><div>
-      {([{ key: 'x0', label: 'REVEL minimum', fallback: 0 }, { key: 'x1', label: 'REVEL maximum', fallback: 1 }, { key: 'y0', label: 'AlphaMissense minimum', fallback: 0 }, { key: 'y1', label: 'AlphaMissense maximum', fallback: 1 }] as const).map(field => <label key={field.key}>{field.label}<input type="number" min="0" max="1" step="0.01"
+      {([{ key: 'x0', label: 'REVEL minimum', fallback: 0 }, { key: 'x1', label: 'REVEL maximum', fallback: 1 }, { key: 'y0', label: 'AlphaMissense minimum', fallback: 0 }, { key: 'y1', label: 'AlphaMissense maximum', fallback: 1 }] as const).map(field => <label key={field.key}>{field.label}<input type="number" min="0" max="1" step="0.01" aria-invalid={reversed || undefined}
         value={brush?.[field.key] ?? field.fallback} onChange={event => {
           const value = event.currentTarget.valueAsNumber;
           if (Number.isFinite(value)) setBrush(current => ({ ...(current ?? { x0: 0, x1: 1, y0: 0, y1: 1 }), [field.key]: Math.min(1, Math.max(0, value)) }));
         }} /></label>)}
     </div></details>
     <LandscapeAgreementPlot rows={filtered.map(p => p.row)} variantRevel={variantRevel} variantAm={variantAm}
-      mode={mode} selectedResidue={selectedResidue} onSelectResidue={onSelect} onHoverResidue={onHover} onBrush={setBrush} />
+      mode={mode} selectedResidue={selectedResidue} onSelectResidue={onSelect} onHoverResidue={onHover}
+      onBrush={region => setBrush({ x0: round2(region.x0), x1: round2(region.x1), y0: round2(region.y0), y1: round2(region.y1) })}
+      narrowed={filter !== 'all' || brush !== null} />
+    {reversed && <p className="viz-empty" role="alert">A score range has its minimum above its maximum, so nothing can match. Adjust the fields or clear the region.</p>}
     {!filtered.length && <p className="viz-empty">{paired.length ? 'No residues match this selection. Choose another group or clear the region.' : 'Paired predictor scores are not available for the loaded residues.'}</p>}
     <details className="viz-data" open={filtered.length > 0 && filtered.length <= 12}>
       <summary>Inspect plotted data <span>{filtered.length} residues</span></summary>

@@ -13,7 +13,8 @@ export function WorkspaceTabs<T extends string>({ id, label, tabs, value, onChan
     if (next === null) return;
     event.preventDefault();
     onChange(tabs[next].id);
-    event.currentTarget.querySelector<HTMLElement>(`#${id}-tab-${tabs[next].id}`)?.focus();
+    // By id, not a selector: ids from useId contain characters a selector would need escaped.
+    event.currentTarget.ownerDocument.getElementById(`${id}-tab-${tabs[next].id}`)?.focus();
   }}>
     {tabs.map(tab => <button type="button" key={tab.id} id={`${id}-tab-${tab.id}`}
       role="tab" aria-selected={value === tab.id} aria-controls={`${id}-panel-${tab.id}`}

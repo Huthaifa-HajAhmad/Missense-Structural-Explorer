@@ -4,17 +4,13 @@ import {
   bandKey,
   bandLabel,
   conservationLevel,
-  complementBase,
   HEATMAP_AA_ORDER,
   residueCount,
   residueSummary,
   snvReachableAminoAcids,
-  translateCodon,
   type LandscapeTool,
   type SummaryMode
 } from "../../shared/landscapeEvidence";
-import { aviRankBand } from "../../shared/alphagenomeEvidence";
-import type { AlphaGenomeSaturationPosition } from "../../shared/contracts";
 import type { CodonNucleotide } from "./useAlphaGenomeRegion";
 import type { DomainSpan, TargetMutation, VariantScores } from "./types";
 import { useMeasuredWidth } from "./useMeasuredWidth";
@@ -53,17 +49,7 @@ export function hasNoRecord(row: LandscapeResidueItem | undefined): boolean {
   return !row || (residueCount(row, "revel") === 0 && residueCount(row, "alphaMissense") === 0);
 }
 
-export interface NucleotidePick {
-  position: AlphaGenomeSaturationPosition;
-  genomicAlt: string;
-  codonIndex: number;
-  codonPosition: number;
-  phred: number | null;
-}
-
 interface Props {
-  /** The dedicated focus tab reads substitutions; nucleotide scores live in the nucleotide tab. */
-  showNucleotides?: boolean;
   residues: string[];
   start: number;
   target: TargetMutation;
@@ -74,19 +60,12 @@ interface Props {
   variantScores: VariantScores;
   domains: DomainSpan[];
   selected: { kind: "residue" | "substitution" | "nucleotide"; pos: number; alt?: string } | null;
-  selectedGenomic: { pos: number; alt: string } | null;
   hoveredPos: number | null;
   loadingWindow: boolean;
+  /** Codons the SNV-reachability hatching reads; the nucleotide ranks themselves live in the Nucleotide map tab. */
   codons: Map<number, CodonNucleotide[]>;
-  strand: "+" | "-" | null;
-  laneStatus: "pending" | "error" | "none" | "ready";
-  /** AlphaGenome codons dropped because they do not translate to the residue drawn above them. */
-  codonMismatches?: number;
-  genomicPos: number | null;
-  genomicAlt: string | null;
   onPickResidue: (pos: number) => void;
   onPickSubstitution: (pos: number, alt: string) => void;
-  onPickNucleotide: (pick: NucleotidePick) => void;
   onHover: (pos: number | null) => void;
   /** Residue-letter class for the reader's sequence colour scheme; defaults to chemistry. */
   residueClass?: (aa: string) => string;
@@ -94,9 +73,9 @@ interface Props {
 
 export function LandscapeFocus(props: Props) {
   const {
-    residues, start, target, width, rows, mode, colorBy, variantScores, domains, selected, selectedGenomic,
-    hoveredPos, loadingWindow, codons, strand, laneStatus, genomicPos, genomicAlt,
-    onPickResidue, onPickSubstitution, onPickNucleotide, onHover
+    residues, start, target, width, rows, mode, colorBy, variantScores, domains, selected,
+    hoveredPos, loadingWindow, codons,
+    onPickResidue, onPickSubstitution, onHover
   } = props;
   const residueClass = props.residueClass ?? ((aa: string) => LETTER_CLASS[aa] ?? "hydrophobic");
   const [sizeRef, measured] = useMeasuredWidth<HTMLElement>();
@@ -108,10 +87,8 @@ export function LandscapeFocus(props: Props) {
    * Floor 24, cap 26 so wide columns stay near-square.
    */
   const cellH = Math.max(24, Math.min(26, Math.round(colW * 0.55)));
-  const ntW = colW / 3;
   const [readout, setReadout] = useState<string | null>(null);
   const heat = useRovingGrid<HTMLDivElement>();
-  const lane = useRovingGrid<HTMLDivElement>();
   const residueRow = useRovingGrid<HTMLDivElement>();
   const summaryRow = useRovingGrid<HTMLDivElement>();
   const consRow = useRovingGrid<HTMLDivElement>();
@@ -213,89 +190,6 @@ export function LandscapeFocus(props: Props) {
     </div>
   );
 
-
-  const laneColumns = cols.filter(({ pos }) => codons.has(pos)).length;
-  const laneEmpty = laneStatus === "ready" && laneColumns === 0;
-
-  const ntLane = () => {
-    if (laneStatus !== "ready" || laneEmpty) {
-      const text =
-        laneStatus === "pending"
-          ? "Loading AlphaGenome nucleotide ranks…"
-          : laneStatus === "error"
-            ? "AlphaGenome region not loaded (see the exon panel below)."
-            : laneEmpty
-              ? `AlphaGenome scored the exon around the variant only, and none of residues ${start}–${end} lie in it. Move the window back to the variant to see nucleotide ranks.`
-              : "No genomic interval was resolved for this variant, so no nucleotide lane.";
-      return <div className="text-[11px] text-cs-text-muted pb-1" style={{ paddingLeft: GUTTER }}>{text}</div>;
-    }
-    return (
-      <div ref={lane.ref} onFocus={lane.onFocus} onKeyDown={lane.onKeyDown} role="group" aria-label="AlphaGenome nucleotide ranks, one row per base, three columns per residue">
-        {["A", "C", "G", "T"].map((base, r) => (
-          <div key={base} className="flex items-center mb-px">
-            <span className="ls-gutter !text-[11px] !text-cs-text-secondary" style={{ width: GUTTER }} aria-hidden="true">{base}</span>
-            {cols.map(({ aa, pos }, c) => {
-              const nts = codons.get(pos);
-              if (!nts) {
-                return <span key={pos} className="ls-nt" data-rank="none" style={{ width: colW }} aria-hidden="true" />;
-              }
-              return nts.map((nt, k) => {
-                const codon = nts.map((n) => n.codingRef).join("");
-                const rc = `${r}:${c * 3 + k}`;
-                if (base === nt.codingRef) {
-                  return (
-                    <button key={`${pos}-${k}`} type="button" className="ls-nt" data-rank="ref" data-rc={rc} style={{ width: ntW }} onClick={() => onPickResidue(pos)} aria-label={`Coding ${base}, codon ${pos} position ${k + 1} (reference)`} {...track(pos, `Reference ${base}, codon ${pos} position ${k + 1} (${codon})`)} />
-                  );
-                }
-                const gAlt = strand === "-" ? complementBase(base) : base;
-                const phred = nt.position.variants[gAlt]?.phred ?? null;
-                const rank = aviRankBand(phred);
-                const mutated = translateCodon(codon.slice(0, k) + base + codon.slice(k + 1));
-                const effect = mutated === "*" ? "stop gained" : mutated === aa ? "synonymous" : `${aa}${pos}${mutated}`;
-                const isQuery = nt.position.pos === genomicPos && genomicAlt?.toUpperCase() === gAlt;
-                const isSel = selectedGenomic?.pos === nt.position.pos && selectedGenomic.alt === gAlt;
-                const label =
-                  `Coding ${nt.codingRef}>${base} at codon ${pos} position ${k + 1} (genomic ${nt.position.pos} ${nt.position.ref}>${gAlt}) → ${effect}` +
-                  (phred !== null ? `, AVI Phred ${phred.toFixed(1)}, ${rank?.label ?? "no rank"} of all SNVs` : ", no AlphaGenome score");
-                return (
-                  <button
-                    key={`${pos}-${k}`}
-                    type="button"
-                    className="ls-nt"
-                    data-rank={rank ? String(rank.level) : "none"}
-                    data-focus={isQuery ? "target" : isSel ? "selected" : undefined}
-                    data-rc={rc}
-                    data-entry={isQuery ? "" : undefined}
-                    style={{ width: ntW }}
-                    onClick={() => onPickNucleotide({ position: nt.position, genomicAlt: gAlt, codonIndex: pos, codonPosition: k + 1, phred })}
-                    aria-label={label}
-                    {...track(pos, label)}
-                  />
-                );
-              });
-            })}
-          </div>
-        ))}
-        <div className="flex items-center">
-          <span className="ls-gutter" style={{ width: GUTTER }}>CODON</span>
-          {cols.map(({ pos }) => {
-            const nts = codons.get(pos);
-            if (!nts) return <span key={pos} style={{ width: colW }} className="shrink-0" />;
-            return nts.map((nt, k) => (
-              <span
-                key={`${pos}-${k}`}
-                aria-hidden="true"
-                className={`shrink-0 text-center font-mono text-[10px] font-semibold ${pos === target.pos ? "text-cs-accent-clay" : "text-cs-text-secondary"} ${k === 0 ? "border-l border-cs-border-subtle" : ""}`}
-                style={{ width: ntW }}
-              >
-                {nt.codingRef}
-              </span>
-            ));
-          })}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <section
@@ -442,21 +336,6 @@ export function LandscapeFocus(props: Props) {
         })}
       </div>
 
-      {props.showNucleotides !== false && <>
-      <div className="flex justify-between gap-3 px-4 pt-2 mt-2 border-t border-cs-border-subtle text-[12px] text-cs-text-secondary">
-        <span className="font-semibold text-cs-text-primary">
-          Nucleotides · coding strand{strand === "-" ? " (−), complemented" : strand === "+" ? " (+)" : ""} · three columns under each residue
-        </span>
-        <span className="text-cs-text-muted">AlphaGenome AVI genome-wide rank · not an ACMG band · contains AlphaMissense</span>
-      </div>
-      {laneStatus === "ready" && (props.codonMismatches ?? 0) > 0 && (
-        <div className="text-[11px] text-cs-text-warning" style={{ paddingLeft: GUTTER }}>
-          {props.codonMismatches} AlphaGenome codon{props.codonMismatches === 1 ? "" : "s"} did not translate to the residue shown and
-          {props.codonMismatches === 1 ? " is" : " are"} left out: its transcript numbering may differ from this sequence.
-        </div>
-      )}
-      {ntLane()}
-      </>}
     </section>
   );
 }

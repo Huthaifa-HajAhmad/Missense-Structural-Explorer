@@ -131,7 +131,6 @@ function setStoreState(): void {
     selectedResidueIndex: 5,
     hoveredResidueIndex: null,
     selectedGenomicVariant: null,
-    landscapeRailTab: "summary",
     landscapeSelection: { key: KEY, kind: "substitution", pos: 5, alt: "V" },
     landscapeOverview: { key: KEY, status: "ready", error: null, data: { positions: [], meta: {} as any, context: SOD1_LANDSCAPE_CONTEXT } as any }
   });
@@ -158,18 +157,11 @@ function mountTab(host: HTMLElement): void {
     variantScores: { revel: SOD1_VARIANT_SCORES.revel, am: SOD1_VARIANT_SCORES.am, gerp: 3.21, phylop: 6.73 },
     domains: [{ name: "Cu/Zn superoxide dismutase", start: 1, end: 153 }],
     selected: { key: KEY, kind: "substitution", pos: 5, alt: "V" },
-    selectedGenomic: { pos: 31659783, alt: "T" },
     hoveredPos: null,
     loadingWindow: false,
     codons,
-    strand: "+",
-    laneStatus: "ready",
-    codonMismatches: 0,
-    genomicPos: 31659783,
-    genomicAlt: "T",
     onPickResidue: () => {},
     onPickSubstitution: () => {},
-    onPickNucleotide: () => {},
     onHover: () => {}
   } as any);
   const overview = React.createElement(LandscapeOverview, {

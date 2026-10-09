@@ -12,6 +12,8 @@ interface Props {
   onSelectResidue?: (pos: number) => void;
   onHoverResidue?: (pos: number | null) => void;
   onBrush?: (bounds: { x0: number; x1: number; y0: number; y1: number }) => void;
+  /** The rows were already narrowed by a group or region; an empty plot then means "nothing in this selection". */
+  narrowed?: boolean;
 }
 
 const W = 640;
@@ -46,7 +48,7 @@ const LABEL: Record<Agreement, string> = {
  * point with an enlarged hit circle, Enter selects); the diamond is the queried variant's own pair of
  * scores — a different kind of number, drawn with a different mark.
  */
-export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, mode, selectedResidue, onSelectResidue, onHoverResidue, onBrush }: Props) {
+export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, mode, selectedResidue, onSelectResidue, onHoverResidue, onBrush, narrowed }: Props) {
   const [drag, setDrag] = useState<{ start: [number, number]; end: [number, number] } | null>(null);
   const plotPosition = (event: React.PointerEvent<SVGSVGElement>): [number, number] => {
     const point = event.currentTarget.createSVGPoint();
@@ -95,7 +97,8 @@ export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, 
     <div className="lsr-scatter flex flex-col gap-2 w-full">
       <svg viewBox={`0 0 ${W} ${H}`} className="agreement-plot" role="group" aria-label={summary}
         onPointerDown={event => {
-          if (!onBrush || event.button !== 0 || (event.target as Element).closest('[data-point], [data-hit]')) return;
+          // Touch keeps its native horizontal scroll (the plot is wider than a phone); the score-range fields are the touch path.
+          if (!onBrush || event.button !== 0 || event.pointerType === 'touch' || (event.target as Element).closest('[data-point], [data-hit]')) return;
           const start = plotPosition(event); setDrag({ start, end: start }); event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={event => { if (drag) setDrag({ ...drag, end: plotPosition(event) }); }}
@@ -141,7 +144,7 @@ export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, 
 
         {points.length === 0 && !variantPoint && (
           <text x={PAD_LEFT + PLOT_W / 2} y={PAD_TOP + PLOT_H / 2} textAnchor="middle" className="text-[10px] fill-cs-text-muted">
-            {omitted > 0 ? "No residue scored by both predictors" : "No landscape scores"}
+            {narrowed ? "No residues in this selection" : omitted > 0 ? "No residue scored by both predictors" : "No landscape scores"}
           </text>
         )}
 
@@ -209,6 +212,7 @@ export default function LandscapeAgreementPlot({ rows, variantRevel, variantAm, 
       </svg>
 
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-cs-text-secondary">
+        {narrowed && <span className="text-cs-text-muted">In view:</span>}
         {(Object.keys(LABEL) as Agreement[]).map((k) => (
           <span key={k} className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full" style={{ background: COLOR[k] }} />

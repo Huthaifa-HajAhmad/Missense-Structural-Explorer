@@ -1,5 +1,5 @@
 import React from "react";
-import { Crosshair } from "lucide-react";
+import { ChevronLeft, ChevronRight, Crosshair } from "lucide-react";
 import type { SummaryMode } from "../../shared/landscapeEvidence";
 import type { LandscapeViewState } from "../../stores/slices/searchSlice";
 
@@ -16,6 +16,9 @@ interface Props {
   available?: Partial<Record<keyof LandscapeViewState["lanes"], boolean>>;
   awayFromTarget: boolean;
   onBack: () => void;
+  /** Focus scope: move the window one width left (−1) or right (+1); a bound with nowhere to go is disabled. */
+  onStep?: (direction: -1 | 1) => void;
+  canStep?: { previous: boolean; next: boolean };
 }
 
 function Segmented<T extends string | number>({
@@ -50,7 +53,7 @@ function Segmented<T extends string | number>({
 }
 
 /** Controls live beside what they change; the inspector rail keeps only the selection. */
-export function LandscapeToolbar({ scope, view, onView, mode, onMode, width, onWidth, targetPos, available, awayFromTarget, onBack }: Props) {
+export function LandscapeToolbar({ scope, view, onView, mode, onMode, width, onWidth, targetPos, available, awayFromTarget, onBack, onStep, canStep }: Props) {
   const lanes: Array<{ key: keyof LandscapeViewState["lanes"]; label: string }> = [
     { key: "clinvar", label: "ClinVar" },
     { key: "gnomad", label: "gnomAD" },
@@ -77,6 +80,16 @@ export function LandscapeToolbar({ scope, view, onView, mode, onMode, width, onW
         onChange={onMode}
       />
       <Segmented label="Focus width" options={[15, 21, 31, 41].map((w) => ({ value: w, label: String(w) }))} value={width} onChange={onWidth} />
+      {scope === "focus" && onStep && (
+        <div className="flex items-center gap-2" role="group" aria-label="Move the focus window">
+          <button type="button" className="ls-pill" onClick={() => onStep(-1)} disabled={canStep?.previous === false}>
+            <ChevronLeft className="w-3.5 h-3.5 inline -mt-0.5" aria-hidden="true" /> Previous {width}
+          </button>
+          <button type="button" className="ls-pill" onClick={() => onStep(1)} disabled={canStep?.next === false}>
+            Next {width} <ChevronRight className="w-3.5 h-3.5 inline -mt-0.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {scope !== "focus" && <div className="flex items-center gap-2">
         <span className="text-[11px] font-semibold text-cs-text-secondary">Lanes</span>
         {lanes.map((l) => {

@@ -48,7 +48,6 @@ describe("LandscapeInspector", () => {
         hoveredResidueIndex: null,
         selectedGenomicVariant: null,
         // The rail tab is session-persisted, so each test starts from the default again.
-        landscapeRailTab: "summary",
         landscapeSelection: { key: KEY, kind: "residue", pos: 116 },
         landscapeOverview: {
           key: KEY,

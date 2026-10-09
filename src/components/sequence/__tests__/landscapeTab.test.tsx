@@ -3,8 +3,6 @@
  * Landscape tab, rendered. Pins what lives in markup rather than in pure rules:
  *   — the focus heatmap shows single substitutions on the calibrated bands, marks the queried one,
  *     and hatches substitutions one SNV cannot reach;
- *   — the nucleotide lane sits under its residue on the coding strand;
- *   — the exon panel on a − strand gene shows the coding strand;
  *   — the overview moves the window and reports a lane it could not load as "not loaded";
  *   — loading / failure states for the sequence.
  */
@@ -25,6 +23,7 @@ import { LandscapeOverview } from "../LandscapeOverview";
 import { GenomicSaturationHeatmap } from "../GenomicSaturationHeatmap";
 import { alignCodonsToSequence, codonsByResidue } from "../useAlphaGenomeRegion";
 import SequenceVisualizer, { resolveTarget } from "../../SequenceVisualizer";
+import { toOneLetter } from "../sequenceConstants";
 
 // NAE1-like: residue 116 is D (coding GAT), gene on the − strand. Genomic positions descend 5'→3'.
 const minusStrandCodon: AlphaGenomeSaturationPosition[] = [
@@ -48,7 +47,7 @@ const rows = new Map<number, LandscapeResidueItem>([
   ]
 ]);
 
-function renderFocus(onPickSubstitution = vi.fn(), onPickNucleotide = vi.fn()) {
+function renderFocus(onPickSubstitution = vi.fn()) {
   render(
     <LandscapeFocus
       residues={["N", "D"]}
@@ -61,17 +60,11 @@ function renderFocus(onPickSubstitution = vi.fn(), onPickNucleotide = vi.fn()) {
       variantScores={{ revel: 0.231, am: 0.362, gerp: 4.78, phylop: 7.64 }}
       domains={[{ name: "Domain 1", start: 100, end: 116 }]}
       selected={null}
-      selectedGenomic={null}
       hoveredPos={null}
       loadingWindow={false}
       codons={codonsByResidue(minusStrandCodon, "-")}
-      strand="-"
-      laneStatus="ready"
-      genomicPos={101}
-      genomicAlt="C"
       onPickResidue={vi.fn()}
       onPickSubstitution={onPickSubstitution}
-      onPickNucleotide={onPickNucleotide}
       onHover={vi.fn()}
     />
   );
@@ -89,23 +82,11 @@ describe("LandscapeFocus", () => {
     expect(pick).toHaveBeenCalledWith(116, "G");
   });
 
-  it("hatches substitutions one SNV cannot reach, using the codon from the nucleotide lane", () => {
+  it("hatches substitutions one SNV cannot reach, using the codon of the AlphaGenome region", () => {
     renderFocus();
     // GAT → W needs two changes; GAT → E (GAA/GAG) is one change but unscored here.
     expect(screen.getByLabelText(/^D116W: needs two or more nucleotide changes/).getAttribute("data-band")).toBe("unreachable");
     expect(screen.getByLabelText(/^D116E: no AlphaMissense score \(SNV-reachable\)/).getAttribute("data-band")).toBe("unscored");
-  });
-
-  it("puts the codon's bases under its residue on the coding strand and marks the queried SNV", () => {
-    const pick = vi.fn();
-    renderFocus(vi.fn(), pick);
-    // Genomic T>C at 101 is coding A>G at codon position 2 → D116G.
-    const q = screen.getByLabelText(/^Coding A>G at codon 116 position 2 \(genomic 101 T>C\) → D116G, AVI Phred 12\.0/);
-    expect(q.getAttribute("data-focus")).toBe("target");
-    expect(q.getAttribute("data-rank")).toBe("1");
-    fireEvent.click(q);
-    expect(pick).toHaveBeenCalledWith(expect.objectContaining({ genomicAlt: "C", codonIndex: 116, codonPosition: 2 }));
-    expect(screen.getByText("Nucleotides · coding strand (−), complemented · three columns under each residue")).toBeTruthy();
   });
 });
 
@@ -228,7 +209,31 @@ describe("SequenceVisualizer data cautions", () => {
   });
 });
 
+describe("Focus residue window stepping", () => {
+  it("moves the window one width at a time and disables a step at the protein's end", () => {
+    sequenceState.sequence = "M".repeat(100) + "SGSFVEESPENLLDNDPSFFCRFTVVVATQL" + "A".repeat(50);
+    render(<SequenceVisualizer uniprotId="Q13564" gene="NAE1" variant="p.Asp116Gly" residueIndex={116} landscapeData={[...rows.values()]} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    expect(screen.getByText(/Finding · residues 101–131/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Next 31/ }));
+    expect(screen.getByText(/Finding · residues 132–162/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Next 31/ }));
+    expect(screen.getByText(/Finding · residues 151–181/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Next 31/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Previous 31/ }));
+    expect(screen.getByText(/Finding · residues 120–150/)).toBeTruthy();
+    sequenceState.sequence = "";
+  });
+});
+
 describe("resolveTarget", () => {
+  it("normalises three-letter amino acids, trims, and drops names it does not know", () => {
+    expect(toOneLetter(" Asp ")).toBe("D");
+    expect(toOneLetter("g")).toBe("G");
+    expect(toOneLetter("Ter")).toBe("");
+    expect(toOneLetter(null)).toBe("");
+  });
+
   it("takes the pipeline's residue for genomic notation instead of following the selection", () => {
     expect(resolveTarget("16-66823281-T-C", { pos: 116, wt: "D", mut: "G" })).toEqual({ pos: 116, wt: "D", mut: "G" });
     expect(resolveTarget("16-66823281-T-C", null).pos).toBe(0);

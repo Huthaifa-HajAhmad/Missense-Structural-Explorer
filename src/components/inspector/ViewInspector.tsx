@@ -197,6 +197,24 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     return isNaN(parsed) ? 320 : Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, parsed));
   });
 
+  /*
+   * The width on screen, not the stored preference: container-width CSS can pin or cap the panel
+   * (Landscape caps it at 42% and fixes it narrow in small containers), so the handle reports and
+   * resizes from what the reader actually sees. The stored value only changes by what they do.
+   */
+  const asideRef = useRef<HTMLElement | null>(null);
+  const [renderedWidth, setRenderedWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = asideRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setRenderedWidth(Math.round(el.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isCollapsed]);
+  const shownWidth = renderedWidth && renderedWidth > 0 ? renderedWidth : inspectorWidth;
+
   /** Clamped width setter shared by the mouse drag and the keyboard resize paths. */
   const applyWidth = useCallback((next: number) => {
     const clamped = Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, next));
@@ -209,7 +227,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       e.preventDefault();
       if (isCollapsed) return;
       const startX = e.clientX;
-      const startWidth = inspectorWidth;
+      const startWidth = shownWidth;
       const handleMouseMove = (me: MouseEvent) => {
         // Dragging left (negative dx) increases inspector width on right panel
         applyWidth(startWidth - (me.clientX - startX));
@@ -223,7 +241,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       document.addEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "col-resize";
     },
-    [inspectorWidth, isCollapsed, applyWidth]
+    [shownWidth, isCollapsed, applyWidth]
   );
 
   /**
@@ -236,10 +254,10 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       const step = e.shiftKey ? 40 : 10;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        applyWidth(inspectorWidth + step); // left edge moves left => wider
+        applyWidth(shownWidth + step); // left edge moves left => wider
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        applyWidth(inspectorWidth - step);
+        applyWidth(shownWidth - step);
       } else if (e.key === "Home") {
         e.preventDefault();
         applyWidth(INSPECTOR_MIN_WIDTH);
@@ -248,7 +266,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         applyWidth(INSPECTOR_MAX_WIDTH);
       }
     },
-    [inspectorWidth, isCollapsed, applyWidth]
+    [shownWidth, isCollapsed, applyWidth]
   );
 
   const toggleCollapse = () => {
@@ -373,6 +391,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
 
   return (
     <aside 
+      ref={asideRef}
       className="relative flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col h-full overflow-hidden transition-[width] duration-75"
       style={{
         width: inspectorWidth,
@@ -388,7 +407,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize inspector panel"
-        aria-valuenow={inspectorWidth}
+        aria-valuenow={Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, shownWidth))}
         aria-valuemin={INSPECTOR_MIN_WIDTH}
         aria-valuemax={INSPECTOR_MAX_WIDTH}
         tabIndex={0}
