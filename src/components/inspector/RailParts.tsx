@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ContextProvenance } from '../../shared/diseaseFrame';
+import { safeExternalHref } from '../../shared/externalLink';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 
 export type Slot = { status: 'loading' | 'ready' | 'error'; data: unknown; error?: string } | undefined;
@@ -33,7 +34,9 @@ export function Provenance({ provenance, rolling = false }: { provenance: Contex
       <div className="rail-kv__row"><dt>{basisLabel(provenance)}</dt><dd className="ctx-mono">{day(provenance.retrievedAt)}</dd></div>
       <div className="rail-kv__row"><dt>Terms</dt><dd>{provenance.licence}</dd></div>
     </dl>
-    <a className="ctx-link" href={provenance.url} target="_blank" rel="noreferrer">Source endpoint<span className="ctx-sr-only"> (opens in a new tab)</span></a>
+    {(() => { const href = safeExternalHref(provenance.url); return href
+      ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">Source endpoint<span className="ctx-sr-only"> (opens in a new tab)</span></a>
+      : <span className="ctx-caption">Source endpoint: {provenance.url || "not provided"}</span>; })()}
     <p className="ctx-caption">Snapshot fingerprint</p><p className="ctx-hash ctx-mono">{provenance.sha256}</p>
   </details>;
 }

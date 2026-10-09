@@ -43,8 +43,11 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
     return revel === null || am === null ? [] : [{ row, revel, am, group: agreementClass(revel, am)! }];
   }), [rows, mode]);
   const reversed = brush !== null && (brush.x0 > brush.x1 || brush.y0 > brush.y1);
-  const filtered = paired.filter(p => (filter === 'all' || p.group === filter)
-    && (!brush || (p.revel >= brush.x0 && p.revel <= brush.x1 && p.am >= brush.y0 && p.am <= brush.y1)));
+  // Both the filter and the plotted rows are memoized: the plot's own useMemo keys on the rows
+  // array, so rebuilding the array each render (parent hover, brush drag) recomputed every point.
+  const filtered = useMemo(() => paired.filter(p => (filter === 'all' || p.group === filter)
+    && (!brush || (p.revel >= brush.x0 && p.revel <= brush.x1 && p.am >= brush.y0 && p.am <= brush.y1))), [paired, filter, brush]);
+  const filteredRows = useMemo(() => filtered.map(p => p.row), [filtered]);
   const exportCsv = () => {
     const csv = [`residue,summary,REVEL,AlphaMissense,agreement`, ...filtered.map(p =>
       `${p.row.residx},${mode},${p.revel},${p.am},${p.group}`)].join('\r\n');
@@ -72,7 +75,7 @@ export function LandscapeAgreement({ rows, mode, onMode, variantRevel, variantAm
           if (Number.isFinite(value)) setBrush(current => ({ ...(current ?? { x0: 0, x1: 1, y0: 0, y1: 1 }), [field.key]: Math.min(1, Math.max(0, value)) }));
         }} /></label>)}
     </div></details>
-    <LandscapeAgreementPlot rows={filtered.map(p => p.row)} variantRevel={variantRevel} variantAm={variantAm}
+    <LandscapeAgreementPlot rows={filteredRows} variantRevel={variantRevel} variantAm={variantAm}
       mode={mode} selectedResidue={selectedResidue} onSelectResidue={onSelect} onHoverResidue={onHover}
       onBrush={region => setBrush({ x0: round2(region.x0), x1: round2(region.x1), y0: round2(region.y0), y1: round2(region.y1) })}
       narrowed={filter !== 'all' || brush !== null} />

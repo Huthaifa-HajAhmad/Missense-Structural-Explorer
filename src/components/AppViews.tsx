@@ -134,9 +134,9 @@ export function AppViews({
   const variant = state?.variant ?? storeVariant;
   const uniprotId = state?.uniprotId ?? storeUniprotId;
   const energyQueryKey = JSON.stringify([gene, variant, uniprotId]);
-  const [energySelection, setEnergySelection] = useState<{ query: string; engine: EnergyEngineId } | null>(null);
+  const [energySelection, setEnergySelection] = useState<{ query: string; engine: EnergyEngineId | null } | null>(null);
   const selectedEnergyEngine = energySelection?.query === energyQueryKey ? energySelection.engine : null;
-  const selectEnergyEngine = useCallback((engine: EnergyEngineId) => setEnergySelection({ query: energyQueryKey, engine }), [energyQueryKey]);
+  const selectEnergyEngine = useCallback((engine: EnergyEngineId | null) => setEnergySelection({ query: energyQueryKey, engine }), [energyQueryKey]);
   const selectedResidueIndex = state?.selectedResidueIndex ?? storeSelectedResidueIndex;
   // The author's Report draft follows the variant, so papers pinned on the Literature tab are kept.
   useReportDraftPersistence(gene, uniprotId, variant);

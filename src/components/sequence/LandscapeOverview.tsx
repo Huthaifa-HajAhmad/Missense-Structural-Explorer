@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import type {
   LandscapeContext,
   LandscapeResidueItem,
@@ -201,17 +201,151 @@ export function LandscapeOverview({
       <div className="ls-overview__plot">{content}</div>
     </div>
   );
-  const binAction = (
-    items: readonly { pos: number }[],
-    a: number,
-    b: number,
-  ) => {
+  /*
+   * Activation through a ref, not a re-render: hover/drag state re-renders this component on every
+   * pointer move, and the bin JSX below is memoized so it does not rebuild with it. The handlers
+   * themselves must still be current at activation time, so they are read from a ref.
+   */
+  const actionsRef = useRef({ onPick, onMove, onExplore });
+  actionsRef.current = { onPick, onMove, onExplore };
+  const activateBin = (items: readonly { pos: number }[], a: number, b: number) => {
+    const { onPick: pick, onMove: move, onExplore: explore } = actionsRef.current;
     const distinct = new Set(items.map((i) => i.pos));
     if (distinct.size === 1) {
-      onPick(items[0].pos);
-      onExplore?.();
-    } else onMove(Math.round((a + b) / 2));
+      pick(items[0].pos);
+      explore?.();
+    } else move(Math.round((a + b) / 2));
   };
+  /*
+   * The evidence-track bins are memoized SEPARATELY from this component's render: moving the focus
+   * window or hovering the score track re-renders the parent on every pointer move, and rebuilding
+   * every bin's label string and Set here is what made the tracks fidget in the profiler. The
+   * elements only change with their data, the geometry and the query marker.
+   */
+  const clinvarBinContent = useMemo(
+    () => {
+      const maxes = cv.map((cls) => Math.max(0, ...cls.bins.map((bb) => bb.items.length)));
+      return cv.map((cls, rowIndex) => (
+        <React.Fragment key={cls.key}>
+          {cls.bins.map((b) => {
+            const label = `Residues ${b.start}–${b.end}: ${b.items.length} ClinVar ${cls.label} records across ${new Set(b.items.map((c) => c.pos)).size} residue position(s)`;
+            return (
+              <g
+                key={b.start}
+                data-rc={`${rowIndex}:${(b.start - 1) / cls.size}`}
+                data-entry={
+                  b.start <= targetPos && b.end >= targetPos
+                    ? ""
+                    : undefined
+                }
+                tabIndex={-1}
+                role="button"
+                aria-label={label}
+                onMouseEnter={() => setDetail(label)}
+                onMouseLeave={() => setDetail(null)}
+                onFocus={() => setDetail(label)}
+                onBlur={() => setDetail(null)}
+                className="ls-overview__bin"
+                onClick={() => activateBin(b.items, b.start, b.end)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    activateBin(b.items, b.start, b.end);
+                  }
+                }}
+              >
+                <title>{`${label}\n${b.items.map((c) => `${c.hgvsp} · ${c.significance}${c.stars !== null ? ` · ${c.stars}★` : ""}`).join("\n")}`}</title>
+                <rect
+                  x={x(b.start)}
+                  y={1}
+                  width={Math.max(1, (b.end - b.start + 1) * unit)}
+                  height={31}
+                  fill="transparent"
+                />
+                <rect
+                  x={x(b.start)}
+                  y={31 - (b.items.length / Math.max(1, maxes[rowIndex])) * 27}
+                  width={Math.max(
+                    1,
+                    (b.end - b.start + 1) * unit - 1,
+                  )}
+                  height={(b.items.length / Math.max(1, maxes[rowIndex])) * 27}
+                  rx={1}
+                  fill={cls.color}
+                />
+              </g>
+            );
+          })}
+          {cls.bins.length === 0 && (
+            <text x={8} y={20} className="ls-overview__empty-class">
+              No records
+            </text>
+          )}
+        </React.Fragment>
+      ));
+    },
+    // `targetPos` is the only cross-track state in the bins: the highlight moves with the query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cv, length, unit, width, targetPos],
+  );
+  const gnomadBinContent = useMemo(
+    () => {
+      const gnMax = Math.max(0, ...gn.bins.map((bb) => bb.items.reduce((n, g) => n + g.variants, 0)));
+      return gn.bins.map((b) => {
+        const count = b.items.reduce((n, g) => n + g.variants, 0);
+        const h =
+          (Math.log10(1 + count) /
+            Math.log10(1 + Math.max(1, gnMax))) *
+          40;
+        const label = `Residues ${b.start}–${b.end}: ${count} gnomAD missense variants, maximum allele count ${Math.max(...b.items.map((g) => g.maxAc))}`;
+        return (
+          <g
+            key={b.start}
+            className="ls-overview__bin"
+            data-rc={`0:${(b.start - 1) / gn.size}`}
+            data-entry={
+              b.start <= targetPos && b.end >= targetPos
+                ? ""
+                : undefined
+            }
+            tabIndex={-1}
+            role="button"
+            aria-label={label}
+            onMouseEnter={() => setDetail(label)}
+            onMouseLeave={() => setDetail(null)}
+            onFocus={() => setDetail(label)}
+            onBlur={() => setDetail(null)}
+            onClick={() => activateBin(b.items, b.start, b.end)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                activateBin(b.items, b.start, b.end);
+              }
+            }}
+          >
+            <title>{label}</title>
+            <rect
+              x={x(b.start)}
+              y={1}
+              width={Math.max(1, (b.end - b.start + 1) * unit)}
+              height={44}
+              fill="transparent"
+            />
+            <rect
+              x={x(b.start)}
+              y={45 - h}
+              width={Math.max(1, (b.end - b.start + 1) * unit - 1)}
+              height={h}
+              rx={1}
+              fill="var(--cs-text-muted)"
+            />
+          </g>
+        );
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gn, length, unit, width, targetPos],
+  );
   const hoverText =
     hover === null
       ? `Focus ${box.start}–${box.end}`
@@ -451,60 +585,7 @@ export function LandscapeOverview({
                         y2={31}
                         stroke="var(--cs-border-subtle)"
                       />
-                      {cls.bins.map((b) => {
-                        const label = `Residues ${b.start}–${b.end}: ${b.items.length} ClinVar ${cls.label} records across ${new Set(b.items.map((c) => c.pos)).size} residue position(s)`;
-                        return (
-                          <g
-                            key={b.start}
-                            data-rc={`${rowIndex}:${(b.start - 1) / cls.size}`}
-                            data-entry={
-                              b.start <= targetPos && b.end >= targetPos
-                                ? ""
-                                : undefined
-                            }
-                            tabIndex={-1}
-                            role="button"
-                            aria-label={label}
-                            onMouseEnter={() => setDetail(label)}
-                            onMouseLeave={() => setDetail(null)}
-                            onFocus={() => setDetail(label)}
-                            onBlur={() => setDetail(null)}
-                            className="ls-overview__bin"
-                            onClick={() => binAction(b.items, b.start, b.end)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                binAction(b.items, b.start, b.end);
-                              }
-                            }}
-                          >
-                            <title>{`${label}\n${b.items.map((c) => `${c.hgvsp} · ${c.significance}${c.stars !== null ? ` · ${c.stars}★` : ""}`).join("\n")}`}</title>
-                            <rect
-                              x={x(b.start)}
-                              y={1}
-                              width={Math.max(1, (b.end - b.start + 1) * unit)}
-                              height={31}
-                              fill="transparent"
-                            />
-                            <rect
-                              x={x(b.start)}
-                              y={31 - (b.items.length / Math.max(1, max)) * 27}
-                              width={Math.max(
-                                1,
-                                (b.end - b.start + 1) * unit - 1,
-                              )}
-                              height={(b.items.length / Math.max(1, max)) * 27}
-                              rx={1}
-                              fill={cls.color}
-                            />
-                          </g>
-                        );
-                      })}
-                      {cls.bins.length === 0 && (
-                        <text x={8} y={20} className="ls-overview__empty-class">
-                          No records
-                        </text>
-                      )}
+                      {clinvarBinContent[rowIndex]}
                       <g pointerEvents="none">{markers(32)}</g>
                     </svg>,
                   )}
@@ -563,57 +644,7 @@ export function LandscapeOverview({
                   y2={45}
                   stroke="var(--cs-border-subtle)"
                 />
-                {gn.bins.map((b) => {
-                  const count = b.items.reduce((n, g) => n + g.variants, 0);
-                  const h =
-                    (Math.log10(1 + count) /
-                      Math.log10(1 + Math.max(1, gnMax))) *
-                    40;
-                  const label = `Residues ${b.start}–${b.end}: ${count} gnomAD missense variants, maximum allele count ${Math.max(...b.items.map((g) => g.maxAc))}`;
-                  return (
-                    <g
-                      key={b.start}
-                      className="ls-overview__bin"
-                      data-rc={`0:${(b.start - 1) / gn.size}`}
-                      data-entry={
-                        b.start <= targetPos && b.end >= targetPos
-                          ? ""
-                          : undefined
-                      }
-                      tabIndex={-1}
-                      role="button"
-                      aria-label={label}
-                      onMouseEnter={() => setDetail(label)}
-                      onMouseLeave={() => setDetail(null)}
-                      onFocus={() => setDetail(label)}
-                      onBlur={() => setDetail(null)}
-                      onClick={() => binAction(b.items, b.start, b.end)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          binAction(b.items, b.start, b.end);
-                        }
-                      }}
-                    >
-                      <title>{label}</title>
-                      <rect
-                        x={x(b.start)}
-                        y={1}
-                        width={Math.max(1, (b.end - b.start + 1) * unit)}
-                        height={44}
-                        fill="transparent"
-                      />
-                      <rect
-                        x={x(b.start)}
-                        y={45 - h}
-                        width={Math.max(1, (b.end - b.start + 1) * unit - 1)}
-                        height={h}
-                        rx={1}
-                        fill="var(--cs-text-muted)"
-                      />
-                    </g>
-                  );
-                })}
+                {gnomadBinContent}
                 <g pointerEvents="none">{markers(46)}</g>
               </svg>,
             )

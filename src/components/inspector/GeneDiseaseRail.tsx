@@ -7,6 +7,7 @@ import { VALIDITY_SCALE, validityPosition } from '../../shared/diseaseFrame';
 import { DOSAGE_CODE_LABELS, DOSAGE_ZERO_NOTE } from '../../shared/dosageSensitivity';
 import { SNAPSHOT_STALE_AFTER_DAYS } from '../../shared/snapshotAge';
 import { Step, Provenance, slotState } from './RailParts';
+import { safeExternalHref } from '../../shared/externalLink';
 
 /**
  * Evidence Lineage for the Gene–disease tab: the SAME model the tab renders, as a numbered trace.
@@ -88,7 +89,9 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
       {g2p && <Provenance provenance={g2p} />}
       {dosageSource && <Provenance provenance={dosageSource} rolling />}
     </div></section>}
-    {dosage.reportUrl && <a className="ctx-link" href={dosage.reportUrl} target="_blank" rel="noreferrer">ClinGen curation for {gene}<span className="ctx-sr-only"> (opens in a new tab)</span></a>}
+    {(() => { const href = safeExternalHref(dosage.reportUrl); return href
+      ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">ClinGen curation for {gene}<span className="ctx-sr-only"> (opens in a new tab)</span></a>
+      : null; })()}
     {!disease?.provenance && <p className="rail-step__sub">{diseaseLoad?.error ?? `${sources.gencc.label} — no validity-source manifest is available.`}</p>}
     {model.stale.map(a => <p key={a.source} className="rail-step__sub">{a.source}: {a.label}.</p>)}
   </div>;

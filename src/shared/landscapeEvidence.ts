@@ -498,16 +498,29 @@ function variantSentence(
   const row = rows.find((r) => r.residx === target.pos);
   const range = residueRange(row, "alphaMissense");
   const n = residueCount(row, "alphaMissense");
+  /**
+   * The disagreement is decided BEFORE any ranking claim: when the pipeline's variant-level score
+   * and the dbNSFP table disagree on this substitution, every "highest / lowest / rank N" sentence
+   * is withheld — the mismatch note below already says so. The rank branch previously read its own
+   * agreement first, so a REVEL-only disagreement fell through to the range sentence and asserted
+   * "the highest" in the same frame where the tab said the ranking was withheld.
+   */
+  const ownSub = row?.substitutions?.find((x) => x.alt === target.mut) ?? null;
+  const mismatchParts: string[] = [];
+  if (am !== null && ownSub?.am != null && !agree(am, ownSub.am))
+    mismatchParts.push(`AlphaMissense ${f3(am)} from the predictors pipeline vs ${f3(ownSub.am)} in dbNSFP`);
+  if (revel !== null && ownSub?.revel != null && !agree(revel, ownSub.revel))
+    mismatchParts.push(`REVEL ${f3(revel)} from the predictors pipeline vs ${f3(ownSub.revel)} in dbNSFP`);
   let context = "";
   const subs = (row?.substitutions ?? []).filter((x) => x.am !== null);
   const own = subs.find((x) => x.alt === target.mut);
-  if (am !== null && own && subs.length > 1 && agree(am, own.am) && (revel === null || own.revel === null || agree(revel, own.revel))) {
+  if (am !== null && own && subs.length > 1 && agree(am, own.am) && (revel === null || own.revel === null || agree(revel, own.revel)) && mismatchParts.length === 0) {
     const rank = subs.filter((x) => (x.am as number) > (own.am as number)).length + 1;
     // "of the N substitutions scored here" — the set is what dbNSFP scored, which can be fewer
     // than the SNV-reachable set. The old wording ("of 6 SNV-reachable substitutions") claimed a
     // coverage of the codon that the scored subset does not have.
     context = `; it ranks ${rank} of the ${subs.length} substitutions with an AlphaMissense score at residue ${target.pos} (1 = highest)`;
-  } else if (am !== null && range && n > 1 && own) {
+  } else if (am !== null && mismatchParts.length === 0 && range && n > 1 && own) {
     // Only place the variant in the table's range when the table holds that substitution; otherwise the
     // ordinal claim would be about a substitution the table does not contain.
     const [lo, hi] = range;
@@ -522,12 +535,6 @@ function variantSentence(
   // and both sources. When both sides name their release and the releases differ, that is the
   // likely cause and the reader is told; when the releases agree, the numbers disagreeing points
   // at a reading or numbering problem instead.
-  const mismatchParts: string[] = [];
-  const ownSub = row?.substitutions?.find((x) => x.alt === target.mut) ?? null;
-  if (am !== null && ownSub?.am != null && !agree(am, ownSub.am))
-    mismatchParts.push(`AlphaMissense ${f3(am)} from the predictors pipeline vs ${f3(ownSub.am)} in dbNSFP`);
-  if (revel !== null && ownSub?.revel != null && !agree(revel, ownSub.revel))
-    mismatchParts.push(`REVEL ${f3(revel)} from the predictors pipeline vs ${f3(ownSub.revel)} in dbNSFP`);
   let mismatch: string | null = null;
   if (mismatchParts.length) {
     const why = releaseGap(provenance?.am ?? null, provenance?.table ?? null) ?? releaseGap(provenance?.revel ?? null, provenance?.table ?? null);

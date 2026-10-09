@@ -58,7 +58,8 @@ const ENERGY_TABS = [{ id: 'comparison', label: 'Comparison' }, { id: 'records',
 
 interface EnergeticsViewProps {
   selectedEngine?: EnergyEngineId | null;
-  onSelectEngine?: (key: EnergyEngineId) => void;
+  /** Activating the current selection clears it with `null`. */
+  onSelectEngine?: (key: EnergyEngineId | null) => void;
   isDark: boolean;
   classCard: string;
   classCardHeader: string;
@@ -259,7 +260,14 @@ function EngineTally({ evidence }: { evidence: EnergeticsEvidence }) {
     <div className="nrg-frow" data-testid="energetics-tally">
       <div className="nrg-frow__label">
         <span className="nrg-frow__name">Engines</span>
-        <span className="nrg-frow__sub">{evidence.coverage.label} returned a value · each judged on its own local mark</span>
+        {/* The tally's own vocabulary is the count that RETURNED vs the count that COUNTED — the
+            same two numbers the summary sentence uses, so the tile and the sentence cannot disagree
+            when an excluded FoldX value is on screen. */}
+        <span className="nrg-frow__sub">
+          {`${returnedEnergyEstimates(evidence)} of ${evidence.coverage.intended} engines returned a value`}
+          {evidence.agreement.nCounted !== returnedEnergyEstimates(evidence) ? `, ${evidence.agreement.nCounted} counted in the agreement` : ""}
+          {" · each judged on its own local mark"}
+        </span>
       </div>
       <div className="nrg-frow__body">
         <ol className="nrg-tally" aria-label="Stability engines by call">
@@ -448,7 +456,11 @@ const EnergeticsView = memo(function EnergeticsView({
   const [chartOptions, setChartOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: false, showMarks: false });
   const [localSelection, setLocalSelection] = useState<EnergyEngineId | null>(null);
   const selected = onSelectEngine ? selectedEngine : localSelection;
-  const selectEngine = onSelectEngine ?? setLocalSelection;
+  /** Activating the already-pinned method — from the chart, a row or a missing-method chip — clears the pin. */
+  const selectEngine = (key: EnergyEngineId | null) => {
+    const next = key !== null && key === selected ? null : key;
+    (onSelectEngine ?? setLocalSelection)(next);
+  };
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
   /**
    * Presentation-only: collapses the rows of engines that are still running. It cannot change the

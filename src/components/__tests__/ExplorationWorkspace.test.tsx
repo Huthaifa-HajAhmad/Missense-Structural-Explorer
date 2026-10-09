@@ -39,7 +39,8 @@ beforeEach(seed);
 it('links Energetics records to the inspector, retains plot controls, and resets selection for a new query', async () => {
   store.setState({ foldingEnergetics: { foldx: 2, foldxMean: 2, dynamut2: 0.5 } as any, foldingStatus: 'success' });
   const ui = render(<Workspace initialView="energetics" />);
-  await ui.findByRole('img', { name: 'Stability estimates by method' });
+  // The comparison is a lazy import; under a loaded full-suite worker it needs more than the default second.
+  await ui.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 6000 });
   fireEvent.change(ui.getByRole('combobox', { name: 'Order' }), { target: { value: 'value' } });
   fireEvent.click(ui.getByRole('checkbox', { name: 'Local guides' }));
   fireEvent.click(ui.getByRole('tab', { name: 'Engine records' }));

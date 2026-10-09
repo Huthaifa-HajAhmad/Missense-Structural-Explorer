@@ -534,6 +534,13 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
   let tone: EnergeticsSummary["tone"] = "neutral";
   const named = (rs: EnergeticsReading[]) => listNames(rs.map(r => r.name));
   const withValue = (r: EnergeticsReading) => `${r.name} (${signedDdg(r.ddg, unit)})`;
+  /**
+   * "Returned" and "counted" are two different counts (an excluded FoldX value returned but does not
+   * count), so the sentence says both whenever they differ — the fact tile beside it must not
+   * contradict this sentence on the same screen.
+   */
+  const returnedCount = ev.readings.filter(r => r.ddg !== null).length;
+  const countedTail = returnedCount !== a.nCounted ? `, ${a.nCounted} of them counted in the agreement` : "";
 
   let lead: string;
   switch (a.direction) {
@@ -572,10 +579,10 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
   if (a.nCounted > 0 && a.nCounted < MIN_ENGINES_FOR_CONSENSUS) {
     tone = "warning";
     rest.push(
-      `${coverage.computed} of ${coverage.intended} engines returned a value — too few to read as agreement.`
+      `${returnedCount} of ${coverage.intended} engines returned a value${countedTail} — too few to read as agreement.`
     );
   } else if (a.nCounted > 0) {
-    rest.push(`${coverage.computed} of ${coverage.intended} engines returned a value.`);
+    rest.push(`${returnedCount} of ${coverage.intended} engines returned a value${countedTail}.`);
   }
 
   const caveated = [...a.destabilizing, ...a.moderate].filter(r => r.caveats.includes("unrepaired-template"));

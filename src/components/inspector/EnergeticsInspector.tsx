@@ -119,7 +119,10 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
 
   return (
     <div className="nrg-rail" data-testid="energetics-rail">
-      <section className="nrg-selected-method" id={INSPECTOR_SECTIONS.stabilityMethod} tabIndex={-1} aria-labelledby="nrg-selected-title" aria-live="polite">
+      <section className="nrg-selected-method" id={INSPECTOR_SECTIONS.stabilityMethod} tabIndex={-1} aria-labelledby="nrg-selected-title">
+        <span className="sr-only" role="status" aria-atomic="true">
+          {selected ? `${selected.name} pinned${selected.ddg !== null ? ` · ${signedDdg(selected.ddg, unit)}` : ''}` : 'No method pinned yet'}
+        </span>
         <span className="eyebrow">Method inspector</span>
         <h2 id="nrg-selected-title">{selected?.name ?? 'Explore an estimate'}</h2>
         {selected ? <>

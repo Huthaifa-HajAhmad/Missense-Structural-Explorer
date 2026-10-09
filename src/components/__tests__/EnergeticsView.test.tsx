@@ -266,6 +266,59 @@ describe("EnergeticsView — a fully populated run", () => {
   });
 });
 
+describe("EnergeticsView — the comparison tab", () => {
+  /** The default renderView switches to Engine records; these need the Comparison tab as opened. */
+  function renderComparisonView(overrides: Record<string, unknown> = {}) {
+    const props = {
+      ...CLASS_PROPS,
+      analysisState: analysisState(),
+      foldingDdG: null,
+      foldingStatus: "failed",
+      foldingEnergetics: MACO1_ENERGETICS,
+      dynamut2Status: "done",
+      ddmutStatus: "unavailable",
+      thermompnnStatus: "unavailable",
+      thermompnnError: null,
+      disruptionPredictor: { plddt: 92 },
+      isFolding: false,
+      foldingError: "Simulation timed out after 5 minutes.",
+      ...overrides,
+    };
+    return render(
+      <SettingsProvider>
+        <EnergeticsView {...(props as any)} />
+      </SettingsProvider>
+    );
+  }
+
+  it("does not call a two-engine reading an agreement", async () => {
+    // FoldX returned a value its failed repair excludes; DynaMut2 and DDMut are the only counted
+    // engines. The old comparison finding said "The methods agree" while Engine records, on the
+    // same screen, said two is too few to read as agreement.
+    const { container } = renderComparisonView({
+      foldingStatus: "success",
+      foldingError: null,
+      foldingEnergetics: { foldx: 2.5, foldxMean: 2.5, foldxRepairFailed: true, dynamut2: -2.0, ddmut: -1.5 },
+      dynamut2Status: "done",
+      ddmutStatus: "done",
+    });
+    const finding = await screen.findByText(/Both methods/);
+    expect(finding).toBeInTheDocument();
+    expect((container.textContent ?? "")).toContain("too few to read as agreement");
+    expect((container.textContent ?? "")).not.toContain("The methods agree");
+  });
+
+  it("clears the pin when the same method is activated again", async () => {
+    renderComparisonView();
+    const chip = await screen.findByRole("button", { name: /RaSP/ });
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(chip);
+    expect(chip.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(chip);
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
 describe("EnergeticsView — structure provenance", () => {
   it("names an experimental template with its PDB link and resolution", () => {
     renderView({

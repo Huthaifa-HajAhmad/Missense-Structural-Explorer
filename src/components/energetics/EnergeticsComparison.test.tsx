@@ -14,10 +14,21 @@ function Fixture({ missing = false }: { missing?: boolean }) {
   return <><EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={selected} onSelect={setSelected} options={options} onOptions={setOptions} /><output aria-label="Pinned method">{selected ?? 'None'}</output></>;
 }
 
+function PinnedFoldxFixture({ showCountedOnly = false }: { showCountedOnly?: boolean }) {
+  const [selected, setSelected] = useState<EnergyEngineId | null>('foldx');
+  const [options, setOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: showCountedOnly, showMarks: false });
+  // Failed repair → the FoldX value is displayed but excluded from agreement.
+  const evidence = buildEnergeticsEvidence({
+    foldingStatus: 'success',
+    foldingEnergetics: { foldx: 3, foldxMean: 3, foldxRepairFailed: true, dynamut2: 0.5, ddmut: 1.2 },
+  });
+  return <><EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={selected} onSelect={setSelected} options={options} onOptions={setOptions} /><output aria-label="Pinned method">{selected ?? 'None'}</output></>;
+}
+
 describe('TanStack stability comparison', () => {
   it('renders the real library and pins a canonical negative estimate by keyboard', async () => {
     render(<Fixture />);
-    const chart = await screen.findByRole('img', { name: 'Stability estimates by method' });
+    const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ });
     fireEvent.focus(chart);
     fireEvent.keyDown(chart, { key: 'Home' });
     fireEvent.keyDown(chart, { key: 'Enter' });
@@ -36,5 +47,15 @@ describe('TanStack stability comparison', () => {
     expect(screen.getByLabelText('Pinned method')).toHaveTextContent('rasp');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Counted only' }));
     expect(screen.getByText(/Turn off Counted only/)).toBeInTheDocument();
+  });
+
+  it('says when Counted only hides the pinned estimate instead of silently dropping its point', () => {
+    // FoldX returned a value its failed repair excludes from agreement: pinned under "Counted only",
+    // its row (and its dot) disappear — the old chart gave no explanation for the vanishing pin.
+    render(<PinnedFoldxFixture />);
+    expect(screen.getByText(/FoldX: /)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Counted only' }));
+    expect(screen.getByText(/excluded from the agreement, so "Counted only" hides it/)).toBeInTheDocument();
+    expect(screen.getByText(/Turn the filter off/)).toBeInTheDocument();
   });
 });

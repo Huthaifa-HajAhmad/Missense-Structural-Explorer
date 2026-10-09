@@ -1,4 +1,4 @@
-import { KJ_PER_KCAL, type EnergyUnit } from './engineStatus';
+import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
 import { absenceText, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
@@ -24,9 +24,7 @@ export interface EnergyPoint {
   row: number;
   guide: number;
   counted: boolean;
-  tone: EnergeticsReading['callTone'];
   label: string;
-  valueText: string;
   guideLabel: string;
 }
 
@@ -36,8 +34,7 @@ export function buildEnergeticsComparison(evidence: EnergeticsEvidence, unit: En
   if (sort === 'value') readings.sort((a, b) => (b.ddg ?? -Infinity) - (a.ddg ?? -Infinity));
   const points: EnergyPoint[] = readings.flatMap((r, row) => r.ddg === null ? [] : [{
     key: r.key, name: r.name, value: r.ddg === 0 ? 0 : r.ddg * factor, row, guide: r.strongMark * factor,
-    counted: r.counted, tone: r.callTone,
-    valueText: signedDdg(r.ddg, unit).replace(/ (kcal|kJ)\/mol$/, ''),
+    counted: r.counted,
     guideLabel: `Local destabilising guide for ${r.name}: ${markText(r.strongMark, unit)} ${unit}. App-defined, not a clinical cut-point.`,
     label: `${r.name}: ${signedDdg(r.ddg, unit)}. ${r.callLabel ?? 'Estimate'}${r.counted ? '' : '; not counted in agreement'}.`,
   }]);
@@ -55,10 +52,40 @@ export function buildEnergeticsComparison(evidence: EnergeticsEvidence, unit: En
 
 export function energeticsComparisonFinding(evidence: EnergeticsEvidence): string {
   const a = evidence.agreement;
-  if (a.nCounted === 0) return 'There are not enough usable results to compare stability estimates.';
-  if (a.nCounted === 1) return 'One method has a usable result. Agreement cannot be assessed yet.';
-  if (a.direction === 'split') return 'The methods give different stability readings. Inspect the individual estimates before drawing a conclusion.';
-  if (a.direction === 'destabilizing') return 'The methods agree on a destabilising reading under their local marks.';
-  if (a.direction === 'moderate') return 'The methods agree on a moderately destabilising reading under their local marks.';
-  return 'The methods do not predict destabilisation under their local marks. This does not establish that the variant is benign.';
+  const running = evidence.running.length > 0 || evidence.isFolding;
+  if (a.nCounted === 0) {
+    if (running) return 'No method has a usable result yet. The comparison appears as methods report theirs.';
+    return 'There are not enough usable results to compare stability estimates.';
+  }
+  if (a.nCounted === 1) {
+    return running
+      ? 'One method has a usable result. Agreement cannot be assessed yet; other results are still being collected.'
+      : 'One method has a usable result. Agreement cannot be assessed yet.';
+  }
+  if (a.direction === 'split') {
+    return 'The methods give different stability readings. Inspect the individual estimates before drawing a conclusion.';
+  }
+  const pairWords: Record<'destabilizing' | 'moderate' | 'not-destabilizing', string> = {
+    destabilizing: 'give a destabilising reading under their local marks.',
+    moderate: 'give a moderately destabilising reading under their local marks.',
+    'not-destabilizing': 'predict no destabilisation under their local marks. This does not establish that the variant is benign.',
+  };
+  const agreeWords: Record<'destabilizing' | 'moderate' | 'not-destabilizing', string> = {
+    destabilizing: 'agree on a destabilising reading under their local marks.',
+    moderate: 'agree on a moderately destabilising reading under their local marks.',
+    'not-destabilizing': 'do not predict destabilisation under their local marks. This does not establish that the variant is benign.',
+  };
+  /**
+   * Agreement is a THREE-engine reading (`MIN_ENGINES_FOR_CONSENSUS`). With only two counted values
+   * this sentence must not say "the methods agree" while the Engine records tab, on the same screen,
+   * says two is too few — both tabs read from this one finding.
+   */
+  if (a.nCounted === 2) {
+    const direction = a.direction as 'destabilizing' | 'moderate' | 'not-destabilizing';
+    return `Both methods ${pairWords[direction]} Two estimates are too few to read as agreement.${running ? ' Other results are still being collected.' : ''}`;
+  }
+  const direction = a.direction as 'destabilizing' | 'moderate' | 'not-destabilizing';
+  const subject = running ? `The ${a.nCounted} methods that reported so far ` : 'The methods ';
+  const tail = running ? ' Other results are still being collected.' : '';
+  return `${subject}${agreeWords[direction]}${tail}`;
 }

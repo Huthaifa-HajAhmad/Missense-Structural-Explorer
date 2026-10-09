@@ -60,4 +60,39 @@ describe('Energetics comparison scientific display contract', () => {
     expect(empty.missing).toHaveLength(6);
     expect(empty.domain.every(Number.isFinite)).toBe(true);
   });
+
+  it('does not claim agreement from two engines — the records tab says two is too few', () => {
+    // Same finding function, engines that each passed their destabilizing mark: the elapsed claim
+    // was "The methods agree" while the Records summary beside it said "too few to read as agreement".
+    const input = buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.5, foldxMean: 2.5, foldxRepairFailed: true, dynamut2: -2.0, ddmut: -1.5 }, foldingStatus: 'success' });
+    expect(input.agreement.nCounted).toBe(2);
+    const finding = energeticsComparisonFinding(input);
+    expect(finding).toContain('Both methods');
+    expect(finding).toContain('too few to read as agreement');
+    expect(finding).not.toContain('The methods agree');
+  });
+
+  it('says a run with no usable result yet is still being collected, not judged', () => {
+    const running = buildEnergeticsEvidence({ dynamut2Status: 'pending', ddmutStatus: 'pending' });
+    expect(running.agreement.nCounted).toBe(0);
+    expect(running.running.length).toBeGreaterThan(0);
+    expect(energeticsComparisonFinding(running)).toContain('No method has a usable result yet');
+    expect(energeticsComparisonFinding(running)).not.toContain('not enough usable results');
+  });
+
+  it('keeps the honest full reading for three engines and adds the collection note while others run', () => {
+    const settled = buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.62, foldxMean: 2.62, dynamut2: -2.0, ddmut: -1.5 }, foldingStatus: 'success' });
+    expect(settled.agreement.nCounted).toBe(3);
+    expect(energeticsComparisonFinding(settled)).toContain('The methods agree');
+    const collecting = buildEnergeticsEvidence({
+      foldingEnergetics: { foldx: 2.62, foldxMean: 2.62, dynamut2: -2.0, ddmut: -1.5 },
+      foldingStatus: 'success',
+      thermompnnStatus: 'pending',
+    });
+    const finding = energeticsComparisonFinding(collecting);
+    expect(collecting.agreement.nCounted).toBeGreaterThanOrEqual(3);
+    expect(collecting.running.map(r => r.key)).toContain('thermompnn');
+    expect(finding).toContain('agree on');
+    expect(finding).toContain('Other results are still being collected');
+  });
 });

@@ -277,3 +277,48 @@ describe("workflowStatus Helper Unit Tests (C-7)", () => {
     expect(summary.hasProblems).toBe(true);
   });
 });
+
+describe("workflowStatus — paused engines after a session lapse", () => {
+  /**
+   * The session lapse record: the run's authorization expired mid-flight, so those engines never had a
+   * route. The rail must never present that state as "Available" beside the FoldX value that did
+   * come back, and it must name the fix (relink), not imply a re-run or a provider failure.
+   */
+  const settledRun = {
+    foldingEnergetics: {
+      foldx: 2.5,
+      foldxMean: 2.5,
+      ddmut: 1.2,
+      thermompnn: 0.8,
+      energeticsAuthLapsed: { dynamut2: true },
+    },
+  };
+
+  it("degrades a run that still has a computed value, and says the session expired", () => {
+    const status = getWorkflowStageStatus({ view: "energetics", ...settledRun, foldingStatus: "success" });
+    expect(status.status).toBe("degraded");
+    expect(status.desc).toContain("Some engines paused");
+    expect(status.desc).toContain("session expired, relink in Services");
+  });
+
+  it("marks a run with no computed value unavailable, with the fix, not a provider failure", () => {
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      foldingStatus: "success",
+      foldingEnergetics: { energeticsAuthLapsed: { dynamut2: true, ddmut: true } },
+    });
+    expect(status.status).toBe("unavailable");
+    expect(status.desc).toContain("paused by an expired session");
+    expect(status.desc).toContain("Relink in Services");
+  });
+
+  it("reports a failed engine as an error even when others are merely paused", () => {
+    const status = getWorkflowStageStatus({
+      view: "energetics",
+      foldingStatus: "failed",
+      foldingEnergetics: { energeticsAuthLapsed: { dynamut2: true } },
+    });
+    expect(status.status).toBe("error");
+    expect(status.desc).toContain("failed or unavailable");
+  });
+});

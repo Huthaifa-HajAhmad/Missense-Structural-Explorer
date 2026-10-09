@@ -108,6 +108,56 @@ describe("useBiophysicalModeling Hook State Binding", () => {
     expect(state.foldingEnergetics?.ddmut).toBe(-0.45);
   });
 
+  it("does not carry one job's 'still listening' flag onto a retried job", async () => {
+    /**
+     * Job 1 enters the slow "keep listening" mode (the provider answered UNAVAILABLE but retryable),
+     * which sets `dynamut2Listening` on the run record. A retry swaps the job id WITHOUT first
+     * ending the old poll, and the flag path used to survive it — the engine detail then read
+     * "Still listening" over a freshly queued request. The flag must be cleared on the job-id
+     * change; the new job sets it again only if IT goes silent.
+     */
+    const fetchWithAuth = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: "UNAVAILABLE", retryable: true, error: "Provider did not answer." }),
+    });
+    const addNotification = vi.fn();
+    const apiClient = {};
+    const settings = {} as any;
+
+    // A value on the record first, so `setFoldingEnergetics` merges instead of ignoring an empty run.
+    useVariantAnalysisStore.getState().setFoldingEnergetics({ foldx: 2.5, foldxMean: 2.5 });
+
+    renderHook(() => useBiophysicalModeling(settings, addNotification, apiClient, fetchWithAuth), { wrapper });
+
+    act(() => {
+      useVariantAnalysisStore.getState().setDynamut2Status("pending");
+      useVariantAnalysisStore.getState().setDynamut2JobId("job-one");
+    });
+
+    // The transient failure turns the poll into listening mode and raises the flag.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(useVariantAnalysisStore.getState().foldingEnergetics?.dynamut2Listening).toBe(true);
+
+    // A retry: fresh job id for the same engine.
+    act(() => {
+      useVariantAnalysisStore.getState().setDynamut2JobId("job-two");
+    });
+    expect(useVariantAnalysisStore.getState().foldingEnergetics?.dynamut2Listening).toBe(false);
+
+    // The new job starts clean and may enter listening again — for itself.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(useVariantAnalysisStore.getState().dynamut2Status).toBe("pending");
+    expect(fetchWithAuth).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/dynamut2-job/job-two"),
+      expect.anything()
+    );
+  });
+
   it("clears polling status and job ID when clearDynaMutPoll and clearDdmutPoll are invoked on abort", async () => {
     const fetchWithAuth = vi.fn().mockImplementation(async () => ({
       ok: true,

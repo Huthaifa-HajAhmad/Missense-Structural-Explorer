@@ -171,3 +171,26 @@ describe("EnergeticsInspector — engines without a value", () => {
     expect(target!.getAttribute("tabindex")).toBe("-1");
   });
 });
+
+describe("EnergeticsInspector — the method inspector section", () => {
+  it("announces a pin in one small live line, not the whole section", () => {
+    // The section used to carry `aria-live="polite"` itself: every pin re-announced the method's
+    // description, dl rows, caveat paragraphs… The announcement is now one bounded sr-only status
+    // line with the name and value.
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done", selectedEngine: "dynamut2" });
+    expect(screen.getByTestId("energetics-rail").querySelector("section")).not.toHaveAttribute("aria-live");
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("DynaMut2");
+    // The sign-convention sentence the inspector is the only surface for.
+    const sign = document.getElementById("nrg-selected-title")!.closest("section")!;
+    expect(sign.textContent).toContain("Provider sign reversed for comparison; positive here means less stable folding.");
+  });
+
+  it("states FoldX's native sign convention without claiming a reversal", () => {
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done", selectedEngine: "foldx" });
+    expect(screen.getByRole("status")).toHaveTextContent("FoldX pinned · +2.62");
+    const section = document.getElementById("nrg-selected-title")!.closest("section")!;
+    expect(section.textContent).toContain("Positive means less stable folding.");
+    expect(section.textContent).not.toContain("reversed");
+  });
+});
