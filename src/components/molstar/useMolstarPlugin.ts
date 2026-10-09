@@ -1,3 +1,4 @@
+import type { StructurePick } from "../../shared/structureSelection";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { createPluginUI } from "molstar/lib/mol-plugin-ui";
@@ -10,6 +11,8 @@ import { STRUCTURE_THEME_PROVIDERS } from "./molstarThemes";
 
 /** `rgb(r, g, b)` / `rgba(…)` → a Mol* colour; null when the string is not an opaque colour. */
 function cssColorToMolstar(css: string): number | null {
+  const hex = /^#([\da-f]{6})$/i.exec(css.trim());
+  if (hex) return Number.parseInt(hex[1], 16);
   const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\s*\)/.exec(css);
   if (!m) return null;
   if (m[4] !== undefined && Number(m[4]) === 0) return null;
@@ -18,8 +21,23 @@ function cssColorToMolstar(css: string): number | null {
 
 export interface UseMolstarPluginOptions {
   isDark: boolean;
-  onResidueHover?: (index: number | null) => void;
-  onResidueClick?: (index: number) => void;
+  onResidueHover?: (index: number | null, pick?: StructurePick) => void;
+  onResidueClick?: (index: number, pick?: StructurePick) => void;
+}
+
+/** The second loaded structure is the superposed variant; its numbering is never checked against the primary's coordinates. */
+function pickOf(plugin: any, location: any): StructurePick {
+  let secondary = false;
+  try {
+    const first = plugin.managers.structure.hierarchy.current.structures[0]?.cell.obj?.data;
+    secondary = !!first && location.structure.root !== first.root;
+  } catch { /* hierarchy unavailable: treat as the primary */ }
+  return {
+    chain: StructureProperties.chain.auth_asym_id(location),
+    resName: StructureProperties.atom.label_comp_id(location),
+    insertionCode: StructureProperties.residue.pdbx_PDB_ins_code(location),
+    secondary,
+  };
 }
 
 export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: UseMolstarPluginOptions) {
@@ -169,7 +187,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
             if (location) {
               const resIdx = StructureProperties.residue.auth_seq_id(location);
               if (resIdx) {
-                hoverRef.current?.(resIdx);
+                hoverRef.current?.(resIdx, pickOf(localPlugin, location));
               }
             }
           } else {
@@ -188,7 +206,7 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
                 try {
                   localPlugin.managers.structure.selection.clear();
                 } catch (_) {}
-                clickRef.current?.(resIdx);
+                clickRef.current?.(resIdx, pickOf(localPlugin, location));
               }
             }
           }
@@ -238,9 +256,10 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
     const plugin = pluginRef.current;
     const host = containerRef.current;
     if (!pluginCreated || !plugin?.canvas3d || !host) return;
-    const frame = window.requestAnimationFrame(() => {
+    const updateBackground = () => {
       let el: HTMLElement | null = host;
-      let colour: number | null = null;
+      // Read the token before animated background colours, which can still show the previous theme.
+      let colour = cssColorToMolstar(getComputedStyle(host).getPropertyValue("--cs-bg"));
       while (el && colour === null) {
         colour = cssColorToMolstar(getComputedStyle(el).backgroundColor);
         el = el.parentElement;
@@ -251,8 +270,20 @@ export function useMolstarPlugin({ isDark, onResidueHover, onResidueClick }: Use
       } catch (err) {
         console.warn("[3D] Could not set the canvas background:", err);
       }
-    });
-    return () => window.cancelAnimationFrame(frame);
+    };
+    let frame = 0;
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateBackground);
+    };
+    // Settings applies the root class in its own effect; observe it instead of assuming effect order.
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+    schedule();
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
   }, [pluginCreated, isDark]);
 
   // Close the capture menu on an outside click or Escape; it used to stay open until toggled.

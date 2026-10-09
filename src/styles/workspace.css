@@ -1,0 +1,52 @@
+/* Shared exploration pane geometry. */
+.workspace-heading h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.025em; color: var(--cs-text-primary); }
+.workspace-heading p { margin: 4px 0 0; font-size: 13px; color: var(--cs-text-secondary); }
+.workspace-selection { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; font-size: 12px; color: var(--cs-text-secondary); }
+.workspace-selection strong { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-primary); }
+.workspace-selection__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace-selection button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; min-height: 32px; border-radius: 8px; border: 1px solid var(--cs-border); color: var(--cs-text-primary); background: var(--cs-surface); cursor: pointer; }
+.workspace-selection button:hover { background: var(--cs-surface-2); }
+.workspace-selection button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.workspace-selection svg { width: 14px; height: 14px; }
+.landscape-workspace__selection { padding: 20px 24px 0; }
+.exploration-workspace {
+  gap: 16px;
+  padding: 16px;
+  background: var(--cs-bg);
+  container-type: inline-size;
+}
+.exploration-workspace > .data-screen-primary,
+.exploration-workspace > aside {
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: 20px;
+  background: var(--cs-surface);
+  box-shadow: 0 2px 5px #00000003;
+}
+.exploration-workspace > .data-screen-primary { overflow: hidden; }
+.exploration-workspace > aside[data-workspace-inspector] { max-width: 42%; min-width: 280px !important; }
+.exploration-workspace .inspector-heading { background: var(--cs-surface); padding: 20px; }
+.exploration-workspace .inspector-body { padding: 20px; scrollbar-gutter: stable; }
+.exploration-workspace .landscape-main { background: var(--cs-surface); border-radius: inherit; scrollbar-gutter: stable; }
+.workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--cs-border-subtle); }
+.workspace-tabs button { padding: 8px 16px; min-height: 36px; border: 1px solid var(--cs-border); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--cs-text-secondary); background: var(--cs-surface); cursor: pointer; transition: background-color 120ms, color 120ms; }
+.workspace-tabs button[aria-selected="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
+.workspace-tabs button:hover:not([aria-selected="true"]) { background: var(--cs-surface-2); }
+.workspace-tabs button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+
+@container (max-width: 850px) {
+  .exploration-workspace > aside[data-workspace-inspector] { width: 280px !important; }
+}
+@media (max-width: 1000px) {
+  .data-screen-layout.exploration-workspace { flex-direction: column; overflow-y: auto; padding: 12px; gap: 12px; }
+  .exploration-workspace > .data-screen-primary { flex: none; overflow: visible; }
+  .exploration-workspace .landscape-main { height: auto; overflow: visible; }
+  .exploration-workspace > aside[data-workspace-inspector] { width: 100% !important; min-width: 0 !important; max-width: none; height: auto; overflow: visible; }
+  .exploration-workspace > aside [role="separator"] { display: none; }
+  .exploration-workspace .inspector-body { overflow: visible; }
+  .exploration-workspace > aside[aria-label="Collapsed Context Inspector"] { width: 100%; flex-direction: row-reverse; justify-content: space-between; padding: 6px 12px; }
+  .exploration-workspace > aside[aria-label="Collapsed Context Inspector"] > button { min-width: 40px; min-height: 40px; }
+  .exploration-workspace > aside[aria-label="Collapsed Context Inspector"] > div { padding: 0; }
+  .exploration-workspace > aside[aria-label="Collapsed Context Inspector"] > div span { writing-mode: horizontal-tb !important; transform: none !important; }
+  .exploration-workspace > aside[aria-label="Collapsed Context Inspector"] > div:last-child { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .workspace-tabs button { transition: none; } }

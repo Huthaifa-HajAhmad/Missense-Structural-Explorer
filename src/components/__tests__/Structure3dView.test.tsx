@@ -168,7 +168,7 @@ describe("3D toolbar and legend", () => {
   });
 
   const noop = () => {};
-  const toolbar = (model: ReturnType<typeof buildStructure3dEvidence>) =>
+  const toolbar = (model: ReturnType<typeof buildStructure3dEvidence>, extra: Partial<React.ComponentProps<typeof StructureToolbar>> = {}) =>
     render(
       <StructureToolbar
         model={model}
@@ -179,7 +179,6 @@ describe("3D toolbar and legend", () => {
         plddtFilter="none"
         onPlddtFilterChange={noop}
         onFocusSite={noop}
-        onBackToSite={noop}
         pocketOpen={false}
         onTogglePocket={noop}
         captureOpen={false}
@@ -191,6 +190,7 @@ describe("3D toolbar and legend", () => {
         onOpenGuide={noop}
         isFullscreen={false}
         onToggleFullscreen={noop}
+        {...extra}
       />
     );
 
@@ -207,6 +207,25 @@ describe("3D toolbar and legend", () => {
     expect(container.querySelector("[data-testid='structure-source']")?.textContent).toContain("AF-Q13564-F1 v6");
     expect(container.querySelector("[data-testid='structure-site']")?.textContent).toContain("Asp116Gly");
     expect(container.textContent).toContain("Selected 200");
+  });
+
+  it("frames the selected residue from a named button, which is inert when unavailable", () => {
+    const onFocusSelection = vi.fn();
+    const first = toolbar(buildStructure3dEvidence(input()), { onFocusSelection });
+    fireEvent.click(first.getByRole("button", { name: "Selected 200, frame on structure" }));
+    expect(onFocusSelection).toHaveBeenCalledTimes(1);
+    first.unmount();
+    const second = toolbar(buildStructure3dEvidence(input()));
+    expect((second.getByRole("button", { name: "Selected 200, frame on structure" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("ignores Home and End when only one mode is available", () => {
+    const onModeChange = vi.fn();
+    const { container } = toolbar(buildStructure3dEvidence(input()), { onModeChange });
+    const modes = container.querySelectorAll<HTMLElement>("[data-testid='structure-modes'] [role='radio']");
+    fireEvent.keyDown(modes[0], { key: "Home" });
+    fireEvent.keyDown(modes[0], { key: "End" });
+    expect(onModeChange).not.toHaveBeenCalled();
   });
 
   it("never offers the pLDDT filter for crystal temperature factors", () => {

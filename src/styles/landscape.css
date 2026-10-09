@@ -373,35 +373,11 @@
 .lsr-scatter circle[data-point="true"] { cursor: pointer; }
 .lsr-scatter circle[data-point="true"]:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
-/* Landscape pilots the shared workspace and visualization surfaces. */
-.landscape-workspace {
-  gap: 16px;
-  padding: 16px;
-  background: var(--cs-bg);
-  container-type: inline-size;
-}
-.landscape-workspace > .data-screen-primary,
-.landscape-workspace > aside {
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: 20px;
-  background: var(--cs-surface);
-  box-shadow: 0 2px 5px #00000003;
-}
-.landscape-workspace > .data-screen-primary { overflow: hidden; }
-.landscape-workspace > aside[data-landscape] { max-width: 42%; min-width: 280px !important; }
-.landscape-workspace .inspector-heading { background: var(--cs-surface); padding: 20px; }
-.landscape-workspace .inspector-body { padding: 20px; scrollbar-gutter: stable; }
-.landscape-workspace .landscape-main { background: var(--cs-surface); border-radius: inherit; scrollbar-gutter: stable; }
 .landscape-canvas { width: 100%; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 22px; }
 .landscape-canvas__heading { display: flex; align-items: center; gap: 12px; }
 .landscape-canvas__heading h3 { font-size: 20px; letter-spacing: -.025em; }
 .landscape-canvas__heading p { font-size: 13px; line-height: 1.5; max-width: 70ch; }
 .landscape-canvas__content { min-width: 0; }
-.workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--cs-border-subtle); }
-.workspace-tabs button { padding: 8px 16px; min-height: 36px; border: 1px solid var(--cs-border); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--cs-text-secondary); background: var(--cs-surface); cursor: pointer; transition: background-color 120ms, color 120ms; }
-.workspace-tabs button[aria-selected="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
-.workspace-tabs button:hover:not([aria-selected="true"]) { background: var(--cs-surface-2); }
-.workspace-tabs button:focus-visible,
 .viz-panel button:focus-visible,
 .viz-panel summary:focus-visible,
 .viz-table-scroll:focus-visible,
@@ -467,19 +443,9 @@
 .viz-data tr[data-selected] { background: var(--cs-surface-2); }
 .viz-data tbody button { color: var(--cs-accent-clay); min-height: 28px; cursor: pointer; border-radius: 4px; }
 @container (max-width: 850px) {
-  .landscape-workspace > aside[data-landscape] { width: 280px !important; }
   .landscape-canvas { padding: 16px; }
   .viz-panel__body, .viz-panel__header { padding: 14px; }
 }
-@media (max-width: 1000px) {
-  .data-screen-layout.landscape-workspace { flex-direction: column; overflow-y: auto; padding: 12px; gap: 12px; }
-  .landscape-workspace > .data-screen-primary { flex: none; overflow: visible; }
-  .landscape-workspace .landscape-main { height: auto; overflow: visible; }
-  .landscape-workspace > aside[data-landscape] { width: 100% !important; min-width: 0 !important; max-width: none; height: auto; overflow: visible; }
-  .landscape-workspace > aside [role="separator"] { display: none; }
-  .landscape-workspace .inspector-body { overflow: visible; }
-}
-@media (prefers-reduced-motion: reduce) { .workspace-tabs button { transition: none; } }
 /* Whole protein uses its own space; all tracks share the same residue axis. */
 .ls-overview { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
 .ls-overview__header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }

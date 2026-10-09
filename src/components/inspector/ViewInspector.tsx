@@ -1,3 +1,4 @@
+import type { StructureSelection } from "../../shared/structureSelection";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   PanelRightClose,
@@ -32,6 +33,7 @@ import type { LiteratureEvidence } from "../../shared/literatureEvidence";
 import ReportInspector from "./ReportInspector";
 
 export interface ViewInspectorProps {
+  structureSelection?: StructureSelection;
   activeView: MasterView;
   onViewChange: (view: MasterView) => void;
   analysisResult: AnalysisResult | null;
@@ -130,6 +132,7 @@ const MAX_REVEAL_ATTEMPTS = 6;
 const REVEAL_RETRY_MS = 16;
 
 export const ViewInspector: React.FC<ViewInspectorProps> = ({
+  structureSelection,
   activeView,
   onViewChange,
   analysisResult,
@@ -378,6 +381,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         width: inspectorWidth,
         minWidth: inspectorWidth,
       }}
+      data-workspace-inspector
       data-landscape={activeView === "landscape" || undefined}
       aria-label="Context & Provenance Inspector"
     >
@@ -428,6 +432,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       <div ref={bodyRef} className="inspector-body flex-1 overflow-y-auto px-4 pt-4 pb-20 space-y-4">
         {(activeView === "structure" || activeView === "structure_alphafold" || activeView === "structure_esmfold") && (
           <StructureInspector
+            selection={structureSelection}
             family={activeView === "structure_esmfold" ? "esmfold" : "alphafold"}
             setCustomPdbUrl={setCustomPdbUrl}
           />

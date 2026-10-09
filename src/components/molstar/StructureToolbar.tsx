@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
   Camera, ChevronDown, ClipboardCopy, Crosshair, Download, HelpCircle,
-  Maximize2, Minimize2, ScanSearch, SlidersHorizontal, Undo2,
+  Maximize2, Minimize2, ScanSearch, SlidersHorizontal,
 } from "lucide-react";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
 import type { PlddtFilter } from "./useMolstarStructure";
@@ -17,7 +17,7 @@ export interface StructureToolbarProps {
   onPlddtFilterChange: (value: PlddtFilter) => void;
   onAlignmentScopeChange?: (scope: AlignmentScope) => void;
   onFocusSite: () => void;
-  onBackToSite: () => void;
+  onFocusSelection?: () => void;
   pocketOpen: boolean;
   pocketTriggerRef?: React.RefObject<HTMLButtonElement | null>;
   onTogglePocket: () => void;
@@ -28,8 +28,6 @@ export interface StructureToolbarProps {
   onCopy: () => void;
   copyState: "idle" | "copied" | "failed";
   onOpenGuide: () => void;
-  onSwitchToAlphaFold?: () => void;
-  onSwitchToEsmFold?: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
 }
@@ -67,12 +65,12 @@ export function StructureToolbar(props: StructureToolbarProps) {
   }, [displayOpen]);
 
   const onSegKey = (event: React.KeyboardEvent) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const available = model.modes.filter(mode => mode.available);
     const current = available.findIndex(mode => mode.id === model.viewMode);
     const step = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
-    const next = available[(current + step + available.length) % available.length];
+    const next = available[event.key === "Home" ? 0 : event.key === "End" ? available.length - 1 : (current + step + available.length) % available.length];
     if (next && next.id !== model.viewMode) {
       props.onModeChange(next.id);
       segRef.current?.querySelector<HTMLButtonElement>(`[data-mode="${next.id}"]`)?.focus();
@@ -102,15 +100,9 @@ export function StructureToolbar(props: StructureToolbarProps) {
             )
           )}
           {props.selectedResidue !== null && props.selectedResidue !== props.variantPosition && site.canAddressVariantSite && (
-            <button type="button" className="s3d-site" data-kind="selected" onClick={props.onBackToSite} title="Clear the selection and return to the variant site">
-              Selected {props.selectedResidue}<Undo2 aria-hidden="true" />
+            <button type="button" className="s3d-site" data-kind="selected" onClick={props.onFocusSelection} disabled={!props.onFocusSelection} aria-label={`Selected ${props.selectedResidue}, frame on structure`} title="Frame the selected residue">
+              Selected {props.selectedResidue}<Crosshair aria-hidden="true" />
             </button>
-          )}
-          {props.onSwitchToAlphaFold && props.onSwitchToEsmFold && (
-            <div className="s3d-family" role="group" aria-label="Structure family">
-              <button type="button" className="s3d-family__btn" aria-pressed={model.family === "alphafold"} onClick={props.onSwitchToAlphaFold}>AlphaFold</button>
-              <button type="button" className="s3d-family__btn" aria-pressed={model.family === "esmfold"} onClick={props.onSwitchToEsmFold}>ESMFold</button>
-            </div>
           )}
           <button type="button" className="s3d-btn s3d-btn--quiet" onClick={props.onOpenGuide} title="How to read this view" aria-label="Guide: how to read this view">
             <HelpCircle aria-hidden="true" /><span className="s3d-btn__text">Guide</span>

@@ -1,3 +1,4 @@
+import type { StructureSelection } from "../../shared/structureSelection";
 import React, { useState } from "react";
 import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
@@ -37,7 +38,6 @@ function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; 
     <section className="s3d-rsec" aria-labelledby="s3d-rail-site">
       <h3 className="eyebrow" id="s3d-rail-site">
         <span><Crosshair className="w-3.5 h-3.5" aria-hidden="true" />{isWildType ? "Variant site" : "Wild-type reference site"}</span>
-        {site.selected !== null && <span className="s3d-rsec__meta">selected: {site.selected}</span>}
       </h3>
       {!isWildType && <p className="s3d-section-intro">These site readings come from the wild-type coordinate source, not the FoldX or de novo variant model.</p>}
       <dl className="s3d-kv" data-testid="structure-site">
@@ -136,11 +136,12 @@ function ExperimentalEntries({ experimental, setCustomPdbUrl }: {
 }
 
 export interface StructureInspectorProps {
+  selection?: StructureSelection;
   family: ModelFamily;
   setCustomPdbUrl?: (url: string | null) => void;
 }
 
-export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, setCustomPdbUrl }) => {
+export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, setCustomPdbUrl, selection }) => {
   const model = useStructure3dEvidence(family);
   const proteinLength = useVariantAnalysisStore(s => readProteinLength(s.analysisState?.result?.metadata).residues);
   const hasResult = useVariantAnalysisStore(s => Boolean(s.analysisState?.result));
@@ -161,6 +162,14 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, 
 
   return (
     <div className="s3d-rail" data-testid="structure-rail" data-mode={model.viewMode}>
+      {selection && <section className="s3d-selection" aria-label={selection.preview ? "Residue preview" : "Selected residue"} data-state={selection.state}>
+        <h3>{!selection.position ? 'No residue selected' : `${selection.preview ? 'Previewing residue' : 'Selected residue'} · ${selection.position}`}</h3>
+        <p className="s3d-selection__summary">{selection.summary}</p>
+        {selection.measurement && <dl className="s3d-kv"><div className="s3d-kv__row"><dt>{selection.measurement.label}</dt><dd>{selection.measurement.value}</dd></div></dl>}
+        {selection.source && <p className="s3d-selection__source">Coordinates: {selection.source}</p>}
+        {selection.measurement && <p className="s3d-selection__source">{selection.measurement.note}</p>}
+        <p className="s3d-selection__source">Variant-site measurements below remain tied to the queried substitution.</p>
+      </section>}
       <section className="s3d-rsec s3d-rsec--canvas" aria-labelledby="s3d-rail-canvas">
         <h3 className="eyebrow" id="s3d-rail-canvas">
           <span><Layers className="w-3.5 h-3.5" aria-hidden="true" />On the canvas</span>

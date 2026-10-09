@@ -16,7 +16,7 @@ export function WorkspaceTabs<T extends string>({ id, label, tabs, value, onChan
     event.currentTarget.querySelector<HTMLElement>(`#${id}-tab-${tabs[next].id}`)?.focus();
   }}>
     {tabs.map(tab => <button type="button" key={tab.id} id={`${id}-tab-${tab.id}`}
-      role="tab" aria-selected={value === tab.id} aria-controls={`${id}-panel-${tab.id}`}
+      role="tab" aria-selected={value === tab.id} aria-controls={value === tab.id ? `${id}-panel-${tab.id}` : undefined}
       tabIndex={value === tab.id ? 0 : -1} onClick={() => onChange(tab.id)}>{tab.label}</button>)}
   </div>;
 }
