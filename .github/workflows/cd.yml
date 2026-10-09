@@ -49,13 +49,13 @@ jobs:
       #
       # Shortened 2026-09-30 from a flat "180". Measured on the five most recent CD runs: the SSH
       # step took 186/187/197/207/237 s and NOT ONE of them reported DEPLOY_OK inside the window.
-      # Every run sat out the full 180 s and left through the "still building" branch below, so the
+      # Every run sat out the full 180 s and left through the "no verdict" branch below, so the
       # window was buying zero verification while costing ~180 s of billed runner time per deploy
       # (~600 of the 1,800-minute month at 202 deploys — a third of the budget spent asleep).
       #
       # A warm-cache deploy really does finish in ~110 s, but the runner no longer watches the build,
       # so waiting here is not what makes a deploy safe: the health-gated standby handover is.
-      # The window still catches immediate failures on
+      # The window still catches
       # an error that happens on the VM immediately — invalid compose file, no docker daemon, the
       # superseded-revision guard tripping — and all of those surface in seconds, never minutes.
       # So a push deploy waits 30 s, while a manual workflow_dispatch keeps the long window: there a
@@ -76,23 +76,38 @@ jobs:
         with:
           ref: ${{ env.DEPLOY_SHA }}
 
-      # THE RUNNER NO LONGER WATCHES THE BUILD.
+      # THE RUNNER NEVER WAITS FOR A BUSY LOCK, AND NEVER WATCHES THE BUILD.
       #
       # This step used to hold the runner for the entire `docker compose up -d --build`, which runs
       # on the OCI VM. Run 36035616379 held it for 13m04s of a 13m17s job; the runner was idle for
       # all of it, and the account was billed for it. Across 202 CD runs in the Sep 2026 cycle that
       # was the single largest avoidable line in a 1,800-minute month.
       #
-      # The build is now dispatched detached (`setsid nohup`) and the step returns as soon as the VM
-      # has a verdict OR the confirmation window lapses — whichever comes first. The gate is kept
-      # rather than dropped: the detached script writes a terminal marker, and this step exits
-      # non-zero on `DEPLOY_FAILED`, so a fast failure still fails the run.
+      # 2026-10-09: the remaining blocker moved to the VM as well, after run 37904035903 failed.
+      # The build was already dispatched detached, but the foreground SSH script still took the
+      # HOST LOCK (`flock -w 180`) before dispatching it — and a rollout (build + handover + drain)
+      # legitimately holds that lock for ~20 min cold, measured on mse-deploy-a2ef063dba12.log.
+      # Run 37904035903 hit exactly that: the PR #86 rollout still held the lock, the 180 s wait
+      # expired, the run went RED with DEPLOY_DEFERRED. The SHA (59c514d) was still the tip of
+      # main, so nothing superseded it and nothing ever re-dispatched it: a healthy, CI-validated
+      # commit sat undeployed in production until a human re-ran the workflow. The runner is the
+      # wrong place to wait for the lock — the wait costs billed minutes the runner cannot afford
+      # (6 min job ceiling), and failing means the commit is orphaned, not deferred.
       #
-      # What is deliberately NOT claimed: when the window lapses, this run no longer asserts that
-      # the deploy succeeded. Production safety does not depend on the runner asserting it.
-      # deploy/rollout.py retains the old app, checks the standby revision and sidecar readiness,
-      # reloads Caddy, then drains requests and transfers exclusive SQLite worker ownership.
-      # The host lock and deployment journal outlive this SSH confirmation window.
+      # So the runner now does only what is fast and definitive: the supersede pre-check, write a
+      # detached WORKER on the VM, dispatch it under setsid, watch one short confirmation window
+      # so immediate failures still fail the run, and return. The worker owns the host lock wait:
+      # it queues for up to 2 h (rollout.py's own ceilings sum to ~100 min: 3600 build + 600
+      # readiness + 1800 drain), re-checking between slices whether a newer revision reached main.
+      # When the VM is idle the behavior is byte-for-byte what it was: the worker takes the lock
+      # instantly, checkout/asset-restore/build/handover run as before, and DEPLOY_OK or
+      # DEPLOY_FAILED surfaces inside the window. When the lock is busy, the deploy QUEUES behind
+      # the active rollout and resolves itself — production keeps serving the previous generation
+      # either way, and the journal (deploy/runtime/rollout.json) stays the authoritative record.
+      #
+      # What is still deliberately NOT claimed: when the window lapses, this run asserts neither
+      # success nor failure — it asserts "dispatched and self-resolving". Production safety does
+      # not depend on the runner asserting it.
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -111,30 +126,82 @@ jobs:
 
             # COMMIT ORDERING PRE-CHECK: CI runs can finish out of order, so an older commit's
             # successful run could otherwise overwrite a newer deployment. If a newer revision
-            # already reached the tip of main, skip immediately without waiting or taking the lock.
+            # already reached the tip of main, skip immediately — without waiting or taking
+            # anything. The worker re-checks this again once it holds the lock.
             TIP="$(git rev-parse origin/main)"
             if [ "$TIP" != "$DEPLOY_SHA" ]; then
               echo "[CD] $DEPLOY_SHA is superseded by $TIP; skipping — the newer revision deploys itself."
               exit 0
             fi
 
-            # The workflow concurrency ends before the detached build does. This host lock spans
-            # checkout, asset restoration, build, handover, and drain. Wait up to 180s for an active
-            # rollout to complete handover before checking status again.
+            # EVERYTHING EXPENSIVE RUNS DETACHED, INCLUDING THE LOCK WAIT. Unique per-dispatch
+            # names (STAMP) are not cosmetic: bash reads scripts incrementally, so a fixed path
+            # rewritten while a queued worker from a previous run is still executing it would
+            # corrupt the running instance mid-flight.
+            STAMP="$(date +%Y%m%d-%H%M%S)-$$"
+            LOG="$HOME/mse-deploy-$(echo "$DEPLOY_SHA" | cut -c1-12)-$STAMP.log"
+            WORKER="$HOME/.mse-deploy-worker-$STAMP.sh"
+            : > "$LOG"
+
+            # Quoted heredoc: nothing below is interpolated by this shell, so `$?` and friends
+            # belong to the worker rather than being expanded here. The SHA is passed as an
+            # argument — it is NOT baked into the script text.
+            cat > "$WORKER" <<'MSE_WORKER_EOF'
+            #!/usr/bin/env bash
+            # Detached deploy worker for the OCI VM. The Runner writes and dispatches this file
+            # under setsid and then returns; every wait a slow VM can impose — the host lock
+            # above all — is paid here, outside any billed runner. One invocation is exactly one
+            # deploy attempt for $1 (a full 40-hex SHA).
+            set -eu
+            DEPLOY_SHA="$1"
+            on_fail() { rc=$?; echo "[CD] DEPLOY_FAILED rc=$rc"; exit "$rc"; }
+            trap on_fail ERR
+
+            # Self-delete now: bash reads the script through one open descriptor, so removing
+            # the path is safe mid-execution and zero-future-costs — no stale worker file can
+            # accumulate for a queued (still-running) invocation to have its file rewritten
+            # under it, and $HOME stays clean without any cleanup job.
+            rm -f -- "$0" 2>/dev/null || true
+
+            # Self-contained: the dispatcher cd'd here, but the worker must not depend on an
+            # inherited working directory (manual re-runs, cron audits, post-mortems).
+            cd "$HOME/Missense-Structural-Explorer"
+
+            echo "[CD] worker start commit=$DEPLOY_SHA"
+
+            # THE HOST LOCK IS WAITED FOR HERE, NOT IN THE RUNNER. The workflow concurrency group
+            # ends when the SSH session does, but a rollout (build + handover + drain) outlives it
+            # by design; the old foreground `flock -w 180` could not cover that span and
+            # 37904035903 died of exactly that race. Here the wait is patient, unbilled, and
+            # abortable the moment continuing would be pointless.
             exec 9>"$HOME/.mse-deploy.lock"
-            if ! flock -w 180 9; then
-              echo "[CD] DEPLOY_DEFERRED: another rollout owns the host lock after 180s; production unchanged."
-              git fetch --all --prune
-              LATEST_TIP="$(git rev-parse origin/main)"
-              if [ "$LATEST_TIP" != "$DEPLOY_SHA" ]; then
-                echo "[CD] $DEPLOY_SHA was superseded by $LATEST_TIP while waiting; skipping cleanly."
+            LOCK_DEADLINE=$(( $(date +%s) + 7200 ))
+            acquired=0
+            while [ "$(date +%s)" -lt "$LOCK_DEADLINE" ]; do
+              if flock -w 60 9; then
+                acquired=1
+                break
+              fi
+              # Each ungranted minute, check whether the queue slot is still wanted: once a
+              # newer revision reaches main, this queued deploy is redundant by definition.
+              git fetch --all --prune >/dev/null 2>&1 || true
+              TIP="$(git rev-parse origin/main)"
+              if [ "$TIP" != "$DEPLOY_SHA" ]; then
+                echo "[CD] DEPLOY_SUPERSEDED: $DEPLOY_SHA superseded by $TIP while queued for the host lock."
                 exit 0
               fi
+            done
+            if [ "$acquired" -ne 1 ]; then
+              # The runner already reported green ("queued"); the wedge surfaces here and in the
+              # journal the runbook points at. 2 h of a continuously held lock means a rollout
+              # process is hung and needs human attention.
+              echo "[CD] DEPLOY_DEFERRED: the host lock never freed within 2h; production unchanged."
               exit 1
             fi
             export MSE_DEPLOY_LOCK_FD=9
 
-            # Re-verify tip after acquiring lock in case a newer commit landed while waiting.
+            # Re-verify tip while holding the lock in case a newer commit landed while waiting; a
+            # concurrent queued deployment deploys that revision itself, so this one must not run.
             git fetch --all --prune
             TIP="$(git rev-parse origin/main)"
             if [ "$TIP" != "$DEPLOY_SHA" ]; then
@@ -203,19 +270,14 @@ jobs:
             # Recorded in the image so GET /api/v1/version reports what is actually running.
             export BUILD_COMMIT="$DEPLOY_SHA"
             export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            LOG="$HOME/mse-deploy-$(echo "$DEPLOY_SHA" | cut -c1-12).log"
-            : > "$LOG"
 
-            # Quoted heredoc: nothing below is interpolated by this shell, so `$?` and friends
-            # belong to the detached script rather than being expanded here.
-            cat > "$HOME/mse-deploy-run.sh" <<'MSE_DEPLOY_EOF'
-            set -e
-            on_fail() { rc=$?; echo "[CD] DEPLOY_FAILED rc=$rc"; exit "$rc"; }
-            trap on_fail ERR
-            python3 deploy/rollout.py --commit "$BUILD_COMMIT"
-            MSE_DEPLOY_EOF
+            # rollout.py re-flocks the inherited FD (validated against ~/.mse-deploy.lock),
+            # verifies the checkout (HEAD == --commit, clean tree), and prints the terminal
+            # DEPLOY_OK / DEPLOY_FAILED marker itself.
+            python3 deploy/rollout.py --commit "$DEPLOY_SHA"
+            MSE_WORKER_EOF
 
-            setsid nohup bash "$HOME/mse-deploy-run.sh" >> "$LOG" 2>&1 < /dev/null &
+            setsid nohup bash "$WORKER" "$DEPLOY_SHA" >> "$LOG" 2>&1 < /dev/null &
             echo "[CD] dispatched detached; log on the VM: $LOG"
 
             WAIT="${DEPLOY_CONFIRM_SECONDS:-180}"
@@ -231,11 +293,19 @@ jobs:
                 tail -n 40 "$LOG"
                 exit 1
               fi
+              if grep -q 'DEPLOY_SUPERSEDED' "$LOG" 2>/dev/null; then
+                echo "[CD] superseded on the VM while dispatching; skipping — the newer revision deploys itself."
+                exit 0
+              fi
               sleep 5
             done
 
-            echo "[CD] Still building after ${WAIT}s. The build continues on the VM and is NOT cancelled."
-            echo "[CD] The serving generation remains available while the standby warms and existing work drains."
-            echo "[CD] Inspect deploy/runtime/rollout.json for the authoritative phase and final verdict."
+            echo "[CD] No verdict after ${WAIT}s — normal, and needs NO attention. Two ways to"
+            echo "[CD] leave the window: the standby is still building (the serving generation"
+            echo "[CD] stays up while it warms and existing work drains), or the active rollout"
+            echo "[CD] still holds the host lock and this deploy is QUEUED behind it. The"
+            echo "[CD] detached worker owns that wait (up to 2h), deploys as soon as the lock"
+            echo "[CD] frees, and skips itself cleanly if a newer revision reached main first."
+            echo "[CD] Authoritative phase and final verdict: deploy/runtime/rollout.json."
             echo "[CD] Full log: $LOG"
             exit 0
