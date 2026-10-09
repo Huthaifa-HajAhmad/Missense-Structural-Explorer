@@ -23,6 +23,8 @@ export const DEFAULT_REPORT_SECTIONS: Record<ReportSectionKey, boolean> = defaul
 
 export interface ReportMeta { title: string; preparedBy: string; caseRef: string }
 
+export interface ReportDraftRecovery { identity: string; sourceKey: string; saved: ReportDraft }
+
 export const DEFAULT_REPORT_META: ReportMeta = { title: "", preparedBy: "", caseRef: "" };
 
 export interface UiState {
@@ -34,6 +36,7 @@ export interface UiState {
   /** The author's own text per block. Only prose can be edited; scores, facts and the verdict cannot. */
   reportEdits: Partial<Record<ReportSectionKey, ReportEdit>>;
   reportDraftStatus: "saved" | "saving" | "session-only";
+  reportDraftRecovery: ReportDraftRecovery | null;
   reportMeta: ReportMeta;
   /** Papers pinned from the Literature tab; the report cites only these. */
   reportCitations: ReportCitation[];
@@ -68,6 +71,7 @@ export interface UiActions {
   unpinReportCitation: (id: string) => void;
   /** Replace the whole draft (sections, edits, meta, citations), e.g. when the variant changes. */
   loadReportDraft: (draft: ReportDraft | null) => void;
+  setReportDraftRecovery: (recovery: ReportDraftRecovery | null) => void;
   setActivePerturbationModel: (model: PerturbationModelId) => void;
 }
 
@@ -83,6 +87,8 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   reportSections: { ...DEFAULT_REPORT_SECTIONS },
   reportEdits: {},
   reportDraftStatus: "session-only",
+  reportDraftRecovery: null,
+  setReportDraftRecovery: (reportDraftRecovery) => set({ reportDraftRecovery }),
   reportMeta: { ...DEFAULT_REPORT_META },
   reportCitations: [],
   activePerturbationModel: "saprot",

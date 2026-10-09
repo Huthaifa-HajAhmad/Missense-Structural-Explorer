@@ -8,6 +8,7 @@
  */
 import { BLOCK_ORDER, type BlockKey } from "../shared/reportDocument";
 import type { ReportDraft } from "../shared/reportInput";
+import type { AnalysisResult } from "../shared/contracts";
 
 const PREFIX = "mse.reportDraft.v1:";
 
@@ -16,6 +17,22 @@ export function reportDraftKey(gene: string | null | undefined, uniprotId: strin
   const v = (variant ?? "").trim();
   if (!g || !v) return null;
   return `${g}|${(uniprotId ?? "").trim()}|${v}${reference ? `|${reference}` : ""}`;
+}
+
+/** One resolved identity for browser persistence and portable draft files. */
+export function reportDraftKeys(gene: string, uniprotId: string, variant: string, result: AnalysisResult | null) {
+  const baseKey = reportDraftKey(gene, uniprotId, variant);
+  if (!baseKey || result?.metadata?.gene !== gene || result.metadata.variant !== variant) {
+    return { key: baseKey, baseKey, reference: [null, null, null], legacyReferenceKey: baseKey ? `${baseKey}|[null,null,null]` : null };
+  }
+  const assembly = result.predictorData?.gnomadVariantAssembly ?? null;
+  const genomicId = result.predictorData?.gnomadVariantId ?? null;
+  const transcript = result.transcriptId?.trim() || result.predictorData?.transcriptId?.trim() || null;
+  const reference = [assembly, genomicId, transcript];
+  const key = reference.some(value => value !== null) ? reportDraftKey(gene, uniprotId, variant, JSON.stringify(reference)) : baseKey;
+  // The first reference-aware release omitted transcript and appended even an all-null tuple.
+  const oldKey = reportDraftKey(gene, uniprotId, variant, JSON.stringify([assembly, genomicId, null]));
+  return { key, baseKey, reference, legacyReferenceKey: oldKey !== key ? oldKey : null };
 }
 
 const isObject = (value: unknown): value is Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -55,6 +72,11 @@ export function writeReportDraft(key: string | null, draft: ReportDraft): boolea
   } catch {
     return false; // storage unavailable: the draft lives for this session only
   }
+}
+
+/** Retire a migration source only after its contents have been saved to the destination. */
+export function removeReportDraft(key: string): void {
+  try { localStorage.removeItem(PREFIX + key); } catch { /* Keep the source if storage is blocked. */ }
 }
 
 /** Import only a bounded draft with the same resolved variant/reference identity. */

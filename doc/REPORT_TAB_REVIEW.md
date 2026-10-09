@@ -40,6 +40,19 @@ The SpliceAI boundary correction affects the informational reading at exactly 0.
 - Browser screenshots require the session Browser panel to be visible; captures timed out while it was hidden. Pixel-level light/dark review, contrast measurement and saved-PDF/Office pagination remain unverified. Package/content and DOM geometry checks do not establish visual pagination.
 - Configured data releases are not asserted as independently verified per-run versions. Missing retrieval dates are not invented. The original complete analysis payload was not supplied, and no fresh variant classification was performed.
 
+## Draft integrity follow-up
+
+Two native-review P2 findings were reproduced and addressed without changing scientific criteria or classification arithmetic.
+
+| Finding | Correction |
+|---|---|
+| The reference key read `metadata.transcriptId`, which is not the typed selected transcript field. Different transcripts could share persisted drafts and portable file identity. | `reportDraftKeys` reads `result.transcriptId`, falling back to `predictorData.transcriptId`. Browser persistence and portable export/import call that one helper. Drafts for different selected transcripts are distinct and cross-transcript file imports are rejected. |
+| Hydration replaced legacy or pending author work with defaults when a matching result introduced a reference suffix, including a meaningless all-null suffix. | All-null references retain the unresolved key. Legacy and earlier missing-transcript keys migrate once, retiring their source only after saving the destination. Pending edits, section choices, metadata and citations survive reference resolution and compatible refinement, including blocked-storage cases. |
+
+If a resolved reference already has a different saved draft, both copies remain available until the author chooses. The inspector offers downloads of both copies and explicit Keep current / Use saved actions. Pending conflict copies are themselves bound to the resolved reference so changing transcript or remounting cannot reuse them under another transcript.
+
+Validation: 24 focused draft/inspector tests passed. The final full suite passed 4,201 tests with five skipped; lint/TypeScript and frontend build passed. Both geometry suites passed (116 header and 241 function-track assertions). A concurrent build/test run hit two coordinate-resolver timing failures; the isolated 35-test suite and full rerun without a competing build passed. Narrow recovery UI measurement found no horizontal overflow at 409 px main / 276 px rail, all four recovery controls met the minimum hit area, and Use saved draft restored the saved title in the live page. Dark mode at 200% CSS scaling also had zero report/rail overflow and four correctly sized recovery controls. Pixel-level screenshot approval is not claimed.
+
 ## Primary sources
 
 - Richards et al. 2015, DOI [10.1038/gim.2015.30](https://doi.org/10.1038/gim.2015.30).

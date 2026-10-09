@@ -12,7 +12,7 @@ import { deriveAiStatus } from "../report/reportStatus";
 import { narrativeFreshness, readNarrativeEvidenceStamp } from "../../shared/narrativeEvidence";
 import { useNarrativeEvidenceContext } from "../../hooks/useNarrativeEvidenceContext";
 import { useReportDocument } from "../report/useReportDocument";
-import { parseReportDraftFile, reportDraftKey } from "../../stores/reportDraftStorage";
+import { parseReportDraftFile, reportDraftKeys } from "../../stores/reportDraftStorage";
 import { downloadBlob, fileStem, printReport } from "../report/reportExport";
 
 interface ReportInspectorProps {
@@ -79,6 +79,8 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
   const addNotification = useVariantAnalysisStore(s => s.addNotification);
   const { openSettingsTab, hasConfiguredGeminiKey, serverGeminiReady, settings } = useSettings();
   const draftStatus = useVariantAnalysisStore(s => s.reportDraftStatus);
+  const draftRecovery = useVariantAnalysisStore(s => s.reportDraftRecovery);
+  const setDraftRecovery = useVariantAnalysisStore(s => s.setReportDraftRecovery);
   const sections = useVariantAnalysisStore(s => s.reportSections);
   const edits = useVariantAnalysisStore(s => s.reportEdits);
   const loadDraft = useVariantAnalysisStore(s => s.loadReportDraft);
@@ -239,7 +241,7 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
     const actions: Record<string, () => void | Promise<void>> = { html: exportHtml, pdf: exportPdf, docx: exportDocx, pptx: exportPptx, text: copyText, json: exportDocJson };
     try { await actions[format]?.(); } catch { addNotification("error", "Could not prepare this export."); }
   };
-  const draftIdentity = reportDraftKey(gene, uniprotId, variant, JSON.stringify([analysisResult.predictorData?.gnomadVariantAssembly ?? null, analysisResult.predictorData?.gnomadVariantId ?? null, (analysisResult.metadata as any)?.transcriptId ?? null])) ?? "";
+  const draftIdentity = reportDraftKeys(gene, uniprotId, variant, analysisResult).key ?? "";
   const saveDraft = () => downloadBlob(`${stem}_draft.json`, "application/json", JSON.stringify({ schema: "mse.report-draft/1", identity: draftIdentity, draft: { sections, edits, meta, citations } }, null, 2));
   const reopenDraft = async (file?: File) => {
     if (!file) return;
@@ -269,6 +271,15 @@ export const ReportInspector: React.FC<ReportInspectorProps> = ({
         <div className="rpt-field"><label htmlFor="rpt-by">Prepared by</label><input id="rpt-by" value={meta.preparedBy} placeholder="Name, affiliation" onChange={e => setMeta({ preparedBy: e.target.value })} /></div>
         <div className="rpt-field"><label htmlFor="rpt-case">Case reference</label><input id="rpt-case" value={meta.caseRef} placeholder="Optional" onChange={e => setMeta({ caseRef: e.target.value })} /></div>
         <p role="status" className="rpt-save-status">{draftStatus === "saved" ? "Saved in this browser" : draftStatus === "saving" ? "Saving draft" : "Session only - download a draft to keep your work"}</p>
+        {draftRecovery?.identity === draftIdentity && <div className="rpt-draft-recovery" role="status">
+          <p>A saved draft already exists for this reference. Your current draft remains visible; the saved draft has not been overwritten.</p>
+          <div className="rpt-draft-actions">
+            <button type="button" className="rpt-btn" onClick={saveDraft}>Download current draft</button>
+            <button type="button" className="rpt-btn" onClick={() => downloadBlob(`${stem}_saved_draft.json`, "application/json", JSON.stringify({ schema: "mse.report-draft/1", identity: draftIdentity, draft: draftRecovery.saved }, null, 2))}>Download saved draft</button>
+            <button type="button" className="rpt-btn" onClick={() => setDraftRecovery(null)}>Keep current draft</button>
+            <button type="button" className="rpt-btn" onClick={() => { loadDraft(draftRecovery.saved); setDraftRecovery(null); }}>Use saved draft</button>
+          </div>
+        </div>}
         <p className="rpt-p rpt-dim">Do not enter patient identifiers. Document fields go into report exports; draft files preserve your edits.</p>
       </section>
       <section className="rpt-rail-section" aria-labelledby="rpt-rail-review">
