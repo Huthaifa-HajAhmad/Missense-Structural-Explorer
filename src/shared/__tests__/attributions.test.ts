@@ -183,6 +183,9 @@ describe("attribution registry", () => {
       "uniprot.org": "curated variant record links; the API is rest.uniprot.org",
       "ncbi.nlm.nih.gov": "article links; the API is eutils.ncbi.nlm.nih.gov",
       "pubmed.ncbi.nlm.nih.gov": "article links only",
+      // A documentation link in a code comment (the Gemini deprecations table). The server never
+      // requests it; the Gemini calls go to generativelanguage.googleapis.com.
+      "ai.google.dev": "documentation link in a code comment; the server never requests it",
       // Built by the @google/genai SDK rather than written here, so it cannot appear as a
       // literal in this repository. It IS called, on every narrative request.
       "generativelanguage.googleapis.com":
