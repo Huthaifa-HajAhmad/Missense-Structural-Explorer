@@ -32,6 +32,8 @@ vi.mock("../../../apiClient", () => ({
 }));
 
 import { AlphaGenomeTab } from "../AlphaGenomeTab";
+import { EvidenceWorkspaceProvider } from "../EvidenceWorkspace";
+import type { AnalysisResult } from "../../../types";
 
 const GZF1_ATLAS = "https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=chr20:23369727:C%3ET";
 
@@ -48,7 +50,15 @@ function renderTab(options: {
       assemblyRefusals: options.refusals ?? null,
     },
   };
-  return render(<AlphaGenomeTab {...({ analysisState: { result } } as any)} />);
+  // Always render under a workspace provider, as production does — the provider-less fallback path
+  // is gone. The assertions target the SOURCE RECORDS view, so open that first.
+  const rendered = render(
+    <EvidenceWorkspaceProvider result={result as AnalysisResult}>
+      <AlphaGenomeTab {...({ analysisState: { result } } as any)} />
+    </EvidenceWorkspaceProvider>
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Source records" }));
+  return rendered;
 }
 
 /** The GZF1 p.Arg591Trp payload from the review screenshots. */
@@ -247,7 +257,8 @@ describe("what the score is made of", () => {
   it("keeps absent and zero apart: an unattributed feature is a dash, a measured 0 is 0", () => {
     renderTab({ alphagenome: GZF1 });
     for (const b of screen.getAllByRole("button", { name: /more, each under/ })) fireEvent.click(b);
-    expect(within(screen.getByTestId("avi-feature-MAX_ABS_CHIP_TF")).getByText("+0.000")).toBeInTheDocument();
+    // A measured zero prints as 0 — never as "+0.000", the glyph a tiny non-zero value would hide in.
+    expect(within(screen.getByTestId("avi-feature-MAX_ABS_CHIP_TF")).getByText("0")).toBeInTheDocument();
     expect(within(screen.getByTestId("avi-feature-CACTUS_241_WAY")).getByText("Not attributed")).toBeInTheDocument();
   });
 

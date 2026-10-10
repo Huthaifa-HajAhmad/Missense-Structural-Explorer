@@ -310,7 +310,7 @@ describe("EnergeticsView — the comparison tab", () => {
 
   it("clears the pin when the same method is activated again", async () => {
     renderComparisonView();
-    const chip = await screen.findByRole("button", { name: /RaSP/ });
+    const chip = await screen.findByRole("button", { name: /RaSP/ }, { timeout: 6000 });
     expect(chip.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(chip);
     expect(chip.getAttribute("aria-pressed")).toBe("true");

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { AlertTriangle, Database, ExternalLink, Gauge, Search, RotateCw, Scale, Star } from "lucide-react";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { TabComponentProps } from "./types";
@@ -7,6 +7,7 @@ import {
   formatAlleleCounts,
   formatAlleleFrequency,
   formatCount,
+  frequencyObservationName,
   populationReading,
   observationAbsence,
   type FrequencyApplication,
@@ -218,7 +219,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
     onNavigateToView?.("search");
   };
 
-  const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(result));
+  const evidence = useMemo(() => buildFrequencyEvidence(frequencyEvidenceInputFromResult(result)), [result]);
 
   const { criterion, applied, clinvar } = evidence;
   const FREQ = THRESHOLDS.populationFrequency;
@@ -252,7 +253,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
     .filter(o => o.af !== null && o.af > 0 && o.availability.state === "available")
     .map(o => ({
       key: o.key,
-      label: o.id.startsWith("gnomad") ? `gnomAD ${o.label.toLowerCase()}` : o.label,
+      label: frequencyObservationName(o),
       af: o.af as number,
     }));
   if (groupedMaxAf !== null && groupedMaxAf > 0) {
@@ -269,7 +270,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
   // Every source as one display line, in reading order: gnomAD, All of Us, ClinVar submissions.
   const gnomadLines: SourceLine[] = gnomadRows.map(o => ({
     observation: o,
-    name: o.id === "gnomad-local" ? o.label : `gnomAD ${o.label.toLowerCase()}`,
+    name: o.id === "gnomad-local" ? o.label : frequencyObservationName(o),
     source: "gnomad",
   }));
   const groupedLine: SourceLine | null = groupedMaxAf !== null
@@ -313,6 +314,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
   const readingsHaveRuleDot = observedLines.some(l => l.ruleInput);
   const readingsSummary = summariseReadings(evidence.observations);
 
+  const populationModel = useMemo(() => buildPopulationComparison(evidence), [evidence]);
   return (
     <div className="pop-screen @container">
       <header>
@@ -420,7 +422,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
         )}
       </section>
 
-      {workspace.comparison && <React.Suspense fallback={<p>Loading frequency comparison…</p>}><EvidenceComparison tab="clinical" model={buildPopulationComparison(evidence)} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." /></React.Suspense>}
+      {workspace.comparison && <React.Suspense fallback={<p>Loading frequency comparison…</p>}><EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." /></React.Suspense>}
       {!workspace.comparison && <div className="pop-lower">
         {/* ── 2. Source readings ──────────────────────────────────────────────────────────── */}
         <section className="pop-section" aria-labelledby="pop-readings-title">

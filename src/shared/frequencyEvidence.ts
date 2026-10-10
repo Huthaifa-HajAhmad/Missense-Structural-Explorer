@@ -412,6 +412,19 @@ export function formatAlleleCounts(observation: Pick<FrequencyObservation, "ac" 
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/**
+ * The ONE display name for a frequency observation, so the records row, the scale reading and the
+ * comparison chart cannot disagree about what a row is.
+ *
+ * The `gnomad-local` ingest already names itself ("gnomAD (local dbNSFP, cohorts combined)"); the
+ * generic gnomAD rule — "gnomAD" + lower-cased label — doubled that prefix into "gnomAD gnomad
+ * (local dbnsfp, cohorts combined)", which read as a second gnomAD cohort.
+ */
+export function frequencyObservationName(observation: Pick<FrequencyObservation, "id" | "label">): string {
+  if (observation.id === "gnomad-local") return observation.label;
+  return observation.id.startsWith("gnomad") ? `gnomAD ${observation.label.toLowerCase()}` : observation.label;
+}
+
 /** Where the rule's frequency came from, named so the number can be traced to a dataset. */
 export function frequencySourceLabel(evidence: FrequencyEvidence): string {
   const { sourceId, usedGroupMax, fallback, absent } = evidence.criterion;

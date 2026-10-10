@@ -4,7 +4,8 @@ import { fmtPercent } from '../../shared/alphagenomeEvidence';
 /** Onboarding stays beside the real reading, with deeper terminology on demand. */
 export function AlphaGenomeGuide({ evidence }: { evidence: AlphaGenomeEvidence }) {
   return <section className="evw-guide" aria-labelledby="avi-guide-title">
-    <details className="evw-guide__disclosure"><summary><span className="eyebrow">New to AlphaGenome?</span><span id="avi-guide-title">Read the rank → explore contributors → follow up in context</span></summary>
+    <h2 className="sr-only" id="avi-guide-title">How to read the AlphaGenome workspace</h2>
+    <details className="evw-guide__disclosure"><summary><span className="eyebrow">New to AlphaGenome?</span><span>Read the rank → explore contributors → follow up in context</span></summary>
     <div className="evw-guide__intro"><p>AlphaGenome predicts how a DNA change could affect molecular processes. The Atlas combines those predictions with other inputs into a variant impact score, or AVI.</p></div>
     <ol className="evw-guide__steps">
       <li><span aria-hidden="true">1</span><div><h3>Read the rank</h3><p>{evidence.topPercent !== null ? `Top ${fmtPercent(evidence.topPercent)} describes how few possible single-letter DNA changes score at least this high. It is not the chance that this variant causes disease.` : 'The rank compares this variant with possible single-letter DNA changes across the genome. An unavailable rank does not imply low impact.'}</p></div></li>

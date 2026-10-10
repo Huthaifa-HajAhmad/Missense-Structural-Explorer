@@ -14,6 +14,7 @@ vi.mock("../../context/SettingsContext", () => ({
 }));
 
 import { PredictorsTab } from "../evidence/PredictorsTab";
+import { EvidenceWorkspaceProvider } from "../evidence/EvidenceWorkspace";
 
 function gzf1(overrides: Record<string, any> = {}) {
   return {
@@ -32,7 +33,15 @@ function gzf1(overrides: Record<string, any> = {}) {
 }
 
 function renderTab(result: any, extra: Record<string, unknown> = {}) {
-  return render(<PredictorsTab {...({ analysisState: { result, isLoading: false }, ...extra } as any)} />);
+  // Production always mounts the tabs under the workspace provider; the tests follow. These
+  // assertions target the SOURCE RECORDS view, so open it explicitly.
+  const rendered = render(
+    <EvidenceWorkspaceProvider result={result}>
+      <PredictorsTab {...({ analysisState: { result, isLoading: false }, ...extra } as any)} />
+    </EvidenceWorkspaceProvider>
+  );
+  fireEvent.click(screen.getByRole("tab", { name: "Source records" }));
+  return rendered;
 }
 
 describe("PredictorsTab", () => {
