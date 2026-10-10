@@ -132,7 +132,9 @@
   display: block; font-family: var(--cs-font-sans); font-weight: var(--cs-font-weight-regular);
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); line-height: 1.4;
 }
-.rsx-table tbody tr:not(.rsx-group):hover > td { background: color-mix(in srgb, var(--cs-bg-subtle) 60%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-table tbody tr:not(.rsx-group):hover > td { background: color-mix(in srgb, var(--cs-bg-subtle) 60%, transparent); }
+}
 .rsx-shift { display: block; font-family: var(--cs-font-sans); font-size: 13px; color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 .rsx-caption { display: block; margin-top: 2px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular); text-transform: none; letter-spacing: 0; max-width: none; }
 .rsx-disclosure > summary { list-style: none; cursor: pointer; min-height: 24px; display: flex; align-items: center; }
@@ -186,7 +188,9 @@
   display: inline-flex; align-items: center; min-height: 24px; cursor: pointer;
   color: var(--cs-text-muted); list-style-position: inside;
 }
-.rsx-context > summary:hover { color: var(--cs-text-secondary); }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-context > summary:hover { color: var(--cs-text-secondary); }
+}
 .rsx-context > summary:focus-visible {
   outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px;
 }
@@ -231,7 +235,9 @@
   min-height: 36px; padding: 8px 16px; background: none; border: 0; cursor: pointer; text-align: left;
   font-family: var(--cs-font-mono); font-size: 12.5px; color: var(--cs-text-primary);
 }
-.rsx-residue:hover { background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-residue:hover { background: var(--cs-bg-subtle); }
+}
 .rsx-residue:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
 .rsx-residue > span:last-child { color: var(--cs-text-muted); font-variant-numeric: tabular-nums; }
 
@@ -241,7 +247,9 @@
   padding: 0; background: none; border: 0; cursor: pointer;
   color: var(--cs-text-accent); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold);
 }
-.rsx-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-link:hover { text-decoration: underline; }
+}
 .rsx-link:focus-visible,
 .rsx-info:focus-visible,
 .rsx-button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
@@ -252,14 +260,18 @@
   margin: -4px 0; border: 0; border-radius: 6px; background: none; cursor: pointer; color: var(--cs-text-muted);
   vertical-align: middle;
 }
-.rsx-info:hover { color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-info:hover { color: var(--cs-text-accent); }
+}
 .rsx-button {
   display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; min-height: 28px;
   padding: 4px 10px; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--cs-border); background: var(--cs-surface);
   color: var(--cs-text-primary); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
 }
-.rsx-button:hover { background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-button:hover { background: var(--cs-bg-subtle); }
+}
 
 /* ── Rail ───────────────────────────────────────────────── */
 .rsx-rail { display: flex; flex-direction: column; }
@@ -314,7 +326,9 @@
 .rsx-notes { margin: 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; font-size: var(--cs-font-size-caption); }
 .rsx-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: var(--cs-font-size-caption); }
 .rsx-refs a { color: var(--cs-text-accent); text-decoration: none; }
-.rsx-refs a:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .rsx-refs a:hover { text-decoration: underline; }
+}
 .rsx-refs a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 @media print {

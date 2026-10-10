@@ -43,7 +43,7 @@ export function HowToInspectModal({
                 type="button"
                 onClick={onClose}
                 aria-label="Close the guide"
-                className="p-1 text-cs-text-muted hover:text-cs-text-secondary rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 cursor-pointer"
+                className="relative cs-tap-44 p-1 text-cs-text-muted hover:text-cs-text-secondary rounded focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-cs-accent-clay/50 cursor-pointer"
               >
                 <X className="w-4 h-4" aria-hidden="true" />
               </button>

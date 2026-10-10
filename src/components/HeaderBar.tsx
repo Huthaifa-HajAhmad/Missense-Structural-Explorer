@@ -229,7 +229,7 @@ export function HeaderBar({
               <button
                 type="button"
                 onClick={onDismissError}
-                className="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                className="relative cs-tap-44 shrink-0 w-5 h-5 inline-flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
                 title="Dismiss notice"
                 aria-label="Dismiss notice"
               >

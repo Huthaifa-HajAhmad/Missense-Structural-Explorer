@@ -77,7 +77,7 @@ export function SecretInput({
             type="button"
             onClick={() => setRevealed((prev) => !prev)}
             aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 grid place-items-center w-7 h-7 rounded-md text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors cursor-pointer"
+            className="absolute cs-tap-44 right-1.5 top-1/2 -translate-y-1/2 grid place-items-center w-7 h-7 rounded-md text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors cursor-pointer"
           >
             {revealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>

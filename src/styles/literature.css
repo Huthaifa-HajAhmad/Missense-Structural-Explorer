@@ -85,7 +85,9 @@
 .lit-shortlist { padding: 10px 16px; }
 .lit-shortlist p { margin: 0; color: var(--cs-text-secondary); }
 .lit-shortlist__count { display: inline; min-height: 24px; padding: 0; border: 0; background: none; color: var(--cs-text-accent); font: inherit; font-weight: var(--cs-font-weight-semibold); cursor: pointer; }
-.lit-shortlist__count:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .lit-shortlist__count:hover { text-decoration: underline; }
+}
 .lit-shortlist__count:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 /* ── Finding ────────────────────────────────────────────────── */
@@ -171,8 +173,10 @@
   font-weight: var(--cs-font-weight-medium);
   cursor: pointer;
 }
-.lit-seg:hover:not(:disabled),
+@media (hover: hover) and (pointer: fine) {
+  .lit-seg:hover:not(:disabled),
 .lit-group:hover:not(:disabled) { border-color: var(--cs-text-muted); color: var(--cs-text-primary); }
+}
 .lit-seg[aria-pressed="true"],
 .lit-group[aria-pressed="true"] {
   color: var(--cs-text-primary);
@@ -231,11 +235,15 @@
   cursor: pointer;
 }
 .lit-btn > svg { width: 13px; height: 13px; }
-.lit-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--cs-accent-clay) 88%, var(--cs-text-primary)); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--cs-accent-clay) 88%, var(--cs-text-primary)); }
+}
 .lit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .lit-btn--block { width: 100%; }
 .lit-btn--quiet { background: var(--cs-surface); color: var(--cs-text-secondary); border-color: var(--cs-border); }
-.lit-btn--quiet:hover:not(:disabled) { background: var(--cs-surface); border-color: var(--cs-text-muted); color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-btn--quiet:hover:not(:disabled) { background: var(--cs-surface); border-color: var(--cs-text-muted); color: var(--cs-text-primary); }
+}
 
 .lit-groups {
   display: flex;
@@ -306,7 +314,9 @@
   cursor: pointer;
   text-wrap: pretty;
 }
-.lit-title:hover { color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-title:hover { color: var(--cs-text-accent); }
+}
 .lit-title__chev { flex: none; width: 14px; height: 14px; margin: 3px 0 0 -2px; color: var(--cs-text-muted); transition: transform 150ms ease; }
 .lit-title[aria-expanded="true"] .lit-title__chev { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .lit-title__chev { transition: none; } }
@@ -340,7 +350,9 @@
   color: var(--cs-text-secondary);
   text-decoration: none;
 }
-.lit-curated-chip:hover { border-color: var(--cs-text-accent); color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-curated-chip:hover { border-color: var(--cs-text-accent); color: var(--cs-text-accent); }
+}
 
 .lit-icon-btn {
   display: inline-grid;
@@ -355,7 +367,9 @@
   cursor: pointer;
 }
 .lit-icon-btn > svg { width: 14px; height: 14px; }
-.lit-icon-btn:hover { color: var(--cs-text-primary); border-color: var(--cs-border); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-icon-btn:hover { color: var(--cs-text-primary); border-color: var(--cs-border); }
+}
 .lit-icon-btn[aria-pressed="true"] { color: var(--cs-accent-clay); }
 .lit-icon-btn[aria-pressed="true"] > svg { fill: currentColor; }
 
@@ -403,9 +417,13 @@
   cursor: pointer;
 }
 .lit-link > svg { width: 12px; height: 12px; }
-.lit-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .lit-link:hover { text-decoration: underline; }
+}
 .lit-link--btn { color: var(--cs-text-secondary); }
-.lit-link--btn:hover { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-link--btn:hover { color: var(--cs-text-primary); }
+}
 .lit-link--inline { display: inline; vertical-align: baseline; color: var(--cs-text-warning-on-soft); text-decoration: underline; }
 
 /* ── Narrow column: drop the identifier column, keep everything else ── */
@@ -462,7 +480,9 @@
   cursor: pointer;
 }
 .lit-rail__reset > svg { width: 11px; height: 11px; }
-.lit-rail__reset:hover { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .lit-rail__reset:hover { color: var(--cs-text-primary); }
+}
 .lit-rail .eyebrow:has(.lit-rail__reset) { display: flex; }
 .lit-rail .rail-kv__row > dd { text-align: right; min-width: 0; }
 

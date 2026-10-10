@@ -7,7 +7,10 @@
 .mol-selection .viz-action { margin-top: 12px; }
 .mol-properties { padding: 0 20px; }
 .mol-property { display: grid; grid-template-columns: minmax(125px, .8fr) minmax(170px, 1.4fr) minmax(115px, .7fr); align-items: center; gap: 28px; width: 100%; padding: 22px 8px; text-align: left; color: var(--cs-text-primary); background: transparent; border: 0; border-bottom: 1px solid var(--cs-border-subtle); cursor: pointer; border-radius: 4px; }
-.mol-property:hover, .mol-property[aria-pressed="true"] { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .mol-property:hover { background: var(--cs-surface-2); }
+}
+.mol-property[aria-pressed="true"] { background: var(--cs-surface-2); }
 .mol-property[aria-pressed="true"] { box-shadow: inset 3px 0 var(--cs-accent-clay); }
 .mol-property__name { display: grid; gap: 6px; font-size: 13px; }
 .mol-property__name > span { font-size: 12px; color: var(--cs-text-secondary); }
@@ -37,7 +40,9 @@
 .fnd-arch__motif[data-selected] > rect { fill: var(--cs-accent-clay); }
 .fnd-arch__motif:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: 4px; }
 .mol-read-guide > summary { cursor: pointer; min-height: 32px; align-content: center; color: var(--cs-text-secondary); }
-.mol-read-guide > summary:hover { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .mol-read-guide > summary:hover { color: var(--cs-text-primary); }
+}
 .mol-read-guide[open] > summary { border-bottom: 1px solid var(--cs-border-subtle); }
 .evidence-workspace .ptb-detail__grid:has(.viz-frame) { grid-template-columns: 1fr; }
 .evidence-workspace .ptb-detail__grid .viz-frame { border-left: 0; border-right: 0; border-radius: 0; }

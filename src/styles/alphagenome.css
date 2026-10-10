@@ -256,7 +256,9 @@ p.ag-card__foot > span { display: inline; }
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
-.ag-btn:hover:not(:disabled) { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .ag-btn:hover:not(:disabled) { background: var(--cs-surface-2); }
+}
 .ag-btn:active:not(:disabled) { scale: 0.96; }
 .ag-btn:disabled { opacity: 0.55; cursor: default; }
 .ag-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
@@ -279,7 +281,9 @@ p.ag-card__foot > span { display: inline; }
   border-radius: 4px;
   text-decoration: none;
 }
-.ag-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .ag-link:hover { text-decoration: underline; }
+}
 .ag-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 /* ── Contributions table ────────────────────────────────────── */
@@ -349,7 +353,9 @@ p.ag-card__foot > span { display: inline; }
 
 .ag-fold > td { padding-top: 6px !important; padding-bottom: 6px !important; }
 .ag-fold .ag-link { color: var(--cs-text-muted); }
-.ag-fold .ag-link:hover { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .ag-fold .ag-link:hover { color: var(--cs-text-primary); }
+}
 .ag-fold__icon { transition-property: rotate; transition-duration: 150ms; }
 .ag-fold .ag-link[aria-expanded="true"] .ag-fold__icon { rotate: 180deg; }
 
@@ -374,7 +380,9 @@ p.ag-card__foot > span { display: inline; }
   transition-property: background-color;
   transition-duration: 150ms;
 }
-.ag-atlas__item:hover { background: color-mix(in srgb, var(--cs-surface-2) 60%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .ag-atlas__item:hover { background: color-mix(in srgb, var(--cs-surface-2) 60%, transparent); }
+}
 .ag-atlas__item:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
 .ag-atlas__name { color: var(--cs-text-accent); font-weight: var(--cs-font-weight-semibold); }
 .ag-atlas__desc { color: var(--cs-text-secondary); }

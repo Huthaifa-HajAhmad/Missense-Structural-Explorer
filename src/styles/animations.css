@@ -18,8 +18,10 @@
 .cs-slide-in { animation: cs-slide-in 0.15s ease-out forwards; }
 .animate-slide-in { animation: cs-slide-in 0.15s ease-out forwards; }
 .animate-fade-in  { animation: cs-fade-in  0.18s ease-out forwards; }
-.animate-spin-hover:hover {
+@media (hover: hover) and (pointer: fine) {
+  .animate-spin-hover:hover {
   animation: cs-spin-once 0.6s ease-in-out;
+}
 }
 @keyframes cs-spin-once {
   from { transform: rotate(0deg); }

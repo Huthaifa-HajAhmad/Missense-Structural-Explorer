@@ -115,7 +115,7 @@ export function ModelKnowledgeModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="w-7 h-7 rounded-lg flex items-center justify-center border transition-colors hover:bg-white/10 cursor-pointer text-sm font-bold opacity-75 hover:opacity-100"
+                className="relative cs-tap-44 w-7 h-7 rounded-lg flex items-center justify-center border transition-colors hover:bg-white/10 cursor-pointer text-sm font-bold opacity-75 hover:opacity-100"
                 style={{ borderColor: "var(--cs-border)" }}
               >
                 <X className="w-4 h-4" />

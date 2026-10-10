@@ -7,15 +7,23 @@
  * The menu follows the WAI-ARIA menu-button pattern: arrow keys move, Home/End jump, Escape closes and
  * returns focus to the button, Tab and outside clicks dismiss it.
  *
- * It renders in a portal at the document root, positioned from the button. Inside the header it was
- * trapped in the header's stacking context, and the workspace rail painted over it.
+ * It renders as a native popover, so the browser keeps it in the top layer — no portal, no stacking
+ * context to escape, and no script reads the button's rectangle to place it. CSS anchor positioning
+ * (`@supports (position-area: …)` in account.css) pins it under the trigger and flips it at the edge.
  */
-import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { LogIn, LogOut, UserRound, Users } from "lucide-react";
 import { useOptionalAccount, type useAccount } from "../../context/AccountContext";
 import { useSettings } from "../../context/SettingsContext";
 import type { AccountUser } from "../../api/accountApi";
+
+/**
+ * The Popover API (Chrome 114, Firefox 125, Safari 17). Detected once. Where it is missing — an
+ * older browser, or jsdom — the menu renders in the normal flow with the in-flow fallback styles,
+ * so the control still works instead of being hidden by the `[popover]` user-agent style.
+ */
+const SUPPORTS_POPOVER =
+  typeof HTMLElement !== "undefined" && typeof HTMLElement.prototype.showPopover === "function";
 
 export function initialsOf(user: Pick<AccountUser, "displayName" | "email">): string {
   const words = user.displayName.trim().split(/\s+/).filter(Boolean);
@@ -46,38 +54,55 @@ export function AccountMenu() {
 function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> }) {
   const { openSettingsTab, isDark } = useSettings();
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
   const close = useCallback((refocus: boolean) => {
+    const menu = menuRef.current;
+    // Leave the top layer before the node unmounts, so the popover's own state stays consistent.
+    if (menu && typeof menu.hidePopover === "function" && menu.matches(":popover-open")) menu.hidePopover();
     setOpen(false);
     if (refocus) buttonRef.current?.focus();
   }, []);
 
-  // Place the portal under the button before paint, so it never flashes at the wrong spot.
-  useLayoutEffect(() => {
-    if (!open || !buttonRef.current) return;
-    const rect = buttonRef.current.getBoundingClientRect();
-    setAnchor({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) });
-  }, [open]);
+  const openMenu = useCallback(() => setOpen(true), []);
 
   useEffect(() => {
     if (!open) return;
-    menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const onDown = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node) && !buttonRef.current?.contains(e.target as Node)) close(false);
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    // A light-dismiss (outside click, Escape, scroll) closes the popover without React knowing;
+    // mirror it back into state so the next open toggles from the truth.
+    const onToggle = (e: Event) => {
+      if ((e as ToggleEvent).newState === "closed") setOpen(false);
     };
-    // A fixed menu would drift from its button on resize; closing is the honest answer.
-    const onResize = () => close(false);
-    document.addEventListener("mousedown", onDown);
-    window.addEventListener("resize", onResize);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [open, close, anchor]);
+    menu.addEventListener("toggle", onToggle);
+
+    // showPopover() is the enhancement: it drops the menu into the top layer, where CSS anchors it
+    // under the trigger and flips it at the viewport edge. Where the API is missing the menu still
+    // renders and behaves — it simply cannot anchor itself.
+    if (typeof menu.showPopover === "function" && !menu.matches(":popover-open")) {
+      try { menu.showPopover(); } catch { /* unsupported or already in the top layer */ }
+    }
+
+    menu.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+
+    // Without the Popover API there is no light-dismiss, so keep the outside-click fallback.
+    if (typeof menu.showPopover !== "function") {
+      const onDown = (e: MouseEvent) => {
+        if (!menu.contains(e.target as Node) && !buttonRef.current?.contains(e.target as Node)) close(false);
+      };
+      document.addEventListener("mousedown", onDown);
+      return () => {
+        menu.removeEventListener("toggle", onToggle);
+        document.removeEventListener("mousedown", onDown);
+      };
+    }
+
+    return () => menu.removeEventListener("toggle", onToggle);
+  }, [open, close]);
 
   const { user } = account;
 
@@ -143,7 +168,7 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
         aria-controls={open ? menuId : undefined}
         aria-label={`Account: ${user.displayName}`}
         title={`${user.displayName} · ${user.email}`}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? close(false) : openMenu())}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && !open) {
             e.preventDefault();
@@ -154,12 +179,12 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
         <Avatar user={user} />
       </button>
 
-      {open && anchor && createPortal(
+      {open && (
         <div
           ref={menuRef}
           id={menuId}
+          {...(SUPPORTS_POPOVER ? { popover: "auto" as const } : {})}
           className={`acct-menu${isDark ? " dark" : ""}`}
-          style={{ top: anchor.top, right: anchor.right }}
           role="menu"
           aria-label="Account"
           onKeyDown={onMenuKey}
@@ -188,8 +213,7 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
             <LogOut className="w-4 h-4" aria-hidden />
             Sign out
           </button>
-        </div>,
-        document.body
+        </div>
       )}
     </div>
   );
