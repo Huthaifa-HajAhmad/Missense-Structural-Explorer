@@ -69,12 +69,15 @@ export function recordTelemetry(db: DatabaseSync, row: TelemetryRow): void {
  * Samples the models learn from. Rows without a known size teach nothing about size, and cancelled
  * jobs say nothing about the host, so both are left out.
  */
-export function loadSamples(db: DatabaseSync, limit = 5000): TelemetrySample[] {
+/** An out-of-memory death older than this no longer sets a ceiling (the host or the tool may have changed). */
+export const OOM_MEMORY_DAYS = 30;
+
+export function loadSamples(db: DatabaseSync, limit = 5000, now = Date.now()): TelemetrySample[] {
   const rows = db.prepare(`
     SELECT type, host_class, residues, wall_ms, peak_rss_bytes, outcome FROM job_telemetry
-    WHERE residues > 0 AND outcome != 'cancelled'
+    WHERE residues > 0 AND outcome != 'cancelled' AND (outcome != 'oom' OR created_at >= ?)
     ORDER BY created_at DESC LIMIT ?
-  `).all(limit) as any[];
+  `).all(now - OOM_MEMORY_DAYS * 86_400_000, limit) as any[];
   return rows.map((r) => ({
     type: r.type,
     hostClass: r.host_class,

@@ -2,6 +2,8 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
+import { mayServe } from "../../../../src/shared/computeProvenance.ts";
+import { serverProvenance } from "../../infra/host-probe.ts";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import {
@@ -107,6 +109,16 @@ export function pocketResultCacheKey(pdbText: string, targetIndex: number, targe
   return `${pdbHash}_${targetIndex}_${targetChain || "any"}_${selectP2RankProfile(pdbText)}${tool}`;
 }
 
+/**
+ * A cached pocket result the WORKER may use: only one anyone may have. The worker does not know who is
+ * waiting, so a re-queued job for someone who was refused a private result (an agent result its owner
+ * does not share, `computeProvenance`) must recompute rather than be handed that result here.
+ */
+export function shareableCachedPocket(cache: LRUCache<string, any>, cacheKey: string): any | null {
+  const found = cache.get(cacheKey);
+  return found && mayServe(found, null) ? found : null;
+}
+
 export async function findBindingPocket(
   pdbText: string,
   targetIndex: number,
@@ -117,7 +129,7 @@ export async function findBindingPocket(
 ): Promise<PocketInfoResult> {
   const cacheKey = pocketResultCacheKey(pdbText, targetIndex, targetChain);
   const cache = options?.l1Cache ?? pocketCache;
-  const cached = cache.get(cacheKey);
+  const cached = shareableCachedPocket(cache, cacheKey);
   if (cached) {
     if (process.env.NODE_ENV !== "production") {
       console.log(`[Biophysical Caching] Cache Hit for binding pocket at residue: ${targetIndex}`);
@@ -126,6 +138,8 @@ export async function findBindingPocket(
   }
   const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
   if (result.status === "success" || result.status === "none_detected" || result.status === "fallback") {
+    // Every stored result says where it ran (WP-E); this one ran on this server.
+    if (!(result as any).computeProvenance) (result as any).computeProvenance = serverProvenance(null);
     cache.set(cacheKey, result);
   }
   return result;

@@ -137,6 +137,22 @@ export function registerAdminRoutes(apiRouter: Router, jsonParserRegular: any): 
     res.status(201).json({ resetUrl: `${authSettings().publicBaseUrl}/#reset=${token}`, expiresAt });
   });
 
+  /**
+   * Forget the out-of-memory size limits the server has learned (WP-D). For when a limit is wrong: a
+   * misclassified failure, or the host got more memory. Jobs of any size are admitted again until two
+   * new out-of-memory deaths teach a limit afresh.
+   */
+  apiRouter.delete("/admin/compute/ceilings", (req, res) => {
+    let removed = 0;
+    try {
+      removed = BiophysicalJobQueue.getInstance().forgetOomCeilings();
+    } catch {
+      // No queue in this process: nothing learned to forget.
+    }
+    void AuditLogger.log("admin.compute_ceilings_reset", { adminId: req.principal!.userId, removed });
+    res.json({ removed });
+  });
+
   apiRouter.post("/admin/users/:id/sign-out", jsonParserRegular, (req, res) => {
     const target = getUserById(req.params.id);
     if (!target) return sendError(res, 404, "NOT_FOUND", "No such user.");

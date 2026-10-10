@@ -54,7 +54,8 @@ export interface JobSummary {
   startedAt: number | null;
   completedAt: number | null;
   error?: string;
-  ownerId: string;
+  /** The caller's own id when they own it; null when they only joined someone else's. */
+  ownerId: string | null;
   /** True when the caller owns the job; false when they only joined it. */
   mine: boolean;
   /** Jobs ahead of this one while it is queued; null otherwise. */
@@ -79,6 +80,8 @@ export class SQLiteQueue {
   private isShutdown = false;
   private processingPaused: boolean;
   private costModels!: CostModelCache;
+  private lastStartedAt = 0;
+  private lastPrunedAt = 0;
 
   constructor(
     dbPath: string,
@@ -143,6 +146,7 @@ export class SQLiteQueue {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_status ON biophysical_jobs(owner_id, status, created_at);
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_started ON biophysical_jobs(owner_id, started_at);
+      CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON biophysical_jobs(status, created_at);
       CREATE TABLE IF NOT EXISTS job_watchers (
         job_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
@@ -173,9 +177,10 @@ export class SQLiteQueue {
     } catch (err: any) {
       console.warn("[Queue] Failed to clear stale phases on startup:", err.message);
     }
+    // Lease and placement go too: a re-queued job is decided again, never left "leased" to an agent.
     this.db.exec(`
       UPDATE biophysical_jobs
-      SET status = 'queued', started_at = NULL
+      SET status = 'queued', started_at = NULL, lease_expires_at = NULL, claimed_by = NULL, placement = NULL
       WHERE status = 'running';
     `);
 
@@ -228,7 +233,7 @@ export class SQLiteQueue {
    */
   addWatcher(jobId: string, userId: string): void {
     this.db.prepare("INSERT OR IGNORE INTO job_watchers (job_id, user_id) VALUES (?, ?)").run(jobId, userId);
-    this.db.prepare("UPDATE biophysical_jobs SET priority = 0 WHERE id = ? AND status = 'queued' AND priority < 0").run(jobId);
+    this.db.prepare("UPDATE biophysical_jobs SET priority = 0 WHERE id = ? AND status = 'queued' AND priority = ?").run(jobId, SYSTEM_PRIORITY);
   }
 
   watchersOf(jobId: string): string[] {
@@ -258,6 +263,22 @@ export class SQLiteQueue {
       WHERE status = 'queued' AND owner_id != ? AND owner_id != ?
     `).get(ownerId, SYSTEM_OWNER) as any;
     return row?.c ?? 0;
+  }
+
+  /**
+   * Predicted server time of this owner's jobs that have not finished yet, beyond what they have
+   * already used: the estimate of every waiting job plus the remaining estimate of every running one.
+   * Charged against the daily cap at submit, so a burst queued before anything starts cannot overrun it.
+   */
+  pendingEstimateMsFor(ownerId: string, now = Date.now()): number {
+    let ms = 0;
+    for (const r of this.db.prepare(`
+      SELECT status, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs
+      WHERE owner_id = ? AND status IN ('queued', 'running') AND cost_estimate_ms IS NOT NULL
+    `).all(ownerId) as any[]) {
+      ms += r.status === "queued" ? r.c : Math.max(0, r.c - (now - (r.s ?? now)));
+    }
+    return ms;
   }
 
   /** Queued jobs this owner has waiting (running ones are not counted against the queue limit). */
@@ -431,11 +452,13 @@ export class SQLiteQueue {
         if (r.c == null) known = false;
         else total += Math.max(0, r.c - (now - (r.s ?? now)));
       }
+      let found = false;
       for (const j of this.queuedInStartOrder()) {
-        if (j.id === id) break;
+        if (j.id === id) { found = true; break; }
         if (j.costEstimateMs == null) known = false;
         else total += j.costEstimateMs;
       }
+      if (!found) return { waitMs: 0, runMs }; // claimed between the two reads
       return { waitMs: known ? Math.round(total / Math.max(1, this.concurrency)) : null, runMs };
     } catch {
       return null;
@@ -455,7 +478,7 @@ export class SQLiteQueue {
     const mine = row.owner_id === userId || watchers.includes(userId);
     if (!mine && !isAdmin) return { ok: false, reason: "forbidden" };
     if (row.status !== "queued" && row.status !== "running") return { ok: false, reason: "finished" };
-    if (mine) {
+    if (mine && !isAdmin) {
       this.db.prepare("DELETE FROM job_watchers WHERE job_id = ? AND user_id = ?").run(id, userId);
       const left = this.watchersOf(id).length;
       if (left > 0) return { ok: true, aborted: false, remainingWatchers: left };
@@ -520,7 +543,8 @@ export class SQLiteQueue {
         startedAt: r.started_at ?? null,
         completedAt: r.completed_at ?? null,
         error: r.error || undefined,
-        ownerId: r.owner_id ?? LEGACY_OWNER,
+        // Another person's internal id is not the caller's business; "mine: false" says what matters.
+        ownerId: r.owner_id === userId ? userId : null,
         mine: r.owner_id === userId,
         queuedAhead: idx < 0 ? null : running + idx,
         label,
@@ -543,16 +567,6 @@ export class SQLiteQueue {
     this.timer.unref();
   }
 
-  /**
-   * The next job to start: one query, fair and work-conserving.
-   *
-   * Order: `priority` first (pre-warm sorts last), then the owner with the fewest running jobs,
-   * then the owner served least recently (so a single slot still rotates between people instead of
-   * degrading to arrival order), then the owner whose oldest queued job is oldest, then that
-   * owner's oldest job. There is deliberately no per-owner cap: if only one person has queued work
-   * they take every free slot, and the rotation only matters once somebody else is waiting.
-   * `queuedInStartOrder` applies the same rule in memory to report queue positions.
-   */
   /** What the server is doing now, for the engine: running jobs and the predicted cost of running and waiting work. */
   loadSnapshot(now = Date.now()): { runningJobs: number; runningCostMs: number; queuedCostMs: number } {
     let runningCostMs = 0;
@@ -597,6 +611,16 @@ export class SQLiteQueue {
     }
   }
 
+  /**
+   * The next job to start: one query, fair and work-conserving.
+   *
+   * Order: `priority` first (pre-warm sorts last), then the owner with the fewest running jobs,
+   * then the owner served least recently (so a single slot still rotates between people instead of
+   * degrading to arrival order), then the owner whose oldest queued job is oldest, then that
+   * owner's oldest job. There is deliberately no per-owner cap: if only one person has queued work
+   * they take every free slot, and the rotation only matters once somebody else is waiting.
+   * `queuedInStartOrder` applies the same rule in memory to report queue positions.
+   */
   private pickNext(): any {
     return this.db.prepare(`
       SELECT j.* FROM biophysical_jobs j
@@ -638,8 +662,14 @@ export class SQLiteQueue {
 
       // A ceiling learned after this job was queued (another job of this size or smaller ran out of
       // memory) stops it here, with the reason, instead of running it into the same death.
+      let refusal: string | null = null;
       if (routingMode() === "on") {
-        const refusal = ceilingRefusal(type, row.residues ?? 0, serverHostFacts(), this.costModels.get());
+        try {
+          refusal = ceilingRefusal(type, row.residues ?? 0, serverHostFacts(), this.costModels.get());
+        } catch (err: any) {
+          // The size check must never stop the queue: run the job as if no ceiling were known.
+          console.warn("[routing] Claim-time ceiling check failed; running the job:", err?.message ?? err);
+        }
         if (refusal) {
           this.db.prepare(`
             UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
@@ -651,8 +681,11 @@ export class SQLiteQueue {
 
       const data = JSON.parse(row.data);
 
-      // Atomically set status to running
-      const now = Date.now();
+      // Atomically set status to running. Start times strictly increase within this process, so the
+      // scheduler's "served least recently" term never ties for jobs claimed in the same millisecond,
+      // and the in-memory model behind queue positions (`queuedInStartOrder`) orders them the same way.
+      const now = Math.max(Date.now(), this.lastStartedAt + 1);
+      this.lastStartedAt = now;
       const result = this.db.prepare(`
         UPDATE biophysical_jobs
         SET status = 'running', started_at = ?
@@ -693,18 +726,31 @@ export class SQLiteQueue {
             return;
           }
 
-          // Where it ran and for whom (WP-E). A worker that already stamped it (an agent) is left alone.
-          if (resData && typeof resData === "object" && !resData.computeProvenance) {
-            const owner = row.owner_id && row.owner_id !== LEGACY_OWNER && row.owner_id !== SYSTEM_OWNER ? row.owner_id : null;
-            resData.computeProvenance = serverProvenance(owner);
+          // Where it ran and for whom (WP-E). An agent's own stamp is left alone; a server stamp written
+          // earlier without an owner (the FoldX cache writes before the queue knows) gets the owner.
+          const owner = row.owner_id && row.owner_id !== LEGACY_OWNER && row.owner_id !== SYSTEM_OWNER ? row.owner_id : null;
+          if (resData && typeof resData === "object") {
+            const p = resData.computeProvenance;
+            if (!p) resData.computeProvenance = serverProvenance(owner);
+            else if (p.computedOn === "server" && p.ownerId == null && owner) resData.computeProvenance = { ...p, ownerId: owner };
           }
-          this.db.prepare(`
+          const written = this.db.prepare(`
             UPDATE biophysical_jobs
             SET status = 'completed', result = ?, completed_at = ?
             WHERE id = ? AND status = 'running'
           `).run(JSON.stringify(resData), Date.now(), jobId);
-          this.recordEnding(jobId, "completed", null);
+          if ((written.changes ?? 0) === 0) {
+            // Cancelled while it was finishing: the cancel's ending stands, and it was not a completed run.
+            this.recordEnding(jobId, "cancelled", "cancelled");
+          } else {
+            // A worker can resolve with a failure instead of throwing (FoldX soft failure, P2Rank
+            // "unavailable"): that is not a completed run, and must not teach the time curves.
+            const soft = resData && typeof resData === "object" && (resData.status === "failed" || resData.status === "unavailable");
+            this.recordEnding(jobId, soft ? "failed" : "completed", soft ? `result:${resData.status}` : null);
+          }
         } catch (err: any) {
+          // Read BEFORE abortJob below, which aborts the controller itself: did WE stop it?
+          const abortedByUs = abortController.signal.aborted;
           if (timeoutId) clearTimeout(timeoutId);
           if (this.isShutdown) return;
 
@@ -718,7 +764,10 @@ export class SQLiteQueue {
           console.error(`[Queue] SQLite job ${jobId} failed:`, err.message);
           // A cancel already wrote its own ending; the error this callback unwinds with is the abort.
           const ended = this.db.prepare("SELECT status, error, residues FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
-          const outcome = ended?.status === "failed" && ended.error === "Cancelled." ? "cancelled" : classifyJobFailure(err);
+          let outcome = ended?.status === "failed" && ended.error === "Cancelled." ? "cancelled" : classifyJobFailure(err);
+          // We killed it (cancel, our timeout, reaper, shutdown): a SIGKILL from us must never be read as
+          // the kernel's OOM killer, or it would teach a size ceiling that refuses healthy jobs.
+          if (outcome === "oom" && abortedByUs) outcome = "cancelled";
           let message = err.message || "Unknown error";
           if (outcome === "oom" && !message.includes(DID_NOT_FIT_IN_MEMORY)) {
             const size = ended?.residues ? ` (${ended.residues} residues)` : "";
@@ -788,6 +837,8 @@ export class SQLiteQueue {
           this.activeJobs.delete(job.id);
           this.runningCount = Math.max(0, this.runningCount - 1);
         }
+        // The queue imposed this ending; it is the main source of timeout telemetry.
+        this.recordEnding(job.id, "timeout", "lease-expired");
       }
 
       // Also reap stuck queued jobs. The wait is longer than the running lease because a queued
@@ -815,9 +866,45 @@ export class SQLiteQueue {
       if (staleJobs.length > 0 || staleQueuedJobs.length > 0) {
         this.scheduleNext();
       }
+      this.pruneHistory();
     } catch (err: any) {
       console.error(`[Queue Reaper] Error during reaping:`, err.message);
     }
+  }
+
+  /**
+   * Finished jobs are kept `JOB_RETENTION_DAYS` (14) so a result can still be polled and listed, then
+   * deleted with their watchers; telemetry is kept `TELEMETRY_RETENTION_DAYS` (180). Without this the
+   * shared database grew by one row per request forever (a cached pocket answer is a row too).
+   * At most once an hour.
+   */
+  pruneHistory(now = Date.now()): void {
+    if (now - this.lastPrunedAt < 60 * 60 * 1000) return;
+    this.lastPrunedAt = now;
+    const days = (name: string, fallback: number) => {
+      const n = Number(process.env[name]);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    const jobCutoff = now - days("JOB_RETENTION_DAYS", 14) * 86_400_000;
+    const telemetryCutoff = now - days("TELEMETRY_RETENTION_DAYS", 180) * 86_400_000;
+    try {
+      this.db.prepare(`
+        DELETE FROM job_watchers WHERE job_id IN (
+          SELECT id FROM biophysical_jobs WHERE status IN ('completed', 'failed') AND coalesce(completed_at, created_at) < ?
+        )
+      `).run(jobCutoff);
+      this.db.prepare("DELETE FROM biophysical_jobs WHERE status IN ('completed', 'failed') AND coalesce(completed_at, created_at) < ?").run(jobCutoff);
+      this.db.prepare("DELETE FROM job_telemetry WHERE created_at < ?").run(telemetryCutoff);
+    } catch (err: any) {
+      console.warn("[Queue] History prune failed:", err?.message ?? err);
+    }
+  }
+
+  /** Forget every learned out-of-memory ceiling (admin action). Returns how many OOM rows were removed. */
+  forgetOomCeilings(): number {
+    const r = this.db.prepare("DELETE FROM job_telemetry WHERE outcome = 'oom'").run();
+    this.costModels.noteRecorded("oom"); // invalidates the cached models
+    return Number(r.changes ?? 0);
   }
 
   shutdown() {
@@ -969,7 +1056,20 @@ export class BiophysicalJobQueue {
    * `opts.ownerId` is the submitter (`req.principal.userId`); without it the job is `legacy` and
    * shares one rotation slot with every other unowned job. The Redis backend ignores ownership.
    */
-  async pushJob(type: "foldx" | "p2rank", data: any, opts: EnqueueOptions = {}): Promise<string> {
+  /**
+   * Submissions are serialised: every limit below is check-then-insert with `await`s in between (the
+   * host probe, the queue length), so two concurrent submissions from one person could both pass a
+   * limit they jointly exceed. Submitting is rare and cheap next to the jobs, so one chain is enough.
+   */
+  private submitChain: Promise<unknown> = Promise.resolve();
+
+  pushJob(type: "foldx" | "p2rank", data: any, opts: EnqueueOptions = {}): Promise<string> {
+    const run = this.submitChain.then(() => this.pushJobNow(type, data, opts), () => this.pushJobNow(type, data, opts));
+    this.submitChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async pushJobNow(type: "foldx" | "p2rank", data: any, opts: EnqueueOptions = {}): Promise<string> {
     const jobId = crypto.randomUUID();
     const owner = opts.ownerId || LEGACY_OWNER;
 
@@ -1000,11 +1100,15 @@ export class BiophysicalJobQueue {
         );
       }
       if (serverSecondsPerDay != null) {
-        const usedS = Math.floor(this.sqliteQueue.serverMsSince(owner, startOfUtcDay(Date.now())) / 1000);
-        if (usedS >= serverSecondsPerDay) {
+        const nowMs = Date.now();
+        const usedS = Math.floor(this.sqliteQueue.serverMsSince(owner, startOfUtcDay(nowMs), nowMs) / 1000);
+        const pendingS = Math.floor(this.sqliteQueue.pendingEstimateMsFor(owner, nowMs) / 1000);
+        if (usedS + pendingS >= serverSecondsPerDay) {
           throw new QueueLimitError(
             "DAILY_SERVER_TIME",
-            `You have used ${formatMinutes(usedS)} of your ${formatMinutes(serverSecondsPerDay)} of server time today. It resets at 00:00 UTC.`,
+            pendingS > 0
+              ? `You have used ${formatMinutes(usedS)} of your ${formatMinutes(serverSecondsPerDay)} of server time today, and the jobs you already have waiting need about ${formatMinutes(pendingS)} more. It resets at 00:00 UTC.`
+              : `You have used ${formatMinutes(usedS)} of your ${formatMinutes(serverSecondsPerDay)} of server time today. It resets at 00:00 UTC.`,
           );
         }
       }
@@ -1074,6 +1178,11 @@ export class BiophysicalJobQueue {
       todaySeconds: Math.round(this.sqliteQueue.serverMsSince(userId, startOfUtcDay(now), now) / 1000),
       weekSeconds: Math.round(this.sqliteQueue.serverMsSince(userId, now - 7 * 86_400_000, now) / 1000),
     };
+  }
+
+  /** Admin action: forget learned out-of-memory ceilings (e.g. after a misclassified failure or more RAM). */
+  forgetOomCeilings(): number {
+    return this.sqliteQueue ? this.sqliteQueue.forgetOomCeilings() : 0;
   }
 
   /** A disabled account stops costing the host anything: its waiting and running work is cancelled. */

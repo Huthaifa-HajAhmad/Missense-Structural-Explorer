@@ -144,7 +144,10 @@ describe("P2Rank: one run for two people", () => {
     expect((await call("GET", `/pocket-job/${mine.body.pocketJobId}`)).body).toMatchObject({ status: "completed", result: { pocketScore: 0.9 } });
 
     const theirs = await call("POST", "/pocket-finder", { cookie: other.cookie, body: pocketRequest });
-    expect((await call("GET", `/pocket-job/${theirs.body.pocketJobId}`)).body.status).toBe("queued"); // computed afresh
+    // Computed afresh for them: a real job (waiting or already running), not the owner's stored answer.
+    const theirPoll = (await call("GET", `/pocket-job/${theirs.body.pocketJobId}`)).body;
+    expect(["queued", "running"]).toContain(theirPoll.status);
+    expect(theirPoll.result?.pocketScore).not.toBe(0.9);
   });
 });
 

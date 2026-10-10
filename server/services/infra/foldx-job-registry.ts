@@ -145,7 +145,15 @@ export class JobRegistry {
 
     const leaderInFlight = this.pending.get(cacheKey);
     if (leaderInFlight) {
-      const leader = await leaderInFlight;
+      let leader: FoldxSubmitOrJoinResult;
+      try {
+        leader = await leaderInFlight;
+      } catch {
+        // The leader's submission was refused (its own limit, admission). That refusal is about the
+        // leader, so this caller tries for itself rather than reporting someone else's limit.
+        if (this.pending.get(cacheKey) === leaderInFlight) this.pending.delete(cacheKey);
+        return this.submitOrJoin(params);
+      }
       const registeredAfterLeader = await this.readRegistered(cacheKey, queue);
       if (registeredAfterLeader) return registeredAfterLeader;
       // Settled between registration and this read: its record still decides ownership (`prewarm`).
