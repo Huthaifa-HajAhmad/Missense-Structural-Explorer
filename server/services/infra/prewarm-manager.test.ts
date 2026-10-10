@@ -328,7 +328,7 @@ describe("PrewarmManager", () => {
           uniprotId: "P15056"
         }),
         // Pre-warm is the system's own work: it must sort behind every reader's job.
-        { ownerId: "system" }
+        expect.objectContaining({ ownerId: "system" })
       );
       expect(activeBackgroundTasks.length).toBe(0);
       expect(await inFlightPrewarms.has(KEY)).toBe(false);

@@ -48,9 +48,10 @@ import { type FoldXResult } from "../state.ts";
 // (the consensus is computed once, in `enrichBiophysicalResult`, and is no longer recomputed here)
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
 import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
-import { submitterId, submitterLimits } from "../../auth/principal.ts";
+import { submitterId, submitterLimits, submitterPlacementPref } from "../../auth/principal.ts";
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
-import { foldxQueueCostEstimateMs } from "../../services/stability/foldx/estimate.ts";
+import { AdmissionError } from "../../services/infra/admission.ts";
+import { countResidues, foldxQueueCostEstimateMs, isAlphaFoldModel } from "../../services/stability/foldx/estimate.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -519,7 +520,14 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   raspSource: null,
                   raspError: null
                 }
-              }, { ownerId: submitterId(req), limits: submitterLimits(req), costEstimateMs: foldxQueueCostEstimateMs(effectiveWtPdb) });
+              }, {
+                ownerId: submitterId(req),
+                limits: submitterLimits(req),
+                costEstimateMs: foldxQueueCostEstimateMs(effectiveWtPdb),
+                residues: countResidues(effectiveWtPdb),
+                isAlphaFoldModel: isAlphaFoldModel(effectiveWtPdb),
+                placementPref: submitterPlacementPref(req),
+              });
             }
           });
 
@@ -922,6 +930,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         });
       } catch (err: any) {
         if (err instanceof QueueLimitError) {
+          sendError(res, err.status, err.code, err.message);
+        } else if (err instanceof AdmissionError) {
           sendError(res, err.status, err.code, err.message);
         } else if (err.message.includes("BUSY")) {
           sendError(res, 503, "SERVICE_UNAVAILABLE", "Biophysical queue is busy. Please try again later.");

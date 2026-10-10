@@ -1,4 +1,6 @@
-export type FoldxFailureKind = "runtime-crash" | "timeout" | "missing-output" | "execution-error";
+import { DID_NOT_FIT_IN_MEMORY, isOutOfMemory } from "../../infra/failure-class.ts";
+
+export type FoldxFailureKind = "runtime-crash" | "timeout" | "out-of-memory" | "missing-output" | "execution-error";
 
 export function classifyFoldxFailure(error: any): FoldxFailureKind {
   const diagnostic = [error?.message, error?.stderr, error?.stdout, error?.signal].filter(Boolean).join(" ");
@@ -6,6 +8,9 @@ export function classifyFoldxFailure(error: any): FoldxFailureKind {
   // mid-run under Box64 can still print "Unhandled signal caught" on the way down, and checking the
   // crash text first would report our own budget kill as a native crash with the wrong advice.
   if (error?.killed || error?.code === "ETIMEDOUT") return "timeout";
+  // Killed by something other than us, almost always the kernel's OOM killer. Before the crash check:
+  // Box64 can print "Unhandled signal caught" while it is being killed.
+  if (isOutOfMemory(error)) return "out-of-memory";
   if (/SIGSEGV|SIGABRT|Signal (?:11|6)\b|Unhandled signal caught|segmentation fault/i.test(diagnostic)) return "runtime-crash";
   if (error?.signal === "SIGTERM") return "timeout";
   if (/without producing a mutant PDB/i.test(diagnostic)) return "missing-output";
@@ -41,6 +46,10 @@ export function describeFoldxFailure(error: any, repairFailed: boolean, ctx?: Fo
   const box64 = /box64/i.test(diagnostic) ? " through Box64" : "";
   if (kind === "runtime-crash") {
     return `FoldX BuildModel failed (native process crash${box64}): ${diagnostic}. Inspect the runtime, binary architecture and exact input structure. This does not establish that the PDB is invalid.`;
+  }
+  if (kind === "out-of-memory") {
+    return `FoldX BuildModel stopped because this structure ${DID_NOT_FIT_IN_MEMORY}${ctx ? ` (${describeRun(ctx)})` : ""}. ` +
+      `It was killed for memory, not for time; a smaller structure or a computer with more memory will run it. ${diagnostic}`;
   }
   if (kind === "timeout") {
     return `FoldX BuildModel exceeded its execution budget${ctx ? ` (${describeRun(ctx)})` : ""}: ${diagnostic}`;
