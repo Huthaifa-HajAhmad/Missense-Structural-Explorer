@@ -1,0 +1,401 @@
+/* ============================================================
+   ACCOUNTS — sign-in, invite, reset and setup screens; the header account menu; the Account and
+   Team settings sections. Built on the design-system tokens only (variables.css), so light, dark
+   and accent themes apply without a single override here.
+   ============================================================ */
+
+/* ── Full-page frame ─────────────────────────────────────────── */
+.acct-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  /* A single warm wash from the top: the page reads as the same paper as the app, not a new product. */
+  background:
+    radial-gradient(1100px 520px at 50% -180px, color-mix(in srgb, var(--cs-accent-clay) 9%, transparent), transparent 70%),
+    var(--cs-bg);
+  color: var(--cs-text-primary);
+  font-family: var(--cs-font-sans);
+}
+.acct-page-inner { width: min(420px, 100%); }
+
+.acct-card {
+  position: relative;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-panel);
+  padding: 32px 32px 28px;
+  animation: acct-rise 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.dark .acct-card { border-color: var(--cs-border); }
+
+@keyframes acct-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes acct-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.acct-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+.acct-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-accent-clay);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.acct-wordmark { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+
+.acct-title {
+  font-family: var(--cs-font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+  color: var(--cs-text-primary);
+}
+.acct-lede { font-size: 14px; line-height: 1.55; color: var(--cs-text-secondary); margin-bottom: 24px; }
+.acct-lede strong { color: var(--cs-text-primary); font-weight: 600; }
+
+.acct-footer {
+  margin-top: 18px;
+  padding: 0 8px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--cs-text-muted);
+}
+
+/* ── Forms ───────────────────────────────────────────────────── */
+.acct-form { display: grid; gap: 16px; }
+.acct-form--inline { max-width: 440px; gap: 14px; }
+.acct-field { display: grid; gap: 6px; }
+.acct-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.acct-label { font-size: 13px; font-weight: 500; color: var(--cs-text-primary); }
+
+.acct-input { width: 100%; height: 40px; padding: 0 12px; font-size: 14px; }
+.acct-input[aria-invalid="true"] { border-color: var(--cs-text-danger); }
+.acct-input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-text-danger) 16%, transparent); }
+
+.acct-password { position: relative; }
+.acct-input--password { padding-right: 44px; }
+.acct-reveal {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--cs-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.acct-reveal:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+.acct-reveal:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+
+.acct-hint { font-size: 12px; line-height: 1.45; color: var(--cs-text-muted); }
+.acct-field-error { font-size: 12px; line-height: 1.45; color: var(--cs-text-danger-on-soft); }
+.acct-caps { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cs-text-warning-on-soft); }
+
+.acct-checklist { list-style: none; margin: -4px 0 0; padding: 0; display: grid; gap: 5px; font-size: 12.5px; color: var(--cs-text-muted); }
+.acct-checklist li { display: flex; align-items: center; gap: 8px; transition: color 0.15s ease; }
+.acct-checklist li[data-met="true"] { color: var(--cs-text-secondary); }
+.acct-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cs-border);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+li[data-met="true"] .acct-check { background: var(--cs-text-success); border-color: var(--cs-text-success); color: #fff; }
+.acct-check-note { color: var(--cs-text-muted); }
+
+.acct-alert {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--cs-radius-input);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.acct-alert--danger  { background: var(--cs-bg-danger);  color: var(--cs-text-danger-on-soft); }
+.acct-alert--success { background: var(--cs-bg-success); color: var(--cs-text-success); }
+.acct-alert--info    { background: var(--cs-surface-2);  color: var(--cs-text-secondary); border: 1px solid var(--cs-border-subtle); }
+
+.acct-submit { width: 100%; height: 42px; justify-content: center; font-size: 14px; margin-top: 4px; }
+.acct-submit:focus-visible,
+.acct-copy:focus-visible,
+.acct-invite-submit:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.acct-secondary { width: 100%; height: 38px; justify-content: center; margin-top: 14px; font-size: 13px; }
+
+.acct-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--cs-text-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--cs-text-accent) 40%, transparent);
+  cursor: pointer;
+}
+.acct-link:hover { text-decoration-color: currentColor; }
+.acct-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 2px; }
+
+.acct-divider { height: 1px; background: var(--cs-border-subtle); margin: 4px 0; }
+.acct-code { font-family: var(--cs-font-mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--cs-surface-2); color: var(--cs-text-primary); }
+.acct-loading { display: grid; place-items: center; padding: 20px 0 8px; color: var(--cs-text-muted); }
+
+/* ── Dialog ──────────────────────────────────────────────────── */
+.acct-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70; /* above the palette (60), onboarding (65) and the settings drawer (50) */
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: color-mix(in srgb, var(--cs-text-primary) 38%, transparent);
+  backdrop-filter: blur(2px);
+  animation: acct-fade 0.18s ease both;
+  font-family: var(--cs-font-sans);
+  color: var(--cs-text-primary);
+}
+.acct-dialog-wrap { width: min(420px, 100%); }
+.acct-overlay .acct-footer { color: color-mix(in srgb, var(--cs-surface) 88%, transparent); }
+.acct-overlay .acct-footer .acct-link { color: #fff; text-decoration-color: rgba(255, 255, 255, 0.5); }
+.acct-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--cs-radius-input);
+  border: 0;
+  background: transparent;
+  color: var(--cs-text-muted);
+  cursor: pointer;
+}
+.acct-close:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.acct-close:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+/* ── Start-up splash: invisible for the first 300 ms, so a fast answer never flashes ── */
+.acct-splash-mark { width: 40px; height: 40px; opacity: 0; animation: acct-fade 0.4s ease 0.3s forwards, acct-breathe 1.8s ease-in-out 0.7s infinite; }
+@keyframes acct-breathe { 50% { transform: scale(0.94); opacity: 0.75; } }
+
+/* ── Header ──────────────────────────────────────────────────── */
+.acct-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  margin-left: 4px;
+  border-radius: var(--cs-radius-input);
+  border: 1px solid var(--cs-border-subtle);
+  background: transparent;
+  color: var(--cs-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.acct-signin-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.acct-signin-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+.acct-menu-anchor { position: relative; flex-shrink: 0; margin-left: 4px; }
+.acct-avatar-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+.acct-avatar-btn:hover .acct-avatar,
+.acct-avatar-btn[aria-expanded="true"] .acct-avatar { box-shadow: 0 0 0 2px var(--cs-surface), 0 0 0 4px color-mix(in srgb, var(--cs-accent-clay) 35%, transparent); }
+.acct-avatar-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+
+.acct-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cs-accent-clay) 15%, var(--cs-surface));
+  color: var(--cs-text-accent);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+  transition: box-shadow 0.15s ease;
+}
+.dark .acct-avatar { background: color-mix(in srgb, var(--cs-accent-clay) 28%, var(--cs-surface)); color: #F4D3C6; }
+.acct-avatar--pending {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+  background: transparent;
+  border: 1.5px dashed var(--cs-border);
+  color: var(--cs-text-muted);
+}
+.acct-avatar-dim { opacity: 0.45; filter: grayscale(1); display: inline-flex; }
+
+.acct-menu {
+  /* Portalled to <body>; top/right come from the avatar button (AccountMenu.tsx). 58 clears the
+     header, the workspace rail and the settings drawer (50), and stays under the palette (60). */
+  position: fixed;
+  z-index: 58;
+  font-family: var(--cs-font-sans);
+  width: 280px;
+  padding: 6px;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
+  /* The one floating surface in a shadowless system needs a cue it is above the page. */
+  box-shadow: 0 16px 40px -16px color-mix(in srgb, var(--cs-text-primary) 35%, transparent);
+  animation: acct-menu-in 0.14s ease-out both;
+  transform-origin: top right;
+}
+@keyframes acct-menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+.acct-menu-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 12px; }
+.acct-menu-name { font-size: 13.5px; font-weight: 600; color: var(--cs-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-menu-email { font-size: 12px; color: var(--cs-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-menu-head .min-w-0 { flex: 1; }
+.acct-menu-sep { height: 1px; background: var(--cs-border-subtle); margin: 4px -6px; }
+.acct-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--cs-radius-input);
+  background: transparent;
+  color: var(--cs-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.acct-menu-item svg { color: var(--cs-text-muted); }
+.acct-menu-item:hover,
+.acct-menu-item:focus-visible { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.acct-menu-item:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+
+.acct-role-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cs-accent-clay) 12%, transparent);
+  color: var(--cs-text-accent);
+}
+.acct-role-badge--member { background: var(--cs-surface-2); color: var(--cs-text-muted); }
+.acct-status-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--cs-bg-danger);
+  color: var(--cs-text-danger-on-soft);
+}
+
+/* ── Settings: Account ───────────────────────────────────────── */
+.acct-profile { display: flex; align-items: center; gap: 14px; }
+.acct-profile-name { font-size: 15px; font-weight: 600; color: var(--cs-text-primary); }
+.acct-profile-email { font-size: 13px; color: var(--cs-text-secondary); margin-top: 1px; }
+.acct-profile-meta { font-size: 12px; color: var(--cs-text-muted); margin-top: 4px; }
+.acct-note { font-size: 12px; line-height: 1.5; color: var(--cs-text-muted); margin-top: 10px; max-width: 62ch; }
+.acct-note strong { color: var(--cs-text-secondary); font-weight: 600; }
+.acct-save-state { font-size: 11.5px; color: var(--cs-text-muted); min-height: 1em; transition: color 0.15s ease; }
+.acct-save-state[data-state="saved"] { color: var(--cs-text-success); }
+.acct-save-state[data-state="error"] { color: var(--cs-text-danger-on-soft); }
+.acct-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* ── Settings: Team ──────────────────────────────────────────── */
+.acct-invite { display: grid; gap: 10px; }
+.acct-invite-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acct-invite-row .acct-input { flex: 1 1 220px; height: 34px; font-size: 13px; }
+.acct-invite-submit { height: 34px; }
+
+.acct-link-card {
+  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 30%, transparent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 5%, var(--cs-surface));
+  border-radius: 10px;
+  padding: 12px;
+  animation: acct-rise 0.24s ease both;
+}
+.acct-link-card-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--cs-text-accent); margin-bottom: 8px; }
+.acct-link-row { display: flex; gap: 8px; }
+.acct-link-input { flex: 1; min-width: 0; height: 34px; font-family: var(--cs-font-mono); font-size: 12px; }
+.acct-copy { height: 34px; min-width: 88px; justify-content: center; }
+.acct-link-note { font-size: 12px; color: var(--cs-text-muted); margin-top: 8px; line-height: 1.45; }
+
+.acct-person { display: flex; align-items: center; gap: 12px; padding: 12px 16px; width: 100%; }
+.acct-person--button { background: transparent; border: 0; cursor: pointer; text-align: left; transition: background 0.12s ease; }
+.acct-person--button:hover { background: color-mix(in srgb, var(--cs-bg-subtle) 50%, transparent); }
+.acct-person--button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+.acct-person-wrap { padding: 0; }
+.acct-person-name { display: block; font-size: 13.5px; font-weight: 500; color: var(--cs-text-primary); }
+.acct-person-meta { display: block; font-size: 12px; color: var(--cs-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-you { color: var(--cs-text-muted); font-weight: 400; }
+.acct-chevron { color: var(--cs-text-muted); flex-shrink: 0; transition: transform 0.18s ease; }
+.acct-person-wrap[data-open="true"] .acct-chevron { transform: rotate(180deg); }
+.acct-person-panel { display: grid; gap: 14px; padding: 4px 16px 16px 60px; animation: acct-fade 0.16s ease both; }
+.acct-panel-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.acct-panel-label { font-size: 13px; font-weight: 500; color: var(--cs-text-primary); }
+.acct-panel-hint { font-size: 12px; line-height: 1.45; color: var(--cs-text-muted); max-width: 46ch; }
+
+.cs-btn-ghost.acct-danger { color: var(--cs-text-danger-on-soft); border-color: color-mix(in srgb, var(--cs-text-danger) 35%, var(--cs-border)); }
+.cs-btn-ghost.acct-danger:hover { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+
+.acct-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--cs-text-muted);
+  cursor: pointer;
+}
+.acct-icon-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+.acct-icon-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+
+.acct-skeleton { display: inline-block; border-radius: 6px; background: var(--cs-bg-subtle); animation: acct-shimmer 1.4s ease-in-out infinite; }
+.acct-skeleton--avatar { width: 32px; height: 32px; border-radius: 999px; flex-shrink: 0; }
+@keyframes acct-shimmer { 50% { opacity: 0.5; } }
+
+@media (max-width: 520px) {
+  .acct-card { padding: 26px 22px 22px; }
+  .acct-title { font-size: 23px; }
+  .acct-person-panel { padding-left: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acct-card, .acct-overlay, .acct-menu, .acct-link-card, .acct-person-panel, .acct-splash-mark, .acct-skeleton { animation: none; }
+  .acct-splash-mark { opacity: 1; }
+}
