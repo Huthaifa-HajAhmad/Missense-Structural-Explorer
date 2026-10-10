@@ -3,6 +3,8 @@ import fs from "fs";
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { defaultCacheRegistry } from "../../infra/cache-registry.ts";
+import { mayServe } from "../../../../src/shared/computeProvenance.ts";
+import { serverProvenance } from "../../infra/host-probe.ts";
 
 export const mutantCache = new LRUCache<string, any>({
   max: 100,
@@ -43,7 +45,20 @@ export function getCacheFilename(cacheKey: string): string {
   return path.join(ensureFoldxCacheDir(), `${hash}.json`);
 }
 
-export async function getMutantFromCache(cacheKey: string): Promise<any | null> {
+/**
+ * A cached FoldX result for `cacheKey`, if there is one this requester may be served.
+ *
+ * `requesterId` is the signed-in person asking (null without an account). A result computed on
+ * somebody's own computer is served to others only if it was validated and its owner shares results
+ * (`mayServe`, src/shared/computeProvenance.ts); otherwise this answers "not cached" for them and the
+ * run happens again. Omitted, only results shareable with anyone are returned.
+ */
+export async function getMutantFromCache(cacheKey: string, requesterId?: string | null): Promise<any | null> {
+  const found = await readMutantFromCache(cacheKey);
+  return found && mayServe(found, requesterId) ? found : null;
+}
+
+async function readMutantFromCache(cacheKey: string): Promise<any | null> {
   const memCached = mutantCache.get(cacheKey);
   if (memCached) {
     if (memCached?.status === "failed") {
@@ -95,6 +110,9 @@ export function writeMutantToCache(cacheKey: string, result: any) {
       return;
     }
 
+    // Every stored result says where it ran. Results written here without one were computed by
+    // this server (agent results arrive with their own, WP-F).
+    if (!result.computeProvenance) result.computeProvenance = serverProvenance(null);
     mutantCache.set(cacheKey, result);
     const entry = {
       ...result,
@@ -121,6 +139,12 @@ export interface FoldxCacheKeyOptions {
   temperature?: number;
   ionicStrength?: number;
   seed?: number;
+  /**
+   * The FoldX version that will run it, when the host reports one (agents, WP-F). Part of the key so
+   * two versions never share a result. Absent for the server, whose bundled FoldX is the one every
+   * existing cache entry was computed with, so those entries stay valid.
+   */
+  toolVersion?: string;
 }
 
 export function getFoldxCacheKey(
@@ -132,7 +156,8 @@ export function getFoldxCacheKey(
   // a mean and SD that discarded legitimate runs, so it must not be served as the current answer.
   const FOLDX_CACHE_VERSION = "v3";
   const seed = options?.seed !== undefined ? options.seed : 12345;
-  return `${pdbHash}_${mutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${FOLDX_CACHE_VERSION}`;
+  const tool = options?.toolVersion ? `_foldx:${options.toolVersion}` : "";
+  return `${pdbHash}_${mutation}_pH:${options?.pH ?? 7.0}_temp:${options?.temperature ?? 298}_ion:${options?.ionicStrength ?? 0.05}_seed:${seed}_version:${FOLDX_CACHE_VERSION}${tool}`;
 }
 
 // ---------------------------------------------------------------------------

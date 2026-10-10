@@ -18,6 +18,9 @@ import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import { submitterId, submitterLimits, submitterPlacementPref } from "../../auth/principal.ts";
 import { AdmissionError } from "../../services/infra/admission.ts";
 import { countResidues } from "../../services/stability/foldx/estimate.ts";
+import { pocketCache, pocketResultCacheKey } from "../../services/structure/pocket/runner.ts";
+import { pocketJobRegistry } from "../../services/infra/foldx-job-registry.ts";
+import { mayServe } from "../../../src/shared/computeProvenance.ts";
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import {
   resolveStructureReference,
@@ -263,14 +266,36 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
 
       try {
         const queue = BiophysicalJobQueue.getInstance();
+        const requester = submitterId(req);
+        const pocketKey = pocketResultCacheKey(effectivePdbText, mutIndexVal, effectiveTargetChain);
         let queueJobId: string;
         try {
-          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, {
-            ownerId: submitterId(req),
-            limits: submitterLimits(req),
-            residues: countResidues(effectivePdbText),
-            placementPref: submitterPlacementPref(req),
-          });
+          /**
+           * Shared cache and de-duplication (WP-E), in the order that costs least:
+           *   1. a stored result this person may be served → answered as an already-completed job,
+           *      so the client's polling is unchanged and no queue slot is used;
+           *   2. the same run already queued or running (anyone's) → join it;
+           *   3. otherwise enqueue, as the leader that others may join.
+           * Joining makes this person a watcher, so their cancel never stops the run for the others.
+           */
+          const cached = pocketCache.get(pocketKey);
+          if (cached && mayServe(cached, requester ?? null)) {
+            queueJobId = jobId;
+            await queue.addCompletedJob(queueJobId, "p2rank", { mutIndex: mutIndexVal, targetChain: effectiveTargetChain, fromCache: true }, cached);
+          } else {
+            const submission = await pocketJobRegistry.submitOrJoin({
+              cacheKey: pocketKey,
+              queue,
+              enqueue: () => queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, {
+                ownerId: requester,
+                limits: submitterLimits(req),
+                residues: countResidues(effectivePdbText),
+                placementPref: submitterPlacementPref(req),
+              }),
+            });
+            queueJobId = submission.queueJobId;
+            if (requester) queue.addWatcher(queueJobId, requester);
+          }
         } catch (queueErr: any) {
           if (queueErr instanceof QueueLimitError || queueErr instanceof AdmissionError) {
             sendError(res, queueErr.status, queueErr.code, queueErr.message);

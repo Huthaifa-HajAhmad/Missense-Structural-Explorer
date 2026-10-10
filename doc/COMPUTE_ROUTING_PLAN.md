@@ -56,6 +56,7 @@ one agent can take it without the others.
 | WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (16 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
 | WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test). Not done: process memory sampler, `compute:benchmark` | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
 | WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
+| WP-E shared cache and de-duplication | **done** (8 tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -140,6 +141,27 @@ one agent can take it without the others.
   `bad_alloc`/ENOMEM. FoldX reports it as "did not fit in memory on the server" (new `out-of-memory` failure kind,
   checked before the Box64 crash text); for other tools the queue prefixes the same sentence.
 - Not done: admission **by running cost** (needs measured memory to mean anything); "one heavy job per host".
+
+**Where WP-E differs from section 7** (the code is the source of truth):
+- The cache keys already covered the coordinates actually used (FoldX: hash of the cleaned `effectiveWtPdb`;
+  P2Rank: hash of the exact text) plus mutation/residue, chain and conditions. **Tool version is added only when
+  a host reports one** (agents, WP-F), so every existing server cache entry stays valid; the server's bundled
+  FoldX/P2Rank are the versions those entries were computed with.
+- The leader/follower logic is now a reusable `JobRegistry`; FoldX keeps its function names, P2Rank uses
+  `pocketJobRegistry`. Every person who submits or joins is a watcher (WP-B), so one cancel never stops the run
+  for the others.
+- P2Rank now checks its result cache **before** queueing and answers a hit as an already-completed job (the
+  client's polling is unchanged; no queue slot). Before, every request queued a job, even for a cached result.
+- Provenance is the `computeProvenance` field on each stored result: `computedOn`, `hostClass`, `toolVersion`,
+  `ownerId`, and for agent results `shared` and `validated`. The queue stamps the job's own result with its owner;
+  the FoldX cache stamps what it stores. A result with no provenance predates this and is the server's.
+- The sharing rule is one pure function, `mayServe` (`src/shared/computeProvenance.ts`): server results go to
+  anyone; an agent result goes to its owner, and to others only when validated **and** shared. Both cache reads
+  (FoldX `getMutantFromCache(key, requesterId)`, P2Rank in the route) apply it. Agents do not exist yet, so today
+  every result is the server's; WP-F must stamp `shared` from the owner's `share_results` and `validated` from
+  `validateAgentResult`.
+- Still process-local: two replicas can both run the same job (unchanged; the reservation would have to move into
+  the shared store).
 
 **How the client behaves** (`AccountGate`, mounted around `<App/>` in `main.tsx`):
 - `legacy` with no accounts, or a server without the account routes: the app exactly as before, with no

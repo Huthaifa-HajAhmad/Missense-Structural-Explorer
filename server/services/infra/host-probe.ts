@@ -12,7 +12,8 @@
  */
 import fs from "fs";
 import os from "os";
-import type { HostFeatures, HostTool } from "../../../src/shared/computeRouting.ts";
+import { hostClassOf, type HostFeatures, type HostTool } from "../../../src/shared/computeRouting.ts";
+import type { ComputeProvenance } from "../../../src/shared/computeProvenance.ts";
 import { CONFIG } from "../../config.ts";
 import { detectFoldxBinaryAndDir } from "../stability/foldx/detector.ts";
 import { foldxRunsEmulated } from "../stability/foldx/estimate.ts";
@@ -60,6 +61,17 @@ export function serverHostFacts(): Pick<HostFeatures, "arch" | "emulated" | "cor
     cores: os.cpus().length,
     totalRamBytes: os.totalmem(),
   };
+}
+
+/** Provenance for a result this server computed, for `ownerId`'s job (null for unowned/background work). */
+export function serverProvenance(ownerId: string | null): ComputeProvenance {
+  let hostClass: string | null = null;
+  try {
+    hostClass = hostClassOf(serverHostFacts());
+  } catch {
+    // Provenance must never fail the result it describes.
+  }
+  return { computedOn: "server", hostClass, toolVersion: null, ownerId };
 }
 
 export async function probeServerHost(load: { runningJobs: number; runningCostMs: number; queuedCostMs: number }): Promise<HostFeatures> {

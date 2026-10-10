@@ -10,7 +10,7 @@ import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLim
 import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute-telemetry.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, routingMode, type AdmissionInput } from "./admission.ts";
-import { probeServerHost, serverHostFacts, SERVER_HOST_ID } from "./host-probe.ts";
+import { probeServerHost, serverHostFacts, serverProvenance, SERVER_HOST_ID } from "./host-probe.ts";
 import { foldxRepairApplies, hostClassOf, type CostModels, type PlacementPref } from "../../../src/shared/computeRouting.ts";
 
 export interface QueueJob {
@@ -693,6 +693,11 @@ export class SQLiteQueue {
             return;
           }
 
+          // Where it ran and for whom (WP-E). A worker that already stamped it (an agent) is left alone.
+          if (resData && typeof resData === "object" && !resData.computeProvenance) {
+            const owner = row.owner_id && row.owner_id !== LEGACY_OWNER && row.owner_id !== SYSTEM_OWNER ? row.owner_id : null;
+            resData.computeProvenance = serverProvenance(owner);
+          }
           this.db.prepare(`
             UPDATE biophysical_jobs
             SET status = 'completed', result = ?, completed_at = ?

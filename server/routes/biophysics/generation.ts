@@ -444,7 +444,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         // 1. Calculate cache key for FoldX mutant (one derivation, shared with the pre-warm registry)
         const foldxCacheKey = buildFoldxCacheKey(effectiveWtPdb, actualMutation, foldxOptions);
 
-        const cachedFoldx = await getMutantFromCache(foldxCacheKey);
+        // Served only if this person may have it (a result from someone's own computer may be private).
+        const cachedFoldx = await getMutantFromCache(foldxCacheKey, submitterId(req) ?? null);
 
         let queueJobId: string | null = null;
         isExistingActiveJob = false;
