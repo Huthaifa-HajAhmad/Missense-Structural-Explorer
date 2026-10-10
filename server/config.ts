@@ -29,18 +29,25 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 }
 
 /**
- * ONE number for "how many biophysical jobs run at once": the queue's slots and the FoldX
- * semaphore both read it, so a job can no longer hold a queue slot while waiting for a semaphore
- * slot that a smaller, separately computed number would never free.
+ * How many biophysical jobs the queue runs at once: `BIOPHYSICAL_CONCURRENCY`, default 4.
  *
- * `BIOPHYSICAL_CONCURRENCY` wins. Unset, it is `min(4, cpus - 1)`: the queue's old default of 4,
- * capped by the CPU count that the semaphore used to apply on its own, so throughput on an
- * existing host is unchanged.
+ * This is the UPPER bound for every tool. It is deliberately not reduced to the CPU count: P2Rank jobs
+ * do not take the FoldX semaphore, so on a 2-core host a queue of `cpus - 1 = 1` slot made every pocket
+ * job wait behind whatever FoldX run was in progress (a regression shipped and reverted, 2026-10-10).
  */
 export function resolveBiophysicalConcurrency(): number {
-  const fromEnv = parseInt(process.env.BIOPHYSICAL_CONCURRENCY ?? "", 10);
-  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
-  return Math.min(4, Math.max(1, os.cpus().length - 1));
+  return positiveInt(process.env.BIOPHYSICAL_CONCURRENCY, 4);
+}
+
+/**
+ * How many FoldX processes run at once: derived from the queue bound so the two cannot disagree upward,
+ * and capped by the CPU count when no explicit value is set (FoldX is CPU-bound; under Box64 on the
+ * 2-core server two at once only slow both). Unset on that host: queue 4, FoldX 1, exactly as before.
+ */
+export function resolveFoldxConcurrency(): number {
+  const explicit = positiveInt(process.env.BIOPHYSICAL_CONCURRENCY, 0);
+  if (explicit > 0) return explicit;
+  return Math.min(resolveBiophysicalConcurrency(), Math.max(1, os.cpus().length - 1));
 }
 
 export const CONFIG = {

@@ -6,7 +6,7 @@ import { isAlphaFoldModel } from "./estimate.ts";
 import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext, type FoldxRunContext } from "./failure.ts";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
-import { CONFIG, resolveBiophysicalConcurrency } from "../../../config.ts";
+import { CONFIG, resolveFoldxConcurrency } from "../../../config.ts";
 import { Semaphore } from "../../../utils.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
@@ -89,8 +89,8 @@ function execFileAsync(
   });
 }
 
-// Sized from the same number as the job queue's slots (server/config.ts), so the two cannot disagree.
-export const biophysicalSemaphore = new Semaphore(resolveBiophysicalConcurrency());
+// Derived from the queue's bound and capped by the CPU count (server/config.ts, resolveFoldxConcurrency).
+export const biophysicalSemaphore = new Semaphore(resolveFoldxConcurrency());
 
 export interface FoldxOptions {
   pH?: number;
