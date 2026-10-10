@@ -40,7 +40,10 @@ export function installOnce(target: string, build: () => Promise<unknown>, now =
   const failed = failedAt.get(target); if (failed !== undefined && now - failed < RETRY_AFTER_MS) return Promise.resolve(false);
   const flight = (async () => {
     try { await writeSnapshotAtomically(target, await build()); failedAt.delete(target); return true; }
-    catch { failedAt.set(target, Date.now()); return false; }
+    // Record the attempt's own clock, not wall time: the retry window is `now - failedAt`, and using
+    // Date.now() made the injected `now` lose the few ms the failed attempt actually took, so a caller
+    // exactly at RETRY_AFTER_MS saw the failure as still fresh (snapshotInstall.test.ts flaked on CI).
+    catch { failedAt.set(target, now); return false; }
   })().finally(() => { flights.delete(target); });
   flights.set(target, flight); return flight;
 }
