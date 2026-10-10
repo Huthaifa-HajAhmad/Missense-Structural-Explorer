@@ -1,12 +1,12 @@
-import os from "os";
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
 import { buildModelBudgetMs, FOLDX_REPAIR_MAX_RESIDUES } from "./budget.ts";
+import { isAlphaFoldModel } from "./estimate.ts";
 import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext, type FoldxRunContext } from "./failure.ts";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
-import { CONFIG } from "../../../config.ts";
+import { CONFIG, resolveBiophysicalConcurrency } from "../../../config.ts";
 import { Semaphore } from "../../../utils.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
@@ -89,9 +89,8 @@ function execFileAsync(
   });
 }
 
-// A-4 Fix: Dynamically size biophysical semaphore concurrency based on CPU core availability
-const defaultConcurrency = parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "", 10) || Math.max(1, os.cpus().length - 1);
-export const biophysicalSemaphore = new Semaphore(defaultConcurrency);
+// Sized from the same number as the job queue's slots (server/config.ts), so the two cannot disagree.
+export const biophysicalSemaphore = new Semaphore(resolveBiophysicalConcurrency());
 
 export interface FoldxOptions {
   pH?: number;
@@ -355,10 +354,7 @@ export async function generateMutantPdbInternal(
    * whether repairing small AlphaFold models helps; the skip is disclosed via
    * `foldxRepairSkippedReason`, so the UI says the template was not repaired and why.
    */
-  const isAlphaFoldPdb = /ALPHAFOLD|DBREF.*AF\-/i.test(wtPdb) || 
-    /^REMARK.*ALPHAFOLD/mi.test(wtPdb) ||
-    /^HEADER.*PREDICTED/mi.test(wtPdb) ||
-    detectBFactorProvenance(wtPdb).source === "alphafold";
+  const isAlphaFoldPdb = isAlphaFoldModel(wtPdb);
   const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES && !isAlphaFoldPdb;
   const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
   /** Sized to this structure and host (see budget.ts): a flat 180 s killed working Box64 runs. */

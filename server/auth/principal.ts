@@ -18,6 +18,8 @@ import type express from "express";
 import { safeCompare } from "../utils.ts";
 import { getAgentByTokenHash, hashToken, type User } from "./store.ts";
 import { resolveSession } from "./sessions.ts";
+import { authSettings } from "./config.ts";
+import type { SubmitterLimits } from "../services/infra/queue-owners.ts";
 
 export type Principal =
   | { kind: "user"; userId: string; user: User; sessionIdHash: string }
@@ -52,6 +54,30 @@ const AGENT_USER_PATHS = new Set(["/agent/pair"]);
 export function isAgentPath(path: string): boolean {
   const p = path.toLowerCase().replace(/\/+$/, "");
   return (p === "/agent" || p.startsWith("/agent/")) && !AGENT_USER_PATHS.has(p);
+}
+
+/**
+ * The id a job is filed under: the signed-in person's, or `undefined` for everything else (the
+ * shared service token, anonymous legacy use), which the queue files as `legacy`. Agents never
+ * submit server jobs, so they have no entry here.
+ */
+export function submitterId(req: express.Request): string | undefined {
+  return req.principal?.kind === "user" ? req.principal.userId : undefined;
+}
+
+/**
+ * The queue limits that apply to this request's submitter: the account settings, overridden per
+ * person by an admin (`quota_json`). `undefined` for unowned work, which meets only the host backstop.
+ */
+export function submitterLimits(req: express.Request): SubmitterLimits | undefined {
+  if (req.principal?.kind !== "user") return undefined;
+  const s = authSettings();
+  const q = req.principal.user.quota;
+  return {
+    queuedPerUser: q?.queuedPerUser ?? s.queuedPerUser,
+    queuedPerUserExplicit: q?.queuedPerUser != null,
+    serverSecondsPerDay: q?.serverSecondsPerDay ?? s.serverSecondsPerDay,
+  };
 }
 
 export function resolvePrincipal(req: express.Request, now: number = Date.now()): Principal {

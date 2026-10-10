@@ -48,6 +48,9 @@ import { type FoldXResult } from "../state.ts";
 // (the consensus is computed once, in `enrichBiophysicalResult`, and is no longer recomputed here)
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
 import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
+import { submitterId, submitterLimits } from "../../auth/principal.ts";
+import { QueueLimitError } from "../../services/infra/queue-owners.ts";
+import { foldxQueueCostEstimateMs } from "../../services/stability/foldx/estimate.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -516,7 +519,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   raspSource: null,
                   raspError: null
                 }
-              });
+              }, { ownerId: submitterId(req), limits: submitterLimits(req), costEstimateMs: foldxQueueCostEstimateMs(effectiveWtPdb) });
             }
           });
 
@@ -525,6 +528,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           joinedJobStatus = submission.status;
           joinedJobStartedAt = submission.startedAt;
           joinedJobPhase = submission.phase;
+
+          const watcherId = submitterId(req);
+          if (watcherId) queue.addWatcher(queueJobId, watcherId);
 
           if (submission.joined) {
             const existingJobData = submission.jobData;
@@ -903,6 +909,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           queuedAhead: joinedJobStatus === "running"
             ? 0
             : (queueJobId ? await BiophysicalJobQueue.getInstance().getQueuePosition(queueJobId) : null),
+          queuedEtaMs: joinedJobStatus === "running" || !queueJobId
+            ? null
+            : ((await BiophysicalJobQueue.getInstance().getEta(queueJobId))?.waitMs ?? null),
           dynamut2JobId,
           dynamut2Status,
           ddmutJobId,
@@ -912,7 +921,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           thermompnnError
         });
       } catch (err: any) {
-        if (err.message.includes("BUSY")) {
+        if (err instanceof QueueLimitError) {
+          sendError(res, err.status, err.code, err.message);
+        } else if (err.message.includes("BUSY")) {
           sendError(res, 503, "SERVICE_UNAVAILABLE", "Biophysical queue is busy. Please try again later.");
         } else {
           throw err;

@@ -326,7 +326,9 @@ describe("PrewarmManager", () => {
         expect.objectContaining({
           mutation: "VA600E",
           uniprotId: "P15056"
-        })
+        }),
+        // Pre-warm is the system's own work: it must sort behind every reader's job.
+        { ownerId: "system" }
       );
       expect(activeBackgroundTasks.length).toBe(0);
       expect(await inFlightPrewarms.has(KEY)).toBe(false);
@@ -343,7 +345,8 @@ describe("PrewarmManager", () => {
 
       expect(mockPushJob).toHaveBeenCalledWith(
         "foldx",
-        expect.objectContaining({ options: DEFAULT_FOLDX_CONDITIONS })
+        expect.objectContaining({ options: DEFAULT_FOLDX_CONDITIONS }),
+        expect.anything()
       );
     });
 
@@ -358,7 +361,7 @@ describe("PrewarmManager", () => {
 
       // Without this flag a reader request that joins the job assumes the original submitter ran
       // DynaMut2 / DDMut / ThermoMPNN / StabilityOracle — and the pre-warm runs none of them.
-      expect(mockPushJob).toHaveBeenCalledWith("foldx", expect.objectContaining({ prewarm: true }));
+      expect(mockPushJob).toHaveBeenCalledWith("foldx", expect.objectContaining({ prewarm: true }), expect.anything());
     });
 
     /**

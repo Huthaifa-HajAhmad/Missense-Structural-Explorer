@@ -53,6 +53,7 @@ one agent can take it without the others.
 | WP-I2 cache audit (read-only part) | **done**; the fixes it lists are not | `doc/EGRESS_AUDIT.md` |
 | WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
+| WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (16 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -76,12 +77,49 @@ one agent can take it without the others.
 - `deploy/backup-sqlite.sh` now also backs up `accounts.sqlite`.
 - Agent tokens: the `/agent/*` rule (agent token only; a cookie is neither required nor sufficient) is
   enforced centrally in `accountAccess`; pairing and the agent routes are WP-F.
-- Not yet: cancelling a disabled user's queued jobs and usage numbers in `/auth/me` (both need WP-B).
+- Disabling a user now cancels their queued and running jobs, and `/auth/me` reports usage (both WP-B).
 - Added for the client: `GET /auth/session` (public, never 401: mode, user or null, `setupAvailable`,
   `accountsExist`), `GET /admin/invites` and `DELETE /admin/invites/:id`. A new invite for an address
   replaces its older unused one. Setup, invite acceptance and reset all record `last_login_at`.
 - The password rule lives in `src/shared/accountPolicy.ts`, read by both the server check and the
   browser's live checklist.
+
+**Where WP-B differs from section 7** (the code is the source of truth):
+- The claim rule is `priority`, then fewest running jobs for the owner, then the owner **served least recently**,
+  then the owner whose oldest queued job is oldest, then that owner's oldest job. The "served least recently"
+  step is an addition: with the specified rule alone a single slot (concurrency 1) has no running job to
+  compare and falls back to arrival order, so one person's 30 jobs would still block everyone.
+- Queue position (`queuedAhead`) is computed by applying the same rule in memory (`queuedInStartOrder`) and a
+  test consumes the real scheduler and compares. It assumes nothing finishes in between, which is the honest
+  upper bound. `queuedEtaMs` is added to the FoldX submit and poll responses; it is `null` unless every job ahead
+  has a cost estimate. FoldX jobs get one at submit time: the WP-C prior for the structure's residue count,
+  repair rule and this host's emulation (`server/services/stability/foldx/estimate.ts`). P2Rank jobs have none
+  yet, so a P2Rank job ahead makes the wait unknown. The P2Rank poll now returns `queuedAhead` as well.
+- The submitter is the first row of `job_watchers`. A person who submits the same request as a running job
+  joins it (WP-E will extend this to the shared cache); joining a pre-warm job lifts it from `-10` to `0` so
+  someone's wait is not behind other people's newer work.
+- `POST /jobs/:id/cancel` (not under `/biophysics`; the existing job routes have no such prefix). Owner or
+  watcher: withdraws their own interest, and the job stops only when nobody is left. Admin: stops it outright.
+  Anyone else: 403. Without accounts, the shared token may cancel jobs that have no owner.
+- `GET /my-jobs` needs an account. The `legacy` owner shares one rotation slot between all unowned work.
+- Limits: `QUOTA_QUEUED_PER_USER` (25) counts **waiting** jobs only; `QUEUE_MAX_TOTAL` (50, was a constant)
+  remains the host backstop. Running jobs are never counted against a person. **The queued limit is
+  work-conserving, like the scheduler** (a deliberate change to 4.4's fixed 25): it is a per-person *share* that
+  binds only while someone else (a person or unowned work; not pre-warm) is also waiting. Alone, a person may
+  queue up to `QUEUE_MAX_TOTAL - 5`; the 5 are kept for a colleague who arrives. When someone does, nothing
+  already queued is dropped: the heavy user simply cannot add more until back under 25, and the rotation starts
+  the newcomer's work next. An admin's explicit per-person override (`quota_json.queuedPerUser`) is a
+  restriction, not a share, and applies at all times. `QUOTA_SERVER_SECONDS_PER_DAY` (or the override) is enforced when set, per UTC day,
+  counting failed and cancelled time too. A person's own limit answers **429** with their numbers
+  (`QUEUED_PER_USER`, `DAILY_SERVER_TIME`); a full host stays 503.
+- `/auth/me` `usage` is now `{ todaySeconds, weekSeconds }` (today = UTC day, week = last 7 days).
+- One concurrency number: `resolveBiophysicalConcurrency()` in `server/config.ts` feeds both the queue and the
+  FoldX semaphore. Unset it is `min(4, cpus - 1)`, i.e. the effective throughput of before, now in agreement.
+- Item 7's admission **by running cost** (rather than job count) is left to WP-D, which owns admission; WP-B
+  only unified the two counts.
+- The Redis backend ignores owners, priorities, watchers, `my-jobs` and cancel-by-person (documented, as planned).
+- A stopped running job is marked `failed` with the error `Cancelled.`; the unwinding callback can no longer
+  overwrite that (status-guarded writes).
 
 **How the client behaves** (`AccountGate`, mounted around `<App/>` in `main.tsx`):
 - `legacy` with no accounts, or a server without the account routes: the app exactly as before, with no
@@ -398,7 +436,7 @@ safety limits [proposed defaults, env-overridable, per-user overrides in `quota_
 | Mechanism | Behaviour |
 |---|---|
 | **Fair share (scheduler, WP-B)** | When nobody else is waiting, a user may use **every** free slot. When others are waiting, slots are shared round-robin, and a user over their share simply waits behind the others. No one is ever refused for using idle capacity. |
-| Queued jobs per user | 25, to stop a runaway script or a client bug from filling the queue. Message says how many are queued and how to cancel. |
+| Queued jobs per user | 25 **while others are waiting too** (a share); alone, up to the host backstop less a 5-job reserve for newcomers (as shipped, see 0.3). Stops a runaway script or a client bug from filling the queue for others. Message says how many are queued and why. An admin override is a fixed limit. |
 | Memory admission (WP-D) | Refuses or defers a job that would not fit the host's RAM, with the reason. This protects the host, not the budget. |
 | Requests per user per minute | 20 at the HTTP layer, same purpose. |
 | **Usage display, not enforcement** | Each user and the admin can see server seconds used (today, week). Informational. |

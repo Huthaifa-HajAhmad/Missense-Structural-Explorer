@@ -15,6 +15,8 @@ import {
   getResidueDetails,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
+import { submitterId, submitterLimits } from "../../auth/principal.ts";
+import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import {
   resolveStructureReference,
   structureReferenceMatchesText,
@@ -261,8 +263,12 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         const queue = BiophysicalJobQueue.getInstance();
         let queueJobId: string;
         try {
-          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir });
+          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, { ownerId: submitterId(req), limits: submitterLimits(req) });
         } catch (queueErr: any) {
+          if (queueErr instanceof QueueLimitError) {
+            sendError(res, queueErr.status, queueErr.code, queueErr.message);
+            return;
+          }
           if (queueErr.message.includes("BUSY")) {
             sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Queue limit reached.");
             return;
@@ -314,7 +320,9 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         jobId,
         status: jobInfo.status,
         result: jobInfo.result,
-        error: jobInfo.error
+        error: jobInfo.error,
+        // Where it stands while it waits, in the order the scheduler will really start jobs.
+        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null
       });
     } catch (err: any) {
       console.error("Pocket job polling route failure:", err);
@@ -337,7 +345,9 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         jobId,
         status: jobInfo.status,
         result: jobInfo.result,
-        error: jobInfo.error
+        error: jobInfo.error,
+        // Where it stands while it waits, in the order the scheduler will really start jobs.
+        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null
       });
     } catch (err: any) {
       console.error("Pocket job polling route failure:", err);

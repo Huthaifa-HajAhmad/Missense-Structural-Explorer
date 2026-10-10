@@ -1476,6 +1476,8 @@ export const generateMutantResponseSchema = z.object({
    */
   elapsedMs: nullableFiniteNumber.optional(),
   queuedAhead: nullableFiniteNumber.optional(),
+  /** Estimated wait before the job starts, in ms; null when the server has no estimate for what is ahead. */
+  queuedEtaMs: nullableFiniteNumber.optional(),
   energetics: energeticsDataSchema.optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),
