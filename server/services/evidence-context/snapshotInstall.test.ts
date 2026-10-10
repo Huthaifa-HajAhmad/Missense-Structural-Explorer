@@ -31,10 +31,13 @@ describe('first-use snapshot install', () => {
   });
   it('remembers a failure for 15 minutes instead of hammering a down source, then retries', async () => {
     const file = await target(); const build = vi.fn().mockRejectedValueOnce(new Error('down')).mockResolvedValue({ ok: true });
-    const t0 = Date.now();
+    // A synthetic clock, not Date.now(): recording the failure at wall time put the retry boundary
+    // 1 ms from the call that failed, and the scheduler overran it on CI.
+    const t0 = 1_000_000;
     expect(await installOnce(file, build, t0)).toBe(false);
     expect(await installOnce(file, build, t0 + 1000)).toBe(false); expect(build).toHaveBeenCalledOnce();
-    expect(await installOnce(file, build, t0 + RETRY_AFTER_MS + 1)).toBe(true); expect(build).toHaveBeenCalledTimes(2);
+    expect(await installOnce(file, build, t0 + RETRY_AFTER_MS - 1)).toBe(false); expect(build).toHaveBeenCalledOnce();
+    expect(await installOnce(file, build, t0 + RETRY_AFTER_MS)).toBe(true); expect(build).toHaveBeenCalledTimes(2);
   });
   it('installs a MISSING GenCC snapshot on first request and never replaces an installed one', async () => {
     const file = await target(); process.env.GENCC_CONTEXT_PATH = file;
