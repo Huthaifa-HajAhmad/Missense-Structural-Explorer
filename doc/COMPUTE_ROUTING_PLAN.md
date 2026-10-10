@@ -116,8 +116,11 @@ one agent can take it without the others.
   counting failed and cancelled time too. A person's own limit answers **429** with their numbers
   (`QUEUED_PER_USER`, `DAILY_SERVER_TIME`); a full host stays 503.
 - `/auth/me` `usage` is now `{ todaySeconds, weekSeconds }` (today = UTC day, week = last 7 days).
-- One concurrency number: `resolveBiophysicalConcurrency()` in `server/config.ts` feeds both the queue and the
-  FoldX semaphore. Unset it is `min(4, cpus - 1)`, i.e. the effective throughput of before, now in agreement.
+- Concurrency: the queue runs `BIOPHYSICAL_CONCURRENCY` jobs (default 4) and the FoldX semaphore is derived
+  from it (`resolveFoldxConcurrency`: the explicit value when set, else `min(queue, cpus - 1)`), so FoldX can
+  never be given more slots than the queue. A first version used one shared `min(4, cpus - 1)` for both; on the
+  2-core server that is 1 and P2Rank (which does not take the FoldX semaphore) waited behind every FoldX run.
+  Reverted the same day; `server/tests/concurrency-defaults.test.ts` pins it.
 - Item 7's admission **by running cost** (rather than job count) is left to WP-D, which owns admission; WP-B
   only unified the two counts.
 - The Redis backend ignores owners, priorities, watchers, `my-jobs` and cancel-by-person (documented, as planned).
