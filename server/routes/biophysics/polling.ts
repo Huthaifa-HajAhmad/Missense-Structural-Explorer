@@ -27,6 +27,8 @@ import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 // from a five-engine subset produced a verdict that disagreed with the one on screen.
 import { recordJobInRegistry, getRegistryPath, type RegistryJob } from "../shared.ts";
 import { requireUser, noStore } from "../../auth/middleware.ts";
+import { submitterId } from "../../auth/principal.ts";
+import { withProvenanceFor } from "../../../src/shared/computeProvenance.ts";
 import { LEGACY_OWNER, SYSTEM_OWNER } from "../../services/infra/queue-owners.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 
@@ -286,12 +288,14 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
 
         const enriched = enrichBiophysicalResult(jobInfo.result, remoteJobs, structureProvenance, posNum);
 
-        broadcastJobUpdate({ jobId, tool: "foldx", status: "completed", result: enriched });
+        // Anyone holding the job id can poll it: an owner's account id is shown only to that owner,
+        // and never on the broadcast stream.
+        broadcastJobUpdate({ jobId, tool: "foldx", status: "completed", result: withProvenanceFor(enriched, null) });
 
         return res.json({
           jobId,
           status: "completed",
-          result: enriched,
+          result: withProvenanceFor(enriched, submitterId(req)),
           dynamut2JobId: remoteJobs.dynamut2JobId,
           dynamut2Status: remoteJobs.dynamut2Status,
           ddmutJobId: remoteJobs.ddmutJobId,
@@ -312,12 +316,12 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
           ? enrichBiophysicalResult(jobInfo.result, remoteJobs, structureProvenance, posNum)
           : enrichBiophysicalResult({ pdb: null, ddG: null, status: "failed", error: jobInfo.error }, remoteJobs, structureProvenance, posNum);
 
-        broadcastJobUpdate({ jobId, tool: "foldx", status: "failed", error: jobInfo.error || "FoldX job failed during execution", result: enriched });
+        broadcastJobUpdate({ jobId, tool: "foldx", status: "failed", error: jobInfo.error || "FoldX job failed during execution", result: withProvenanceFor(enriched, null) });
         return res.json({
           jobId,
           status: "failed",
           error: jobInfo.error || "FoldX job failed during execution",
-          result: enriched,
+          result: withProvenanceFor(enriched, submitterId(req)),
           dynamut2JobId: remoteJobs.dynamut2JobId,
           dynamut2Status: remoteJobs.dynamut2Status,
           ddmutJobId: remoteJobs.ddmutJobId,

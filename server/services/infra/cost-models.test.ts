@@ -54,7 +54,11 @@ describe("buildCostModels", () => {
     const foldx = models[costModelKey("foldx", CLASS)];
     expect(foldx.samples).toBe(3);
     expect(foldx.maxCompletedResidues).toBe(1085);
-    expect(foldx.oomCeilingResidues).toBe(1400);
+    // One out-of-memory death is not enough to enforce a ceiling (it may be misclassified).
+    expect(foldx.oomCeilingResidues).toBeNull();
+    const twice = buildCostModels([...rows, sample(1600, 0, { outcome: "oom" })]);
+    // Two deaths: the ceiling is the smallest size at or below which the host died twice.
+    expect(twice[costModelKey("foldx", CLASS)].oomCeilingResidues).toBe(1600);
     expect(foldx.wall?.b).toBeGreaterThan(1);
     expect(foldx.peakRam).toBeNull();
     expect(models[costModelKey("p2rank", CLASS)].samples).toBe(1);

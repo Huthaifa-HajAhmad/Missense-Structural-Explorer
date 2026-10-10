@@ -4,7 +4,7 @@ import { SQLiteQueue, BiophysicalJobQueue, AdmissionError } from "./biophysical-
 import { classifyJobFailure, isOutOfMemory } from "./failure-class.ts";
 import { _resetHostProbe, serverHostFacts } from "./host-probe.ts";
 import { recordTelemetry } from "./compute-telemetry.ts";
-import { ceilingRefusal } from "./admission.ts";
+import { ceilingRefusal, routingPolicyFromEnv } from "./admission.ts";
 import { hostClassOf } from "../../../src/shared/computeRouting.ts";
 import { classifyFoldxFailure, describeFoldxFailure } from "../stability/foldx/failure.ts";
 
@@ -94,7 +94,9 @@ describe("admission (WP-D)", () => {
     process.env.COMPUTE_ROUTING = "on";
     const started: string[] = [];
     const queue = BiophysicalJobQueue.initialize(1, async (_t, d) => { started.push(d.name); return "ok"; });
+    // Two deaths at or below 800: one alone is never enforced.
     seedOom(dbOf(queue), 800);
+    seedOom(dbOf(queue), 780, "oom-780");
     sqliteOf(queue).getCostModels(); // first fit
 
     const refused = await queue.pushJob("foldx", { name: "big" }, { ownerId: "X", residues: 900 }).catch((e) => e);
@@ -109,25 +111,30 @@ describe("admission (WP-D)", () => {
     expect(started).toEqual(["small"]);
   });
 
-  it("on: a killed child marks the ceiling, and the next larger job is refused, not run into the same death", async () => {
+  it("on: two killed children set the ceiling, and the next larger job is refused, not run into the same death", async () => {
     process.env.COMPUTE_ROUTING = "on";
     const started: string[] = [];
-    let releaseFirst!: () => void;
+    const kill = new Map<string, () => void>();
     const queue = BiophysicalJobQueue.initialize(1, (_t, d) => {
       started.push(d.name);
-      if (d.name === "first") {
+      if (d.name.startsWith("dies")) {
         return new Promise((_res, rej) => {
-          releaseFirst = () => rej(Object.assign(new Error("Command failed: box64 foldx"), { signal: "SIGKILL", killed: false }));
+          kill.set(d.name, () => rej(Object.assign(new Error("Command failed: box64 foldx"), { signal: "SIGKILL", killed: false })));
         });
       }
       return Promise.resolve("ok");
     });
 
-    const first = await queue.pushJob("foldx", { name: "first" }, { ownerId: "X", residues: 700 });
-    // Queued behind it, and larger: admitted now, because nothing has died yet.
-    const waiting = await queue.pushJob("foldx", { name: "waiting" }, { ownerId: "Y", residues: 750 });
+    const first = await queue.pushJob("foldx", { name: "dies-1" }, { ownerId: "X", residues: 700 });
+    await queue.pushJob("foldx", { name: "dies-2" }, { ownerId: "Y", residues: 720 });
+    // Queued behind them, and larger: admitted now, because nothing has died yet.
+    const waiting = await queue.pushJob("foldx", { name: "waiting" }, { ownerId: "Z", residues: 750 });
     await tick();
-    releaseFirst();
+    kill.get("dies-1")!();
+    await tick(250);
+    // One death teaches nothing enforceable: the second job still starts.
+    expect(started).toEqual(["dies-1", "dies-2"]);
+    kill.get("dies-2")!();
     await tick(300);
 
     const firstStatus = await queue.getJobStatus(first);
@@ -136,11 +143,29 @@ describe("admission (WP-D)", () => {
 
     const waitingStatus = await queue.getJobStatus(waiting);
     expect(waitingStatus?.status).toBe("failed");
-    expect(waitingStatus?.error).toMatch(/too large to run on the shared server: a structure of 700 residues ran out of memory/);
-    expect(started).toEqual(["first"]); // never started
+    expect(waitingStatus?.error).toMatch(/too large to run on the shared server: a structure of 720 residues ran out of memory/);
+    expect(started).toEqual(["dies-1", "dies-2"]); // never started
 
-    const later = await queue.pushJob("foldx", { name: "later" }, { ownerId: "Z", residues: 760 }).catch((e) => e);
+    const later = await queue.pushJob("foldx", { name: "later" }, { ownerId: "Q", residues: 760 }).catch((e) => e);
     expect(later).toBeInstanceOf(AdmissionError);
+
+    // The admin can forget the learned limit; the same job is then admitted.
+    expect(queue.forgetOomCeilings()).toBe(2);
+    await expect(queue.pushJob("foldx", { name: "later" }, { ownerId: "Q", residues: 760 })).resolves.toBeTruthy();
+  });
+
+  it("a job we kill ourselves (cancel, timeout) is never recorded as out of memory", async () => {
+    process.env.COMPUTE_ROUTING = "on";
+    const queue = BiophysicalJobQueue.initialize(1, (_t, _d, signal) => new Promise((_res, rej) => {
+      // What a tool killed with SIGKILL by our abort looks like: no `killed` flag, as with process.kill(-pid).
+      signal?.addEventListener("abort", () => rej(Object.assign(new Error("Command failed"), { signal: "SIGKILL", killed: false })));
+    }));
+    const id = await queue.pushJob("foldx", { name: "j" }, { ownerId: "X", residues: 500 });
+    await tick();
+    await queue.cancelFor(id, "X", false);
+    await tick(200);
+    const rows = dbOf(queue).prepare("SELECT outcome FROM job_telemetry WHERE job_id = ?").all(id) as any[];
+    expect(rows.map((r) => r.outcome)).toEqual(["cancelled"]);
   });
 
   it("shadow (the default outside tests): logs the decision and refuses nothing", async () => {
@@ -148,6 +173,7 @@ describe("admission (WP-D)", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const queue = BiophysicalJobQueue.initialize(1, async () => "ok");
     seedOom(dbOf(queue), 800);
+    seedOom(dbOf(queue), 790, "oom-790");
 
     await expect(queue.pushJob("foldx", { name: "big" }, { ownerId: "X", residues: 900 })).resolves.toBeTruthy();
     const line = log.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith("[routing:shadow]"));
@@ -173,5 +199,24 @@ describe("admission (WP-D)", () => {
 
   it("an unknown size is never refused (every rule is about size or tools)", () => {
     expect(ceilingRefusal("foldx", 0, serverHostFacts(), {})).toBeNull();
+  });
+});
+
+describe("engine tunables from the environment", () => {
+  const names = ["COST_MODEL_MIN_SAMPLES", "ROUTING_RAM_HEADROOM", "ROUTING_TIE_MARGIN"] as const;
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => { saved = Object.fromEntries(names.map((n) => [n, process.env[n]])); });
+  afterEach(() => { for (const n of names) { if (saved[n] === undefined) delete process.env[n]; else process.env[n] = saved[n]; } });
+
+  it("reads valid values, and ignores invalid ones with the defaults", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.COST_MODEL_MIN_SAMPLES = "12";
+    process.env.ROUTING_RAM_HEADROOM = "1.5";
+    process.env.ROUTING_TIE_MARGIN = "0.1";
+    expect(routingPolicyFromEnv("server_only")).toEqual({ placementPref: "server_only", minSamples: 12, ramHeadroom: 1.5, nearTieFraction: 0.1 });
+    process.env.COST_MODEL_MIN_SAMPLES = "zero";
+    process.env.ROUTING_RAM_HEADROOM = "0.5"; // below 1 would admit jobs that do not fit
+    process.env.ROUTING_TIE_MARGIN = "-1";
+    expect(routingPolicyFromEnv()).toEqual({ placementPref: "auto", minSamples: 8, ramHeadroom: 1.25, nearTieFraction: 0.2 });
   });
 });

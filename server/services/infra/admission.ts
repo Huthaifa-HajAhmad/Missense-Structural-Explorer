@@ -13,6 +13,7 @@
  * Only the server is a host until agents exist (WP-F), so the engine's job here is the hard filters:
  * the tool is installed, and the structure is not larger than this host class has shown it can hold.
  */
+import crypto from "crypto";
 import {
   DEFAULT_ROUTING_POLICY,
   costModelKey,
@@ -25,6 +26,7 @@ import {
   type JobFeatures,
   type JobType,
   type PlacementPref,
+  type RoutingPolicy,
 } from "../../../src/shared/computeRouting.ts";
 
 export type RoutingMode = "off" | "shadow" | "on";
@@ -72,20 +74,41 @@ export function jobFeaturesOf(input: AdmissionInput): JobFeatures {
   };
 }
 
-export function decide(input: AdmissionInput, server: HostFeatures, models: CostModels): Decision {
-  return decidePlacement(
-    jobFeaturesOf(input),
-    [server],
-    { ...DEFAULT_ROUTING_POLICY, placementPref: input.placementPref ?? "auto" },
-    models,
-  );
+function envNumber(name: string, fallback: number, ok: (n: number) => boolean): number {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  if (Number.isFinite(n) && ok(n)) return n;
+  console.warn(`[routing] Ignoring ${name}=${JSON.stringify(raw)}: not a valid value; using ${fallback}.`);
+  return fallback;
 }
 
+/**
+ * The engine's tunables, from the environment (plan section 8), falling back to the shipped defaults.
+ * Read per decision so a restart is all a change needs, and a bad value is logged and ignored rather
+ * than allowed to make every job look tied, unmeasured or out of memory.
+ */
+export function routingPolicyFromEnv(placementPref: PlacementPref = "auto"): RoutingPolicy {
+  return {
+    placementPref,
+    minSamples: Math.round(envNumber("COST_MODEL_MIN_SAMPLES", DEFAULT_ROUTING_POLICY.minSamples, (n) => n >= 1 && n <= 1000)),
+    ramHeadroom: envNumber("ROUTING_RAM_HEADROOM", DEFAULT_ROUTING_POLICY.ramHeadroom, (n) => n >= 1 && n <= 4),
+    nearTieFraction: envNumber("ROUTING_TIE_MARGIN", DEFAULT_ROUTING_POLICY.nearTieFraction, (n) => n >= 0 && n <= 1),
+  };
+}
+
+export function decide(input: AdmissionInput, server: HostFeatures, models: CostModels): Decision {
+  return decidePlacement(jobFeaturesOf(input), [server], routingPolicyFromEnv(input.placementPref ?? "auto"), models);
+}
+
+/** Pre-warm submissions are skipped: they are speculative and would drown the lines that matter. */
 export function logShadow(input: AdmissionInput, decision: Decision, actual: string): void {
+  if (input.ownerId === "system") return;
   console.log(`[routing:shadow] ${JSON.stringify({
     type: input.type,
     residues: input.residues,
-    owner: input.ownerId,
+    // A stable pseudonym, so one person's submissions can be followed without logging their account id.
+    owner: input.ownerId === "legacy" ? "legacy" : crypto.createHash("sha256").update(input.ownerId).digest("hex").slice(0, 10),
     decision: decision.placement.kind,
     reasons: decision.reasons,
     rejected: decision.rejected,

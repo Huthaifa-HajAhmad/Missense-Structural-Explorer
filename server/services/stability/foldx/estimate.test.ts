@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countResidues, foldxQueueCostEstimateMs, isAlphaFoldModel } from "./estimate.ts";
+import { countResidues, foldxQueueCostEstimateMs, foldxRunsEmulated, isAlphaFoldModel } from "./estimate.ts";
 import { foldxPriorP50Ms } from "../../../../src/shared/computeRouting.ts";
 
 /** A minimal PDB with `n` residues, each a CA (and an N, which must not double-count). */
@@ -21,9 +21,9 @@ describe("FoldX queue cost estimate", () => {
 
   it("is the WP-C prior for the structure's size and repair rule", () => {
     const est = foldxQueueCostEstimateMs(pdb(154))!;
-    // The test host runs FoldX natively, so this is the native prior with repair (154 <= 400).
+    // Whatever this machine is (native here, Box64 on the ARM server), the estimate uses the same flag.
     const repair = !isAlphaFoldModel(pdb(154));
-    expect(est).toBe(foldxPriorP50Ms({ residues: 154, numberOfRuns: 5, repair }, false));
+    expect(est).toBe(foldxPriorP50Ms({ residues: 154, numberOfRuns: 5, repair }, foldxRunsEmulated()));
     expect(est).toBeGreaterThan(0);
   });
 

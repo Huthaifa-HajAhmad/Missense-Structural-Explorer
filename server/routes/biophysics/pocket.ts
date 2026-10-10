@@ -20,7 +20,7 @@ import { AdmissionError } from "../../services/infra/admission.ts";
 import { countResidues } from "../../services/stability/foldx/estimate.ts";
 import { pocketCache, pocketResultCacheKey } from "../../services/structure/pocket/runner.ts";
 import { pocketJobRegistry } from "../../services/infra/foldx-job-registry.ts";
-import { mayServe } from "../../../src/shared/computeProvenance.ts";
+import { mayServe, withProvenanceFor } from "../../../src/shared/computeProvenance.ts";
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import {
   resolveStructureReference,
@@ -351,7 +351,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       res.json({
         jobId,
         status: jobInfo.status,
-        result: jobInfo.result,
+        result: withProvenanceFor(jobInfo.result, submitterId(req)),
         error: jobInfo.error,
         // Where it stands while it waits, in the order the scheduler will really start jobs.
         queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null
@@ -376,7 +376,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
       res.json({
         jobId,
         status: jobInfo.status,
-        result: jobInfo.result,
+        result: withProvenanceFor(jobInfo.result, submitterId(req)),
         error: jobInfo.error,
         // Where it stands while it waits, in the order the scheduler will really start jobs.
         queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null

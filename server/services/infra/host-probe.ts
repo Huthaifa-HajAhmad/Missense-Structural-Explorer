@@ -35,8 +35,16 @@ function foldxPresent(): boolean {
   }
 }
 
+let probing: Promise<HostTool[]> | null = null;
+
 export async function serverTools(now = Date.now()): Promise<HostTool[]> {
   if (toolCache && now - toolCache.at < TOOL_TTL_MS) return toolCache.tools;
+  // One probe at a time: a burst of submissions on a cold cache must not start one Java check each.
+  if (!probing) probing = probeTools(now).finally(() => { probing = null; });
+  return probing;
+}
+
+async function probeTools(now: number): Promise<HostTool[]> {
   const tools: HostTool[] = [];
   if (foldxPresent()) tools.push({ name: "foldx", version: "unknown", verified: true });
   try {
@@ -50,17 +58,26 @@ export async function serverTools(now = Date.now()): Promise<HostTool[]> {
 
 /** For tests: forget the cached tool list, or pin it (so a test does not depend on this machine's tools). */
 export function _resetHostProbe(pinned?: HostTool[]): void {
+  // A pinned list is stamped far in the future so `now - at` stays negative: it never expires.
   toolCache = pinned ? { at: Number.MAX_SAFE_INTEGER / 2, tools: pinned } : null;
+  hostFacts = null;
 }
 
-/** The facts that define this server's host class; cheap and synchronous, so the scheduler can use them per claim. */
+let hostFacts: Pick<HostFeatures, "arch" | "emulated" | "cores" | "totalRamBytes"> | null = null;
+
+/**
+ * The facts that define this server's host class, read ONCE per process. Telemetry and learned ceilings
+ * are filed under the class; re-reading per call let a transient (Box64 not yet mounted, a RAM reading
+ * on a bucket edge) file them under a different class and silently lose them.
+ */
 export function serverHostFacts(): Pick<HostFeatures, "arch" | "emulated" | "cores" | "totalRamBytes"> {
-  return {
+  hostFacts ??= {
     arch: process.arch === "arm64" ? "arm64" : "x64",
     emulated: foldxRunsEmulated(),
     cores: os.cpus().length,
     totalRamBytes: os.totalmem(),
   };
+  return hostFacts;
 }
 
 /** Provenance for a result this server computed, for `ownerId`'s job (null for unowned/background work). */

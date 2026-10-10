@@ -36,6 +36,16 @@ export function provenanceOf(result: unknown): ComputeProvenance | null {
     : null;
 }
 
+/**
+ * The result as `requesterId` may see it: the owner's id is kept only for the owner. Another person
+ * still learns where it ran and whether it was shared, which is what the interface shows.
+ */
+export function withProvenanceFor<T>(result: T, requesterId: string | null | undefined): T {
+  const p = provenanceOf(result);
+  if (!p || p.ownerId == null || (requesterId && p.ownerId === requesterId)) return result;
+  return { ...(result as object), computeProvenance: { ...p, ownerId: null } } as T;
+}
+
 /** May this result be given to anyone at all, beyond its owner? */
 export function mayServeToOthers(p: ComputeProvenance | null): boolean {
   if (!p || p.computedOn === "server") return true;
