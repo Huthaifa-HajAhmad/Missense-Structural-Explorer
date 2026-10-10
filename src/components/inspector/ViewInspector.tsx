@@ -442,7 +442,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         <button
           type="button"
           onClick={toggleCollapse}
-          className="p-1.5 rounded-lg hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-accent-clay cursor-pointer transition-colors shrink-0"
+          className="relative cs-tap-44 p-1.5 rounded-lg hover:bg-cs-bg-subtle text-cs-text-secondary hover:text-cs-accent-clay cursor-pointer transition-colors shrink-0"
           title="Collapse Inspector Panel"
           aria-label="Collapse Inspector Panel"
         >

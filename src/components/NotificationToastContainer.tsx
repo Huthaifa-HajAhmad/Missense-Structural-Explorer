@@ -74,7 +74,7 @@ export function NotificationToastContainer({
 
               <button
                 onClick={() => onRemoveNotification(notif.id)}
-                className="text-cs-text-muted hover:text-cs-text-primary p-0.5 rounded transition-colors cursor-pointer"
+                className="relative cs-tap-44 text-cs-text-muted hover:text-cs-text-primary p-0.5 rounded transition-colors cursor-pointer"
                 aria-label="Close notification"
               >
                 <X className="w-3.5 h-3.5" />
