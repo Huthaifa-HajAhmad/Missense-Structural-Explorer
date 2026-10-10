@@ -15,7 +15,9 @@ import {
   getResidueDetails,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
-import { submitterId, submitterLimits } from "../../auth/principal.ts";
+import { submitterId, submitterLimits, submitterPlacementPref } from "../../auth/principal.ts";
+import { AdmissionError } from "../../services/infra/admission.ts";
+import { countResidues } from "../../services/stability/foldx/estimate.ts";
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import {
   resolveStructureReference,
@@ -263,9 +265,14 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         const queue = BiophysicalJobQueue.getInstance();
         let queueJobId: string;
         try {
-          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, { ownerId: submitterId(req), limits: submitterLimits(req) });
+          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, {
+            ownerId: submitterId(req),
+            limits: submitterLimits(req),
+            residues: countResidues(effectivePdbText),
+            placementPref: submitterPlacementPref(req),
+          });
         } catch (queueErr: any) {
-          if (queueErr instanceof QueueLimitError) {
+          if (queueErr instanceof QueueLimitError || queueErr instanceof AdmissionError) {
             sendError(res, queueErr.status, queueErr.code, queueErr.message);
             return;
           }

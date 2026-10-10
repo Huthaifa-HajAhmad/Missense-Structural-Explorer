@@ -7,6 +7,11 @@ import { Queue, Worker } from "bullmq";
 import { CONFIG } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
 import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
+import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute-telemetry.ts";
+import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
+import { AdmissionError, ceilingRefusal, decide, logShadow, routingMode, type AdmissionInput } from "./admission.ts";
+import { probeServerHost, serverHostFacts, SERVER_HOST_ID } from "./host-probe.ts";
+import { foldxRepairApplies, hostClassOf, type CostModels, type PlacementPref } from "../../../src/shared/computeRouting.ts";
 
 export interface QueueJob {
   id: string;
@@ -24,7 +29,7 @@ export interface QueueJob {
   costEstimateMs?: number | null;
 }
 
-export { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError };
+export { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, AdmissionError };
 
 export interface EnqueueOptions {
   ownerId?: string;
@@ -33,6 +38,12 @@ export interface EnqueueOptions {
   placement?: string | null;
   /** The submitter's own limits; omitted for unowned work, which only meets the host backstop. */
   limits?: SubmitterLimits;
+  /** Residues of the structure the job will run on; 0/absent = unknown (admission is then skipped). */
+  residues?: number;
+  /** FoldX skips RepairPDB on AlphaFold models; needed to predict and to record what ran. */
+  isAlphaFoldModel?: boolean;
+  /** The submitter's placement preference (accounts); the engine reads it once agents exist. */
+  placementPref?: PlacementPref;
 }
 
 export interface JobSummary {
@@ -67,6 +78,7 @@ export class SQLiteQueue {
   private reaperInterval: NodeJS.Timeout | null = null;
   private isShutdown = false;
   private processingPaused: boolean;
+  private costModels!: CostModelCache;
 
   constructor(
     dbPath: string,
@@ -101,6 +113,8 @@ export class SQLiteQueue {
       );
     `);
     this.migrateOwnership();
+    ensureTelemetryTable(this.db);
+    this.costModels = new CostModelCache(this.db);
 
     // A standby shares the database with the serving process. Its running jobs are still alive.
     if (!paused) this.recoverInterruptedJobs();
@@ -124,6 +138,8 @@ export class SQLiteQueue {
     add("placement", "TEXT");
     add("lease_expires_at", "INTEGER");
     add("claimed_by", "TEXT");
+    add("residues", "INTEGER");
+    add("repaired", "INTEGER");
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_status ON biophysical_jobs(owner_id, status, created_at);
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_started ON biophysical_jobs(owner_id, started_at);
@@ -189,12 +205,14 @@ export class SQLiteQueue {
     const now = Date.now();
     const owner = opts.ownerId || LEGACY_OWNER;
     this.db.prepare(`
-      INSERT INTO biophysical_jobs (id, type, data, status, created_at, owner_id, priority, cost_estimate_ms, placement)
-      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)
+      INSERT INTO biophysical_jobs (id, type, data, status, created_at, owner_id, priority, cost_estimate_ms, placement, residues, repaired)
+      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, type, JSON.stringify(data), now, owner,
       opts.priority ?? (owner === SYSTEM_OWNER ? SYSTEM_PRIORITY : 0),
       opts.costEstimateMs ?? null, opts.placement ?? null,
+      opts.residues && opts.residues > 0 ? opts.residues : null,
+      type === "foldx" && opts.residues && opts.residues > 0 ? (foldxRepairApplies(opts.residues, Boolean(opts.isAlphaFoldModel)) ? 1 : 0) : null,
     );
     // The submitter is the first watcher: cancelling "my watch" then means the same thing for the
     // person who started a job and for someone who later joins it.
@@ -535,6 +553,50 @@ export class SQLiteQueue {
    * they take every free slot, and the rotation only matters once somebody else is waiting.
    * `queuedInStartOrder` applies the same rule in memory to report queue positions.
    */
+  /** What the server is doing now, for the engine: running jobs and the predicted cost of running and waiting work. */
+  loadSnapshot(now = Date.now()): { runningJobs: number; runningCostMs: number; queuedCostMs: number } {
+    let runningCostMs = 0;
+    for (const r of this.db.prepare("SELECT cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running'").all() as any[]) {
+      if (r.c != null) runningCostMs += Math.max(0, r.c - (now - (r.s ?? now)));
+    }
+    const queued = this.db.prepare("SELECT coalesce(sum(cost_estimate_ms), 0) AS c FROM biophysical_jobs WHERE status = 'queued'").get() as any;
+    return { runningJobs: this.activeJobs.size, runningCostMs, queuedCostMs: queued?.c ?? 0 };
+  }
+
+  /** The learned cost models (wall-time curves, size ceilings) for this database's telemetry. */
+  getCostModels(): CostModels {
+    return this.costModels.get();
+  }
+
+  /**
+   * One telemetry row for a job that has just ended. Never throws: bookkeeping must not be able to
+   * change how the job itself ended.
+   */
+  private recordEnding(jobId: string, outcome: "completed" | ReturnType<typeof classifyJobFailure>, errorClass: string | null) {
+    try {
+      const row = this.db.prepare("SELECT type, residues, repaired, started_at, completed_at FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+      if (!row) return;
+      recordTelemetry(this.db, {
+        jobId,
+        type: row.type,
+        hostId: SERVER_HOST_ID,
+        hostClass: hostClassOf(serverHostFacts()),
+        residues: row.residues ?? 0,
+        repaired: row.repaired == null ? null : row.repaired === 1,
+        runs: row.type === "foldx" ? 5 : null,
+        wallMs: row.started_at ? Math.max(0, (row.completed_at ?? Date.now()) - row.started_at) : null,
+        peakRssBytes: null,
+        outcome,
+        errorClass,
+        toolVersion: null,
+        createdAt: Date.now(),
+      });
+      this.costModels.noteRecorded(outcome);
+    } catch (err: any) {
+      console.warn(`[Queue] Could not record telemetry for ${jobId}:`, err?.message ?? err);
+    }
+  }
+
   private pickNext(): any {
     return this.db.prepare(`
       SELECT j.* FROM biophysical_jobs j
@@ -573,6 +635,20 @@ export class SQLiteQueue {
 
       const jobId = row.id;
       const type = row.type;
+
+      // A ceiling learned after this job was queued (another job of this size or smaller ran out of
+      // memory) stops it here, with the reason, instead of running it into the same death.
+      if (routingMode() === "on") {
+        const refusal = ceilingRefusal(type, row.residues ?? 0, serverHostFacts(), this.costModels.get());
+        if (refusal) {
+          this.db.prepare(`
+            UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
+            WHERE id = ? AND status = 'queued'
+          `).run(refusal, Date.now(), jobId);
+          continue;
+        }
+      }
+
       const data = JSON.parse(row.data);
 
       // Atomically set status to running
@@ -622,6 +698,7 @@ export class SQLiteQueue {
             SET status = 'completed', result = ?, completed_at = ?
             WHERE id = ? AND status = 'running'
           `).run(JSON.stringify(resData), Date.now(), jobId);
+          this.recordEnding(jobId, "completed", null);
         } catch (err: any) {
           if (timeoutId) clearTimeout(timeoutId);
           if (this.isShutdown) return;
@@ -634,13 +711,22 @@ export class SQLiteQueue {
           }
 
           console.error(`[Queue] SQLite job ${jobId} failed:`, err.message);
+          // A cancel already wrote its own ending; the error this callback unwinds with is the abort.
+          const ended = this.db.prepare("SELECT status, error, residues FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+          const outcome = ended?.status === "failed" && ended.error === "Cancelled." ? "cancelled" : classifyJobFailure(err);
+          let message = err.message || "Unknown error";
+          if (outcome === "oom" && !message.includes(DID_NOT_FIT_IN_MEMORY)) {
+            const size = ended?.residues ? ` (${ended.residues} residues)` : "";
+            message = `This structure${size} ${DID_NOT_FIT_IN_MEMORY}. ${message}`;
+          }
           try {
             this.db.prepare(`
               UPDATE biophysical_jobs
               SET status = 'failed', error = ?, completed_at = ?
               WHERE id = ? AND status = 'running'
-            `).run(err.message || "Unknown error", Date.now(), jobId);
+            `).run(message, Date.now(), jobId);
           } catch (_) {}
+          this.recordEnding(jobId, outcome, outcome === "failed" ? (err?.name ?? null) : outcome);
         } finally {
           if (!this.isShutdown && isAccounted) {
             if (this.activeJobs.has(jobId)) {
@@ -918,6 +1004,32 @@ export class BiophysicalJobQueue {
         }
       }
     }
+    // The placement engine: off, logged only (shadow), or allowed to refuse (on). Skipped when the
+    // structure's size is unknown, because every rule it applies is about size or tools.
+    if (this.sqliteQueue && opts.residues && opts.residues > 0) {
+      const mode = routingMode();
+      if (mode !== "off") {
+        const input: AdmissionInput = {
+          type,
+          residues: opts.residues,
+          isAlphaFoldModel: opts.isAlphaFoldModel,
+          ownerId: owner,
+          placementPref: opts.placementPref,
+        };
+        let decision;
+        try {
+          decision = decide(input, await probeServerHost(this.sqliteQueue.loadSnapshot()), this.sqliteQueue.getCostModels());
+        } catch (err: any) {
+          // The engine must never be the reason a job cannot be submitted.
+          console.warn("[routing] Admission check failed; submitting without it:", err?.message ?? err);
+        }
+        if (decision) {
+          if (mode === "shadow") logShadow(input, decision, "server");
+          else if (decision.placement.kind === "reject") throw new AdmissionError(decision.reasons);
+        }
+      }
+    }
+
     // Backstop for the whole host.
     const totalJobs = await this.getQueueLength();
     if (totalJobs >= this.maxQueueLength) {

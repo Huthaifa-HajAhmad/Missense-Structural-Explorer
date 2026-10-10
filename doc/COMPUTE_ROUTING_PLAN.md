@@ -54,6 +54,8 @@ one agent can take it without the others.
 | WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
 | WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (16 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
+| WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test). Not done: process memory sampler, `compute:benchmark` | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
+| WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -120,6 +122,24 @@ one agent can take it without the others.
 - The Redis backend ignores owners, priorities, watchers, `my-jobs` and cancel-by-person (documented, as planned).
 - A stopped running job is marked `failed` with the error `Cancelled.`; the unwinding callback can no longer
   overwrite that (status-guarded writes).
+
+**Where WP-0/WP-D differ from section 7** (the code is the source of truth):
+- Telemetry is written by the **queue** when a job settles, not by a wrapper in `server.ts`: the queue is the one
+  place that sees every ending (including timeouts it imposes and cancels). `job_telemetry` lives in the queue's
+  database as planned. `residues` and `repaired` are stored on the job at submit, so the row is exact.
+- `peak_rss_bytes` is null (no sampler yet), so memory never filters; the size rules do. Cost models are refitted
+  every 10 rows and **immediately after an OOM**, so a ceiling stops the very next larger job.
+- `COMPUTE_ROUTING` defaults to `shadow` (and to `off` under `NODE_ENV=test`). In `shadow` each submit logs one
+  `[routing:shadow] {...}` JSON line with the Decision. In `on`: a `reject` is **422 `CANNOT_RUN_HERE`** with the
+  engine's sentence; and a queued job is failed at **claim** time, with a reason and without starting, if an
+  out-of-memory ceiling at or below its size was learned while it waited. Jobs of unknown size are never judged.
+- The server's tools are reported from the same detectors that run them (`detectFoldxBinaryAndDir`,
+  `checkP2RankCapability`), cached 10 min; `verified` means "present" until a self-test exists. Read the shadow
+  log for a false "missing" before switching to `on`.
+- Out of memory = SIGKILL that Node did not send, exit 137, Java `OutOfMemoryError`, Node heap exhaustion,
+  `bad_alloc`/ENOMEM. FoldX reports it as "did not fit in memory on the server" (new `out-of-memory` failure kind,
+  checked before the Box64 crash text); for other tools the queue prefixes the same sentence.
+- Not done: admission **by running cost** (needs measured memory to mean anything); "one heavy job per host".
 
 **How the client behaves** (`AccountGate`, mounted around `<App/>` in `main.tsx`):
 - `legacy` with no accounts, or a server without the account routes: the app exactly as before, with no
@@ -1078,7 +1098,7 @@ learn rates from observed 429s rather than guess.
 | `EGRESS_PROVIDER_LIMITS_JSON` | none; optional override of the registry's per-provider limits | I |
 | `AGENT_FOLDX_SOURCE` | `team` (falls back to `guided` automatically when no bundle is uploaded) | F |
 | `ADMIN_SETUP_SECRET` | none; enables `/setup` only while no user exists | A |
-| `COMPUTE_ROUTING` | `off` | C, D, G |
+| `COMPUTE_ROUTING` | `shadow` (logs only; `off` under test) — move to `on` after reviewing the log | C, D, G |
 | `COST_MODEL_MIN_SAMPLES` | 8 | C |
 | `ROUTING_RAM_HEADROOM`, `ROUTING_TIE_MARGIN` | 1.25, 0.20 | C |
 | `AGENT_LEASE_SEC`, `AGENT_HEARTBEAT_SEC` | 60, 20 | F |

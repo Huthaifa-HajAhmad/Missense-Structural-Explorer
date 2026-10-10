@@ -80,6 +80,11 @@ export function submitterLimits(req: express.Request): SubmitterLimits | undefin
   };
 }
 
+/** The signed-in submitter's placement preference; `undefined` for unowned work. */
+export function submitterPlacementPref(req: express.Request): User["placementPref"] | undefined {
+  return req.principal?.kind === "user" ? req.principal.user.placementPref : undefined;
+}
+
 export function resolvePrincipal(req: express.Request, now: number = Date.now()): Principal {
   const token = bearer(req);
 
