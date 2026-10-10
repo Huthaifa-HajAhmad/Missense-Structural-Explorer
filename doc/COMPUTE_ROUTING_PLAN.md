@@ -53,7 +53,7 @@ one agent can take it without the others.
 | WP-I2 cache audit (read-only part) | **done**; the fixes it lists are not | `doc/EGRESS_AUDIT.md` |
 | WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
-| WP-B queue ownership, fair claim, cancel, my-jobs | **done** (15 queue + 6 HTTP tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
+| WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (16 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -77,7 +77,7 @@ one agent can take it without the others.
 - `deploy/backup-sqlite.sh` now also backs up `accounts.sqlite`.
 - Agent tokens: the `/agent/*` rule (agent token only; a cookie is neither required nor sufficient) is
   enforced centrally in `accountAccess`; pairing and the agent routes are WP-F.
-- Disabling a user now cancels their queued and running jobs (WP-B); usage numbers in `/auth/me` are not yet done.
+- Disabling a user now cancels their queued and running jobs, and `/auth/me` reports usage (both WP-B).
 - Added for the client: `GET /auth/session` (public, never 401: mode, user or null, `setupAvailable`,
   `accountsExist`), `GET /admin/invites` and `DELETE /admin/invites/:id`. A new invite for an address
   replaces its older unused one. Setup, invite acceptance and reset all record `last_login_at`.
@@ -91,8 +91,10 @@ one agent can take it without the others.
   compare and falls back to arrival order, so one person's 30 jobs would still block everyone.
 - Queue position (`queuedAhead`) is computed by applying the same rule in memory (`queuedInStartOrder`) and a
   test consumes the real scheduler and compares. It assumes nothing finishes in between, which is the honest
-  upper bound. `queuedEtaMs` is added to the job poll; it is `null` unless every job ahead has a cost estimate
-  (nothing sets estimates until WP-D, so it is `null` today).
+  upper bound. `queuedEtaMs` is added to the FoldX submit and poll responses; it is `null` unless every job ahead
+  has a cost estimate. FoldX jobs get one at submit time: the WP-C prior for the structure's residue count,
+  repair rule and this host's emulation (`server/services/stability/foldx/estimate.ts`). P2Rank jobs have none
+  yet, so a P2Rank job ahead makes the wait unknown. The P2Rank poll now returns `queuedAhead` as well.
 - The submitter is the first row of `job_watchers`. A person who submits the same request as a running job
   joins it (WP-E will extend this to the shared cache); joining a pre-warm job lifts it from `-10` to `0` so
   someone's wait is not behind other people's newer work.
@@ -101,9 +103,15 @@ one agent can take it without the others.
   Anyone else: 403. Without accounts, the shared token may cancel jobs that have no owner.
 - `GET /my-jobs` needs an account. The `legacy` owner shares one rotation slot between all unowned work.
 - Limits: `QUOTA_QUEUED_PER_USER` (25) counts **waiting** jobs only; `QUEUE_MAX_TOTAL` (50, was a constant)
-  remains the host backstop. Running jobs are never counted against a person.
+  remains the host backstop. Running jobs are never counted against a person. An admin's per-person override
+  (`quota_json`) wins. `QUOTA_SERVER_SECONDS_PER_DAY` (or the override) is enforced when set, per UTC day,
+  counting failed and cancelled time too. A person's own limit answers **429** with their numbers
+  (`QUEUED_PER_USER`, `DAILY_SERVER_TIME`); a full host stays 503.
+- `/auth/me` `usage` is now `{ todaySeconds, weekSeconds }` (today = UTC day, week = last 7 days).
 - One concurrency number: `resolveBiophysicalConcurrency()` in `server/config.ts` feeds both the queue and the
   FoldX semaphore. Unset it is `min(4, cpus - 1)`, i.e. the effective throughput of before, now in agreement.
+- Item 7's admission **by running cost** (rather than job count) is left to WP-D, which owns admission; WP-B
+  only unified the two counts.
 - The Redis backend ignores owners, priorities, watchers, `my-jobs` and cancel-by-person (documented, as planned).
 - A stopped running job is marked `failed` with the error `Cancelled.`; the unwinding callback can no longer
   overwrite that (status-guarded writes).

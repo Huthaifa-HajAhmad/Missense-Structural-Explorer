@@ -165,3 +165,14 @@ describe("disabling an account", () => {
     expect((await queue.getJobStatus(shared))?.status).not.toBe("failed");
   });
 });
+
+describe("/auth/me usage", () => {
+  it("reports server seconds used, now that jobs have owners", async () => {
+    stuckQueue();
+    const me = await person("me@lab.org");
+    const res = await call("GET", "/auth/me", { cookie: me.cookie });
+    expect(res.status).toBe(200);
+    expect(res.body.usage).toEqual({ todaySeconds: 0, weekSeconds: 0 });
+    expect(res.body.quota).toMatchObject({ queuedPerUser: 25, serverSecondsPerDay: null });
+  });
+});

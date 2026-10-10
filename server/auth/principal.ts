@@ -18,6 +18,8 @@ import type express from "express";
 import { safeCompare } from "../utils.ts";
 import { getAgentByTokenHash, hashToken, type User } from "./store.ts";
 import { resolveSession } from "./sessions.ts";
+import { authSettings } from "./config.ts";
+import type { SubmitterLimits } from "../services/infra/queue-owners.ts";
 
 export type Principal =
   | { kind: "user"; userId: string; user: User; sessionIdHash: string }
@@ -61,6 +63,20 @@ export function isAgentPath(path: string): boolean {
  */
 export function submitterId(req: express.Request): string | undefined {
   return req.principal?.kind === "user" ? req.principal.userId : undefined;
+}
+
+/**
+ * The queue limits that apply to this request's submitter: the account settings, overridden per
+ * person by an admin (`quota_json`). `undefined` for unowned work, which meets only the host backstop.
+ */
+export function submitterLimits(req: express.Request): SubmitterLimits | undefined {
+  if (req.principal?.kind !== "user") return undefined;
+  const s = authSettings();
+  const q = req.principal.user.quota;
+  return {
+    queuedPerUser: q?.queuedPerUser ?? s.queuedPerUser,
+    serverSecondsPerDay: q?.serverSecondsPerDay ?? s.serverSecondsPerDay,
+  };
 }
 
 export function resolvePrincipal(req: express.Request, now: number = Date.now()): Principal {

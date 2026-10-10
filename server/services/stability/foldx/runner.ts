@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
 import { buildModelBudgetMs, FOLDX_REPAIR_MAX_RESIDUES } from "./budget.ts";
+import { isAlphaFoldModel } from "./estimate.ts";
 import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext, type FoldxRunContext } from "./failure.ts";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
@@ -353,10 +354,7 @@ export async function generateMutantPdbInternal(
    * whether repairing small AlphaFold models helps; the skip is disclosed via
    * `foldxRepairSkippedReason`, so the UI says the template was not repaired and why.
    */
-  const isAlphaFoldPdb = /ALPHAFOLD|DBREF.*AF\-/i.test(wtPdb) || 
-    /^REMARK.*ALPHAFOLD/mi.test(wtPdb) ||
-    /^HEADER.*PREDICTED/mi.test(wtPdb) ||
-    detectBFactorProvenance(wtPdb).source === "alphafold";
+  const isAlphaFoldPdb = isAlphaFoldModel(wtPdb);
   const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES && !isAlphaFoldPdb;
   const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
   /** Sized to this structure and host (see budget.ts): a flat 180 s killed working Box64 runs. */

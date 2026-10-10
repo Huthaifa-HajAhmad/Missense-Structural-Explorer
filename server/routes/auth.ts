@@ -28,6 +28,7 @@ import { endSession, startSession } from "../auth/sessions.ts";
 import { noStore, requireUser } from "../auth/middleware.ts";
 import { signInWithPassword } from "../auth/providers/password.ts";
 import { lockedFor, recordFailure, recordSuccess, throttleKeys } from "../auth/throttle.ts";
+import { BiophysicalJobQueue } from "../services/infra/biophysical-queue.ts";
 import {
   consumeInvite,
   consumePasswordReset,
@@ -78,6 +79,15 @@ function retryAfter(res: Parameters<typeof sendError>[0], ms: number): void {
 /** True while `/setup` may create the first admin: a secret is configured and no user exists. */
 function setupOpen(): boolean {
   return Boolean(authSettings().adminSetupSecret) && countUsers() === 0;
+}
+
+/** Usage from the job queue, or null when the queue is not running (it is informational only). */
+function queueUsage(userId: string): { todaySeconds: number; weekSeconds: number } | null {
+  try {
+    return BiophysicalJobQueue.getInstance().usageFor(userId);
+  } catch {
+    return null;
+  }
 }
 
 export function registerAuthRoutes(apiRouter: Router, jsonParserRegular: any): void {
@@ -177,8 +187,8 @@ export function registerAuthRoutes(apiRouter: Router, jsonParserRegular: any): v
         queuedPerUser: p.user.quota?.queuedPerUser ?? s.queuedPerUser,
         serverSecondsPerDay: p.user.quota?.serverSecondsPerDay ?? s.serverSecondsPerDay,
       },
-      // Server seconds used today and this week arrive with queue ownership (WP-B).
-      usage: null,
+      // Informational (plan 4.4): server seconds today (UTC) and over the last 7 days.
+      usage: queueUsage(p.userId),
     });
   });
 

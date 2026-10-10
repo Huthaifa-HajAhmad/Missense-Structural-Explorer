@@ -52,12 +52,11 @@ export const CONFIG = {
     biophysicalConcurrency: resolveBiophysicalConcurrency(),
   },
   /**
-   * Queue safety limits (doc/COMPUTE_ROUTING_PLAN.md section 4.4). These protect the host; fairness
-   * between people comes from the scheduler's rotation, not from rationing.
+   * Queue safety limit (doc/COMPUTE_ROUTING_PLAN.md section 4.4). This protects the host; fairness
+   * between people comes from the scheduler's rotation. Per-person limits (`QUOTA_QUEUED_PER_USER`,
+   * `QUOTA_SERVER_SECONDS_PER_DAY`) are account settings: `authSettings()` and the user's overrides.
    */
   queue: {
-    /** Jobs one person may have WAITING at once. Running jobs are not counted. */
-    maxQueuedPerUser: positiveInt(process.env.QUOTA_QUEUED_PER_USER, 25),
     /** Queued + running across everyone; the backstop behind the per-person limit. */
     maxTotal: positiveInt(process.env.QUEUE_MAX_TOTAL, 50),
   },

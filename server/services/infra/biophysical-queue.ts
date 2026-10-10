@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Queue, Worker } from "bullmq";
 import { CONFIG } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
-import { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY } from "./queue-owners.ts";
+import { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
 
 export interface QueueJob {
   id: string;
@@ -24,13 +24,15 @@ export interface QueueJob {
   costEstimateMs?: number | null;
 }
 
-export { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY };
+export { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError };
 
 export interface EnqueueOptions {
   ownerId?: string;
   priority?: number;
   costEstimateMs?: number | null;
   placement?: string | null;
+  /** The submitter's own limits; omitted for unowned work, which only meets the host backstop. */
+  limits?: SubmitterLimits;
 }
 
 export interface JobSummary {
@@ -213,6 +215,19 @@ export class SQLiteQueue {
 
   watchersOf(jobId: string): string[] {
     return (this.db.prepare("SELECT user_id FROM job_watchers WHERE job_id = ? ORDER BY user_id").all(jobId) as any[]).map(r => r.user_id);
+  }
+
+  /**
+   * Server time this owner's jobs have used since `since` (ms), counting the running part of jobs
+   * still running. Failed and cancelled jobs count too: the host spent the time either way.
+   */
+  serverMsSince(ownerId: string, since: number, now = Date.now()): number {
+    const row = this.db.prepare(`
+      SELECT coalesce(sum(max(0, coalesce(completed_at, ?) - max(started_at, ?))), 0) AS ms
+      FROM biophysical_jobs
+      WHERE owner_id = ? AND started_at IS NOT NULL AND coalesce(completed_at, ?) > ?
+    `).get(now, since, ownerId, now, since) as any;
+    return row?.ms ?? 0;
   }
 
   /** Queued jobs this owner has waiting (running ones are not counted against the queue limit). */
@@ -724,6 +739,16 @@ export class SQLiteQueue {
   }
 }
 
+function startOfUtcDay(t: number): number {
+  const d = new Date(t);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+function formatMinutes(seconds: number): string {
+  const m = Math.round(seconds / 60);
+  return m < 120 ? `${m} min` : `${(m / 60).toFixed(1).replace(/\.0$/, "")} h`;
+}
+
 export class BiophysicalJobQueue {
   private static instance: BiophysicalJobQueue | null = null;
   private sqliteQueue: SQLiteQueue | null = null;
@@ -732,9 +757,8 @@ export class BiophysicalJobQueue {
   private redisUrl: string | undefined;
 
   private concurrency: number;
-  /** Global backstop on queued + running jobs; the per-person limit below is the one people meet. */
+  /** Global backstop on queued + running jobs; a person meets their own limits (`opts.limits`) first. */
   private maxQueueLength = CONFIG.queue.maxTotal;
-  private maxQueuedPerUser = CONFIG.queue.maxQueuedPerUser;
   /**
    * Per-job write chains, so two read-modify-write writers cannot interleave on one record.
    * Entries are dropped once nothing is queued behind them, so the map stays bounded by in-flight
@@ -847,10 +871,23 @@ export class BiophysicalJobQueue {
     const owner = opts.ownerId || LEGACY_OWNER;
 
     // A runaway script must not be able to fill the queue for everyone else.
-    if (this.sqliteQueue && owner !== SYSTEM_OWNER && owner !== LEGACY_OWNER) {
+    if (this.sqliteQueue && opts.limits && owner !== SYSTEM_OWNER && owner !== LEGACY_OWNER) {
+      const { queuedPerUser, serverSecondsPerDay } = opts.limits;
       const queued = this.sqliteQueue.countQueuedFor(owner);
-      if (queued >= this.maxQueuedPerUser) {
-        throw new Error(`BUSY: You already have ${queued} jobs waiting (limit ${this.maxQueuedPerUser}). Cancel one, or wait for some to start.`);
+      if (queued >= queuedPerUser) {
+        throw new QueueLimitError(
+          "QUEUED_PER_USER",
+          `You already have ${queued} job${queued === 1 ? "" : "s"} waiting (your limit is ${queuedPerUser}). Cancel one, or wait for one to start.`,
+        );
+      }
+      if (serverSecondsPerDay != null) {
+        const usedS = Math.floor(this.sqliteQueue.serverMsSince(owner, startOfUtcDay(Date.now())) / 1000);
+        if (usedS >= serverSecondsPerDay) {
+          throw new QueueLimitError(
+            "DAILY_SERVER_TIME",
+            `You have used ${formatMinutes(usedS)} of your ${formatMinutes(serverSecondsPerDay)} of server time today. It resets at 00:00 UTC.`,
+          );
+        }
       }
     }
     // Backstop for the whole host.
@@ -883,6 +920,15 @@ export class BiophysicalJobQueue {
   async cancelFor(jobId: string, userId: string, isAdmin: boolean): Promise<CancelOutcome> {
     if (!this.sqliteQueue) return { ok: false, reason: "not_found" };
     return this.sqliteQueue.cancelFor(jobId, userId, isAdmin);
+  }
+
+  /** Server seconds this person's jobs used today (UTC) and in the last 7 days. Informational. */
+  usageFor(userId: string, now = Date.now()): { todaySeconds: number; weekSeconds: number } | null {
+    if (!this.sqliteQueue) return null;
+    return {
+      todaySeconds: Math.round(this.sqliteQueue.serverMsSince(userId, startOfUtcDay(now), now) / 1000),
+      weekSeconds: Math.round(this.sqliteQueue.serverMsSince(userId, now - 7 * 86_400_000, now) / 1000),
+    };
   }
 
   /** A disabled account stops costing the host anything: its waiting and running work is cancelled. */

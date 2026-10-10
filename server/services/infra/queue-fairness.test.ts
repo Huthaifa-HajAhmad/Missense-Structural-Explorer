@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { DatabaseSync } from "node:sqlite";
-import { SQLiteQueue, BiophysicalJobQueue } from "./biophysical-queue.ts";
+import { SQLiteQueue, BiophysicalJobQueue, QueueLimitError } from "./biophysical-queue.ts";
 
 /**
  * Ownership, fair claim, queue position and cancel (doc/COMPUTE_ROUTING_PLAN.md WP-B).
@@ -217,16 +217,44 @@ describe("limits and listing", () => {
   it("refuses a person's job over their queued limit with a message that says how many, not anyone else's", async () => {
     BiophysicalJobQueue.resetForTesting();
     const queue = BiophysicalJobQueue.initialize(1, () => new Promise(() => {}));
-    (queue as any).maxQueuedPerUser = 2;
+    const limits = { queuedPerUser: 2, serverSecondsPerDay: null };
 
-    await queue.pushJob("foldx", { name: "run" }, { ownerId: "X" }); // runs
+    await queue.pushJob("foldx", { name: "run" }, { ownerId: "X", limits }); // runs
     await tick(120); // let it start: running jobs do not count against the queued limit
-    await queue.pushJob("foldx", { name: "q1" }, { ownerId: "X" });
-    await queue.pushJob("foldx", { name: "q2" }, { ownerId: "X" });
+    await queue.pushJob("foldx", { name: "q1" }, { ownerId: "X", limits });
+    await queue.pushJob("foldx", { name: "q2" }, { ownerId: "X", limits });
     await tick(80);
-    await expect(queue.pushJob("foldx", { name: "q3" }, { ownerId: "X" })).rejects.toThrow(/BUSY: You already have 2 jobs waiting \(limit 2\)/);
-    // Somebody else is unaffected by X's backlog.
-    await expect(queue.pushJob("foldx", { name: "y1" }, { ownerId: "Y" })).resolves.toBeTruthy();
+    const refused = await queue.pushJob("foldx", { name: "q3" }, { ownerId: "X", limits }).catch((e) => e);
+    expect(refused).toBeInstanceOf(QueueLimitError);
+    expect(refused).toMatchObject({ status: 429, code: "QUEUED_PER_USER" });
+    expect(refused.message).toBe("You already have 2 jobs waiting (your limit is 2). Cancel one, or wait for one to start.");
+    // Somebody else is unaffected by X's backlog, and an admin's higher override for X is honoured.
+    await expect(queue.pushJob("foldx", { name: "y1" }, { ownerId: "Y", limits })).resolves.toBeTruthy();
+    await expect(queue.pushJob("foldx", { name: "q3" }, { ownerId: "X", limits: { ...limits, queuedPerUser: 3 } })).resolves.toBeTruthy();
+  });
+
+  it("enforces a daily server-time cap only when one is set, and says when it resets", async () => {
+    BiophysicalJobQueue.resetForTesting();
+    const queue = BiophysicalJobQueue.initialize(1, async () => "ok");
+    const db = ((queue as any).sqliteQueue as any).db as DatabaseSync;
+    const now = Date.now();
+    // 40 minutes of finished work today.
+    db.prepare(`INSERT INTO biophysical_jobs (id, type, data, status, created_at, started_at, completed_at, owner_id)
+      VALUES ('done', 'foldx', '{}', 'completed', ?, ?, ?, 'X')`).run(now - 2_400_000, now - 2_400_000, now);
+
+    const uncapped = { queuedPerUser: 25, serverSecondsPerDay: null };
+    await expect(queue.pushJob("foldx", { name: "a" }, { ownerId: "X", limits: uncapped })).resolves.toBeTruthy();
+
+    const capped = { queuedPerUser: 25, serverSecondsPerDay: 30 * 60 };
+    const refused = await queue.pushJob("foldx", { name: "b" }, { ownerId: "X", limits: capped }).catch((e) => e);
+    // Only meaningful when the 40 minutes all fall on today (UTC); skip the assertion in the first 40 min of a day.
+    if (new Date(now - 2_400_000).getUTCDate() === new Date(now).getUTCDate()) {
+      expect(refused).toMatchObject({ code: "DAILY_SERVER_TIME", status: 429 });
+      expect(refused.message).toMatch(/You have used 40 min of your 30 min of server time today\. It resets at 00:00 UTC\./);
+      expect(queue.usageFor("X", now)).toEqual({ todaySeconds: 2400, weekSeconds: expect.any(Number) });
+    }
+    expect(queue.usageFor("X", now)!.weekSeconds).toBeGreaterThanOrEqual(2400);
+    expect(queue.usageFor("nobody", now)).toEqual({ todaySeconds: 0, weekSeconds: 0 });
   });
 
   it("lists a person's own and joined jobs with a queue place, newest first", async () => {
