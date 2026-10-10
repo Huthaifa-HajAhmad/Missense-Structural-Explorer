@@ -14,7 +14,9 @@ export const SETTINGS_SECTIONS = [
   "analysis",
   "workspace",
   "connections",
-  "data"
+  "data",
+  "account",
+  "team"
 ] as const;
 
 export type SettingsTabId = (typeof SETTINGS_SECTIONS)[number];

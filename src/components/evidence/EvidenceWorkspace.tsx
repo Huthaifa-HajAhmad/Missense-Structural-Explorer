@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { AnalysisResult } from '../../types';
 import type { EvidenceWorkspaceTab, AttributionFilter } from '../../shared/evidenceComparison';
+import { evidenceWorkspaceIdentity } from '../../shared/evidenceContextIdentity';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 
@@ -12,9 +13,8 @@ const Context = createContext<{ states: Partial<Record<EvidenceWorkspaceTab, Tab
 /** Scope to the analysed allele, not residue exploration or payload object identity.
  * Reset only Evidence state synchronously; never remount the other workspace canvases. */
 export function EvidenceWorkspaceProvider({ result, children }: { result: AnalysisResult | null; children: ReactNode }) {
-  const m = result?.metadata;
-  const key = JSON.stringify([m?.gene, m?.variant, m?.uniprotId, m?.residueIndex, result?.transcriptId ?? result?.predictorData?.transcriptId,
-    result?.predictorData?.gnomadVariantId, result?.predictorData?.gnomadVariantAssembly]);
+  // Memoized: AppViews re-renders on pointer movement, and the key sat on that hot path.
+  const key = useMemo(() => evidenceWorkspaceIdentity(result), [result]);
   const [scope, setScope] = useState<{ key: string; states: Partial<Record<EvidenceWorkspaceTab, TabState>> }>({ key, states: {} });
   if (scope.key !== key) setScope({ key, states: {} });
   const update = useCallback((tab: EvidenceWorkspaceTab, patch: Partial<TabState>) => setScope(s => ({
@@ -26,19 +26,21 @@ export function EvidenceWorkspaceProvider({ result, children }: { result: Analys
 export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
   const context = useContext(Context);
   const state = context?.states[tab] ?? initial;
+  // Stable closures, so a memoized component can actually escape this hook's re-renders.
+  const setView = useCallback((view: View) => context?.update(tab, { view }), [context, tab]);
+  const setFilter = useCallback((filter: AttributionFilter) => context?.update(tab, { filter }), [context, tab]);
+  const select = useCallback((selected: string | null) => context?.update(tab, { selected }), [context, tab]);
+  const toggleGroup = useCallback((group: string) => context?.update(tab, { expanded: state.expanded.includes(group) ? state.expanded.filter(g => g !== group) : [...state.expanded, group] }), [context, tab, state.expanded]);
   return { ...state, enabled: context !== null,
     comparison: context !== null && state.view === 'comparison',
     setOptions: (patch: Partial<Pick<TabState, 'section' | 'query' | 'cohort' | 'relevantOnly'>>) => context?.update(tab, patch),
-    setView: (view: View) => context?.update(tab, { view }),
-    setFilter: (filter: AttributionFilter) => context?.update(tab, { filter }),
-    select: (selected: string | null) => context?.update(tab, { selected }),
-    toggleGroup: (group: string) => context?.update(tab, { expanded: state.expanded.includes(group) ? state.expanded.filter(g => g !== group) : [...state.expanded, group] }),
-  };
+    setView, setFilter, select, toggleGroup };
 }
 export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return null;
-  return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${tab === 'clinical' ? 'Population' : tab === 'alphagenome' ? 'AlphaGenome' : tab === 'gene-disease' ? 'Gene–disease' : tab === 'expression-models' ? 'Expression' : tab === 'species-models' ? 'Species & models' : 'Predictors'} views`}
+  const names: Record<EvidenceWorkspaceTab, string> = { clinical: 'Population', predictors: 'Predictors', alphagenome: 'AlphaGenome', 'gene-disease': 'Gene–disease', 'expression-models': 'Expression', 'species-models': 'Species & models' };
+  return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${names[tab]} views`}
     tabs={[{ id: 'comparison', label: comparisonLabel }, { id: 'records', label: 'Source records' }]} value={w.view} onChange={w.setView} /><RevealEvidenceInspector /></div>;
 }
 export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; children: ReactNode }) {

@@ -1,9 +1,10 @@
-import { type Router } from "express";
+import { type Request, type Router } from "express";
 import {
   alphaGenomeRegionSaturationRequestSchema
 } from "../../../src/shared/contracts.ts";
 import {
-  fetchAlphaGenomeRegionSaturation
+  fetchAlphaGenomeRegionSaturation,
+  resolveAlphaGenomeAccess
 } from "../../services/alphagenome-bridge.ts";
 import {
   verifyAlphaGenomeConnection
@@ -11,21 +12,30 @@ import {
 import { sendError, formatZodError } from "../../utils.ts";
 import { sanitizeToken, sanitizeUrl } from "./variant-parser.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
-import { CONFIG } from "../../config.ts";
+
+/**
+ * The key and endpoint this request may use. Only the request's own values are read here; the server's
+ * key and URL are filled in by `resolveAlphaGenomeAccess`, which never pairs the server key with a URL
+ * the request chose.
+ */
+function resolveRequestAccess(req: Request) {
+  const body = req.body as Record<string, unknown> | undefined;
+  const requestKey = sanitizeToken(req.headers["x-alphagenome-key"]) ||
+    sanitizeToken(body?.apiKey) ||
+    sanitizeToken(body?.alphagenomeApiKey);
+  const requestUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) ||
+    sanitizeUrl(body?.apiUrl) ||
+    sanitizeUrl(body?.alphagenomeApiUrl);
+  const access = resolveAlphaGenomeAccess(requestKey, requestUrl);
+  return {
+    apiKey: sanitizeToken(access.apiKey),
+    endpoint: requestUrl || sanitizeUrl(access.endpoint),
+  };
+}
 
 export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: any): void {
   apiRouter.post("/alphagenome/verify-connection", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
-    const userApiKey = sanitizeToken(req.headers["x-alphagenome-key"]) ||
-      sanitizeToken((req.body as any)?.apiKey) ||
-      sanitizeToken((req.body as any)?.alphagenomeApiKey) ||
-      sanitizeToken(process.env.ALPHAGENOME_API_KEY) ||
-      sanitizeToken(CONFIG.services.alphagenomeApiKey);
-
-    const userApiUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) ||
-      sanitizeUrl((req.body as any)?.apiUrl) ||
-      sanitizeUrl((req.body as any)?.alphagenomeApiUrl) ||
-      sanitizeUrl(process.env.ALPHAGENOME_API_URL) ||
-      sanitizeUrl(CONFIG.services.alphagenomeUrl);
+    const { apiKey: userApiKey, endpoint: userApiUrl } = resolveRequestAccess(req);
 
     if (!userApiKey && !userApiUrl) {
       sendError(res, 400, "BAD_REQUEST", "AlphaGenome API Key is required to test connection");
@@ -84,17 +94,7 @@ export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: 
       return;
     }
 
-    const userApiKey = sanitizeToken(req.headers["x-alphagenome-key"]) ||
-      sanitizeToken((req.body as any)?.apiKey) ||
-      sanitizeToken((req.body as any)?.alphagenomeApiKey) ||
-      sanitizeToken(process.env.ALPHAGENOME_API_KEY) ||
-      sanitizeToken(CONFIG.services.alphagenomeApiKey);
-
-    const userApiUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) ||
-      sanitizeUrl((req.body as any)?.apiUrl) ||
-      sanitizeUrl((req.body as any)?.alphagenomeApiUrl) ||
-      sanitizeUrl(process.env.ALPHAGENOME_API_URL) ||
-      sanitizeUrl(CONFIG.services.alphagenomeUrl);
+    const { apiKey: userApiKey, endpoint: userApiUrl } = resolveRequestAccess(req);
 
     try {
       const data = await fetchAlphaGenomeRegionSaturation(parseResult.data, {

@@ -28,6 +28,7 @@ export default function App() {
     settings,
     isDark,
     toggleTheme,
+    isSettingsOpen,
     setIsSettingsOpen,
     openSettingsTab
   } = useSettings();
@@ -113,10 +114,14 @@ export default function App() {
      opens straight into a result view should show that result, not be pulled away from it. */
   const masterViewRef = useRef(masterView);
   masterViewRef.current = masterView;
+  /* Nor over Settings: a reader who arrives with the drawer already open (the first admin lands on
+     Team to invite people) is in the middle of a task; the tour stays available from the header. */
+  const settingsOpenRef = useRef(isSettingsOpen);
+  settingsOpenRef.current = isSettingsOpen;
   useEffect(() => {
     if (hasCompletedOnboarding()) return;
     const timer = window.setTimeout(() => {
-      if (masterViewRef.current === "search") setIsOnboardingOpen(true);
+      if (masterViewRef.current === "search" && !settingsOpenRef.current) setIsOnboardingOpen(true);
     }, 450);
     return () => window.clearTimeout(timer);
   }, []);

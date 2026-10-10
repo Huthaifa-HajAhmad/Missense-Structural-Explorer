@@ -15,6 +15,8 @@ import {
   SearchX,
   Settings2,
   SlidersHorizontal,
+  UserRound,
+  Users,
   X
 } from "lucide-react";
 import { useSettings, SettingsTabId } from "../../context/SettingsContext";
@@ -25,6 +27,9 @@ import { AnalysisSection } from "./sections/AnalysisSection";
 import { WorkspaceSection } from "./sections/WorkspaceSection";
 import { ConnectionsSection } from "./sections/ConnectionsSection";
 import { DataStorageSection } from "./sections/DataStorageSection";
+import { AccountSection } from "./sections/AccountSection";
+import { TeamSection } from "./sections/TeamSection";
+import { useOptionalAccount } from "../../context/AccountContext";
 
 const FOCUSABLE_SELECTOR =
   'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, object, embed, [tabindex="0"], [contenteditable]';
@@ -33,12 +38,16 @@ interface SectionConfig {
   id: SettingsTabId;
   label: string;
   description: string;
-  group: "Display" | "Workflow" | "System";
+  group: "Account" | "Display" | "Workflow" | "System";
+  /** Shown only when this returns true; absent = always shown. */
+  visible?: (account: { enabled: boolean; isAdmin: boolean }) => boolean;
   icon: React.ComponentType<{ className?: string }>;
   Component: React.ComponentType<{ onNavigateAbout?: () => void }>;
 }
 
 const SECTIONS: readonly SectionConfig[] = [
+  { id: "account", group: "Account", label: "Account", description: "Your profile, where your jobs run, and your password.", icon: UserRound, Component: AccountSection, visible: (a) => a.enabled },
+  { id: "team", group: "Account", label: "Team", description: "Invite people, reset passwords, and manage access.", icon: Users, Component: TeamSection, visible: (a) => a.isAdmin },
   { id: "appearance", group: "Display", label: "Appearance", description: "Theme, accent color, and accessibility.", icon: Palette, Component: AppearanceSection },
   { id: "viewport", group: "Display", label: "Viewport", description: "3D highlight color, camera, and rendering.", icon: SlidersHorizontal, Component: ViewportSection },
   { id: "sequence", group: "Display", label: "Sequence", description: "Ribbon coloring and residue window size.", icon: Dna, Component: SequenceSection },
@@ -60,6 +69,10 @@ interface SearchableItem {
 }
 
 const SEARCHABLE_SETTINGS: SearchableItem[] = [
+  { id: "account-placement", sectionId: "account", sectionLabel: "Account", title: "Where your jobs run", description: "Automatic, prefer my computer, or shared server only", keywords: "placement compute foldx p2rank agent my computer server jobs", anchor: "Where your jobs run" },
+  { id: "account-share", sectionId: "account", sectionLabel: "Account", title: "Share my results with the team", description: "Add results computed on your computer to the shared cache", keywords: "share results cache team privacy", anchor: "Share my results with the team" },
+  { id: "account-password", sectionId: "account", sectionLabel: "Account", title: "Change password", description: "Signs you out on every other browser", keywords: "password change security sign out", anchor: "Password" },
+  { id: "team-invite", sectionId: "team", sectionLabel: "Team", title: "Invite someone", description: "Create a one-time invite link", keywords: "invite user add member admin team link", anchor: "Invite someone" },
   { id: "theme-mode", sectionId: "appearance", sectionLabel: "Appearance", title: "Color scheme", description: "Light, dark, or follow system theme", keywords: "theme dark light mode appearance", anchor: "Color scheme" },
   { id: "theme-accent", sectionId: "appearance", sectionLabel: "Appearance", title: "Workspace accent", description: "Tints selection highlights and interactive buttons app-wide", keywords: "accent color clay indigo purple rose emerald amber blue", anchor: "Workspace accent" },
   { id: "reduce-motion", sectionId: "appearance", sectionLabel: "Appearance", title: "Reduce motion", description: "Disables animations, transitions, and camera easing", keywords: "motion animation performance speed accessible", anchor: "Reduce motion" },
@@ -125,34 +138,52 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
 
-  const activeIndex = useMemo(() => {
-    const idx = SECTIONS.findIndex((section) => section.id === settingsTab);
-    return idx >= 0 ? idx : 0;
-  }, [settingsTab]);
+  const account = useOptionalAccount();
+  const accountEnabled = Boolean(account?.accountsEnabled);
+  const isAdmin = account?.user?.role === "admin";
+  const sections = useMemo(
+    () => SECTIONS.filter((section) => !section.visible || section.visible({ enabled: accountEnabled, isAdmin })),
+    [accountEnabled, isAdmin]
+  );
 
-  const activeSection = SECTIONS[activeIndex];
+  const activeIndex = useMemo(() => {
+    const idx = sections.findIndex((section) => section.id === settingsTab);
+    // A hidden or unknown tab (Team after a role change) falls back to the first visible section.
+    return idx >= 0 ? idx : sections.findIndex((section) => section.id === "appearance");
+  }, [settingsTab, sections]);
+
+  const activeSection = sections[activeIndex];
+
+  // Keep the stored tab in step with what is shown. Without this a hidden tab (Team, after an admin
+  // demotes themselves) stays "selected": no tab is highlighted and the panel is labelled by a tab
+  // that is no longer in the DOM.
+  useEffect(() => {
+    if (activeSection && activeSection.id !== settingsTab) setSettingsTab(activeSection.id);
+  }, [activeSection, settingsTab, setSettingsTab]);
   const ActiveSection = activeSection.Component;
 
   // Search results filtered across title, description, and keywords
   const filteredSettings = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return null;
+    const visible = new Set(sections.map((s) => s.id));
     return SEARCHABLE_SETTINGS.filter(
       (item) =>
+        visible.has(item.sectionId) && (
         item.title.toLowerCase().includes(q) ||
         item.description.toLowerCase().includes(q) ||
         item.keywords.toLowerCase().includes(q) ||
-        item.sectionLabel.toLowerCase().includes(q)
+        item.sectionLabel.toLowerCase().includes(q))
     );
-  }, [searchQuery]);
+  }, [searchQuery, sections]);
 
   const groupedResults = useMemo(() => {
     if (!filteredSettings) return null;
-    return SECTIONS.map((section) => ({
+    return sections.map((section) => ({
       section,
       items: filteredSettings.filter((item) => item.sectionId === section.id)
     })).filter((group) => group.items.length > 0);
-  }, [filteredSettings]);
+  }, [filteredSettings, sections]);
 
   // ── Open / close lifecycle: scroll lock, initial focus, focus restore ──
   useEffect(() => {
@@ -271,15 +302,15 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
 
   const handleNavKeyDown = (e: React.KeyboardEvent) => {
     let next: number;
-    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (activeIndex + 1) % SECTIONS.length;
-    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = (activeIndex - 1 + SECTIONS.length) % SECTIONS.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (activeIndex + 1) % sections.length;
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = (activeIndex - 1 + sections.length) % sections.length;
     else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = SECTIONS.length - 1;
+    else if (e.key === "End") next = sections.length - 1;
     else return;
 
-    goToSection(SECTIONS[next].id);
+    goToSection(sections[next].id);
     const focusNext = () => {
-      drawerRef.current?.querySelector<HTMLElement>(`#settings-tab-${SECTIONS[next].id}`)?.focus();
+      drawerRef.current?.querySelector<HTMLElement>(`#settings-tab-${sections[next].id}`)?.focus();
     };
     focusNext();
     requestAnimationFrame(focusNext);
@@ -393,10 +424,10 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                   onKeyDown={handleNavKeyDown}
                   className="settings-nav flex md:flex-col gap-0.5 px-3 pb-3 md:pb-4 overflow-x-auto md:overflow-x-visible md:overflow-y-auto"
                 >
-                  {SECTIONS.map((section, index) => {
+                  {sections.map((section, index) => {
                     const Icon = section.icon;
-                    const startsGroup = index === 0 || SECTIONS[index - 1].group !== section.group;
-                    const selected = section.id === settingsTab;
+                    const startsGroup = index === 0 || sections[index - 1].group !== section.group;
+                    const selected = section.id === activeSection.id;
                     const active = selected && !filteredSettings;
                     const hasStatusDot =
                       section.id === "connections" && (hasConfiguredGeminiKey || serverGeminiReady);
@@ -486,7 +517,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                   ref={panelRef}
                   id="settings-panel"
                   role="tabpanel"
-                  aria-labelledby={filteredSettings ? undefined : `settings-tab-${settingsTab}`}
+                  aria-labelledby={filteredSettings ? undefined : `settings-tab-${activeSection.id}`}
                   aria-label={filteredSettings ? "Search results" : undefined}
                   tabIndex={-1}
                   // focus-guard-allow: programmatic focus target (tabIndex={-1} on the panel) — a ring here would mark a surface the user never tabbed to.

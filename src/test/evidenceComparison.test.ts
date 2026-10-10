@@ -78,4 +78,27 @@ describe('Evidence comparison contracts', () => {
     expect(formatAttributionValue(-.0000003)).toBe('−3.00e-7');
     expect(formatAttributionValue(0)).toBe('0');
   });
+  it('never says a contribution was returned when the Atlas was not assessed', () => {
+    // Unassessed: nothing queried — "0 of 18 returned" claimed the Atlas answered.
+    const unassessed = buildAttributionComparison(buildAlphaGenomeEvidence({ result: evidenceWorkspaceFixture('Missing') }));
+    expect(unassessed.summary).toContain('No AlphaGenome impact score was assessed');
+    expect(unassessed.summary).not.toContain('returned');
+    expect(unassessed.emptyCopy).toContain('nothing to plot');
+    // Assessed without a vector: the score arrived, the attributions did not.
+    const result = evidenceWorkspaceFixture('Partial');
+    result.conservationData!.alphagenome = { status: 'live', aviPhred: 22.5, featureAttributions: null } as never;
+    const vectorless = buildAttributionComparison(buildAlphaGenomeEvidence({ result }));
+    expect(vectorless.summary).toContain('The score arrived without its feature contributions');
+    expect(vectorless.summary).not.toMatch(/of 18 feature contributions returned/);
+  });
+  it('names the local gnomAD ingest once, exactly as the records row does', () => {
+    // frequencyObservationName is the one naming rule: the local ingest label already says "gnomAD",
+    // so the generic prefix would have doubled it into "gnomAD gnomad (local dbnsfp, …)".
+    const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(evidenceWorkspaceFixture()));
+    const model = buildPopulationComparison(evidence);
+    for (const row of model.rows) {
+      expect(row.name.match(/gnomAD/g)?.length ?? 0).toBeLessThanOrEqual(1);
+      if (row.name.includes('local dbNSFP')) expect(row.name).not.toContain('gnomAD gnomad');
+    }
+  });
 });

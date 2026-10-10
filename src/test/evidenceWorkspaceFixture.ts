@@ -5,7 +5,10 @@ import { AVI_FEATURES } from '../shared/alphagenomeEvidence';
 export function evidenceWorkspaceFixture(example = 'Mixed'): AnalysisResult {
   const missing = example === 'Missing';
   const zeros = example === 'Zero';
-  const fullAttributions = Object.fromEntries(AVI_FEATURES.map((f, i) => [f.id, zeros || f.group === 'indicator' ? 0 : i === 10 ? .68 : i % 4 === 0 ? -.03 * (i + 1) : .014 * (i + 1)]));
+  // 'Mixed' lets a variant-type ("indicator") input carry a real value: the chart/inspector path for
+  // a non-measured molecular input was previously masked by forcing every indicator feature to 0.
+  // 'Zero' remains the all-zero contract.
+  const fullAttributions = Object.fromEntries(AVI_FEATURES.map((f, i) => [f.id, zeros ? 0 : i === 10 ? .68 : i % 4 === 0 ? -.03 * (i + 1) : .014 * (i + 1)]));
   return {
     isDemoData: true,
     metadata: { gene: 'GZF1', variant: example === 'New variant' ? 'p.Arg591Gln' : 'p.Arg591Trp', uniprotId: 'Q9H116', residueIndex: 591, acmgWeighting: 'standard' },

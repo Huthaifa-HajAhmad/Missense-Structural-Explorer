@@ -1,7 +1,7 @@
 /** Presentation-only chart models. INVARIANTS: never classify, normalise unlike scores,
  * place zero on a log axis, or turn an absent attribution into zero. Filters do not
  * change domains, shares, engine records or the underlying evidence. */
-import { formatCount, observationAbsence, populationReading, type FrequencyEvidence } from './frequencyEvidence';
+import { formatCount, frequencyObservationName, observationAbsence, populationReading, type FrequencyEvidence } from './frequencyEvidence';
 import { AVI_FEATURES, AVI_GROUP_LABEL, fmtShare, type AlphaGenomeEvidence, type AviFeatureGroup } from './alphagenomeEvidence';
 import { CAVEAT_TEXT, type PredictorEvidence } from './predictorEvidence';
 import type { LadderEvidence } from './ladderEvidence';
@@ -17,6 +17,12 @@ export interface EvidenceChartRow {
 export interface EvidenceChartModel {
   rows: EvidenceChartRow[]; domain: [number, number]; ticks: number[];
   axisLabel: string; tickLabels: string[]; summary: string;
+  /** What a reading with no plotted value is called, and what that means — the model's words, so the
+   * generic renderer carries no tab-specific interpretation. */
+  unplottedHeading: string;
+  unplottedBody: string;
+  /** The figure's honest empty state, when nothing at all can be plotted. */
+  emptyCopy: string;
 }
 
 /** One unit across the frequency chart: never mix fractions and percentages on its axis. */
@@ -28,7 +34,7 @@ export function formatFrequencyPercent(af: number): string {
 
 export function buildPopulationComparison(evidence: FrequencyEvidence): EvidenceChartModel {
   const rows: EvidenceChartRow[] = evidence.observations.map(o => ({
-    key: o.key, name: o.id.startsWith('gnomad') ? `gnomAD ${o.label.toLowerCase()}` : o.label,
+    key: o.key, name: frequencyObservationName(o),
     value: o.availability.state === 'available' && o.af !== null && o.af > 0 ? Math.log10(o.af) : null,
     valueText: o.af !== null ? formatFrequencyPercent(o.af) : o.availability.label ?? 'No frequency',
     description: o.af === null ? observationAbsence(o) : o.af === 0 ? 'A reported frequency of zero. Zero has no position on a logarithmic axis.' : 'Reported allele frequency in this source.',
@@ -56,6 +62,9 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
   const ticks = Array.from({ length: Math.floor((hi - lo) / step) + 1 }, (_, i) => lo + i * step);
   return { rows, domain: [lo - .3, hi + .3], ticks,
     tickLabels: ticks.map(v => formatFrequencyPercent(10 ** v)), axisLabel: 'Allele frequency (%) · logarithmic scale',
+    unplottedHeading: 'Not plotted',
+    unplottedBody: 'Zero and unavailable frequencies cannot sit on a log axis. Their states remain distinct.',
+    emptyCopy: 'No values can be plotted on this axis. Inspect the available records below.',
     summary: `${values.length} positive frequency readings. Equal steps on this axis represent multiplicative changes. Zero and unavailable readings are listed separately. The engine input is distinguished from source observations.` };
 }
 
@@ -78,6 +87,9 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
   return { rows, domain: [-.5, ladder.columns.length - .5], ticks: ladder.columns.map((_, i) => i),
     tickLabels: ladder.columns.map(c => c.direction ? `${c.direction} ${c.label === 'Very strong' ? 'V. strong' : c.label}` : 'Neither'),
     axisLabel: 'Published evidence-strength bands · separate categories, not raw scores',
+    unplottedHeading: 'Outside the calibrated comparison',
+    unplottedBody: 'These tools have no calibrated strength to plot, or no returned score. Select one to inspect its own scale and status.',
+    emptyCopy: 'No values can be plotted on this axis. Inspect the available records below.',
     summary: 'Each dot shows the published calibrated band reached by one predictor. Direction-only and uncalibrated tools remain inspectable below. These individual readings are not additional engine criteria.' };
 }
 
@@ -106,7 +118,23 @@ export function buildAttributionComparison(evidence: AlphaGenomeEvidence, filter
     }));
   const reported = all.filter(r => r.shap !== null).length;
   const ticks = [-max, 0, max].filter((v, i, a) => a.indexOf(v) === i);
+  /**
+   * Three absence states, in the Atlas's own words: not assessed (nothing was queried), assessed
+   * without a feature vector (the score arrived, the attributions did not), and assessed with a
+   * vector. The old single summary asserted "0 of 18 returned" for an unassessed variant — the
+   * Atlas never answered, so nothing "returned".
+   */
+  const summary = !evidence.assessed
+    ? 'No AlphaGenome impact score was assessed for this variant, so no contributions were queried. This absence is not a reading; the finding card states the reason and remedy.'
+    : evidence.groups === null
+      ? 'The score arrived without its feature contributions, so none can be read here. A missing attribution is not a zero.'
+      : `${reported} of ${all.length} feature contributions returned. ${reported < all.length ? 'Attribution coverage is incomplete; shares describe only returned contributions. ' : ''}Left lowers the score; right raises it. A contribution explains the model score, not a proven biological mechanism.`;
   return { rows, domain: [-bound, bound], ticks, tickLabels: ticks.map(formatAttributionValue),
     axisLabel: 'Contribution to the raw AVI score (SHAP units)',
-    summary: `${reported} of ${all.length} feature contributions returned. ${reported < all.length ? 'Attribution coverage is incomplete; shares describe only returned contributions. ' : ''}Left lowers the score; right raises it. A contribution explains the model score, not a proven biological mechanism.` };
+    unplottedHeading: 'Not plotted',
+    unplottedBody: 'A missing attribution is not a contribution of zero.',
+    emptyCopy: !evidence.assessed
+      ? 'No AlphaGenome assessment was made for this variant, so there is nothing to plot. The finding card states the reason and remedy.'
+      : 'The score arrived without its feature contributions, so none can be plotted.',
+    summary };
 }

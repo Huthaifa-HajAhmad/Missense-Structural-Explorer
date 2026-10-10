@@ -22,6 +22,7 @@ import {
 import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
+import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
@@ -555,8 +556,18 @@ export async function validateAndParseVariantRequest(
       return !isCustomGpnUrl ? sanitizeToken(process.env.HF_TOKEN) : null;
     })(),
     gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
-    alphagenomeApiKey: sanitizeToken(req.headers["x-alphagenome-key"]) || sanitizeToken(req.body?.alphagenomeApiKey) || sanitizeToken(process.env.ALPHAGENOME_API_KEY),
-    alphagenomeApiUrl: sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl) || sanitizeUrl(process.env.ALPHAGENOME_API_URL),
+    // The server's key never accompanies a URL the request chose (see resolveAlphaGenomeAccess).
+    ...(() => {
+      const requestUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl);
+      const access = resolveAlphaGenomeAccess(
+        sanitizeToken(req.headers["x-alphagenome-key"]) || sanitizeToken(req.body?.alphagenomeApiKey),
+        requestUrl
+      );
+      return {
+        alphagenomeApiKey: sanitizeToken(access.apiKey),
+        alphagenomeApiUrl: requestUrl || sanitizeUrl(process.env.ALPHAGENOME_API_URL),
+      };
+    })(),
     spliceaiDistance: normaliseSpliceAiDistance(req.headers["x-spliceai-distance"]) ?? normaliseSpliceAiDistance(req.body?.spliceaiDistance),
     saprotEngine: getEngine(req.body?.saprotEngine) || getEngine(req.headers["x-saprot-engine"])
   };

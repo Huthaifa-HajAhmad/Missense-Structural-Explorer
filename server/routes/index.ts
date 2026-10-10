@@ -11,6 +11,8 @@ import { registerBiophysicsRoutes } from "./biophysics.ts";
 import { registerSessionRoutes } from "./session.ts";
 import { docsRouter } from "./docs.ts";
 import { registerEvidenceContextRoutes } from "./evidence-context.ts";
+import { registerAuthRoutes } from "./auth.ts";
+import { registerAdminRoutes } from "./admin.ts";
 
 export function registerAllRoutes(
   apiRouter: Router,
@@ -25,4 +27,6 @@ export function registerAllRoutes(
   registerStructureRoutes(apiRouter, jsonParserRegular, jsonParserPdb);
   registerBiophysicsRoutes(apiRouter, jsonParserRegular, jsonParserPdb);
   registerSessionRoutes(apiRouter, jsonParserRegular);
+  registerAuthRoutes(apiRouter, jsonParserRegular);
+  registerAdminRoutes(apiRouter, jsonParserRegular);
 }

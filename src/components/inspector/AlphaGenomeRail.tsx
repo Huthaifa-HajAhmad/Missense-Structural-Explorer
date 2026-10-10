@@ -75,7 +75,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
           </Step>
           <Step n={2} label="Raw AVI score" state={scored ? "done" : "idle"}>
             <span className="ag-mono">{ev.raw !== null ? ev.raw.toFixed(4) : "—"}</span>
-            <span className="rail-step__sub">Model output before conversion to rank. The feature chart states how many of its 18 contributions were returned.</span>
+            <span className="rail-step__sub">Model output before conversion to rank. The contribution chart and the records table state how many of the 18 contributions were returned.</span>
           </Step>
           <Step n={3} label="Genome-wide quantile" state={scored ? "done" : "idle"}>
             <span className="ag-mono">{ev.quantile !== null ? ev.quantile.toFixed(5) : "—"}</span>

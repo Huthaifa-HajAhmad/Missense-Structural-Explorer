@@ -9,6 +9,8 @@ import './index.css';
 import { SettingsProvider } from './context/SettingsContext.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { DevConsoleProvider } from './context/DevConsoleContext.tsx';
+import { AccountProvider } from './context/AccountContext.tsx';
+import { AccountGate } from './components/account/AccountGate.tsx';
 
 // Auto-recover if dynamic code-split chunk hashes change across production deployments
 if (typeof window !== 'undefined') {
@@ -22,9 +24,13 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <DevConsoleProvider>
       <SettingsProvider>
-        <ErrorBoundary name="Missense Structural Explorer">
-          <App />
-        </ErrorBoundary>
+        <AccountProvider>
+          <ErrorBoundary name="Missense Structural Explorer">
+            <AccountGate>
+              <App />
+            </AccountGate>
+          </ErrorBoundary>
+        </AccountProvider>
       </SettingsProvider>
     </DevConsoleProvider>
   </StrictMode>,

@@ -40,7 +40,10 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
     const ticks = [0, maximum / 4, maximum / 2, maximum * .75, maximum];
     return { rows: page.rows.slice(0, CX_PAGE_LIMIT).map(r => ({ ...r, name: r.group === 'developmental' ? `${r.name} · cohort ${r.cohort}` : r.name })), domain: [0, maximum] as [number, number], ticks,
       tickLabels: ticks.map(t => t === 0 ? '0' : t < .001 ? t.toExponential(1) : String(Number(t.toPrecision(3)))),
-      axisLabel: 'Median gene expression (TPM)', summary: 'Descriptive RNA abundance. No expression or pathogenicity threshold is applied.' };
+      axisLabel: 'Median gene expression (TPM)', summary: 'Descriptive RNA abundance. No expression or pathogenicity threshold is applied.',
+      unplottedHeading: 'Not plotted',
+      unplottedBody: 'These tissues have no returned gene median. Missing measurements are not zero.',
+      emptyCopy: 'No returned tissue values can plot on this axis. Inspect the source records below.' };
   }, [page]);
   return <section className="cx-explorer" aria-label="Explore source readings">
     {groups.length > 1 && <WorkspaceTabs id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}

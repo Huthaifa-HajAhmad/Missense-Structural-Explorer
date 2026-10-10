@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, Cpu, Info, ListChecks } from "lucide-react";
 import { TabComponentProps } from "./types";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
@@ -417,31 +417,24 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
   const isStructuralLoading = useVariantAnalysisStore(s => s.isStructuralLoading ?? false);
   const { settings, openSettingsTab } = useSettings();
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
-  // Informational groups start collapsed: the card above explains them and the voters are the table's point.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const toggleGroup = (g: string) =>
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(g)) next.delete(g);
-      else next.add(g);
-      return next;
-    });
   const result = analysisState.result;
   if (!result) return null;
 
-  const evidence = buildPredictorEvidence({
+  const alphagenomeConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
+  const evidence = useMemo(() => buildPredictorEvidence({
     result,
     isLoading: analysisState.isLoading,
     isModelLoading: Boolean(isBiophysicalLoading || isStructuralLoading),
     // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
-    alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
-  });
-  const summary = predictorSummary(evidence);
-  const ladder = buildLadderEvidence({ result, predictor: evidence });
-  const cutLinesByKey = new Map<string, string[]>([
+    alphagenomeConfigured,
+  }), [result, analysisState.isLoading, isBiophysicalLoading, isStructuralLoading, alphagenomeConfigured]);
+  const summary = useMemo(() => predictorSummary(evidence), [evidence]);
+  const ladder = useMemo(() => buildLadderEvidence({ result, predictor: evidence }), [result, evidence]);
+  const cutLinesByKey = useMemo(() => new Map<string, string[]>([
     ...ladder.ladder.map(l => [l.key, l.cutLines] as [string, string[]]),
     ...ladder.directional.map(d => [d.key, [d.cutText]] as [string, string[]]),
-  ]);
+  ]), [ladder]);
+  const predictorModel = useMemo(() => buildPredictorComparison(evidence, ladder), [evidence, ladder]);
 
   const openConnections = () => {
     if (onOpenSettings) onOpenSettings();
@@ -502,7 +495,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       </section>
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
-      {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={buildPredictorComparison(evidence, ladder)} title="Where do the predictors agree?" description="Compare each tool’s published evidence-strength band. These are individual readings, not criteria to add together." /></React.Suspense>}
+      {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare each tool’s published evidence-strength band. These are individual readings, not criteria to add together." /></React.Suspense>}
       {!workspace.comparison && <>
       <InformationalCard evidence={evidence} />
 
@@ -532,7 +525,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
             </thead>
             {groupReadings(evidence.readings).map(({ group, rows }) => {
               const collapsible = group !== "vote";
-              const open = !collapsible || (workspace.enabled ? workspace.expanded.includes(group) : expanded.has(group));
+              // One toggle semantics: the workspace state. Informational groups start collapsed.
+              const open = !collapsible || workspace.expanded.includes(group);
               const scored = rows.filter(r => r.score !== null).length;
               return (
               <tbody key={group} data-group={group} data-collapsed={open ? undefined : "true"}>
@@ -546,7 +540,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
                           type="button"
                           className="prd-group__toggle"
                           aria-expanded={open}
-                          onClick={() => workspace.enabled ? workspace.toggleGroup(group) : toggleGroup(group)}
+                          onClick={() => workspace.toggleGroup(group)}
                         >
                           {open ? "Hide" : `Show ${scored} of ${rows.length} scored`}
                         </button>
