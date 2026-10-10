@@ -118,6 +118,8 @@ for (const [key, value] of Object.entries(TEST_STATE_ENV)) {
 }
 
 process.env.ANALYSIS_DB_PATH = ":memory:";
+// Accounts live in memory under test; `closeAccountsDb()` gives a suite a fresh, empty workspace.
+process.env.ACCOUNTS_DB_PATH = ":memory:";
 if (process.env.ANALYSIS_DB_PATH !== ":memory:") {
   throw new Error(
     `[test-setup] ANALYSIS_DB_PATH is "${process.env.ANALYSIS_DB_PATH}" rather than ":memory:"; ` +

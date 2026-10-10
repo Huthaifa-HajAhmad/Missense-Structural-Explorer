@@ -48,6 +48,17 @@ import { CONFIG } from "../config.ts";
 export const activeBackgroundTasks: BackgroundTask[] = [];
 
 export const PUBLIC_ENDPOINTS = [
+  // Accounts (server/auth). Public at the token layer only: each route enforces its own rule —
+  // sign-in routes are open, `/me/*` needs a user (requireUser), `/admin/*` an admin (requireAdmin),
+  // `/setup` exists only until the first admin is created. AUTH_MODE still gates every write.
+  "/auth",
+  "/api/v1/auth",
+  "/setup",
+  "/api/v1/setup",
+  "/me",
+  "/api/v1/me",
+  "/admin",
+  "/api/v1/admin",
   "/health",
   "/version",
   "/diagnostics",

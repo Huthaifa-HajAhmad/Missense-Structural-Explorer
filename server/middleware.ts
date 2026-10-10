@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { sendError, safeCompare, getApiKeyFromSession, decryptSession } from "./utils.ts";
 import { PUBLIC_ENDPOINTS } from "./routes/state.ts";
 import { CONTEXT_SUFFIXES } from "../src/shared/contextRequest.ts";
+import { accountAccess, attachPrincipal } from "./auth/middleware.ts";
 
 const PUBLIC_CONTEXT_READ = new RegExp(`^/(?:api/v1/)?evidence-context/[^/]+(?:/(?:${CONTEXT_SUFFIXES.join("|")}))?$`);
 
@@ -47,6 +48,18 @@ export const validateContentType = (req: express.Request, res: express.Response,
 
 // Basic authentication middleware (SEC-2)
 export const authCheck = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // 0. Accounts (server/auth): who is asking, and the AUTH_MODE rules. In AUTH_MODE=legacy (the
+  //    default) this only lets a signed-in user through; every check below is unchanged.
+  const verdict = accountAccess(req, attachPrincipal(req));
+  if (verdict.allow === true) {
+    next();
+    return;
+  }
+  if (verdict.allow === false) {
+    sendError(res, verdict.status, verdict.code, verdict.message);
+    return;
+  }
+
   // 1. Allow public metadata/session endpoints to bypass auth
   
   const pathToCheck = req.path;

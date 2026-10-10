@@ -12,6 +12,7 @@ import { isShareable, withVariantParams } from "../shared/shareLink";
 import { CHROME_DIVIDER, CHROME_ICON_BUTTON } from "./ui/chrome";
 import { VariantIdentity } from "./header/VariantIdentity";
 import { useVariantHeaderModel, type VariantHeaderInput } from "./header/variantHeaderModel";
+import { AccountMenu } from "./account/AccountMenu";
 
 interface HeaderBarProps {
   masterView: MasterView;
@@ -381,6 +382,10 @@ export function HeaderBar({
         >
           <Settings className="w-4 h-4" />
         </button>
+
+        {/* Account: "Sign in", or the reader's initials and menu. Renders nothing until the workspace
+            uses accounts, so a server still on AUTH_MODE=legacy looks exactly as before. */}
+        <AccountMenu />
       </div>
     </header>
   );

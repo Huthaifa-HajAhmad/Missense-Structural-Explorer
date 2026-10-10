@@ -2,9 +2,10 @@ import { CONFIG } from "../../../config.ts";
 
 /**
  * Structures above this size skip RepairPDB (a cost guard; see runner.ts). Shared with the budget
- * test, which relies on it: a long BuildModel and a RepairPDB can never stack in one job.
+ * test, which relies on it: a long BuildModel and a RepairPDB can never stack in one job. Defined in
+ * `src/shared/computeRouting.ts` so the placement engine's `repair` flag reads the same number.
  */
-export const FOLDX_REPAIR_MAX_RESIDUES = 400;
+export { FOLDX_REPAIR_MAX_RESIDUES } from "../../../../src/shared/computeRouting.ts";
 
 export interface BuildModelBudgetInput {
   residueCount: number;

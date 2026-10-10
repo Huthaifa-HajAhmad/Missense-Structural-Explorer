@@ -6,6 +6,7 @@
  */
 
 import crypto from "crypto";
+import { authEnvironmentProblems } from "./auth/config.ts";
 
 /**
  * Ensures a valid, cryptographically secure SIDECAR_SECRET exists in process.env.
@@ -151,6 +152,15 @@ export function validateStartupEnvironment(): void {
   ];
   if (!sessionSecret || (CONFIG.server.isProduction && (defaultValues.some(d => sessionSecret.toLowerCase().includes(d)) || sessionSecret.length < 32))) {
     console.error("FATAL: APP_SESSION_SECRET is not set or is using a weak/development fallback in production (must be 32+ characters). Refusing to start.");
+    process.exit(1);
+  }
+
+  // Accounts: an unknown AUTH_MODE or an unbuilt provider must stop the server, never fall back to
+  // no login (server/auth/config.ts).
+  const authProblems = authEnvironmentProblems();
+  if (authProblems.length > 0) {
+    for (const problem of authProblems) console.error(`FATAL: ${problem}`);
+    console.error("Refusing to start.");
     process.exit(1);
   }
 
