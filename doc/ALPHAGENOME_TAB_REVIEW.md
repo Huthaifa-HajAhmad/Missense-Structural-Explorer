@@ -100,3 +100,10 @@ holds the app-defined bands (now read by no screen). The Predictors row still sh
 `topModality`, which can differ from this tab's largest contribution; left for after PR #2 lands.
 A per-exon comparator (this change's rank among all SNVs in its exon, from the saturation route) was
 proposed as an on-request button and not built.
+
+
+## 9 October 2026 ? visualization workspace
+
+This tab now uses the shared comparison/source-record workspace and a pinned-reading
+inspector. Scientific rules are unchanged. The implementation, presentation corrections,
+reference contracts and validation are recorded in [Evidence workspace review](EVIDENCE_WORKSPACE_REVIEW.md).

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { AlertTriangle, Database, ExternalLink, Gauge, Search, RotateCw, Scale, Star } from "lucide-react";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { TabComponentProps } from "./types";
@@ -7,6 +7,7 @@ import {
   formatAlleleCounts,
   formatAlleleFrequency,
   formatCount,
+  frequencyObservationName,
   populationReading,
   observationAbsence,
   type FrequencyApplication,
@@ -17,6 +18,10 @@ import { THRESHOLDS } from "../../shared/thresholds";
 import { FrequencyScale, type ScaleReading } from "./population/FrequencyScale";
 import { classificationTone, formatClinicalDate, reviewStars } from "./population/populationFormat";
 import { Prose } from "../ui/Prose";
+import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
+import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { buildPopulationComparison } from '../../shared/evidenceComparison';
+const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
 
 /**
  * Population Data.
@@ -156,7 +161,7 @@ function SourceRow({ line }: { line: SourceLine }) {
     <tr data-testid={`reading-${o.key}`} data-source={line.source} data-rule-input={ruleInput || undefined}>
       <th scope="row" className="pop-subject">
         <span className="pop-subject__line">
-          <span className="pop-subject__name">{name}</span>
+          <span className="pop-subject__name"><InspectReadingButton tab="clinical" readingKey={o.key === 'gnomad-group' ? 'frequency-rule-input' : o.key}>{name}</InspectReadingButton></span>
           {qualifier && <span className="pop-dim">{qualifier}</span>}
           {!measured && <StateChip observation={o} />}
         </span>
@@ -180,7 +185,7 @@ function NoReadingItem({ line }: { line: SourceLine }) {
   return (
     <li className="pop-noread__item" data-testid={`reading-${o.key}`} data-source={line.source}>
       <span className="pop-noread__name">
-        {name}
+        <InspectReadingButton tab="clinical" readingKey={o.key}>{name}</InspectReadingButton>
         {qualifier && <span className="pop-dim"> {qualifier}</span>}
       </span>
       {!quiet && <StateChip observation={o} />}
@@ -200,6 +205,7 @@ function Stars({ count }: { count: number }) {
 }
 
 export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentProps) {
+  const workspace = useEvidenceWorkspace('clinical');
   const requestRerun = useVariantAnalysisStore(s => s.requestRerun);
   const setCustomGene = useVariantAnalysisStore(s => s.setCustomGene);
   const setShowCustomInputs = useVariantAnalysisStore(s => s.setShowCustomInputs);
@@ -213,7 +219,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
     onNavigateToView?.("search");
   };
 
-  const evidence = buildFrequencyEvidence(frequencyEvidenceInputFromResult(result));
+  const evidence = useMemo(() => buildFrequencyEvidence(frequencyEvidenceInputFromResult(result)), [result]);
 
   const { criterion, applied, clinvar } = evidence;
   const FREQ = THRESHOLDS.populationFrequency;
@@ -247,7 +253,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
     .filter(o => o.af !== null && o.af > 0 && o.availability.state === "available")
     .map(o => ({
       key: o.key,
-      label: o.id.startsWith("gnomad") ? `gnomAD ${o.label.toLowerCase()}` : o.label,
+      label: frequencyObservationName(o),
       af: o.af as number,
     }));
   if (groupedMaxAf !== null && groupedMaxAf > 0) {
@@ -264,7 +270,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
   // Every source as one display line, in reading order: gnomAD, All of Us, ClinVar submissions.
   const gnomadLines: SourceLine[] = gnomadRows.map(o => ({
     observation: o,
-    name: o.id === "gnomad-local" ? o.label : `gnomAD ${o.label.toLowerCase()}`,
+    name: o.id === "gnomad-local" ? o.label : frequencyObservationName(o),
     source: "gnomad",
   }));
   const groupedLine: SourceLine | null = groupedMaxAf !== null
@@ -308,6 +314,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
   const readingsHaveRuleDot = observedLines.some(l => l.ruleInput);
   const readingsSummary = summariseReadings(evidence.observations);
 
+  const populationModel = useMemo(() => buildPopulationComparison(evidence), [evidence]);
   return (
     <div className="pop-screen @container">
       <header>
@@ -317,6 +324,8 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           ACMG frequency criterion that supports.
         </p>
       </header>
+      <EvidenceViewTabs tab="clinical" />
+      <EvidencePanel tab="clinical">
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="pop-card pop-hero" aria-labelledby="pop-finding-title" data-testid="population-finding">
@@ -367,7 +376,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           )}
         </div>
 
-        {criterion.af !== null && (
+        {criterion.af !== null && !workspace.comparison && (
           <div className="pop-hero__scale">
             <FrequencyScale
               criterion={criterion}
@@ -413,7 +422,8 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
         )}
       </section>
 
-      <div className="pop-lower">
+      {workspace.comparison && <React.Suspense fallback={<p>Loading frequency comparison…</p>}><EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." /></React.Suspense>}
+      {!workspace.comparison && <div className="pop-lower">
         {/* ── 2. Source readings ──────────────────────────────────────────────────────────── */}
         <section className="pop-section" aria-labelledby="pop-readings-title">
           <h2 className="eyebrow" id="pop-readings-title">
@@ -515,7 +525,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
             {!clinvar.availability.hasValue ? (
               <div className="pop-clinvar__empty">
                 <p className="pop-clinvar__empty-title">
-                  {clinvar.availability.state === "no-result" ? "No classification" : clinvar.availability.label ?? "Not available"}
+                  {clinvar.availability.state === "no-result" ? "No classification" : clinvar.availability.label ?? ENGINE_STATE_LABELS['no-result']}
                 </p>
                 <p className="pop-clinvar__empty-body">
                   {clinvar.availability.reason ?? "No classification in ClinVar is available for this variant."}
@@ -555,7 +565,8 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
             </div>
           </div>
         </section>
-      </div>
+      </div>}
+      </EvidencePanel>
     </div>
   );
 }

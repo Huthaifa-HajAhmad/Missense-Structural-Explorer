@@ -1,4 +1,6 @@
 import React from "react";
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
+import { buildAttributionComparison } from '../../shared/evidenceComparison';
 import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
@@ -53,6 +55,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
 
   return (
     <div className="ag-rail" data-testid="alphagenome-rail">
+      <EvidenceReadingInspector tab="alphagenome" rows={buildAttributionComparison(ev).rows} />
       {/* ── 1. How the rank was obtained ── */}
       <section className="rail-section" aria-labelledby="ag-rail-trace">
         <h3 className="eyebrow" id="ag-rail-trace">
@@ -72,7 +75,7 @@ export function AlphaGenomeRail({ analysisResult }: { analysisResult: AnalysisRe
           </Step>
           <Step n={2} label="Raw AVI score" state={scored ? "done" : "idle"}>
             <span className="ag-mono">{ev.raw !== null ? ev.raw.toFixed(4) : "—"}</span>
-            <span className="rail-step__sub">Model output; the 18 feature contributions sum to it.</span>
+            <span className="rail-step__sub">Model output before conversion to rank. The contribution chart and the records table state how many of the 18 contributions were returned.</span>
           </Step>
           <Step n={3} label="Genome-wide quantile" state={scored ? "done" : "idle"}>
             <span className="ag-mono">{ev.quantile !== null ? ev.quantile.toFixed(5) : "—"}</span>

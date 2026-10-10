@@ -369,8 +369,11 @@ export function fmtShare(s: number): string {
  */
 export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail: string } | null {
   if (!ev.groups || !ev.origins) return null;
+  const reported = ev.groups.flatMap(g => g.rows).filter(r => r.shap !== null).length;
+  if (reported === 0) return { headline: "No feature contributions reported.", detail: "The score cannot be attributed from this payload." };
+  const coverage = reported < AVI_FEATURES.length ? ` Only ${reported} of ${AVI_FEATURES.length} contributions were returned; this describes the reported inputs only.` : '';
   if (!ev.largest || ev.totalAbs === null || ev.totalAbs === 0) {
-    return { headline: "No feature contributed to the score.", detail: "Every attribution is zero." };
+    return { headline: "The reported contributions are zero.", detail: `Every returned attribution is zero. No contribution shares can be computed.${coverage}` };
   }
   const newShare = ev.newShare ?? 0;
   const reused = ev.groups
@@ -389,17 +392,17 @@ export function aviFinding(ev: AlphaGenomeEvidence): { headline: string; detail:
     return {
       headline: "Mostly AlphaGenome's own predictions.",
       detail:
-        `${fmtShare(newShare)} of the score comes from AlphaGenome's predicted molecular effects${led}.` +
-        (reused.length ? ` The rest comes from ${joined}, which the Predictors tab already reflects.` : ""),
+        `${fmtShare(newShare)} of reported attribution magnitude comes from AlphaGenome's predicted molecular effects${led}.` +
+        (reused.length ? ` The rest comes from ${joined}. These other inputs are not independent molecular predictions.` : "") + coverage,
     };
   }
   return {
     headline: "Mostly evidence this workspace already reads.",
     detail:
-      `${fmtShare(reusedShare)} of the score comes from ${joined}, which the Predictors tab already reflects. ` +
+      `${fmtShare(reusedShare)} of reported attribution magnitude comes from ${joined}. ` +
       (newShare === 0 || !lm
-        ? "AlphaGenome's own molecular predictions add nothing to it."
-        : `AlphaGenome's own molecular predictions add ${fmtShare(newShare)}${led}.`),
+        ? "No non-zero molecular contribution was returned."
+        : `AlphaGenome's own molecular predictions account for ${fmtShare(newShare)}${led}.`) + coverage,
   };
 }
 

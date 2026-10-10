@@ -27,6 +27,9 @@ const REPO_ROOT = process.cwd();
 
 /** The surfaces that must render engine state exclusively from `src/shared/engineStatus.ts`. */
 const GUARDED_SURFACES = [
+  'src/components/evidence/ClinicalTab.tsx',
+  'src/components/evidence/PredictorsTab.tsx',
+  'src/components/evidence/AlphaGenomeTab.tsx',
   'src/components/evidence/DevelopmentalExpressionCard.tsx',
   'src/components/evidence/MechanismContextCard.tsx',
   'src/components/evidence/GeneDiseaseReadings.tsx',
