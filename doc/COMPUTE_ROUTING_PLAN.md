@@ -1,6 +1,7 @@
 # Compute routing: accounts, queue-aware scheduling, and the submitter's own machine
 
-Status: **decisions resolved, ready for implementation by multiple agents. Nothing is implemented.**
+Status: **decisions resolved; implementation under way on branch `feat/compute-routing`.** See 0.3 for
+what is done and how the shipped contract differs from the sketches below.
 Facts were read from the code on branch `chore/residue-shifts-inspector-polish`. Anything not read
 from code is marked **[estimate]**, **[unmeasured]** or **[proposed]**.
 
@@ -43,6 +44,106 @@ one agent can take it without the others.
   is the users' own machines, which is what this plan builds.
 - The queue starts with `BIOPHYSICAL_CONCURRENCY` default **4** (`config.ts`). The `2` in the
   constructor is only a default parameter that `server.ts` overrides.
+
+### 0.3 Implementation status (update this table when a package lands)
+
+| Package | State | Where |
+|---|---|---|
+| WP-C engine and cost models | **done** (25 engine + 7 cost-model tests) | `src/shared/computeRouting.ts`, `server/services/infra/cost-models.ts` |
+| WP-I2 cache audit (read-only part) | **done**; the fixes it lists are not | `doc/EGRESS_AUDIT.md` |
+| WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
+| WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
+| everything else | not started | |
+
+**Where WP-A's server side differs from section 4** (the code is the source of truth):
+- **The gate is "every write", not a list of heavy routes.** `PUBLIC_ENDPOINTS` already lists nearly every
+  compute route, so the shared token protects almost none of them today, and a hand-kept heavy list would
+  drift. In `hybrid` every POST/PUT/PATCH/DELETE needs a user or the legacy token; in `accounts` it needs a
+  user. Reads are unchanged. Only the sign-in writes are exempt (`SIGN_IN_WRITES` in `server/auth/middleware.ts`).
+  **Client consequence:** in `accounts` mode the SPA must sign in before its first write (including
+  `POST /session/keys`).
+- `/auth`, `/setup`, `/me`, `/admin` are listed in `PUBLIC_ENDPOINTS` as prefixes so their own guards answer
+  (`requireUser`, `requireAdmin`); otherwise a signed-out visitor got "invalid API token".
+- Extra endpoints: `POST /auth/invite-info {token}` (the accept page shows the invited email),
+  `POST /admin/users/:id/reset-link`, `POST /admin/users/:id/sign-out`. Invite and reset links carry the token
+  in the URL **fragment** (`/#invite=…`, `/#reset=…`), which never reaches a server or proxy log.
+- Reset links have their own table, `password_resets` (single use, 24 h, a new link replaces an unused one).
+- Throttle: 5 failures per email (and for the setup secret), **20 per address**, because a lab shares one NAT
+  address. A success clears only the account's counter, never the address counter.
+- The last active admin cannot be demoted or disabled (409 `LAST_ADMIN`).
+- `npm run user:create|user:reset` runs the TypeScript source in development and the bundled
+  `dist/user-admin.cjs` (built by `npm run build`) in the production image, which has neither `tsx` nor sources.
+- `deploy/backup-sqlite.sh` now also backs up `accounts.sqlite`.
+- Agent tokens: the `/agent/*` rule (agent token only; a cookie is neither required nor sufficient) is
+  enforced centrally in `accountAccess`; pairing and the agent routes are WP-F.
+- Not yet: cancelling a disabled user's queued jobs and usage numbers in `/auth/me` (both need WP-B).
+- Added for the client: `GET /auth/session` (public, never 401: mode, user or null, `setupAvailable`,
+  `accountsExist`), `GET /admin/invites` and `DELETE /admin/invites/:id`. A new invite for an address
+  replaces its older unused one. Setup, invite acceptance and reset all record `last_login_at`.
+- The password rule lives in `src/shared/accountPolicy.ts`, read by both the server check and the
+  browser's live checklist.
+
+**How the client behaves** (`AccountGate`, mounted around `<App/>` in `main.tsx`):
+- `legacy` with no accounts, or a server without the account routes: the app exactly as before, with no
+  account chrome.
+- `/#invite=…`, `/#reset=…`, `/setup`: a full-page card; the token leaves the address bar on load.
+- `accounts` and signed out: a full-page sign-in, and the app does not mount. If a session ends while
+  the app is open, a sign-in dialog that cannot be dismissed appears over it, so no work is lost.
+- `hybrid`/`legacy` with accounts: a "Sign in" button in the header and a dismissable dialog.
+- An expired session is detected through the existing auth-lapse signal (`subscribeAuthLapse`).
+- The first admin lands on Settings → Team, and the first-visit tour does not open over it.
+
+**Review, 2026-10-10.** Four read-only reviewers (security, server correctness, client UI and
+accessibility, tests/ops/docs) reviewed this branch and PR #92. Fixed: a damaged stored password hash
+now fails closed; the near-tie rule ignores hosts with no time estimate; `/agent` matching is
+case-insensitive and `/agent/pair` (a signed-in person's request) is exempt; a reset lifts a sign-in
+lockout; the current-password check is throttled; invite/reset replacement is one transaction; one
+shared email rule (`isValidEmail`); dialog Escape/Tab no longer reach the drawer underneath; menu
+focus returns to the avatar; a hidden settings tab falls back cleanly; the start-up session check
+retries once. Not changed, by decision: `trust proxy = 1` is safe only while the app port stays
+unpublished (production publishes only Caddy's 80/443; keep it that way); the CORS `*.duckdns.org`
+wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-Origin write check.
+**This branch must land with or after PR #92**, which carries the AlphaGenome key fix.
+
+**Audit facts the next packages must start from** (verified against the code, 2026-10-09):
+- **WP-I3:** a fast 429 does **not** stay out of the circuit breaker today. The fast-refusal path `break`s
+  out of the retry loop and reaches the unconditional `breaker.recordFailure()` after it
+  (`server/services/infra/http-client.ts`, ~line 375), so the "429 does not count" premise in I3 is a change
+  to make, not existing behaviour.
+- **Security, outside this plan:** the AlphaGenome bridge falls back to the server's `ALPHAGENOME_API_KEY`
+  while taking the endpoint URL from the request (`x-alphagenome-url` / `alphagenomeApiUrl`), so a caller can
+  have the server send its key to any URL (`alphagenome-bridge.ts` lines ~121-122 and ~367-368;
+  `routes/variant/alphagenome.ts` `verify-connection`). **Fixed on branch `fix/alphagenome-key-scope`**
+  (`resolveAlphaGenomeAccess` in the bridge): a request-supplied URL gets only a request-supplied key, and
+  its answers stay out of the shared cache.
+
+**Where WP-C's shipped contract differs from section 5** (the code is the source of truth; these are the
+places a later package would otherwise trip):
+- `Prediction.wallMs` is **nullable**. P2Rank has no timing prior, so before telemetry it is `null` and the
+  engine ranks by load (`HostFeatures.runningJobs`, then running + queued cost). Section 5.2 described this
+  as a "null-equivalent"; it is now a real `null`.
+- `HostFeatures` gained `label` (reader-facing host name used in the reasons) and `runningJobs`.
+- `RoutingPolicy.nearTieMarginMs` became **`nearTieFraction`** (0.20 = `ROUTING_TIE_MARGIN`), applied to the
+  best expected completion; `RoutingPolicy` also carries `minSamples` (`COST_MODEL_MIN_SAMPLES`). Use
+  `DEFAULT_ROUTING_POLICY`.
+- `Decision` gained `ranked` (every feasible host with its prediction and expected completion, best first),
+  which is what shadow mode (5.4) should log.
+- **`repair` is not "residues <= 400".** The runner also skips RepairPDB for AlphaFold DB models. Build the
+  flag with `foldxRepairApplies(residues, isAlphaFoldPdb)`. `FOLDX_REPAIR_MAX_RESIDUES` now lives in
+  `src/shared/computeRouting.ts`; `foldx/budget.ts` re-exports it, so there is one number.
+- `CostModels` is a frozen record keyed by `costModelKey(type, hostClassOf(host))`. Host class rounds total
+  RAM to the nearest GiB (`x64-native-8c-16g`), so a machine reporting 15.6 GiB shares the 16 GB class.
+- `cost-models.ts` takes **rows, not a database**: `buildCostModels(TelemetrySample[])`. WP-0 owns the
+  `job_telemetry` table and maps its rows to `TelemetrySample`. Only `completed` rows feed the curves and
+  `maxCompletedResidues`; only `oom` rows set `oomCeilingResidues` (two at the same size = `sticky`, see
+  `oomCeiling`).
+- The conservative memory rule is applied as a **size** rule while memory is unmeasured: refuse above
+  1.25 x the largest completed size, and never refuse a class with nothing completed (that would refuse
+  every first job). "One heavy job per host" is an admission rule for WP-D, not a placement filter.
+- Priors: native BuildModel is a line through the two native measurements (2.3 s at 154, 4.7 s at 875);
+  emulated BuildModel is `167.2 s x (residues/1085)^1.44` split 13.3 : 153.9 between fixed and per-run
+  (reproduces 167.2 s, the 44.0 s single run and ~10 s for SOD1); RepairPDB scales the 205 s / 489-residue
+  measurement (inferred to be the emulated host) and divides by 60 for native **[estimate]**.
 
 ---
 
@@ -388,7 +489,7 @@ export interface Decision {
 
 export interface RoutingPolicy {
   placementPref: "auto" | "my_machine" | "server_only";
-  nearTieMarginMs: number;                         // 20% of the best p50 [proposed]
+  nearTieMarginMs: number;                         // 20% of the best p50 [proposed] (shipped as nearTieFraction, see 0.3)
   ramHeadroom: number;                             // 1.25 [proposed]
 }
 
