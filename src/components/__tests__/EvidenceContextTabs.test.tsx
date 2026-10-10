@@ -286,4 +286,24 @@ describe('Gene–disease inspector rail', () => {
     expect(rail.getAllByText('this disease').length).toBeGreaterThan(0);
     expect(rail.getByRole('link', { name: /ClinGen curation for TEST/ })).toHaveAttribute('href', expect.stringContaining('gene-dosage/HGNC:1'));
   });
+  it('keeps a not-installed Gene2Phenotype snapshot distinct from an empty read in the sources list', () => {
+    const result: any = { metadata: { gene: 'TEST' } };
+    const s: any = useVariantAnalysisStore;
+    s.setState({ gene: 'TEST', variant: 'p.A1B' });
+    const actions = s.getState();
+    const payload = (status: 'not-installed' | 'ready'): any => ({ gene: 'TEST', status: 'ready', frames: [frame],
+      provenance: { source: 'GenCC', url: 'https://thegencc.org', licence: 'CC0 1.0', release: null, retrievedAt: '2026-10-06T00:00:00Z', sha256: 'a'.repeat(64) }, message: null,
+      mechanismContext: { status, records: [], provenance: null, message: null } });
+    actions.setDiseaseContext('TEST', { status: 'ready', data: payload('not-installed') });
+    actions.setPhenotypeSelection(evidenceContextIdentity(result, 'TEST', 'p.A1B'), { ...emptyPhenotypeSelection(), diseaseKey: frame.key });
+    const first = render(<EvidenceContextRail analysisResult={result} expression={false} />);
+    const sources = within(screen.getByTestId('context-sources'));
+    expect(sources.getByText('Not available here')).toBeVisible();
+    // …and that a read that returned nothing still says so, rather than borrowing the other state.
+    first.unmount();
+    actions.setDiseaseContext('TEST', { status: 'ready', data: payload('ready') });
+    actions.setDosageContext('TEST', { status: 'ready', data: { gene: 'TEST', status: 'not-found', message: null, provenance: null, record: null } });
+    render(<EvidenceContextRail analysisResult={result} expression={false} />);
+    expect(within(screen.getByTestId('context-sources')).getAllByText('No result').length).toBeGreaterThan(0);
+  });
 });

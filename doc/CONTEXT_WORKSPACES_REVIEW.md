@@ -2,6 +2,40 @@
 
 10 October 2026. Continues the Landscape, Structure, Energetics and first Evidence workspace batch.
 
+## Review verification round (10 October 2026)
+
+Independent verification of the four-reviewer code review, plus fixes. Findings that the evolving
+working tree had already addressed (workspace layout inclusion for `structure`/`perturbation`/`function`,
+`mol-guide`/`mol-domain-key` styling, residual `residueReadings`/`perturbationReadings` "unused" claims,
+the "shared ΔLLR/probability axis" — the chart filters by model) are recorded as confirmed-stale here;
+every other accepted finding is fixed with regression coverage. Highlights:
+
+- The mechanism cross-check now respects the ClinGen dosage call's **disease scope** (exact MONDO):
+  a call curated for another disease is never compared; a gene-level call is compared but the prose
+  says so instead of claiming "for this disease" (`geneDiseaseEvidence.ts`, scoped tests).
+- A disease frame whose only provenance is Gene2Phenotype while the GenCC snapshot is unavailable now
+  reads "GenCC snapshot unavailable", never "Not curated by GenCC" (the server's
+  `addVerifiedMechanismChoices` makes this path reachable with real data).
+- Settings mutators are memoised: `fetchWithAuth` no longer changes identity on every settings render,
+  so context loaders do not restart when the settings panel is opened (`useEvidenceContext`,
+  `useInterfacesData` inherit the fix).
+- The functional-drawing guide is a closed `<details>` (the sod1 test forbids caption paragraphs below
+  the drawing); domains **and motifs** in the drawing are keyboard-operable with visible focus; the
+  comparison view's "View selected record" moves focus and scroll to the pinned record row, and no
+  interaction instructions render when the feature table failed to load.
+- Inspector rails report sources from typed state (`SourceReading.status` + `sourceReadingState`):
+  not-installed, upstream error, empty read and not-applicable stay distinct (was: everything read
+  "No result"). IMPC against a gene with no mouse ortholog says "Not applicable".
+- The store-key vocabulary for the newer context sources lives in one module (`shared/evidenceKeys.ts`);
+  `ContextExplorer`'s chart/table captions reflect the active mode; IMPC truncation fails visibly;
+  ortholog records excluded by the single-source-isoform rule are named in the alignment response and
+  shown on the alignment card.
+- Lazy comparison charts in tests wait with a real Suspense timeout — the 1-second `findByRole`
+  default was expiring under full-suite CPU load (the residual flake class the Energetics pass saw).
+
+Verification: `tsc --noEmit`, boundary/focus/verify-parity gates, production build, and the full
+suite (4,432 tests) green at worker count 4.
+
 ## Outcome
 
 Gene–disease now compares submitted categories in an interactive assertion matrix. Selecting an

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useCallback, useContext, useState, useEffect } from "react";
 import { UserSettings } from "../types";
 import {
   DEFAULT_USER_SETTINGS,
@@ -240,7 +240,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
-  const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
+  // Memoised on purpose: the value is one of `fetchWithAuth`'s dependency inputs, so a fresh
+  // identity on every provider render re-created `fetchWithAuth`, invalidated every `useApiClient`
+  // memo and re-ran each context-loading effect whenever any settings state changed — even
+  // opening the settings panel. The setters used below are stable `useState` dispatchers.
+  const updateSetting = useCallback(<K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
     setSettings((prev) => {
       const updated = { ...prev, [key]: value };
       try {
@@ -270,9 +274,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     if (key === "showAtomInteractions") {
       setShowPolarContacts(value as boolean);
     }
-  };
+  }, []);
 
-  const resetSettingsToDefault = () => {
+  const resetSettingsToDefault = useCallback(() => {
     setSettings(DEFAULT_USER_SETTINGS);
     setShowPolarContacts(true);
     try {
@@ -287,9 +291,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     try {
       sessionStorage.removeItem(TRANSIENT_STORAGE_KEY);
     } catch (e) {}
-  };
+  }, []);
 
-  const applySettings = (partial: Partial<UserSettings>) => {
+  const applySettings = useCallback((partial: Partial<UserSettings>) => {
     const safe: Partial<UserSettings> = { ...partial };
     // Imported files must never inject credentials into persisted storage.
     for (const transientKey of TRANSIENT_SETTING_KEYS) {
@@ -319,7 +323,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }
       return updated;
     });
-  };
+  }, []);
 
   const [serverGeminiReady, setServerGeminiReady] = useState(false);
 

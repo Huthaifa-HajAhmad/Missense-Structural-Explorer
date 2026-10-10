@@ -19,7 +19,7 @@ export interface ContextReading extends EvidenceChartRow {
   reportUrl?: string | null;
 }
 const reported = (v: string | number | null | undefined) => v == null ? 'Not reported' : String(v);
-export const formatTpm = (v: number | null) => v === null ? 'No gene reading' : `${v === 0 ? '0' : v < .001 ? v.toExponential(3) : Number(v.toPrecision(4))} TPM`;
+const formatTpm = (v: number | null) => v === null ? 'No gene reading' : `${v === 0 ? '0' : v < .001 ? v.toExponential(3) : Number(v.toPrecision(4))} TPM`;
 const provenanceFacts = (p: ContextProvenance | null | undefined) => [
   { label: 'Release', value: p?.release ?? 'Not reported' }, { label: 'Retrieved', value: p?.retrievedAt ?? 'Not reported' },
 ];
@@ -65,8 +65,11 @@ export function expressionReadings(adult: AdultExpressionResponse | null, develo
 }
 
 export function speciesReadings(input: { models: ModelOrganismResponse | null; alignment: AlignmentResponse | null; phenotypes: ModelPhenotypesResponse | null;
-  sequence?: string | null; position: number | null; wildType: string; mutant: string; diseaseTerms: string[]; diseaseKey: string | null }): ContextReading[] {
+  sequence?: string | null; position: number | null; wildType: string; mutant: string; diseaseTerms: string[] | null; diseaseKey: string | null }): ContextReading[] {
   const { models, alignment, phenotypes } = input;
+  // `null` means the disease-term comparison cannot run (no selection or terms not read yet);
+  // phenotype rows must then refuse the overlap claim instead of reading it as a negative result.
+  const termSet: Set<string> | null = input.diseaseTerms && input.diseaseTerms.length ? new Set(input.diseaseTerms) : null;
   const alignmentEvidence = buildAlignmentEvidence(alignment?.status === 'ready' ? alignment : null, input.sequence, input.position, input.wildType, input.mutant);
   return [
     ...(models?.status === 'ready' ? models.orthologs.map(o => row({ key: `ortholog:${o.taxonId}:${o.id}`, name: `${speciesLabel(o.taxonId, o.species)} · ${o.symbol}`, taxon: o.taxonId,
@@ -85,10 +88,14 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
     })),
     ...(phenotypes?.status === 'ready' ? phenotypes.species.flatMap(s => s.status === 'ready' ? s.phenotypes.map((p, i) => row({
       key: JSON.stringify(['phenotype', input.diseaseKey, s.orthologId, p.termId, i]), name: p.statement, taxon: s.taxonId, group: 'phenotypes', source: 'Alliance / uPheno',
-      value: null, valueText: `${p.annotations} annotations`, relevant: phenotypes.mapping === 'available' && p.humanTerms.some(t => input.diseaseTerms.includes(t)),
+      value: null, valueText: `${p.annotations} annotations`, relevant: phenotypes.mapping === 'available' && termSet !== null && p.humanTerms.some(t => termSet.has(t)),
       description: `${speciesLabel(s.taxonId, s.species)} · ${s.symbol} · ${p.termId}`,
       facts: [{ label: 'Ortholog', value: s.orthologId }, { label: 'Phenotype term', value: p.termId }, { label: 'Annotations', value: String(p.annotations) },
-        { label: 'Model identifiers counted', value: String(p.models) }, { label: 'Disease term overlap', value: phenotypes.mapping === 'available' ? p.humanTerms.filter(t => input.diseaseTerms.includes(t)).join(', ') || 'No returned overlap' : 'Mapping not available' }, ...provenanceFacts(phenotypes.provenance[0])],
+        { label: 'Model identifiers counted', value: String(p.models) },
+        { label: 'Disease term overlap', value: phenotypes.mapping !== 'available' ? 'Mapping not available'
+          : termSet === null ? 'No disease terms to compare with'
+          : p.humanTerms.filter(t => termSet.has(t)).join(', ') || 'No returned overlap' },
+        ...provenanceFacts(phenotypes.provenance[0])],
       notes: ['Disease term overlap uses uPheno cross-species exact matches. It is not patient phenotype similarity or proof of disease causality.',
         'The current source response aggregates annotations. Allele, genotype, sex, age, procedures and sample counts are not supplied; no variant-specific functional claim is made. No automatic PS3/BS3.'],
     })) : []) : []),

@@ -3,6 +3,7 @@ import type { AnalysisResult } from '../../types';
 import type { ContextProvenance } from '../../shared/diseaseFrame';
 import { GeneDiseaseRail } from './GeneDiseaseRail';
 import { Step, Provenance, slotState, type Slot } from './RailParts';
+import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { REVIEW_SYSTEMS, ONSET_LABELS } from '../../shared/phenotypeFrame';
 import { buildExpressionFinding } from '../../shared/expressionTabEvidence';
 import { useContextWorkspaceRead } from '../../hooks/useContextWorkspace';
@@ -20,9 +21,20 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
   const { context: c, model, rows } = useContextWorkspaceRead(analysisResult, tab);
   const systems = c.selection.systems;
   const finding = buildExpressionFinding(c.expressionLoad?.data ?? null, c.expressionLoad?.status ?? null, systems);
-  const sources: Array<{ name: string; slot: Slot }> = species ? [
+  // A completed read that found no mouse ortholog must not display "No result": the card explains
+  // "not applicable" plainly, and the rail now says the same thing instead of implying an empty record.
+  const impcState = (() => {
+    if (!c.modelLoad || c.modelLoad.status === 'loading') return { label: ENGINE_STATE_LABELS.running, tone: 'muted' as const };
+    if (c.modelLoad.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' as const };
+    const impc = c.modelLoad.data?.status === 'ready' ? c.modelLoad.data.impc : null;
+    if (!impc) return { label: 'Not applicable — no mouse ortholog', tone: 'muted' as const };
+    if (impc.status === 'ready') return { label: 'Read', tone: 'good' as const };
+    if (impc.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' as const };
+    return { label: ENGINE_STATE_LABELS['no-result'], tone: 'muted' as const };
+  })();
+  const sources: Array<{ name: string; slot: Slot; state?: { label: string; tone: 'good' | 'muted' | 'warning' } }> = species ? [
     { name: 'Alliance orthologs', slot: c.modelLoad },
-    { name: 'IMPC mouse screen', slot: c.modelLoad ? { status: c.modelLoad.status, data: c.modelLoad.data?.impc ?? { status: 'not-found' } } : undefined },
+    { name: 'IMPC mouse screen', slot: c.modelLoad, state: impcState },
     { name: 'Curated model phenotypes', slot: c.phenotypesLoad },
     { name: 'Ensembl protein alignment', slot: c.alignmentLoad },
   ] : [
@@ -46,7 +58,7 @@ function ContextRail({ analysisResult, species }: { analysisResult: AnalysisResu
       {model.assertions.some(a => a.adverse) && <p className="rail-step__warn" role="note">This disease relationship has disputed, refuted or no-known-relationship assertions. Context cannot resolve that dispute.</p>}
     </section>
     <section className="rail-section" aria-labelledby="ctx-rail-sources"><h3 className="eyebrow" id="ctx-rail-sources">Sources read</h3>
-      <dl className="rail-kv rail-kv--sources" data-testid="context-sources">{sources.map(s => { const st = slotState(s.slot); return <div className="rail-kv__row" key={s.name}><dt>{s.name}</dt><dd><span className="ev-tier" data-tone={st.tone === 'good' ? 'neutral' : st.tone}>{st.label}</span></dd></div>; })}</dl>
+      <dl className="rail-kv rail-kv--sources" data-testid="context-sources">{sources.map(s => { const st = s.state ?? slotState(s.slot); return <div className="rail-kv__row" key={s.name}><dt>{s.name}</dt><dd><span className="ev-tier" data-tone={st.tone === 'good' ? 'neutral' : st.tone}>{st.label}</span></dd></div>; })}</dl>
     </section>
     <section className="rail-section" aria-labelledby="ctx-rail-method"><h3 className="eyebrow" id="ctx-rail-method">Method</h3>
       <details className="rail-notes"><summary>How the reading is made</summary>{species ? <ul>

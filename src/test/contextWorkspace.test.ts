@@ -44,6 +44,20 @@ describe('context workspace scientific and presentation contracts', () => {
     expect(speciesReadings({ ...input, diseaseKey: 'B' }).find(r => r.group === 'phenotypes')?.key).not.toBe(old.key);
     expect(speciesReadings({ ...input, phenotypes: { ...f.phenotypes, mapping: 'unavailable' } }).find(r => r.group === 'phenotypes')?.relevant).toBe(false);
   });
+  it('refuses the overlap claim when the disease terms were never available to compare', () => {
+    const f = contextWorkspaceFixture();
+    const input = { models: f.models, alignment: f.alignment, phenotypes: f.phenotypes, sequence: 'MACDEFGHIK', position: 3, wildType: 'C', mutant: 'Q', diseaseKey: 'A' };
+    // Null terms (no disease chosen / HPO not read) is not a negative result:
+    const none = speciesReadings({ ...input, diseaseTerms: null }).find(r => r.group === 'phenotypes')!;
+    expect(none.facts.find(f2 => f2.label === 'Disease term overlap')?.value).toBe('No disease terms to compare with');
+    expect(none.relevant).toBe(false);
+    // Empty terms read the same way: an empty comparison is not "no returned overlap".
+    const empty = speciesReadings({ ...input, diseaseTerms: [] }).find(r => r.group === 'phenotypes')!;
+    expect(empty.facts.find(f2 => f2.label === 'Disease term overlap')?.value).toBe('No disease terms to compare with');
+    // Terms that ran but found nothing keep the honest negative wording.
+    const ran = speciesReadings({ ...input, diseaseTerms: ['HP:9999999'] }).find(r => r.group === 'phenotypes')!;
+    expect(ran.facts.find(f2 => f2.label === 'Disease term overlap')?.value).toBe('No returned overlap');
+  });
   it('counts inheritance frames accurately and keeps assertions categorical with stable keys', () => {
     const f = contextWorkspaceFixture();
     const input = { gene: 'SOD1', disease: { status: 'ready' as const, data: f.disease }, dosage: undefined, selectedKey: null };

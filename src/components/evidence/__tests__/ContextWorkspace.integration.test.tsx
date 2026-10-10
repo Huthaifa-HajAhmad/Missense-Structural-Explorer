@@ -28,12 +28,17 @@ describe('production context tabs and linked inspectors', () => {
   it('pins an adult tissue with the real chart keyboard interaction and preserves its exact zero in records', async () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
-    const chart = await screen.findByRole('img', { name: /Adult tissue expression/ });
+    // The chart is a lazy chunk; a 1s default findByRole expires under full-suite CPU load.
+    const chart = await screen.findByRole('img', { name: /Adult tissue expression/ }, { timeout: 8000 });
     fireEvent.focus(chart); fireEvent.keyDown(chart, { key: 'Home' }); fireEvent.keyDown(chart, { key: 'Enter' });
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
+    // The pinned record is named, not just "a pinned record": substring assertions once passed while the wrong row was pinned.
+    expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('heading', { level: 3 })).toHaveTextContent(/Skeletal/i);
     fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
-    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Median TPM (exact)0');
+    const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
+    expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
+    expect(inspector.getByText('Median TPM (exact)').parentElement).toHaveTextContent(/^Median TPM \(exact\)0$/);
   });
   it('pins an assertion from the matrix and source records, and restores it across navigation', () => {
     const f = contextWorkspaceFixture(); render(<Harness result={f.result} />);
@@ -54,15 +59,18 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
-    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('0');
+    const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
+    expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
+    expect(inspector.getByText('Median TPM (exact)').parentElement).toHaveTextContent(/^Median TPM \(exact\)0$/);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Liver' } });
     expect(screen.getByText(/pinned record is outside this view/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Pediatric RNA' }));
-    const cohort = screen.getAllByRole('combobox', { name: 'Sampled age cohort' })[0];
+    const pediatricPanel = document.getElementById('expression-models-sources-panel-developmental')!;
+    const cohort = within(pediatricPanel).getByRole('combobox', { name: 'Sampled age cohort' });
     fireEvent.change(cohort, { target: { value: '1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
-    expect(screen.getAllByRole('combobox', { name: 'Sampled age cohort' })[0]).toHaveValue('1');
+    expect(within(document.getElementById('expression-models-sources-panel-developmental')!).getByRole('combobox', { name: 'Sampled age cohort' })).toHaveValue('1');
     const next = contextWorkspaceFixture('New variant'); store.setState(next.state); rendered.rerender(<Harness result={next.result} />);
     expect(screen.getByRole('tab', { name: 'Adult RNA' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Select a point or source record');

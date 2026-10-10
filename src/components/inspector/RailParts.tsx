@@ -14,6 +14,16 @@ export function slotState(slot: Slot): { label: string; tone: 'good' | 'muted' |
   if (status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' };
   return { label: 'Read', tone: 'good' };
 }
+/** The same one-word state for a model `SourceReading`, so rails can report a source from its
+ * typed state instead of synthesizing Slots (which previously collapsed G2P absences into
+ * "No result"). Keeps not-installed / no-result / error distinct. */
+export function sourceReadingState(reading: { available: boolean; status: 'ready' | 'loading' | 'error' | 'not-installed' | 'no-result' }): { label: string; tone: 'good' | 'muted' | 'warning' } {
+  if (reading.available) return { label: 'Read', tone: 'good' };
+  if (reading.status === 'loading') return { label: ENGINE_STATE_LABELS.running, tone: 'muted' };
+  if (reading.status === 'error') return { label: ENGINE_STATE_LABELS['upstream-error'], tone: 'warning' };
+  if (reading.status === 'not-installed') return { label: ENGINE_STATE_LABELS['not-installed'], tone: 'muted' };
+  return { label: ENGINE_STATE_LABELS['no-result'], tone: 'muted' };
+}
 /** Shared by both evidence-context rails, so the Gene–disease and Expression traces read identically. */
 const day = (iso: string) => iso.slice(0, 10);
 const basisLabel = (p: ContextProvenance) => p.timestampBasis === 'local-import' ? 'Imported' : p.timestampBasis === 'download' ? 'Retrieved' : 'Recorded';

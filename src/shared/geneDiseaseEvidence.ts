@@ -37,8 +37,11 @@ export interface AssertionRow {
 export interface MechanismCrossCheck {
   state: 'compared' | 'not-comparable'; relation: 'consistent' | 'differs' | null; sentence: string; mechanisms: string[];
 }
+export type SourceStatus = 'ready' | 'loading' | 'error' | 'not-installed' | 'no-result';
 export interface SourceReading {
   source: string; available: boolean; label: string; reason: string | null; age: SnapshotAge | null; release: string | null;
+  /** Machine-readable state, for inspector rows that must not collapse distinct absences into one. */
+  status: SourceStatus;
 }
 export interface GeneDiseaseModel {
   gene: string; selected: DiseaseFrame | null; frameCount: number;
@@ -63,6 +66,14 @@ export function compareMechanism(dosage: DosageEvidence, records: MechanismRecor
   if (!hi || hi.code === null || hi.code === 0 || hi.code === 1) return notComparable(hi?.code === null || !hi
     ? 'ClinGen has no scored haploinsufficiency call to compare with the Gene2Phenotype mechanism.'
     : `ClinGen reports ${hi.code}: ${hi.call.replace(/^\d+:\s*/, '').toLowerCase()} for haploinsufficiency. That is absence of evidence, not a finding, so it is not compared with the Gene2Phenotype mechanism (${mechanisms.join(' and ')}).`);
+  // Scope guard: a ClinGen dosage call curated for a different disease (or with no disease ID at all)
+  // cannot "agree for this disease". A same-disease call speaks for the disease directly; a gene-level
+  // call (no disease ID) is still compared, but the sentence says so instead of claiming disease scope.
+  if (hi.scope === 'other-disease') {
+    const other = hi.disease ?? 'another disease';
+    return notComparable(`ClinGen curates haploinsufficiency for ${other}, not for the selected disease, so it is not compared with the Gene2Phenotype mechanism (${mechanisms.join(' and ')}).`);
+  }
+  const same = hi.scope === 'same-disease';
   const lof = mechanisms.includes('loss of function');
   const other = mechanisms.some(m => m === 'gain of function' || m === 'dominant negative');
   if (lof === other) return notComparable(`Gene2Phenotype lists ${mechanisms.join(' and ')} for this disease; a single comparison with ClinGen haploinsufficiency would be misleading.`);
@@ -70,17 +81,25 @@ export function compareMechanism(dosage: DosageEvidence, records: MechanismRecor
   const call = `${hi.code}: ${hi.call.replace(/^\d+:\s*/, '').toLowerCase()}`;
   const mech = mechanisms.join(' and ');
   const base = { state: 'compared' as const, mechanisms };
-  if (lof && established) return { ...base, relation: 'consistent', sentence: `ClinGen haploinsufficiency (${call}) and Gene2Phenotype (${mech}) point the same way for this disease.` };
-  if (lof) return { ...base, relation: 'differs', sentence: `Gene2Phenotype records ${mech} for this disease, but ClinGen does not establish haploinsufficiency (${call}). Each source is shown as submitted.` };
-  if (established) return { ...base, relation: 'differs', sentence: `ClinGen reports haploinsufficiency (${call}), while Gene2Phenotype records ${mech} for this disease. A gene can have more than one disease mechanism; neither source is overridden.` };
-  return notComparable(`ClinGen reports ${call} for haploinsufficiency. This does not establish or corroborate the Gene2Phenotype mechanism (${mech}); gain of function and dominant negative require their own evidence.`);
+  if (lof && established) return { ...base, relation: 'consistent', sentence: same
+    ? `ClinGen haploinsufficiency for this disease (${call}) and Gene2Phenotype (${mech}) point the same way.`
+    : `ClinGen’s gene-level haploinsufficiency (${call}) and Gene2Phenotype’s mechanism for this disease (${mech}) point the same way.` };
+  if (lof) return { ...base, relation: 'differs', sentence: same
+    ? `Gene2Phenotype records ${mech} for this disease, but ClinGen haploinsufficiency for this disease does not establish it (${call}). Each source is shown as submitted.`
+    : `Gene2Phenotype records ${mech} for this disease, but ClinGen’s gene-level haploinsufficiency call does not establish it (${call}). Each source is shown as submitted.` };
+  if (established) return { ...base, relation: 'differs', sentence: same
+    ? `ClinGen haploinsufficiency for this disease (${call}) differs from Gene2Phenotype’s mechanism (${mech}). A gene can have more than one disease mechanism; neither source is overridden.`
+    : `ClinGen’s gene-level haploinsufficiency (${call}) is not disease-specific, so it does not override Gene2Phenotype’s mechanism for this disease (${mech}); a gene can have more than one disease mechanism, and neither source is overridden.` };
+  return notComparable(same
+    ? `ClinGen reports ${call} for haploinsufficiency. This does not establish or corroborate the Gene2Phenotype mechanism (${mech}); gain of function and dominant negative require their own evidence.`
+    : `ClinGen reports ${call} for haploinsufficiency at gene level. That neither establishes nor corroborates the Gene2Phenotype mechanism (${mech}); gain of function and dominant negative require their own evidence.`);
 }
 
 interface SnapshotLike { status: string; provenance: { retrievedAt: string; release: string | null } | null; message?: string | null }
 function snapshotReading(name: string, load: Load<SnapshotLike>, now: Date, what: string): SourceReading {
   const data = load?.data;
   if (data?.status === 'ready') {
-    return { source: name, available: true, label: 'Available', reason: null, release: data.provenance?.release ?? null,
+    return { source: name, available: true, label: 'Available', reason: null, release: data.provenance?.release ?? null, status: 'ready',
       age: data.provenance ? snapshotAge(name, data.provenance.retrievedAt, now) : null };
   }
   const failed = load?.status === 'error' || data?.status === 'error';
@@ -88,7 +107,11 @@ function snapshotReading(name: string, load: Load<SnapshotLike>, now: Date, what
   const reason = load?.status === 'error' ? load.error ?? data?.message ?? null
     : failed ? data?.message ?? null
     : data?.status === 'not-installed' ? `${what} is not installed on this server and could not be fetched.` : null;
-  return { source: name, available: false, label, reason, release: null, age: null };
+  // "No result" is reserved for a completed read that returned nothing (old payloads, empty coverage):
+  // it must not claim the snapshot is missing from the server.
+  const status: SourceStatus = !load || load.status === 'loading' ? 'loading' : failed ? 'error'
+    : data?.status === 'not-installed' ? 'not-installed' : 'no-result';
+  return { source: name, available: false, label, reason, release: null, age: null, status };
 }
 
 export function buildGeneDiseaseModel(input: {
@@ -104,7 +127,8 @@ export function buildGeneDiseaseModel(input: {
     g2p: snapshotReading('Gene2Phenotype', mech ? { status: 'ready', data: mech } : input.disease ? { status: input.disease.status, data: null, error: input.disease.error } : undefined, now, 'The Gene2Phenotype snapshot'),
     dosage: { source: 'ClinGen dosage', available: dosage.state === 'ready',
       label: dosage.state === 'ready' ? 'Available' : dosage.state === 'not-found' ? ENGINE_STATE_LABELS['no-result'] : dosage.state === 'error' ? ENGINE_STATE_LABELS['upstream-error'] : ENGINE_STATE_LABELS.running,
-      reason: dosage.message ?? input.dosage?.error ?? null, age: null, release: null } as SourceReading,
+      reason: dosage.message ?? input.dosage?.error ?? null, age: null, release: null,
+      status: dosage.state === 'ready' ? 'ready' : dosage.state === 'not-found' ? 'no-result' : dosage.state === 'error' ? 'error' : dosage.state === 'loading' ? 'loading' : 'no-result' } as SourceReading,
   };
   const frames = data?.frames ?? [];
   const assertions: AssertionRow[] = base.assertions.map(a => ({ id: a.id, submitter: a.submitter, level: a.level, adverse: isAdverseLevel(a.level),
@@ -139,9 +163,17 @@ export function buildGeneDiseaseModel(input: {
     headlineLabel = `assertion${assertions.length === 1 ? '' : 's'} dispute or reject this relationship`;
     sentence = `${bad.join('; ')}. Computational and structural context cannot establish pathogenicity for a disease whose gene relationship is contested; read every assertion below.`;
   } else if (!assertions.length) {
-    verdict = { kind: 'uncurated', label: 'No validity assertion', tone: 'muted' };
-    headline = 'Not curated'; headlineLabel = `by GenCC for ${base.selected.label}`;
-    sentence = `The disease choice comes from ${base.selected.selectionSource ?? 'GenCC'}. Missing validity coverage does not refute the relationship.`;
+    // No assertions is ambiguous: without the GenCC snapshot it is an unread source, not an
+    // uncurated disease. Naming GenCC as the reader would claim a readout that never happened.
+    if (!sources.gencc.available) {
+      verdict = { kind: 'unavailable', label: 'GenCC snapshot unavailable', tone: 'muted' };
+      headline = 'No validity assertion'; headlineLabel = 'the GenCC snapshot needed to read assertions is not available here';
+      sentence = `The disease choice comes from ${base.selected.selectionSource ?? 'GenCC'}, but without the GenCC snapshot no validity assertion can be read. Missing coverage does not refute the relationship.`;
+    } else {
+      verdict = { kind: 'uncurated', label: 'No validity assertion', tone: 'muted' };
+      headline = 'Not curated'; headlineLabel = `by GenCC for ${base.selected.label}`;
+      sentence = `The disease choice comes from ${base.selected.selectionSource ?? 'GenCC'}. Missing validity coverage does not refute the relationship.`;
+    }
   } else if (levels.length > 1) {
     verdict = { kind: 'differ', label: 'Validity levels differ', tone: 'neutral' };
     headline = `${submitters.length} submitter${submitters.length === 1 ? '' : 's'}`; headlineLabel = `${submitters.length === 1 ? 'reports' : 'report'} ${levels.length} different validity levels`;

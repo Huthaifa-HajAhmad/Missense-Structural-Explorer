@@ -6,6 +6,9 @@ import { AlignmentStrip } from './ContextCharts';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
 
+/** Page size for source records and the expression chart alike; one number, three captions. */
+const CX_PAGE_LIMIT = 20;
+
 export function ContextGuide({ children }: { children: React.ReactNode }) {
   return <details className="cx-guide"><summary>How to read this evidence</summary><div>{children}</div></details>;
 }
@@ -29,13 +32,13 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
   const group = groups.some(g => g.id === w.section) ? w.section : groups[0].id;
   const all = w.expanded.includes(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`);
   const page = useMemo(() => contextPage(rows, { group, query: w.query, cohort: group === 'developmental' ? w.cohort : 'all',
-    relevantOnly: w.relevantOnly, limit: all ? Number.MAX_SAFE_INTEGER : 20 }), [rows, group, w.query, w.cohort, w.relevantOnly, all]);
+    relevantOnly: w.relevantOnly, limit: all ? Number.MAX_SAFE_INTEGER : CX_PAGE_LIMIT }), [rows, group, w.query, w.cohort, w.relevantOnly, all]);
   const selected = rows.find(r => r.key === w.selected);
   const levels = useMemo(() => [...new Set(rows.filter(r => r.group === 'validity').map(r => r.valueText))], [rows]);
   const chart = useMemo(() => {
     const maximum = page.max || 1;
     const ticks = [0, maximum / 4, maximum / 2, maximum * .75, maximum];
-    return { rows: page.rows.slice(0, 20).map(r => ({ ...r, name: r.group === 'developmental' ? `${r.name} · cohort ${r.cohort}` : r.name })), domain: [0, maximum] as [number, number], ticks,
+    return { rows: page.rows.slice(0, CX_PAGE_LIMIT).map(r => ({ ...r, name: r.group === 'developmental' ? `${r.name} · cohort ${r.cohort}` : r.name })), domain: [0, maximum] as [number, number], ticks,
       tickLabels: ticks.map(t => t === 0 ? '0' : t < .001 ? t.toExponential(1) : String(Number(t.toPrecision(3)))),
       axisLabel: 'Median gene expression (TPM)', summary: 'Descriptive RNA abundance. No expression or pathogenicity threshold is applied.' };
   }, [page]);
@@ -52,8 +55,8 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       {selected && !page.rows.some(r => r.key === selected.key) && <p className="cx-notice">The pinned record is outside this view. Its details remain in the inspector.</p>}
       {!page.rows.length ? <div className="cx-empty">{page.sourceCount ? 'No records match these display filters. Clear the search or filters to see the source readings.' : empty ?? 'No returned readings in this source view. Check the source status below.'}</div>
         : <div className="cx-records" data-testid="context-records">
-          {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." />{page.rows.length > 20 && <p className="cx-caption">The chart shows the first 20 matching readings. Source records contain all matches.</p>}</React.Suspense>
-          : w.comparison && tab === 'gene-disease' && group === 'validity' ? <div className="cx-table-scroll" role="region" aria-label="Submitted validity assertion matrix" tabIndex={0}><table className="cx-table cx-matrix"><caption>One row per assertion. Columns are submitted categories, not a numeric scale.</caption><thead><tr><th>Submitter</th>{levels.map(level => <th key={level}>{level}</th>)}<th>Evaluated</th></tr></thead><tbody>{page.rows.map(r => <tr key={r.key}><th scope="row">{r.name}</th>{levels.map(level => <td key={level}>{r.valueText === level ? <button type="button" className="cx-assertion" aria-label={`${r.name}: ${level}`} aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}><span aria-hidden="true">●</span><span className="sr-only">{level}</span></button> : <span aria-label="No assertion in this category">—</span>}</td>)}<td>{r.facts.find(f => f.label === 'Evaluated')?.value}</td></tr>)}</tbody></table></div>
+          {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." />{page.rows.length > CX_PAGE_LIMIT && <p className="cx-caption">The chart shows the first {CX_PAGE_LIMIT} matching readings. Source records contain all matches.</p>}</React.Suspense>
+          : w.comparison && tab === 'gene-disease' && group === 'validity' ? <div className="cx-table-scroll" role="region" aria-label="Submitted validity assertion matrix" tabIndex={0}><table className="cx-table cx-matrix"><caption>One row per assertion. Columns are submitted categories, not a numeric scale.</caption><thead><tr><th>Submitter</th>{levels.map(level => <th key={level}>{level}</th>)}<th>Evaluated</th></tr></thead><tbody>{page.rows.map(r => <tr key={r.key}><th scope="row">{r.name}</th>{levels.map(level => <td key={level}>{r.valueText === level ? <button type="button" className="cx-assertion" aria-label={`${r.name}: ${level}`} aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}><span aria-hidden="true">●</span><span className="sr-only">{level}</span></button> : <><span aria-hidden="true">—</span><span className="sr-only">No assertion in this category</span></>}</td>)}<td>{r.facts.find(f => f.label === 'Evaluated')?.value}</td></tr>)}</tbody></table></div>
           : w.comparison ? page.rows.map(r => <button key={r.key} type="button" className="cx-reading" aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}>
             <span className="cx-reading__name">{r.name}<small>{r.group === 'developmental' || tab === 'species-models' ? r.description : r.source}</small></span>
             <span className="cx-reading__visual">{r.mapping?.window ? <AlignmentStrip mapping={r.mapping} /> : tab === 'expression-models' && r.value !== null ? <span className="cx-meter" aria-hidden="true"><span style={{ width: `${page.max > 0 ? r.value / page.max * 100 : 0}%` }} /><i style={{ left: `${page.max > 0 ? r.value / page.max * 100 : 0}%` }} /></span> : <span className="cx-category">{r.group}</span>}</span>
@@ -62,8 +65,12 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
             <th scope="row"><InspectReadingButton tab={tab} readingKey={r.key}>{r.name}</InspectReadingButton></th><td>{tab === 'expression-models' && r.value !== null ? `${r.value} TPM` : r.valueText}</td><td>{r.source}<small>{r.description}</small></td>
           </tr>)}</tbody></table></div>}
         </div>}
-      {page.total > 20 && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? 'Show first 20' : `Show all ${page.total} records`}</button>}
-      <p className="cx-caption">{tab === 'expression-models' ? `Linear TPM scale: 0–${page.max || 1}. The scale uses the full source view and stays fixed when filtering. Zero is plotted at the origin; missing readings have no mark. ` : ''}Select a record to pin its interpretation and provenance. Tab to a record, then press Enter or Space.</p>
+      {page.total > CX_PAGE_LIMIT && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? `Show first ${CX_PAGE_LIMIT}` : `Show all ${page.total} records`}</button>}
+      <p className="cx-caption">
+        {w.comparison && tab === 'expression-models'
+          ? `Linear TPM scale: 0–${page.max || 1}. The scale uses the full source view and stays fixed when filtering. Zero is plotted at the origin; missing readings have no mark. Arrow keys explore the chart; Enter pins a reading.`
+          : 'Select a record to pin its interpretation and provenance. Tab to a record, then press Enter or Space.'}
+      </p>
     </div>
   </section>;
 }

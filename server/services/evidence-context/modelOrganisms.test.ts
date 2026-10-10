@@ -5,7 +5,7 @@ afterEach(() => { vi.unstubAllGlobals(); resetAllianceReleaseCache(); });
 const row = (id: string, symbol: string, taxon: string, name: string, subject = 'HGNC:10004') => ({ stringencyFilter: 'stringent', geneToGeneOrthologyGenerated: {
   subjectGene: { primaryExternalId: subject }, objectGene: { primaryExternalId: id, geneSymbol: { displayText: symbol }, taxon: { curie: taxon, name } },
   isBestScore: { name: 'Yes' }, isBestScoreReverse: { name: 'No' }, confidence: { name: 'high' }, predictionMethodsMatched: [{}, {}] } });
-function mock(opts: { rows?: unknown[]; total?: number; impc?: 'ok' | 'down'; hgnc?: unknown[]; release?: 'ok' | 'down' } = {}) {
+function mock(opts: { rows?: unknown[]; total?: number; impc?: 'ok' | 'down'; impcFound?: number; hgnc?: unknown[]; release?: 'ok' | 'down' } = {}) {
   const rows = opts.rows ?? [row('MGI:1338824', 'Rgs9', 'NCBITaxon:10090', 'Mus musculus'), row('ZFIN:1', 'rgs9a', 'NCBITaxon:7955', 'Danio rerio')];
   const fetch = vi.fn(async (input: string | URL) => {
     const url = String(input);
@@ -13,6 +13,10 @@ function mock(opts: { rows?: unknown[]; total?: number; impc?: 'ok' | 'down'; hg
     if (url.includes('releaseInfo')) return opts.release === 'down' ? new Response('x', { status: 503 }) : new Response(JSON.stringify({ releaseVersion: '9.1.0', releaseDate: '2026-09-02T04:59:38.733+00:00' }));
     if (url.includes('alliancegenome')) return new Response(JSON.stringify({ results: rows, total: opts.total ?? rows.length }));
     if (opts.impc === 'down') return new Response('x', { status: 503 });
+    if (url.includes('/mi/impc/')) return opts.impcFound !== undefined
+      ? new Response(JSON.stringify({ response: { numFound: opts.impcFound, docs: [] } }))
+      : new Response(JSON.stringify({ response: { numFound: 1, docs: [{ mgi_accession_id: 'MGI:1338824', marker_symbol: 'Rgs9', phenotyping_data_available: true,
+        significant_top_level_mp_terms: ['vision/eye phenotype'], not_significant_top_level_mp_terms: ['muscle phenotype'] }] } }));
     return new Response(JSON.stringify({ response: { numFound: 1, docs: [{ mgi_accession_id: 'MGI:1338824', marker_symbol: 'Rgs9', phenotyping_data_available: true,
       significant_top_level_mp_terms: ['vision/eye phenotype'], not_significant_top_level_mp_terms: ['muscle phenotype'] }] } }));
   });
@@ -43,6 +47,9 @@ describe('model-organism adapter', () => {
     const fetch = mock({ impc: 'down' }); const first = await loadModelOrganisms('PART1');
     expect(first).toMatchObject({ status: 'ready', impc: { status: 'error' } }); expect(first.orthologs).toHaveLength(2);
     await loadModelOrganisms('PART1'); expect(fetch.mock.calls.filter(c => String(c[0]).includes('genenames'))).toHaveLength(2);
+  });
+  it('does not read a truncated IMPC page as a complete screen summary either', async () => {
+    mock({ impcFound: 2 }); expect(await loadModelOrganisms('IMPCPART1')).toMatchObject({ status: 'ready', impc: { status: 'error', screens: [] } });
   });
   it('treats a complete empty ortholog list as ready with no mouse screen', async () => {
     mock({ rows: [] }); expect(await loadModelOrganisms('NOORTH1')).toMatchObject({ status: 'ready', orthologs: [], impc: null });

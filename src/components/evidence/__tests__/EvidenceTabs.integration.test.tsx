@@ -20,12 +20,15 @@ const cases = [
   { name: 'Predictors', Tab: PredictorsTab, Rail: PredictorsRail, title: /Where do the predictors agree/, record: /^REVEL$/, pinned: /^REVEL$/ },
   { name: 'AlphaGenome', Tab: AlphaGenomeTab, Rail: AlphaGenomeRail, title: /What contributes to this score/, record: /^AlphaMissense$/, pinned: /^AlphaMissense$/ },
 ];
+const LAZY_CHART = { timeout: 8000 } as const;
 describe('Production evidence tabs and their inspectors', () => {
   it.each(cases)('$name connects chart and source-record selections to the same inspector', async ({ Tab, Rail, title, record, pinned }) => {
     const result = evidenceWorkspaceFixture('Partial');
     const props = { analysisState: { result, isLoading: false, error: null } } as TabComponentProps;
     render(<EvidenceWorkspaceProvider result={result}><Tab {...props} /><Rail analysisResult={result} /></EvidenceWorkspaceProvider>);
-    const chart = await screen.findByRole('img', { name: title });
+    // The chart is a lazy chunk: give the Suspense mount a real timeout instead of the 1s
+    // findByRole default, which expires under full-suite CPU load with the fallback showing.
+    const chart = await screen.findByRole('img', { name: title }, LAZY_CHART);
     fireEvent.focus(chart); fireEvent.keyDown(chart, { key: 'Home' }); fireEvent.keyDown(chart, { key: 'Enter' });
     const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });
     await waitFor(() => expect(within(inspector).getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
@@ -35,13 +38,13 @@ describe('Production evidence tabs and their inspectors', () => {
     expect(within(inspector).getByRole('heading', { name: pinned })).toBeInTheDocument();
     expect(source).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getAllByRole('tab')[0]);
-    await screen.findByRole('img', { name: title });
+    await screen.findByRole('img', { name: title }, LAZY_CHART);
     expect(within(inspector).getByRole('heading', { name: pinned })).toBeInTheDocument();
   });
   it('explains partial AlphaGenome coverage beside the finding, with approachable help and no disease probability', async () => {
     const result = evidenceWorkspaceFixture('Partial');
     render(<EvidenceWorkspaceProvider result={result}><AlphaGenomeTab {...({ analysisState: { result } } as TabComponentProps)} /></EvidenceWorkspaceProvider>);
-    await screen.findByRole('img', { name: /What contributes to this score/ });
+    await screen.findByRole('img', { name: /What contributes to this score/ }, LAZY_CHART);
     expect(screen.getByTestId('avi-composition')).toHaveTextContent('Only 3 of 18');
     expect(screen.getByTestId('avi-composition')).not.toHaveTextContent('of the score');
     expect(screen.getByText('New to AlphaGenome?')).toBeInTheDocument();

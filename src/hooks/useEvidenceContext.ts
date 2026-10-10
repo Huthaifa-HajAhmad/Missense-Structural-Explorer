@@ -17,6 +17,7 @@ import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import type { AnalysisResult } from '../types';
 import type { ContextLoad } from '../stores/slices/evidenceContextSlice';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
+import { extraContextKey, type ExtraContextKind } from '../shared/evidenceKeys';
 import { ContextHttpError, contextRequestFailure } from '../shared/contextRequest';
 const EMPTY_SELECTION = emptyPhenotypeSelection();
 export function useEvidenceContext(result: AnalysisResult, expression = false, dosage = false, models = expression) {
@@ -32,10 +33,10 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
   const expressionLoad = useVariantAnalysisStore(s => s.expressionContexts[gene]);
   const developmentalLoad = useVariantAnalysisStore(s => s.developmentalContexts[gene]);
   const modelLoad = useVariantAnalysisStore(s => s.modelContexts[gene]);
-  const alignmentLoad = useVariantAnalysisStore(s => s.extraContexts[`alignment:${gene}`]) as ContextLoad<z.infer<typeof alignmentResponseSchema>> | undefined;
-  const phenotypesLoad = useVariantAnalysisStore(s => s.extraContexts[`phenotypes:${gene}`]) as ContextLoad<z.infer<typeof modelPhenotypesResponseSchema>> | undefined;
-  const hpaLoad = useVariantAnalysisStore(s => s.extraContexts[`hpa:${gene}`]) as ContextLoad<z.infer<typeof hpaResponseSchema>> | undefined;
-  const pextLoad = useVariantAnalysisStore(s => s.extraContexts[`pext:${gene}`]) as ContextLoad<z.infer<typeof pextResponseSchema>> | undefined;
+  const alignmentLoad = useVariantAnalysisStore(s => s.extraContexts[extraContextKey('alignment', gene)]) as ContextLoad<z.infer<typeof alignmentResponseSchema>> | undefined;
+  const phenotypesLoad = useVariantAnalysisStore(s => s.extraContexts[extraContextKey('phenotypes', gene)]) as ContextLoad<z.infer<typeof modelPhenotypesResponseSchema>> | undefined;
+  const hpaLoad = useVariantAnalysisStore(s => s.extraContexts[extraContextKey('hpa', gene)]) as ContextLoad<z.infer<typeof hpaResponseSchema>> | undefined;
+  const pextLoad = useVariantAnalysisStore(s => s.extraContexts[extraContextKey('pext', gene)]) as ContextLoad<z.infer<typeof pextResponseSchema>> | undefined;
   const selection = useVariantAnalysisStore(s => s.phenotypeSelections[key] ?? EMPTY_SELECTION);
   const actions = useVariantAnalysisStore.getState();
   const loadDisease = async () => {
@@ -83,8 +84,8 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
     } catch (error) { actions.setModelContext(gene, { status: 'error', data: null, error: contextRequestFailure(error) }); }
   };
   /** One loader for the newer sources: path suffix, schema, and the same identity and failure rules. */
-  const loadExtra = async (kind: 'alignment' | 'pext' | 'hpo' | 'phenotypes' | 'hpa', schema: z.ZodType<{ gene: string; status: string }>, timeout: number, query = '') => {
-    const slot = `${kind}:${gene}${query}`;
+  const loadExtra = async (kind: ExtraContextKind, schema: z.ZodType<{ gene: string; status: string }>, timeout: number, query = '') => {
+    const slot = extraContextKey(kind, gene, query);
     if (!gene || useVariantAnalysisStore.getState().extraContexts[slot]?.status === 'loading') return;
     actions.setExtraContext(slot, { status: 'loading', data: null });
     try {
@@ -100,7 +101,7 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
   const loadHpa = () => loadExtra('hpa', hpaResponseSchema, 60000);
   const loadPext = () => loadExtra('pext', pextResponseSchema, 40000);
   const hpoIds = hpoQueryIds(buildGeneDiseaseEvidence(diseaseLoad?.data ?? null, selection.diseaseKey).selected?.xrefs ?? []).join(',');
-  const hpoSlot = `hpo:${gene}${hpoIds}`;
+  const hpoSlot = extraContextKey('hpo', gene, hpoIds);
   const hpoLoad = useVariantAnalysisStore(s => s.extraContexts[hpoSlot]) as ContextLoad<z.infer<typeof hpoResponseSchema>> | undefined;
   const loadHpo = () => loadExtra('hpo', hpoResponseSchema, 30000, hpoIds);
   const loadDevelopment = async () => {
@@ -129,7 +130,7 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
     if (expression && (!useVariantAnalysisStore.getState().expressionContexts[gene] || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'error')) void loadExpression();
     if (expression && (!useVariantAnalysisStore.getState().developmentalContexts[gene] || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'error' || useVariantAnalysisStore.getState().developmentalContexts[gene]?.data?.status === 'not-installed')) void loadDevelopment();
     for (const [kind, load] of [['alignment', loadAlignment], ['pext', loadPext], ['phenotypes', loadPhenotypes], ['hpa', loadHpa]] as const) {
-      const cached = useVariantAnalysisStore.getState().extraContexts[`${kind}:${gene}`];
+      const cached = useVariantAnalysisStore.getState().extraContexts[extraContextKey(kind, gene)];
       if ((kind === 'alignment' || kind === 'phenotypes' ? models : expression) && (!cached || cached.status === 'error')) void load();
     }
     if ((expression || models) && selection.diseaseKey && hpoIds) {

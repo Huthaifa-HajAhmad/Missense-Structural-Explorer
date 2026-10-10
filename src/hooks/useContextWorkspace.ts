@@ -7,6 +7,7 @@ import { resolveResidueShiftModel } from '../lib/residueShiftModel';
 import { useShallow } from 'zustand/react/shallow';
 import { useVariantAnalysisStore } from '../stores/useVariantAnalysisStore';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
+import { extraContextKey } from '../shared/evidenceKeys';
 import { emptyPhenotypeSelection } from '../shared/phenotypeFrame';
 import { buildGeneDiseaseEvidence } from '../shared/diseaseFrame';
 import { hpoQueryIds } from '../shared/hpoAnnotation';
@@ -23,10 +24,14 @@ export function useContextWorkspaceRead(result: AnalysisResult, tab: ContextTab)
     const diseaseLoad = s.diseaseContexts[gene];
     const frame = buildGeneDiseaseEvidence(diseaseLoad?.data ?? null, selection.diseaseKey).selected;
     const hpoIds = hpoQueryIds(frame?.xrefs ?? []).join(',');
+    // The store's extraContexts map is untyped, so each read is cast; the keys themselves come
+    // from the shared builder in `evidenceKeys.ts`, so a vocabulary change fails to compile here.
     return { gene, selection, diseaseLoad, dosageLoad: s.dosageContexts[gene], expressionLoad: s.expressionContexts[gene], developmentalLoad: s.developmentalContexts[gene], modelLoad: s.modelContexts[gene],
-      alignmentLoad: s.extraContexts[`alignment:${gene}`] as LoadedContext['alignmentLoad'], phenotypesLoad: s.extraContexts[`phenotypes:${gene}`] as LoadedContext['phenotypesLoad'],
-      hpaLoad: s.extraContexts[`hpa:${gene}`] as LoadedContext['hpaLoad'], pextLoad: s.extraContexts[`pext:${gene}`] as LoadedContext['pextLoad'],
-      hpoLoad: s.extraContexts[`hpo:${gene}${hpoIds}`] as LoadedContext['hpoLoad'], hpoIds };
+      alignmentLoad: s.extraContexts[extraContextKey('alignment', gene)] as LoadedContext['alignmentLoad'],
+      phenotypesLoad: s.extraContexts[extraContextKey('phenotypes', gene)] as LoadedContext['phenotypesLoad'],
+      hpaLoad: s.extraContexts[extraContextKey('hpa', gene)] as LoadedContext['hpaLoad'],
+      pextLoad: s.extraContexts[extraContextKey('pext', gene)] as LoadedContext['pextLoad'],
+      hpoLoad: s.extraContexts[extraContextKey('hpo', gene, hpoIds)] as LoadedContext['hpoLoad'], hpoIds };
   }));
   return useContextModels(result, tab, context);
 }
@@ -45,7 +50,10 @@ function useContextModels<T extends ContextData>(result: AnalysisResult, tab: Co
     : tab === 'expression-models' ? expressionReadings(expressionLoad?.status === 'ready' ? expressionLoad.data : null, developmentalLoad?.status === 'ready' ? developmentalLoad.data : null, selection.systems)
     : speciesReadings({ models: modelLoad?.status === 'ready' ? modelLoad.data : null, alignment: alignmentLoad?.status === 'ready' ? alignmentLoad.data : null,
       phenotypes: phenotypesLoad?.status === 'ready' ? phenotypesLoad.data : null, sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null,
-      wildType: pair.wildTypeCode, mutant: pair.mutantCode, diseaseKey: selection.diseaseKey, diseaseTerms: hpoLoad?.status === 'ready' ? hpoLoad.data?.terms.map(t => t.id) ?? [] : [] }),
+      wildType: pair.wildTypeCode, mutant: pair.mutantCode, diseaseKey: selection.diseaseKey,
+      // `null` means the comparison cannot run (no disease chose its terms yet): a phenotype row must not
+      // read "No returned overlap" for a comparison that never had terms to compare against.
+      diseaseTerms: tab !== 'species-models' || hpoLoad?.status !== 'ready' ? null : hpoLoad.data?.terms.map(t => t.id) ?? null }),
   [tab, model, expressionLoad, developmentalLoad, selection.systems, selection.diseaseKey, modelLoad, alignmentLoad, phenotypesLoad, hpoLoad, result, pair]);
   return { context, model, rows, pair };
 }

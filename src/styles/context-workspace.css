@@ -46,7 +46,8 @@
 .cx-matrix caption { text-align: left; padding: 12px; font-size: 12px; }
 .cx-matrix td { text-align: center; }
 .cx-assertion { width: 36px; height: 36px; border: 1px solid var(--cs-border); border-radius: 8px; background: transparent; color: var(--cs-accent-clay); cursor: pointer; }
-.cx-assertion[aria-pressed="true"] { background: color-mix(in srgb, var(--cs-accent-clay) 15%, transparent); border-color: var(--cs-accent-clay); }
+.cx-assertion[aria-pressed="true"] { background: color-mix(in srgb, var(--cs-accent-clay) 15%, transparent); border-color: var(--cs-accent-clay); box-shadow: inset 0 0 0 2px var(--cs-accent-clay); }
+.cx-assertion:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .cx-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: 1px solid var(--cs-border); border-radius: 12px; overflow: hidden; }
 .cx-overview > div { padding: 16px; border-inline-end: 1px solid var(--cs-border); }
 .cx-overview dt { font-size: 12px; }

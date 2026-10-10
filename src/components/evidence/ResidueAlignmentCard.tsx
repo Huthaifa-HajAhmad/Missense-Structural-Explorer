@@ -25,6 +25,7 @@ export function ResidueAlignmentCard({ load, residue, onRetry }: { load?: Contex
       : evidence.mismatched ? <p className="ctx-card__body ctx-notice" role="status">Ensembl aligns protein {data?.sourceProteinId}, which is not the sequence this analysis used. No residue is mapped, because positions can shift between isoforms.</p>
       : !rows.length ? <p className="ctx-card__body">Ensembl returned no ortholog alignment for the covered organisms.</p>
       : evidence.ready && <>
+        {data?.message && <p className="ctx-card__body ctx-caption" role="note">{data.message}</p>}
         <div className="ctx-card__body">
           <p className="ctx-prose">Residue <span className="ctx-mono">{label}</span> is the same amino acid in <strong>{evidence.identical} of {rows.length}</strong> aligned orthologs.
             {carriers.length > 0 && <> The substituted residue <span className="ctx-mono">{AMINO_ACID_1_TO_3_TITLE[residue.mutant] ?? residue.mutant}</span> is the normal residue in {carriers.map(c => speciesLabel(c.h.taxonId, c.h.species)).join(', ')}; that shows it exists at this site in another species, not that it is tolerated in human.</>}</p>
