@@ -1,7 +1,7 @@
 import { AnalysisState, PocketResult, EnergeticsData, StructuralDiffResult, StructuralMetrics } from "../../types";
 import { MasterView } from "../MasterSidebar";
 
-export type TabType = "clinical" | "gene-disease" | "expression-models" | "predictors" | "structure" | "perturbation" | "function" | "interfaces" | "splicing" | "alphagenome";
+export type TabType = "clinical" | "gene-disease" | "expression-models" | "species-models" | "predictors" | "structure" | "perturbation" | "function" | "interfaces" | "splicing" | "alphagenome";
 
 /**
  * Ids of evidence tabs that no longer exist, and the tab that took over. "Score thresholds" repeated

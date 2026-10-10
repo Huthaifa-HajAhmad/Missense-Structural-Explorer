@@ -28,7 +28,8 @@ function PinnedFoldxFixture({ showCountedOnly = false }: { showCountedOnly?: boo
 describe('TanStack stability comparison', () => {
   it('renders the real library and pins a canonical negative estimate by keyboard', async () => {
     render(<Fixture />);
-    const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ });
+    // The comparison chart is a lazy chunk; the 1s default expires under full-suite CPU load.
+    const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 8000 });
     fireEvent.focus(chart);
     fireEvent.keyDown(chart, { key: 'Home' });
     fireEvent.keyDown(chart, { key: 'Enter' });

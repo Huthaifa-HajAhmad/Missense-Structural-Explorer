@@ -4,7 +4,7 @@ import { REVIEW_SYSTEMS, type ReviewSystemId } from '../../shared/phenotypeFrame
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
 
-const matchLabel = (o: Ortholog) => o.bestForward && o.bestReverse ? 'Best match both directions' : o.bestForward || o.bestReverse ? 'Best match one direction' : 'Not a best match';
+const matchLabel = (o: Ortholog) => o.bestForward && o.bestReverse ? 'Best match both directions' : o.bestForward || o.bestReverse ? 'Best match one direction' : o.bestForward === null || o.bestReverse === null ? 'Match direction not fully reported' : 'Not a best match';
 const SCREEN_NOTE = 'IMPC top-level terms, mouse knockout screen. Procedures, allele, sex and age are not shown here.';
 
 function OrthologTable({ groups }: { groups: ReturnType<typeof buildModelEvidence>['groups'] }) {
@@ -20,9 +20,7 @@ function OrthologTable({ groups }: { groups: ReturnType<typeof buildModelEvidenc
   </table></div>;
 }
 
-function ScreenGrid({ evidence, systems }: { evidence: ReturnType<typeof buildModelEvidence>; systems: ReviewSystemId[] }) {
-  const first = evidence.screens[0];
-  if (!first) return null;
+function ScreenGrid({ screen: first, systems }: { screen: ReturnType<typeof buildModelEvidence>['screens'][number]; systems: ReviewSystemId[] }) {
   const rows = REVIEW_SYSTEMS.filter(s => systems.includes(s.id));
   const rest = REVIEW_SYSTEMS.filter(s => !systems.includes(s.id));
   const table = (list: readonly (typeof REVIEW_SYSTEMS)[number][], label: string) => <div className="ctx-table-wrap" tabIndex={0} role="region" aria-label={label}><table className="ctx-table">
@@ -45,7 +43,6 @@ export function ModelOrganismsCard({ load, systems, onRetry }: { load?: ContextL
   const id = useId();
   const data = load?.data ?? null;
   const evidence = buildModelEvidence(data, systems);
-  const first = evidence.screens[0];
   return <section className="ctx-card" aria-labelledby={id} data-testid="model-organisms-card">
     <div className="ctx-card__head"><h2 id={id}>Model organisms</h2><span className="ctx-caption">Alliance orthologs · IMPC mouse screen</span></div>
     {!load || load.status === 'loading' ? <div className="ctx-card__body" role="status">{ENGINE_STATE_LABELS.running} — reading orthologs and mouse screening.</div>
@@ -59,12 +56,17 @@ export function ModelOrganismsCard({ load, systems, onRetry }: { load?: ContextL
           {data?.impc === null ? <p className="ctx-prose">No mouse ortholog, so no IMPC screen to read.</p>
             : data?.impc?.status === 'error' ? <p className="ctx-notice"><span>{ENGINE_STATE_LABELS['upstream-error']} — IMPC did not respond.</span><button type="button" className="ctx-button" onClick={onRetry}>Try again</button></p>
             : data?.impc?.status === 'not-found' ? <p className="ctx-prose">IMPC has no record for the mouse ortholog.</p>
-            : first && <p className="ctx-prose">{first.phenotypingDataAvailable
-              ? <>IMPC phenotyped <span className="ctx-mono">{first.symbol}</span>. “No significant difference” means no effect was detected in the procedures run, not that the mouse is normal.</>
-              : <>IMPC has not phenotyped <span className="ctx-mono">{first.symbol}</span> ({first.phenotypeStatus ?? 'status not reported'}). Absence of data is not a normal result.</>}</p>}
+            : evidence.screens.length === 0 ? <p className="ctx-prose">No mouse screen records were returned.</p> : null}
         </div>
-        {first?.phenotypingDataAvailable && <ScreenGrid evidence={evidence} systems={systems} />}
+        {evidence.screens.map(screen => <div key={screen.mgiId}>
+          <p className="ctx-card__body ctx-prose">{screen.phenotypingDataAvailable === true
+            ? <>IMPC phenotyped <span className="ctx-mono">{screen.symbol}</span>. “No significant difference” means no effect was detected in the procedures run, not that the mouse is normal.</>
+            : screen.phenotypingDataAvailable === false ? <>IMPC has not phenotyped <span className="ctx-mono">{screen.symbol}</span> ({screen.phenotypeStatus ?? 'status not reported'}). Absence of data is not a normal result.</>
+            : <>Phenotyping availability is not reported for <span className="ctx-mono">{screen.symbol}</span>. This is not a confirmed untested or normal result.</>}
+            {screen.embryoDataAvailable === false && screen.phenotypingDataAvailable === true ? ' No embryo screening data.' : ''}</p>
+          {screen.phenotypingDataAvailable === true && <ScreenGrid screen={screen} systems={systems} />}
+        </div>)}
       </>}
-    <p className="ctx-card__foot">Orthology is predicted, not proof of equal function. Mouse and other model phenotypes are context only: they are not automatically PS3/BS3 and cast no ACMG vote.{first?.embryoDataAvailable === false && first.phenotypingDataAvailable ? ' No embryo screening data.' : ''} {SCREEN_NOTE}</p>
+    <p className="ctx-card__foot">Orthology is predicted, not proof of equal function. Mouse and other model phenotypes are context only: they are not automatically PS3/BS3 and cast no ACMG vote. {SCREEN_NOTE}</p>
   </section>;
 }

@@ -31,11 +31,17 @@ export async function loadAlignment(gene: string): Promise<AlignmentResponse> {
       const counts = new Map<string, number>(); for (const h of homologies) counts.set(h.sourceProtein, (counts.get(h.sourceProtein) ?? 0) + 1);
       const source = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
       const kept = homologies.filter(h => h.sourceProtein === source);
+      // Dropped rows are never silent: the reader must see that orthologs aligned to another human
+      // isoform exist and are outside the kept alignment (they are not lesser orthologs).
+      const dropped = homologies.length - kept.length;
+      const dropNote = dropped > 0
+        ? `${dropped} of ${homologies.length} ortholog record${homologies.length === 1 ? '' : 's'} aligned against a different human reference protein (${[...counts].filter(([p]) => p !== source).map(([p]) => p).join(', ')}), so they stand outside the kept alignment below.`
+        : null;
       const sources = new Set(kept.map(h => h.sourceProtein));
       const result = alignmentResponseSchema.parse({ gene, status: kept.length ? 'ready' : 'not-found', sourceProteinId: [...sources][0] ?? null,
         homologies: kept.map(({ sourceProtein: _s, ...h }) => h),
         provenance: { source: 'Ensembl Compara', url, licence: 'Ensembl data are open (EMBL-EBI terms of use)', release: null, retrievedAt: new Date().toISOString(), sha256: createHash('sha256').update(raw).digest('hex'), timestampBasis: 'download' },
-        message: kept.length ? null : 'No aligned orthologs returned for the selected model organisms.' });
+        message: !kept.length ? 'No aligned orthologs returned for the selected model organisms.' : dropNote });
       cache.set(gene, result); return result;
     } catch { return { gene, status: 'error', sourceProteinId: null, homologies: [], provenance: null, message: 'Ensembl did not return a complete, valid protein alignment.' }; }
   })().finally(() => { flights.delete(gene); });

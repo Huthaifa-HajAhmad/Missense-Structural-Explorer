@@ -68,9 +68,13 @@ export async function loadModelOrganisms(gene: string): Promise<ModelOrganismRes
       if (mouse.length) {
         try {
           const query = `mgi_accession_id:(${mouse.map(id => `"${id}"`).join(' OR ')})`;
-          const url = `${IMPC_URL}?${new URLSearchParams({ q: query, wt: 'json', rows: '10' })}`;
+          // One screen per gene is the norm, but request headroom; a truncated page must never read
+          // as a complete screen summary (same rule as the orthology page below).
+          const url = `${IMPC_URL}?${new URLSearchParams({ q: query, wt: 'json', rows: '500' })}`;
           const result = await read(url);
-          const docs = impcSchema.parse(result.data).response.docs;
+          const parsed = impcSchema.parse(result.data).response;
+          if (parsed.numFound > parsed.docs.length) throw new Error('Incomplete IMPC page');
+          const docs = parsed.docs;
           const screens: ImpcScreen[] = docs.filter(d => mouse.includes(d.mgi_accession_id)).map(d => ({
             mgiId: d.mgi_accession_id, symbol: d.marker_symbol, phenotypeStatus: d.phenotype_status ?? null,
             phenotypingDataAvailable: d.phenotyping_data_available ?? null, embryoDataAvailable: d.embryo_data_available ?? null,

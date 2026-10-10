@@ -28,9 +28,9 @@ describe('context rail (Expression & models)', () => {
     const sources = within(screen.getByTestId('context-sources'));
     expect(within(sources.getByText('Not available here').closest('.rail-kv__row') as HTMLElement).getByText('dGTEx pediatric')).toBeInTheDocument();
     expect(within(sources.getByText('Provider error').closest('.rail-kv__row') as HTMLElement).getByText('gnomAD base-level pext')).toBeInTheDocument();
-    for (const name of ['Human Protein Atlas', 'Ensembl protein alignment']) expect(sources.getByText(name)).toBeInTheDocument();
+    for (const name of ['Human Protein Atlas']) expect(sources.getByText(name)).toBeInTheDocument();
     const prv = within(screen.getByTestId('context-provenance'));
-    for (const name of ['GTEx', 'Human Protein Atlas', 'Ensembl Compara']) expect(prv.getByText(name)).toBeInTheDocument();
+    for (const name of ['GTEx', 'Human Protein Atlas']) expect(prv.getByText(name)).toBeInTheDocument();
   });
   it('states the reading and the interpretation boundary, and keeps a gap out of the figure', () => {
     render(<EvidenceContextRail analysisResult={result} expression />);

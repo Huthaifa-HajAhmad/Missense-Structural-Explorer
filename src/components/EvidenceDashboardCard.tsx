@@ -5,6 +5,7 @@ import { EvidenceDashboardCardProps, TabType, normalizeEvidenceTab } from "./evi
 import { formatDdg } from "../shared/engineStatus";
 import { ClinicalTab } from "./evidence/ClinicalTab";
 import { GeneDiseaseTab } from './evidence/GeneDiseaseTab';
+import { SpeciesModelsTab } from './evidence/SpeciesModelsTab';
 import { ExpressionModelsTab } from './evidence/ExpressionModelsTab';
 import { EvidenceContextPrefetch } from './evidence/EvidenceContextPrefetch';
 import { SplicingTab } from "./evidence/SplicingTab";
@@ -254,6 +255,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
         {activeTab === 'gene-disease' && <GeneDiseaseTab {...tabProps} />}
         {activeTab === 'expression-models' && <ExpressionModelsTab {...tabProps} />}
+        {activeTab === 'species-models' && <SpeciesModelsTab {...tabProps} />}
         {activeTab === "predictors" && <PredictorsTab {...tabProps} />}
         {activeTab === "alphagenome" && <AlphaGenomeTab {...tabProps} />}
         {activeTab === "structure" && <StructureTab {...tabProps} />}

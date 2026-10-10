@@ -6,6 +6,8 @@ import { VALIDITY_SCALE, validityPosition, validityTone } from '../../shared/dis
 import type { DosageReading } from '../../shared/dosageSensitivity';
 import { ENGINE_STATE_LABELS } from '../../shared/engineStatus';
 import { OrdinalScale } from './ContextCharts';
+import { InspectReadingButton } from './EvidenceWorkspace';
+import { assertionKey } from '../../shared/contextWorkspace';
 
 const DOSAGE_LEVELS = ['0', '1', '2', '3'] as const;
 const SCOPE_NOTE: Record<DosageReading['scope'], string> = {
@@ -17,9 +19,9 @@ const SCOPE_NOTE: Record<DosageReading['scope'], string> = {
 function Empty({ title, children, action }: { title: string; children?: React.ReactNode; action?: React.ReactNode }) {
   return <tr className="gd-empty"><td colSpan={5}><strong>{title}</strong>{children && <span className="gd-empty__reason">{children}</span>}{action}</td></tr>;
 }
-function AssertionLine({ a }: { a: AssertionRow }) {
+function AssertionLine({ a, frame }: { a: AssertionRow; frame?: string }) {
   return <tr data-adverse={a.adverse || undefined}>
-    <th scope="row">{a.submitter}{a.expertPanel && <span className="gd-caption gd-block">Expert panel curation</span>}</th>
+    <th scope="row"><InspectReadingButton tab="gene-disease" readingKey={assertionKey(frame, a.id)}>{a.submitter}</InspectReadingButton>{a.expertPanel && <span className="gd-caption gd-block">Expert panel curation</span>}</th>
     <td><span className="ev-tier" data-tone={validityTone(a.level)}>{a.level}</span></td>
     <td><OrdinalScale levels={VALIDITY_SCALE} index={validityPosition(a.level)} label={`${a.submitter} classification`} /></td>
     <td>{(() => { const href = safeExternalHref(a.reportUrl); return href
@@ -30,7 +32,7 @@ function AssertionLine({ a }: { a: AssertionRow }) {
 }
 function DosageLine({ r, evaluatedAt }: { r: DosageReading; evaluatedAt: string | null }) {
   return <tr>
-    <th scope="row">{r.name}<span className="gd-caption gd-block">{r.asks}</span></th>
+    <th scope="row"><InspectReadingButton tab="gene-disease" readingKey={`dosage:${r.key}`}>{r.name}</InspectReadingButton><span className="gd-caption gd-block">{r.asks}</span></th>
     <td><span className="ev-tier" data-tone={r.tone}>{r.call}</span></td>
     <td>{r.code !== null && r.code <= 3
       ? <OrdinalScale levels={DOSAGE_LEVELS} index={r.code} quiet={r.code === 0} label={`${r.name} evidence score`} />
@@ -51,7 +53,7 @@ export function GeneDiseaseReadings({ model, onRetryDosage }: { model: GeneDisea
         <thead><tr><th scope="col">Source</th><th scope="col">Reading</th><th scope="col">Position</th><th scope="col">Detail</th><th scope="col">Date</th></tr></thead>
         <tbody data-testid="validity-rows">
           <tr className="gd-group"><th colSpan={5} scope="rowgroup">Causality · GenCC, each submitter retained</th></tr>
-          {model.assertions.map(a => <AssertionLine key={a.id} a={a} />)}
+          {model.assertions.map(a => <AssertionLine key={a.id} frame={model.selected?.key} a={a} />)}
           {!model.assertions.length && (
             model.verdict.kind === 'loading' ? <Empty title={ENGINE_STATE_LABELS.running}>Reading GenCC validity assertions.</Empty>
               : !gencc.available && !model.frameCount

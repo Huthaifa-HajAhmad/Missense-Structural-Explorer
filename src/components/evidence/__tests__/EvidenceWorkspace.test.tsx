@@ -29,7 +29,8 @@ function Fixture({ result = evidenceWorkspaceFixture('Partial') }: { result?: An
 describe('Evidence workspace interactions', () => {
   it('pins signed contributions with the real TanStack keyboard renderer and retains the pin across filters and record views', async () => {
     render(<Fixture />);
-    const chart = await screen.findByRole('img', { name: /^Feature contributions/ });
+    // The comparison chart is a lazy chunk; the 1s default expires under full-suite CPU load.
+    const chart = await screen.findByRole('img', { name: /^Feature contributions/ }, { timeout: 8000 });
     fireEvent.focus(chart);
     fireEvent.keyDown(chart, { key: 'Home' });
     fireEvent.keyDown(chart, { key: 'Enter' });

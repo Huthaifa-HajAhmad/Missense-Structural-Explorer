@@ -42,4 +42,15 @@ describe('alignment source isoform', () => {
     const r = await loadAlignment('ALN5');
     expect(r.status).toBe('ready'); expect(r.sourceProteinId).toBe('P1'); expect(r.homologies.map(x => x.species)).toEqual(['mus_musculus', 'rattus_norvegicus']);
   });
+  it('says when ortholog records aligned to another human isoform were excluded, never silently', async () => {
+    const h = (species: string, protein: string) => ({ type: 'ortholog_one2one', source: { ...side('ENSG1', 'homo_sapiens', 'AB-CDE'), protein_id: protein }, target: side(`G_${species}`, species, 'ABXCDE') });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'ENSG1', homologies: [h('mus_musculus', 'P1'), h('rattus_norvegicus', 'P2')] }] }))));
+    const r = await loadAlignment('ALN6');
+    expect(r.status).toBe('ready'); expect(r.homologies).toHaveLength(1);
+    expect(r.message).toContain('P2');
+    expect(r.message).toMatch(/different human reference protein/);
+    // A clean alignment keeps an empty message: the note is data, not decoration.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'ENSG1', homologies: [h('mus_musculus', 'P1')] }] }))));
+    expect((await loadAlignment('ALN7')).message).toBeNull();
+  });
 });

@@ -53,6 +53,15 @@ describe('verdict: agreement is reported, never a winner', () => {
     expect(m.verdict.kind).toBe('unavailable'); expect(m.sources.gencc.available).toBe(false);
     expect(m.headline).toBe('Gene-level evidence only');
   });
+  it('does not claim a GenCC readout when GenCC is missing but Gene2Phenotype supplied the disease choice', () => {
+    // addVerifiedMechanismChoices appends G2P frames even when the GenCC snapshot is not installed:
+    // an empty validity list must then read "snapshot unavailable", never "Not curated by GenCC".
+    const g2pOnly: GeneDiseaseResponse = { gene: 'SOD1', status: 'not-installed', frames: [{ ...frame([]), selectionSource: 'Gene2Phenotype' }], provenance: null, message: null };
+    const m = model(g2pOnly);
+    expect(m.verdict).toMatchObject({ kind: 'unavailable', label: 'GenCC snapshot unavailable' });
+    expect(m.verdict.label).not.toMatch(/not curated/i);
+    expect(m.sentence).toMatch(/does not refute/);
+  });
   it('asks for a disease before claiming anything', () => {
     expect(model(disease([['A', 'Strong']]), undefined, null).verdict.kind).toBe('unselected');
   });
@@ -97,8 +106,9 @@ describe('ClinGen score 0 and the mechanism cross-check', () => {
       expect(c).toMatchObject({ state: 'not-comparable', relation: null }); expect(c?.sentence).toMatch(/absence of evidence/);
     }
   });
-  it('compares only an affirmative ClinGen call: HI 40 (unlikely) agrees with gain of function and differs from loss of function', () => {
-    expect(compareMechanism(ev(40), [mech('gain of function')])?.relation).toBe('consistent');
+  it('does not infer gain of function from HI 40; the loss-of-function discrepancy stays explicit', () => {
+    // ClinGen 40 addresses dosage sensitivity only; it supplies no positive mechanism evidence.
+    expect(compareMechanism(ev(40), [mech('gain of function')])).toMatchObject({ state: 'not-comparable', relation: null });
     expect(compareMechanism(ev(40), [mech('loss of function')])?.relation).toBe('differs');
   });
   it('explains code 30 as a recessive-phenotype call, not as a missing call', () => {
@@ -110,6 +120,31 @@ describe('ClinGen score 0 and the mechanism cross-check', () => {
     expect(compareMechanism(ev(3), [mech('loss of function'), mech('dominant negative')])?.state).toBe('not-comparable');
     expect(compareMechanism(ev(null), [mech('loss of function')])?.state).toBe('not-comparable');
     expect(compareMechanism(ev(3), [])).toBeNull();
+  });
+  // The ClinGen dosage call carries its curated disease as an exact MONDO id; the cross-check
+  // must never present a call made for another disease (or without a disease) as agreeing on
+  // the selected one.
+  const dosageScoped = (h: number, diseaseId: string | null): DosageResponse => {
+    const base = dosage(h);
+    return { ...base, record: base.record && { ...base.record, haploinsufficiency: { ...base.record.haploinsufficiency, disease: diseaseId ? 'ALS type 1' : null, diseaseId } } };
+  };
+  const evScoped = (h: number, diseaseId: string | null) => buildDosageEvidence({ status: 'ready', data: dosageScoped(h, diseaseId) }, 'MONDO:0007103');
+  it('never claims a different-disease ClinGen call agrees on the selected disease', () => {
+    const c = compareMechanism(evScoped(3, 'MONDO:9999999'), [mech('loss of function')]);
+    expect(c).toMatchObject({ state: 'not-comparable', relation: null });
+    expect(c?.sentence).toMatch(/not for the selected disease/);
+  });
+  it('compares a same-disease ClinGen call on disease scope', () => {
+    const c = compareMechanism(evScoped(3, 'MONDO:0007103'), [mech('loss of function')]);
+    expect(c).toMatchObject({ state: 'compared', relation: 'consistent' });
+    expect(c?.sentence).toMatch(/haploinsufficiency for this disease \(/);
+    expect(c?.sentence).not.toMatch(/gene-level/);
+  });
+  it('says a gene-level ClinGen call is gene-level instead of "for this disease"', () => {
+    const c = compareMechanism(evScoped(3, null), [mech('loss of function')]);
+    expect(c).toMatchObject({ state: 'compared', relation: 'consistent' });
+    expect(c?.sentence).toMatch(/gene-level/);
+    expect(c?.sentence).not.toMatch(/haploinsufficiency for this disease/);
   });
   it('is bound to the selected disease: no frame, no comparison', () => {
     expect(model(disease([['A', 'Strong']], [mech('gain of function')]), dosage(3)).crossCheck?.relation).toBe('differs');

@@ -57,7 +57,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {tab === "function" && <FunctionRail analysisResult={analysisResult} />}
 
       {tab === "clinical" && <PopulationRail analysisResult={analysisResult} />}
-      {(tab === 'gene-disease' || tab === 'expression-models') && <EvidenceContextRail analysisResult={analysisResult} expression={tab === 'expression-models'} />}
+      {(tab === 'gene-disease' || tab === 'expression-models' || tab === 'species-models') && <EvidenceContextRail analysisResult={analysisResult} expression={tab === 'expression-models'} species={tab === 'species-models'} />}
 
       {tab === "predictors" && <PredictorsRail analysisResult={analysisResult} />}
 
@@ -66,7 +66,7 @@ export const EvidenceInspector: React.FC<EvidenceInspectorProps> = ({
       {tab === "structure" && <ResidueShiftInspector analysisResult={analysisResult} />}
 
       {/* Baseline fallback for tabs under subsequent evaluation */}
-      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "structure" && tab !== 'gene-disease' && tab !== 'expression-models' && (
+      {tab !== "interfaces" && tab !== "function" && tab !== "clinical" && tab !== "predictors" && tab !== "alphagenome" && tab !== "structure" && tab !== 'gene-disease' && tab !== 'expression-models' && tab !== 'species-models' && (
         <div className="flex flex-col gap-3">
           <span className="eyebrow">
             <Sparkles className="w-3.5 h-3.5 text-cs-accent-clay" />

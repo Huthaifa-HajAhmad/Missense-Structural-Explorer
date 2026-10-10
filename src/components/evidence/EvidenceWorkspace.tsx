@@ -6,8 +6,8 @@ import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 
 type View = 'comparison' | 'records';
-interface TabState { view: View; selected: string | null; filter: AttributionFilter; expanded: string[] }
-const initial: TabState = { view: 'comparison', selected: null, filter: 'all', expanded: [] };
+interface TabState { view: View; selected: string | null; filter: AttributionFilter; expanded: string[]; section: string; query: string; cohort: string; relevantOnly: boolean }
+const initial: TabState = { view: 'comparison', selected: null, filter: 'all', expanded: [], section: '', query: '', cohort: 'all', relevantOnly: false };
 const Context = createContext<{ states: Partial<Record<EvidenceWorkspaceTab, TabState>>; update: (tab: EvidenceWorkspaceTab, patch: Partial<TabState>) => void } | null>(null);
 
 /** Scope to the analysed allele, not residue exploration or payload object identity.
@@ -33,12 +33,14 @@ export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
   const toggleGroup = useCallback((group: string) => context?.update(tab, { expanded: state.expanded.includes(group) ? state.expanded.filter(g => g !== group) : [...state.expanded, group] }), [context, tab, state.expanded]);
   return { ...state, enabled: context !== null,
     comparison: context !== null && state.view === 'comparison',
+    setOptions: (patch: Partial<Pick<TabState, 'section' | 'query' | 'cohort' | 'relevantOnly'>>) => context?.update(tab, patch),
     setView, setFilter, select, toggleGroup };
 }
 export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return null;
-  return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${tab === 'clinical' ? 'Population' : tab === 'alphagenome' ? 'AlphaGenome' : 'Predictors'} views`}
+  const names: Record<EvidenceWorkspaceTab, string> = { clinical: 'Population', predictors: 'Predictors', alphagenome: 'AlphaGenome', 'gene-disease': 'Gene–disease', 'expression-models': 'Expression', 'species-models': 'Species & models' };
+  return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${names[tab]} views`}
     tabs={[{ id: 'comparison', label: comparisonLabel }, { id: 'records', label: 'Source records' }]} value={w.view} onChange={w.setView} /><RevealEvidenceInspector /></div>;
 }
 export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; children: ReactNode }) {

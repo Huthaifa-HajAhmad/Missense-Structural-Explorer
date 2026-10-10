@@ -26,7 +26,7 @@ export const UNSAMPLED_ANATOMY: Partial<Record<ReviewSystemId, string>> = {
 const systemLabel = (id: ReviewSystemId) => REVIEW_SYSTEMS.find(s => s.id === id)?.label ?? id;
 
 export type LoadState = 'loading' | 'error' | 'not-found' | 'ready';
-export type SystemCoverage = { id: ReviewSystemId; label: string; state: 'measured' | 'not-sampled'; top: { label: string; value: number | null } | null };
+export type SystemCoverage = { id: ReviewSystemId; label: string; state: 'measured' | 'no-reading' | 'not-sampled'; top: { label: string; value: number | null } | null };
 export type ExpressionFinding = {
   state: LoadState | 'no-values';
   /** The one figure: the highest measured median in scope, TPM. Null when there is none. */
@@ -48,18 +48,19 @@ function rankOf(value: number, tissues: TissueExpression[]) {
 export function buildExpressionFinding(data: AdultExpressionResponse | null, loadState: 'loading' | 'error' | 'ready' | null, systems: ReviewSystemId[]): ExpressionFinding {
   const base = { figure: null, figureLabel: null, coverage: [] as SystemCoverage[], sampledTissues: 0, rank: null };
   if (!loadState || loadState === 'loading') return { ...base, state: 'loading', headline: 'Reading GTEx', predicate: 'Tissue medians are being read.' };
-  if (loadState === 'error') return { ...base, state: 'error', headline: 'GTEx could not be read', predicate: 'Retry below. This is a provider fault, not a finding about the gene.' };
+  if (loadState === 'error' || data?.status === 'error') return { ...base, state: 'error', headline: 'GTEx could not be read', predicate: 'Retry below. This is a provider fault, not a finding about the gene.' };
   if (!data || data.status === 'not-found') return { ...base, state: 'not-found', headline: 'No gene reading in GTEx', predicate: 'This is not evidence that the gene is unexpressed.' };
   const measured = data.tissues.filter(t => t.value !== null);
-  if (!measured.length) return { ...base, state: 'no-values', sampledTissues: 0, headline: 'No tissue median reported', predicate: 'GTEx returned the gene without values.' };
 
   const { relevant, gaps } = buildAdultExpressionEvidence(data, systems);
   const best = (list: TissueExpression[]) => list.filter(t => t.value !== null).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0] ?? null;
   const coverage: SystemCoverage[] = systems.map(id => {
-    const top = best(data.tissues.filter(t => tissueMatchesSystem(t.id, id)));
-    return { id, label: systemLabel(id), state: top ? 'measured' : 'not-sampled', top: top ? { label: top.label, value: top.value } : null };
+    const tissues = data.tissues.filter(t => tissueMatchesSystem(t.id, id));
+    const top = best(tissues);
+    return { id, label: systemLabel(id), state: top ? 'measured' : tissues.length ? 'no-reading' : 'not-sampled', top: top ? { label: top.label, value: top.value } : null };
   });
   const sampledTissues = measured.length;
+  if (!measured.length) return { ...base, coverage, state: 'no-values', sampledTissues: 0, headline: 'No tissue median reported', predicate: 'GTEx returned the gene without values. Returned tissues remain distinct from unsampled systems.' };
 
   if (!systems.length) {
     const top = best(data.tissues)!;
@@ -71,7 +72,7 @@ export function buildExpressionFinding(data: AdultExpressionResponse | null, loa
   const gapText = gaps.length ? ` GTEx has no tissue for ${gaps.map(g => UNSAMPLED_ANATOMY[g] ?? `${systemLabel(g).toLowerCase()} (no tissue in the local grouping)`).join('; ')}: that is a coverage limit, not a low reading.` : '';
   if (!top) {
     return { state: 'ready', figure: null, figureLabel: null, rank: null, coverage, sampledTissues,
-      headline: `GTEx samples none of your ${systems.length === 1 ? 'review system' : `${systems.length} review systems`}`,
+      headline: relevant.length ? 'No gene reading in your sampled review systems' : `GTEx samples none of your ${systems.length === 1 ? 'review system' : `${systems.length} review systems`}`,
       predicate: `Nothing here can be read for them.${gapText}` };
   }
   const rank = rankOf(top.value!, data.tissues);

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiseaseContextPicker } from '../evidence/DiseaseContextPicker';
 import { GeneDiseaseTab } from '../evidence/GeneDiseaseTab';
 import { ExpressionModelsTab } from '../evidence/ExpressionModelsTab';
+import { SpeciesModelsTab } from '../evidence/SpeciesModelsTab';
 import { emptyPhenotypeSelection } from '../../shared/phenotypeFrame';
 const { context } = vi.hoisted(() => ({ context: { value: null as any } }));
 vi.mock('../../hooks/useEvidenceContext', () => ({ useEvidenceContext: () => context.value }));
@@ -102,12 +103,12 @@ describe('context tab claims and interactions', () => {
     expect(finding.getByText(/no tissue for bone and growth-plate cartilage: that is a coverage limit, not a low reading/)).toBeInTheDocument();
     expect(finding.getByText('Not sampled')).toBeInTheDocument();
     const row = screen.getByRole('rowheader', { name: /Skeletal muscle/ }).closest('tr')!;
-    expect(within(row).getByText('0')).toBeInTheDocument();
+    expect(within(row).getByText('0 TPM')).toBeInTheDocument();
     expect(row).toBeVisible();
   });
   it('renders an upstream error without claiming missing tissue or no expression', () => {
     context.value.expressionLoad = { status: 'error', data: null }; render(<ExpressionModelsTab {...props} />);
-    expect(screen.getByText(/tissue measurements could not be read/)).toBeInTheDocument();
+    expect(screen.getByText('GTEx could not be read')).toBeInTheDocument();
     expect(screen.queryByText(/coverage limit, not a low reading/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
@@ -137,7 +138,7 @@ describe('context tab claims and interactions', () => {
     const ortholog = { id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: 'high', methodCount: 4 };
     context.value.modelLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', orthologs: [ortholog], provenance: [], message: null,
       impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping data available', phenotypingDataAvailable: true, embryoDataAvailable: false, significant: ['vision/eye phenotype'], notSignificant: ['muscle phenotype'] }] } } };
-    render(<ExpressionModelsTab {...props} />);
+    render(<SpeciesModelsTab {...props} />);
     const card = within(screen.getByTestId('model-organisms-card'));
     expect(card.getByText('Best match both directions')).toBeInTheDocument();
     expect(card.getByText('Significant difference')).toBeInTheDocument();
@@ -148,10 +149,10 @@ describe('context tab claims and interactions', () => {
   it('says an unscreened mouse is absent data and offers a retry when IMPC fails', () => {
     const base = { gene: 'TEST', status: 'ready', hgncId: 'HGNC:1', provenance: [], message: null, orthologs: [{ id: 'MGI:1', symbol: 'Tst', taxonId: 'NCBITaxon:10090', species: 'Mouse', bestForward: true, bestReverse: true, confidence: null, methodCount: 1 }] };
     context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'ready', screens: [{ mgiId: 'MGI:1', symbol: 'Tst', phenotypeStatus: 'Phenotyping not planned', phenotypingDataAvailable: false, embryoDataAvailable: false, significant: [], notSignificant: [] }] } } };
-    const { unmount } = render(<ExpressionModelsTab {...props} />);
+    const { unmount } = render(<SpeciesModelsTab {...props} />);
     expect(screen.getByText(/Absence of data is not a normal result/)).toBeInTheDocument(); unmount();
     context.value.modelLoad = { status: 'ready', data: { ...base, impc: { status: 'error', screens: [] } } };
-    render(<ExpressionModelsTab {...props} />);
+    render(<SpeciesModelsTab {...props} />);
     fireEvent.click(within(screen.getByTestId('model-organisms-card')).getByRole('button', { name: 'Try again' }));
     expect(context.value.retryModels).toHaveBeenCalled();
   });
@@ -174,9 +175,9 @@ describe('context tab claims and interactions', () => {
     const homology = { type: '1:1', species: 'mus_musculus', taxonId: 'NCBITaxon:10090', geneId: 'ENSMUSG1', proteinId: 'P', sourceAligned: 'ABCDE', targetAligned: 'ABQDE', humanIdentity: 90, orthologIdentity: 90, humanSimilarity: 95 };
     context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
     const result = { metadata: { gene: 'TEST', sequence: 'ABCDE', residueIndex: 3, wildType: 'C', mutant: 'Q' } };
-    const { unmount } = render(<ExpressionModelsTab {...props} analysisState={{ result, isLoading: false, error: null } as any} />);
+    const { unmount } = render(<SpeciesModelsTab {...props} analysisState={{ result, isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('residue-alignment-card')).getByText(/normal residue in Mouse/)).toBeInTheDocument(); unmount();
-    render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
+    render(<SpeciesModelsTab {...props} analysisState={{ result: { metadata: { ...result.metadata, sequence: 'ZZZZZ' } }, isLoading: false, error: null } as any} />);
     expect(within(screen.getByTestId('residue-alignment-card')).getByText(/No residue is mapped/)).toBeInTheDocument();
   });
   it('maps the residue when the pipeline records three-letter codes (real payload shape)', () => {
@@ -184,7 +185,7 @@ describe('context tab claims and interactions', () => {
     context.value.alignmentLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', sourceProteinId: 'ENSP1', homologies: [homology], provenance: null, message: null } };
     // 'ABCDE' is not real amino-acid text, so use real residues: C3 -> Q.
     homology.sourceAligned = 'ACCDE'; homology.targetAligned = 'ACQDE';
-    render(<ExpressionModelsTab {...props} analysisState={{ result: { metadata: { gene: 'TEST', sequence: 'ACCDE', residueIndex: 3, wildType: 'Cys', mutant: 'Gln' } }, isLoading: false, error: null } as any} />);
+    render(<SpeciesModelsTab {...props} analysisState={{ result: { metadata: { gene: 'TEST', sequence: 'ACCDE', residueIndex: 3, wildType: 'Cys', mutant: 'Gln' } }, isLoading: false, error: null } as any} />);
     const card = within(screen.getByTestId('residue-alignment-card'));
     expect(card.queryByText(/No residue is mapped/)).toBeNull();
     expect(card.getByText(/normal residue in Mouse/)).toBeInTheDocument();
@@ -215,7 +216,7 @@ describe('context tab claims and interactions', () => {
     const mouse = { taxonId: 'NCBITaxon:10090', species: 'Mouse', orthologId: 'MGI:1', symbol: 'Tst', status: 'ready', total: 1, phenotypes: [{ termId: 'MP:1', statement: 'abnormal eye physiology', annotations: 2, models: 1, humanTerms: ['HP:0000505'] }] };
     const fish = { taxonId: 'NCBITaxon:7955', species: 'Zebrafish', orthologId: 'ZFIN:1', symbol: 'tst', status: 'ready', total: 0, phenotypes: [] };
     context.value.phenotypesLoad = { status: 'ready', data: { gene: 'TEST', status: 'ready', mapping: 'available', provenance: [], message: null, species: [fish, mouse] } };
-    render(<ExpressionModelsTab {...props} />);
+    render(<SpeciesModelsTab {...props} />);
     const card = within(screen.getByTestId('model-phenotypes-card'));
     expect(card.getByText(/Same phenotype as: Visual impairment/)).toBeInTheDocument();
     expect(card.getByText(/That is not evidence of a normal organism/)).toBeInTheDocument();
@@ -284,5 +285,25 @@ describe('Gene–disease inspector rail', () => {
     expect(within(rail.getByRole('list', { name: /ClinGen dosage evidence scale/ })).getByText('this gene')).toBeVisible();
     expect(rail.getAllByText('this disease').length).toBeGreaterThan(0);
     expect(rail.getByRole('link', { name: /ClinGen curation for TEST/ })).toHaveAttribute('href', expect.stringContaining('gene-dosage/HGNC:1'));
+  });
+  it('keeps a not-installed Gene2Phenotype snapshot distinct from an empty read in the sources list', () => {
+    const result: any = { metadata: { gene: 'TEST' } };
+    const s: any = useVariantAnalysisStore;
+    s.setState({ gene: 'TEST', variant: 'p.A1B' });
+    const actions = s.getState();
+    const payload = (status: 'not-installed' | 'ready'): any => ({ gene: 'TEST', status: 'ready', frames: [frame],
+      provenance: { source: 'GenCC', url: 'https://thegencc.org', licence: 'CC0 1.0', release: null, retrievedAt: '2026-10-06T00:00:00Z', sha256: 'a'.repeat(64) }, message: null,
+      mechanismContext: { status, records: [], provenance: null, message: null } });
+    actions.setDiseaseContext('TEST', { status: 'ready', data: payload('not-installed') });
+    actions.setPhenotypeSelection(evidenceContextIdentity(result, 'TEST', 'p.A1B'), { ...emptyPhenotypeSelection(), diseaseKey: frame.key });
+    const first = render(<EvidenceContextRail analysisResult={result} expression={false} />);
+    const sources = within(screen.getByTestId('context-sources'));
+    expect(sources.getByText('Not available here')).toBeVisible();
+    // …and that a read that returned nothing still says so, rather than borrowing the other state.
+    first.unmount();
+    actions.setDiseaseContext('TEST', { status: 'ready', data: payload('ready') });
+    actions.setDosageContext('TEST', { status: 'ready', data: { gene: 'TEST', status: 'not-found', message: null, provenance: null, record: null } });
+    render(<EvidenceContextRail analysisResult={result} expression={false} />);
+    expect(within(screen.getByTestId('context-sources')).getAllByText('No result').length).toBeGreaterThan(0);
   });
 });

@@ -17,7 +17,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   // The hovered reading is kept as a KEY, not as a captured model: tabs rebuild their model on
   // every workspace update, so an object-identity check silently dropped the readout mid-hover.
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const margin = { top: 20, right: 24, bottom: tab === 'predictors' ? 95 : 65, left: tab === 'clinical' ? 180 : 135 };
+  const margin = { top: 20, right: 24, bottom: tab === 'predictors' ? 95 : 65, left: tab === 'expression-models' ? 245 : tab === 'clinical' ? 180 : 135 };
   const plotted = useMemo(() => model.rows.filter(r => r.value !== null).map((r, row) => ({ ...r, value: r.value as number, row })), [model]);
   const missing = model.rows.filter(r => r.value === null);
   const selected = model.rows.find(r => r.key === w.selected);
@@ -74,7 +74,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       <span>Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. Source records retain exact values.</span></>}>
     {tab === 'alphagenome' && <div className="evw-axis-guide" style={{ ["--evw-guide-left" as string]: `${margin.left}px` }}><span>← Lowers AVI score</span><span>Raises AVI score →</span></div>}
     {plotted.length > 0 && <div className="evw-chart-scroll" role="region" aria-label={`${title} chart`} tabIndex={0}>
-      <div className="evw-chart-canvas" data-wide={tab === 'predictors' || undefined}>
+      <div className="evw-chart-canvas" data-wide={tab === 'predictors' || tab === 'expression-models' || undefined}>
         <Chart definition={definition} height={Math.max(260, plotted.length * 42 + (tab === 'predictors' ? 115 : 90))}
           ariaLabel={`${title}. Arrow keys explore; Enter pins a reading.`} ariaDescription={model.summary}
           onSelect={p => { if (p) toggleSelect(p.datum.key); }}
