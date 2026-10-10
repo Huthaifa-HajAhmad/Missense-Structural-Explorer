@@ -73,7 +73,7 @@ export function compareMechanism(dosage: DosageEvidence, records: MechanismRecor
   if (lof && established) return { ...base, relation: 'consistent', sentence: `ClinGen haploinsufficiency (${call}) and Gene2Phenotype (${mech}) point the same way for this disease.` };
   if (lof) return { ...base, relation: 'differs', sentence: `Gene2Phenotype records ${mech} for this disease, but ClinGen does not establish haploinsufficiency (${call}). Each source is shown as submitted.` };
   if (established) return { ...base, relation: 'differs', sentence: `ClinGen reports haploinsufficiency (${call}), while Gene2Phenotype records ${mech} for this disease. A gene can have more than one disease mechanism; neither source is overridden.` };
-  return { ...base, relation: 'consistent', sentence: `ClinGen does not establish haploinsufficiency (${call}), in line with Gene2Phenotype recording ${mech} rather than loss of function.` };
+  return notComparable(`ClinGen reports ${call} for haploinsufficiency. This does not establish or corroborate the Gene2Phenotype mechanism (${mech}); gain of function and dominant negative require their own evidence.`);
 }
 
 interface SnapshotLike { status: string; provenance: { retrievedAt: string; release: string | null } | null; message?: string | null }
@@ -127,7 +127,7 @@ export function buildGeneDiseaseModel(input: {
     sentence = 'Disease-specific validity needs the GenCC snapshot, which is not available here. ClinGen dosage below is gene-level and does not depend on it.';
   } else if (!base.selected) {
     verdict = frames.length ? { kind: 'unselected', label: 'Choose a disease', tone: 'neutral' } : { kind: 'unselected', label: 'No curated disease', tone: 'muted' };
-    headline = frames.length ? `${frames.length} disease${frames.length === 1 ? '' : 's'}` : 'None listed';
+    headline = frames.length ? `${frames.length} disease–inheritance frame${frames.length === 1 ? '' : 's'}` : 'None listed';
     headlineLabel = frames.length ? 'curated for this gene by the installed sources' : '';
     sentence = frames.length
       ? 'Validity, mechanism and variant context are scoped to one disease and inheritance. Choose one to read them.'

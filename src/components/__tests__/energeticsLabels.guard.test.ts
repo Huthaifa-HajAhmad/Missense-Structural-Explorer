@@ -35,6 +35,9 @@ const GUARDED_SURFACES = [
   'src/components/evidence/GeneDiseaseReadings.tsx',
   'src/shared/geneDiseaseEvidence.ts',
   'src/components/evidence/ExpressionModelsTab.tsx',
+  'src/components/evidence/SpeciesModelsTab.tsx',
+  'src/components/evidence/ContextSourceState.tsx',
+  'src/components/inspector/RailParts.tsx',
   'src/components/evidence/DiseaseContextPicker.tsx',
   'src/components/inspector/EvidenceContextRail.tsx',
   "src/components/EnergeticsView.tsx",
@@ -230,8 +233,18 @@ describe("Energetics label guardrail", () => {
 
       it("renders engine state from the canonical shared module", () => {
         const source = readSurface(surface);
+        // Composed context views delegate status rendering. Verify the actual import and
+        // the delegate's canonical source; do not require unused imports in the parent.
+        const delegates: Record<string, { token: string; file: string }> = {
+          'src/components/evidence/ExpressionModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx' },
+          'src/components/evidence/SpeciesModelsTab.tsx': { token: './ContextSourceState', file: 'src/components/evidence/ContextSourceState.tsx' },
+          'src/components/inspector/EvidenceContextRail.tsx': { token: './RailParts', file: 'src/components/inspector/RailParts.tsx' },
+        };
+        const delegate = delegates[surface];
+        const delegated = delegate && source.includes(`from '${delegate.token}'`) &&
+          CANONICAL_MODULE_TOKENS.some(token => readSurface(delegate.file).includes(token));
         expect(
-          CANONICAL_MODULE_TOKENS.some(token => source.includes(token)),
+          CANONICAL_MODULE_TOKENS.some(token => source.includes(token)) || !!delegated,
           `${surface} must import from ${CANONICAL_MODULE_TOKENS.join(" or ")}`
         ).toBe(true);
       });

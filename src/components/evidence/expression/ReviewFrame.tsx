@@ -5,9 +5,9 @@ import type { ContextLoad } from '../../../stores/slices/evidenceContextSlice';
 import { DiseaseContextPicker } from '../DiseaseContextPicker';
 
 /** The reviewer's lens in one compact card: disease, onset, systems. These are choices, never patient findings. */
-export function ReviewFrame({ gene, load, selection, onChange, onRetry }: {
+export function ReviewFrame({ gene, load, selection, onChange, onRetry, compact = false }: {
   gene: string; load?: ContextLoad<GeneDiseaseResponse>; selection: PhenotypeSelection;
-  onChange: (selection: PhenotypeSelection) => void; onRetry: () => void;
+  onChange: (selection: PhenotypeSelection) => void; onRetry: () => void; compact?: boolean;
 }) {
   const onsetId = useId();
   return <section className="ctx-card xp-frame" aria-label="Review frame" data-testid="review-frame">
@@ -15,18 +15,21 @@ export function ReviewFrame({ gene, load, selection, onChange, onRetry }: {
     <div className="ctx-card__body">
       <div className="xp-frame__row">
         <DiseaseContextPicker inline gene={gene} load={load} selection={selection} onChange={onChange} onRetry={onRetry} />
+      </div>
+      <details className="cx-frame-focus" open={!compact || undefined}>
+        <summary>Review focus · {selection.systems.length ? selection.systems.map(id => REVIEW_SYSTEMS.find(s => s.id === id)?.label).join(', ') : 'All sampled systems'} · {ONSET_LABELS[selection.onset]}</summary>
         <div className="ctx-field xp-frame__onset">
           <label className="ctx-label" htmlFor={onsetId}>Disease onset</label>
           <select id={onsetId} className="ctx-select" value={selection.onset} onChange={e => onChange({ ...selection, onset: e.target.value as PhenotypeSelection['onset'] })}>
             {Object.entries(ONSET_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
         </div>
-      </div>
       <div className="ctx-field">
         <span className="ctx-label" id={`${onsetId}-systems`}>Review systems</span>
         <div className="ctx-chips" role="group" aria-labelledby={`${onsetId}-systems`}>{REVIEW_SYSTEMS.map(system =>
           <button key={system.id} type="button" className="ctx-chip" aria-pressed={selection.systems.includes(system.id)} onClick={() => onChange(toggleReviewSystem(selection, system.id))}>{system.label}</button>)}</div>
       </div>
+      </details>
     </div>
   </section>;
 }

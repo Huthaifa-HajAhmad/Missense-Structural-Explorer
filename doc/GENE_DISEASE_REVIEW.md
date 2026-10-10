@@ -59,3 +59,8 @@ replaced by the readings table rows.
   https://thegencc.org/download ("updated weekly").
 - ClinGen dosage: Riggs et al. 2020, PMID 31690835; scores 0–3, 30, 40.
 - Gene2Phenotype: Thormann et al. 2019, PMID 31097695.
+# 10 October 2026 workspace follow-up
+
+The assertion comparison, linked inspector, corrected frame counts and dosage/mechanism
+interpretation are documented in [Context workspaces review](CONTEXT_WORKSPACES_REVIEW.md).
+The prior review below remains the record of the original scientific model.

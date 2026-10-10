@@ -97,8 +97,9 @@ describe('ClinGen score 0 and the mechanism cross-check', () => {
       expect(c).toMatchObject({ state: 'not-comparable', relation: null }); expect(c?.sentence).toMatch(/absence of evidence/);
     }
   });
-  it('compares only an affirmative ClinGen call: HI 40 (unlikely) agrees with gain of function and differs from loss of function', () => {
-    expect(compareMechanism(ev(40), [mech('gain of function')])?.relation).toBe('consistent');
+  it('does not infer gain of function from HI 40; the loss-of-function discrepancy stays explicit', () => {
+    // ClinGen 40 addresses dosage sensitivity only; it supplies no positive mechanism evidence.
+    expect(compareMechanism(ev(40), [mech('gain of function')])).toMatchObject({ state: 'not-comparable', relation: null });
     expect(compareMechanism(ev(40), [mech('loss of function')])?.relation).toBe('differs');
   });
   it('explains code 30 as a recessive-phenotype call, not as a missing call', () => {

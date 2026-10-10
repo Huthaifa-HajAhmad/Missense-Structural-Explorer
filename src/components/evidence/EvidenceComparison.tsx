@@ -19,7 +19,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const missing = model.rows.filter(r => r.value === null);
   const selected = model.rows.find(r => r.key === w.selected);
   const definition = useMemo(() => defineChart({
-    theme: chartTheme, margin: { top: 20, right: 24, bottom: tab === 'predictors' ? 95 : 65, left: tab === 'clinical' ? 180 : 135 },
+    theme: chartTheme, margin: { top: 20, right: 24, bottom: tab === 'predictors' ? 95 : 65, left: tab === 'expression-models' ? 245 : tab === 'clinical' ? 180 : 135 },
     scales: {
       x: { scale: scaleLinear().domain(model.domain), grid: { strokeOpacity: .6 },
         axis: { label: { text: '', opacity: 1 }, ticks: { values: model.ticks, format: (v: number) => model.tickLabels[model.ticks.indexOf(v)] ?? '' },
@@ -51,7 +51,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
     footer={<><span>{model.axisLabel}</span>{tab === 'predictors' && <span>* Informational: not counted by the voting rule.</span>}<span>Hover or use arrow keys to explore. Click or press Enter to pin a reading. Source records retain exact values.</span></>}>
     {tab === 'alphagenome' && <div className="evw-axis-guide"><span>← Lowers AVI score</span><span>Raises AVI score →</span></div>}
     {plotted.length > 0 && <div className="evw-chart-scroll" role="region" aria-label={`${title} chart`} tabIndex={0}>
-      <div className="evw-chart-canvas" data-wide={tab === 'predictors' || undefined}>
+      <div className="evw-chart-canvas" data-wide={tab === 'predictors' || tab === 'expression-models' || undefined}>
         <Chart definition={definition} height={Math.max(260, plotted.length * 42 + (tab === 'predictors' ? 115 : 90))}
           ariaLabel={`${title}. Arrow keys explore; Enter pins a reading.`} ariaDescription={model.summary}
           onSelect={p => { if (p) w.select(p.datum.key); }}
@@ -59,9 +59,9 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       </div>
     </div>}
     <p className="evw-readout" role="status" aria-label="Evidence chart readout">{(preview?.model === model ? preview.text : null) ?? (selected ? `Pinned: ${selected.name} · ${selected.valueText}` : 'Select a reading to explore its meaning and source in the inspector.')}</p>
-    {w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All features to see it here.</p>}
+    {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All features to see it here.</p>}
     {missing.length > 0 && <div className="evw-unplotted"><h3>{tab === 'predictors' ? 'Outside the calibrated comparison' : 'Not plotted'}</h3>
-      <p>{tab === 'predictors' ? 'These tools have no calibrated strength to plot, or no returned score. Select one to inspect its own scale and status.' : tab === 'clinical' ? 'Zero and unavailable frequencies cannot sit on a log axis. Their states remain distinct.' : 'A missing attribution is not a contribution of zero.'}</p>
+      <p>{tab === 'predictors' ? 'These tools have no calibrated strength to plot, or no returned score. Select one to inspect its own scale and status.' : tab === 'clinical' ? 'Zero and unavailable frequencies cannot sit on a log axis. Their states remain distinct.' : tab === 'expression-models' ? 'These tissues have no returned gene median. Missing measurements are not zero.' : 'A missing attribution is not a contribution of zero.'}</p>
       <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}><span>{r.name}</span>{' '}<strong>{r.valueText}</strong></button>)}</div>
     </div>}
     {tab === 'alphagenome' && <p className="evw-caption">{model.summary}</p>}

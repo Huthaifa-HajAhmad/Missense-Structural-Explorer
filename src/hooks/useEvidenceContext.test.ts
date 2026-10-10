@@ -17,6 +17,25 @@ beforeEach(() => {
   useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, dosageContexts: {}, modelContexts: {}, extraContexts: {}, phenotypeSelections: {} });
 });
 describe('authenticated context loading and gene isolation', () => {
+  it('loads human sources without animal requests, and joins cached requests when the tab remounts', async () => {
+    fetchWithAuth.mockImplementation(() => new Promise(() => {}));
+    const first = renderHook(() => useEvidenceContext(result('A'), true, false, false));
+    await waitFor(() => expect(fetchWithAuth.mock.calls).toHaveLength(5));
+    const urls = fetchWithAuth.mock.calls.map(c => c[0]);
+    expect(urls).toContain('/api/v1/evidence-context/A/development');
+    expect(urls.some(u => /models|phenotypes|alignment/.test(u))).toBe(false);
+    first.unmount();
+    renderHook(() => useEvidenceContext(result('A'), true, false, false));
+    expect(fetchWithAuth).toHaveBeenCalledTimes(5);
+  });
+  it('loads animal sources without starting human expression providers', async () => {
+    fetchWithAuth.mockImplementation(() => new Promise(() => {}));
+    renderHook(() => useEvidenceContext(result('A'), false, false, true));
+    await waitFor(() => expect(fetchWithAuth.mock.calls).toHaveLength(4));
+    const urls = fetchWithAuth.mock.calls.map(c => c[0]);
+    expect(urls).toContain('/api/v1/evidence-context/A/models');
+    expect(urls.some(u => /expression|development|hpa|pext/.test(u))).toBe(false);
+  });
   it.each([[401, 'Access denied'], [429, 'Request limit reached'], [503, 'HTTP 503']])('reports HTTP %s without blaming the evidence provider', async (status, message) => {
     fetchWithAuth.mockResolvedValue({ ok: false, status });
     const hook = renderHook(() => useEvidenceContext(result('RGS9')));

@@ -28,3 +28,8 @@ Verification: `tsc`, `npm run lint`, full vitest (4127 passed), tab and rail ren
 - The cards below the hero still use the `ctx-*` row grammar (already flat rows, tinted head/foot bars), not Population's `pop-*` classes.
 - Gene–disease keeps its card-shaped disease picker; the inline form is used only on Expression.
 - IMPC and HPA releases are not exposed by their endpoints.
+# 10 October 2026 workspace follow-up
+
+Expression and Species & models are now separate workspaces. The shared context, interactive
+RNA comparison, alignment/phenotype exploration and corrected missing-measurement states are
+documented in [Context workspaces review](CONTEXT_WORKSPACES_REVIEW.md).

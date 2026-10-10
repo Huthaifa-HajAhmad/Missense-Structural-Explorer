@@ -6,12 +6,12 @@ import '../../src/index.css';
 import AppViews from '../../src/components/AppViews';
 import { SettingsProvider, useSettings } from '../../src/context/SettingsContext';
 import { useVariantAnalysisStore as store } from '../../src/stores/useVariantAnalysisStore';
-import { evidenceWorkspaceFixture } from '../../src/test/evidenceWorkspaceFixture';
+import { contextWorkspaceFixture } from '../../src/test/contextWorkspaceFixture';
 import type { MasterView } from '../../src/components/MasterSidebar';
 
 function scenario(name: string) {
-  const result = evidenceWorkspaceFixture(name);
-  store.setState({ gene: result.metadata!.gene, variant: result.metadata!.variant, uniprotId: result.metadata!.uniprotId,
+  const { result, state } = contextWorkspaceFixture(name);
+  store.setState({ ...state, gene: result.metadata!.gene, variant: result.metadata!.variant, uniprotId: result.metadata!.uniprotId,
     analysisState: { result, isLoading: false, error: null }, isFolding: false, isBiophysicalLoading: false });
 }
 scenario('Mixed');
@@ -22,7 +22,7 @@ window.fetch = async (input, init) => {
 };
 function Preview() {
   const [view, setView] = useState<MasterView>('evidence');
-  const [tab, setTab] = useState('alphagenome');
+  const [tab, setTab] = useState('gene-disease');
   const [metric, setMetric] = useState<'mean' | 'max'>('mean');
   const [width, setWidth] = useState(31);
   const { isDark, setTheme } = useSettings();
@@ -31,8 +31,8 @@ function Preview() {
       <strong>Illustrative data · not scientific evidence</strong>
       <button className="viz-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
       <label>Evidence <select aria-label="Evidence" value={tab} onChange={e => { setTab(e.target.value); setView('evidence'); }}>
-        <option value="clinical">Population Data</option><option value="predictors">Predictors</option><option value="alphagenome">AlphaGenome</option></select></label>
-      <label>Example <select aria-label="Example" onChange={e => scenario(e.target.value)}>{['Mixed', 'Partial', 'Missing', 'Zero', 'New variant'].map(name => <option key={name}>{name}</option>)}</select></label>
+        <option value="gene-disease">Gene-disease</option><option value="expression-models">Expression</option><option value="species-models">Species &amp; models</option><option value="clinical">Population Data</option><option value="predictors">Predictors</option><option value="alphagenome">AlphaGenome</option></select></label>
+      <label>Example <select aria-label="Example" onChange={e => scenario(e.target.value)}>{['Mixed', 'Mismatch', 'Missing', 'New variant'].map(name => <option key={name}>{name}</option>)}</select></label>
     </header>
     <AppViews masterView={view} setMasterView={setView} pushErrorEntry={console.error} setIsSettingsOpen={() => {}}
       activeEvidenceTab={tab} setActiveEvidenceTab={setTab} metricMode={metric} setMetricMode={setMetric}

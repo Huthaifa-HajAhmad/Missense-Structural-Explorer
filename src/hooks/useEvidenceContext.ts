@@ -19,7 +19,7 @@ import type { ContextLoad } from '../stores/slices/evidenceContextSlice';
 import { evidenceContextIdentity } from '../shared/evidenceContextIdentity';
 import { ContextHttpError, contextRequestFailure } from '../shared/contextRequest';
 const EMPTY_SELECTION = emptyPhenotypeSelection();
-export function useEvidenceContext(result: AnalysisResult, expression = false, dosage = false) {
+export function useEvidenceContext(result: AnalysisResult, expression = false, dosage = false, models = expression) {
   const { fetchWithAuth } = useApiClient();
   const storeGene = useVariantAnalysisStore(s => s.gene);
   const storeVariant = useVariantAnalysisStore(s => s.variant);
@@ -126,19 +126,19 @@ export function useEvidenceContext(result: AnalysisResult, expression = false, d
     if (!cachedDisease || cachedDisease.status === 'error' || cachedDisease.data?.status === 'not-installed') void loadDisease();
     const cachedDosage = useVariantAnalysisStore.getState().dosageContexts[gene];
     if (dosage && (!cachedDosage || cachedDosage.status === 'error')) void loadDosage();
-    if (expression && !useVariantAnalysisStore.getState().expressionContexts[gene]) void loadExpression();
-    if (expression && !useVariantAnalysisStore.getState().developmentalContexts[gene]) void loadDevelopment();
+    if (expression && (!useVariantAnalysisStore.getState().expressionContexts[gene] || useVariantAnalysisStore.getState().expressionContexts[gene]?.status === 'error')) void loadExpression();
+    if (expression && (!useVariantAnalysisStore.getState().developmentalContexts[gene] || useVariantAnalysisStore.getState().developmentalContexts[gene]?.status === 'error' || useVariantAnalysisStore.getState().developmentalContexts[gene]?.data?.status === 'not-installed')) void loadDevelopment();
     for (const [kind, load] of [['alignment', loadAlignment], ['pext', loadPext], ['phenotypes', loadPhenotypes], ['hpa', loadHpa]] as const) {
       const cached = useVariantAnalysisStore.getState().extraContexts[`${kind}:${gene}`];
-      if (expression && (!cached || cached.status === 'error')) void load();
+      if ((kind === 'alignment' || kind === 'phenotypes' ? models : expression) && (!cached || cached.status === 'error')) void load();
     }
-    if (expression && selection.diseaseKey && hpoIds) {
+    if ((expression || models) && selection.diseaseKey && hpoIds) {
       const cached = useVariantAnalysisStore.getState().extraContexts[hpoSlot];
       if (!cached || cached.status === 'error') void loadHpo();
     }
     const cachedModels = useVariantAnalysisStore.getState().modelContexts[gene];
-    if (expression && (!cachedModels || cachedModels.status === 'error' || cachedModels.data?.impc?.status === 'error')) void loadModels();
-  }, [gene, expression, dosage, fetchWithAuth, hpoSlot, selection.diseaseKey]);
+    if (models && (!cachedModels || cachedModels.status === 'error' || cachedModels.data?.impc?.status === 'error')) void loadModels();
+  }, [gene, expression, dosage, models, fetchWithAuth, hpoSlot, selection.diseaseKey]);
   return { gene, key, selection, diseaseLoad, dosageLoad, expressionLoad, developmentalLoad, modelLoad, alignmentLoad, pextLoad, hpaLoad, phenotypesLoad, hpoLoad, hpoIds,
     identityChanged: refinedIdentity === key,
     setSelection: (value: typeof selection) => { actions.setPhenotypeSelection(key, value); setRefinedIdentity(null); },

@@ -1,8 +1,7 @@
 import React from 'react';
 import type { AnalysisResult } from '../../types';
-import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
-import { evidenceContextIdentity } from '../../shared/evidenceContextIdentity';
-import { buildGeneDiseaseModel } from '../../shared/geneDiseaseEvidence';
+import { useContextWorkspaceRead } from '../../hooks/useContextWorkspace';
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 import { VALIDITY_SCALE, validityPosition } from '../../shared/diseaseFrame';
 import { DOSAGE_CODE_LABELS, DOSAGE_ZERO_NOTE } from '../../shared/dosageSensitivity';
 import { SNAPSHOT_STALE_AFTER_DAYS } from '../../shared/snapshotAge';
@@ -15,18 +14,15 @@ import { safeExternalHref } from '../../shared/externalLink';
  * review's position marked, (3) method notes a curator must know, (4) sources from the payload.
  */
 export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisResult }) {
-  const state = useVariantAnalysisStore();
-  const gene = analysisResult.metadata?.gene || state.gene;
-  const key = evidenceContextIdentity(analysisResult, state.gene, state.variant);
-  const selection = state.phenotypeSelections[key];
-  const diseaseLoad = state.diseaseContexts[gene];
-  const model = buildGeneDiseaseModel({ gene, disease: diseaseLoad, selectedKey: selection?.diseaseKey ?? null, dosage: state.dosageContexts[gene] });
+  const { context, model, rows } = useContextWorkspaceRead(analysisResult, 'gene-disease');
+  const gene = context.gene;
+  const diseaseLoad = context.diseaseLoad;
   const { dosage, sources, selected } = model;
   const present = new Set(model.assertions.map(a => validityPosition(a.level)));
   const dosageCodes = new Set(dosage.readings.map(r => r.code));
   const disease = diseaseLoad?.data ?? null;
   const g2p = disease?.mechanismContext?.provenance ?? null;
-  const dosageSource = state.dosageContexts[gene]?.data?.provenance ?? null;
+  const dosageSource = context.dosageLoad?.data?.provenance ?? null;
 
   const choice = selected ? `${selected.label} · ${selected.inheritance.label}`
     : !sources.gencc.available && !model.frameCount ? `${sources.gencc.label} — no disease choices to select.`
@@ -40,11 +36,12 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
   const sourceRows = [
     { name: 'GenCC validity', slot: diseaseLoad },
     { name: 'Gene2Phenotype mechanism', slot: diseaseLoad && diseaseLoad.data ? { status: diseaseLoad.status, data: { status: g2p ? 'ready' : 'not-found' } } : diseaseLoad },
-    { name: 'ClinGen dosage', slot: state.dosageContexts[gene] },
+    { name: 'ClinGen dosage', slot: context.dosageLoad },
   ];
   const trimmed = (text: string) => text.replace(/\.+$/, '');
 
   return <div className="ctx-rail gd-rail" data-testid="gene-disease-rail">
+    <EvidenceReadingInspector tab="gene-disease" rows={rows} />
     <section className="rail-section" aria-labelledby="gd-rail-trace"><h3 className="eyebrow" id="gd-rail-trace">Review trace</h3>
       <ol className="rail-steps" data-testid="context-trace">
         <Step n={1} label="Disease choice">{selected ? <>{selected.label}<span className="rail-step__sub">{selected.inheritance.label}</span></> : choice}</Step>

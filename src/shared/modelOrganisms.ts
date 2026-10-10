@@ -45,8 +45,8 @@ export type OrthologGroup = { taxonId: string; species: string; rows: Ortholog[]
 export function groupOrthologs(orthologs: Ortholog[]): OrthologGroup[] {
   const groups = new Map<string, OrthologGroup>();
   for (const o of orthologs) {
-    const g = groups.get(o.species) ?? { taxonId: o.taxonId, species: o.species, rows: [], oneToMany: false };
-    g.rows.push(o); g.oneToMany = g.rows.length > 1; groups.set(o.species, g);
+    const g = groups.get(o.taxonId) ?? { taxonId: o.taxonId, species: speciesLabel(o.taxonId, o.species), rows: [], oneToMany: false };
+    g.rows.push(o); g.oneToMany = g.rows.length > 1; groups.set(o.taxonId, g);
   }
   return [...groups.values()].sort((a, b) => speciesOrder(a.taxonId) - speciesOrder(b.taxonId) || a.species.localeCompare(b.species));
 }
