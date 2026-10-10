@@ -48,5 +48,5 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 * **Runtime**: Node.js & Vite (TypeScript)
 * **API Ingress**: Port 3000
 * **Graphics**: HTML5 Canvas with WebGL (Molstar API)
-* **AI Orchestration**: Gemini 2.5 Flash (`@google/genai` model client)
+* **AI Orchestration**: Gemini 3.6 Flash with a fallback ladder (`@google/genai` model client)
 * **Biological APIs**: EMBL-EBI AlphaFold Database & Mutational Side-Chain Modeling Engine

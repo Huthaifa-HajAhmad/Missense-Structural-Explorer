@@ -39,7 +39,7 @@ Create a production `.env` file in the project root:
 # list *replaces* the shipped ladder entirely — the earlier advice here named
 # `gemini-2.5-pro`, which the API now rejects with 404 "no longer available to new
 # users", so a deployment that followed it had no working candidate.
-# GEMINI_MODEL="gemini-3.7-flash"
+# GEMINI_MODEL="gemini-3.6-flash"
 # GEMINI_MODEL_FALLBACKS=
 
 # Path to FoldX binary (or leave blank to auto-detect from tools/foldx)
