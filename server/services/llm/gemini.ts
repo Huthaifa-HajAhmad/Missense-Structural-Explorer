@@ -28,20 +28,57 @@ const geminiClientCache = new LRUCache<string, GoogleGenAI>({
   ttl: 15 * 60 * 1000 // 15-minute TTL matching session token lifespan
 });
 
-export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
+/*
+ * Not `gemini-3.8-flash`, which Google recommends for new projects and which `gemini-3.7-flash`
+ * already auto-routes to: on 2026-10-10 it returned 503 "high demand" and took 95 s to answer
+ * a one-token request, while 3.6-flash answered in about 1 s. The ladder round-robins, so this
+ * is only the tie-break, and it is the model reported by health and in the narrative cache key.
+ */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
 
 /**
  * Fallback ladder.
  *
- * Ordered by how reliably each candidate answered the full narrative prompt during the
- * observed provider storm, then by latency — *not* by recency and not strictly by latency
- * (3.5-flash-lite at 11.6s precedes 3.1-flash-lite at 3.8s because it completed a full
- * narrative while the faster model was 503ing; 3.7-flash sits fifth for the same reason).
- * Ordering matters less than it did: the attempt loop round-robins the whole list, so this
- * is the tie-break, not the sequence.
+ * Rebuilt against the provider's published deprecation table
+ * (https://ai.google.dev/gemini-api/docs/deprecations, checked 2026-10-10) after the
+ * previous ladder accumulated entries that either no longer exist as distinct backends
+ * or are being withdrawn. Ordering within the list is still the measured tie-break from
+ * the observed provider storm (see the note at the bottom); the attempt loop round-robins
+ * the whole list, so the order is not the sequence.
  *
- * Measured on the production key with the narrative workload (full markdown analysis plus
- * the five response-schema fields):
+ * Why each entry is here, and why the retired ones are gone:
+ *
+ *   - `gemini-3.5-flash-lite` — stable, no shutdown announced, measured completing full
+ *     narratives during the storm (11.6s), and Google's recommended new-project lite tier.
+ *   - `gemini-3.6-flash` — stable, no shutdown announced; the provider's own recommended
+ *     replacement for the deprecated 3.5-flash, and now the primary (see above).
+ *   - `gemini-3.8-flash` — newest stable. Measured 503/504 during the storm, so it does
+ *     not lead, but it is where the provider is steering everyone: `gemini-3.7-flash`
+ *     requests are ALREADY auto-routed to it, and 3.7-flash has no shutdown date announced.
+ *   - `gemini-3.1-flash-lite` — fastest measured answer (3.8s) but DEPRECATED with a
+ *     fixed shutdown of 2027-05-07. Pinned last; remove it from this list before then.
+ *
+ * Removed since the last revision, all per the deprecations page:
+ *
+ *   - `gemini-3.7-flash` — deprecated; requests auto-route to `gemini-3.8-flash`, which
+ *     is listed explicitly, so keeping it would spend attempts re-hitting the same backend.
+ *   - `gemini-3.5-flash` — deprecated; requests auto-route to `gemini-3.6-flash` (already
+ *     listed), same redundancy.
+ *   - `gemini-3-flash-preview` — deprecated preview; recommended replacement 3.6-flash
+ *     (already listed).
+ *   - `gemini-flash-lite-latest` — an alias, not a separate backend. On 2026-10-10 it
+ *     resolved to `gemini-3.5-flash-lite` (the probe's reported model version), so it
+ *     would spend an attempt on a model already listed. Re-add it if it ever resolves
+ *     to a different model.
+ *   - `gemini-2.5-flash` — NOT deprecated, but access is limited to keys that used the
+ *     2.5 family before the cutoff ("for any new projects, use 3.5 Flash-Lite or 3.8
+ *     Flash"). This is a BYOK application: a first-time visitor's fresh key answers
+ *     2.5-family models with 404, exactly as 2.5-pro and 2.5-flash-lite already did here.
+ *     Like 2.5-pro and 2.5-flash-lite, it stays OUT of `RETIRED_GEMINI_MODELS` below so an
+ *     operator who knows their key is entitled can still pin it via `.env`.
+ *
+ * Measured during the provider storm on the production key with the narrative workload
+ * (full markdown analysis plus the five response-schema fields):
  *
  *   gemini-3.1-flash-lite     3.8 s  OK        gemini-3.7-flash       10.6 s  OK
  *   gemini-3.5-flash-lite    11.6 s  OK        gemini-flash-lite-latest 16.0 s OK
@@ -57,32 +94,28 @@ export const DEFAULT_GEMINI_MODEL = "gemini-3.7-flash";
  */
 export const DEFAULT_GEMINI_FALLBACK_MODELS = [
   "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
-  "gemini-flash-lite-latest",
-  "gemini-3-flash-preview",
-  "gemini-3.7-flash",
   "gemini-3.6-flash",
-  "gemini-2.5-flash",
-  "gemini-3.5-flash",
   "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
 ] as const;
 
 /**
- * Models the provider has retired.
+ * Models the provider has shut down.
  *
- * `gemini-2.5-flash-lite` and `gemini-2.5-pro` were dropped from the ladder after
- * the API answered both with HTTP 404 "This model … is no longer available to new
- * users". They are listed here as well as removed from the defaults so a `.env`
- * that still names them (the deployment guide used to) cannot spend one of the
- * request's attempts on a call that can only fail.
+ * The 2.0 models reached their 2026-06-01 shutdown, and the 1.5 models no longer appear in
+ * the deprecations table. They are listed here so a `.env` that still names them cannot
+ * spend one of the request's attempts on a call that can only fail.
+ *
+ * The 2.5 family is deliberately NOT here. The provider limits it to keys that used it
+ * before the cutoff rather than shutting it down (2.5-flash, 2.5-pro and 2.5-flash-lite
+ * all carry "no shutdown date announced" in the table). A `.env` that pins one of them on
+ * an entitled key must keep working, and on a fresh key a 404 costs at most one attempt.
  */
 const RETIRED_GEMINI_MODELS = new Set([
   "gemini-1.5-flash",
   "gemini-1.5-pro",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
-  "gemini-2.5-flash-lite",
-  "gemini-2.5-pro",
 ]);
 
 export function isGeminiApiKeyPlaceholder(value: string | undefined): boolean {

@@ -17,6 +17,7 @@ const openaiKey = process.env.OPENAI_API_KEY;
 const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
 const env: NodeJS.ProcessEnv = { ...process.env, OCR_NO_UPDATE: "1" };
+// gemini-3.6-flash returned HTTP 400 on the tool-call follow-up in a capped run on 2026-10-10.
 const targetModel = process.env.OCR_MODEL || "gemini-2.5-flash";
 
 const isPlaceholder = (key?: string) => !key || key.startsWith("YOUR_") || key.includes("example") || key.trim() === "";

@@ -496,12 +496,13 @@ describe("configured model ladder", () => {
     expect(ladder).toContain(DEFAULT_GEMINI_MODEL);
   });
 
-  it("lists the models measured answering a full narrative when their siblings were 503ing", async () => {
+  it("pins the ladder to the models the deprecation table still serves", async () => {
     /*
-     * During the storm that produced "All of these models are busy", the candidates that
-     * completed the narrative prompt were 3.5-flash-lite, flash-lite-latest, 3-flash-preview
-     * and 2.5-flash. The shipped ladder named two of those and omitted the other two, so the
-     * request had no healthy candidate to reach even if it had kept trying.
+     * Rebuilt against https://ai.google.dev/gemini-api/docs/deprecations (checked
+     * 2026-10-10). Of the models measured answering full narratives during the storm,
+     * 3-flash-preview (deprecated preview) and 2.5-flash (access-limited; a fresh BYOK
+     * key answers 404) are gone. flash-lite-latest is dropped because it resolves to
+     * 3.5-flash-lite, and 3.1-flash-lite is pinned last ahead of its fixed 2027-05-07 shutdown.
      */
     delete process.env.GEMINI_MODEL;
     delete process.env.GEMINI_MODEL_FALLBACKS;
@@ -509,32 +510,50 @@ describe("configured model ladder", () => {
     const { getConfiguredGeminiModels } = await import("./gemini.ts");
     const ladder = getConfiguredGeminiModels();
 
-    for (const model of ["gemini-flash-lite-latest", "gemini-3-flash-preview", "gemini-2.5-flash"]) {
-      expect(ladder).toContain(model);
-    }
+    expect(ladder).toEqual([
+      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.8-flash",
+      "gemini-3.1-flash-lite",
+    ]);
     // The key is not entitled to the pro tier (429 "exceeded your current quota"), so spending
     // one of the attempt slots on a pro model can only fail.
     expect(ladder.some(model => model.includes("-pro"))).toBe(false);
   });
 
-  it("drops models the provider has retired, however they were configured", async () => {
+  it("drops models the provider has shut down, however they were configured", async () => {
     /*
-     * The API answers gemini-2.5-pro and gemini-2.5-flash-lite with 404 "no longer
-     * available to new users", so an attempt spent on either can only fail. 2.5-flash is
-     * *not* retired — it answered a full narrative during the storm — so the retired list
-     * must not be widened by name prefix.
+     * The 2.0 models are past their 2026-06-01 shutdown, so an attempt spent on either can
+     * only fail. 2.5-flash is *not* shut down — it answered a full narrative during the
+     * storm — so the retired list must not be widened by name prefix.
      */
-    process.env.GEMINI_MODEL = "gemini-2.5-pro";
-    process.env.GEMINI_MODEL_FALLBACKS = "gemini-2.5-flash-lite,gemini-2.5-flash";
+    process.env.GEMINI_MODEL = "gemini-2.0-flash";
+    process.env.GEMINI_MODEL_FALLBACKS = "gemini-2.0-flash-lite,gemini-2.5-flash";
 
     const { getConfiguredGeminiModels, DEFAULT_GEMINI_MODEL } = await import("./gemini.ts");
     const ladder = getConfiguredGeminiModels();
 
-    expect(ladder).not.toContain("gemini-2.5-pro");
-    expect(ladder).not.toContain("gemini-2.5-flash-lite");
+    expect(ladder).not.toContain("gemini-2.0-flash");
+    expect(ladder).not.toContain("gemini-2.0-flash-lite");
     expect(ladder).toContain("gemini-2.5-flash");
     // A retired primary falls back to the built-in default rather than to nothing.
     expect(ladder[0]).toBe(DEFAULT_GEMINI_MODEL);
+  });
+
+  it("keeps the access-limited 2.5 models when an entitled operator pins them", async () => {
+    /*
+     * 2.5-pro and 2.5-flash-lite answer 404 for new keys but are not shut down, so a key
+     * that is entitled to them must be able to pin them rather than have the pin silently
+     * replaced by the default.
+     */
+    process.env.GEMINI_MODEL = "gemini-2.5-pro";
+    process.env.GEMINI_MODEL_FALLBACKS = "gemini-2.5-flash-lite";
+
+    const { getConfiguredGeminiModels } = await import("./gemini.ts");
+    const ladder = getConfiguredGeminiModels();
+
+    expect(ladder[0]).toBe("gemini-2.5-pro");
+    expect(ladder).toContain("gemini-2.5-flash-lite");
   });
 
   it("treats a blank fallback list as unset rather than as 'no fallbacks'", async () => {
