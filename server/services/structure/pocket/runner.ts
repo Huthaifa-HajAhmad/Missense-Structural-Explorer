@@ -96,6 +96,17 @@ export function selectP2RankProfile(pdbText: string): string {
   return isXray ? "default" : "alphafold";
 }
 
+/**
+ * The identity of a pocket run: the exact coordinates (hash), the residue, the chain and the P2Rank
+ * profile the structure selects; plus the P2Rank version when a host reports one (agents, WP-F).
+ * The route uses it to serve a cached result and to join an identical run already in flight.
+ */
+export function pocketResultCacheKey(pdbText: string, targetIndex: number, targetChain?: string, toolVersion?: string): string {
+  const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
+  const tool = toolVersion ? `_p2rank:${toolVersion}` : "";
+  return `${pdbHash}_${targetIndex}_${targetChain || "any"}_${selectP2RankProfile(pdbText)}${tool}`;
+}
+
 export async function findBindingPocket(
   pdbText: string,
   targetIndex: number,
@@ -104,8 +115,7 @@ export async function findBindingPocket(
   signal?: AbortSignal,
   options?: { l1Cache?: LRUCache<string, any> }
 ): Promise<PocketInfoResult> {
-  const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
-  const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}_${selectP2RankProfile(pdbText)}`;
+  const cacheKey = pocketResultCacheKey(pdbText, targetIndex, targetChain);
   const cache = options?.l1Cache ?? pocketCache;
   const cached = cache.get(cacheKey);
   if (cached) {
