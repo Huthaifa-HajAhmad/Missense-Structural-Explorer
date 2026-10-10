@@ -79,6 +79,10 @@
   color: var(--cs-text-muted);
   transition: color 120ms ease;
 }
+.cs-palette-search:focus-within {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: -2px;
+}
 .cs-palette-search:focus-within .cs-palette-search-icon {
   color: var(--cs-accent-clay);
 }
@@ -100,9 +104,11 @@
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
-.cs-palette-esc:hover {
+@media (hover: hover) and (pointer: fine) {
+  .cs-palette-esc:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 
 /* ── List ── */
