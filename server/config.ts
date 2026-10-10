@@ -6,6 +6,7 @@
  */
 
 import crypto from "crypto";
+import os from "os";
 import { authEnvironmentProblems } from "./auth/config.ts";
 
 /**
@@ -22,13 +23,43 @@ export function ensureSidecarSecret(): string {
 // Guarantee SIDECAR_SECRET is populated early upon config initialization
 ensureSidecarSecret();
 
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const n = parseInt(raw ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * ONE number for "how many biophysical jobs run at once": the queue's slots and the FoldX
+ * semaphore both read it, so a job can no longer hold a queue slot while waiting for a semaphore
+ * slot that a smaller, separately computed number would never free.
+ *
+ * `BIOPHYSICAL_CONCURRENCY` wins. Unset, it is `min(4, cpus - 1)`: the queue's old default of 4,
+ * capped by the CPU count that the semaphore used to apply on its own, so throughput on an
+ * existing host is unchanged.
+ */
+export function resolveBiophysicalConcurrency(): number {
+  const fromEnv = parseInt(process.env.BIOPHYSICAL_CONCURRENCY ?? "", 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+  return Math.min(4, Math.max(1, os.cpus().length - 1));
+}
+
 export const CONFIG = {
   server: {
     port: parseInt(process.env.PORT || "3000", 10),
     nodeEnv: process.env.NODE_ENV || "development",
     isProduction: process.env.NODE_ENV === "production",
     isTest: process.env.NODE_ENV === "test",
-    biophysicalConcurrency: parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "4", 10),
+    biophysicalConcurrency: resolveBiophysicalConcurrency(),
+  },
+  /**
+   * Queue safety limits (doc/COMPUTE_ROUTING_PLAN.md section 4.4). These protect the host; fairness
+   * between people comes from the scheduler's rotation, not from rationing.
+   */
+  queue: {
+    /** Jobs one person may have WAITING at once. Running jobs are not counted. */
+    maxQueuedPerUser: positiveInt(process.env.QUOTA_QUEUED_PER_USER, 25),
+    /** Queued + running across everyone; the backstop behind the per-person limit. */
+    maxTotal: positiveInt(process.env.QUEUE_MAX_TOTAL, 50),
   },
   /**
    * ─────────────────────────────────────────────────────────────────────────────

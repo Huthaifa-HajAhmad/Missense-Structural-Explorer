@@ -26,6 +26,8 @@ import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 // is `enrichBiophysicalResult`, which sees all six engines; recomputing it per remote-engine poll
 // from a five-engine subset produced a verdict that disagreed with the one on screen.
 import { recordJobInRegistry, getRegistryPath, type RegistryJob } from "../shared.ts";
+import { requireUser, noStore } from "../../auth/middleware.ts";
+import { LEGACY_OWNER, SYSTEM_OWNER } from "../../services/infra/queue-owners.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 
 /** FoldX and independent engine values that are safe to publish before the overall job settles. */
@@ -197,6 +199,56 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     });
   });
 
+  /**
+   * The signed-in person's own jobs: what they submitted or joined, with a queue place for the
+   * waiting ones. Needs an account, because without one there is no "mine".
+   */
+  apiRouter.get("/my-jobs", requireUser, noStore, async (req, res) => {
+    try {
+      const userId = (req.principal as Extract<NonNullable<typeof req.principal>, { kind: "user" }>).userId;
+      res.json({ jobs: await BiophysicalJobQueue.getInstance().listFor(userId) });
+    } catch (err: any) {
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", `Could not list jobs: ${err.message}`);
+    }
+  });
+
+  /**
+   * Cancel a job. The owner (or anyone who joined it) withdraws their own interest, and the job is
+   * stopped only when nobody else is still waiting for it; an admin stops any job outright. Without
+   * accounts (legacy mode) the shared-token caller may cancel jobs that have no owner.
+   */
+  apiRouter.post("/jobs/:jobId/cancel", noStore, async (req, res) => {
+    const { jobId } = req.params;
+    if (!jobId || !/^[a-zA-Z0-9_\-]{1,100}$/.test(jobId)) {
+      return sendError(res, 400, "BAD_REQUEST", "Invalid job ID format.");
+    }
+    try {
+      const queue = BiophysicalJobQueue.getInstance();
+      const p = req.principal;
+      let outcome;
+      if (p?.kind === "user") {
+        outcome = await queue.cancelFor(jobId, p.userId, p.user.role === "admin");
+      } else {
+        const owner = await queue.getJobOwner(jobId);
+        outcome = owner && owner !== LEGACY_OWNER && owner !== SYSTEM_OWNER
+          ? ({ ok: false, reason: "forbidden" } as const)
+          : await queue.cancelFor(jobId, LEGACY_OWNER, true);
+      }
+      if (!outcome.ok) {
+        if (outcome.reason === "not_found") return sendError(res, 404, "NOT_FOUND", `Job ${jobId} not found.`);
+        if (outcome.reason === "forbidden") return sendError(res, 403, "FORBIDDEN", "This job belongs to someone else.");
+        return sendError(res, 409, "JOB_FINISHED", "This job has already finished.");
+      }
+      res.json({
+        cancelled: outcome.aborted,
+        stillRunningForOthers: !outcome.aborted,
+        remainingWatchers: outcome.remainingWatchers,
+      });
+    } catch (err: any) {
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", `Could not cancel job: ${err.message}`);
+    }
+  });
+
   apiRouter.get("/foldx-job/:jobId", async (req, res) => {
     const { jobId } = req.params;
     if (!jobId || !/^[a-zA-Z0-9_\-]{1,100}$/.test(jobId)) {
@@ -306,6 +358,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         elapsedMs: jobInfo.status === "running" && jobInfo.startedAt ? Math.max(0, Date.now() - jobInfo.startedAt) : null,
         createdAt: jobInfo.createdAt ?? null,
         queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : 0,
+        queuedEtaMs: jobInfo.status === "queued" ? ((await queue.getEta(jobId))?.waitMs ?? null) : null,
         dynamut2JobId: remoteJobs.dynamut2JobId,
         dynamut2Status: remoteJobs.dynamut2Status,
         ddmutJobId: remoteJobs.ddmutJobId,

@@ -15,6 +15,7 @@ import {
   getResidueDetails,
 } from "../../services/biophysics.ts";
 import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
+import { submitterId } from "../../auth/principal.ts";
 import {
   resolveStructureReference,
   structureReferenceMatchesText,
@@ -261,7 +262,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         const queue = BiophysicalJobQueue.getInstance();
         let queueJobId: string;
         try {
-          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir });
+          queueJobId = await queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, { ownerId: submitterId(req) });
         } catch (queueErr: any) {
           if (queueErr.message.includes("BUSY")) {
             sendError(res, 503, "CONCURRENCY_LIMIT", "Biophysical server is busy. Queue limit reached.");

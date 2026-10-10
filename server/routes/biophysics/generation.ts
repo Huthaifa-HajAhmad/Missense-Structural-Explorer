@@ -48,6 +48,7 @@ import { type FoldXResult } from "../state.ts";
 // (the consensus is computed once, in `enrichBiophysicalResult`, and is no longer recomputed here)
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
 import { AMINO_ACID_1_TO_3 } from "../../../src/shared/aminoAcids.ts";
+import { submitterId } from "../../auth/principal.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -516,7 +517,7 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   raspSource: null,
                   raspError: null
                 }
-              });
+              }, { ownerId: submitterId(req) });
             }
           });
 
@@ -525,6 +526,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           joinedJobStatus = submission.status;
           joinedJobStartedAt = submission.startedAt;
           joinedJobPhase = submission.phase;
+
+          const watcherId = submitterId(req);
+          if (watcherId) queue.addWatcher(queueJobId, watcherId);
 
           if (submission.joined) {
             const existingJobData = submission.jobData;

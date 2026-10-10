@@ -4,6 +4,7 @@ import { fetchPdbFromRcsb } from "../structure/index.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
 import { CONFIG } from "../../config.ts";
 import { BiophysicalJobQueue } from "./biophysical-queue.ts";
+import { SYSTEM_OWNER } from "./queue-owners.ts";
 import { buildFoldxCacheKey, releaseActiveFoldxJob, submitOrJoinFoldxJob } from "./foldx-job-registry.ts";
 import { activeBackgroundTasks, inFlightPrewarms } from "../../routes/state.ts";
 
@@ -348,7 +349,7 @@ export class PrewarmManager {
                    * original submitter is running them (`generation.ts`, `joinedJobIsPrewarm`).
                    */
                   prewarm: true
-                });
+                }, { ownerId: SYSTEM_OWNER });
               }
             });
 

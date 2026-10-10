@@ -54,6 +54,15 @@ export function isAgentPath(path: string): boolean {
   return (p === "/agent" || p.startsWith("/agent/")) && !AGENT_USER_PATHS.has(p);
 }
 
+/**
+ * The id a job is filed under: the signed-in person's, or `undefined` for everything else (the
+ * shared service token, anonymous legacy use), which the queue files as `legacy`. Agents never
+ * submit server jobs, so they have no entry here.
+ */
+export function submitterId(req: express.Request): string | undefined {
+  return req.principal?.kind === "user" ? req.principal.userId : undefined;
+}
+
 export function resolvePrincipal(req: express.Request, now: number = Date.now()): Principal {
   const token = bearer(req);
 
