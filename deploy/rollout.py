@@ -14,6 +14,26 @@ ROOT = Path(__file__).resolve().parent.parent
 PROXY = "missense-resolve-caddy"
 SLOTS = ("missense-resolve-blue", "missense-resolve-green")
 
+# A build exports the whole image again, and the same volume already holds two generations. On
+# 2026-10-10 it filled up: every deploy died at the final unpack with ENOSPC *while CD reported
+# success*, so production sat two revisions behind and nothing said so. This floor turns that
+# eight-minutes-in failure-in-the-dark into an immediate, named refusal — and reclaims the
+# rebuildable space first, so the common case (accumulated images) heals itself.
+#
+# 20 GiB is generous for one image export and small enough that a healthy host never reaches it;
+# override with MSE_MIN_FREE_DISK_MB. MSE_DISK_PATH exists for tests and unusual mounts.
+MIN_FREE_DISK_MB = 20 * 1024
+DISK_PATH = os.environ.get("MSE_DISK_PATH", "/")
+
+
+def min_free_disk_mb():
+    raw = os.environ.get("MSE_MIN_FREE_DISK_MB", "").strip()
+    return int(raw) if raw else MIN_FREE_DISK_MB
+
+
+def free_disk_mb(path=DISK_PATH):
+    return shutil.disk_usage(path).free // (1024 * 1024)
+
 
 class Docker:
     def run(self, *args, capture=False, timeout=60, env=None):
@@ -74,6 +94,31 @@ class Docker:
                 return int(line.split()[1]) // 1024
         raise RuntimeError("Cannot determine host memory headroom")
 
+    def reclaim_build_space(self):
+        # Only rebuildable, non-serving things: build cache and images no container references. This
+        # driver always builds a fresh image and never runs an older one, so none of it is needed to
+        # serve or to roll back. Failures are non-fatal — the headroom check below is the real gate.
+        for args in (("builder", "prune", "-f"), ("image", "prune", "-a", "-f")):
+            try:
+                self.run(*args, capture=True, timeout=600)
+            except subprocess.SubprocessError as error:
+                print(f"[CD] reclaim ({' '.join(args)}) failed: {error}", flush=True)
+
+    def ensure_build_headroom(self, commit):
+        required = min_free_disk_mb()
+        free = free_disk_mb()
+        if free < required:
+            print(f"[CD] {free} MiB free (< {required} MiB); reclaiming build cache and unused images", flush=True)
+            self.reclaim_build_space()
+            free = free_disk_mb()
+        if free < required:
+            raise RuntimeError(
+                f"Only {free} MiB free on {DISK_PATH}; the image export needs about {required} MiB. "
+                f"Free space on the host (or lower MSE_MIN_FREE_DISK_MB), then redeploy — the serving "
+                f"generation is untouched."
+            )
+        return free
+
     def public_version(self):
         with urllib.request.urlopen("https://missense-resolve.duckdns.org/api/v1/version", timeout=10) as response:
             return json.load(response)["commit"]
@@ -85,6 +130,9 @@ class Docker:
             if self.inspect(name)["State"]["Running"]:
                 raise RuntimeError(f"{name} is still running; resolve the previous handover first")
             self.run("rm", name)
+        # Refuse (after reclaiming) before the build starts: a build that fills the volume fails at
+        # the very end, long after the CD runner has returned, and takes production's headroom with it.
+        self.ensure_build_headroom(commit)
         env = dict(os.environ, APP_CONTAINER_NAME=name, APP_IMAGE=f"missense-resolve:oci-{commit}",
                    DEPLOYMENT_STANDBY="true", APP_MEMORY_LIMIT="4g", BUILD_COMMIT=commit)
         compose = ("compose", "-p", name, "-f", "deploy/docker-compose.oci.yml")

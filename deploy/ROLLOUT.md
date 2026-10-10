@@ -73,6 +73,26 @@ Shared database migrations must remain backward-compatible across the overlap. B
 changes require a maintenance migration rather than a handover. Large model changes may require
 more memory or a separate sidecar deployment; do not weaken readiness to force an update.
 
+## Failures that must not be silent
+
+A push deploy returns from GitHub in seconds and the work continues on the host, so a step that
+fails minutes later is **not** a red CI run. Two guards close the gap:
+
+- **Disk headroom, before the build.** `rollout.py` reclaims build cache and container-unreferenced
+  images, then refuses to start a build unless at least `MSE_MIN_FREE_DISK_MB` (default 20480) is
+  free on `MSE_DISK_PATH` (default `/`). The image export rewrites every layer, and on 2026-10-10
+  it filled the volume *after* the runner had returned: every deploy died at the final unpack with
+  `no space left on device` while CD showed success. The guard turns that eight-minutes-in death
+  into an immediate, named refusal and leaves the serving generation untouched.
+- **Drift watch.** `.github/workflows/deploy-drift.yml` (hourly + manual) compares the public
+  `/api/v1/version` commit against the tip of `main` and fails when a revision CD reported as
+  deployed is not actually live. A run still in progress, or one inside the 45-minute grace window,
+  is a notice rather than a failure. A red run here is the signal that the on-host log
+  (`~/mse-deploy-*.log`) and `deploy/runtime/rollout.json` are worth reading.
+
+When either guard fires, the fix is on the host, not another push: free disk or repair the handover,
+then redeploy the same commit.
+
 Run the driver failure-path tests with `python -m unittest discover -s deploy -p 'test_rollout.py'`.
 Queue handover, persisted roles, and loopback control regression tests run in the normal Vitest
 suite. Before production bootstrap, rehearse on an isolated Docker host with a live NDJSON stream,
