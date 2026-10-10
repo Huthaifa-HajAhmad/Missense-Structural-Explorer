@@ -10,12 +10,52 @@ import { Switch } from "../ui/Switch";
 import { Avatar } from "../../account/AccountMenu";
 import { relativeTime } from "../../account/accountUi";
 import { FormAlert, PasswordChecklist, PasswordField } from "../../account/fields";
+import { describeLimits, describeUsage } from "../../../shared/jobsCopy";
+import type { MeInfo } from "../../../api/accountApi";
 
 const PLACEMENT_COPY: Record<PlacementPref, string> = {
   auto: "Each job runs wherever it should finish first.",
   my_machine: "Your own computer takes your jobs whenever it is connected and about as fast.",
   server_only: "Your jobs always run on the shared server, even when your computer is connected.",
 };
+
+/**
+ * Server time this person's jobs used, and the limits that apply to them. Informational: there is no
+ * daily cap unless an admin set one (plan 4.4). Loaded once when the section opens.
+ */
+function UsageSummary() {
+  const [me, setMe] = useState<MeInfo | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    accountApi.me().then((info) => live && setMe(info)).catch(() => live && setFailed(true));
+    return () => { live = false; };
+  }, []);
+  if (failed) return null; // usage is a convenience; its absence must not look like an error
+  const usage = describeUsage(me?.usage);
+  const limits = describeLimits(me?.quota);
+  return (
+    <SettingsRow label="Server time used" description="Time your jobs spent running on the shared server." stacked>
+      <dl className="acct-usage" aria-busy={me === null}>
+        <div className="acct-usage-tile">
+          <dt>Today (UTC)</dt>
+          <dd>{usage ? usage.today : "…"}</dd>
+        </div>
+        <div className="acct-usage-tile">
+          <dt>Last 7 days</dt>
+          <dd>{usage ? usage.week : "…"}</dd>
+        </div>
+      </dl>
+      {limits.length > 0 && (
+        <ul className="acct-usage-limits">
+          {limits.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+    </SettingsRow>
+  );
+}
 
 function SaveState({ state }: { state: "idle" | "saving" | "saved" | "error" }) {
   return (
@@ -217,6 +257,7 @@ export function AccountSection() {
           checked={user.shareResults}
           onChange={(shareResults) => void save({ shareResults })}
         />
+        <UsageSummary />
       </SettingsSection>
 
       <SettingsSection title="Security">

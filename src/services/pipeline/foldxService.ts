@@ -1,3 +1,4 @@
+import { CANCELLED_RUN_MESSAGE, isCancelledJobError } from "../../shared/jobsCopy";
 import { BiophysicsConditions, StructureProvenance } from "../../types";
 import { generateMutantResponseSchema } from "../../shared/contracts";
 import { isFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
@@ -164,7 +165,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
   const publishProgress = (progress: FoldxProgress | null) => {
     if (!sink.setFoldingProgress) return;
     const signature = progress
-      ? `${progress.phase}|${progress.elapsedMs === null ? "null" : Math.round(progress.elapsedMs / 1000)}|${progress.queuePosition}`
+      ? `${progress.phase}|${progress.elapsedMs === null ? "null" : Math.round(progress.elapsedMs / 1000)}|${progress.queuePosition}|${progress.queueEtaMs == null ? "null" : Math.round(progress.queueEtaMs / 60_000)}`
       : "none";
     if (signature === lastProgressSignature) return;
     lastProgressSignature = signature;
@@ -185,8 +186,10 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
     const rawElapsed = Number(payload.elapsedMs);
     const elapsedMs = Number.isFinite(rawElapsed) && rawElapsed >= 0 ? rawElapsed : null;
     const queuePosition = Number.isFinite(payload.queuedAhead) ? Number(payload.queuedAhead) : null;
+    const rawEta = Number(payload.queuedEtaMs);
+    const queueEtaMs = payload.queuedEtaMs != null && Number.isFinite(rawEta) && rawEta >= 0 ? rawEta : null;
     if (!phase && elapsedMs === null && queuePosition === null) return null;
-    return { phase, elapsedMs, queuePosition, receivedAt: Date.now() };
+    return { phase, elapsedMs, queuePosition, queueEtaMs, receivedAt: Date.now() };
   };
 
   sink.setIsFolding(true);
@@ -786,7 +789,9 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
           publishProgress(null);
 
           if (pollData.status === "failed") {
-            throw new Error(pollData.error || "Background FoldX execution failed.");
+            // A deliberate cancel (from the jobs panel, by an admin, or a disabled account) is not a
+            // failure of FoldX, and must not read like one.
+            throw new Error(isCancelledJobError(pollData.error) ? CANCELLED_RUN_MESSAGE : (pollData.error || "Background FoldX execution failed."));
           }
           break;
         }

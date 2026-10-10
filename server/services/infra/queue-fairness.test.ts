@@ -295,6 +295,9 @@ describe("limits and listing", () => {
     expect(mine.map((j) => j.id)).toEqual(["x2", "y1", "x1"]);
     expect(mine.find((j) => j.id === "y1")).toMatchObject({ mine: false, label: "R175H", status: "queued" });
     expect(mine.find((j) => j.id === "x1")).toMatchObject({ mine: true, status: "running", queuedAhead: null });
+    // A waiting job carries its place and, when everything ahead has an estimate, its wait (null here).
+    expect(mine.find((j) => j.id === "x2")).toMatchObject({ status: "queued", etaMs: null });
+    expect(mine.find((j) => j.id === "x1")?.etaMs).toBeNull();
     expect(q.listFor("nobody")).toEqual([]);
   });
 

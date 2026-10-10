@@ -57,6 +57,7 @@ one agent can take it without the others.
 | WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test). Not done: process memory sampler, `compute:benchmark` | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
 | WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
+| WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -276,23 +277,12 @@ re-derive it from the per-package notes above.
 | 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 
-**Who uses it today (2026-10-10): the owner alone.** The multi-user machinery (fair rotation, per-person limits,
-watchers, sharing rules) is built and tested, and costs nothing while there is one person; it is ready for the
-day a colleague is invited. It changes the ORDER of what comes next: what helps one person most is getting
-compute off the 2-core emulated server and onto their own computer (FoldX runs ~60x faster natively), and
-closing the public compute surface (in `legacy` mode anyone with the URL can queue jobs).
+**Who uses it today (2026-10-10):** the owner alone, with a team expected soon. Decision (owner): build in
+the team order below, as if colleagues were joining now. One owner action is still worth doing first, because
+it costs nothing with one user: create the admin account (`/setup`) and set `AUTH_MODE=accounts`, which closes
+the anonymous compute surface the security review flagged (in `legacy` mode anyone with the URL can queue jobs).
 
-**Next phases for a single user, in order:**
-1. Owner action: create the admin account (`/setup`) and set `AUTH_MODE=accounts`. With one user there is no
-   rollout to stage; this closes the anonymous compute surface the security review flagged.
-2. **WP-G1, trimmed:** a jobs panel (position, wait estimate, cancel) and a proper "cancelled" state. Skip
-   team usage views and sharing preferences until there is a team.
-3. **WP-0 remainder** (tool versions and self-test; memory sampler), then **WP-F** (the agent on the owner's
-   computer) and **WP-G2** (route to it). This is the change that makes the app faster for one person.
-4. **WP-H** docs, and **WP-I3** (team-wide 429 pause; still useful alone, since the server's IP is what
-   providers limit). **Deferred until there is a team:** WP-I1 fair share and WP-I4 per-user credentials.
-
-**Next phases with a team (the original order), for reference:**
+**Next phases, in order:**
 
 1. **WP-G1 — jobs and preferences UI (server-only, no agents needed).** Everything it calls exists:
    `GET /my-jobs`, `POST /jobs/:id/cancel` (JSON body, 200 `{cancelled, stillRunningForOthers}` / 403 / 404 /

@@ -31,6 +31,15 @@ export interface SessionInfo {
   accountsExist: boolean;
 }
 
+/** `GET /auth/me`: the limits that apply to this person and the server time they used (WP-B). */
+export interface MeInfo {
+  user: AccountUser;
+  mode: AuthMode;
+  quota: { queuedPerUser: number; serverSecondsPerDay: number | null };
+  /** null when the server's queue is not running in this process. */
+  usage: { todaySeconds: number; weekSeconds: number } | null;
+}
+
 export interface PendingInvite {
   id: string;
   email: string;
@@ -90,6 +99,7 @@ export const accountApi = {
   resetPassword: (token: string, password: string) => request<{ user: AccountUser }>("POST", "/auth/reset", { token, password }),
   setup: (input: { secret: string; email: string; displayName: string; password: string }) =>
     request<{ user: AccountUser }>("POST", "/setup", input),
+  me: () => request<MeInfo>("GET", "/auth/me"),
   changePassword: (current: string, next: string) => request<void>("POST", "/auth/change-password", { current, next }),
   updatePreferences: (patch: Partial<Pick<AccountUser, "shareResults" | "placementPref">>) =>
     request<Pick<AccountUser, "shareResults" | "placementPref">>("PUT", "/me/preferences", patch),

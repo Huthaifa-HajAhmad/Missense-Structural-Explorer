@@ -60,6 +60,8 @@ export interface JobSummary {
   mine: boolean;
   /** Jobs ahead of this one while it is queued; null otherwise. */
   queuedAhead: number | null;
+  /** Estimated wait before it starts, while queued; null when unknown or not waiting (see `getEta`). */
+  etaMs: number | null;
   /** Short human label taken from the job's own input (mutation / protein), when it has one. */
   label: string | null;
 }
@@ -547,6 +549,7 @@ export class SQLiteQueue {
         ownerId: r.owner_id === userId ? userId : null,
         mine: r.owner_id === userId,
         queuedAhead: idx < 0 ? null : running + idx,
+        etaMs: r.status === "queued" ? (this.getEta(r.id)?.waitMs ?? null) : null,
         label,
       };
     });
