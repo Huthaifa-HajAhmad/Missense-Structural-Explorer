@@ -103,8 +103,13 @@ one agent can take it without the others.
   Anyone else: 403. Without accounts, the shared token may cancel jobs that have no owner.
 - `GET /my-jobs` needs an account. The `legacy` owner shares one rotation slot between all unowned work.
 - Limits: `QUOTA_QUEUED_PER_USER` (25) counts **waiting** jobs only; `QUEUE_MAX_TOTAL` (50, was a constant)
-  remains the host backstop. Running jobs are never counted against a person. An admin's per-person override
-  (`quota_json`) wins. `QUOTA_SERVER_SECONDS_PER_DAY` (or the override) is enforced when set, per UTC day,
+  remains the host backstop. Running jobs are never counted against a person. **The queued limit is
+  work-conserving, like the scheduler** (a deliberate change to 4.4's fixed 25): it is a per-person *share* that
+  binds only while someone else (a person or unowned work; not pre-warm) is also waiting. Alone, a person may
+  queue up to `QUEUE_MAX_TOTAL - 5`; the 5 are kept for a colleague who arrives. When someone does, nothing
+  already queued is dropped: the heavy user simply cannot add more until back under 25, and the rotation starts
+  the newcomer's work next. An admin's explicit per-person override (`quota_json.queuedPerUser`) is a
+  restriction, not a share, and applies at all times. `QUOTA_SERVER_SECONDS_PER_DAY` (or the override) is enforced when set, per UTC day,
   counting failed and cancelled time too. A person's own limit answers **429** with their numbers
   (`QUEUED_PER_USER`, `DAILY_SERVER_TIME`); a full host stays 503.
 - `/auth/me` `usage` is now `{ todaySeconds, weekSeconds }` (today = UTC day, week = last 7 days).
@@ -431,7 +436,7 @@ safety limits [proposed defaults, env-overridable, per-user overrides in `quota_
 | Mechanism | Behaviour |
 |---|---|
 | **Fair share (scheduler, WP-B)** | When nobody else is waiting, a user may use **every** free slot. When others are waiting, slots are shared round-robin, and a user over their share simply waits behind the others. No one is ever refused for using idle capacity. |
-| Queued jobs per user | 25, to stop a runaway script or a client bug from filling the queue. Message says how many are queued and how to cancel. |
+| Queued jobs per user | 25 **while others are waiting too** (a share); alone, up to the host backstop less a 5-job reserve for newcomers (as shipped, see 0.3). Stops a runaway script or a client bug from filling the queue for others. Message says how many are queued and why. An admin override is a fixed limit. |
 | Memory admission (WP-D) | Refuses or defers a job that would not fit the host's RAM, with the reason. This protects the host, not the budget. |
 | Requests per user per minute | 20 at the HTTP layer, same purpose. |
 | **Usage display, not enforcement** | Each user and the admin can see server seconds used (today, week). Informational. |

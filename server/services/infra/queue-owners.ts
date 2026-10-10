@@ -11,6 +11,12 @@ export const SYSTEM_OWNER = "system";
 export const SYSTEM_PRIORITY = -10;
 
 /**
+ * Room in the host-wide backstop kept free for somebody who is not yet waiting. A lone person may
+ * queue up to `QUEUE_MAX_TOTAL - NEWCOMER_RESERVE`, so a colleague who arrives can always submit.
+ */
+export const NEWCOMER_RESERVE = 5;
+
+/**
  * A person's own limit was reached: their waiting jobs (`QUEUED_PER_USER`) or their daily server time
  * (`DAILY_SERVER_TIME`, only when a cap is configured). Answered with 429 and this message verbatim,
  * because unlike a full host it is about them and they can act on it.
@@ -25,7 +31,14 @@ export class QueueLimitError extends Error {
 
 /** The limits that apply to one submitter, resolved by the route from settings and the user's overrides. */
 export interface SubmitterLimits {
+  /** The per-person share of waiting jobs that applies while somebody else is waiting too. */
   queuedPerUser: number;
+  /**
+   * True when an admin set this person's limit explicitly (`quota_json`). An explicit limit is a
+   * deliberate restriction and applies at all times; the default one is a share and relaxes when the
+   * person is the only one waiting.
+   */
+  queuedPerUserExplicit?: boolean;
   /** null = no daily cap (the default). */
   serverSecondsPerDay: number | null;
 }

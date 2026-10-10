@@ -75,6 +75,7 @@ export function submitterLimits(req: express.Request): SubmitterLimits | undefin
   const q = req.principal.user.quota;
   return {
     queuedPerUser: q?.queuedPerUser ?? s.queuedPerUser,
+    queuedPerUserExplicit: q?.queuedPerUser != null,
     serverSecondsPerDay: q?.serverSecondsPerDay ?? s.serverSecondsPerDay,
   };
 }

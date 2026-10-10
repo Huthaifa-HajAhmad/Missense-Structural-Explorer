@@ -214,23 +214,45 @@ describe("cancel", () => {
 describe("limits and listing", () => {
   afterEach(() => BiophysicalJobQueue.resetForTesting());
 
-  it("refuses a person's job over their queued limit with a message that says how many, not anyone else's", async () => {
+  it("alone, a person may fill the queue (less a reserve for newcomers); the per-person share binds only when others wait", async () => {
     BiophysicalJobQueue.resetForTesting();
     const queue = BiophysicalJobQueue.initialize(1, () => new Promise(() => {}));
-    const limits = { queuedPerUser: 2, serverSecondsPerDay: null };
+    (queue as any).maxQueueLength = 10; // host backstop 10, newcomer reserve 5: alone, up to 5 waiting
+    const share = { queuedPerUser: 2, serverSecondsPerDay: null };
 
-    await queue.pushJob("foldx", { name: "run" }, { ownerId: "X", limits }); // runs
-    await tick(120); // let it start: running jobs do not count against the queued limit
-    await queue.pushJob("foldx", { name: "q1" }, { ownerId: "X", limits });
-    await queue.pushJob("foldx", { name: "q2" }, { ownerId: "X", limits });
-    await tick(80);
-    const refused = await queue.pushJob("foldx", { name: "q3" }, { ownerId: "X", limits }).catch((e) => e);
-    expect(refused).toBeInstanceOf(QueueLimitError);
-    expect(refused).toMatchObject({ status: 429, code: "QUEUED_PER_USER" });
+    await queue.pushJob("foldx", { name: "run" }, { ownerId: "X", limits: share }); // runs
+    await tick(120); // running jobs never count against a person
+    for (let i = 1; i <= 5; i++) await queue.pushJob("foldx", { name: `x${i}` }, { ownerId: "X", limits: share });
+    const full = await queue.pushJob("foldx", { name: "x6" }, { ownerId: "X", limits: share }).catch((e) => e);
+    expect(full).toBeInstanceOf(QueueLimitError);
+    expect(full).toMatchObject({ status: 429, code: "QUEUED_PER_USER" });
+    expect(full.message).toBe("You already have 5 jobs waiting, which is as many as the server holds for one person. Cancel one, or wait for one to start.");
+
+    // A colleague arrives: the reserve lets them in, and from now on the share applies to both.
+    await expect(queue.pushJob("foldx", { name: "y1" }, { ownerId: "Y", limits: share })).resolves.toBeTruthy();
+    const shared = await queue.pushJob("foldx", { name: "x6" }, { ownerId: "X", limits: share }).catch((e) => e);
+    expect(shared.message).toBe(
+      "You already have 5 jobs waiting, and someone else is waiting too, so the limit is 2 each for now. Your queued jobs are kept; you can add more as they start.",
+    );
+    await expect(queue.listFor("X").then((j) => j.filter((r) => r.status === "queued").length)).resolves.toBe(5); // nothing was dropped
+    await expect(queue.pushJob("foldx", { name: "y2" }, { ownerId: "Y", limits: share })).resolves.toBeTruthy();
+    await expect(queue.pushJob("foldx", { name: "y3" }, { ownerId: "Y", limits: share })).rejects.toBeInstanceOf(QueueLimitError);
+    // The newcomer's work is next in line despite X's backlog.
+    expect(await queue.getQueuePosition((await queue.listFor("Y"))[1].id)).toBe(1);
+  });
+
+  it("an admin's explicit limit is a restriction and applies even to someone alone", async () => {
+    BiophysicalJobQueue.resetForTesting();
+    const queue = BiophysicalJobQueue.initialize(1, () => new Promise(() => {}));
+    const explicit = { queuedPerUser: 2, queuedPerUserExplicit: true, serverSecondsPerDay: null };
+    await queue.pushJob("foldx", { name: "run" }, { ownerId: "X", limits: explicit });
+    await tick(120);
+    await queue.pushJob("foldx", { name: "q1" }, { ownerId: "X", limits: explicit });
+    await queue.pushJob("foldx", { name: "q2" }, { ownerId: "X", limits: explicit });
+    const refused = await queue.pushJob("foldx", { name: "q3" }, { ownerId: "X", limits: explicit }).catch((e) => e);
     expect(refused.message).toBe("You already have 2 jobs waiting (your limit is 2). Cancel one, or wait for one to start.");
-    // Somebody else is unaffected by X's backlog, and an admin's higher override for X is honoured.
-    await expect(queue.pushJob("foldx", { name: "y1" }, { ownerId: "Y", limits })).resolves.toBeTruthy();
-    await expect(queue.pushJob("foldx", { name: "q3" }, { ownerId: "X", limits: { ...limits, queuedPerUser: 3 } })).resolves.toBeTruthy();
+    // A higher override is honoured.
+    await expect(queue.pushJob("foldx", { name: "q3" }, { ownerId: "X", limits: { ...explicit, queuedPerUser: 3 } })).resolves.toBeTruthy();
   });
 
   it("enforces a daily server-time cap only when one is set, and says when it resets", async () => {

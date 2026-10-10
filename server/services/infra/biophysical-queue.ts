@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Queue, Worker } from "bullmq";
 import { CONFIG } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
-import { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
+import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
 
 export interface QueueJob {
   id: string;
@@ -228,6 +228,18 @@ export class SQLiteQueue {
       WHERE owner_id = ? AND started_at IS NOT NULL AND coalesce(completed_at, ?) > ?
     `).get(now, since, ownerId, now, since) as any;
     return row?.ms ?? 0;
+  }
+
+  /**
+   * How many OTHER parties have jobs waiting: people, plus unowned (`legacy`) work. Background
+   * pre-warm does not count; it always yields to people anyway.
+   */
+  othersWaiting(ownerId: string): number {
+    const row = this.db.prepare(`
+      SELECT count(DISTINCT owner_id) AS c FROM biophysical_jobs
+      WHERE status = 'queued' AND owner_id != ? AND owner_id != ?
+    `).get(ownerId, SYSTEM_OWNER) as any;
+    return row?.c ?? 0;
   }
 
   /** Queued jobs this owner has waiting (running ones are not counted against the queue limit). */
@@ -872,12 +884,28 @@ export class BiophysicalJobQueue {
 
     // A runaway script must not be able to fill the queue for everyone else.
     if (this.sqliteQueue && opts.limits && owner !== SYSTEM_OWNER && owner !== LEGACY_OWNER) {
-      const { queuedPerUser, serverSecondsPerDay } = opts.limits;
+      const { queuedPerUser, queuedPerUserExplicit, serverSecondsPerDay } = opts.limits;
       const queued = this.sqliteQueue.countQueuedFor(owner);
-      if (queued >= queuedPerUser) {
+      /**
+       * Work-conserving, like the scheduler: the per-person limit is a SHARE, so it only binds while
+       * somebody else is waiting. Alone, a person may fill the queue up to the host backstop, less a
+       * small reserve so a colleague who arrives can still submit. When someone else starts waiting,
+       * the share applies again: jobs already queued stay queued, new ones wait until the person is
+       * back under it, and the scheduler's rotation lets the newcomer's work start first.
+       * An admin's explicit limit is a restriction, not a share, and always applies.
+       */
+      const othersWaiting = this.sqliteQueue.othersWaiting(owner);
+      const alone = othersWaiting === 0 && !queuedPerUserExplicit;
+      const limit = alone ? Math.max(queuedPerUser, this.maxQueueLength - NEWCOMER_RESERVE) : queuedPerUser;
+      if (queued >= limit) {
+        const waiting = `You already have ${queued} job${queued === 1 ? "" : "s"} waiting`;
         throw new QueueLimitError(
           "QUEUED_PER_USER",
-          `You already have ${queued} job${queued === 1 ? "" : "s"} waiting (your limit is ${queuedPerUser}). Cancel one, or wait for one to start.`,
+          alone
+            ? `${waiting}, which is as many as the server holds for one person. Cancel one, or wait for one to start.`
+            : queuedPerUserExplicit
+              ? `${waiting} (your limit is ${queuedPerUser}). Cancel one, or wait for one to start.`
+              : `${waiting}, and ${othersWaiting === 1 ? "someone else is" : `${othersWaiting} others are`} waiting too, so the limit is ${queuedPerUser} each for now. Your queued jobs are kept; you can add more as they start.`,
         );
       }
       if (serverSecondsPerDay != null) {
