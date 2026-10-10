@@ -4,9 +4,13 @@ import type { TabComponentProps } from "../types";
 import { buildFunctionEvidence, type AnnotationRow, type FunctionEvidence } from "../../../shared/functionEvidence";
 import { DomainArchitecture } from "./DomainArchitecture";
 import { functionEvidenceInputFrom } from "./functionInput";
-import { drawingMode, layerOf, SECONDARY_MAX_SPAN, type LayerKey } from "./architectureLayout";
+import { drawingMode, layerOf, LAYER_KEYS, SECONDARY_MAX_SPAN, type LayerKey } from "./architectureLayout";
 import { FND_SELECTION_PARAM, FND_WINDOW_PARAM, parseFndView, withFndParams, type FndView } from "./viewUrlState";
 import { Prose } from "../../ui/Prose";
+import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from '../EvidenceWorkspace';
+import { domainRowKeyResolver } from './architectureLayout';
+import { safeExternalHref } from '../../../shared/externalLink';
+import { FunctionWindowControl } from './FunctionWindowControl';
 
 /**
  * Functional domains.
@@ -157,6 +161,7 @@ function RowDetail({
   onShow3d: (() => void) | null;
 }) {
   const source = row.evidence === "match" ? `InterPro member database ${row.type}` : `UniProtKB ${row.type.toLowerCase()}`;
+  const citationHref = safeExternalHref(row.citation?.url);
   return (
     <tr className="fnd-detail" data-testid="annotation-detail">
       <td colSpan={4}>
@@ -176,8 +181,8 @@ function RowDetail({
             <div>
               <dt>Citation</dt>
               <dd>
-                {row.citation.url ? (
-                  <a href={row.citation.url} target="_blank" rel="noopener noreferrer" className="fnd-link">
+                {citationHref ? (
+                  <a href={citationHref} target="_blank" rel="noopener noreferrer" className="fnd-link">
                     {row.citation.label}
                     <ExternalLink className="w-3 h-3" aria-hidden="true" />
                     <span className="sr-only"> (opens in a new tab)</span>
@@ -193,15 +198,17 @@ function RowDetail({
               <dt>Changes</dt>
               <dd>
                 <ul className="fnd-parts" data-testid="variant-parts">
-                  {row.parts.map((part) => (
+                  {row.parts.map((part) => {
+                    const partHref = safeExternalHref(part.citation?.url);
+                    return (
                     <li key={part.key}>
                       <span className="fnd-mono">{part.name}</span>
                       {[part.note, part.detail].filter(Boolean).length ? <span> · {[part.note, part.detail].filter(Boolean).join("; ")}</span> : null}
                       {part.citation ? (
                         <>
                           {" · "}
-                          {part.citation.url ? (
-                            <a href={part.citation.url} target="_blank" rel="noopener noreferrer" className="fnd-link">
+                          {partHref ? (
+                            <a href={partHref} target="_blank" rel="noopener noreferrer" className="fnd-link">
                               {part.citation.label}
                               <span className="sr-only"> (opens in a new tab)</span>
                             </a>
@@ -211,7 +218,8 @@ function RowDetail({
                         </>
                       ) : null}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </dd>
             </div>
@@ -237,6 +245,7 @@ function RowDetail({
 
 export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, onNavigateToView }: TabComponentProps) {
   const result = analysisState.result;
+  const workspace = useEvidenceWorkspace('function');
   // The zoom is the reader's once they touch it; until then it follows the protein (re-derived per variant).
   const [zoomChoice, setZoomChoice] = useState<{ key: string; view: FndView } | null>(null);
   // The address bar carries the window and the open row; read once, applied to the variant the tab opened on.
@@ -245,21 +254,30 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
     const q = new URLSearchParams(window.location.search);
     return { fnd: q.get(FND_WINDOW_PARAM), fsel: q.get(FND_SELECTION_PARAM) };
   });
-  const [selectedKey, setSelectedKey] = useState<string | null>(fromUrl.fsel);
+  const [localSelected, setLocalSelected] = useState<string | null>(fromUrl.fsel);
+  const selectedKey = workspace.enabled ? workspace.selected : localSelected;
+  const setSelectedKey = (key: string | null) => { setLocalSelected(key); workspace.select(key); };
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const [hidden, setHidden] = useState<ReadonlySet<LayerKey>>(new Set());
+  const [localHidden, setLocalHidden] = useState<ReadonlySet<LayerKey>>(new Set());
+  // The workspace layer selection survives navigation; unknown keys (a renamed layer) fall
+  // back to visible instead of hiding a track the drawing no longer names.
+  const hidden = useMemo(() => workspace.enabled ? new Set((workspace.hidden ?? []).filter((k): k is LayerKey => (LAYER_KEYS as readonly string[]).includes(k))) : localHidden, [workspace.enabled, workspace.hidden, localHidden]);
   const toggleLayer = (layer: LayerKey) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
+    (() => {
+      const next = new Set(hidden);
       if (next.has(layer)) next.delete(layer);
       else next.add(layer);
-      return next;
-    });
+      setLocalHidden(next);
+      workspace.setOptions({ hidden: [...next] });
+    })();
   const firstKey = useRef<string | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  /** The row a "View selected record" click asked to land on; focus is given only when it is set. */
+  const focusRowRef = useRef<string | null>(null);
+  const [localExpanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const expanded = workspace.enabled ? new Set(workspace.expanded) : localExpanded;
   const toggleGroup = (g: string) =>
-    setExpanded((prev) => {
+    workspace.enabled ? workspace.toggleGroup(g) : setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(g)) next.delete(g);
       else next.add(g);
@@ -267,23 +285,34 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
     });
 
   const ev = useMemo(() => (result ? buildFunctionEvidence(functionEvidenceInputFrom(result)) : null), [result]);
+  /** One row-key index for the domain-name disclosure, shared with the drawing's own resolver. */
+  const domainKeyFor = useMemo(() => domainRowKeyResolver(ev?.rows ?? []), [ev]);
 
   // The window the reader chose and the row they opened go in the address bar while the tab is mounted.
   const evLength = ev?.length ?? 0;
-  const variantKey = ev ? `${ev.uniprotId}:${ev.residue}` : "";
+  const variantKey = ev ? `${ev.uniprotId}:${ev.residue}:${ev.variantShort}` : "";
+  const seededUrl = useRef(false);
+  useEffect(() => {
+    if (!ev || seededUrl.current) return;
+    seededUrl.current = true;
+    if (!workspace.enabled) return;
+    if (fromUrl.fsel && !workspace.selected && ev.groups.some(g => g.rows.some(r => r.key === fromUrl.fsel))) workspace.select(fromUrl.fsel);
+    const linkedWindow = parseFndView(fromUrl.fnd, ev.length);
+    if (linkedWindow && !workspace.window) workspace.setOptions({ window: linkedWindow });
+  }, [ev, workspace.enabled]);
   useEffect(() => {
     if (typeof window === "undefined" || !evLength) return;
     try {
       // The window written is the one the drawing shows: a choice made on the previous variant is not this variant's
       // (a 40-100 window carried from SOD1 into a link for NAE1 opened the recipient on the wrong stretch).
-      const mine = zoomChoice && zoomChoice.key === variantKey ? zoomChoice.view : null;
+      const mine = workspace.window ?? (zoomChoice && zoomChoice.key === variantKey ? zoomChoice.view : null);
       const fromLink = variantKey === firstKey.current ? parseFndView(fromUrl.fnd, evLength) : null;
       const next = withFndParams(window.location.href, mine ?? fromLink, selectedKey);
       if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
     } catch {
       // A sandboxed frame can refuse replaceState; the link is a convenience, never load-bearing.
     }
-  }, [zoomChoice, selectedKey, evLength, fromUrl.fnd, variantKey]);
+  }, [zoomChoice, selectedKey, evLength, fromUrl.fnd, variantKey, workspace.window]);
   // An open row belongs to one variant's table: a new variant starts with none.
   const lastVariant = useRef<string | null>(null);
   useEffect(() => {
@@ -303,19 +332,30 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
     []
   );
   // A mark picked in the drawing may open a row below the fold; bring it into view without moving anything else.
+  // When the reader arrived from the comparison view's "View selected record" button, scroll alone is not
+  // enough: that button unmounts with the comparison view, so focus must land on the row as well. Only that
+  // button sets focusRowRef; switching to Source records from the tablist must leave focus on the tab it just
+  // moved to, which depending on `workspace.view` alone used to override.
   useEffect(() => {
     if (!selectedKey) return;
-    tableRef.current?.querySelector(`[data-row-key="${CSS?.escape ? CSS.escape(selectedKey) : selectedKey}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [selectedKey]);
+    const escaped = CSS?.escape ? CSS.escape(selectedKey) : selectedKey;
+    const row = tableRef.current?.querySelector(`[data-row-key="${escaped}"]`);
+    if (!row) return;
+    row.scrollIntoView?.({ block: "nearest" });
+    if (workspace.enabled && workspace.view === 'records' && focusRowRef.current === selectedKey) {
+      focusRowRef.current = null;
+      row.querySelector<HTMLElement>(".fnd-subject__btn")?.focus?.({ preventScroll: true });
+    }
+  }, [selectedKey, workspace.view, workspace.enabled]);
 
   if (!result || !ev) return null;
 
-  const zoomKey = `${ev.uniprotId}:${ev.residue}`;
+  const zoomKey = `${ev.uniprotId}:${ev.residue}:${ev.variantShort}`;
   if (firstKey.current === null) firstKey.current = zoomKey;
   const defaultZoom: Zoom = ev.length > OPEN_NEAR_ABOVE && Number.isFinite(ev.residue) ? "near" : "whole";
   const urlView = zoomKey === firstKey.current ? parseFndView(fromUrl.fnd, ev.length) : null;
-  const view: FndView = zoomChoice && zoomChoice.key === zoomKey ? zoomChoice.view : urlView ?? defaultZoom;
-  const setZoom = (z: Zoom) => setZoomChoice({ key: zoomKey, view: z });
+  const view: FndView = workspace.window ?? (zoomChoice && zoomChoice.key === zoomKey ? zoomChoice.view : urlView ?? defaultZoom);
+  const setZoom = (z: FndView) => { setZoomChoice({ key: zoomKey, view: z }); workspace.setOptions({ window: z }); };
 
   const ok = ev.availability.state === "ok";
   const win =
@@ -324,12 +364,12 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       : view === "near" && Number.isFinite(ev.residue)
         ? { start: Math.max(1, ev.residue - NEAR), end: Math.min(ev.length, ev.residue + NEAR) }
         : { start: 1, end: ev.length };
-  const toggle = (key: string) => setSelectedKey((prev) => (prev === key ? null : key));
+  const toggle = (key: string) => setSelectedKey(selectedKey === key ? null : key);
   const show3d = (row: AnnotationRow) =>
     onSelectResidue && onNavigateToView
       ? () => {
           onSelectResidue(row.covers ? ev.residue : row.start);
-          onNavigateToView(active3dModelTab === "esm3" ? "structure_esmfold" : "structure_alphafold");
+          onNavigateToView(active3dModelTab === "esm3" || active3dModelTab === "esmfold2" ? "structure_esmfold" : "structure_alphafold");
         }
       : null;
 
@@ -341,6 +381,8 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
           What UniProtKB and InterPro annotate at and around the variant residue, and whether it meets PM1.
         </p>
       </header>
+      <EvidenceViewTabs tab="function" comparisonLabel="Protein map" />
+      <EvidencePanel tab="function">
 
       {/* ── 1. The finding ───────────────────────────────────────────────────────────────── */}
       <section className="fnd-card" aria-labelledby="fnd-finding-title" data-testid="function-finding">
@@ -362,7 +404,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
           </Prose>
         </div>
 
-        {ok && (
+        {ok && (!workspace.enabled || workspace.comparison) && (
           <figure className="fnd-figure-block">
             <div className="fnd-figure-block__bar">
               <Legend ev={ev} win={win} hidden={hidden} onToggle={toggleLayer} />
@@ -389,8 +431,23 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
               onSelect={toggle}
               onStep={setSelectedKey}
               onHover={setHoverKey}
-              onWindow={(w) => setZoomChoice({ key: zoomKey, view: w })}
+              onWindow={setZoom}
             />
+            <FunctionWindowControl window={win} length={ev.length} onApply={setZoom} />
+            {(ev.residue < win.start || ev.residue > win.end) && <p className="mol-guide" role="status">The variant at {ev.residue} is outside this window. <button type="button" className="viz-action" onClick={() => setZoom('near')}>Return to variant</button></p>}
+            {/* Progressive disclosure, not a caption paragraph: the drawing's reading guidance sits in a
+                closed details (the sod1 guard deliberately forbids caption text below the drawing), where
+                an unfamiliar reader can open it without pushing the records below the fold. */}
+            <details className="mol-guide mol-read-guide">
+              <summary>How to read this map</summary>
+              <p>The clay line marks {ev.variantShort}. Read left to right along the sequence; select a domain or site to inspect its evidence.</p>
+              <span>Overlapping annotations use separate tracks. Track height separates sources, not physical layers.</span>
+            </details>
+            {ev.domains.length > 0 && <details className="mol-domain-key"><summary>Domain names and sources · {ev.domains.length}</summary><ul>
+              {ev.domains.map(d => <li key={d.key}><button type="button" aria-pressed={selectedKey === domainKeyFor(d)} onClick={() => toggle(domainKeyFor(d))}>
+                <strong>{d.name}</strong><span>{d.source} {d.accession} · {d.segments.map(s => `${s.start}–${s.end}`).join(', ')}</span>
+              </button></li>)}
+            </ul></details>}
           </figure>
         )}
 
@@ -416,7 +473,12 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       </section>
 
       {/* ── 2. What is annotated ────────────────────────────────────────────────────────── */}
-      {ok && (
+      {ok && workspace.comparison && <div className="mol-guide mol-selection">
+        <strong>{selectedKey ? ev.groups.flatMap(g => g.rows).find(r => r.key === selectedKey)?.name ?? 'The pinned annotation is no longer available' : 'Pin an annotation to follow its evidence'}</strong>
+        <span>{selectedKey ? 'The inspector holds the pinned record. Open Source records for its exact bounds and citations.' : 'Click a domain or site, or use the drawing’s arrow keys. Full domain names remain available above.'}</span>
+        {selectedKey && <button className="viz-action" type="button" onClick={() => { focusRowRef.current = selectedKey; workspace.setView('records'); }}>View selected record</button>}
+      </div>}
+      {ok && (!workspace.enabled || !workspace.comparison) && (
         <section className="fnd-section" aria-labelledby="fnd-table-title">
           <h2 className="eyebrow" id="fnd-table-title">
             <ListTree className="w-3.5 h-3.5" />
@@ -438,9 +500,14 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
                   // and a row the reader opened stays even when it is far.
                   const near = (r: AnnotationRow) => r.covers || Math.abs(r.distance) <= NEAR || g.group === "domains" || r.key === selectedKey;
                   const open = expanded.has(g.group);
-                  const shown = open ? g.rows : g.rows.filter(near);
+                  const candidates = g.rows.filter(near);
+                  // In the workspace's default view the covering and pinned rows come first (they are
+                  // what the drawing is about), then at most twenty of the rest; "Show … more" opens
+                  // the group in full reading order. The reordering is deliberate, and only here.
+                  const limited = workspace.enabled ? candidates.filter(r => r.key === selectedKey || r.covers).concat(candidates.filter(r => r.key !== selectedKey && !r.covers).slice(0, 20)) : candidates;
+                  const shown = open ? g.rows : limited;
                   const hidden = g.rows.length - shown.length;
-                  const hasFar = g.rows.some((r) => !near(r));
+                  const hasFar = g.rows.length > limited.length;
                   return (
                   <tbody key={g.group} data-group={g.group}>
                     <tr className="fnd-group">
@@ -491,7 +558,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
                       <tr className="fnd-more">
                         <td colSpan={4}>
                           <button type="button" className="fnd-more__btn" aria-expanded={open} onClick={() => toggleGroup(g.group)}>
-                            {open ? `Show only within ${NEAR} residues of ${ev.residue}` : shown.length === 0 ? `None within ${NEAR} residues of ${ev.residue}. Show ${hidden}` : `Show ${hidden} more, more than ${NEAR} residues away`}
+                            {open ? `Show only within ${NEAR} residues of ${ev.residue}` : shown.length === 0 ? `None within ${NEAR} residues of ${ev.residue}. Show ${hidden}` : workspace.enabled ? `Show ${hidden} more annotations` : `Show ${hidden} more, more than ${NEAR} residues away`}
                           </button>
                         </td>
                       </tr>
@@ -513,6 +580,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
           </div>
         </section>
       )}
+      </EvidencePanel>
     </div>
   );
 }

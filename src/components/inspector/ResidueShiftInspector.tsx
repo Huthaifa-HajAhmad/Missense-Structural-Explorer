@@ -10,6 +10,8 @@ import {
 } from "../../shared/residueShiftEvidence";
 import type { ResidueContextEvidence } from "../../shared/residueContextEvidence";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
+import { residueReadings } from '../../shared/molecularWorkspace';
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 
 interface ResidueShiftInspectorProps {
   analysisResult: AnalysisResult | null;
@@ -118,6 +120,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
     ]
   );
   const discrepancies = useMemo(() => findNarrativeDiscrepancies(narrative.prose, shift.contrast), [narrative.prose, shift.contrast]);
+  const readings = useMemo(() => residueReadings(model), [model]);
 
   if (!analysisResult) {
     return <p className="rsx-rail rsx-prose--muted">Waiting for the variant analysis.</p>;
@@ -147,6 +150,7 @@ export const ResidueShiftInspector: React.FC<ResidueShiftInspectorProps> = ({
 
   return (
     <div className="rsx-rail" data-testid="residue-shift-rail">
+      <EvidenceReadingInspector tab="structure" rows={readings} />
       {/* ── 1. Trace (the method, before the model's reading of it) ── */}
       <section
         className="rsx-rsec"

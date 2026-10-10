@@ -6,6 +6,8 @@ import { THRESHOLDS } from "../../shared/thresholds/constants";
 import { ENTROPY_MARKS, EVEN_ODDS_LLR, RANK_BANDS } from "../../shared/modelCalibration";
 import { buildPerturbationEvidence, oddsText, type LmReading } from "../../shared/perturbationEvidence";
 import type { PerturbationModelId } from "../../shared/perturbationModels";
+import { perturbationReadings } from '../../shared/molecularWorkspace';
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 
 /**
  * PerturbationRail — the Evidence Lineage inspector for the Structural perturbation tab.
@@ -104,6 +106,7 @@ export function PerturbationRail({
       foldingError
     });
   }, [r, foldingEnergetics, structuralDiff, metrics, saprotEngine, isFolding, foldingStatus, foldingError]);
+  const readings = useMemo(() => (evidence ? perturbationReadings(evidence) : []), [evidence]);
 
   if (!evidence) {
     return <p className="ptb-empty">The trace appears once a variant has been analysed.</p>;
@@ -123,6 +126,7 @@ export function PerturbationRail({
 
   return (
     <div className="ptb-rail" data-testid="perturbation-rail">
+      <EvidenceReadingInspector tab="perturbation" rows={readings} />
       {/* ── 1. Trace ── */}
       <section className="ptb-rsec" aria-labelledby="ptb-rail-trace">
         <h3 className="eyebrow" id="ptb-rail-trace">

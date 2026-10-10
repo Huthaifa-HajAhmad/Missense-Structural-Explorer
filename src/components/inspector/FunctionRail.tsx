@@ -1,9 +1,11 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { BookOpen, Database, GitBranch, Layers, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import { buildFunctionEvidence } from "../../shared/functionEvidence";
 import { EVIDENCE_LEVEL_CODES, EVIDENCE_LEVEL_LABEL, PM1_EVIDENCE_LEVELS } from "../../shared/functionalSites";
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
+import { functionReadings } from '../../shared/molecularWorkspace';
+import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 
 /**
  * FunctionRail — the Evidence Lineage inspector for the Functional domains tab.
@@ -29,13 +31,15 @@ function Step({ n, warn, children }: { n: number; warn?: boolean; children: Reac
 }
 
 export function FunctionRail({ analysisResult }: { analysisResult: AnalysisResult }) {
-  const ev = buildFunctionEvidence(functionEvidenceInputFrom(analysisResult));
+  const ev = useMemo(() => buildFunctionEvidence(functionEvidenceInputFrom(analysisResult)), [analysisResult]);
+  const readings = useMemo(() => functionReadings(ev), [ev]);
   // Natural variants are left out: ECO:0000269 on a variant is a publication reporting it, not an observation
   // of a site, and listing it as "Experimental, counts for PM1" implied the variant rows were evidence for PM1.
-  const levelsHere = new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence));
+  const levelsHere = useMemo(() => new Set(ev.rows.filter((r) => r.evidence !== "match" && r.group !== "variants").map((r) => r.evidence)), [ev]);
 
   return (
     <div className="fnd-rail" data-testid="function-rail">
+      <EvidenceReadingInspector tab="function" rows={readings} />
       <section className="fnd-rsec" aria-labelledby="fnd-rail-trace">
         <h3 className="eyebrow" id="fnd-rail-trace">
           <GitBranch className="w-3.5 h-3.5" />

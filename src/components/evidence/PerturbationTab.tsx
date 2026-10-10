@@ -21,6 +21,7 @@ import type { PerturbationModelId } from "../../shared/perturbationModels";
 import { MarkRuler, RankRuler } from "./perturbation/Rulers";
 import { ResidueDetail } from "./perturbation/ResidueDetail";
 import { Prose } from "../ui/Prose";
+import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from './EvidenceWorkspace';
 
 /**
  * Structural perturbation.
@@ -500,14 +501,16 @@ export function PerturbationTab({
   onNavigateToView
 }: TabComponentProps) {
   const result = analysisState.result;
+  const workspace = useEvidenceWorkspace('perturbation');
   const { settings, updateSetting, openSettingsTab } = useSettings();
   const activeModel = useVariantAnalysisStore(s => s.activePerturbationModel);
   const setActiveModel = useVariantAnalysisStore(s => s.setActivePerturbationModel);
+  const selectModel = (id: PerturbationModelId) => { setActiveModel(id); workspace.setOptions({ section: id }); workspace.select(id); };
   const [busy, setBusy] = useState(false);
 
   // Seed the selection from the configured default when a new variant is analysed.
   useEffect(() => {
-    setActiveModel(settings.defaultPerturbationModel);
+    if (!workspace.enabled) setActiveModel(settings.defaultPerturbationModel);
   }, [settings.defaultPerturbationModel, setActiveModel, result?.metadata?.gene, result?.metadata?.variant]);
 
   const residues = useMemo(() => {
@@ -538,14 +541,17 @@ export function PerturbationTab({
     [result, residues, foldingEnergetics, structuralDiff, metrics, settings.saprotEngine, isFolding, foldingStatus, foldingError]
   );
 
-  if (!result || !evidence) return null;
-
   // The configured default wins; when it has no result, prefer a model with a reading over a flat one.
   const selected =
-    evidence.lms.find(l => l.id === activeModel && l.availability.state === "computed") ??
-    evidence.scored.find(l => l.direction !== "flat") ??
-    evidence.scored[0] ??
+    evidence?.lms.find(l => l.id === (workspace.enabled ? workspace.section || settings.defaultPerturbationModel : activeModel) && l.availability.state === "computed") ??
+    evidence?.scored.find(l => l.direction !== "flat") ??
+    evidence?.scored[0] ??
     null;
+  // The legacy rail and 3D consumers follow the model actually displayed, including fallbacks.
+  useEffect(() => {
+    if (workspace.enabled && selected) setActiveModel(selected.id);
+  }, [workspace.enabled, selected?.id, setActiveModel]);
+  if (!result || !evidence) return null;
   const finding = perturbationFinding(evidence);
   const dir = evidence.direction;
   const wt = residues.wtLabel || "native";
@@ -597,8 +603,13 @@ export function PerturbationTab({
           What protein language models expect at this residue, and how FoldX&apos;s mutant model packs. Context for
           curation — none of these scores is an ACMG input.
         </p>
-        <ReadingPrimer wt={wt} mut={mut} />
+        {!workspace.enabled && <ReadingPrimer wt={wt} mut={mut} />}
       </header>
+      <EvidenceViewTabs tab="perturbation" comparisonLabel="Model comparison" />
+      <EvidencePanel tab="perturbation">
+      {workspace.comparison && <div className="mol-guide"><strong>What do the models prefer at this position?</strong>
+        <p>Start with each model’s direction, then inspect its amino-acid probabilities. The clay marker identifies the variant; the reference is labelled alongside it.</p>
+        <span>Model preference is not an observed structural change. Compare direction across models; read score magnitudes within one model.</span></div>}
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="ptb-card ptb-hero" aria-labelledby="ptb-finding-title" data-testid="perturbation-finding">
@@ -629,7 +640,7 @@ export function PerturbationTab({
             {finding.predicate}.
           </Prose>
 
-          <ModelStrip evidence={evidence} selectedId={selected?.id ?? null} onSelect={setActiveModel} />
+          <ModelStrip evidence={evidence} selectedId={selected?.id ?? null} onSelect={selectModel} />
 
           <ModelCaveatCallouts evidence={evidence} />
 
@@ -669,7 +680,7 @@ export function PerturbationTab({
       </section>
 
       {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
-      <section className="ptb-section" aria-labelledby="ptb-readings-title">
+      {(!workspace.enabled || !workspace.comparison) && <section className="ptb-section" aria-labelledby="ptb-readings-title">
         <h2 className="eyebrow" id="ptb-readings-title">
           <ListChecks className="w-3.5 h-3.5" />
           Readings
@@ -764,10 +775,10 @@ export function PerturbationTab({
             )}
           </div>
         </div>
-      </section>
+      </section>}
 
       {/* ── 3. Residue detail ──────────────────────────────────────────────────────────────── */}
-      <ResidueDetail evidence={evidence} selected={selected} onSelect={setActiveModel} />
+      <ResidueDetail evidence={evidence} selected={selected} onSelect={selectModel} />
 
       {busy && (
         <p role="status" className="ptb-callout" data-tone="neutral">
@@ -775,6 +786,7 @@ export function PerturbationTab({
           <span>Re-running the structural models…</span>
         </p>
       )}
+      </EvidencePanel>
     </div>
   );
 }

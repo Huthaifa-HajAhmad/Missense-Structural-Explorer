@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildFunctionEvidence } from "../../../../shared/functionEvidence";
+import { buildFunctionEvidence, type AnnotationRow } from "../../../../shared/functionEvidence";
+import { functionEvidenceInputFrom } from "../../../../shared/functionEvidenceInput";
+import { molecularWorkspaceFixture } from "../../../../test/molecularWorkspaceFixture";
 import { NAE1_INPUT } from "../../../../shared/__tests__/fixtures/nae1FunctionalDomains";
 import { layoutArchitecture, layoutOverview } from "../architectureLayout";
 
@@ -146,5 +148,95 @@ describe("layoutOverview", () => {
     expect(O.window.x + O.window.width).toBeCloseTo(at(166), 6);
     expect(O.queryX).toBeCloseTo(at(116), 6);
     expect(O.ends.map((l) => l.text)).toEqual(["1", String(ev.length)]);
+  });
+});
+
+/**
+ * The 53051d6 overlap fix moved below-backbone stems onto the lowest domain box but started every
+ * one of them at `lowerBackbone + 15`, so a pin with no box over it floated ~9px beneath the
+ * backbone. These cover the missing stem test the review named, in both directions.
+ */
+describe("layoutArchitecture — below-backbone stem geometry", () => {
+  const row = (over: Partial<AnnotationRow> = {}): AnnotationRow => ({
+    key: "mark",
+    group: "sites",
+    name: "Binding site",
+    note: null,
+    type: "binding site",
+    start: 40,
+    end: 40,
+    isPair: false,
+    residuesText: "40",
+    covers: false,
+    distance: 0,
+    distanceText: "0",
+    evidence: "experimental",
+    evidenceLabel: "Experimental",
+    citation: null,
+    evidenceCodes: [],
+    lane: "below",
+    shortLabel: "40",
+    disease: false,
+    substitution: null,
+    detail: null,
+    rowKey: "mark",
+    parts: [],
+    ...over,
+  });
+  type ArchInput = Parameters<typeof layoutArchitecture>[0];
+  const evidenceWith = (over: Partial<ArchInput>): ArchInput => ({
+    length: 100,
+    residue: 50,
+    variantShort: "p.Xxx50Yyy",
+    domains: [],
+    structuralDomains: [],
+    secondaryStructure: [],
+    rows: [row()],
+    ...over,
+  });
+  const belowPin = (L: ReturnType<typeof layoutArchitecture>) => {
+    const p = L.pins.find((x) => x.shape === "diamond");
+    if (!p) throw new Error("fixture drew no below-backbone pin");
+    return p;
+  };
+
+  it("touches the backbone when no domain box covers the residue", () => {
+    const L = layoutArchitecture(evidenceWith({}), 800, { start: 1, end: 100 }, null);
+    expect(belowPin(L).stemFrom).toBeCloseTo(L.backbone.y + L.backbone.h / 2, 5);
+  });
+
+  it("still meets the lowest domain box when a box covers the residue", () => {
+    const L = layoutArchitecture(
+      evidenceWith({
+        domains: [{ key: "dom", name: "Test domain", source: "Pfam", accession: "PF0001", interpro: null, entryType: "domain", segments: [{ start: 30, end: 60 }], covers: true, coverage: 0.3, url: null }],
+        rows: [row(), row({ key: "match-dom", group: "domains", name: "Test domain", type: "Pfam", start: 30, end: 60, covers: true, lane: "none", rowKey: "match-dom" })],
+      }),
+      800,
+      { start: 1, end: 100 },
+      null
+    );
+    const boxBottom = Math.max(...L.domains.map((d) => d.y + 30));
+    expect(boxBottom).toBeCloseTo(L.backbone.y + 15, 5);
+    expect(belowPin(L).stemFrom).toBeCloseTo(boxBottom, 5);
+  });
+
+  it("joins the backbone, a lower layer or the box on the real overlap fixture — never the dead gap", () => {
+    const overlap = buildFunctionEvidence(functionEvidenceInputFrom(molecularWorkspaceFixture()));
+    const L = layoutArchitecture(overlap, 900, { start: 1, end: overlap.length }, null);
+    const backboneEdge = L.backbone.y + L.backbone.h / 2;
+    const lowestBoxBottom = L.domains.length ? Math.max(...L.domains.map((d) => d.y + 30)) : backboneEdge;
+    // A secondary-structure strip or a Gene3D lane, when drawn, is the layer the stems leave instead.
+    const lowerLayer = L.showSecondary
+      ? Math.min(...L.secondary.map((s) => s.y)) + 8
+      : L.structural.length
+        ? Math.min(...L.structural.map((s) => s.y)) + 4
+        : null;
+    const stems = L.pins.filter((p) => p.stem && p.y > L.backbone.y + L.backbone.h);
+    expect(stems.length).toBeGreaterThan(0);
+    for (const p of stems) {
+      const covered = L.domains.some((d) => p.x >= d.x && p.x <= d.x + d.width);
+      const expected = lowerLayer ?? (covered ? lowestBoxBottom : backboneEdge);
+      expect(p.stemFrom, `stem for residue ${p.residue} (${covered ? "over a domain" : "no box"})`).toBeCloseTo(expected, 5);
+    }
   });
 });

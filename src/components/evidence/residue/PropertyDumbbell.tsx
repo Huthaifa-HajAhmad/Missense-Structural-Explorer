@@ -32,8 +32,11 @@ export function PropertyDumbbell({
     (isSameValue ? " Both residues share the same value on this scale." : "");
 
   return (
-    <div className="rsx-track rsx-track--dumbbell" role="img" aria-label={label}>
-      <div className="rsx-track__bar">
+    // A <span> (phrasing content) rather than a <div>: this track is rendered inside a <button> in the
+    // residue-property comparison, and a block element there is invalid nesting. `display: block` in
+    // residue.css restores the layout the div had.
+    <span className="rsx-track rsx-track--dumbbell" role="img" aria-label={label}>
+      <span className="rsx-track__bar">
         {/* The two residue markers are the reading. A filled connecting span made the scale
             look like a second quantitative bar, so position and the Shift column carry the move. */}
         <span
@@ -47,9 +50,9 @@ export function PropertyDumbbell({
           style={{ left: `${row.mutantPosition}%` }}
           title={`${mutant}: ${row.mutantNative ?? row.mutantValue}${unit}`}
         />
-      </div>
+      </span>
 
-      <div className="rsx-track__axis" aria-hidden="true">
+      <span className="rsx-track__axis" aria-hidden="true">
         <span className="rsx-track__tick" data-edge="start" style={{ left: 0 }}>
           {low} {row.lowAnchor !== low ? row.lowAnchor.toLowerCase() : ""}
         </span>
@@ -61,8 +64,8 @@ export function PropertyDumbbell({
         <span className="rsx-track__tick" data-edge="end" style={{ left: "100%" }}>
           {high}{unit} {row.highAnchor !== high ? row.highAnchor.toLowerCase() : ""}
         </span>
-      </div>
-    </div>
+      </span>
+    </span>
   );
 }
 

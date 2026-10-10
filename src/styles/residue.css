@@ -160,8 +160,10 @@
 .rsx-state__detail { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 
 /* ── Tracks: one axis per reading, the value as a dot ─────── */
-.rsx-track { position: relative; width: 100%; min-width: 140px; }
-.rsx-track__bar { position: relative; height: 8px; border-radius: 4px; background: var(--cs-bg-subtle); }
+/* display:block on the root and its two bands because this track is now a <span> (phrasing content,
+   valid inside the comparison's button) rather than a <div>. */
+.rsx-track { position: relative; display: block; width: 100%; min-width: 140px; }
+.rsx-track__bar { position: relative; display: block; height: 8px; border-radius: 4px; background: var(--cs-bg-subtle); }
 .rsx-track__wt,
 .rsx-track__mut {
   position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%;
@@ -175,7 +177,7 @@
 .rsx-track__mut { background: var(--cs-accent-clay); }
 /* The app's own cut-points: dashed, per the design rule "dashed means local or unconfirmed". */
 .rsx-track__cut { position: absolute; top: -4px; height: 16px; border-left: 1px dashed var(--cs-text-muted); }
-.rsx-track__axis { position: relative; height: 16px; margin-top: 5px; font-size: 11px; color: var(--cs-text-muted); }
+.rsx-track__axis { position: relative; display: block; height: 16px; margin-top: 5px; font-size: 11px; color: var(--cs-text-muted); }
 .rsx-track__tick { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .rsx-track__tick[data-edge="start"] { transform: none; }
 .rsx-track__tick[data-edge="end"] { transform: translateX(-100%); }
