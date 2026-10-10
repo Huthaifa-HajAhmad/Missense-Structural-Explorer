@@ -28,9 +28,13 @@
 .fnd-arch__domain { cursor: pointer; }
 .fnd-arch__domain > rect { fill: color-mix(in srgb, var(--cs-text-muted) 10%, var(--cs-surface)); stroke: var(--cs-text-muted); }
 .fnd-arch__domain > .fnd-domain-hit { fill: transparent !important; stroke: none !important; }
-.fnd-arch__domain[data-selected] > rect, .fnd-arch__domain[data-lit] > rect { stroke: var(--cs-accent-clay); stroke-width: 2; fill: color-mix(in srgb, var(--cs-accent-clay) 12%, var(--cs-surface)); }
+/* Hover-lit and selected are different states: a hover preview is a lighter outline, a pin is a
+   heavier one with a stronger tint, so a hover is never mistaken for a committed selection. */
+.fnd-arch__domain[data-lit] > rect { stroke: var(--cs-accent-clay); stroke-width: 1.5; fill: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface)); }
+.fnd-arch__domain[data-selected] > rect { stroke: var(--cs-accent-clay); stroke-width: 2.5; fill: color-mix(in srgb, var(--cs-accent-clay) 18%, var(--cs-surface)); }
 .fnd-arch__domain:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: 6px; }
-.fnd-arch__motif[data-selected] > rect, .fnd-arch__motif[data-lit] > rect { fill: var(--cs-accent-clay); }
+.fnd-arch__motif[data-lit] > rect { fill: var(--cs-accent-clay); fill-opacity: .5; }
+.fnd-arch__motif[data-selected] > rect { fill: var(--cs-accent-clay); }
 .fnd-arch__motif:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 4px; border-radius: 4px; }
 .mol-read-guide > summary { cursor: pointer; min-height: 32px; align-content: center; color: var(--cs-text-secondary); }
 .mol-read-guide > summary:hover { color: var(--cs-text-primary); }

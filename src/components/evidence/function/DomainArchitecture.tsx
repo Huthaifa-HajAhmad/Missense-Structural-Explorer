@@ -132,6 +132,35 @@ export function DomainArchitecture({
     onMouseEnter: () => onHover?.(rowKey),
     onMouseLeave: () => onHover?.(null),
   });
+  /**
+   * One contract for every selectable mark, so pointer and keyboard cannot drift apart again: the
+   * drawing is a single keyboard stop (the wrapper below) whose ←/→ step the marks in reading order
+   * and move DOM focus onto the stepped mark, and each mark carries button semantics for the
+   * screen-reader virtual cursor. `tabIndex={-1}` keeps the (often dozens of) marks out of the tab
+   * order; the annotation table is the full keyboard path. Domains and motifs used to be the only
+   * marks with button semantics, and the rest were unreachable except by stepping.
+   */
+  const markProps = (rowKey: string, label: string, pressed: boolean) => ({
+    role: "button" as const,
+    tabIndex: -1,
+    "aria-label": label,
+    "aria-pressed": pressed,
+    "data-mark-key": rowKey,
+    onClick: () => onSelect(rowKey),
+    onKeyDown: (e: React.KeyboardEvent<SVGGElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(rowKey);
+      }
+    },
+    ...hoverProps(rowKey),
+  });
+  /** A region mark carries no title of its own; name it from the row it selects. */
+  const regionLabel = (key: string) => {
+    const row = ev.rows.find((q) => q.key === key);
+    return row ? `${row.name}, ${row.residuesText}` : "Region";
+  };
 
   // Marks in reading order, one per table row, for ←/→.
   const marks = useMemo(() => {
@@ -151,6 +180,12 @@ export function DomainArchitecture({
       const row = ev.rows.find((q) => q.key === b.rowKey);
       if (row) add(row.rowKey, row.start, `${row.name}, ${row.residuesText}`);
     }
+    // A disulfide's two cysteines already appear as pins; the bracket is the row's third mark and was
+    // the one kind the arrow keys skipped.
+    for (const b of L.bonds) {
+      const row = ev.rows.find((q) => q.rowKey === b.rowKey);
+      add(b.rowKey, row ? row.start : 0, b.title);
+    }
     return out.sort((a, b) => a.at - b.at);
   }, [L, ev.rows]);
   const current = marks.findIndex((m) => m.rowKey === selectedKey);
@@ -162,6 +197,10 @@ export function DomainArchitecture({
       const target = marks[Math.min(marks.length - 1, Math.max(0, i))];
       onStep(target.rowKey);
       onHover?.(target.rowKey);
+      // Take focus with the step so a screen reader announces the mark the sighted reader sees lit.
+      // Focusing a tabIndex={-1} mark does not add a tab stop; arrows keep bubbling to this handler.
+      const key = CSS?.escape ? CSS.escape(target.rowKey) : target.rowKey;
+      svgRef.current?.querySelector<SVGElement>(`[data-mark-key="${key}"]`)?.focus?.({ preventScroll: true });
     };
     if (e.key === "ArrowRight") {
       e.preventDefault();
@@ -218,13 +257,13 @@ export function DomainArchitecture({
       data-testid="domain-architecture"
       tabIndex={onStep ? 0 : undefined}
       role={onStep ? "group" : undefined}
-      aria-label={onStep ? "Drawing marks. Left and right arrow keys step through them; Source records lists every annotation." : undefined}
+      aria-label={onStep ? "Protein map. Left and right arrow keys move through every annotation; Source records lists them all with exact values." : undefined}
       onKeyDown={onKeyDown}
     >
       <svg
         ref={svgRef}
         role="group"
-        aria-label={describe(ev, hidden)}
+        aria-label={`${describe(ev, hidden)} Showing residues ${win.start} to ${win.end}.`}
         width={L.width}
         height={L.height}
         viewBox={`0 0 ${L.width} ${L.height}`}
@@ -248,10 +287,9 @@ export function DomainArchitecture({
           <Label key={t.text} l={t} />
         ))}
         {L.domains.map((d) => (
-          <g key={d.key} className="fnd-arch__domain" role="button" tabIndex={0} aria-label={d.title} aria-pressed={d.selected}
-            data-selected={d.selected || undefined} data-lit={lit(d.rowKey)} onClick={() => onSelect(d.rowKey)} {...hoverProps(d.rowKey)}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onSelect(d.rowKey); } }}
-            data-covers={d.covers || undefined} data-start={d.start} data-end={d.end} data-lane={d.lane} data-row-key={d.rowKey} data-testid="arch-domain">
+          <g key={d.key} className="fnd-arch__domain" {...markProps(d.rowKey, d.title, d.selected)}
+            data-selected={d.selected || undefined} data-lit={lit(d.rowKey)}
+            data-covers={d.covers || undefined} data-start={d.start} data-end={d.end} data-lane={d.lane} data-testid="arch-domain">
             <title>{d.title}</title>
             <rect x={d.x} y={d.y} width={d.width} height={30} rx={6} />
             {d.width < 24 && <rect x={d.x - (24 - d.width) / 2} y={d.y} width={24} height={30} className="fnd-domain-hit" />}
@@ -262,7 +300,7 @@ export function DomainArchitecture({
           </g>
         ))}
         {L.regions.map((r) => (
-          <g key={r.key} className="fnd-arch__region" data-selected={r.selected || undefined} data-lit={lit(r.key)} onClick={() => onSelect(r.key)} {...hoverProps(r.key)} data-testid="arch-region">
+          <g key={r.key} className="fnd-arch__region" {...markProps(r.key, regionLabel(r.key), r.selected)} data-selected={r.selected || undefined} data-lit={lit(r.key)} data-testid="arch-region">
             <rect x={r.x} y={r.y} width={r.width} height={r.h} rx={3} />
             {r.label && <Label l={r.label} />}
           </g>
@@ -270,10 +308,8 @@ export function DomainArchitecture({
 
         {/* Conserved-site signatures, structural domains and secondary structure. */}
         {L.motifs.map((m) => (
-          <g key={m.key} className="fnd-arch__motif" role="button" tabIndex={0} aria-label={m.title} aria-pressed={selectedKey === m.rowKey}
-            data-covers={m.covers || undefined} data-selected={selectedKey === m.rowKey || undefined} data-lit={lit(m.rowKey)}
-            onClick={() => onSelect(m.rowKey)} {...hoverProps(m.rowKey)}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onSelect(m.rowKey); } }} data-testid="arch-motif">
+          <g key={m.key} className="fnd-arch__motif" {...markProps(m.rowKey, m.title, selectedKey === m.rowKey)}
+            data-covers={m.covers || undefined} data-selected={selectedKey === m.rowKey || undefined} data-lit={lit(m.rowKey)} data-testid="arch-motif">
             <title>{m.title}</title>
             <rect x={m.x} y={m.y} width={m.width} height={4} rx={2} />
           </g>
@@ -297,14 +333,13 @@ export function DomainArchitecture({
               <g
                 key={b.key}
                 className="fnd-arch__dens"
+                {...markProps(b.rowKey, b.title, b.selected)}
                 data-query={b.query || undefined}
                 data-selected={b.selected || undefined}
                 data-lit={lit(b.rowKey)}
                 data-count={b.count}
                 data-start={b.start}
                 data-testid="arch-dens-bar"
-                onClick={() => onSelect(b.rowKey)}
-                {...hoverProps(b.rowKey)}
               >
                 <title>{b.title}</title>
                 <rect x={b.x} y={L.density!.baseline - b.h} width={b.width} height={b.h} rx={1} />
@@ -323,7 +358,7 @@ export function DomainArchitecture({
               <line key={`rail-${r.key}`} data-start={r.start} data-end={r.end} x1={r.x} x2={r.x + r.width} y1={r.y} y2={r.y} className="fnd-arch__rail" data-side={r.side} />
             ))}
             {L.membrane.bars.map((b) => (
-              <g key={`bar-${b.key}`} className="fnd-arch__tm" data-kind={b.kind} data-start={b.start} data-end={b.end} data-selected={b.selected || undefined} data-lit={lit(b.rowKey)} onClick={() => onSelect(b.rowKey)} {...hoverProps(b.rowKey)} data-testid="arch-tm">
+              <g key={`bar-${b.key}`} className="fnd-arch__tm" {...markProps(b.rowKey, `${b.kind === "im" ? "Intramembrane" : "Transmembrane"} ${b.start}–${b.end}`, b.selected)} data-kind={b.kind} data-start={b.start} data-end={b.end} data-selected={b.selected || undefined} data-lit={lit(b.rowKey)} data-testid="arch-tm">
                 <rect x={b.x} y={b.y} width={b.width} height={b.h} rx={2} />
                 {b.label && <Label l={b.label} />}
               </g>
@@ -339,7 +374,7 @@ export function DomainArchitecture({
 
         {/* Disulfide brackets (lane mode). */}
         {L.bonds.map((b) => (
-          <g key={b.key} className="fnd-arch__bond" data-selected={b.selected || undefined} data-lit={lit(b.rowKey)} onClick={() => onSelect(b.rowKey)} {...hoverProps(b.rowKey)} data-testid="arch-bond">
+          <g key={b.key} className="fnd-arch__bond" {...markProps(b.rowKey, b.title, b.selected)} data-selected={b.selected || undefined} data-lit={lit(b.rowKey)} data-testid="arch-bond">
             <title>{b.title}</title>
             <path d={`M${b.x1} ${b.y + 4} V${b.y} H${b.x2} V${b.y + 4}`} />
           </g>
@@ -350,6 +385,7 @@ export function DomainArchitecture({
           <g
             key={p.key}
             className="fnd-arch__pin"
+            {...markProps(p.rowKey, p.title, p.selected)}
             data-tone={p.tone}
             data-shape={p.shape}
             data-selected={p.selected || undefined}
@@ -357,8 +393,6 @@ export function DomainArchitecture({
             data-residue={p.residue}
             data-lane={!p.stem || undefined}
             data-testid="arch-pin"
-            onClick={() => onSelect(p.rowKey)}
-            {...hoverProps(p.rowKey)}
           >
             <title>{p.title}</title>
             {p.shape === "dot" ? (

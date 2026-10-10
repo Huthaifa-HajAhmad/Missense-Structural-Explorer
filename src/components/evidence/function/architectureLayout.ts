@@ -36,11 +36,39 @@ export interface ArchWindow {
   end: number;
 }
 
-/** UniProt fallback boxes refer to feature rows, InterPro boxes to match rows. */
+/**
+ * UniProt fallback boxes refer to feature rows, InterPro boxes to match rows.
+ *
+ * The index is cached on the rows array: a layout pass resolves a row key for every domain segment,
+ * and the uncached form rescanned every row twice per segment (architectureLayout ran it on every
+ * window, width or selection change). The cache is keyed on the caller's payload array, which is
+ * stable across re-renders, not on the filtered copy layout builds.
+ */
+const domainRowIndex = new WeakMap<readonly AnnotationRow[], (d: DomainBox) => string>();
+
+export function domainRowKeyResolver(rows: readonly AnnotationRow[]): (d: DomainBox) => string {
+  const cached = domainRowIndex.get(rows);
+  if (cached) return cached;
+  const byRange = new Map<string, string>();
+  const byRangeName = new Map<string, string>();
+  for (const r of rows) {
+    if (r.type.toLowerCase() !== 'domain') continue;
+    const range = `${r.start}:${r.end}`;
+    if (!byRange.has(range)) byRange.set(range, r.rowKey);
+    const named = `${range}:${r.name}`;
+    if (!byRangeName.has(named)) byRangeName.set(named, r.rowKey);
+  }
+  const resolve = (d: DomainBox): string => {
+    if (d.source !== 'UniProtKB') return `match-${d.key}`;
+    const range = `${d.segments[0]?.start}:${d.segments[0]?.end}`;
+    return byRangeName.get(`${range}:${d.name}`) ?? byRange.get(range) ?? `match-${d.key}`;
+  };
+  domainRowIndex.set(rows, resolve);
+  return resolve;
+}
+
 export function domainRowKey(d: DomainBox, rows: AnnotationRow[]): string {
-  if (d.source !== 'UniProtKB') return `match-${d.key}`;
-  return rows.find(r => r.type.toLowerCase() === 'domain' && r.start === d.segments[0]?.start && r.end === d.segments[0]?.end && r.name === d.name)?.rowKey
-    ?? rows.find(r => r.type.toLowerCase() === 'domain' && r.start === d.segments[0]?.start && r.end === d.segments[0]?.end)?.rowKey ?? `match-${d.key}`;
+  return domainRowKeyResolver(rows)(d);
 }
 
 export interface ArchLabel {
@@ -57,8 +85,6 @@ export interface ArchLabel {
 /** Toggleable layers of the drawing; the legend lists them with counts. */
 export const LAYER_KEYS = ["variants", "sites", "modifications", "mutagenesis", "motifs", "structure"] as const;
 export type LayerKey = (typeof LAYER_KEYS)[number];
-/** Tighten the horizontal packing gap after eight lanes; preserve every signature. */
-const MAX_DOMAIN_LANES = 8;
 
 export function layerOf(r: Pick<AnnotationRow, "group" | "lane">): LayerKey | null {
   if (r.group === "variants") return "variants";
@@ -327,6 +353,8 @@ export function layoutArchitecture(
   const x0 = 22;
   const x1 = W - 22;
   const span = Math.max(1, win.end - win.start);
+  /** Resolve every domain segment's row key from one index, not a fresh scan per segment. */
+  const rowKeyOf = domainRowKeyResolver(evIn.rows);
   const inWin = (r: number) => r >= win.start && r <= win.end;
   const x = (r: number) => x0 + ((Math.min(Math.max(r, win.start), win.end) - win.start) / span) * (x1 - x0);
 
@@ -365,6 +393,8 @@ export function layoutArchitecture(
     return { ends, lanes };
   };
   let packing = packLanes(12);
+  /** Tighten the horizontal packing gap after eight lanes; preserve every signature. */
+  const MAX_DOMAIN_LANES = 8;
   if (packing.ends.length > MAX_DOMAIN_LANES) packing = packLanes(4);
   packing.lanes.forEach((lane, key) => domainLanes.set(key, lane));
   laneEnds.push(...packing.ends);
@@ -435,7 +465,7 @@ export function layoutArchitecture(
         const label: ArchLabel | null = text && widest
           ? { x: (widest[0] + widest[1]) / 2, y: centreY + 4, text, anchor: "middle", size: 12, weight: 600, tone: "ink" }
           : null;
-        const rowKey = domainRowKey(d, ev.rows);
+        const rowKey = rowKeyOf(d);
         return { key: `${d.key}-${i}`, rowKey, y: centreY - 15, lane, selected: selectedKey === rowKey, start: s.start, end: s.end, x: a, width: w, covers: residueIn(s, ev.residue), label, ends, title: `${name} (${src}), ${s.start}–${s.end}` };
       })
   );
@@ -580,8 +610,16 @@ export function layoutArchitecture(
       residue: p.residue,
       x: p.px,
       // Over a domain box the stem starts on the box's top edge, not inside it, so it never runs
-      // through the box's label.
-      stemFrom: p.above ? (domains.some((d) => d.lane === 0 && p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2) : hasSS ? ssY + 8 : hasStructural ? g3Y + 4 : lowerBackbone + 15,
+      // through the box's label. Below the backbone it leaves the lowest domain box when a box
+      // covers this residue, and the backbone's own edge otherwise: starting both at
+      // lowerBackbone + 15 left the stem floating 9px under the backbone wherever no box was drawn
+      // (an empty lane, or no domain annotation at all).
+      stemFrom: p.above
+        ? domains.some((d) => d.lane === 0 && p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2
+        : hasSS ? ssY + 8
+          : hasStructural ? g3Y + 4
+            : domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? lowerBackbone + 15
+              : bb + bh / 2,
       y: headY,
       shape: p.above ? "dot" : "diamond",
       tone: evidenceTone(p.r),

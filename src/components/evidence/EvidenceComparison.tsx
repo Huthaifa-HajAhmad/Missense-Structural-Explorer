@@ -89,7 +89,10 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       return `${row.key === w.selected ? 'Pinned: ' : ''}${row.name} · ${row.valueText}`;
     })()}</p>
     {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All features to see it here.</p>}
-    {tab === 'perturbation' && w.selected && !selected && <p className="evw-caption">The pinned record is outside this probability chart. Its details remain in the inspector.</p>}
+    {/* The perturbation model strip pins its model id, which is an inspector row but not a dot on this
+        chart; saying "outside this chart" for it fired on the normal path. Only a probability reading
+        (`<model>:<amino acid>`) that this chart does not plot is genuinely outside it. */}
+    {tab === 'perturbation' && w.selected && !selected && w.selected.includes(':') && <p className="evw-caption">The pinned reading is outside this probability chart. Its details remain in the inspector.</p>}
     {missing.length > 0 && <div className="evw-unplotted"><h3>{model.unplottedHeading}</h3>
       <p>{model.unplottedBody}</p>
       <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong>{r.valueText}</strong></button>)}</div>

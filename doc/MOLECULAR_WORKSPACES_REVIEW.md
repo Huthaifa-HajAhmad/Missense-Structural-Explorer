@@ -68,6 +68,52 @@ disease probabilities, and missing outputs are not plotted as zero.
 - Regression tests cover pin/window/layer persistence, same-position allele reset, record focus
   handoff, invalid numeric windows, unchanged PM1 and actual probability-chart keyboard selection.
 
+## 2026-10-10 follow-up — independent verification and fixes
+
+A senior read-only review of `53051d6` returned **approve with changes** (no blockers). Its findings were
+re-checked against the code, and this section records what was fixed, what was left, and the
+environment caveats that make "the suite is green" a moving target here.
+
+Fixed:
+
+- **Below-backbone stems floated 9px under the backbone** (`architectureLayout.ts`). The lane fix moved
+  every stem to `lowerBackbone + 15`; a pin with no domain box over it now leaves the backbone's own
+  edge instead. The geometry harness's stem check only forbade starting *above* the backbone, which is
+  why 241/241 passed with the gap present; it now also fails a floating stem when no box and no drawn
+  lower layer is present. New unit tests cover the covered, uncovered and real-fixture cases.
+- **Focus could leave the tablist** (`FunctionTab.tsx`). The row-focus effect depended on
+  `workspace.view`, so a keyboard switch to Source records pulled focus into the table. Focus is now
+  given only after the explicit "View selected record" action.
+- **The perturbation caption fired on the normal path** (`EvidenceComparison.tsx`). Selecting a model
+  in the strip pins the model id (an inspector row, not a chart dot); "outside this probability chart"
+  now appears only for a probability reading this chart does not plot.
+- **Mojibake in the residue-detail loading status** (`ResidueDetail.tsx`).
+- **A false trace sentence** (`functionEvidence.ts`): "No site or region does" is no longer reachable
+  when a broad span covers the residue; the trace names that span instead.
+- **Keyboard parity in the schematic** (`DomainArchitecture.tsx`): every selectable mark now carries
+  button semantics through one shared helper, ←/→ move DOM focus onto the stepped mark, and the
+  disulfide bracket is in the stepping order. Marks stay out of the tab order (`tabIndex={-1}`); the
+  annotation table remains the full keyboard path, per the visualization contract.
+- **Smaller items**: `aria-describedby` on the window inputs, the drawing label now states the shown
+  window, hover-lit and selected domains are visually distinct, the `<div>` inside the property button
+  is valid `<span>`, `MAX_DOMAIN_LANES` sits at its use, citation links go through `safeExternalHref`,
+  and a tautological test was replaced with one that can fail.
+
+Left as-is, deliberately: the `!workspace.enabled` fallbacks are dead inside the app but are the
+standalone component and test path, and removing them is a refactor, not a fix; `buildFunctionEvidence`
+still runs in the tab and the rail (different components, one pure model).
+
+Verification on this working tree: `npm run lint` passed (boundaries, focus indicators, verify parity,
+`tsc`); the focused molecular files pass (106 tests) and `architectureLayout` alone passes 17; the
+integrated Chromium harness passes **241/241**, now including the strengthened stem assertion.
+
+Working-tree caveat: the full suite currently reports one failure,
+`src/shared/__tests__/attributions.test.ts`, because a **different concurrent agent** left an
+uncommitted edit to `server/services/llm/gemini.ts` that adds an `ai.google.dev` URL the disclosure
+list does not yet carry. That is not from `53051d6`, and this pass did not touch it. The same shared
+checkout is also the most likely cause of the review's "branch switched to main" incident: no recorded
+command in the review thread switched branches, but another thread was editing the same files.
+
 ## Sources
 
 The established audits retain the citations for existing residue scales, model interpretation and

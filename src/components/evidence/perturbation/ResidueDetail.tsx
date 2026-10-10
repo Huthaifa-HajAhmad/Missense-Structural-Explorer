@@ -235,7 +235,7 @@ export function ResidueDetail({
             )}
             <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
               <div>
-                {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distributionÎ“Ã‡Âª</p>}>
+                {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distribution…</p>}>
                   <EvidenceComparison tab="perturbation" model={comparison} title={`${selected.family}: amino-acid preferences`}
                     description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} />
                 </Suspense> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}

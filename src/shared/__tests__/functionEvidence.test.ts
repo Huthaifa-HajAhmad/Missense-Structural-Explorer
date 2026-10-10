@@ -27,6 +27,22 @@ describe("buildFunctionEvidence — NAE1 p.Asp116Gly", () => {
     expect(ev.caveats[0].lead).toContain("97%");
   });
 
+  it("says a broad span covers the residue instead of claiming no region does", () => {
+    // With no domain box the old trace fell to "No site, region or specific domain covers residue
+    // 116" even though the added Region does — the sentence contradicted the finding's own rest.
+    const uniprot = structuredClone(NAE1_UNIPROT);
+    uniprot.domainMatches = [];
+    uniprot.features = [
+      ...uniprot.features,
+      { type: "Region", description: "Broad context span", start: 1, end: 400, evidence: [] },
+    ];
+    const broad = buildFunctionEvidence({ ...NAE1_INPUT, uniprot });
+    const step = broad.trace[2].text;
+    expect(step).toMatch(/broad region/i);
+    expect(step).not.toMatch(/no site or region does/i);
+    expect(step).not.toMatch(/No site, region or specific domain covers/i);
+  });
+
   it("places 116 in the two-residue link between helices 109–114 and 117–122", () => {
     expect(ev.structureContext?.value).toBe("Between helices");
     expect(ev.finding.rest).toContain("2-residue link between helices 109–114 and 117–122");

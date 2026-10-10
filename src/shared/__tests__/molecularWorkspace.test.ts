@@ -36,10 +36,22 @@ describe('functionReadings', () => {
     for (const r of overlap) expect(r.facts.find(f => f.label === 'Source')?.value).toMatch(/SMART|Pfam/);
   });
 
-  it('never lets a missing annotation read as a zero value', () => {
-    const ev = buildFunctionEvidence(functionEvidenceInputFrom({ ...NAE1_SHIFT_RESULT, uniprotFeatures: null, serviceStatus: { uniprotFeatures: 'ok' } } as never));
-    const readings = functionReadings(ev);
-    for (const r of readings) expect(r.value).toBeNull();
+  it('keeps a model that returned nothing null, never a zero reading', () => {
+    // The old form asserted `value === null` on functionReadings, whose values are hard-coded null:
+    // it could not fail. A model that returned no result is where "missing is not zero" can actually
+    // break, because its ΔLLR is null but its row still renders.
+    const evidence = {
+      residues: { wtCode: 'D', mutCode: 'G', position: 116 },
+      lms: [{
+        id: 'esm2', family: 'ESM2', llr: null,
+        availability: { state: 'failed', label: 'Provider error', reason: 'The provider did not answer.' },
+        servedBy: null, nativeRank: null, rank: null, rankSentence: '', caveats: [], preferences: [],
+      }],
+    } as unknown as Parameters<typeof perturbationReadings>[0];
+    const [reading] = perturbationReadings(evidence);
+    expect(reading.value).toBeNull();
+    expect(reading.valueText).toBe('Provider error');
+    expect(reading.valueText).not.toMatch(/^0(\.0+)?$/);
   });
 });
 
@@ -66,6 +78,23 @@ describe('perturbationReadings', () => {
     expect(wt).toBeDefined();
     expect(mut?.tone).toBe('accent');
     expect(mut?.value).toBe(comparison.rows.find(r => r.key === `esm2:${NAE1_RESIDUES.mutCode}`)?.value);
+  });
+
+  it('formats a sub-0.01% probability exponentially and keeps a returned zero at 0%', () => {
+    const evidence = {
+      residues: { wtCode: 'D', mutCode: 'G', position: 116 },
+      lms: [{
+        id: 'esm2', family: 'ESM2', llr: -1,
+        availability: { state: 'computed', label: 'Computed', reason: '' },
+        servedBy: 'esm2', nativeRank: 1, rank: 2, rankSentence: '', caveats: [],
+        preferences: [{ aa: 'D', prob: 0.5 }, { aa: 'G', prob: 0.00001 }, { aa: 'A', prob: 0 }],
+      }],
+    } as unknown as Parameters<typeof residueProbabilityComparison>[0];
+    const model = residueProbabilityComparison(evidence, 'esm2');
+    // 0.00001 as a percent is 0.001, below the 0.01% the fixed form can show.
+    expect(model.rows.find(r => r.key === 'esm2:G')?.valueText).toBe('1.00e-3%');
+    // A probability the model actually returned as 0 is a reading, not a missing one.
+    expect(model.rows.find(r => r.key === 'esm2:A')?.valueText).toBe('0%');
   });
 });
 

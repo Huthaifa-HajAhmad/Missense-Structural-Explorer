@@ -48,6 +48,11 @@ describe('molecular workspace interaction contracts', () => {
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '300' } });
     fireEvent.change(screen.getByLabelText('To'), { target: { value: '200' } });
     expect(screen.getByRole('button', { name: 'Apply window' })).toBeDisabled();
+    // The invalid inputs point a screen reader at the reason, which is a live status.
+    const from = screen.getByLabelText('From');
+    const describedBy = from.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toMatch(/increasing positions between 1 and 534/);
     fireEvent.change(screen.getByLabelText('To'), { target: { value: '400' } });
     fireEvent.submit(screen.getByRole('form', { name: 'Protein map window' }));
     expect(screen.getByText(/variant at 116 is outside this window/)).toBeInTheDocument();
@@ -73,5 +78,35 @@ describe('molecular workspace interaction contracts', () => {
     fireEvent.click(screen.getByRole('button', { name: '20. G' }));
     expect(inspector().getByRole('heading', { name: 'SaProt · G' })).toBeInTheDocument();
     expect(inspector().getByText('0.0004')).toBeInTheDocument();
+  });
+
+  it('keeps focus on the tablist when the reader moves to Source records with the keyboard', () => {
+    render(<Harness result={molecularWorkspaceFixture()} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /Illustrative overlap/ })[0]);
+    const records = screen.getByRole('tab', { name: 'Source records' });
+    records.focus();
+    fireEvent.keyDown(screen.getByRole('tablist', { name: /Functional domains views/ }), { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveAttribute('aria-selected', 'true');
+    // Depending on workspace.view alone, the row-focus effect pulled the keyboard user into the table.
+    expect(document.activeElement).toBe(records);
+  });
+
+  it('does not call a model picked in the strip a reading outside the probability chart', async () => {
+    render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
+    await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ });
+    // The detail tabs pin the model id, which is an inspector row but not a dot on the chart.
+    fireEvent.click(screen.getByRole('button', { name: 'ESM-2' }));
+    expect(screen.queryByText(/outside this probability chart/)).toBeNull();
+  });
+
+  it('exposes every selectable drawing mark as a button that the arrow keys step', () => {
+    render(<Harness result={molecularWorkspaceFixture()} />);
+    const domain = screen.getAllByTestId('arch-domain')[0];
+    expect(domain).toHaveAttribute('role', 'button');
+    expect(domain).toHaveAttribute('tabindex', '-1');
+    expect(domain).toHaveAttribute('aria-label');
+    const drawing = screen.getByTestId('domain-architecture');
+    fireEvent.keyDown(drawing, { key: 'ArrowRight' });
+    expect(drawing.querySelector('[data-mark-key][data-selected]')).not.toBeNull();
   });
 });

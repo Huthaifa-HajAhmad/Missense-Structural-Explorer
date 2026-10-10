@@ -692,6 +692,8 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   // A topological span or region covering a third of the chain is context for the residue, not a site at it.
   const isBroadRow = (r: AnnotationRow) => r.group !== "domains" && !r.isPair && length > 0 && (r.end - r.start + 1) / length >= BROAD_SPAN;
   const contextAtResidue = atResidue.filter(isBroadRow);
+  /** The first broad span covering the residue, if any: named so the trace never claims "no site or region" while earlier text says the residue lies in one. */
+  const broadCover = contextAtResidue[0] ?? null;
   // A natural variant is not a functional annotation of the residue, and counting the query's own variant
   // ("Residue 5 carries 3 annotations: Ala5Ser and others") annotates the variant with itself.
   const specificAtResidue = atResidue.filter((r) => r.group !== "domains" && r.group !== "variants" && !isBroadRow(r));
@@ -979,7 +981,16 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     uniprot
       ? specificAtResidue.length
         ? { text: `${specificAtResidue.map((r) => r.name).join(", ")} cover${specificAtResidue.length === 1 ? "s" : ""} residue ${residue}.`, strong: "" }
-        : { text: coveringDomains.length > 1 ? `${coveringDomains.length} domain annotations cover residue ${residue}: ${coveringDomains.map(d => `${d.name} (${d.source})`).join('; ')}. No site or region does.` : coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `No site, region or specific domain covers residue ${residue}.`, strong: "" }
+        : {
+            text: coveringDomains.length > 1
+              ? `${coveringDomains.length} domain annotations cover residue ${residue}: ${coveringDomains.map(d => `${d.name} (${d.source})`).join('; ')}.${broadCover ? ` A broad ${broadCover.type.toLowerCase()} spans it too.` : ' No site or region does.'}`
+              : coveringDomain
+                ? `Only the ${coveringDomain.name} covers residue ${residue}; ${broadCover ? `a broad ${broadCover.type.toLowerCase()} spans it too.` : 'no site or region does.'}`
+                : broadCover
+                  ? `No specific site is annotated at residue ${residue}; a broad ${broadCover.type.toLowerCase()} (${broadCover.residuesText}) spans it.`
+                  : `No site, region or specific domain covers residue ${residue}.`,
+            strong: "",
+          }
       : { text: "Nothing is claimed about the residue until the record arrives.", strong: "" },
     {
       text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting only evidence observed in this protein (experimental, structure or large-scale study): `,

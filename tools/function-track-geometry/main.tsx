@@ -370,7 +370,15 @@ function checkStems(c: Case, s: Schematic): Check[] {
       const base = box ? box.top : s.bbTop;
       if (Math.abs(y1 - base) > 0.5) bad.push(`${p.getAttribute("data-residue")}: stem starts at ${px(y1)}, ${box ? "domain" : "backbone"} top ${px(base)}`);
       if (y2 < head.bottom - 1.5 || y2 > head.bottom + 0.5) bad.push(`${p.getAttribute("data-residue")}: stem ends at ${px(y2)}, head bottom ${px(head.bottom)}`);
-    } else if (y1 < s.bbBottom - 0.5 || y2 > head.top + 1.5) bad.push(`${p.getAttribute("data-residue")}: diamond stem ${px(y1)}–${px(y2)} does not join backbone to head`);
+    } else {
+      const box = s.domains.map((d) => bbox(d.querySelector("rect")!)).find((r) => x >= r.left && x <= r.right);
+      const hasStrip = !!s.svg.querySelector(".fnd-arch__structural, .fnd-arch__helix, .fnd-arch__strand");
+      if (y1 < s.bbBottom - 0.5 || y2 > head.top + 1.5) bad.push(`${p.getAttribute("data-residue")}: diamond stem ${px(y1)}–${px(y2)} does not join backbone to head`);
+      // With no domain box over it and no other drawn layer, the stem must touch the backbone. The
+      // old check only forbade starting *above* the backbone, so a stem floating 9px under it passed
+      // — the 53051d6 regression survived this harness for exactly that reason.
+      else if (!box && !hasStrip && Math.abs(y1 - s.bbBottom) > 0.5) bad.push(`${p.getAttribute("data-residue")}: stem floats ${px(y1 - s.bbBottom)}px under the backbone`);
+    }
   });
   if (s.query) {
     const line = s.query.querySelector("line")!;
