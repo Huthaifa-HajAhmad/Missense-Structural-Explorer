@@ -4,6 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FunctionTab } from "../FunctionInteractionsTabs";
 import { FunctionRail } from "../../inspector/FunctionRail";
+import { EvidenceWorkspaceProvider } from "../EvidenceWorkspace";
 import type { TabComponentProps } from "../types";
 import type { AnalysisResult } from "../../../types";
 import { NAE1_UNIPROT } from "../../../shared/__tests__/fixtures/nae1FunctionalDomains";
@@ -130,5 +131,42 @@ describe("FunctionTab — opening window and nearby rows", () => {
     expect(more.length).toBeGreaterThan(0);
     fireEvent.click(more[0]);
     expect(screen.getAllByRole("button", { name: /Show only within 50 residues of 116/ }).length).toBeGreaterThan(0);
+  });
+});
+
+describe("FunctionTab in the molecular workspace", () => {
+  const renderWorkspace = (result: AnalysisResult = resultFor()) => {
+    const props = {
+      analysisState: { isLoading: false, error: null, result },
+      energyUnit: "kcal/mol",
+      formatDdGValue: () => "",
+      setSelectedMetric: () => {},
+      isDark: false,
+    } as unknown as TabComponentProps;
+    return render(
+      <EvidenceWorkspaceProvider result={result}>
+        <FunctionTab {...props} />
+        <FunctionRail analysisResult={result} />
+      </EvidenceWorkspaceProvider>
+    );
+  };
+
+  it("moves focus to the pinned record after 'View selected record', not to the page body", () => {
+    renderWorkspace();
+    // Select a domain from the discipline list (same keys the drawing and records use).
+    const key = screen.getAllByRole("button", { name: /THIF-type NAD\/FAD binding fold/ })[0];
+    fireEvent.click(key);
+    fireEvent.click(screen.getByRole("button", { name: "View selected record" }));
+    expect(screen.getByRole("tab", { name: "Source records" })).toHaveAttribute("aria-selected", "true");
+    const focusedRow = document.activeElement?.closest("[data-row-key]") as HTMLElement | null;
+    expect(focusedRow).not.toBeNull();
+    expect((focusedRow as HTMLElement).querySelector(".fnd-subject__btn")).toBe(document.activeElement);
+    expect(focusedRow?.getAttribute("data-row-key")).toBeTruthy();
+  });
+
+  it("does not show drawing instructions when the feature table failed to load", () => {
+    renderWorkspace(resultFor({ uniprotFeatures: null, serviceStatus: { uniprotFeatures: "timeout" } }));
+    expect(screen.queryByText(/Pin an annotation to follow its evidence/)).toBeNull();
+    expect(screen.queryByText(/use the drawing/)).toBeNull();
   });
 });

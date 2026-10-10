@@ -783,9 +783,10 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   }[verdict];
 
   // The finding.
-  const coveringDomain = domains.find((d) => d.covers) ?? null;
+  const coveringDomains = domains.filter(d => d.covers);
+  const coveringDomain = coveringDomains[0] ?? null;
   const domainPhrase = coveringDomain
-    ? `inside the ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})`
+    ? coveringDomains.length > 1 ? `within ${coveringDomains.length} overlapping domain annotations, including ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})` : `inside the ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})`
     : null;
   let lead: string;
   let sub: string;
@@ -978,7 +979,7 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     uniprot
       ? specificAtResidue.length
         ? { text: `${specificAtResidue.map((r) => r.name).join(", ")} cover${specificAtResidue.length === 1 ? "s" : ""} residue ${residue}.`, strong: "" }
-        : { text: coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `No site, region or specific domain covers residue ${residue}.`, strong: "" }
+        : { text: coveringDomains.length > 1 ? `${coveringDomains.length} domain annotations cover residue ${residue}: ${coveringDomains.map(d => `${d.name} (${d.source})`).join('; ')}. No site or region does.` : coveringDomain ? `Only the ${coveringDomain.name} covers residue ${residue}; no site or region does.` : `No site, region or specific domain covers residue ${residue}.`, strong: "" }
       : { text: "Nothing is claimed about the residue until the record arrives.", strong: "" },
     {
       text: `PM1 tests active site, binding site, metal binding and disulfide cysteines at ${residue}, counting only evidence observed in this protein (experimental, structure or large-scale study): `,

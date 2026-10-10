@@ -140,6 +140,8 @@ export function DomainArchitecture({
       if (!out.some((m) => m.rowKey === rowKey)) out.push({ rowKey, at, title });
     };
     for (const p of L.pins) add(p.rowKey, p.residue, p.title);
+    for (const d of L.domains) add(d.rowKey, d.start, d.title);
+    for (const m of L.motifs) add(m.rowKey, m.start, m.title);
     for (const b of L.density?.bars ?? []) add(b.rowKey, b.start, b.title);
     for (const r of L.regions) {
       const row = ev.rows.find((q) => q.key === r.key);
@@ -180,7 +182,7 @@ export function DomainArchitecture({
 
   // Drag to zoom: the axis in the main drawing (current window), the overview (whole protein).
   const beginBrush = (e: React.PointerEvent<SVGElement>, svg: SVGSVGElement | null, x0: number, x1: number, first: number, last: number, src: Brush["src"]) => {
-    if (!onWindow || !svg || e.button > 0) return;
+    if (!onWindow || !svg || e.button > 0 || e.pointerType === 'touch') return;
     const at = residueAt(e.clientX, svg, x0, x1, first, last);
     try {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -216,12 +218,12 @@ export function DomainArchitecture({
       data-testid="domain-architecture"
       tabIndex={onStep ? 0 : undefined}
       role={onStep ? "group" : undefined}
-      aria-label={onStep ? "Drawing marks. Left and right arrow keys step through them; the table below has every row." : undefined}
+      aria-label={onStep ? "Drawing marks. Left and right arrow keys step through them; Source records lists every annotation." : undefined}
       onKeyDown={onKeyDown}
     >
       <svg
         ref={svgRef}
-        role="img"
+        role="group"
         aria-label={describe(ev, hidden)}
         width={L.width}
         height={L.height}
@@ -246,9 +248,13 @@ export function DomainArchitecture({
           <Label key={t.text} l={t} />
         ))}
         {L.domains.map((d) => (
-          <g key={d.key} className="fnd-arch__domain" data-covers={d.covers || undefined} data-start={d.start} data-end={d.end} data-testid="arch-domain">
+          <g key={d.key} className="fnd-arch__domain" role="button" tabIndex={0} aria-label={d.title} aria-pressed={d.selected}
+            data-selected={d.selected || undefined} data-lit={lit(d.rowKey)} onClick={() => onSelect(d.rowKey)} {...hoverProps(d.rowKey)}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onSelect(d.rowKey); } }}
+            data-covers={d.covers || undefined} data-start={d.start} data-end={d.end} data-lane={d.lane} data-row-key={d.rowKey} data-testid="arch-domain">
             <title>{d.title}</title>
-            <rect x={d.x} y={L.backbone.y - 15} width={d.width} height={30} rx={7} />
+            <rect x={d.x} y={d.y} width={d.width} height={30} rx={6} />
+            {d.width < 24 && <rect x={d.x - (24 - d.width) / 2} y={d.y} width={24} height={30} className="fnd-domain-hit" />}
             {d.label && <Label l={d.label} />}
             {d.ends.map((e) => (
               <Label key={e.text + e.anchor} l={e} />
@@ -264,7 +270,10 @@ export function DomainArchitecture({
 
         {/* Conserved-site signatures, structural domains and secondary structure. */}
         {L.motifs.map((m) => (
-          <g key={m.key} className="fnd-arch__motif" data-covers={m.covers || undefined} data-testid="arch-motif">
+          <g key={m.key} className="fnd-arch__motif" role="button" tabIndex={0} aria-label={m.title} aria-pressed={selectedKey === m.rowKey}
+            data-covers={m.covers || undefined} data-selected={selectedKey === m.rowKey || undefined} data-lit={lit(m.rowKey)}
+            onClick={() => onSelect(m.rowKey)} {...hoverProps(m.rowKey)}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onSelect(m.rowKey); } }} data-testid="arch-motif">
             <title>{m.title}</title>
             <rect x={m.x} y={m.y} width={m.width} height={4} rx={2} />
           </g>

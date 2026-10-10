@@ -32,7 +32,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         axis: { line: false, ticks: { values: plotted.map(p => p.row), size: 0, format: (v: number) => plotted[v] ? `${plotted[v].name}${plotted[v].counted === false ? ' *' : ''}` : '' }, tickLabels: { fontSize: 12, opacity: 1 } } },
     },
     marks: [
-      ...(tab === 'alphagenome' ? [ruleX([0], { stroke: 'var(--cs-text-secondary)', strokeWidth: 1.5 }),
+      ...(tab === 'alphagenome' || tab === 'perturbation' ? [ruleX([0], { stroke: 'var(--cs-text-secondary)', strokeWidth: 1.5 }),
         decorative(link(plotted, { id: 'contribution', key: 'key', x1: () => 0, x2: 'value', y1: 'row', y2: 'row', stroke: d => d.tone === 'accent' ? 'var(--cs-accent-clay)' : 'var(--cs-text-secondary)', strokeWidth: 7, strokeOpacity: .55 }))] : []),
       ...(['accent', 'neutral', 'danger', 'good'] as const).map(tone => dot(plotted.filter(p => p.tone === tone), {
         id: `reading-${tone}`, key: 'key', x: 'value', y: 'row', r: 6,
@@ -75,7 +75,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
     {tab === 'alphagenome' && <div className="evw-axis-guide" style={{ ["--evw-guide-left" as string]: `${margin.left}px` }}><span>← Lowers AVI score</span><span>Raises AVI score →</span></div>}
     {plotted.length > 0 && <div className="evw-chart-scroll" role="region" aria-label={`${title} chart`} tabIndex={0}>
       <div className="evw-chart-canvas" data-wide={tab === 'predictors' || tab === 'expression-models' || undefined}>
-        <Chart definition={definition} height={Math.max(260, plotted.length * 42 + (tab === 'predictors' ? 115 : 90))}
+        <Chart definition={definition} height={Math.max(260, plotted.length * (tab === 'perturbation' ? 28 : 42) + (tab === 'predictors' ? 115 : 90))}
           ariaLabel={`${title}. Arrow keys explore; Enter pins a reading.`} ariaDescription={model.summary}
           onSelect={p => { if (p) toggleSelect(p.datum.key); }}
           onFocusChange={p => setHoverKey(p ? p.datum.key : null)} />
@@ -89,6 +89,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
       return `${row.key === w.selected ? 'Pinned: ' : ''}${row.name} · ${row.valueText}`;
     })()}</p>
     {tab === 'alphagenome' && w.selected && !selected && <p className="evw-caption">The pinned feature is outside this filter. Its details remain in the inspector; choose All features to see it here.</p>}
+    {tab === 'perturbation' && w.selected && !selected && <p className="evw-caption">The pinned record is outside this probability chart. Its details remain in the inspector.</p>}
     {missing.length > 0 && <div className="evw-unplotted"><h3>{model.unplottedHeading}</h3>
       <p>{model.unplottedBody}</p>
       <div className="evw-reading-list">{missing.map(r => <button type="button" key={r.key} aria-pressed={w.selected === r.key} onClick={() => toggleSelect(r.key)}><span>{r.name}</span>{' '}<strong>{r.valueText}</strong></button>)}</div>

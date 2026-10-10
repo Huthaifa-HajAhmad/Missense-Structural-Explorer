@@ -7,7 +7,7 @@ import { CAVEAT_TEXT, type PredictorEvidence } from './predictorEvidence';
 import type { LadderEvidence } from './ladderEvidence';
 import { formatEvidenceCode } from './thresholds';
 
-export type EvidenceWorkspaceTab = 'clinical' | 'predictors' | 'alphagenome' | 'gene-disease' | 'expression-models' | 'species-models';
+export type EvidenceWorkspaceTab = 'clinical' | 'predictors' | 'alphagenome' | 'gene-disease' | 'expression-models' | 'species-models' | 'structure' | 'perturbation' | 'function';
 export interface EvidenceChartRow {
   key: string; name: string; value: number | null; valueText: string; description: string;
   group: string; tone: 'accent' | 'neutral' | 'danger' | 'good';

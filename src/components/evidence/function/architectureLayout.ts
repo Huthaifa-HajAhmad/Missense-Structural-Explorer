@@ -36,6 +36,13 @@ export interface ArchWindow {
   end: number;
 }
 
+/** UniProt fallback boxes refer to feature rows, InterPro boxes to match rows. */
+export function domainRowKey(d: DomainBox, rows: AnnotationRow[]): string {
+  if (d.source !== 'UniProtKB') return `match-${d.key}`;
+  return rows.find(r => r.type.toLowerCase() === 'domain' && r.start === d.segments[0]?.start && r.end === d.segments[0]?.end && r.name === d.name)?.rowKey
+    ?? rows.find(r => r.type.toLowerCase() === 'domain' && r.start === d.segments[0]?.start && r.end === d.segments[0]?.end)?.rowKey ?? `match-${d.key}`;
+}
+
 export interface ArchLabel {
   x: number;
   y: number;
@@ -48,7 +55,10 @@ export interface ArchLabel {
 }
 
 /** Toggleable layers of the drawing; the legend lists them with counts. */
-export type LayerKey = "variants" | "sites" | "modifications" | "mutagenesis" | "motifs" | "structure";
+export const LAYER_KEYS = ["variants", "sites", "modifications", "mutagenesis", "motifs", "structure"] as const;
+export type LayerKey = (typeof LAYER_KEYS)[number];
+/** Tighten the horizontal packing gap after eight lanes; preserve every signature. */
+const MAX_DOMAIN_LANES = 8;
 
 export function layerOf(r: Pick<AnnotationRow, "group" | "lane">): LayerKey | null {
   if (r.group === "variants") return "variants";
@@ -125,6 +135,8 @@ export interface ArchBond {
 
 export interface ArchMotif {
   key: string;
+  rowKey: string;
+  start: number;
   x: number;
   width: number;
   y: number;
@@ -139,6 +151,10 @@ interface ArchPinRowCount {
 
 export interface ArchBox {
   key: string;
+  rowKey: string;
+  y: number;
+  lane: number;
+  selected: boolean;
   start: number;
   end: number;
   x: number;
@@ -326,16 +342,44 @@ export function layoutArchitecture(
   const pinHeadAbove = queryHeadY + 14 + aboveTiers * labelTier; // lowest above-pin head
   const bb = pinHeadAbove + 34; // backbone centre
   const bh = 12;
+  // Every signature used to share bb, hiding nested and overlapping matches. Pack complete
+  // signatures (including all discontinuous segments) on stable lanes, with room for hit areas.
+  // This changes drawing geometry only; overlapping source evidence is never deduplicated.
+  const domainLanes = new Map<string, number>();
+  const laneEnds: number[] = [];
+  const visibleDomains = ev.domains.map(d => ({ d, segments: d.segments.filter(s => s.end >= win.start && s.start <= win.end) }))
+    .filter(d => d.segments.length).sort((a, b) => a.segments[0].start - b.segments[0].start || a.d.key.localeCompare(b.d.key));
+  // Tighten the horizontal gap for dense proteins before adding height. Preserve every source
+  // signature: overlapping matches still require separate lanes, with no hard lane-count cap.
+  const packLanes = (gap: number) => {
+    const ends: number[] = [];
+    const lanes = new Map<string, number>();
+    for (const { d, segments } of visibleDomains) {
+      const left = x(segments[0].start);
+      const right = Math.max(left + 24, ...segments.map(s => x(s.end)));
+      const free = ends.findIndex(end => end + gap < left);
+      const lane = free < 0 ? ends.length : free;
+      ends[lane] = right;
+      lanes.set(d.key, lane);
+    }
+    return { ends, lanes };
+  };
+  let packing = packLanes(12);
+  if (packing.ends.length > MAX_DOMAIN_LANES) packing = packLanes(4);
+  packing.lanes.forEach((lane, key) => domainLanes.set(key, lane));
+  laneEnds.push(...packing.ends);
+  const domainOffset = Math.max(0, laneEnds.length - 1) * 42;
+  const lowerBackbone = bb + domainOffset;
   const hasStructural = ev.structuralDomains.length > 0;
   const hasSS = ev.secondaryStructure.length > 0 && span <= SECONDARY_MAX_SPAN;
   const motifsInWin = motifBoxes.flatMap((m) => m.segments.filter((sg) => sg.end >= win.start && sg.start <= win.end).map((sg, i) => ({ m, sg, i })));
   const hasMotifs = motifsInWin.length > 0;
   // A motif lane sits right under the backbone; everything below it shifts down by its height.
   const off = hasMotifs ? 9 : 0;
-  const motifY = bb + 21;
-  const g3Y = bb + 21 + off;
-  const ssY = bb + (hasStructural ? 31 : 20) + off;
-  const belowTop = hasSS ? ssY + 16 : hasStructural ? g3Y + 12 : bb + 24 + off;
+  const motifY = lowerBackbone + 21;
+  const g3Y = lowerBackbone + 21 + off;
+  const ssY = lowerBackbone + (hasStructural ? 31 : 20) + off;
+  const belowTop = hasSS ? ssY + 16 : hasStructural ? g3Y + 12 : lowerBackbone + 24 + off;
   const belowTiers = 3;
   const belowRowY = (t: number) => belowTop + 12 + t * labelTier;
 
@@ -351,6 +395,8 @@ export function layoutArchitecture(
     d.segments
       .filter((s) => s.end >= win.start && s.start <= win.end)
       .map((s, i) => {
+        const lane = domainLanes.get(d.key) ?? 0;
+        const centreY = bb + lane * 42;
         const a = x(s.start);
         const b = x(s.end);
         const w = Math.max(3, b - a);
@@ -366,13 +412,13 @@ export function layoutArchitecture(
         };
         const ends: ArchLabel[] = showEnds
           ? ([
-              { x: a + 7, y: bb + 4, text: String(s.start), anchor: "start", size: 10.5, mono: true, tone: "secondary" },
-              { x: b - 7, y: bb + 4, text: String(s.end), anchor: "end", size: 10.5, mono: true, tone: "secondary" },
+              { x: a + 7, y: centreY + 4, text: String(s.start), anchor: "start", size: 10.5, mono: true, tone: "secondary" },
+              { x: b - 7, y: centreY + 4, text: String(s.end), anchor: "end", size: 10.5, mono: true, tone: "secondary" },
             ] as ArchLabel[]).filter((l) => !crossed(l))
           : [];
         const lo = a + (showEnds ? 14 + textWidth(String(s.start), 10.5) : 6);
         const hi = b - (showEnds ? 14 + textWidth(String(s.end), 10.5) : 6);
-        const blocks = [...regionSpans, ...(queryX !== null ? [[queryX - 5, queryX + 5] as [number, number]] : [])]
+        const blocks = [...(lane === 0 ? regionSpans : []), ...(queryX !== null ? [[queryX - 5, queryX + 5] as [number, number]] : [])]
           .filter(([l, r]) => r > lo && l < hi)
           .sort((p, q) => p[0] - q[0]);
         const free: Array<[number, number]> = [];
@@ -387,9 +433,10 @@ export function layoutArchitecture(
         const full = `${name} · ${src}`;
         const text = textWidth(full, 12) + 12 < room ? full : textWidth(name, 12) + 12 < room ? name : null;
         const label: ArchLabel | null = text && widest
-          ? { x: (widest[0] + widest[1]) / 2, y: bb + 4, text, anchor: "middle", size: 12, weight: 600, tone: "ink" }
+          ? { x: (widest[0] + widest[1]) / 2, y: centreY + 4, text, anchor: "middle", size: 12, weight: 600, tone: "ink" }
           : null;
-        return { key: `${d.key}-${i}`, start: s.start, end: s.end, x: a, width: w, covers: d.covers, label, ends, title: `${name} (${src}), ${s.start}–${s.end}` };
+        const rowKey = domainRowKey(d, ev.rows);
+        return { key: `${d.key}-${i}`, rowKey, y: centreY - 15, lane, selected: selectedKey === rowKey, start: s.start, end: s.end, x: a, width: w, covers: residueIn(s, ev.residue), label, ends, title: `${name} (${src}), ${s.start}–${s.end}` };
       })
   );
 
@@ -401,6 +448,8 @@ export function layoutArchitecture(
 
   const motifs: ArchMotif[] = motifsInWin.map(({ m, sg, i }) => ({
     key: `${m.key}-${i}`,
+    rowKey: `match-${m.key}`,
+    start: sg.start,
     x: x(sg.start),
     width: Math.max(4, x(sg.end) - x(sg.start)),
     y: motifY,
@@ -532,7 +581,7 @@ export function layoutArchitecture(
       x: p.px,
       // Over a domain box the stem starts on the box's top edge, not inside it, so it never runs
       // through the box's label.
-      stemFrom: p.above ? (domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2) : hasSS ? ssY + 8 : hasStructural ? g3Y + 4 : domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? bb + 15 : bb + bh / 2,
+      stemFrom: p.above ? (domains.some((d) => d.lane === 0 && p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2) : hasSS ? ssY + 8 : hasStructural ? g3Y + 4 : lowerBackbone + 15,
       y: headY,
       shape: p.above ? "dot" : "diamond",
       tone: evidenceTone(p.r),
@@ -711,7 +760,7 @@ export function layoutArchitecture(
       ? {
           x: qx,
           headY: queryHeadY,
-          stemTo: hasSS ? ssY + 8 : bb + bh / 2 + 4,
+          stemTo: hasSS ? ssY + 8 : lowerBackbone + 19,
           label: { x: qx, y: queryLabelY, text: qText, anchor: "middle" as const, size: 12.5, mono: true, weight: 600, tone: "accent" as const },
         }
       : null;

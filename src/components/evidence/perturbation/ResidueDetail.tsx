@@ -1,8 +1,11 @@
-import React from "react";
+import React, { lazy, Suspense, useMemo } from "react";
 import type { LmReading, PerturbationEvidence } from "../../../shared/perturbationEvidence";
 import type { PerturbationModelId } from "../../../shared/perturbationModels";
 import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
 import { oddsText } from "../../../shared/perturbationEvidence";
+import { residueProbabilityComparison } from '../../../shared/molecularWorkspace';
+import { useEvidenceWorkspace, InspectReadingButton } from '../EvidenceWorkspace';
+const EvidenceComparison = lazy(() => import('../EvidenceComparison'));
 
 /**
  * Residue-level detail for ONE language model: its distribution over the 20 residues at the site
@@ -56,7 +59,7 @@ function Preferences({ lm, wtCode, mutCode, wtLabel, mutLabel }: { lm: LmReading
           const role = p.aa === wtCode ? "native" : p.aa === mutCode ? "variant" : undefined;
           return (
             <li key={p.aa} className="ptb-pref" data-role={role} value={rank}>
-              <span className="ptb-pref__aa">{rank}. {p.aa}</span>
+              <span className="ptb-pref__aa"><InspectReadingButton tab="perturbation" readingKey={`${lm.id}:${p.aa}`}>{rank}. {p.aa}</InspectReadingButton></span>
               <span className="ptb-pref__bar" aria-hidden="true">
                 <i style={{ width: `${(p.prob / max) * 100}%` }} />
               </span>
@@ -143,6 +146,8 @@ export function ResidueDetail({
   onSelect: (id: PerturbationModelId) => void;
 }) {
   const { wtCode, mutCode, wtLabel, mutLabel, position } = evidence.residues;
+  const workspace = useEvidenceWorkspace('perturbation');
+  const comparison = useMemo(() => residueProbabilityComparison(evidence, selected?.id ?? ''), [evidence, selected?.id]);
   return (
     <section className="ptb-section" aria-labelledby="ptb-detail-title">
       <div className="ptb-card">
@@ -230,7 +235,10 @@ export function ResidueDetail({
             )}
             <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
               <div>
-                <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />
+                {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distributionÎ“Ã‡Âª</p>}>
+                  <EvidenceComparison tab="perturbation" model={comparison} title={`${selected.family}: amino-acid preferences`}
+                    description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} />
+                </Suspense> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
               </div>
               {selected.embedding.window.length > 0 && (
                 <div>

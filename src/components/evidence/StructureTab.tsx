@@ -9,6 +9,8 @@ import { Prose } from "../ui/Prose";
 import { ResidueGlyph } from "./residue/ResidueGlyph";
 import { PropertyDumbbell, PropertyScaleReference } from "./residue/PropertyDumbbell";
 import { PocketDistanceStrip } from "./residue/PocketDistanceStrip";
+import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { ResiduePropertyComparison } from './MolecularComparison';
 
 /**
  * Residue Shifts & Pockets — the tab.
@@ -141,7 +143,7 @@ function Properties({ model }: { model: ResidueContextEvidence }) {
               {properties.map(row => (
                 <tr key={row.key} data-testid={`property-row-${row.key}`}>
                   <td>
-                    <span className="rsx-name">{row.label}</span>
+                    <span className="rsx-name"><InspectReadingButton tab="structure" readingKey={row.key}>{row.label}</InspectReadingButton></span>
                     <span className="rsx-note">{RESIDUE_SCALE_SOURCES[row.key].citation}{RESIDUE_SCALE_SOURCES[row.key].unit ? `, ${RESIDUE_SCALE_SOURCES[row.key].unit}` : ""}</span>
                   </td>
                   <td>
@@ -251,7 +253,7 @@ function Environment({
                 <tr data-testid="burial-rsa-row">
                   <td>
                     <span className="rsx-name">
-                      Solvent accessibility
+                      <InspectReadingButton tab="structure" readingKey="burial">Solvent accessibility</InspectReadingButton>
                       <button type="button" className="rsx-info" onClick={() => onExplain("burial_status")} aria-label="Explain solvent accessibility">
                         <Info className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
@@ -327,7 +329,7 @@ function Environment({
 
             <tr className="rsx-group">
               <td colSpan={4}>
-                <span className="rsx-label">Predicted pocket</span>
+                <span className="rsx-label"><InspectReadingButton tab="structure" readingKey="pocket">Predicted pocket</InspectReadingButton></span>
                 <span className="rsx-reason">
                   P2Rank{pocket.ranking.profile ? ` · ${pocket.ranking.profile} profile` : ""} · the structure loaded in 3D
                   <button type="button" className="rsx-info" onClick={() => onExplain("p2rank")} aria-label="Explain P2Rank">
@@ -460,6 +462,7 @@ export function StructureTab({
   onNavigateToView
 }: TabComponentProps) {
   const result = analysisState.result;
+  const workspace = useEvidenceWorkspace('structure');
   const { model } = useResidueContextEvidence({ result, computedPocket, isPocketLoading, pocketError, isBiophysicalLoading });
 
   if (!result) return null;
@@ -480,8 +483,10 @@ export function StructureTab({
           What the substitution changes in the side chain, where the residue sits in the structure, and how close it is to a predicted ligand pocket.
         </p>
       </div>
+      <EvidenceViewTabs tab="structure" comparisonLabel="Residue comparison" />
+      <EvidencePanel tab="structure">
       <Finding model={model} />
-      <Properties model={model} />
+      {workspace.comparison ? <ResiduePropertyComparison model={model} /> : <Properties model={model} />}
       <Environment
         model={model}
         onExplain={setSelectedMetric}
@@ -492,6 +497,7 @@ export function StructureTab({
         onSelectResidue={onSelectResidue}
         onViewIn3d={viewIn3d}
       />
+      </EvidencePanel>
     </div>
   );
 }
