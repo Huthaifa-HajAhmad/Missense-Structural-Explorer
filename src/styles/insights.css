@@ -56,7 +56,9 @@
   color: var(--cs-text-accent);
   min-height: 24px;
 }
-.ins-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .ins-link:hover { text-decoration: underline; }
+}
 .ins-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 3px; }
 
 /* ── Finding ───────────────────────────────────────────────── */

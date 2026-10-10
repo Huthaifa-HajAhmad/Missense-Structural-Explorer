@@ -191,13 +191,17 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.ls-pill:hover { color: var(--cs-text-primary); border-color: var(--cs-text-muted); }
+@media (hover: hover) and (pointer: fine) {
+  .ls-pill:hover { color: var(--cs-text-primary); border-color: var(--cs-text-muted); }
+}
 .ls-pill[data-active="true"] {
   background: var(--cs-text-primary);
   border-color: var(--cs-text-primary);
   color: var(--cs-surface);
 }
-.ls-pill[data-active="true"]:hover { color: var(--cs-surface); }
+@media (hover: hover) and (pointer: fine) {
+  .ls-pill[data-active="true"]:hover { color: var(--cs-surface); }
+}
 .ls-pill:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 .ls-pill:disabled {
   background: var(--cs-surface);
@@ -206,7 +210,9 @@
   text-decoration: line-through;
   cursor: not-allowed;
 }
-.ls-pill:disabled:hover { color: var(--cs-text-muted); border-color: var(--cs-border-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .ls-pill:disabled:hover { color: var(--cs-text-muted); border-color: var(--cs-border-subtle); }
+}
 
 /* ==========================================================================
    Landscape inspector rail (lsr-). The rail reads the same shared model as the
@@ -336,7 +342,9 @@
   cursor: pointer;
   padding: 0;
 }
-.lsr-strip__chip:hover { border-color: var(--cs-text-secondary); }
+@media (hover: hover) and (pointer: fine) {
+  .lsr-strip__chip:hover { border-color: var(--cs-text-secondary); }
+}
 .lsr-strip__chip[data-on="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); z-index: 2; }
 .lsr-strip__chip[data-query="true"] { box-shadow: 0 0 0 1.5px var(--cs-accent-clay); z-index: 1; }
 .lsr-strip__chip:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; z-index: 3; }
@@ -391,7 +399,9 @@
 .viz-panel__body { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
 .viz-panel__note { border-top: 1px solid var(--cs-border-subtle); padding: 14px 20px; font-size: 12px; line-height: 1.6; color: var(--cs-text-secondary); background: var(--cs-surface-2); }
 .viz-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 6px 10px; border: 1px solid var(--cs-border); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--cs-text-secondary); }
-.viz-action:hover { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .viz-action:hover { background: var(--cs-surface-2); }
+}
 .viz-action:disabled { opacity: .5; cursor: default; }
 .viz-header-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .viz-mode { display: flex; background: var(--cs-surface-2); padding: 3px; border-radius: 10px; }

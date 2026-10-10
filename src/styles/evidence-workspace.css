@@ -27,9 +27,15 @@
 .evw-reading-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 20px; }
 .evw-reading-list button { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: start; min-height: 44px; padding: 8px 0; border-bottom: 1px solid var(--cs-border-subtle); background: transparent; cursor: pointer; color: var(--cs-text-secondary); font-size: 12px; }
 .evw-reading-list strong { font-weight: 500; font-variant-numeric: tabular-nums; }
-.evw-reading-list button:hover, .evw-reading-list button[aria-pressed="true"] { color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .evw-reading-list button:hover { color: var(--cs-text-accent); }
+}
+.evw-reading-list button[aria-pressed="true"] { color: var(--cs-text-accent); }
 .evw-reading-button { background: transparent; color: inherit; text-align: start; min-height: 28px; cursor: pointer; text-decoration: underline; text-decoration-color: var(--cs-border); text-underline-offset: 4px; }
-.evw-reading-button:hover, .evw-reading-button[aria-pressed="true"] { color: var(--cs-text-accent); text-decoration-color: currentColor; }
+@media (hover: hover) and (pointer: fine) {
+  .evw-reading-button:hover { color: var(--cs-text-accent); text-decoration-color: currentColor; }
+}
+.evw-reading-button[aria-pressed="true"] { color: var(--cs-text-accent); text-decoration-color: currentColor; }
 .evw-guide { border: 1px solid var(--cs-border-subtle); border-radius: 16px; background: var(--cs-surface); overflow: hidden; }
 .evw-guide__intro { padding: 20px 22px 12px; }
 .evw-guide__disclosure > summary { padding: 16px 22px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }

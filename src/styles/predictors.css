@@ -165,7 +165,9 @@
   border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-secondary);
 }
 .prd-table tbody:last-of-type tr:last-child > * { border-bottom: 0; }
-.prd-table tbody tr:not(.prd-group):hover > * { background: color-mix(in srgb, var(--cs-text-secondary) 4%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .prd-table tbody tr:not(.prd-group):hover > * { background: color-mix(in srgb, var(--cs-text-secondary) 4%, transparent); }
+}
 
 /* Group rows: a beige band like the header, so a group reads as a section break, not as one more
    white row. The title keeps the label voice at the primary ink; the note stays in the field voice. */
@@ -176,13 +178,17 @@
 }
 .prd-table tbody + tbody .prd-group > th { border-top: 1px solid var(--cs-border-subtle); }
 .prd-table .prd-group__title { color: var(--cs-text-primary); }
-.prd-table tbody tr.prd-group:hover > * { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .prd-table tbody tr.prd-group:hover > * { background: var(--cs-surface-2); }
+}
 .prd-group__inner { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; width: 100%; }
 .prd-group__toggle {
   margin-left: auto; min-height: 24px; padding: 0 6px; border: 0; border-radius: 4px; background: none; cursor: pointer;
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-accent);
 }
-.prd-group__toggle:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .prd-group__toggle:hover { text-decoration: underline; }
+}
 .prd-group__toggle:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .prd-table tbody[data-collapsed] > tr:not(.prd-group) { display: none; }
 .prd-head-sub {
@@ -230,7 +236,9 @@
   width: 24px; height: 24px; border-radius: 6px; border: 0; background: transparent;
   color: var(--cs-text-muted); cursor: pointer;
 }
-.prd-info:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .prd-info:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent); }
+}
 .prd-info:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
 .prd-caveats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
@@ -244,7 +252,9 @@
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
   color: var(--cs-text-accent);
 }
-.prd-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .prd-link:hover { text-decoration: underline; }
+}
 .prd-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 .prd-scale { min-width: 200px; }
@@ -395,7 +405,9 @@
 .prd-notes > summary::-webkit-details-marker { display: none; }
 .prd-notes > summary::before { content: "›"; display: inline-block; transition: transform 150ms ease; font-size: 14px; }
 .prd-notes[open] > summary::before { transform: rotate(90deg); }
-.prd-notes > summary:hover { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .prd-notes > summary:hover { color: var(--cs-text-primary); }
+}
 .prd-notes > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .prd-notes ul { margin: 6px 0 0; padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 6px; line-height: 1.45; }
 @media (prefers-reduced-motion: reduce) { .prd-notes > summary::before { transition: none; } }
@@ -409,7 +421,9 @@
 }
 .prd-refs { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-muted); }
 .prd-refs a { color: var(--cs-text-accent); text-decoration: none; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); }
-.prd-refs a:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .prd-refs a:hover { text-decoration: underline; }
+}
 .prd-refs a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 3px; }
 
 @media print {
