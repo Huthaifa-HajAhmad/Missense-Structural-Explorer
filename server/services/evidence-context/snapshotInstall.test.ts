@@ -8,12 +8,14 @@ import { downloadGenccSnapshot } from './gencc';
 import { loadMechanismContext } from './g2p';
 
 const dirs: string[] = [];
-const previous = process.env.GENCC_CONTEXT_PATH;
+const previousGencc = process.env.GENCC_CONTEXT_PATH;
+const previousG2p = process.env.G2P_CONTEXT_PATH;
 async function target() { const dir = await mkdtemp(path.join(tmpdir(), 'mse-install-')); dirs.push(dir); return path.join(dir, 'snapshot.json'); }
 beforeEach(() => { resetInstallState(); vi.stubEnv('NODE_ENV', 'production'); });
 afterEach(async () => {
   vi.unstubAllEnvs(); vi.unstubAllGlobals();
-  if (previous === undefined) delete process.env.GENCC_CONTEXT_PATH; else process.env.GENCC_CONTEXT_PATH = previous;
+  if (previousGencc === undefined) delete process.env.GENCC_CONTEXT_PATH; else process.env.GENCC_CONTEXT_PATH = previousGencc;
+  if (previousG2p === undefined) delete process.env.G2P_CONTEXT_PATH; else process.env.G2P_CONTEXT_PATH = previousG2p;
   await Promise.all(dirs.splice(0).map(d => rm(d, { recursive: true, force: true })));
 });
 
@@ -29,15 +31,40 @@ describe('first-use snapshot install', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ ok: true });
     expect(await readdir(path.dirname(file))).toEqual(['snapshot.json']);   // no stray temp file
   });
-  it('remembers a failure for 15 minutes instead of hammering a down source, then retries', async () => {
+  it('remembers a failure for 15 minutes from the moment it fails, then retries', async () => {
     const file = await target(); const build = vi.fn().mockRejectedValueOnce(new Error('down')).mockResolvedValue({ ok: true });
-    // A synthetic clock, not Date.now(): recording the failure at wall time put the retry boundary
-    // 1 ms from the call that failed, and the scheduler overran it on CI.
-    const t0 = 1_000_000;
-    expect(await installOnce(file, build, t0)).toBe(false);
-    expect(await installOnce(file, build, t0 + 1000)).toBe(false); expect(build).toHaveBeenCalledOnce();
-    expect(await installOnce(file, build, t0 + RETRY_AFTER_MS - 1)).toBe(false); expect(build).toHaveBeenCalledOnce();
-    expect(await installOnce(file, build, t0 + RETRY_AFTER_MS)).toBe(true); expect(build).toHaveBeenCalledTimes(2);
+    let t = 1_000_000; const clock = vi.fn(() => t);
+    expect(await installOnce(file, build, clock)).toBe(false);
+    t += 1000;
+    expect(await installOnce(file, build, clock)).toBe(false); expect(build).toHaveBeenCalledOnce();
+    t += RETRY_AFTER_MS - 1001;
+    expect(await installOnce(file, build, clock)).toBe(false); expect(build).toHaveBeenCalledOnce();
+    t += 1;
+    expect(await installOnce(file, build, clock)).toBe(true); expect(build).toHaveBeenCalledTimes(2);
+  });
+  it('starts the retry window when the attempt fails, so a slow failing build cannot shorten the backoff', async () => {
+    const file = await target(); const build = vi.fn().mockRejectedValueOnce(new Error('slow outage'));
+    let t = 1_000_000; const clock = vi.fn(() => t);
+    // The failing build takes 90 s (GenCC's timeout), and the next request arrives 1 ms inside
+    // what would be a 14-minute window if the window were measured from the attempt start.
+    const attempt = installOnce(file, build, clock); t += 90_000;
+    expect(await attempt).toBe(false);
+    // A start-based window would have expired at 1,900,000; the failure-based one expires at 1,990,000.
+    t = 1_000_000 + RETRY_AFTER_MS + 1;
+    expect(await installOnce(file, build, clock)).toBe(false); expect(build).toHaveBeenCalledOnce();
+    t = 1_000_000 + 90_000 + RETRY_AFTER_MS;
+    expect(await installOnce(file, build, clock)).toBe(true); expect(build).toHaveBeenCalledTimes(2);
+  });
+  it('uses the wall clock when no clock is injected', async () => {
+    vi.useFakeTimers(); try {
+      vi.setSystemTime(2_000_000);
+      const file = await target(); const build = vi.fn().mockRejectedValueOnce(new Error('down')).mockResolvedValue({ ok: true });
+      expect(await installOnce(file, build)).toBe(false);
+      vi.setSystemTime(2_000_000 + RETRY_AFTER_MS - 1);
+      expect(await installOnce(file, build)).toBe(false); expect(build).toHaveBeenCalledOnce();
+      vi.setSystemTime(2_000_000 + RETRY_AFTER_MS);
+      expect(await installOnce(file, build)).toBe(true); expect(build).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
   it('installs a MISSING GenCC snapshot on first request and never replaces an installed one', async () => {
     const file = await target(); process.env.GENCC_CONTEXT_PATH = file;
@@ -66,6 +93,5 @@ G2P00001,SOD1,11179,ALS1,MONDO:0007103,monoallelic_autosomal,,definitive,gain of
     const first = await loadMechanismContext('SOD1');
     expect(first.status).toBe('ready'); expect(first.records).toHaveLength(1);
     await loadMechanismContext('SOD1'); expect(fetchMock).toHaveBeenCalledOnce();
-    delete process.env.G2P_CONTEXT_PATH;
   });
 });

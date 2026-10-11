@@ -12,8 +12,9 @@ import path from 'node:path';
  *  - Lazy, never scheduled: nothing refreshes an installed snapshot (the owner's rule). Only a
  *    MISSING file triggers a download.
  *  - Single flight per target, so concurrent requests make one download (GenCC rate-limits).
- *  - A failed attempt is remembered for RETRY_AFTER_MS so a down source is not hammered; the
- *    caller reports the ordinary "not installed" state meanwhile.
+ *  - A failed attempt is remembered for RETRY_AFTER_MS, measured from the moment the attempt
+ *    fails, so a down source is not hammered; the caller reports the ordinary "not installed"
+ *    state meanwhile.
  *  - The payload is fully validated by the caller's builder before it is written, and the write is
  *    atomic (temp file + rename), exactly like `npm run data:gencc` / `data:g2p`.
  *  - Off under test and when EVIDENCE_CONTEXT_AUTO_INSTALL=0 (air-gapped or read-only deployments).
@@ -33,17 +34,17 @@ export async function writeSnapshotAtomically(target: string, snapshot: unknown)
   finally { await rm(temporary, { force: true }); }
 }
 
-/** Resolves true when `build()` produced and wrote a snapshot at `target`. Never throws. */
-export function installOnce(target: string, build: () => Promise<unknown>, now = Date.now()): Promise<boolean> {
+/** Resolves true when `build()` produced and wrote a snapshot at `target`. Never throws.
+ *  `clock` is only injected by tests; production reads the wall clock. */
+export function installOnce(target: string, build: () => Promise<unknown>, clock: () => number = Date.now): Promise<boolean> {
   if (!autoInstallEnabled()) return Promise.resolve(false);
   const running = flights.get(target); if (running) return running;
-  const failed = failedAt.get(target); if (failed !== undefined && now - failed < RETRY_AFTER_MS) return Promise.resolve(false);
+  // The retry window starts when the attempt fails, not when it starts: a slow failing build
+  // must not shorten the backoff below RETRY_AFTER_MS.
+  const failed = failedAt.get(target); if (failed !== undefined && clock() - failed < RETRY_AFTER_MS) return Promise.resolve(false);
   const flight = (async () => {
     try { await writeSnapshotAtomically(target, await build()); failedAt.delete(target); return true; }
-    // Record the attempt's own clock, not wall time: the retry window is `now - failedAt`, and using
-    // Date.now() made the injected `now` lose the few ms the failed attempt actually took, so a caller
-    // exactly at RETRY_AFTER_MS saw the failure as still fresh (snapshotInstall.test.ts flaked on CI).
-    catch { failedAt.set(target, now); return false; }
+    catch { failedAt.set(target, clock()); return false; }
   })().finally(() => { flights.delete(target); });
   flights.set(target, flight); return flight;
 }
