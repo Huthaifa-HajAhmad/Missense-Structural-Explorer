@@ -253,4 +253,16 @@ describe("ClinicalInsightsCard consolidated case", () => {
       expect(screen.getByText(name)).toBeInTheDocument();
     }
   });
+
+  it('retains evidence during a streaming analysis rather than replacing it with the initial loader', () => {
+    renderCard(withCriteria(), { analysisState: { result: withCriteria(), isLoading: true, error: null } });
+    expect(screen.getByRole('status')).toHaveTextContent('Evidence is still arriving');
+    expect(screen.getByRole('button', { name: 'Computational' })).toBeInTheDocument();
+  });
+
+  it('shows the actual analysis error instead of assuming API configuration is missing', () => {
+    renderCard(null, { analysisState: { result: null, isLoading: false, error: 'Provider connection timed out.' } });
+    expect(screen.getByText('Provider connection timed out.')).toBeInTheDocument();
+    expect(screen.queryByText('Variant Interpretation Awaiting Configuration')).not.toBeInTheDocument();
+  });
 });

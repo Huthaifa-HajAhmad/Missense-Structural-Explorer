@@ -33,6 +33,14 @@ function nae1(over: Record<string, any> = {}) {
 }
 
 describe("buildInsightsEvidence", () => {
+  it("describes PM2 with the same Supporting strength as the recorded criterion", () => {
+    const result = nae1({ insights: null, ruleBasedInsights: { ...nae1().ruleBasedInsights, acmgCriteria: [{ code: "PM2", reason: "Recorded rarity" }] } });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    const strength = model.criteria.find(c => c.code === "PM2")!.strength;
+    expect(model.criteria.find(c => c.code === "PM2")!.state).toBe("met");
+    expect(strength).toBe("Supporting");
+    expect(model.glossary.find(g => g.term === "PM2")!.text).toContain(`${strength}.`);
+  });
   const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: { verdict: "Destabilizing (Engines Agree)", enginesCounted: 3, enginesDestabilizing: 3 } });
 
   it("takes the tier from the engine record", () => {
@@ -44,6 +52,15 @@ describe("buildInsightsEvidence", () => {
     expect(ev.engineCodes.map(c => c.code)).toEqual(["PP3"]);
     expect(ev.droppedEngineOwned.map(c => c.code)).toEqual(["PM2"]);
     expect(ev.proposals.map(c => c.code)).toEqual(["PS3"]);
+  });
+
+  it('retains a recorded computational criterion when its live voting inputs are missing', () => {
+    const result = nae1({ predictorData: null, conservationData: null });
+    const ev = buildInsightsEvidence({ result, functionInput, stability: null });
+    const lane = ev.lanes.find(l => l.key === 'computational')!;
+    expect(lane.counted).toBe(true);
+    expect(lane.rest).toContain('voting inputs are unavailable');
+    expect(lane.rest).not.toContain('Nothing is counted');
   });
 
   it("marks only the lane the engine recorded as counted", () => {
@@ -62,6 +79,13 @@ describe("buildInsightsEvidence", () => {
 
   it("does not translate fold destabilisation into pathogenicity", () => {
     expect(ev.differ.some(d => d.text.startsWith("Stability leans pathogenic"))).toBe(false);
+  });
+
+  it.each([['BS1', 'Strong', 3], ['BA1', 'Stand-alone', 3]] as const)('draws %s at its recorded strength rather than as supporting', (code, strength, length) => {
+    const result = nae1({ gnomadFrequency: { alleleFrequency: 0.1 }, ruleBasedInsights: { acmgVerdict: 'Benign', acmgCriteria: [{ code, reason: 'Recorded frequency criterion' }] } });
+    const ev = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(ev.lanes.find(l => l.key === 'population')!.length).toBe(length);
+    expect(ev.criteria.find(c => c.code === code)!.strength).toBe(strength);
   });
 
   it("reports that the recorded tier differs from the combining rule", () => {

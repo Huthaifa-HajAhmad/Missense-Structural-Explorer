@@ -124,7 +124,7 @@ export type CriterionState = "met" | "not met" | "withheld" | "not recorded";
 /** One criterion the engine owns, with what happened to it. Plain strings, so a report can print it. */
 export interface CriterionRow {
   code: string;
-  /** Strength in this engine's own weighting (PM2 is recorded as Moderate here; ClinGen SVI 2020 says Supporting). */
+  /** Strength in the engine's own weighting, including its Supporting default for PM2. */
   strength: string;
   state: CriterionState;
   reason: string;
@@ -172,11 +172,12 @@ export interface InsightsEvidence {
 const STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };
 const BENIGN_STRENGTH_WORD: Record<number, string> = { 8: "Stand-alone", 4: "Strong", 2: "Supporting" };
 
-function suffixLength(code: string | null): 1 | 2 | 3 {
+function recordedLength(code: string | null): 1 | 2 | 3 {
   if (!code) return 1;
-  if (/_Strong|_VeryStrong/i.test(code)) return 3;
-  if (/_Moderate/i.test(code)) return 2;
-  return 1;
+  const weight = codeWeight(code);
+  const words = weight > 0 ? STRENGTH_WORD : BENIGN_STRENGTH_WORD;
+  const strength = words[Math.abs(weight)];
+  return strength === 'Moderate' ? 2 : strength === 'Strong' || strength === 'Very strong' || strength === 'Stand-alone' ? 3 : 1;
 }
 
 function countByStrength(codes: ReadonlyArray<{ code: string }>, side: "pathogenic" | "benign") {
@@ -308,14 +309,14 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     lean: compLean,
     counted: peCounted,
     code: peCounted ? peCode : null,
-    length: peCounted ? suffixLength(peCode) : 1,
+    length: peCounted ? recordedLength(peCode) : 1,
     unconfirmed: !peCounted && Boolean(pe.vote.code) && pe.engine.known,
     state: pe.pending && nVoting === 0 ? "pending" : nVoting === 0 ? "absent" : "read",
     lead: nVoting === 0
       ? "No voting predictor returned a score."
       : `${nP} ${plural(nP, "predictor says", "predictors say")} damaging, ${nB} ${plural(nB, "says", "say")} tolerated, ${nI} ${plural(nI, "is", "are")} unsure.`,
     rest: nVoting === 0
-      ? "Nothing is counted for this lane."
+      ? peCounted ? "The engine recorded this criterion, but its voting inputs are unavailable in this payload." : "Nothing is counted for this lane."
       : nP > 0 && nB > 0
         ? peCounted ? "Contested. The engine still recorded the plurality call." : "Contested, and the engine recorded no code."
         : peCounted ? "The engine recorded this call." : "The engine recorded no code for it.",
@@ -336,7 +337,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     lean: CODE_LEAN(popCode),
     counted: Boolean(popCode),
     code: popCode,
-    length: 1,
+    length: recordedLength(popCode),
     unconfirmed: fe.applied.suppressed,
     state: fe.hasPendingSource && !popRead ? "pending" : popRead ? "read" : "absent",
     lead: popCode
@@ -388,7 +389,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     lean: fnMet || pm1Code ? "pathogenic" : "none",
     counted: Boolean(pm1Code),
     code: pm1Code,
-    length: suffixLength(pm1Code),
+    length: recordedLength(pm1Code),
     unconfirmed: fnMet && !pm1Code,
     state: fn.availability.state === "running" ? "pending" : fn.verdict === "not-assessed" ? "absent" : "read",
     lead: fn.verdict === "met" ? "The residue sits in an experimentally evidenced functional site."
@@ -608,7 +609,7 @@ const CODE_TEXT: Record<string, string> = {
   PVS1: "A change that should switch the gene off entirely, such as a premature stop. Very strong.",
   PS1: "The same amino-acid change is already known to cause disease.",
   PM1: "The residue sits in a functional site where changes are known to matter. Moderate.",
-  PM2: "The change is very rare or absent in healthy population databases. Moderate.",
+  PM2: "The change is very rare or absent in healthy population databases. Supporting.",
   PM4: "The change alters protein length. Moderate.",
   PP2: "Missense changes in this gene are a known cause of disease. Supporting.",
   PP3: "Computer models mostly agree the change is damaging. The weakest kind of evidence; several are needed together.",

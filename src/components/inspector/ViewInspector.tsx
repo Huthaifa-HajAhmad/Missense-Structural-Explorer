@@ -189,6 +189,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
    * the main column and consumed here, the same way ReportInspector reads reportSections.
    */
   const activePerturbationModel = useVariantAnalysisStore(s => s.activePerturbationModel);
+  const isAnalysisLoading = useVariantAnalysisStore(s => s.analysisState.isLoading);
   const saprotEngine = useSettings().settings.saprotEngine;
   /**
    * The tab reads its geometry from the biophysics slice, while this panel receives
@@ -538,6 +539,9 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           <InsightsInspector
             analysisResult={analysisResult}
             isNarrativeLoading={isNarrativeLoading}
+            foldingEnergetics={foldingEnergetics}
+            foldingDdG={foldingDdG}
+            isEvidenceLoading={isBiophysicalLoading || isAnalysisLoading}
           />
         )}
 

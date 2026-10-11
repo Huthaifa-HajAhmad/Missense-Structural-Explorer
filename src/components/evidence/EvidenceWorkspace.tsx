@@ -4,6 +4,7 @@ import type { EvidenceWorkspaceTab, AttributionFilter } from '../../shared/evide
 import { evidenceWorkspaceIdentity } from '../../shared/evidenceContextIdentity';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
+import { ReviewWorkspaceProvider } from '../review/ReviewWorkspace';
 
 type View = 'comparison' | 'records';
 interface TabState { view: View; selected: string | null; filter: AttributionFilter; expanded: string[]; section: string; query: string; cohort: string; relevantOnly: boolean; window?: { start: number; end: number } | 'whole' | 'near'; hidden?: string[] }
@@ -21,7 +22,7 @@ export function EvidenceWorkspaceProvider({ result, children }: { result: Analys
     key, states: { ...(s.key === key ? s.states : {}), [tab]: { ...initial, ...(s.key === key ? s.states[tab] : {}), ...patch } },
   })), [key]);
   const value = useMemo(() => ({ states: scope.key === key ? scope.states : {}, update }), [scope, key, update]);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  return <Context.Provider value={value}><ReviewWorkspaceProvider result={result}>{children}</ReviewWorkspaceProvider></Context.Provider>;
 }
 export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
   const context = useContext(Context);

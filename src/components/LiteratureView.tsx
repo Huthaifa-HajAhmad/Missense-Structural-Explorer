@@ -22,6 +22,8 @@ import type { GeneConstraint, ScreeningTagName } from "../shared/literatureScree
 import { verifiedAliasQuery } from "../shared/literatureAliases";
 import type { VerifiedLiteratureAlias } from "../shared/contracts";
 import { ENGINE_STATE_LABELS } from "../shared/engineStatus";
+import { literatureCoverage, READING_DESK_LIMIT } from "../shared/reviewPresentation";
+import { ReviewNavigation, useReviewWorkspace } from "./review/ReviewWorkspace";
 
 export type { Citation };
 
@@ -60,14 +62,13 @@ const screeningFilters: Array<{ tag: ScreeningTagName; label: string }> = [
  * Literature.
  *
  * ONE QUESTION: what has been published on this gene and this variant, how was that list obtained, and
- * which papers actually name the variant? Three tiers, top to bottom:
+ * which papers actually name the variant? A finding, then two reading views:
  *
  *   1. THE FINDING — how many Europe PMC records name the variant (a background search answers it on
- *      load), in a sentence that states the query's reach and its limits; a four-cell fact strip ends
- *      in "Engine record: None" because no literature is scored.
- *   2. THE PAPERS — one table, scoped to the gene or to the variant, filterable by what the text check
- *      found, each row carrying its identifier and an "add to the report" control.
- *   3. THE TRACE — in the inspector rail: the query as sent, what matched, what was loaded.
+ *      load), stating the query's reach and limits. Search facts live in a disclosure.
+ *   2. READING DESK — loaded-text coverage and up to eight matching papers in the existing attention
+ *      order. SOURCE RECORDS exposes every matching loaded paper with the same filtering controls.
+ *   3. THE TRACE — persistent selected source, query as sent, matches and loaded records in the rail.
  *
  * The request state machine below is unchanged from the audited revision (newest-request-wins,
  * self-update guard, inspector re-apply, abort of stale responses); only what it feeds and renders is new.
@@ -83,6 +84,7 @@ export default function LiteratureView({
   searchVersion = 0,
 }: LiteratureViewProps) {
   const { apiClient } = useApiClient();
+  const workspace = useReviewWorkspace('literature');
   const [citations, setCitations] = useState<Citation[]>([]);
   const [curatedCoverage, setCuratedCoverage] = useState<CuratedCoverage | null>(null);
   // Curated records the query did not match, shown but never counted as query membership.
@@ -359,16 +361,23 @@ export default function LiteratureView({
     return base.filter(paper => visibleIds.has(paper.citation.id));
   }, [evidence.papers, evidence.visible, tierFilter, tagFilters]);
 
+  const deskPapers = workspace.view === 'map' ? screeningVisible.slice(0, READING_DESK_LIMIT) : screeningVisible;
+  const coverage = useMemo(() => literatureCoverage(evidence.papers), [evidence.papers]);
+  useEffect(() => {
+    if (!workspace.reveal) return;
+    setGroupFilter('all'); setTierFilter('all'); setTagFilters([]); setInternalQuery(executedQuery);
+  }, [workspace.reveal]);
+
   const displayedEvidence = useMemo(() => ({
     ...evidence,
-    visible: screeningVisible,
-    counts: { ...evidence.counts, visible: screeningVisible.length },
+    visible: deskPapers,
+    counts: { ...evidence.counts, visible: deskPapers.length },
     trace: evidence.trace.map(step => step.key === "order" ? {
       ...step,
-      value: step.value.replace(/\d[\d,]* shown$/, `${screeningVisible.length.toLocaleString("en-GB")} shown`),
+      value: step.value.replace(/\d[\d,]* shown$/, `${deskPapers.length.toLocaleString("en-GB")} shown`),
     } : step),
-    displayed: screeningVisible.map(paper => paper.citation),
-  }), [evidence, screeningVisible]);
+    displayed: deskPapers.map(paper => paper.citation),
+  }), [evidence, screeningVisible, workspace.view]);
 
   // Hand the evidence model to shared state for the inspector. Guarded on what the inspector prints, so
   // a keystroke that changes nothing it shows does not re-render the whole inspector tree.
@@ -468,7 +477,7 @@ export default function LiteratureView({
             ))}
           </div>
 
-          <dl className="lit-facts">
+          <details className="lit-search-facts"><summary>Search coverage and engine record</summary><dl className="lit-facts">
             {facts.map(f => (
               <div key={f.label} className="lit-fact">
                 <dt>{f.label}</dt>
@@ -478,14 +487,27 @@ export default function LiteratureView({
                 </dd>
               </div>
             ))}
-          </dl>
+          </dl></details>
         </section>
+
+        <ReviewNavigation tab="literature" workspace={workspace} />
+        <div role="tabpanel" id={`review-literature-panel-${workspace.view}`} aria-labelledby={`review-literature-tab-${workspace.view}`}>
+        {workspace.view === 'map' && counts.total > 0 && <section className="lit-coverage" aria-labelledby="lit-coverage-title">
+          <header><h2 id="lit-coverage-title">What the loaded text names</h2><p>{counts.total} loaded papers · literal title and abstract checks · select a group to explore</p></header>
+          <div className="lit-coverage__rows">{coverage.filter(row => forms || row.level !== 'variant').map(row => <button type="button" key={row.level} aria-pressed={groupFilter === row.level} onClick={() => { setGroupFilter(groupFilter === row.level ? 'all' : row.level); setTierFilter('all'); setTagFilters([]); }}>
+            <span>{row.level === 'variant' ? `Names ${forms?.label}` : row.level === 'gene' ? `Names ${forms ? 'only ' : ''}${gene}` : forms ? 'Neither in title / abstract' : `Does not name ${gene}`}</span>
+            <span className="lit-coverage__track" aria-hidden="true"><i style={{ inlineSize: `${row.percent}%` }} /></span>
+            <span className="lit-mono">{row.count}<small> / {row.total}</small></span>
+          </button>)}</div>
+          <p className="lit-coverage__note">These are mentions, not evidence of a paper’s conclusion. Curated additions are included in this loaded set; unreturned search matches are not screened.</p>
+          {!forms && <p className="lit-coverage__note">Variant mentions were not checked: this notation is not supported by the protein-notation matcher.</p>}
+        </section>}
 
         {/* ── 2. The papers ──────────────────────────────────────────────────────────────── */}
         <section className="lit-section" aria-labelledby="lit-papers-title">
           <h2 className="eyebrow" id="lit-papers-title">
             <Library className="w-3.5 h-3.5" />
-            Papers
+            {workspace.view === 'map' ? 'Reading desk' : 'Source records'}
             {counts.pinned > 0 && <span className="lit-eyebrow-meta">{counts.pinned} in the report</span>}
           </h2>
 
@@ -660,8 +682,14 @@ export default function LiteratureView({
                 )}
               </div>
             ) : (
-              <PaperTable papers={screeningVisible} gene={gene} forms={forms} onTogglePin={togglePin} constraint={constraint} constraintUnavailableReason={constraintUnavailableReason} />
+              <PaperTable papers={deskPapers} gene={gene} forms={forms} onTogglePin={togglePin} constraint={constraint} constraintUnavailableReason={constraintUnavailableReason}
+                selectedId={workspace.selected} onSelect={workspace.select} reveal={workspace.reveal} onRevealed={workspace.finishReveal} />
             )}
+
+            {workspace.view === 'map' && screeningVisible.length > READING_DESK_LIMIT && <div className="lit-load-more">
+              <span>Showing the first {READING_DESK_LIMIT} of {screeningVisible.length} matching loaded papers.</span>
+              <button type="button" className="lit-link" onClick={() => workspace.setView('records')}>Show all matching source records</button>
+            </div>}
 
             {moreError && <p className="lit-callout" role="alert" data-tone="warning">{moreError}</p>}
             {response?.nextCursor && !response.degraded && <div className="lit-load-more">
@@ -680,6 +708,7 @@ export default function LiteratureView({
             </div>
           </div>
         </section>
+        </div>
       </div>
     </div>
   );

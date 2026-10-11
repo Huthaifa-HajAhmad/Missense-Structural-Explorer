@@ -65,7 +65,7 @@ function baseResult(overrides: Record<string, unknown> = {}) {
 }
 
 function renderCard(result: any, overrides: Record<string, unknown> = {}) {
-  return render(
+  const rendered = render(
     <SettingsProvider>
       <ClinicalInsightsCard
         {...({
@@ -91,6 +91,8 @@ function renderCard(result: any, overrides: Record<string, unknown> = {}) {
       />
     </SettingsProvider>
   );
+  fireEvent.click(screen.getByRole('tab', { name: 'Written summary' }));
+  return rendered;
 }
 
 /** The store is global, so a test that disables a section must put it back. */

@@ -4,6 +4,7 @@ import type { Citation, LiteratureEvidence, PaperReading } from "../../shared/li
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { LEXICON_VERSION } from "../../shared/literatureScreening";
 import { curatedLinkLabel } from "../../shared/curatedLiterature";
+import { useReviewWorkspace } from '../review/ReviewWorkspace';
 
 interface LiteratureInspectorProps {
   gene: string;
@@ -206,6 +207,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   onSearch,
   evidence
 }) => {
+  const workspace = useReviewWorkspace('literature');
   const summaryReceipt = useVariantAnalysisStore(st => {
     const result = st.analysisState.result;
     return result?.metadata?.gene === gene && result.metadata.variant === variant && !result.isFallback ? result.insights?.literature : undefined;
@@ -254,6 +256,8 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   const sentQuery = evidence?.response?.europePmcQuery ?? null;
   const notSearched = searchQuery.trim() === "" && customQuery === suggestion;
   const sweep = formatSweep(evidence?.response?.fetchedAt ?? null);
+  const selected = evidence?.papers.find(paper => paper.citation.id === workspace.selected);
+  const selectionHidden = selected && !readings.some(paper => paper.citation.id === workspace.selected);
 
   const handleExportCitations = (format: "bibtex" | "ris" | "csv", shortlistOnly = false) => {
     const records = shortlistOnly ? shortlistReadings : readings;
@@ -290,6 +294,18 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
 
   return (
     <div className="lit-rail" data-testid="literature-rail">
+      <section className="review-selection" id="inspector-evidence-reading" tabIndex={-1} aria-label="Selected paper">
+        <div className="review-selection__head"><span>Selected source</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
+        {selected ? <><h3>{selected.citation.title}</h3><p className="lit-mono">{selected.identifier.label} · {selected.citation.year ?? 'Year not reported'}</p>
+          <p>{selected.citation.journal || 'Journal not reported'}</p>
+          <p>Reading tier {selected.screening.tier} · a screening priority, not a quality score.</p>
+          <p>{selected.pinned ? 'Added to the report.' : 'Not added to the report.'}</p>
+          {selectionHidden && <p className="lit-rail__warn">This paper is outside the current reading desk or filters. Its source remains selected.</p>}
+          {selected.screening.tags.map((tag, i) => <blockquote key={`${tag.tag}-${i}`}><span>{tag.tag.replace(/-/g, ' ')} · {tag.source.replace(/-/g, ' ')}</span><p>{tag.quote}</p></blockquote>)}
+          <details><summary>Abstract</summary><p>{selected.citation.abstract || 'Europe PMC returned no abstract for this record.'}</p></details>
+          <div className="review-selection__actions"><button type="button" className="review-action" onClick={workspace.showSelected}>Show selected source record</button><a className="lit-link" href={selected.href} target="_blank" rel="noopener noreferrer">Open paper<span className="sr-only"> (opens in a new tab)</span></a></div></>
+          : <p>{workspace.selected ? 'The selected paper is not in this search result. Clear the selection or select another loaded source.' : 'Select a paper to inspect its quoted observations and abstract here. Adding it to the report is a separate action.'}</p>}
+      </section>
       {/* ── 1. How the list was obtained ── */}
       <section className="rail-section" aria-labelledby="lit-rail-trace">
         <h3 className="eyebrow" id="lit-rail-trace">
