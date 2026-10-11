@@ -27,7 +27,8 @@
     "graft": {
       "command": "node",
       "args": [
-        "tools/graft/cli.cjs",
+        "tools/agent-tooling/cli.cjs",
+        "graft",
         "mcp",
         "C:/Users/HSA19/antigravity/Missense-Structural-Explorer"
       ],
