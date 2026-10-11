@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
 import { CONFIG, resolveFoldxConcurrency } from "../../../config.ts";
 import { Semaphore } from "../../../utils.ts";
+import { killProcessTree } from "../../../utils/process-tree.ts";
 import { meterChildProcess } from "../../infra/job-meter.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
@@ -36,23 +37,6 @@ import {
   injectBFactorsFromWtPdb
 } from "./pdb-utils.ts";
 
-function killProcessSafely(pid?: number) {
-  if (!pid) return;
-  if (process.platform === "win32") {
-    try {
-      execFile("taskkill", ["/F", "/T", "/PID", String(pid)], () => {});
-    } catch (_) {}
-  } else {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch (_) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch (_) {}
-    }
-  }
-}
-
 function execFileAsync(
   file: string,
   args: string[],
@@ -65,7 +49,7 @@ function execFileAsync(
       if (err) {
         if (!killed) {
           killed = true;
-          killProcessSafely(child.pid);
+          killProcessTree(child.pid);
         }
         reject(err);
       } else {
@@ -79,7 +63,7 @@ function execFileAsync(
       const onAbort = () => {
         if (!killed) {
           killed = true;
-          killProcessSafely(child.pid);
+          killProcessTree(child.pid);
         }
       };
       options.signal.addEventListener("abort", onAbort);

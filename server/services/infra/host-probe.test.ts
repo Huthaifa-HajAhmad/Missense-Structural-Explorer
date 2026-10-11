@@ -23,8 +23,10 @@ vi.mock("../structure/pocket/java-detector.ts", () => ({
 }));
 
 const {
-  probeServerHost, serverTools, serverToolVersion, serverProvenance, _resetHostProbe, _setToolRunner, SERVER_HOST_ID,
-  parseFoldxBanner, parseP2RankVersion, foldxBuildExpiry, foldxExpiryNote, foldxRanNormally, judgeSelfTest,
+  probeServerHost, serverTools, serverToolsCached, serverToolVersion, serverProvenance, _resetHostProbe, _setToolRunner,
+  _lastHostProbeReport, SERVER_HOST_ID,
+  parseFoldxBanner, parseP2RankVersion, foldxBuildExpiry, foldxExpiryNote, foldxBuildExpired, foldxRanNormally, judgeSelfTest,
+  freeRamBytes,
 } = await import("./host-probe.ts");
 const { routingMode } = await import("./admission.ts");
 type ToolRun = import("./host-probe.ts").ToolRun;
@@ -85,8 +87,8 @@ describe("server host probe", () => {
 describe("tool self-tests", () => {
   it("reads each tool's version from its own output and marks it verified", async () => {
     expect(await serverTools()).toEqual([
-      { name: "foldx", version: "5.1", verified: true },
-      { name: "p2rank", version: "2.6-alpha", verified: true },
+      { name: "foldx", version: "5.1", verified: true, selfTest: "passed" },
+      { name: "p2rank", version: "2.6-alpha", verified: true, selfTest: "passed" },
     ]);
     expect(serverToolVersion("foldx")).toBe("5.1");
     expect(serverToolVersion("p2rank")).toBe("2.6-alpha");
@@ -107,7 +109,7 @@ describe("tool self-tests", () => {
 
   it("a tool that runs but fails (an expired licence) is unverified, and is tested again after 10 minutes", async () => {
     runs.foldx = foldxRun("   ***  FoldX 5.1 (c)  ***\nYour FoldX license has expired\nFoldx will end\n");
-    expect((await serverTools(0)).find((t) => t.name === "foldx")).toEqual({ name: "foldx", version: "5.1", verified: false });
+    expect((await serverTools(0)).find((t) => t.name === "foldx")).toEqual({ name: "foldx", version: "5.1", verified: false, selfTest: "failed" });
     runs.foldx = foldxRun(FOLDX_BANNER);
     expect((await serverTools(5 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(false);
     expect((await serverTools(11 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(true);
@@ -115,8 +117,39 @@ describe("tool self-tests", () => {
 
   it("a self-test that only times out keeps the tool usable (a busy host proves nothing)", async () => {
     runs.p2rank = { code: null, output: "", timedOut: true, spawnError: null };
-    expect((await serverTools()).find((t) => t.name === "p2rank")).toEqual({ name: "p2rank", version: "unknown", verified: true });
+    expect((await serverTools()).find((t) => t.name === "p2rank")).toEqual({ name: "p2rank", version: "unknown", verified: true, selfTest: "timeout" });
     expect(serverToolVersion("p2rank")).toBeNull();
+  });
+
+  it("marks FoldX failed once its build date has passed, and says when the name carries no date", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foldx-exp-"));
+    const expired = path.join(dir, "foldx_20200101");
+    fs.writeFileSync(expired, "");
+    foldxBin.value = expired;
+    const now = Date.parse("2026-06-01T12:00:00Z"); // after the 2020 build date, before the dateless check
+    // The name's date is authoritative: even though the tool starts and prints a banner, it is not usable.
+    expect((await serverTools(now)).find((t) => t.name === "foldx")?.verified).toBe(false);
+    expect(_lastHostProbeReport()).toMatch(/stopped working on 2020-01-01/);
+
+    _resetHostProbe();
+    const undated = path.join(dir, "foldx");
+    fs.writeFileSync(undated, "");
+    foldxBin.value = undated;
+    expect((await serverTools(now)).find((t) => t.name === "foldx")?.verified).toBe(true);
+    expect(_lastHostProbeReport()).toMatch(/carries no build date/);
+  });
+
+  it("serves a stale tool list to a request path without waiting for the re-probe", async () => {
+    runs.foldx = foldxRun("   ***  FoldX 5.1 (c)  ***\nYour FoldX license has expired\nFoldx will end\n");
+    await serverTools(0); // cold: foldx fails, so the cache is never "clean"
+    runs.foldx = foldxRun(FOLDX_BANNER); // now it would pass
+    // Past the 10-minute TTL: the stale answer is served at once instead of awaiting a 60 s self-test.
+    expect((await serverToolsCached(11 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(false);
+    await new Promise((r) => setTimeout(r, 80)); // the background refresh completes
+    expect((await serverToolsCached(11 * 60_000)).find((t) => t.name === "foldx")?.verified).toBe(true);
   });
 });
 
@@ -129,13 +162,20 @@ describe("version parsing", () => {
     expect(foldxBuildExpiry("/app/tools/foldx_linux/foldx_20261231")).toBe("2026-12-31");
     expect(foldxBuildExpiry("C:/tools/foldx/foldx_1_20270131.exe")).toBe("2027-01-31");
     expect(foldxBuildExpiry("/usr/bin/foldx")).toBeNull();
+    expect(foldxBuildExpiry("/x/foldx_20269999")).toBeNull(); // impossible month/day, not a fake date
   });
 
   it("says how long the FoldX build has left: quiet when far, a warning when near, an error when past", () => {
     const day = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
     expect(foldxExpiryNote("2026-12-31", day("2026-06-01"))).toBe(" (build valid until 2026-12-31)");
-    expect(foldxExpiryNote("2026-12-31", day("2026-12-01"))).toMatch(/stops working on 2026-12-31 \(in 29 days\)/);
+    expect(foldxExpiryNote("2026-12-31", day("2026-12-01"))).toMatch(/stops working on 2026-12-31 \(in 30 days\)/);
     expect(foldxExpiryNote("2026-12-31", day("2027-01-02"))).toMatch(/stopped working on 2026-12-31/);
+    // The build still works ON its named day (the old prior said it had already stopped at noon).
+    expect(foldxExpiryNote("2026-12-31", day("2026-12-31"))).toMatch(/stops working today \(2026-12-31\)/);
+    expect(foldxExpiryNote("2026-12-31", day("2026-12-30"))).toMatch(/\(in 1 day\)/);
+    expect(foldxExpiryNote("2026-99-99", day("2026-06-01"))).toBe(""); // never print "valid until 2026-99-99"
+    expect(foldxBuildExpired("2026-12-31", day("2026-12-31"))).toBe(false);
+    expect(foldxBuildExpired("2026-12-31", day("2027-01-01"))).toBe(true);
   });
 
   it("FoldX passes on reaching its own ending, whatever the exit code; a crash under emulation does not", () => {
@@ -143,7 +183,7 @@ describe("version parsing", () => {
     expect(judgeSelfTest("foldx", normal, "5.1", foldxRanNormally(normal)).tool?.verified).toBe(true);
     const crash = foldxRun("   ***  FoldX 5.1 (c)  ***\nUnhandled signal caught\n");
     const check = judgeSelfTest("foldx", crash, "5.1", foldxRanNormally(crash));
-    expect(check.tool).toEqual({ name: "foldx", version: "5.1", verified: false });
+    expect(check.tool).toEqual({ name: "foldx", version: "5.1", verified: false, selfTest: "failed" });
     expect(check.detail).toContain("Unhandled signal caught");
   });
 
@@ -151,6 +191,25 @@ describe("version parsing", () => {
     const check = judgeSelfTest("foldx", ok("something\nunexpected end\n"), null);
     expect(check.tool?.verified).toBe(false);
     expect(check.detail).toContain("unexpected end");
+  });
+});
+
+describe("freeRamBytes", () => {
+  it("takes the smaller of host and container, and a zero container reading as ZERO, not the host's number", () => {
+    const proc = process as unknown as { availableMemory?: () => number };
+    const had = "availableMemory" in proc;
+    const original = proc.availableMemory;
+    try {
+      proc.availableMemory = () => 1 * 1024 ** 2; // a container limit far below the host's free memory
+      expect(freeRamBytes()).toBe(1 * 1024 ** 2);
+      proc.availableMemory = () => 0; // exhausted: THE case the guard exists for — must be 0, not the host
+      expect(freeRamBytes()).toBe(0);
+      if (had) delete proc.availableMemory; // API absent on this Node => fall back to the host reading
+      expect(freeRamBytes()).toBeGreaterThan(0);
+    } finally {
+      if (had) proc.availableMemory = original;
+      else delete proc.availableMemory;
+    }
   });
 });
 

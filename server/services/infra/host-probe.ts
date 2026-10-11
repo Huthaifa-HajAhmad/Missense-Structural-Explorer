@@ -24,6 +24,7 @@ import path from "path";
 import { hostClassOf, type HostFeatures, type HostTool, type JobType, type ToolName } from "../../../src/shared/computeRouting.ts";
 import type { ComputeProvenance } from "../../../src/shared/computeProvenance.ts";
 import { CONFIG } from "../../config.ts";
+import { killProcessTree } from "../../utils/process-tree.ts";
 import { detectFoldxBinaryAndDir, getFoldxExecutionTarget } from "../stability/foldx/detector.ts";
 import { foldxRunsEmulated } from "../stability/foldx/estimate.ts";
 import { checkP2RankCapability, discoverJavaHome } from "../structure/pocket/java-detector.ts";
@@ -53,23 +54,35 @@ export interface ToolRun {
 export type ToolRunner = (
   file: string,
   args: string[],
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number },
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; verbatim?: boolean },
 ) => Promise<ToolRun>;
 
 const runTool: ToolRunner = (file, args, opts) =>
   new Promise((resolve) => {
-    execFile(
+    let timedOut = false;
+    let cap: NodeJS.Timeout;
+    const child = execFile(
       file,
       args,
-      { cwd: opts.cwd || undefined, env: opts.env, timeout: opts.timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024 },
+      { cwd: opts.cwd || undefined, env: opts.env, windowsHide: true, maxBuffer: 1024 * 1024, windowsVerbatimArguments: opts.verbatim },
       (err, stdout, stderr) => {
+        clearTimeout(cap);
         const output = `${stdout ?? ""}${stderr ?? ""}`;
+        if (timedOut) return resolve({ code: null, output, timedOut: true, spawnError: null });
         if (!err) return resolve({ code: 0, output, timedOut: false, spawnError: null });
         const e = err as NodeJS.ErrnoException & { killed?: boolean; code?: unknown };
         if (typeof e.code === "string") return resolve({ code: null, output, timedOut: false, spawnError: `${e.code}: ${e.message}` });
         resolve({ code: typeof e.code === "number" ? e.code : null, output, timedOut: Boolean(e.killed), spawnError: null });
       },
     );
+    // Our own timeout, so the whole tool TREE can be killed: execFile's own `timeout` signals only the
+    // direct child, which for P2Rank is a script (or a `.bat` through cmd.exe) whose JVM would survive
+    // and, on a host whose probe repeats every 10 minutes, accumulate.
+    cap = setTimeout(() => {
+      timedOut = true;
+      killProcessTree(child.pid);
+    }, opts.timeoutMs);
+    cap.unref?.();
   });
 
 let toolRunner: ToolRunner = runTool;
@@ -88,7 +101,12 @@ export function parseFoldxBanner(output: string): string | null {
  */
 export function foldxBuildExpiry(binaryPath: string): string | null {
   const m = path.basename(binaryPath).match(/(20\d{2})(\d{2})(\d{2})/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  if (!m) return null;
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  // Reject an impossible month/day (a stray 8-digit run in a file name) rather than print a fake date.
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
 /** "2.6-alpha" from `prank -v` (`P2Rank 2.6-alpha`). */
@@ -127,22 +145,38 @@ export function judgeSelfTest(name: ToolName, run: ToolRun, version: string | nu
   if (run.spawnError) return { tool: null, detail: `${label} could not be started (${run.spawnError})`, clean: false };
   if (run.timedOut) {
     return {
-      tool: { name, version: "unknown", verified: true },
+      // Present and assumed usable (a busy host proves nothing), but `selfTest` records that this was a
+      // timeout rather than a pass, so the field cannot be read as "it ran successfully".
+      tool: { name, version: "unknown", verified: true, selfTest: "timeout" },
       detail: `${label}'s self-test did not finish in time; it is assumed usable and will be tested again`,
       clean: false,
     };
   }
-  if (ranNormally && version) return { tool: { name, version, verified: true }, detail: `${label} ${version} passed its self-test`, clean: true };
+  if (ranNormally && version) {
+    return { tool: { name, version, verified: true, selfTest: "passed" }, detail: `${label} ${version} passed its self-test`, clean: true };
+  }
   const why = lastLine(run.output) || `exit code ${run.code}`;
-  return { tool: { name, version: version ?? "unknown", verified: false }, detail: `${label} ran but failed its self-test: ${why}`, clean: false };
+  return { tool: { name, version: version ?? "unknown", verified: false, selfTest: "failed" }, detail: `${label} ran but failed its self-test: ${why}`, clean: false };
+}
+
+/**
+ * True once the day named by a FoldX build has fully PASSED — the build still works ON that day, so at
+ * noon on the expiry date it is not yet expired (the old prior said it was).
+ */
+export function foldxBuildExpired(expiry: string, now: number): boolean {
+  const end = Date.parse(`${expiry}T23:59:59.999Z`);
+  return Number.isFinite(end) && now > end;
 }
 
 /** The expiry sentence for a FoldX build: silent when far off, a warning when near, an error when past. */
 export function foldxExpiryNote(expiry: string, now: number): string {
-  const daysLeft = Math.floor((Date.parse(`${expiry}T00:00:00Z`) - now) / 86_400_000);
-  if (daysLeft < 0) return `. This FoldX build stopped working on ${expiry}; install the current build from foldxsuite.crg.eu`;
+  const msLeft = Date.parse(`${expiry}T23:59:59.999Z`) - now;
+  if (!Number.isFinite(msLeft)) return ""; // foldxBuildExpiry rejects malformed dates, but never print "NaN"
+  if (msLeft < 0) return `. This FoldX build stopped working on ${expiry}; install the current build from foldxsuite.crg.eu`;
+  const daysLeft = Math.floor(msLeft / 86_400_000);
+  if (daysLeft === 0) return `. This FoldX build stops working today (${expiry}); install the next build from foldxsuite.crg.eu before then`;
   if (daysLeft <= FOLDX_EXPIRY_WARN_DAYS) {
-    return `. This FoldX build stops working on ${expiry} (in ${daysLeft} days); install the next build from foldxsuite.crg.eu before then`;
+    return `. This FoldX build stops working on ${expiry} (in ${daysLeft} day${daysLeft === 1 ? "" : "s"}); install the next build from foldxsuite.crg.eu before then`;
   }
   return ` (build valid until ${expiry})`;
 }
@@ -157,8 +191,21 @@ async function checkFoldx(now: number): Promise<ToolCheck> {
   const target = getFoldxExecutionTarget(foldxBin, []);
   const run = await toolRunner(target.file, target.args, { cwd: foldxDir || undefined, timeoutMs: SELF_TEST_TIMEOUT_MS });
   const check = judgeSelfTest("foldx", run, parseFoldxBanner(run.output), foldxRanNormally(run));
+  if (!check.tool) return check;
   const expiry = foldxBuildExpiry(foldxBin);
-  if (check.tool && expiry) check.detail += foldxExpiryNote(expiry, now);
+  if (!expiry) {
+    // The runbook tells the owner to watch this line as the renewal trigger, so say when it is unarmed.
+    check.detail += ". This FoldX binary's name carries no build date, so no expiry warning is possible";
+    return check;
+  }
+  check.detail += foldxExpiryNote(expiry, now);
+  if (foldxBuildExpired(expiry, now)) {
+    // The date in the name is authoritative. FoldX's own wording is not guaranteed to match /expired/,
+    // so a build whose name has passed must not stay `verified`: otherwise, with COMPUTE_ROUTING=on,
+    // an expired build keeps admitting jobs.
+    check.tool = { ...check.tool, verified: false, selfTest: "failed" };
+    check.clean = false;
+  }
   return check;
 }
 
@@ -171,19 +218,44 @@ async function checkP2Rank(): Promise<ToolCheck> {
   const javaHome = await discoverJavaHome();
   if (javaHome) env.JAVA_HOME = javaHome;
   else if (javaHome === "") delete env.JAVA_HOME;
-  const run = process.platform === "win32" && /\.(bat|cmd)$/i.test(cap.path)
-    ? await toolRunner(process.env.ComSpec || "cmd.exe", ["/d", "/c", cap.path, "-v"], { env, timeoutMs: SELF_TEST_TIMEOUT_MS })
+  // Run the batch file EXACTLY as the runner does (pocket/runner.ts): quoted command line, `/s`, and
+  // windowsVerbatimArguments, so a path containing a space passes the self-test instead of looking
+  // broken (which would refuse every pocket job under COMPUTE_ROUTING=on).
+  const isBatch = process.platform === "win32" && /\.(bat|cmd)$/i.test(cap.path);
+  const run = isBatch
+    ? await toolRunner(
+        process.env.ComSpec || "cmd.exe",
+        ["/d", "/s", "/c", `"${[cap.path, "-v"].map((a) => `"${a.replace(/"/g, '""')}"`).join(" ")}"`],
+        { env, timeoutMs: SELF_TEST_TIMEOUT_MS, verbatim: true },
+      )
     : await toolRunner(cap.path, ["-v"], { env, timeoutMs: SELF_TEST_TIMEOUT_MS });
   return judgeSelfTest("p2rank", run, parseP2RankVersion(run.output));
 }
 
 let probing: Promise<HostTool[]> | null = null;
 
-export async function serverTools(now = Date.now()): Promise<HostTool[]> {
-  if (toolCache && (toolCache.clean || now - toolCache.at < TOOL_TTL_MS)) return toolCache.tools;
-  // One probe at a time: a burst of submissions on a cold cache must not start one self-test each.
+function startProbe(now: number): Promise<HostTool[]> {
+  // One probe at a time: a burst of callers must not start one self-test each.
   if (!probing) probing = probeTools(now).finally(() => { probing = null; });
   return probing;
+}
+
+export async function serverTools(now = Date.now()): Promise<HostTool[]> {
+  if (toolCache && (toolCache.clean || now - toolCache.at < TOOL_TTL_MS)) return toolCache.tools;
+  return startProbe(now);
+}
+
+/**
+ * The tool list for a request path that must not WAIT on a self-test. A stale-but-present answer is
+ * returned at once and refreshed in the background, so a submission never pays up to the 60 s self-test
+ * timeout every 10 minutes on a host whose tools are missing or failing (which, after the FoldX licence
+ * date, is permanent). A completely cold cache still waits once, so early submissions are never
+ * refused for tools this server actually has.
+ */
+export async function serverToolsCached(now = Date.now()): Promise<HostTool[]> {
+  if (!toolCache) return startProbe(now);
+  if (!toolCache.clean && now - toolCache.at >= TOOL_TTL_MS) void startProbe(now);
+  return toolCache.tools;
 }
 
 let lastReport = "";
@@ -224,6 +296,11 @@ export function _resetHostProbe(pinned?: HostTool[]): void {
   toolCache = pinned ? { at: 0, tools: pinned, clean: true } : null;
   hostFacts = null;
   lastReport = "";
+}
+
+/** For tests: the last `[host-probe]` line (which carries the licence warning/reason). */
+export function _lastHostProbeReport(): string {
+  return lastReport;
 }
 
 /** For tests: run the self-tests through `runner` instead of starting the real tools. */
@@ -269,8 +346,11 @@ export function serverProvenance(ownerId: string | null, type?: JobType): Comput
  */
 export function freeRamBytes(): number {
   const host = os.freemem();
-  const available = typeof process.availableMemory === "function" ? process.availableMemory() : host;
-  return available > 0 ? Math.min(host, available) : host;
+  if (typeof process.availableMemory !== "function") return host;
+  const available = process.availableMemory();
+  // 0 is a real reading (the cgroup is exhausted), not "unknown": report it, so the engine refuses
+  // rather than falling back to the host's free memory at the one moment the container has none left.
+  return Number.isFinite(available) ? Math.min(host, available) : host;
 }
 
 export async function probeServerHost(load: { runningJobs: number; runningCostMs: number; queuedCostMs: number }): Promise<HostFeatures> {
@@ -283,7 +363,8 @@ export async function probeServerHost(load: { runningJobs: number; runningCostMs
     ...serverHostFacts(),
     os: process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux",
     freeRamBytes: freeRamBytes(),
-    tools: await serverTools(),
+    // Cached so the submission path never blocks on a self-test (see serverToolsCached).
+    tools: await serverToolsCached(),
     runningJobs: load.runningJobs,
     runningCostMs: load.runningCostMs,
     queuedCostMs: load.queuedCostMs,

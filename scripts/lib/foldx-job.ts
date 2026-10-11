@@ -12,7 +12,12 @@ export const AA3: Record<string, string> = {
   L: "LEU", K: "LYS", M: "MET", F: "PHE", P: "PRO", S: "SER", T: "THR", W: "TRP", Y: "TYR", V: "VAL"
 };
 
-/** Same environment the production logs show: pH 7.4, 298.15 K, 0.15 M, fixed rotabase seed. */
+/**
+ * The values the runner is given when the client omits conditions — the UI's own defaults
+ * (`src/shared/biophysicsConditions.ts`: pH 7.4, 298.15 K, 0.15 M). The production runner adds exactly
+ * these only when the caller supplies options, so a benchmark job matches a default UI job; a job with
+ * custom conditions would not, and `--timeSeedRotabase=false` is a property of the runner itself.
+ */
 export const EXTRA_ARGS = ["--timeSeedRotabase=false", "--pH=7.4", "--temperature=298.15", "--ionStrength=0.15"];
 
 export function linkOrCopy(source: string, dest: string, kind: "dir" | "file") {

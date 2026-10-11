@@ -145,8 +145,14 @@ export async function findBindingPocket(
   }
   const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
   if (result.status === "success" || result.status === "none_detected" || result.status === "fallback") {
-    // Every stored result says where it ran (WP-E); this one ran on this server.
-    if (!(result as any).computeProvenance) (result as any).computeProvenance = serverProvenance(null, "p2rank");
+    // Every stored result says where it ran (WP-E) and with WHICH tool. A P2Rank job can fall back to
+    // fpocket (status "fallback"), and the early none_detected returns happen before any tool ran, so
+    // stamp P2Rank's version only when the result's own provenance says P2Rank produced it. Otherwise
+    // the telemetry row would credit an fpocket run to P2Rank and teach P2Rank's curves from it.
+    if (!(result as any).computeProvenance) {
+      const engine = (result as any).provenance?.engine;
+      (result as any).computeProvenance = serverProvenance(null, engine === "p2rank" ? "p2rank" : undefined);
+    }
     cache.set(cacheKey, result);
   }
   return result;
@@ -611,7 +617,7 @@ export async function findBindingPocketInternal(
       let hasNativeFpocket = false;
       const nativeFpocketCmd = process.platform === "win32" ? "fpocket.exe" : "fpocket";
       try {
-        await execFileAsync(nativeFpocketCmd, ["-v"]);
+        await metered(execFileAsync(nativeFpocketCmd, ["-v"]));
         hasNativeFpocket = true;
       } catch (err: any) {
         if (err.code === "ENOENT") {
@@ -628,7 +634,7 @@ export async function findBindingPocketInternal(
       if (useDocker) {
         const absoluteJobDir = path.resolve(jobDir);
         const volumeMount = `${absoluteJobDir}:/workdir`;
-        await execFileAsync("docker", [
+        await metered(execFileAsync("docker", [
           "run",
           "--rm",
           "-v",
@@ -637,9 +643,9 @@ export async function findBindingPocketInternal(
           "fpocket",
           "-f",
           "/workdir/wt.pdb"
-        ], { timeout: 30000, signal });
+        ], { timeout: 30000, signal }));
       } else if (hasNativeFpocket) {
-        await execFileAsync(nativeFpocketCmd, ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal });
+        await metered(execFileAsync(nativeFpocketCmd, ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal }));
       } else {
         console.log(`[Pocket Finder Fallback] Skipping fpocket execution: neither native binary nor Docker engine is accessible.`);
       }

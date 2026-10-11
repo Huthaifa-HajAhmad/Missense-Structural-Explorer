@@ -227,8 +227,11 @@ places a later package would otherwise trip):
   every first job). "One heavy job per host" is an admission rule for WP-D, not a placement filter.
 - Priors: native BuildModel is a line through the two native measurements (2.3 s at 154, 4.7 s at 875);
   emulated BuildModel is `167.2 s x (residues/1085)^1.44` split 13.3 : 153.9 between fixed and per-run
-  (reproduces 167.2 s, the 44.0 s single run and ~10 s for SOD1); RepairPDB scales the 205 s / 489-residue
-  measurement (inferred to be the emulated host) and divides by 60 for native **[estimate]**.
+  (reproduces 167.2 s, the 44.0 s single run and ~10 s for SOD1). RepairPDB is ONE measured curve,
+  `49 s x (residues/154)^2.1`, through two **native** points (49 s at 154 from `compute:benchmark`; 205.4 s
+  at 305 from the `foldx/cache.ts` table, whose BuildModel column is native — not the emulated 489-residue
+  reading once assumed). The emulated repair prior reuses that curve times the same-size BuildModel
+  emulation penalty, so it is never faster than native **[emulated estimate]**.
 
 ---
 
@@ -271,10 +274,10 @@ per-package notes above.
 | Gap | Why it matters | Home |
 |---|---|---|
 | The server's own benchmark (`compute:benchmark` on the ARM host); emulated RepairPDB prior is still an estimate | priors for the server class | owner action, ACCOUNTS.md |
-| Admission by running cost; "one heavy job per host" | memory is now measured per job; needs a few weeks of rows | WP-D2 |
+| Admission by running cost; "one heavy job per host" | memory is measured per job now; the memory fit needs 8 MEASURED peaks (not weeks) before it replaces the size rule, which still applies | WP-D2 |
 | `doc/AGENT.md` (end-user guide to "Connect my computer") | describes a feature that does not exist yet | WP-F |
 | No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
-| De-duplication is process-local (two replicas can run the same job) | only matters with replicas | later; shared-store reservation |
+| De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
 | 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 
@@ -690,8 +693,9 @@ CREATE TABLE job_telemetry (
   error_class TEXT, tool_version TEXT, created_at INTEGER NOT NULL
 );
 ```
-- Peak RSS: sample the child process tree (FoldX, Java) at 1 s intervals; for the sidecar the route
-  reads its own RSS before and after. `host_class` is derived from `arch`, `emulated`, `cores`, total RAM bucket.
+- Peak RSS: sample the child process tree (FoldX, Java) at 1 s intervals (`process-sampler.ts`). The sidecar
+  is not a `JobType` and has no telemetry row, so its own RSS is **not** sampled — deferred, not done.
+  `host_class` is derived from `arch`, `emulated`, `cores`, total RAM bucket.
 - Fit: per (type, host_class), log-log regression of `wall_ms` and `peak_rss_bytes` on `residues`, with
   empirical p90 residual. Refit every 10 new samples, not per request. Plain and explainable, no black box.
 - Ceiling: an OOM at size S sets `maxResidues < S` for that class; two OOMs at the same size make it
@@ -775,9 +779,11 @@ Out of scope: any routing change.
   runs under Box64): Linux reads `/proc/<pid>/status` and uses the kernel's own high-water mark `VmHWM`, so a
   spike between samples is not missed; macOS uses one `ps`; Windows uses PowerShell CIM (`wmic` no longer
   exists) every 2 s. The queue runs each job inside `runInJobMeter` (AsyncLocalStorage) and the two runners call
-  `meterChildProcess(child)`, so no worker signature changed. `peak_rss_bytes` is now written for every ending,
-  including timeouts and out-of-memory deaths. The engine therefore starts judging memory once a class has 8
-  completed rows, against `freeRamBytes()`, which now honours the container's limit (`process.availableMemory`).
+  `meterChildProcess(child)`, so no worker signature changed. `peak_rss_bytes` is written for every ending that has
+  a meter — the in-process timeout and an out-of-memory death included; the ONE exception is a lease-expiry reap of
+  a job orphaned by another process, which has no meter and writes null. The engine uses the memory fit once a class
+  has 8 MEASURED peaks (cache hits do not count), and even then keeps the size guard; free memory honours the
+  container's limit (`process.availableMemory`), and a container reading of 0 is taken as 0, not the host's number.
 - **Self-tests, versions.** `host-probe.ts` runs each tool the way its runner does: FoldX with no command (it prints
   its banner and ends with "Foldx will end" and exit code -1, which is its normal ending), P2Rank `-v` with the
   runner's Java. Missing = cannot start; unverified = starts but fails; a self-test that only times out keeps the
@@ -785,16 +791,31 @@ Out of scope: any routing change.
   A clean probe is kept for the process; it runs in the background at start-up and logs one `[host-probe]` line.
   A bare `foldx` on PATH that cannot start is now missing, where before it was assumed present.
 - **FoldX licence date.** Academic builds are named for the day they stop working (`foldx_20261231`). The probe
-  reads it, warns from 45 days before, and reports FoldX failed after it. **The Linux build in `tools/foldx_linux`
-  stops working on 2026-12-31.**
+  reads that date, warns from 45 days before, and after the day has passed marks FoldX **failed** (so `on` refuses
+  its jobs); a binary whose name carries no date is reported as having no possible warning. **The Linux build in
+  `tools/foldx_linux` stops working on 2026-12-31.**
 - **Benchmark.** `npm run compute:benchmark` (bundled as `dist/compute-benchmark.cjs` for the container) measures
   SOD1 154, GCK 465 (the ~489 slot) and SLC12A4 1,085 AlphaFold models, mutation in the middle of chain A;
   RepairPDB where production repairs (<= 400 residues, or `--repair-all`). One JSON per host class in
   `doc/compute-benchmark/`, rendered into `doc/COMPUTE_BENCHMARK.md` against the engine's CURRENT prior.
   `scripts/lib/foldx-job.ts` is the job layout shared with `foldx-timing.ts`.
-- **Prior corrected.** Native RepairPDB measured 49 s for SOD1; the prior (205 s anchor / 60) said 0.6 s. The native
-  repair prior is now anchored on the measurement. The emulated repair prior and the native BuildModel line
-  (5.4 s predicted, 17 s measured at 1,085 residues, one run) wait for more data; telemetry replaces both after 8 jobs.
+- **Prior corrected.** RepairPDB is now ONE measured curve, `49 s x (residues/154)^2.1`, through two **native**
+  points (49 s at 154 from the benchmark; 205.4 s at 305 from `foldx/cache.ts`, whose BuildModel column is native).
+  The old prior divided a 205 s anchor by the ~60x BuildModel factor and predicted 0.6 s at 154 — ~76x too fast.
+  The emulated server's repair prior reuses that curve times the same-size emulation penalty (never faster than
+  native); the server benchmark replaces it. The native BuildModel line (5.4 s predicted, 17 s measured at 1,085
+  residues, one run) waits for more data; telemetry replaces it after 8 jobs.
+
+**Review 3, 2026-10-11 (post-merge of #110).** Five reviewers (GPT-5.6-Sol, Claude, DeepSeek V4.1 Flash) across four
+dimensions. The follow-ups landed on `fix/wp0-review-followups`: the `compute:benchmark -- <flags>` wrapper was fixed
+(it passed flags straight to `node -e`, which rejected them, so every documented invocation failed); RepairPDB became
+one native curve (above); an fpocket `fallback` is no longer stamped or recorded as P2Rank; the reaper writes a
+lease-expiry's peak; the memory fit needs MEASURED peaks and keeps the size guard; `freeRamBytes()` treats a zero
+container reading as zero; the FoldX licence date is authoritative; the submit path no longer waits on a self-test
+(stale tools are served and refreshed in the background); the tool timeout kills the whole process tree;
+`peak_rss_bytes` uses a high-water mark on Windows too; and the self-test mirrors the runner's batch invocation.
+Test gaps the review named that are still open: a test that the two runners actually CALL `meterChildProcess`
+(so deleting it fails the suite), a `measure()` test for the benchmark, and the joining-job peak above.
 
 ---
 

@@ -13,10 +13,14 @@
  * -----------------
  *   Linux   — `/proc/<pid>/status`, read directly: no subprocess, cheap at 1 s. It uses `VmHWM`, the
  *             kernel's own high-water mark per process, so a spike between two samples is not missed.
- *   macOS   — one `ps -A -o pid=,ppid=,rss=`.
+ *   macOS   — one `ps -A -o pid=,ppid=,rss=`. `rss` is a sampled instantaneous value (a lower bound).
  *   Windows — one PowerShell `Get-CimInstance Win32_Process` (`wmic` is gone from current Windows).
- *             It costs a few hundred milliseconds per call, so Windows samples every 2 s and never
- *             overlaps two calls. Windows is the development host; production is Linux.
+ *             It reads `PeakWorkingSetSize` (the same high-water meaning as Linux's `VmHWM`, falling
+ *             back to the live `WorkingSetSize`), converted to bytes. It costs a few hundred
+ *             milliseconds per call, so Windows samples every 2 s and never overlaps two calls.
+ *
+ * All platforms therefore report a per-process high-water mark, so a peak is comparable across host
+ * classes. macOS is the exception: `ps` has no high-water column, so its numbers are a lower bound.
  *
  * A sample that fails (a process exited mid-read, PowerShell is slow) is skipped, never thrown:
  * measuring a job must not be able to change how the job ends.
@@ -114,8 +118,9 @@ function run(file: string, args: string[], timeoutMs: number): Promise<string> {
   });
 }
 
+/** `PeakWorkingSetSize` is Windows' high-water mark, in KiB; fall back to the live set when absent. */
 const WINDOWS_LIST =
-  "Get-CimInstance Win32_Process | ForEach-Object { '{0},{1},{2}' -f $_.ProcessId, $_.ParentProcessId, $_.WorkingSetSize }";
+  "Get-CimInstance Win32_Process | ForEach-Object { '{0},{1},{2}' -f $_.ProcessId, $_.ParentProcessId, $(if ($_.PeakWorkingSetSize -gt 0) { $_.PeakWorkingSetSize * 1KB } else { $_.WorkingSetSize }) }";
 
 /** Every process on this machine with its parent and resident bytes, by the cheapest means available. */
 export const listProcesses: ProcessLister = async () => {
@@ -125,6 +130,27 @@ export const listProcesses: ProcessLister = async () => {
   }
   return parsePsOutput(await run("ps", ["-A", "-o", "pid=,ppid=,rss="], 5_000));
 };
+
+/**
+ * One process listing shared by every sampler that samples at the same instant. Without it, N concurrent
+ * jobs run N full enumerations per tick (a `/proc` scan each, or one PowerShell/CIM call each), which
+ * competes with the very jobs the measurement exists to observe. Concurrent samplers get one snapshot;
+ * sequential ones each get a fresh one, so nothing reads a stale table.
+ */
+let tableInFlight: Promise<ProcessEntry[]> | null = null;
+export function listProcessesShared(): Promise<ProcessEntry[]> {
+  if (!tableInFlight) {
+    tableInFlight = listProcesses().finally(() => {
+      tableInFlight = null;
+    });
+  }
+  return tableInFlight;
+}
+
+/** For tests: forget a listing that is still in flight. */
+export function _resetProcessTableCache(): void {
+  tableInFlight = null;
+}
 
 /** 1 s where a sample is a few file reads; 2 s where it is a PowerShell process. */
 export const DEFAULT_SAMPLE_MS = process.platform === "win32" ? 2_000 : 1_000;
@@ -183,7 +209,7 @@ export class ProcessTreeSampler {
     const roots = [...this.roots];
     this.inFlight = (async () => {
       try {
-        const total = treeRssBytes(await (this.opts.list ?? listProcesses)(), roots);
+        const total = treeRssBytes(await (this.opts.list ?? listProcessesShared)(), roots);
         if (total > 0 && (this.peak === null || total > this.peak)) this.peak = total;
       } catch {
         // Skipped: a lost sample only makes the peak less exact.
