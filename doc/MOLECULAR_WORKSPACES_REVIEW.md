@@ -114,6 +114,26 @@ list does not yet carry. That is not from `53051d6`, and this pass did not touch
 checkout is also the most likely cause of the review's "branch switched to main" incident: no recorded
 command in the review thread switched branches, but another thread was editing the same files.
 
+## Senior-review resolution (2026-10-11)
+
+The senior review of this refactor (and of the snapshot-retry fix) reported three major findings in
+the Functional domains drawing, verified against the code and fixed on the current branch:
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| Major | Nearby, non-overlapping domains (CBS domains of CNNM2, SLC12A4, ankyrin repeats) were stacked onto separate lanes by a 12px/4px **pixel-gap** test, and lane assignment changed between zoom windows. | Lane assignment now happens in residue space over the whole signature set: two signatures share a lane exactly when their residue intervals never intersect. The 8-lane gap repack is gone; tracks no longer re-flow while zooming. |
+| Major | Below-backbone stems started at the bottom of the **lowest** lane, floating up to 84px under the box that actually covered the residue (an existing test locked this in). | The stem leaves the bottom edge of the covering box in that box's own lane; the old test was rewritten to plate the covering-box rule, both directions. |
+| Major | A broad fold-level match (97% coverage — the class the rail declares "not counted as the residue's domain") inflated the "overlapping domain annotations" count in the finding lead and trace. | The count uses specific coverage only; a lone broad fold now gets its own lead naming the fold as broad coverage, and the caveat and fact row state the fold's span without counting it. |
+
+The reviewer's lower-confidence candidates folded into these: the "one domain inflates the layout"
+observation is the first row's behaviour; the 24px minimum-slot and hit-area concerns only affected
+lane packing through the removed pixel pass. Two cosmetic items were recorded, not fixed, as
+draw-visual polish: the overview strip overprints overlapping domains, and a disulfide bracket can
+disconnect when an anchor cysteine is zoomed out. The guide texts that claimed overlap semantics
+are now accurate for real overlaps only. The snapshot-retry review items (failure-time clock,
+header wording, default-clock test, comment and cleanup nits) were addressed in the
+`snapshotInstall` commit on the same branch.
+
 ## Sources
 
 The established audits retain the citations for existing residue scales, model interpretation and
