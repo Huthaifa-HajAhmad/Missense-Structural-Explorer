@@ -277,7 +277,7 @@ per-package notes above.
 | Admission by running cost; "one heavy job per host" | memory is measured per job now; the memory fit needs 8 MEASURED peaks (not weeks) before it replaces the size rule, which still applies | WP-D2 |
 | `doc/AGENT.md` (end-user guide to "Connect my computer") | describes a feature that does not exist yet | WP-F |
 | No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
-| De-duplication is process-local (two replicas can run the same job) | only matters with replicas | later; shared-store reservation |
+| De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
 | 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 
@@ -814,6 +814,8 @@ lease-expiry's peak; the memory fit needs MEASURED peaks and keeps the size guar
 container reading as zero; the FoldX licence date is authoritative; the submit path no longer waits on a self-test
 (stale tools are served and refreshed in the background); the tool timeout kills the whole process tree;
 `peak_rss_bytes` uses a high-water mark on Windows too; and the self-test mirrors the runner's batch invocation.
+Test gaps the review named that are still open: a test that the two runners actually CALL `meterChildProcess`
+(so deleting it fails the suite), a `measure()` test for the benchmark, and the joining-job peak above.
 
 ---
 

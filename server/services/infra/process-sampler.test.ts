@@ -100,6 +100,29 @@ describe("process tree memory", () => {
     expect(await sampler.stop()).toBeNull();
   });
 
+  it("reports unknown rather than a fabricated zero, and a root that is not listed adds nothing", async () => {
+    const zero = new ProcessTreeSampler({ intervalMs: 60_000, list: async () => [{ pid: 10, ppid: 1, rssBytes: 0 }] });
+    zero.track(10);
+    await zero.sample();
+    expect(await zero.stop()).toBeNull(); // total 0 => still unknown, never a fake 0-byte peak
+
+    const missing = new ProcessTreeSampler({ intervalMs: 60_000, list: async () => [{ pid: 1, ppid: 0, rssBytes: 999 }] });
+    missing.track(404);
+    await missing.sample();
+    expect(await missing.stop()).toBeNull();
+  });
+
+  it("counts a self-parented process once, and ignores track() after stop()", async () => {
+    const sampler = new ProcessTreeSampler({ intervalMs: 60_000, list: async () => [{ pid: 5, ppid: 5, rssBytes: 3 * MiB }] });
+    sampler.track(5); // Windows pid reuse / pid 0 shape: ppid === pid
+    await sampler.sample();
+    expect(sampler.peakBytes).toBe(3 * MiB);
+    await sampler.stop();
+    sampler.track(6); // stopped: a no-op, exactly as job-meter relies on
+    await sampler.sample();
+    expect(sampler.peakBytes).toBe(3 * MiB);
+  });
+
   it("measures a real child that allocates a known amount", async () => {
     const sampler = new ProcessTreeSampler({ intervalMs: 200 });
     const child = await allocatingChild(256);
@@ -128,5 +151,24 @@ describe("job meter", () => {
     });
     const peak = await sampler.stop();
     expect(peak!).toBeGreaterThanOrEqual(180 * MiB);
+  }, 30_000);
+
+  it("does not credit one job's child to another job running at the same time", async () => {
+    // Two metered jobs with clearly different child sizes, running concurrently. If the AsyncLocalStorage
+    // contexts leaked into each other (the property the design must guarantee), the small job's peak
+    // would approach the big one's.
+    const big = new ProcessTreeSampler({ intervalMs: 150 });
+    const small = new ProcessTreeSampler({ intervalMs: 150 });
+    const bigChild = await allocatingChild(256);
+    const smallChild = await allocatingChild(48);
+    await Promise.all([
+      runInJobMeter(big, async () => { meterChildProcess(bigChild); await big.sample(); }),
+      runInJobMeter(small, async () => { meterChildProcess(smallChild); await small.sample(); }),
+    ]);
+    const bigPeak = await big.stop();
+    const smallPeak = await small.stop();
+    expect(bigPeak!).toBeGreaterThanOrEqual(240 * MiB);
+    expect(smallPeak!).toBeGreaterThanOrEqual(40 * MiB); // its own 48 MiB child
+    expect(smallPeak!).toBeLessThan(bigPeak! - 128 * MiB); // and NOT the big job's 256 MiB child
   }, 30_000);
 });

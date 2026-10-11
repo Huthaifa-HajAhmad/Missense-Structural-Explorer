@@ -26,6 +26,7 @@ const {
   probeServerHost, serverTools, serverToolsCached, serverToolVersion, serverProvenance, _resetHostProbe, _setToolRunner,
   _lastHostProbeReport, SERVER_HOST_ID,
   parseFoldxBanner, parseP2RankVersion, foldxBuildExpiry, foldxExpiryNote, foldxBuildExpired, foldxRanNormally, judgeSelfTest,
+  freeRamBytes,
 } = await import("./host-probe.ts");
 const { routingMode } = await import("./admission.ts");
 type ToolRun = import("./host-probe.ts").ToolRun;
@@ -190,6 +191,25 @@ describe("version parsing", () => {
     const check = judgeSelfTest("foldx", ok("something\nunexpected end\n"), null);
     expect(check.tool?.verified).toBe(false);
     expect(check.detail).toContain("unexpected end");
+  });
+});
+
+describe("freeRamBytes", () => {
+  it("takes the smaller of host and container, and a zero container reading as ZERO, not the host's number", () => {
+    const proc = process as unknown as { availableMemory?: () => number };
+    const had = "availableMemory" in proc;
+    const original = proc.availableMemory;
+    try {
+      proc.availableMemory = () => 1 * 1024 ** 2; // a container limit far below the host's free memory
+      expect(freeRamBytes()).toBe(1 * 1024 ** 2);
+      proc.availableMemory = () => 0; // exhausted: THE case the guard exists for — must be 0, not the host
+      expect(freeRamBytes()).toBe(0);
+      if (had) delete proc.availableMemory; // API absent on this Node => fall back to the host reading
+      expect(freeRamBytes()).toBeGreaterThan(0);
+    } finally {
+      if (had) proc.availableMemory = original;
+      else delete proc.availableMemory;
+    }
   });
 });
 
