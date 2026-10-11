@@ -40,14 +40,12 @@
     "compute:benchmark": "node -e \"const fs=require('fs'),cp=require('child_process');const dev=fs.existsSync('node_modules/tsx')&&fs.existsSync('scripts/compute-benchmark.ts');const r=dev?cp.spawnSync(process.execPath,['--import','tsx','scripts/compute-benchmark.ts',...process.argv.slice(1)],{stdio:'inherit'}):cp.spawnSync(process.execPath,['dist/compute-benchmark.cjs',...process.argv.slice(1)],{stdio:'inherit'});process.exit(r.status===null?1:r.status)\" --",
     "user:create": "node -e \"const fs=require('fs'),cp=require('child_process');const dev=fs.existsSync('node_modules/tsx')&&fs.existsSync('scripts/user-admin.ts');const r=dev?cp.spawnSync(process.execPath,['--import','tsx','scripts/user-admin.ts',...process.argv.slice(1)],{stdio:'inherit'}):cp.spawnSync(process.execPath,['dist/user-admin.cjs',...process.argv.slice(1)],{stdio:'inherit'});process.exit(r.status===null?1:r.status)\" create",
     "user:reset": "node -e \"const fs=require('fs'),cp=require('child_process');const dev=fs.existsSync('node_modules/tsx')&&fs.existsSync('scripts/user-admin.ts');const r=dev?cp.spawnSync(process.execPath,['--import','tsx','scripts/user-admin.ts',...process.argv.slice(1)],{stdio:'inherit'}):cp.spawnSync(process.execPath,['dist/user-admin.cjs',...process.argv.slice(1)],{stdio:'inherit'});process.exit(r.status===null?1:r.status)\" reset",
-    "review": "tsx scripts/review.ts review",
-    "review:preview": "tsx scripts/review.ts review --preview",
-    "review:scan": "tsx scripts/review.ts scan",
     "migrate:rasp": "tsx scripts/build-rasp-sqlite.ts",
-    "graft": "node tools/graft/cli.cjs",
-    "search": "zg query",
-    "search:index": "zg index --embedding local/potion-code-16m-v2",
-    "search:status": "zg status"
+    "tools:install": "npm ci --prefix tools/agent-tooling",
+    "graft": "node tools/agent-tooling/cli.cjs graft",
+    "search": "node tools/agent-tooling/cli.cjs zg query",
+    "search:index": "node tools/agent-tooling/cli.cjs zg index --embedding local/potion-code-16m-v2",
+    "search:status": "node tools/agent-tooling/cli.cjs zg status"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
@@ -91,8 +89,6 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@alibaba-group/open-code-review": "^1.11.2",
-    "@nanonets/graft": "^0.16.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
@@ -103,7 +99,6 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitest/coverage-v8": "^4.1.10",
-    "@zvec/zvec-grep": "^0.2.2",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "jsdom": "^30.0.1",
