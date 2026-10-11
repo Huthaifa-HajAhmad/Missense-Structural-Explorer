@@ -272,6 +272,12 @@ export interface SpliceMap {
 }
 
 /** Local display filter, not a biological threshold. Smaller non-zero scores remain inspectable. */
+/** The annotated site of the same type a transcript-direction offset lands on (±1 base), or null —
+ * one source of truth for the map, the source records and the inspector. */
+export function annotatedSpliceSite(sites: SpliceMap["sites"], type: "donor" | "acceptor", offset: number): SpliceMap["sites"][number] | null {
+  return sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1) ?? null;
+}
+
 export const SPLICE_MAP_FLOOR = 0.01;
 /**
  * The SpliceAI reporting windows a reader can choose (Settings and the inline control share this list).
@@ -327,6 +333,8 @@ export interface SplicingEvidence {
       masked: number | null;
       computedLive: boolean | null;
       annotationSet: string | null;
+      /** The transcript the model's own annotation names, when it answered for one. */
+      transcriptId: string | null;
     } | null;
     /** One line naming what served the number. */
     sourceText: string;
@@ -525,7 +533,7 @@ function buildSpliceMap({
     }
     const offset = strand === "-" ? -c.dp : c.dp;
     const type: "donor" | "acceptor" = c.key === "ds_dg" || c.key === "ds_dl" ? "donor" : "acceptor";
-    const near = sites.find(x => x.type === type && Math.abs(x.offset - offset) <= 1);
+    const near = annotatedSpliceSite(sites, type, offset);
     predictions.push({
       key: c.key,
       name: SPLICE_CHANNEL_NAME[c.key],
@@ -771,6 +779,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
         masked: finite(sai.provenance.masked),
         computedLive: typeof sai.provenance.computedLive === "boolean" ? sai.provenance.computedLive : null,
         annotationSet: sai.provenance.annotationSet ?? null,
+        transcriptId: typeof sai.provenance.transcriptId === "string" ? sai.provenance.transcriptId : null,
       }
     : null;
 

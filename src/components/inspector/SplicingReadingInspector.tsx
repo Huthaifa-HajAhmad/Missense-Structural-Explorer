@@ -6,7 +6,6 @@ import type { SplicingWorkspaceReading } from '../../shared/splicingWorkspace';
 
 const offsetLabels = ['Genomic offset from variant', 'Transcript offset from variant'];
 const settingLabels = ['Reporting window', 'Masking'];
-
 /** A splice reading has two coordinate systems: keep them paired, separate from provenance. */
 export function SplicingReadingInspector({ rows }: { rows: SplicingWorkspaceReading[] }) {
   const workspace = useEvidenceWorkspace('splicing');
@@ -31,9 +30,12 @@ export function SplicingReadingInspector({ rows }: { rows: SplicingWorkspaceRead
         <span className="spl-inspection__unit">{score?.label}</span>
         <p>{row.description}</p>
       </div>
-      {offsets.length > 0 && <div className="spl-inspection__position">
+      {row.channel && <div className="spl-inspection__position">
         <h4>Position from variant</h4>
-        <dl className="spl-inspection__pair">{offsets.map(f => <div key={f.label}><dt>{f.label.startsWith('Genomic') ? 'Genomic' : 'Transcript'}</dt><dd>{f.value}</dd></div>)}</dl>
+        {offsets.length > 0
+          ? <dl className="spl-inspection__pair">{offsets.map(f => <div key={f.label}><dt>{f.label.startsWith('Genomic') ? 'Genomic' : 'Transcript'}</dt><dd>{f.value}</dd></div>)}</dl>
+          // Below the floor or not returned: the record states why no offset is shown as a location.
+          : <p className="spl-inspection__no-position">{row.position}</p>}
         <p>{row.site}</p>
       </div>}
       <div className="spl-inspection__provenance">

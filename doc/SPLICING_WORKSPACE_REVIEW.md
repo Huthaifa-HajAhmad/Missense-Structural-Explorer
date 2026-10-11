@@ -76,6 +76,26 @@ The work is isolated in `Missense-Splicing-Workspace`; unrelated functional-doma
 `architectureLayout.ts` were not changed. Recheck shared-style integration when merging into the
 actively edited main workspace.
 
+## Review resolution (2026-10-11, senior reviewers)
+
+The three senior reviews produced a ranked list of findings; every addressed item is recorded here.
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| Major | The workspace mode hid the "Splice readings" table (dbscSNV and AlphaGenome rows, cut-point rulers, About buttons, PP3/BP4 legend) from the real app, because the app always enables the workspace. | The table now renders in the Splice map view whenever the workspace is enabled, and in legacy mode as before; the Source records view keeps exact values and the inspector. The window control stays mounted in the workspace tools row in the map view (the readings table's own control is legacy-only), so the re-score instance does not unmount. |
+| Major | Zero and below-floor channels showed their raw delta offset as a location ("−100 bp · transcript"). | Records and the inspector now state "No meaningful position"; the raw offset survives only as a labelled provenance fact ("Raw genomic offset (not a position)"), so nothing on screen asserts a place where none exists. |
+| Minor | The map and records duplicated the annotated-site rule, so they could disagree. | The coincidence test moved to `annotatedSpliceSite` in `splicingEvidence.ts`; the map, records and inspector all derive from it. |
+| Minor | Predictions implied they belong to the displayed transcript; the caveat sat in collapsed notes. | The map's control row states that predictions are scored against SpliceAI's own annotation, which may differ from the shown transcript. Root fix: the Broad re-score now carries the service's own `transcriptId` in provenance (server), surfaced as "Prediction transcript" in the records' provenance. |
+| Minor | The re-score's window check compared the response against the request, mostly a tautology. | `spliceai_broad.ts` no longer falls back to the requested distance: provenance `distanceBp` now means the provider stated the window, so checking the returned provenance is a real cross-check. |
+| Minor | Every map mark was a tab stop, arrows also re-pinned, `aria-pressed` promised a toggle, and decorative SVG text reached screen readers. | Roving tabindex with one tab stop on the pinned mark (or the first drawn), arrows move focus only, and all decorative `<text>` elements are `aria-hidden`. Pin buttons keep the workspace-wide selection convention (pin via control, release via the inspector's Clear pin), so `aria-pressed` marks which control owns the pin; that convention was kept deliberately across the nine workspace tabs. |
+
+The identity-key mismatch the review flagged as uncertain proved to be the same unmount issue
+recorded under the first row: it is now impossible for the view switch to drop an in-flight
+re-score, and the allele/locus/assembly guard is unchanged. The lane/stem and broad-count findings
+of the molecular review are addressed on the main checkout (residue-space lane packing,
+covering-box stems, broad matches excluded from the count); see `MOLECULAR_WORKSPACES_REVIEW.md`
+and the review-resolution commits on the current branch.
+
 UI polish review: **Approve** for the inspected rendering and interactions. Live-provider behavior
 and the automated geometry CLI remain **Not verified**, as described above.
 

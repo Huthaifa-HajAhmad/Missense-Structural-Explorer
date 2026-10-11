@@ -52,6 +52,8 @@ export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; ch
 export function InspectReadingButton({ tab, readingKey, children }: { tab: EvidenceWorkspaceTab; readingKey: string; children: ReactNode }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return <>{children}</>;
+  // Selection convention of the whole workspace: a reading button pins its reading; the inspector's
+  // Clear pin is the single release action. `aria-pressed` marks which control owns the pin.
   return <button type="button" className="evw-reading-button" aria-pressed={w.selected === readingKey} onClick={() => w.select(readingKey)}>{children}</button>;
 }
 export function RevealEvidenceInspector() {

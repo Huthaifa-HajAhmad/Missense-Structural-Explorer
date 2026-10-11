@@ -430,6 +430,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
 
       {workspace.enabled && <div className="spl-workspace-tools">
         <p>Pin a channel to follow its score, location and source in the inspector.</p>
+        {/* One control regardless of the visible view: the request instance must not unmount on tab switch. */}
         <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />
       </div>}
       <EvidencePanel tab="splicing">
@@ -512,14 +513,16 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
       </>}
       </EvidencePanel>
 
-      {!workspace.enabled &&
+      {(!workspace.enabled || workspace.comparison) &&
       <section className="spl-section" aria-labelledby="spl-readings-title">
         <div className="spl-section__head">
           <h2 className="eyebrow" id="spl-readings-title">
             <ListChecks className="w-3.5 h-3.5" />
             Splice readings
           </h2>
-          <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />
+          {/* Legacy mode only: in the workspace the tools row above owns the control, so the
+              request instance stays mounted across view switches. */}
+          {!workspace.enabled && <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />}
         </div>
         <div className="spl-card spl-table-wrap">
           <table className="spl-table" data-testid="splicing-readings">

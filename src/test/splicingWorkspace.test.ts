@@ -26,6 +26,18 @@ describe('splicing workspace records', () => {
     expect(missing.every(r => r.value === null && r.notes.join(' ').includes('did not answer within the request budget'))).toBe(true);
     expect(rows('Missing positions').find(r => r.key === 'spliceai-ds_al')).toMatchObject({ value: 0.3, position: 'Not reported', site: 'Delta position not reported' });
   });
+  it('keeps the raw offset as provenance, never as a location, for below-floor and zero deltas', () => {
+    // A delta under the floor does not locate a predicted effect: the axis refuses it either way.
+    expect(fact('Small signals', 'spliceai-ds_ag', 'Raw genomic offset (not a position)')).toBe('−100 bp');
+    expect(fact('Small signals', 'spliceai-ds_ag', 'Raw transcript offset (not a position)')).toBe('+100 bp');
+    expect(fact('Small signals', 'spliceai-ds_ag', 'Genomic offset from variant')).toBeUndefined();
+    expect(rows('Small signals').find(r => r.key === 'spliceai-ds_ag')?.position).toBe('No meaningful position');
+    expect(rows('Zero').find(r => r.key === 'spliceai-ds_dg')?.position).toBe('No meaningful position');
+    // Placement reads stay intact for channels that reach the floor.
+    expect(fact('Reverse strand', 'spliceai-ds_al', 'Genomic offset from variant')).toBe('+25 bp');
+    const facts = rows('Small signals').find(r => r.key === 'spliceai-ds_ag');
+    expect(facts?.facts.map(f => f.label)).not.toContain('Annotated-site relationship');
+  });
   it('does not interpret a genomic offset as transcript direction without a strand', () => {
     expect(fact('Unknown strand', 'spliceai-ds_al', 'Transcript offset from variant')).toBe('Strand unresolved');
     expect(rows('Unknown strand').find(r => r.key === 'spliceai-ds_al')?.position).toBe('+25 bp · genomic');

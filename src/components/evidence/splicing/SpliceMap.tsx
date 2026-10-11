@@ -195,9 +195,18 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
   const focusedScore = view ? view.focusedScore : localFocused;
   const setZoom = (halfWidth: number | null) => onViewChange ? onViewChange({ halfWidth }) : setLocalZoom(halfWidth);
   const setFocusedScore = (focusedScore: boolean) => onViewChange ? onViewChange({ focusedScore }) : setLocalFocused(focusedScore);
+  const map = { ...sourceMap, halfWidth: zoom ?? sourceMap.halfWidth };
+  // Roving tabindex: one tab stop on the pinned mark (or the first drawn), arrows move focus only.
+  // Arrows leave the choice to Enter/Space, so focus travel never re-orders the pinned reading.
+  const markKeys = [...map.predictions.map(p => p.key), ...map.quiet.map(q => q.key)];
+  const tabStop = selectedKey !== null && selectedKey !== undefined && selectedKey.startsWith('spliceai-')
+    ? selectedKey.slice('spliceai-'.length)
+    : markKeys[0] ?? null;
   const pickProps = (key: string, name: string) => onSelect ? {
-    role: 'button', tabIndex: 0, 'aria-label': `Pin ${name} on splice map`,
-    'aria-pressed': selectedKey === `spliceai-${key}`, 'data-splice-pick': key,
+    role: 'button', tabIndex: key === tabStop ? 0 : -1,
+    'aria-label': `Pin ${name} on splice map`,
+    'aria-pressed': selectedKey === `spliceai-${key}`,
+    'data-splice-pick': key,
     onClick: () => onSelect(`spliceai-${key}`),
     onKeyDown: (event: React.KeyboardEvent<SVGGElement>) => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(`spliceai-${key}`); }
@@ -207,12 +216,9 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
         const index = marks.indexOf(event.currentTarget);
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? marks.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : marks.length - 1)) % marks.length;
         marks[next]?.focus();
-        const target = marks[next]?.getAttribute('data-splice-pick');
-        if (target) onSelect(`spliceai-${target}`);
       }
     },
   } : {};
-  const map = { ...sourceMap, halfWidth: zoom ?? sourceMap.halfWidth };
   // Include scores with missing positions: a focused view must not obscure the highest signal.
   const canFocus = map.maxScore !== null && map.maxScore <= 0.3 && map.predictions.every(p => p.ds <= 0.3);
   const scoreMax = focusedScore && canFocus ? 0.3 : 1;
@@ -330,7 +336,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
           <option value="full">0–1 (full range)</option>
           <option value="focused" disabled={!canFocus}>0–0.3 (focused range)</option>
         </select></label>
-        <span>View controls do not re-score the variant.</span>
+        <span>View controls do not re-score the variant. Predictions are scored against SpliceAI's own annotation, which may differ from the transcript shown here.</span>
       </div>
     <div className="spl-map-scroll" role={onSelect ? 'region' : undefined} aria-label={onSelect ? 'Interactive splice map' : undefined} tabIndex={onSelect ? 0 : undefined}>
     <svg className="spl-map" viewBox={`0 0 ${W} ${H}`} role={onSelect ? 'group' : 'img'} aria-label={spliceMapLabel(map, geometry)}>
@@ -342,8 +348,8 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
       </defs>
 
       <rect className="spl-map__track-surface" x={8} y={8} width={W - 16} height={210} rx={10} />
-      <text className="spl-map__track-title" x={left} y={32}>ANNOTATED TRANSCRIPT</text>
-      <text className="spl-map__transcript-id" x={right} y={32} textAnchor="end">{geometry.transcriptId ?? 'Transcript unresolved'}</text>
+      <text className="spl-map__track-title" x={left} y={32} aria-hidden="true">ANNOTATED TRANSCRIPT</text>
+      <text className="spl-map__transcript-id" x={right} y={32} textAnchor="end" aria-hidden="true">{geometry.transcriptId ?? 'Transcript unresolved'}</text>
       {hasLane && <>
         <rect className="spl-map__prediction-surface" x={8} y={232} width={W - 16} height={yBase - 210} rx={10} />
         <text className="spl-map__track-title" x={left} y={254}>PREDICTED SPLICE CHANGES</text>
@@ -355,14 +361,14 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
       {hasLane && (
         <g className="spl-map__lane">
           <line className="spl-map__lane-base" x1={left} x2={right} y1={yBase} y2={yBase} />
-          <text className="spl-map__lane-text" x={right} y={254} textAnchor="end">SpliceAI Δ · 0–{scoreMax}</text>
+          <text className="spl-map__lane-text" x={right} y={254} textAnchor="end" aria-hidden="true">SpliceAI Δ · 0–{scoreMax}</text>
           <line className="spl-map__score-grid" x1={left} x2={right} y1={LANE_TOP} y2={LANE_TOP} />
-          <text className="spl-map__lane-text" x={left} y={LANE_TOP - 5}>{scoreMax}</text>
+          <text className="spl-map__lane-text" x={left} y={LANE_TOP - 5} aria-hidden="true">{scoreMax}</text>
           <line className="spl-map__pp3" x1={left} x2={right} y1={scoreY(THRESHOLDS.spliceai.splicingPp3)} y2={scoreY(THRESHOLDS.spliceai.splicingPp3)} />
-          <text className="spl-map__lane-text" x={left} y={scoreY(THRESHOLDS.spliceai.splicingPp3) - 4}>
+          <text className="spl-map__lane-text" x={left} y={scoreY(THRESHOLDS.spliceai.splicingPp3) - 4} aria-hidden="true">
             {THRESHOLDS.spliceai.splicingPp3.toFixed(1)} · PP3
           </text>
-          <text className="spl-map__lane-text" x={left} y={yBase + 12}>0</text>
+          <text className="spl-map__lane-text" x={left} y={yBase + 12} aria-hidden="true">0</text>
           {lollipops.map(({ pr, cx, cy, text, labelX, labelY, half, offScale }) => (
             <g key={pr.key} className="spl-map__pred" data-kind={pr.kind} data-pp3={pr.inPp3Band || undefined} data-testid={`map-${pr.key}`} {...pickProps(pr.key, pr.name)}>
               {onSelect && <rect className="spl-map-hit" x={cx - 12} y={cy - 12} width={24} height={24} rx={6} />}
@@ -370,7 +376,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
               <line x1={cx} x2={cx} y1={yBase} y2={cy} />
               {offScale ? <path className="spl-map__offscale" d={pr.offset < 0 ? `M ${cx + 5} ${cy - 5} L ${cx - 3} ${cy} L ${cx + 5} ${cy + 5}` : `M ${cx - 5} ${cy - 5} L ${cx + 3} ${cy} L ${cx - 5} ${cy + 5}`} /> : <circle cx={cx} cy={cy} r={6} />}
               <rect className="spl-map__label-surface" x={labelX - half} y={labelY - 15} width={half * 2} height={23} rx={5} />
-              <text x={labelX} y={labelY} textAnchor="middle">{text}</text>
+              <text x={labelX} y={labelY} textAnchor="middle" aria-hidden="true">{text}</text>
             </g>
           ))}
         </g>
@@ -406,13 +412,13 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
         // The variant's own mark must not sit on the name.
         const shift = e.current && !short && Math.abs(vx - mid) < 40 ? 56 : 0;
         return (
-          <text key={`l-${e.number ?? "x"}-${e.x0}`} className="spl-map__region" data-neighbour={e.current ? undefined : true} x={mid + shift} y={yMid + 4} textAnchor="middle">
+          <text key={`l-${e.number ?? "x"}-${e.x0}`} className="spl-map__region" data-neighbour={e.current ? undefined : true} x={mid + shift} y={yMid + 4} textAnchor="middle" aria-hidden="true">
             {e.number === null ? (short ? "" : "Exon") : short ? e.number : `Exon ${e.number}`}
           </text>
         );
       })}
       {intronLabels.map(l => (
-        <text key={l.text + l.x0} className="spl-map__region" data-muted x={(l.x0 + l.x1) / 2} y={yMid - 8} textAnchor="middle">
+        <text key={l.text + l.x0} className="spl-map__region" data-muted x={(l.x0 + l.x1) / 2} y={yMid - 8} textAnchor="middle" aria-hidden="true">
           {l.text}
         </text>
       ))}
@@ -422,23 +428,23 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
         const sx = x(s.offset + (s.type === "donor" ? 0.5 : -0.5));
         if (sx < left + 20 || sx > right - 20) return null;
         return (
-          <text key={s.type} className="spl-map__site-name" x={sx} y={yMid + 36} textAnchor="middle">
+          <text key={s.type} className="spl-map__site-name" x={sx} y={yMid + 36} textAnchor="middle" aria-hidden="true">
             {s.type === "donor" ? "Annotated donor" : "Annotated acceptor"}
           </text>
         );
       })}
       {map.exonNumber === 1 && map.exon.start !== null && x(map.exon.start) >= left + 20 && x(map.exon.start) <= right - 20 && (
-        <text className="spl-map__site-name" x={x(map.exon.start)} y={yMid + 36} textAnchor="middle">Transcript start</text>
+        <text className="spl-map__site-name" x={x(map.exon.start)} y={yMid + 36} textAnchor="middle" aria-hidden="true">Transcript start</text>
       )}
       {map.totalExons !== null && map.exonNumber === map.totalExons && map.exon.end !== null && x(map.exon.end) >= left + 20 && x(map.exon.end) <= right - 20 && (
-        <text className="spl-map__site-name" x={x(map.exon.end)} y={yMid + 36} textAnchor="middle">Transcript end</text>
+        <text className="spl-map__site-name" x={x(map.exon.end)} y={yMid + 36} textAnchor="middle" aria-hidden="true">Transcript end</text>
       )}
 
       {/* dbscSNV window */}
       {showDbsc && (
         <g className="spl-map__window">
           <path d={`M ${dbscX0} ${yMid + 50} V ${yMid + 56} H ${dbscX1} V ${yMid + 50}`} />
-          <text x={(dbscX0 + dbscX1) / 2} y={yMid + 69} textAnchor="middle">dbscSNV window</text>
+          <text x={(dbscX0 + dbscX1) / 2} y={yMid + 69} textAnchor="middle" aria-hidden="true">dbscSNV window</text>
         </g>
       )}
 
@@ -446,7 +452,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
       <g className="spl-map__variant">
         <line x1={vx} x2={vx} y1={yMid - 22} y2={yMid} />
         <circle cx={vx} cy={yMid} r={6} />
-        <text x={vx} y={yMid - 27} textAnchor="middle">Variant · {map.junction} {signed(map.position)}</text>
+        <text x={vx} y={yMid - 27} textAnchor="middle" aria-hidden="true">Variant · {map.junction} {signed(map.position)}</text>
       </g>
 
       {/* Axis */}
@@ -455,17 +461,17 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
         {ticks.map(t => (
           <g key={t}>
             <line x1={x(t)} x2={x(t)} y1={yMid + 88} y2={yMid + 93} />
-            <text x={x(t)} y={yMid + 106} textAnchor="middle" data-strong={t === 0 || undefined}>{t === 0 ? "variant" : signed(t)}</text>
+            <text x={x(t)} y={yMid + 106} textAnchor="middle" data-strong={t === 0 || undefined} aria-hidden="true">{t === 0 ? "variant" : signed(t)}</text>
           </g>
         ))}
-        <text className="spl-map__caption" x={right} y={yMid + 122} textAnchor="end">bases from the variant · transcript direction →</text>
+        <text className="spl-map__caption" x={right} y={yMid + 122} textAnchor="end" aria-hidden="true">bases from the variant · transcript direction →</text>
       </g>
 
       {/* No-signal row: below-floor channels, drawn off the axis because their Δ has no meaningful position. */}
       {quietRows.length > 0 && (
         <g className="spl-map__quiet" data-testid="map-no-signal-row">
-          <text className="spl-map__quiet-head" x={left} y={quietTop}>No signal</text>
-          <text className="spl-map__quiet-caption" x={left} y={quietTop + 16}>Δ &lt; {SPLICE_MAP_FLOOR} · no predicted site, so not placed on the axis</text>
+          <text className="spl-map__quiet-head" x={left} y={quietTop} aria-hidden="true">No signal</text>
+          <text className="spl-map__quiet-caption" x={left} y={quietTop + 16} aria-hidden="true">Δ &lt; {SPLICE_MAP_FLOOR} · no predicted site, so not placed on the axis</text>
           {quietRows.map((row, ri) =>
             row.map(({ q, cx, label }) => {
               const y = quietItemBase + ri * 36;
@@ -476,7 +482,7 @@ export function SpliceMap({ map: sourceMap, geometry, selectedKey, onSelect, vie
                   <title>{`${q.name}: Δ ${q.ds}; below the ${SPLICE_MAP_FLOOR} plotting floor, so there is no meaningful delta position to place on the axis.`}</title>
                   <line x1={cx - 9} x2={cx + 9} y1={y} y2={y} />
                   <circle cx={cx} cy={y} r={4} />
-                  <text x={cx + 16} y={y + 4}>{label}</text>
+                  <text x={cx + 16} y={y + 4} aria-hidden="true">{label}</text>
                 </g>
               );
             })
