@@ -269,18 +269,21 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
   it("sits signatures with no shared residue on one lane and freezes lane numbers across windows", () => {
     // Demo1 90–245 and Demo3 40–80/290–380 never share a residue: an adjacent pair, not an overlap.
     // The pixel-gap packer separated such pairs; residue-space packing must keep them together, and
-    // the same assignment must hold whatever window is shown.
+    // the same assignment must hold whatever window is shown. Built from the overlap fixture: the
+    // module-level NAE1 evidence carries no SMART DEMO signature.
+    const overlapEv = buildFunctionEvidence(functionEvidenceInputFrom(molecularWorkspaceFixture()));
     const lanesOf = (win: { start: number; end: number }) => {
-      const L = layoutArchitecture(ev, 800, win, null);
+      const L = layoutArchitecture(overlapEv, 800, win, null);
       return new Map(L.domains.filter((d) => d.rowKey.startsWith("match-SMART-DEMO")).map((d) => [d.rowKey, d.lane]));
     };
-    const whole = lanesOf({ start: 1, end: ev.length });
+    const whole = lanesOf({ start: 1, end: overlapEv.length });
     expect(whole.get("match-SMART-DEMO1")).toBe(whole.get("match-SMART-DEMO3"));
-    for (const win of [{ start: 55, end: 320 }, { start: 60, end: 300 }, { start: 100, end: 200 }]) {
+    expect([...whole.keys()].sort()).toEqual(["match-SMART-DEMO1", "match-SMART-DEMO3"]);
+    // Every window compared here actually draws both signatures; a window covering only one of
+    // them says nothing about how the pair was packed.
+    for (const win of [{ start: 55, end: 320 }, { start: 60, end: 300 }]) {
       const m = lanesOf(win);
-      const label = `window ${win.start}–${win.end}`;
-      expect(m.get("match-SMART-DEMO1") ?? -1, label).toBe(whole.get("match-SMART-DEMO1") ?? -2);
-      expect(m.get("match-SMART-DEMO3") ?? -1, label).toBe(whole.get("match-SMART-DEMO3") ?? -2);
+      expect(m, `window ${win.start}–${win.end}`).toEqual(whole);
     }
   });
 });
