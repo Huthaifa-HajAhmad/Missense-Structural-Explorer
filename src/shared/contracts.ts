@@ -1393,7 +1393,9 @@ export const conservationDataSchema = z.object({
       masked: z.number().nullable().optional(),
       /** True when the model ran for this request rather than a table answering. */
       computedLive: z.boolean().optional(),
-      annotationSet: z.string().nullable().optional()
+      annotationSet: z.string().nullable().optional(),
+      /** The transcript the model's own annotation names, when the service answered for one. */
+      transcriptId: z.string().nullable().optional()
     }).optional()
   }).nullable().optional(),
   /**

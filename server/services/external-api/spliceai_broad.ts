@@ -196,8 +196,12 @@ export interface SpliceAiScoreRecord {
   transcriptRefSeqIds: string[];
   isManeSelect: boolean;
   geneSymbol: string | null;
-  /** Which reporting window these scores were produced under. */
-  distance: number;
+  /**
+   * Which reporting window these scores were produced under, as the service itself reports it.
+   * When the response omits it this is null rather than the requested window: a silent fallback
+   * made a client's "provider-reported window" check indistinguishable from the request itself.
+   */
+  distance: number | null;
   /** 1 = masked, 0 = raw. */
   mask: number;
   /** Provenance: "model" (computed now) or "precomputed" (served from a table). */
@@ -363,7 +367,9 @@ export async function fetchSpliceAiBroadOutcome(
       transcriptRefSeqIds: selected.t_refseq_ids ?? [],
       isManeSelect: selected.t_priority === "MS",
       geneSymbol: selected.g_name ?? null,
-      distance: body.distance ?? distance,
+      // The service's own body carries the applied window; the request's distance is NOT a fallback,
+      // so a provenance window always means the provider said so.
+      distance: body.distance ?? null,
       mask: Number(body.mask ?? mask),
       // The service reports "spliceai:model" when it ran the model for this request, which
       // distinguishes a live computation from a table lookup and belongs in provenance.

@@ -6,7 +6,8 @@ import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 
 type View = 'comparison' | 'records';
-interface TabState { view: View; selected: string | null; filter: AttributionFilter; expanded: string[]; section: string; query: string; cohort: string; relevantOnly: boolean; window?: { start: number; end: number } | 'whole' | 'near'; hidden?: string[] }
+export interface SpliceMapView { transcript: string | null; halfWidth: number | null; focusedScore: boolean; showSmallSignals: boolean }
+interface TabState { view: View; selected: string | null; filter: AttributionFilter; expanded: string[]; section: string; query: string; cohort: string; relevantOnly: boolean; window?: { start: number; end: number } | 'whole' | 'near'; hidden?: string[]; spliceMap?: SpliceMapView }
 const initial: TabState = { view: 'comparison', selected: null, filter: 'all', expanded: [], section: '', query: '', cohort: 'all', relevantOnly: false };
 const Context = createContext<{ states: Partial<Record<EvidenceWorkspaceTab, TabState>>; update: (tab: EvidenceWorkspaceTab, patch: Partial<TabState>) => void } | null>(null);
 
@@ -33,13 +34,13 @@ export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
   const toggleGroup = useCallback((group: string) => context?.update(tab, { expanded: state.expanded.includes(group) ? state.expanded.filter(g => g !== group) : [...state.expanded, group] }), [context, tab, state.expanded]);
   return { ...state, enabled: context !== null,
     comparison: context !== null && state.view === 'comparison',
-    setOptions: (patch: Partial<Pick<TabState, 'section' | 'query' | 'cohort' | 'relevantOnly' | 'window' | 'hidden'>>) => context?.update(tab, patch),
+    setOptions: (patch: Partial<Pick<TabState, 'section' | 'query' | 'cohort' | 'relevantOnly' | 'window' | 'hidden' | 'spliceMap'>>) => context?.update(tab, patch),
     setView, setFilter, select, toggleGroup };
 }
 export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return null;
-  const names: Record<EvidenceWorkspaceTab, string> = { clinical: 'Population', predictors: 'Predictors', alphagenome: 'AlphaGenome', 'gene-disease': 'Gene–disease', 'expression-models': 'Expression', 'species-models': 'Species & models', structure: 'Residue shifts & pockets', perturbation: 'Structural perturbation', function: 'Functional domains' };
+  const names: Record<EvidenceWorkspaceTab, string> = { clinical: 'Population', predictors: 'Predictors', alphagenome: 'AlphaGenome', 'gene-disease': 'Gene–disease', 'expression-models': 'Expression', 'species-models': 'Species & models', structure: 'Residue shifts & pockets', perturbation: 'Structural perturbation', function: 'Functional domains', splicing: 'RNA splicing' };
   return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${names[tab]} views`}
     tabs={[{ id: 'comparison', label: comparisonLabel }, { id: 'records', label: 'Source records' }]} value={w.view} onChange={w.setView} /><RevealEvidenceInspector /></div>;
 }
@@ -51,6 +52,8 @@ export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; ch
 export function InspectReadingButton({ tab, readingKey, children }: { tab: EvidenceWorkspaceTab; readingKey: string; children: ReactNode }) {
   const w = useEvidenceWorkspace(tab);
   if (!w.enabled) return <>{children}</>;
+  // Selection convention of the whole workspace: a reading button pins its reading; the inspector's
+  // Clear pin is the single release action. `aria-pressed` marks which control owns the pin.
   return <button type="button" className="evw-reading-button" aria-pressed={w.selected === readingKey} onClick={() => w.select(readingKey)}>{children}</button>;
 }
 export function RevealEvidenceInspector() {

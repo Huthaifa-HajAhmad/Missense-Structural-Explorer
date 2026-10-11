@@ -50,6 +50,9 @@ export function liveSpliceAiFields(outcome: SpliceAiOutcome | null): Pick<Conser
         masked: live.mask,
         computedLive: live.computedLive,
         annotationSet: live.isManeSelect ? "MANE Select" : null,
+        // The service's own transcript record: the displayed geometry transcript and the
+        // annotation the predictions were scored against can legitimately differ.
+        transcriptId: live.transcriptId,
       },
     },
     spliceaiFailure: null,

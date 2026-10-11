@@ -64,7 +64,7 @@ describe("SpliceWindowControl", () => {
     // What was sent is exactly what the route will accept: one schema, shared.
     expect(spliceAiScoreRequestSchema.safeParse(JSON.parse(init.body)).success).toBe(true);
     // The store update is a function of the previous state: apply it to see what lands.
-    const next = setAnalysisState.mock.calls[0][0]({ result: { conservationData: result.conservationData } });
+    const next = setAnalysisState.mock.calls[0][0]({ result });
     expect(next.result.conservationData.spliceai.provenance.distanceBp).toBe(1000);
     // And the tab reads the merged payload as a ±1000 score: the control now selects ±1000 from it.
     const merged = { ...result, conservationData: next.result.conservationData };
