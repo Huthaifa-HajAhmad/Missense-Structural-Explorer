@@ -48,6 +48,21 @@ container makes preflight refuse the update because its origin topology cannot b
 Supporting that profile requires routing it through the stable Caddy proxy and adding a verified
 preflight for that topology. Until then, tunnel deployments require planned maintenance.
 
+## Applying a changed setting
+
+Compose reads `deploy/.env.oci` only when it creates a container, and a same-revision run of the
+driver is a no-op. To apply an edited setting (`AUTH_MODE`, a quota, `COMPUTE_ROUTING` …) without
+cutting off running work, hand over to a fresh generation of the serving revision:
+
+```bash
+python3 deploy/rollout.py --restart --commit "$(git rev-parse HEAD)"
+```
+
+It is the full handover above: warm, switch, drain, activate, retire. The proxy switch is still
+verified through Caddy's admin configuration; the public version check can only confirm the
+revision, which both generations share. Do not use `docker restart` (it keeps the old environment)
+or `docker compose up` (it skips the drain).
+
 ## Observe and recover
 
 `deploy/runtime/rollout.json` is an atomic, credential-free journal containing the revision,

@@ -27,18 +27,22 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 * **Key Topics**: Variant analysis, biophysical modeling, pocket finding, and authentication.
 
 ### 6. [Deployment Guide](./DEPLOY.md)
-* **Goal**: Setup and deployment runbook for production infrastructure using Caddy and systemd/PM2.
+* **Goal**: Setup runbook for a single Windows host using Caddy and PM2. The production server (OCI, Docker, blue/green handover) is described in [`deploy/ROLLOUT.md`](../deploy/ROLLOUT.md).
 * **Key Topics**: Reverse proxy setup, SSL, environment configuration, and sidecar lifecycle.
 
-### 7. [Future Work & Enhancements Roadmap](./FUTURE_WORK.md)
+### 7. [Accounts & Server Jobs Runbook](./ACCOUNTS.md)
+* **Goal**: For the server owner: create the first admin, invite people, switch on sign-in, and set how server jobs are shared.
+* **Key Topics**: `AUTH_MODE` cut-over and rollback, applying a setting safely, job limits, `COMPUTE_ROUTING`, backups, FoldX licence.
+
+### 8. [Future Work & Enhancements Roadmap](./FUTURE_WORK.md)
 * **Goal**: Highlights alternative machine learning models, visualization upgrades, and technical roadmap items.
 * **Key Topics**: FoldX PositionScan, Rosetta cartesian_ddg, Boltz-2 diffusion, and 2D Δ-distance matrices.
 
-### 8. [Independent Audit Response](./INDEPENDENT_AUDIT_RESPONSE.md)
+### 9. [Independent Audit Response](./INDEPENDENT_AUDIT_RESPONSE.md)
 * **Goal**: Records how each finding of the 2026-09-30 independent audit was verified, fixed, refuted with evidence, or left as an owner decision.
 * **Key Topics**: Richards 2015 combining rules, ClinVar "Conflicting" handling, citation integrity, PM2 strength decision.
 
-### 9. [Literature Tab Review](./LITERATURE_TAB_REVIEW.md)
+### 10. [Literature Tab Review](./LITERATURE_TAB_REVIEW.md)
 * **Goal**: Records the audit and redesign of the Literature tab: what it claimed, what it now proves, and why no journal metrics are shown.
 * **Key Topics**: Query provenance, full-text matches, variant-specific search, degraded-search reporting.
 

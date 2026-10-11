@@ -159,8 +159,14 @@ def drained(status):
 
 class Rollout:
     def __init__(self, docker, commit, readiness_timeout=600, drain_timeout=1800,
-                 clock=time.monotonic, sleep=time.sleep, journal=None):
+                 clock=time.monotonic, sleep=time.sleep, journal=None, restart=False):
         self.docker, self.commit = docker, commit
+        # Hand over to a fresh generation of the SAME revision, so an edited .env.oci takes effect
+        # (Compose reads it only when a container is created). Without this a same-revision run is a
+        # no-op, and the only way to apply a setting was recreating the serving container by hand,
+        # which skips the drain. The proxy switch is still verified through Caddy's admin config;
+        # the public version check can only confirm the revision, which both generations share.
+        self.restart = restart
         self.readiness_timeout, self.drain_timeout = readiness_timeout, drain_timeout
         self.clock, self.sleep = clock, sleep
         self.journal = journal or ROOT / "deploy/runtime/rollout.json"
@@ -207,7 +213,7 @@ class Rollout:
         except Exception:
             self.record("refused")
             raise
-        if status.get("commit") == self.commit:
+        if status.get("commit") == self.commit and not self.restart:
             self.record("complete", active=self.old)
             print(f"[CD] DEPLOY_OK {self.commit} (already serving)", flush=True)
             return
@@ -276,6 +282,8 @@ def main():
     import fcntl  # This driver is intentionally Linux-only; tests can exercise its state machine anywhere.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--restart", action="store_true",
+                        help="hand over even when this revision already serves, to apply an edited .env.oci")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         parser.error("--commit must be a full Git SHA")
@@ -288,24 +296,24 @@ def main():
             if (inherited_stat.st_dev, inherited_stat.st_ino) != (target_stat.st_dev, target_stat.st_ino):
                 raise RuntimeError("Inherited deployment lock does not match the host lock")
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            run_verified_checkout(args.commit)
+            run_verified_checkout(args.commit, args.restart)
         else:
             with lock_path.open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                run_verified_checkout(args.commit)
+                run_verified_checkout(args.commit, args.restart)
     except Exception as error:
         print(f"[CD] DEPLOY_FAILED: {error}", flush=True)
         return 1
     return 0
 
 
-def run_verified_checkout(commit):
+def run_verified_checkout(commit, restart=False):
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if actual != commit:
         raise RuntimeError("Checkout revision does not match --commit; refusing a mislabeled image")
     subprocess.run(["git", "diff", "--quiet", "--exit-code"], cwd=ROOT, check=True)
     subprocess.run(["git", "diff", "--cached", "--quiet", "--exit-code"], cwd=ROOT, check=True)
-    Rollout(Docker(), commit).execute()
+    Rollout(Docker(), commit, restart=restart).execute()
 
 
 if __name__ == "__main__":
