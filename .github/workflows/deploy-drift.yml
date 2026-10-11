@@ -11,16 +11,29 @@ name: Production drift watch
 #
 # This watch is the missing signal. It compares the revision production actually reports (the same
 # public `/api/v1/version` that `rollout.py` itself trusts) against the tip of `main`, and fails when
-# a commit CD claims to have deployed is not live. It is deliberately conservative: a run still in
-# progress, or a freshly completed one inside the grace window, is a notice rather than a failure,
-# because a detached rollout can legitimately still be building.
+# a commit CD claims to have deployed is not live.
+#
+# WHEN IT RUNS. A cron alone is not enough: GitHub throttles scheduled workflows on quiet repositories
+# (observed gaps of 5–6 h despite an hourly cron, 2026-10-10/11), so a silent failure could sit
+# unnoticed for most of a day. It therefore also runs on every CD completion, which is the moment
+# production state changes, as well as hourly as a backstop.
+#
+# THE GRACE WINDOW ONLY EXCUSES A ROLLOUT THAT CAN STILL BE IN FLIGHT. After a SUCCESSFUL CD run a
+# detached rollout may still be building/handing over, so a mismatch younger than GRACE_MINUTES is a
+# notice. A NON-SUCCESS CD run is different: the worker either never started or already stopped
+# (rollback keeps the old generation serving), so nothing is in flight and the mismatch is reported
+# at once — that is what makes running on CD completion worth doing rather than decorative.
 #
 # A red run here is email/The-Actions-tab visible by default. Add Slack/webhook delivery later only
 # if that proves too quiet.
 on:
   schedule:
-    # Hourly. Cheap: one curated API call, one curl, no checkout.
+    # Hourly backstop. Cheap: one curated API call, one curl, no checkout.
     - cron: "23 * * * *"
+  # Prompt check at the moment a deploy finishes, instead of waiting for the throttled cron.
+  workflow_run:
+    workflows: ["Continuous Deployment (OCI)"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -103,16 +116,29 @@ jobs:
             echo "::notice::CD for main is still ${STATUS:-unknown}; production may be mid-handover. Not failing the watch."
             exit 0
           fi
-          if [ -z "$UPDATED_AT" ]; then
-            echo "::notice::CD run for main is complete but has no timestamp to age. Not failing the watch."
-            exit 0
-          fi
 
-          age=$(( ( $(date -u +%s) - $(date -u -d "$UPDATED_AT" +%s) ) / 60 ))
-          echo "CD run completed ${age} min ago"
-          if [ "$age" -lt "$GRACE_MINUTES" ]; then
-            echo "::notice::Within the ${GRACE_MINUTES}-minute grace window; a detached rollout may still be finishing. Not failing the watch."
-            exit 0
+          # THE GRACE WINDOW ONLY APPLIES TO A SUCCESSFUL RUN. `cd.yml` returns after a short
+          # confirmation window while its detached worker finishes build + handover, so a freshly
+          # completed successful run may not be live yet — defer then. A non-success run has no
+          # rollout in flight: the worker either never started (credentials/SSH failure, job timeout)
+          # or already stopped (a `DEPLOY_FAILED` inside the window rolls back and keeps the old
+          # generation serving). Waiting GRACE_MINUTES for it just delays a red the cron would
+          # eventually produce — and on a throttled schedule that "eventually" was hours.
+          if [ "${CONCLUSION:-}" = "success" ]; then
+            if [ -z "$UPDATED_AT" ]; then
+              echo "::notice::CD run for main is complete but has no timestamp to age. Not failing the watch."
+              exit 0
+            fi
+            age=$(( ( $(date -u +%s) - $(date -u -d "$UPDATED_AT" +%s) ) / 60 ))
+            echo "CD run completed ${age} min ago"
+            AGE_TEXT="${age} min ago"
+            if [ "$age" -lt "$GRACE_MINUTES" ]; then
+              echo "::notice::Within the ${GRACE_MINUTES}-minute grace window; a detached rollout may still be finishing. Not failing the watch."
+              exit 0
+            fi
+          else
+            AGE_TEXT="no grace window applies"
+            echo "CD run concluded '${CONCLUSION:-unknown}': nothing is in flight, so no grace window applies."
           fi
 
           {
@@ -124,7 +150,7 @@ jobs:
             echo "| --- | --- |"
             echo "| main | \`$main\` |"
             echo "| production | \`$live\` |"
-            echo "| newest CD run for main | ${CONCLUSION:-unknown}, ${age} min ago |"
+            echo "| newest CD run for main | ${CONCLUSION:-unknown}, ${AGE_TEXT} |"
             echo "| run | ${RUN_URL:-none} |"
             echo ""
             echo "Inspect \`deploy/runtime/rollout.json\` and the newest \`~/mse-deploy-*.log\` on the host."
@@ -134,6 +160,6 @@ jobs:
           if [ "${CONCLUSION:-}" = "success" ]; then
             echo "::error::CD reported success for $main, but production still serves $live (${age} min later). The detached rollout failed silently."
           else
-            echo "::error::The newest CD run for $main concluded '${CONCLUSION:-unknown}' ${age} min ago, and production still serves $live."
+            echo "::error::The newest CD run for $main concluded '${CONCLUSION:-unknown}', and production still serves $live."
           fi
           exit 1
