@@ -1,6 +1,10 @@
 /**
  * openapi.ts — Dynamic OpenAPI 3.1.0 specification generator.
+ *
+ * The queued-compute, account, job and admin paths live in `openapi-compute.ts`.
  */
+import { COMPUTE_PATHS, COMPUTE_SCHEMAS, COMPUTE_TAGS } from "./openapi-compute.ts";
+
 export function generateOpenApiSpec() {
   return {
   "openapi": "3.1.0",
@@ -35,19 +39,17 @@ export function generateOpenApiSpec() {
       "description": "FoldX energetic Delta Delta G, pocket detection, and residue modeling"
     },
     {
-      "name": "Sequence Alignment",
-      "description": "Pairwise Needleman-Wunsch & Smith-Waterman alignment"
-    },
-    {
       "name": "Literature & Insights",
       "description": "PubMed LitRAG search and Gemini clinical narrative synthesis"
     },
     {
       "name": "System & Session",
       "description": "Session authentication, health checks, and engine diagnostics"
-    }
+    },
+    ...COMPUTE_TAGS
   ],
   "paths": {
+    ...COMPUTE_PATHS,
     "/translate-variant": {
       "post": {
         "tags": [
@@ -508,151 +510,6 @@ export function generateOpenApiSpec() {
         }
       }
     },
-    "/biophysical-analysis": {
-      "post": {
-        "tags": [
-          "Structural Biophysics"
-        ],
-        "summary": "Submit FoldX molecular dynamics mutagenesis and thermodynamic Delta Delta G calculation",
-        "operationId": "submitBiophysicalAnalysis",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "gene",
-                  "variant",
-                  "uniprotId"
-                ],
-                "properties": {
-                  "gene": {
-                    "type": "string",
-                    "example": "BRAF"
-                  },
-                  "variant": {
-                    "type": "string",
-                    "example": "p.Val600Glu"
-                  },
-                  "uniprotId": {
-                    "type": "string",
-                    "example": "P15056"
-                  },
-                  "wtPdb": {
-                    "type": "string",
-                    "description": "Optional raw PDB text."
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Energetic calculations, consensus stability classification, and mutant PDB coordinates",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ddG": {
-                      "type": "number",
-                      "nullable": true
-                    },
-                    "foldxDdG": {
-                      "type": "number",
-                      "nullable": true
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "pdb": {
-                      "type": "string",
-                      "nullable": true
-                    },
-                    "energetics": {
-                      "type": "object"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequestError"
-          }
-        }
-      }
-    },
-    "/find-pocket": {
-      "post": {
-        "tags": [
-          "Structural Biophysics"
-        ],
-        "summary": "Detect catalytic and ligand-binding pockets near mutated residue",
-        "operationId": "findBindingPocket",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "pdbText",
-                  "mutIndex"
-                ],
-                "properties": {
-                  "pdbText": {
-                    "type": "string"
-                  },
-                  "mutIndex": {
-                    "type": "number"
-                  },
-                  "targetChain": {
-                    "type": "string",
-                    "default": "A"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "P2Rank pocket coordinates and druggability scores",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "pocketResidues": {
-                      "type": "array",
-                      "items": {
-                        "type": "object"
-                      }
-                    },
-                    "pocketScore": {
-                      "type": "number"
-                    },
-                    "pocketVolume": {
-                      "type": "number"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "success",
-                        "fallback"
-                      ]
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/nearest-residues": {
       "post": {
         "tags": [
@@ -707,71 +564,6 @@ export function generateOpenApiSpec() {
                     },
                     "source": {
                       "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/align-sequences": {
-      "post": {
-        "tags": [
-          "Sequence Alignment"
-        ],
-        "summary": "Perform global (Needleman-Wunsch) or local (Smith-Waterman) pairwise sequence alignment",
-        "operationId": "alignSequences",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "seqA",
-                  "seqB"
-                ],
-                "properties": {
-                  "seqA": {
-                    "type": "string"
-                  },
-                  "seqB": {
-                    "type": "string"
-                  },
-                  "algorithm": {
-                    "type": "string",
-                    "enum": [
-                      "global",
-                      "local"
-                    ],
-                    "default": "global"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Aligned sequences, identity %, similarity %, and visual alignment formatting",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "alignedSeqA": {
-                      "type": "string"
-                    },
-                    "alignedSeqB": {
-                      "type": "string"
-                    },
-                    "identityPercent": {
-                      "type": "number"
-                    },
-                    "score": {
-                      "type": "number"
                     }
                   }
                 }
@@ -854,6 +646,12 @@ export function generateOpenApiSpec() {
   },
   "components": {
     "securitySchemes": {
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "mse_session",
+        "description": "A signed-in browser session (HttpOnly, SameSite=Lax), set by /auth/login, /setup, /auth/accept-invite and /auth/reset. With AUTH_MODE=hybrid or accounts, every write needs it (hybrid also accepts the APP_API_TOKEN bearer)."
+      },
       "SessionAuth": {
         "type": "apiKey",
         "in": "header",
@@ -900,6 +698,7 @@ export function generateOpenApiSpec() {
       }
     },
     "schemas": {
+      ...COMPUTE_SCHEMAS,
       "ErrorResponse": {
         "type": "object",
         "required": [

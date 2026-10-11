@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # setup-oci.sh — Automated Provisioning Script for Oracle Cloud Infrastructure
-# Sets up Docker, UFW firewall (deny all incoming except SSH), 4GB swap, and cron
+# Sets up Docker, UFW firewall (SSH plus the web ports Caddy serves), 4GB swap, and cron
 # ==============================================================================
 
 set -euo pipefail
@@ -73,14 +73,21 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 4. Strict Firewall Posture (Zero Open Web Ports)
+# 4. Firewall: SSH, and 80/443 for Caddy
 # ------------------------------------------------------------------------------
-echo "[+] Configuring strict UFW firewall (Inbound deny all except SSH)..."
+# The public front end is Caddy (deploy/docker-compose.oci.yml), which needs 80 for the Let's Encrypt
+# challenge and the HTTPS redirect, and 443 for the app. This script once closed every web port for
+# a Cloudflare tunnel that is not what runs; the site kept working only because Docker-published
+# ports bypass UFW, which a host hardened against that bypass would not. The OCI security list must
+# allow 80 and 443 as well.
+echo "[+] Configuring UFW firewall (inbound: SSH, HTTP, HTTPS)..."
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp comment 'SSH'
+ufw allow 80/tcp comment 'Caddy: HTTP (ACME challenge, redirect to HTTPS)'
+ufw allow 443/tcp comment 'Caddy: HTTPS'
 ufw --force enable
-echo "[+] Firewall active. Inbound web ports are closed (Tunnel is outbound-only)."
+echo "[+] Firewall active. Inbound: 22, 80, 443."
 
 # ------------------------------------------------------------------------------
 # 5. Directory Layout & Permissions

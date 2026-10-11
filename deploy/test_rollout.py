@@ -159,6 +159,20 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(self.docker.target, OLD)
         self.assertNotIn(("start", NEW), self.docker.events)
 
+    def test_restart_hands_over_the_same_revision_with_the_full_drain(self):
+        # Applying an edited .env.oci: a fresh generation of the serving revision, and the same
+        # warm-switch-drain-activate order as a deploy, so no running job is cut short.
+        self.docker.states[OLD]["commit"] = COMMIT
+        driver = self.driver()
+        driver.restart = True
+        driver.execute()
+        self.assertEqual(self.docker.target, NEW)
+        self.assertNotIn(OLD, self.docker.states)
+        events = self.docker.events
+        self.assertLess(events.index(("start", NEW)), events.index(("switch", NEW)))
+        self.assertLess(events.index(("pause", OLD)), events.index(("resume", NEW)))
+        self.assertLess(events.index(("resume", NEW)), events.index(("stop", "--time", "30", OLD)))
+
     def test_missing_drain_fields_are_never_treated_as_zero(self):
         self.assertFalse(rollout.drained({"protocol": 1, "paused": True}))
 

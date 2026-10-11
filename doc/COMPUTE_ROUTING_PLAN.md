@@ -253,12 +253,14 @@ to fpocket and is not learned; `repaired` in telemetry is the plan at submit, no
 
 ### 0.4 Consolidated status and next phases (2026-10-10, after WP-E)
 
-**Shipped to production:** WP-C, WP-A (server and client), WP-B, WP-0 core, WP-D (in `shadow`). **Open as a PR:**
-WP-E (#103). Everything below is the single list of what is still missing, so a later agent does not have to
-re-derive it from the per-package notes above.
+**Shipped to production:** WP-C, WP-A (server and client), WP-B, WP-0 core, WP-D (in `shadow`), WP-E (#103,
+review fixes #105), WP-G1 (#106). **WP-H** is on `docs/wp-h-ops` (2026-10-11; see its section). Everything below
+is the single list of what is still missing, so a later agent does not have to re-derive it from the
+per-package notes above.
 
 **Owner actions (not code):**
-1. Accounts rollout: `/setup`, invite the team, then `AUTH_MODE` legacy → hybrid → accounts (WP-A note above).
+1. Accounts rollout: `/setup`, invite the team, then `AUTH_MODE` legacy → hybrid → accounts, step by step in
+   `doc/ACCOUNTS.md`. Apply each change with `python3 deploy/rollout.py --restart --commit <serving sha>`.
    Until then every job is `legacy`-owned: fairness, limits, my-jobs and usage are inactive in practice.
 2. Read a few days of `[routing:shadow]` lines (`docker logs`) before `COMPUTE_ROUTING=on`. Check: no line says
    FoldX or P2Rank is missing on the server; how often the 1.25 x largest-completed size rule would refuse.
@@ -267,12 +269,10 @@ re-derive it from the per-package notes above.
 
 | Gap | Why it matters | Home |
 |---|---|---|
-| No client for my-jobs, cancel, queue position, wait estimate, usage, placement/sharing preferences | the server work is invisible to users | **WP-G1** (below) |
-| A cancelled job is reported as `failed` with the error `Cancelled.`; the client shows it as a failure | wrong message after a deliberate cancel | WP-G1 |
 | Memory is not sampled (`peak_rss_bytes` null), no `compute:benchmark`, tool versions not probed, `verified` = present | admission judges size only; agents need versions | WP-0 remainder (before WP-F) |
 | Admission by running cost; "one heavy job per host" | needs measured memory | WP-0 remainder, then WP-D2 |
-| OpenAPI (`server/services/infra/openapi.ts`) lists none of the account, job or admin endpoints | agents and API users cannot discover them | WP-H |
-| Stale Cloudflare claims in README / `doc/DEPLOYMENT_OCI.md`; no owner runbook in the docs | operators follow wrong instructions | WP-H |
+| `doc/AGENT.md` (end-user guide to "Connect my computer") | describes a feature that does not exist yet | WP-F |
+| No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
 | De-duplication is process-local (two replicas can run the same job) | only matters with replicas | later; shared-store reservation |
 | 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
@@ -1178,6 +1178,31 @@ learn rates from observed 429s rather than guess.
 - Add the licence note: FoldX is research use only, non-commercial, small team (the owner's statement).
 - `doc/API.md` and `server/services/infra/openapi.ts` for the new endpoints.
 - `.env.example` entries (check the root for the existing file name).
+
+**Done (2026-10-11, `docs/wp-h-ops`):**
+- `doc/ACCOUNTS.md`, the owner runbook: how access works, applying a setting, first admin, invites, the
+  `AUTH_MODE` cut-over and rollback, day-to-day admin, job limits, `COMPUTE_ROUTING` shadow → on, backups
+  and restore, a settings reference, the FoldX licence note. Linked from `README.md`, `doc/README.md`,
+  `doc/DEPLOY.md` and `doc/API.md`.
+- **Applying a setting had no safe path:** Compose reads `.env.oci` only when it creates a container, and
+  `rollout.py` returned "already serving" for the same revision, so the plan's "set it back and restart"
+  could only be done with `docker compose up`, which skips the drain. `rollout.py --restart` now runs the
+  full handover on the serving revision (`deploy/test_rollout.py` covers the order).
+- Cloudflare claims corrected in `README.md` and the owner's untracked `doc/DEPLOYMENT_OCI.md` (it is
+  deliberately not in the repository; CD preserves the host copy, so the owner copies the update there).
+  `deploy/setup-oci.sh` closed every web port for the tunnel design; the site worked only because
+  Docker-published ports bypass UFW. It now opens 80 and 443 for Caddy.
+- OpenAPI: the queued-compute, account, job and admin paths are in `server/services/infra/openapi-compute.ts`,
+  with a `SessionCookie` scheme. Three documented paths never existed (`/biophysical-analysis`,
+  `/find-pocket`, `/align-sequences`); they are replaced by the real `/generate-mutant`, `/foldx-job/{jobId}`,
+  `/pocket-finder` and `/pocket-job/{jobId}`. `server/routes/docs.test.ts` now fails on a documented route
+  the server does not register, and on an account, admin or job route missing from the spec.
+- `doc/API.md`: the `AUTH_MODE` rules, queued responses and refusals, and the account, job and admin routes.
+- `Caddyfile`: confirmed nothing caches the account routes (Caddy has no cache here, the app sends
+  `no-store`); a comment says so.
+- `.env.example`: concurrency, retention and the placement tunables.
+- **Not done, by decision:** `doc/AGENT.md` moves to WP-F, because it would describe a feature that does
+  not exist yet.
 
 ---
 

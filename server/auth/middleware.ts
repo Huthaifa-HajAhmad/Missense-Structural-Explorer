@@ -52,9 +52,10 @@ function allowedOrigins(req: express.Request): Set<string> {
 
 /**
  * CSRF for cookie-authenticated writes: the body must be JSON (`validateContentType`) AND, when the
- * browser sends an Origin, it must be this site's. CORS here accepts any `*.duckdns.org` origin
- * with credentials, so this exact-match check — not CORS — is what stops another DuckDNS site from
- * acting as a signed-in user.
+ * browser sends an Origin, it must be this site's. CORS grants credentials to exact origins only
+ * (`corsDecision`, express-config.ts), but still answers other `*.duckdns.org` and
+ * `*.trycloudflare.com` origins without them; this exact-match check is the second, independent
+ * guard against another site acting as a signed-in user.
  */
 export function crossSiteWrite(req: express.Request): boolean {
   if (!UNSAFE_METHODS.has(req.method)) return false;
