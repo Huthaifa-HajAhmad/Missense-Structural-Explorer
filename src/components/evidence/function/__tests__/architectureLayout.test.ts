@@ -205,7 +205,7 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
     expect(belowPin(L).stemFrom).toBeCloseTo(L.backbone.y + L.backbone.h / 2, 5);
   });
 
-  it("still meets the lowest domain box when a box covers the residue", () => {
+  it("still meets the box that covers the residue, in that box's own lane", () => {
     const L = layoutArchitecture(
       evidenceWith({
         domains: [{ key: "dom", name: "Test domain", source: "Pfam", accession: "PF0001", interpro: null, entryType: "domain", segments: [{ start: 30, end: 60 }], covers: true, coverage: 0.3, url: null }],
@@ -220,11 +220,35 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
     expect(belowPin(L).stemFrom).toBeCloseTo(boxBottom, 5);
   });
 
-  it("joins the backbone, a lower layer or the box on the real overlap fixture — never the dead gap", () => {
+  it("leaves the covering box itself, not the bottom of an empty deeper lane", () => {
+    // A genuinely overlapping signature forces a second lane, but the residue's own covering box
+    // stays in lane 0: the stem must meet THAT box, not the lowest lane's floor.
+    const L = layoutArchitecture(
+      evidenceWith({
+        domains: [
+          { key: "dom", name: "Covering domain", source: "Pfam", accession: "PF0001", interpro: null, entryType: "domain", segments: [{ start: 30, end: 60 }], covers: true, coverage: 0.3, url: null },
+          { key: "over", name: "Overlapping signature", source: "Pfam", accession: "PF0002", interpro: null, entryType: "domain", segments: [{ start: 50, end: 80 }], covers: false, coverage: 0.3, url: null },
+        ],
+        rows: [row(), row({ key: "match-dom", group: "domains", name: "Covering domain", type: "Pfam", start: 30, end: 60, covers: true, lane: "none", rowKey: "match-dom" })],
+      }),
+      800,
+      { start: 1, end: 100 },
+      null
+    );
+    const covering = L.domains.find((d) => d.key.startsWith("dom-"));
+    const overlapping = L.domains.find((d) => d.key.startsWith("over-"));
+    expect(covering!.lane).toBe(0);
+    expect(overlapping!.lane).toBe(1);
+    expect(belowPin(L).residue).toBe(40);
+    const stemFrom = belowPin(L).stemFrom;
+    expect(stemFrom).toBeCloseTo(covering!.y + 30, 5);
+    expect(stemFrom).not.toBeCloseTo(Math.max(...L.domains.map((d) => d.y + 30)), 5); // never the lowest lane's floor
+  });
+
+  it("joins the backbone, a lower layer or the covering box on the real overlap fixture — never the dead gap", () => {
     const overlap = buildFunctionEvidence(functionEvidenceInputFrom(molecularWorkspaceFixture()));
     const L = layoutArchitecture(overlap, 900, { start: 1, end: overlap.length }, null);
     const backboneEdge = L.backbone.y + L.backbone.h / 2;
-    const lowestBoxBottom = L.domains.length ? Math.max(...L.domains.map((d) => d.y + 30)) : backboneEdge;
     // A secondary-structure strip or a Gene3D lane, when drawn, is the layer the stems leave instead.
     const lowerLayer = L.showSecondary
       ? Math.min(...L.secondary.map((s) => s.y)) + 8
@@ -234,9 +258,32 @@ describe("layoutArchitecture — below-backbone stem geometry", () => {
     const stems = L.pins.filter((p) => p.stem && p.y > L.backbone.y + L.backbone.h);
     expect(stems.length).toBeGreaterThan(0);
     for (const p of stems) {
-      const covered = L.domains.some((d) => p.x >= d.x && p.x <= d.x + d.width);
-      const expected = lowerLayer ?? (covered ? lowestBoxBottom : backboneEdge);
-      expect(p.stemFrom, `stem for residue ${p.residue} (${covered ? "over a domain" : "no box"})`).toBeCloseTo(expected, 5);
+      // The bottom edge of the box that actually covers the residue, in that box's own lane.
+      let coverBottom: number | null = null;
+      for (const d of L.domains) if (p.x >= d.x && p.x <= d.x + d.width) coverBottom = Math.max(coverBottom ?? -Infinity, d.y + 30);
+      const expected = lowerLayer ?? coverBottom ?? backboneEdge;
+      expect(p.stemFrom, `stem for residue ${p.residue} (${coverBottom !== null ? "over a domain" : "no box"})`).toBeCloseTo(expected, 5);
+    }
+  });
+
+  it("sits signatures with no shared residue on one lane and freezes lane numbers across windows", () => {
+    // Demo1 90–245 and Demo3 40–80/290–380 never share a residue: an adjacent pair, not an overlap.
+    // The pixel-gap packer separated such pairs; residue-space packing must keep them together, and
+    // the same assignment must hold whatever window is shown. Built from the overlap fixture: the
+    // module-level NAE1 evidence carries no SMART DEMO signature.
+    const overlapEv = buildFunctionEvidence(functionEvidenceInputFrom(molecularWorkspaceFixture()));
+    const lanesOf = (win: { start: number; end: number }) => {
+      const L = layoutArchitecture(overlapEv, 800, win, null);
+      return new Map(L.domains.filter((d) => d.rowKey.startsWith("match-SMART-DEMO")).map((d) => [d.rowKey, d.lane]));
+    };
+    const whole = lanesOf({ start: 1, end: overlapEv.length });
+    expect(whole.get("match-SMART-DEMO1")).toBe(whole.get("match-SMART-DEMO3"));
+    expect([...whole.keys()].sort()).toEqual(["match-SMART-DEMO1", "match-SMART-DEMO3"]);
+    // Every window compared here actually draws both signatures; a window covering only one of
+    // them says nothing about how the pair was packed.
+    for (const win of [{ start: 55, end: 320 }, { start: 60, end: 300 }]) {
+      const m = lanesOf(win);
+      expect(m, `window ${win.start}–${win.end}`).toEqual(whole);
     }
   });
 });

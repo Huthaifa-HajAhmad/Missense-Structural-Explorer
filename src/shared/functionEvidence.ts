@@ -784,11 +784,15 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
     "not-assessed": "PM1 not assessed",
   }[verdict];
 
-  // The finding.
-  const coveringDomains = domains.filter(d => d.covers);
+  // The finding. A broad fold-level match (a family or repeat covering most of the chain) says
+  // little about one position and is never counted as the residue's domain — the same policy the
+  // inspector states — so it surfaces as broad coverage instead of inflating this count.
+  const coveringDomains = domains.filter(d => d.covers && !broad(d));
+  /** The broad fold-level match over this residue, if any: never the residue's domain, but it is still where the residue sits. */
+  const coveringBroad = domains.find(d => d.covers && broad(d)) ?? null;
   const coveringDomain = coveringDomains[0] ?? null;
   const domainPhrase = coveringDomain
-    ? coveringDomains.length > 1 ? `within ${coveringDomains.length} overlapping domain annotations, including ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})` : `inside the ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})`
+    ? coveringDomains.length > 1 ? `within ${coveringDomains.length} covering domain annotations, including ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})` : `inside the ${coveringDomain.name} (${coveringDomain.source}, ${segText(coveringDomain)})`
     : null;
   let lead: string;
   let sub: string;
@@ -807,12 +811,17 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   } else if (coveringDomain) {
     lead = `Residue ${residue} lies ${domainPhrase}, but no site, region or modification is annotated at it.`;
     sub = `inside the ${coveringDomain.name}, nothing annotated at the residue`;
+  } else if (coveringBroad) {
+    // Only a broad fold-level match covers the residue: name it as what it is, without counting it
+    // as the residue's domain or implying a specific annotation exists here.
+    lead = `Residue ${residue} lies inside the ${coveringBroad.name} (${coveringBroad.source}, ${segText(coveringBroad)}) — a broad fold-level match that says little about one position — and no site, region or modification is annotated at it.`;
+    sub = "inside a broad fold-level match, nothing annotated at the residue";
   } else if (variantsHere.length) {
     lead = `No site, region or modification is annotated at residue ${residue}.`;
     sub = "natural variants only";
   } else {
     lead = `UniProtKB annotates nothing at residue ${residue}.`;
-    sub = domains.length ? "outside every annotated domain" : "no domain, site or modification annotated here";
+    sub = domains.some(d => d.covers) ? "only broad fold-level coverage" : domains.length ? "outside every annotated domain" : "no domain, site or modification annotated here";
   }
   const restParts: string[] = [];
   if (uniprot && contextAtResidue.length) {
@@ -852,10 +861,11 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
       ? { label: "Domain", value: shortDomainName(coveringDomain.name), sub: `${coveringDomain.source} ${segText(coveringDomain)}, ${Math.round(coveringDomain.coverage * 100)}% of the protein` }
       : {
           label: "Domain",
-          value: uniprot ? "None at this residue" : "—",
+          value: uniprot ? (coveringBroad ? `Broad ${coveringBroad.source} match` : "None at this residue") : "—",
           sub: uniprot
             ? [
                 domains.length ? `${domains.length} annotated elsewhere` : null,
+                coveringBroad ? `${shortDomainName(coveringBroad.name)}, ${Math.round(coveringBroad.coverage * 100)}% coverage — the residue's siting, not its domain` : null,
                 structural.find((b) => b.covers && b.coverage >= 0.8) ? `only a whole-chain ${structural.find((b) => b.covers && b.coverage >= 0.8)!.source} segment covers it` : null,
               ]
                 .filter(Boolean)
@@ -902,9 +912,9 @@ export function buildFunctionEvidence(input: FunctionEvidenceInput): FunctionEvi
   ];
 
   const caveats: FunctionEvidence["caveats"] = [];
-  if (coveringDomain && coveringDomain.coverage >= 0.8) {
+  if (coveringBroad) {
     caveats.push({
-      lead: `A domain that spans ${Math.round(coveringDomain.coverage * 100)}% of the protein says little about this position.`,
+      lead: `A domain that spans ${Math.round(coveringBroad.coverage * 100)}% of the protein says little about this position.`,
       rest: "Being inside it is not a PM1 critical domain on its own, and not annotated is not the same as not functional.",
     });
   } else if (uniprot) {

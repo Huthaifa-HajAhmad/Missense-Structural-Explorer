@@ -45,8 +45,8 @@ const MUTATIONS = [
   {
     id: "stem-from-backbone-centre",
     file: LAYOUT,
-    from: "stemFrom: p.above ? (domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2)",
-    to: "stemFrom: p.above ? bb",
+    from: "stemFrom: p.above\n        ? domains.some((d) => d.lane === 0 && p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2",
+    to: "stemFrom: p.above ? bb - bh / 2",
     expect: "stems join the backbone to their heads",
   },
   {

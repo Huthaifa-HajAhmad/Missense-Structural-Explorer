@@ -374,31 +374,24 @@ export function layoutArchitecture(
   // signatures (including all discontinuous segments) on stable lanes, with room for hit areas.
   // This changes drawing geometry only; overlapping source evidence is never deduplicated.
   const domainLanes = new Map<string, number>();
-  const laneEnds: number[] = [];
-  const visibleDomains = ev.domains.map(d => ({ d, segments: d.segments.filter(s => s.end >= win.start && s.start <= win.end) }))
-    .filter(d => d.segments.length).sort((a, b) => a.segments[0].start - b.segments[0].start || a.d.key.localeCompare(b.d.key));
-  // Tighten the horizontal gap for dense proteins before adding height. Preserve every source
-  // signature: overlapping matches still require separate lanes, with no hard lane-count cap.
-  const packLanes = (gap: number) => {
-    const ends: number[] = [];
-    const lanes = new Map<string, number>();
-    for (const { d, segments } of visibleDomains) {
-      const left = x(segments[0].start);
-      const right = Math.max(left + 24, ...segments.map(s => x(s.end)));
-      const free = ends.findIndex(end => end + gap < left);
-      const lane = free < 0 ? ends.length : free;
-      ends[lane] = right;
-      lanes.set(d.key, lane);
-    }
-    return { ends, lanes };
-  };
-  let packing = packLanes(12);
-  /** Tighten the horizontal packing gap after eight lanes; preserve every signature. */
-  const MAX_DOMAIN_LANES = 8;
-  if (packing.ends.length > MAX_DOMAIN_LANES) packing = packLanes(4);
-  packing.lanes.forEach((lane, key) => domainLanes.set(key, lane));
-  laneEnds.push(...packing.ends);
-  const domainOffset = Math.max(0, laneEnds.length - 1) * 42;
+  // Lane assignment is decided in residue space, once for every signature drawn: two signatures
+  // share a lane exactly when their residue intervals never intersect. Database matches are
+  // usually adjacent, not overlapping, and a pixel-gap test made the same adjacent pair switch
+  // lanes between zoom levels, re-flowing the whole stack. Because this pass starts from the
+  // whole signature set, the assignment is identical for every visible window.
+  const laneIntervals: Array<Array<[number, number]>> = [];
+  [...ev.domains]
+    .sort((a, b) => Math.min(...a.segments.map(s => s.start)) - Math.min(...b.segments.map(s => s.start)) || a.key.localeCompare(b.key))
+    .forEach(d => {
+      // One lane for the complete signature, including every discontinuous segment: those land
+      // together because no interval on the lane intersects any of them.
+      const isFree = (intervals: Array<[number, number]>) => !d.segments.some(s => intervals.some(([lo, hi]) => s.start <= hi && s.end >= lo));
+      let lane = laneIntervals.findIndex(isFree);
+      if (lane < 0) { lane = laneIntervals.length; laneIntervals.push([]); }
+      for (const s of d.segments) laneIntervals[lane].push([s.start, s.end]);
+      domainLanes.set(d.key, lane);
+    });
+  const domainOffset = Math.max(0, laneIntervals.length - 1) * 42;
   const lowerBackbone = bb + domainOffset;
   const hasStructural = ev.structuralDomains.length > 0;
   const hasSS = ev.secondaryStructure.length > 0 && span <= SECONDARY_MAX_SPAN;
@@ -469,6 +462,15 @@ export function layoutArchitecture(
         return { key: `${d.key}-${i}`, rowKey, y: centreY - 15, lane, selected: selectedKey === rowKey, start: s.start, end: s.end, x: a, width: w, covers: residueIn(s, ev.residue), label, ends, title: `${name} (${src}), ${s.start}–${s.end}` };
       })
   );
+
+  /** The lowest drawn domain-box bottom edge whose x-range covers `px`, in that box's own lane. */
+  const boxBottomAt = (px: number): number | null => {
+    let bottom: number | null = null;
+    for (const d of domains) {
+      if (px >= d.x && px <= d.x + d.width) bottom = Math.max(bottom ?? -Infinity, bb + d.lane * 42 + 15);
+    }
+    return bottom;
+  };
 
   const structural = ev.structuralDomains.flatMap((d) =>
     d.segments
@@ -610,16 +612,15 @@ export function layoutArchitecture(
       residue: p.residue,
       x: p.px,
       // Over a domain box the stem starts on the box's top edge, not inside it, so it never runs
-      // through the box's label. Below the backbone it leaves the lowest domain box when a box
-      // covers this residue, and the backbone's own edge otherwise: starting both at
-      // lowerBackbone + 15 left the stem floating 9px under the backbone wherever no box was drawn
-      // (an empty lane, or no domain annotation at all).
+      // through the box's label. Below the backbone it leaves the bottom edge of the box that
+      // actually covers this residue, in that box's own lane — not the floor of the lowest lane,
+      // which floats the stem under an empty stack when higher lanes hold the covering box — and
+      // the backbone's own edge when no box is drawn over it.
       stemFrom: p.above
         ? domains.some((d) => d.lane === 0 && p.px >= d.x && p.px <= d.x + d.width) ? bb - 15 : bb - bh / 2
         : hasSS ? ssY + 8
           : hasStructural ? g3Y + 4
-            : domains.some((d) => p.px >= d.x && p.px <= d.x + d.width) ? lowerBackbone + 15
-              : bb + bh / 2,
+            : boxBottomAt(p.px) ?? bb + bh / 2,
       y: headY,
       shape: p.above ? "dot" : "diamond",
       tone: evidenceTone(p.r),
