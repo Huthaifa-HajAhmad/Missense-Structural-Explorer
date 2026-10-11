@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useMemo } from "react";
 import { generateProvenanceManifest } from "../shared/provenance";
-import { computeStabilityConsensus } from "../shared/thresholds";
+import { deriveConsensus } from "../lib/insightsConsensus";
+export { deriveConsensus } from "../lib/insightsConsensus";
 import { toCanonicalDdg } from "../shared/engineStatus";
 // One frequency formatter for the whole app — this card used `toExponential(3)` while the
 // Population Frequencies screen used the shared one, so the same value rendered two ways.
@@ -17,7 +18,6 @@ import {
   Copy,
   Lightbulb,
   Download,
-  KeyRound,
   Settings,
   AlertTriangle
 } from "lucide-react";
@@ -29,59 +29,6 @@ import type { EvidenceTabId } from "../shared/insightsEvidence";
 import { VARIANT_PRESETS } from "../data";
 import { AnalysisState, UserSettings, NearestResidue } from "../types";
 import type { MasterView } from "./MasterSidebar";
-
-/**
- * The consensus verdict DERIVED from the current run state, built from EXACTLY the expressions
- * `EnergeticsView` uses, so an export cannot state a verdict the screen contradicts.
- *
- * `foldingEnergetics.consensusVerdict` is a snapshot taken when the server committed the FoldX job.
- * Remote engines keep resolving for up to ten minutes after that and the badge recomputes as they do,
- * so a report built from the stored field could print "Low Misfolding Risk (Neutral Stability)" for a
- * run the screen calls "High Misfolding Risk (Destabilizing Consensus)". A stored verdict is a fact
- * about the past; an exported report is a claim about this variant.
- *
- * The first version of this function claimed to be equivalent and was not, in two ways that a review
- * reproduced:
- *
- *   • it passed `result.uniprotFeatures` — an object `{ features: [...] }` — where the consensus
- *     expects the ARRAY. `getResidueContext` iterates the argument, so this threw
- *     "features is not iterable" inside both export click handlers: no download, no error UI, both
- *     export buttons dead. The badge passes `result.uniprotFeatures?.features`.
- *   • it sourced the residue index from the live UI selection rather than the variant's own metadata.
- *     A grid sweep showed that alone flips the verdict for ~1000 bundles.
- *
- * `result: any` is what let both mistakes past `tsc`. The parameter is typed now — that is the real
- * fix, because this function's whole job is to agree with a caller elsewhere in the codebase.
- */
-export function deriveConsensus(args: {
-  result: AnalysisState["result"] | null;
-  foldingEnergetics?: any;
-  /** The FoldX single-value fallback, which the badge applies and the first version omitted. */
-  foldingDdG?: number | null;
-  /** Accepted for existing callers; the consensus no longer weights by pLDDT (see below). */
-  plddt?: number | null;
-}) {
-  const { result, foldingEnergetics: fe, foldingDdG } = args;
-  if (!result) return null;
-  return computeStabilityConsensus(
-    {
-      // Mirrors `EnergeticsView`'s `energetics` memo key for key. The five remote engines read from
-      // `foldingEnergetics` only — an extra `?? result.dynamut2` fallback here would be a divergence,
-      // not a safety net.
-      foldx: fe?.foldx ?? foldingDdG ?? null,
-      foldxMean: fe?.foldxMean ?? foldingDdG ?? null,
-      dynamut2: fe?.dynamut2 ?? null,
-      ddmut: fe?.ddmut ?? null,
-      rasp: fe?.rasp ?? null,
-      thermompnn: fe?.thermompnn ?? null,
-      stabilityoracle: fe?.stabilityoracle ?? null,
-      foldxRepairFailed: fe?.foldxRepairFailed ?? false,
-      foldxBinaryMissing: fe?.foldxBinaryMissing ?? false
-    }
-    // Values only. The residue context and pLDDT arguments fed per-context "AUC" weights that had no
-    // source (`protein_class_calibration.json`); they were retired with the probability.
-  );
-}
 
 /**
  * The `verdictContext` the export paths pass to the manifest — one function, so the call site has
@@ -424,13 +371,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   };
 
   return (
-    <div className={`${classCard} overflow-visible flex flex-col transition-all`} id="clinical-insights-report-card">
+    <div className={`${classCard} ins-shell`} id="clinical-insights-report-card">
       {/* Card Header */}
-      <div className={`px-5 py-4 border-b flex items-center justify-between transition-colors ${classCardHeader}`}>
+      <div className={`ins-shell__header ${classCardHeader}`}>
         <div className="flex flex-col">
           <div className="flex items-center gap-2 flex-wrap">
             <FileText className="w-4 h-4" style={{ color: "var(--cs-text-accent)" }} />
-            <h3 className={`text-sm font-bold uppercase tracking-wider font-mono ${classCardTitle}`}>
+            <h3 className={`ins-shell__title ${classCardTitle}`}>
               Insights
             </h3>
             {analysisState.result && analysisState.result.isDemoData && isPresetData && (
@@ -439,14 +386,14 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               </span>
             )}
           </div>
-          <span className="text-[10px] font-medium tracking-wide mt-0.5 flex items-center gap-1" style={{ color: "var(--cs-warn)" }}>
+          <span className="ins-shell__notice">
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            The classification is computed by rules; the written summary is AI-generated. Neither is a clinical determination. Professional evaluation required.
+            The classification is computed by rules; the written summary may be AI-generated or rule-based. Neither is a clinical determination. Professional evaluation required.
           </span>
         </div>
         
         {analysisState.result && (
-          <div className="flex items-center gap-2">
+          <div className="ins-shell__exports">
             {/* Export Provenance Manifest Button */}
             <button
               onClick={handleExportProvenanceJSON}
@@ -479,7 +426,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               {copied ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--cs-text-accent)" }} />
-                  <span className="font-semibold" style={{ color: "var(--cs-text-accent)" }}>Copied!</span>
+                  <span className="font-semibold" style={{ color: "var(--cs-text-accent)" }}>Copied</span>
                 </>
               ) : (
                 <>
@@ -501,25 +448,24 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
 
 
       {/* Card Body */}
-      <div className="p-5 flex-1 flex flex-col justify-center">
-        {analysisState.isLoading ? (
+      <div className="ins-shell__body">
+        {analysisState.isLoading && !analysisState.result ? (
           /* Multi step loader inside insights card */
-          <div className="flex flex-col items-center justify-center py-12 text-center" style={{ color: "var(--cs-text-muted)" }}>
-            <div className="w-10 h-10 border-3 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: "var(--cs-accent-clay)", borderTopColor: "transparent" }}></div>
-            <p className="text-sm font-semibold font-mono mb-2" style={{ color: "var(--cs-text-primary)" }}>Analyzing variant evidence...</p>
-            <p className="text-xs max-w-xs font-mono h-5 animate-pulse" style={{ color: "var(--cs-text-accent)" }}>{loadingStep}</p>
+          <div className="ins-loading" role="status" aria-busy="true">
+            <h4>Analyzing variant evidence…</h4><p>{loadingStep}</p>
+            <div className="ins-loading__rows" aria-hidden="true">{Array.from({ length: 5 }, (_, i) => <span key={i} />)}</div>
           </div>
-        ) : analysisState.error ? (
+        ) : analysisState.error && !analysisState.result ? (
           /* Clean, modern empty/notice state inside insights card */
           <div className="flex flex-col items-center justify-center p-6 rounded-xl my-4 max-w-lg mx-auto text-center border border-cs-border bg-cs-surface-2">
             <div className="p-3 rounded-full border mb-3" style={{ background: "var(--cs-warn-soft)", borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", color: "var(--cs-warn)" }}>
-              <KeyRound className="w-6 h-6" />
+              <AlertTriangle className="w-6 h-6" aria-hidden="true" />
             </div>
             <h4 className="font-semibold text-sm text-cs-text-primary mb-1">
-              Variant Interpretation Awaiting Configuration
+              Variant analysis failed
             </h4>
             <p className="text-xs text-cs-text-secondary leading-relaxed max-w-sm mb-4">
-              Real-time biophysical modeling and clinical narrative synthesis require a configured API key.
+              {analysisState.error}
             </p>
             <button
               type="button"
@@ -528,11 +474,13 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
               style={{ background: "var(--cs-text-accent)", color: "var(--cs-bg)" }}
             >
               <Settings className="w-3.5 h-3.5" />
-              Configure API Key in Settings
+              Review provider settings
             </button>
           </div>
         ) : analysisState.result ? (
           <div className="flex flex-col gap-5 w-full">
+            {analysisState.isLoading && <p className="ins-callout" role="status">Evidence is still arriving. These readings may change as the analysis completes.</p>}
+            {analysisState.error && <p className="ins-callout" data-tone="warning" role="alert">{analysisState.error}</p>}
             {insightsEvidence && (
               <InsightsScreen
                 evidence={insightsEvidence}

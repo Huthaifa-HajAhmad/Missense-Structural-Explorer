@@ -46,6 +46,15 @@ describe("buildInsightsEvidence", () => {
     expect(ev.proposals.map(c => c.code)).toEqual(["PS3"]);
   });
 
+  it('retains a recorded computational criterion when its live voting inputs are missing', () => {
+    const result = nae1({ predictorData: null, conservationData: null });
+    const ev = buildInsightsEvidence({ result, functionInput, stability: null });
+    const lane = ev.lanes.find(l => l.key === 'computational')!;
+    expect(lane.counted).toBe(true);
+    expect(lane.rest).toContain('voting inputs are unavailable');
+    expect(lane.rest).not.toContain('Nothing is counted');
+  });
+
   it("marks only the lane the engine recorded as counted", () => {
     const counted = ev.lanes.filter(l => l.counted).map(l => l.key);
     expect(counted).toEqual(["computational"]);
@@ -62,6 +71,13 @@ describe("buildInsightsEvidence", () => {
 
   it("does not translate fold destabilisation into pathogenicity", () => {
     expect(ev.differ.some(d => d.text.startsWith("Stability leans pathogenic"))).toBe(false);
+  });
+
+  it.each([['BS1', 'Strong', 3], ['BA1', 'Stand-alone', 3]] as const)('draws %s at its recorded strength rather than as supporting', (code, strength, length) => {
+    const result = nae1({ gnomadFrequency: { alleleFrequency: 0.1 }, ruleBasedInsights: { acmgVerdict: 'Benign', acmgCriteria: [{ code, reason: 'Recorded frequency criterion' }] } });
+    const ev = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(ev.lanes.find(l => l.key === 'population')!.length).toBe(length);
+    expect(ev.criteria.find(c => c.code === code)!.strength).toBe(strength);
   });
 
   it("reports that the recorded tier differs from the combining rule", () => {

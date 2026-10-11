@@ -4,7 +4,7 @@
  * The Insights card builds this input inline from its own props. The Report document needs the same
  * consolidated case from three callers (the screen, the rail and the store's copy-as-text), and the
  * store may not import from `src/components`, so the assembly lives here. `stabilityInputFor` maps
- * the engines exactly as `deriveConsensus` in `ClinicalInsightsCard.tsx` does (a parity test pins
+ * the engines exactly as `deriveConsensus` in `lib/insightsConsensus.ts` does (a parity test pins
  * the two together), so the Report cannot show a stability lane the Insights tab would not.
  */
 import type { AnalysisResult } from "./contracts.ts";

@@ -236,7 +236,7 @@ describe("Literature tab — the papers", () => {
     expect(await screen.findByText(/VAR_088123/)).toBeTruthy();
     expect(screen.getByRole("link", { name: /Provider record/ }).getAttribute("href")).toBe(curatedLink.sourceUrl);
     // The curated-only record is shown but is not query membership: the loaded fact stays at 1.
-    const loadedFact = screen.getByText("Loaded here").closest(".lit-fact") as HTMLElement;
+    const loadedFact = screen.getByText("Query matches loaded").closest(".lit-fact") as HTMLElement;
     expect(within(loadedFact).getByText("1")).toBeTruthy();
     expect(within(loadedFact).queryByText("2")).toBeNull();
   });

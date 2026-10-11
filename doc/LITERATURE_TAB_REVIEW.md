@@ -1,5 +1,7 @@
 # Literature tab review
 
+The 2026-10-11 second pass is documented in [Insights and Literature workspaces](./REVIEW_WORKSPACES_REVIEW.md): loaded-text coverage figure, bounded Reading desk, Source records, persistent source inspection and accurate clipboard feedback. Pagination and the newer screening model are described in `LITERATURE_SCREENING_REVIEW.md`.
+
 Reference variant: **NAE1 p.Asp116Gly** (Q13564). Checked against Europe PMC on 2026-09-30.
 
 The tab was audited and rebuilt to the standard of Population Data and Predictors (true → traceable → legible → beautiful).
