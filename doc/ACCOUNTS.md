@@ -153,6 +153,13 @@ The server learns a size limit only after **two** out-of-memory failures, and fo
 30 days. If a learned limit is wrong (for example, the server got more memory), an admin can clear it
 with `DELETE /api/v1/admin/compute/ceilings`; a button for it is planned with live routing (WP-G2).
 
+## Team members' own computers
+
+People can lend their own computer to their own FoldX and pocket jobs (**Settings → Account → Your
+computers**); the admin can share the licensed FoldX with those computers (**Settings → Team → FoldX for the
+team**), and remove it again at any time. Everything about it, including how to make the agent downloadable,
+is in `doc/AGENT.md`.
+
 ## Backups
 
 `deploy/backup-sqlite.sh` copies `data/analyses.sqlite` and `data/accounts.sqlite` safely while the
@@ -178,6 +185,10 @@ All optional unless marked. `.env.example` has the same list with comments.
 | `ACCOUNTS_DB_PATH` | `data/accounts.sqlite` | |
 | `SESSION_TTL_DAYS`, `SESSION_IDLE_HOURS` | 14, 24 | A sign-in lasts at most 14 days, and ends after 24 hours unused. |
 | `APP_API_TOKEN` | **required in production** | The shared token. Read-only once `AUTH_MODE=accounts`. |
+| `AGENT_LEASE_SEC`, `AGENT_HEARTBEAT_SEC` | 60, 20 | A computer's job returns to the server if its lease is not renewed. |
+| `TOOL_BUNDLES_DIR` | `data/tool-bundles` | The team FoldX bundle (doc/AGENT.md). |
+| `AGENT_BUNDLE_DIR` | `data/agent-bundles` | Agent zips offered for download in Settings → Account. |
+| `AGENT_ACCEPTED_FOLDX_VERSIONS`, `AGENT_ACCEPTED_P2RANK_VERSIONS` | none | Comma-separated; refuse computers' results from other versions. |
 
 The startup check refuses to start on an unknown `AUTH_MODE`, a short `ADMIN_SETUP_SECRET` or an
 invalid `PUBLIC_BASE_URL`, and says which one.
@@ -185,9 +196,11 @@ invalid `PUBLIC_BASE_URL`, and says which one.
 ## FoldX licence
 
 FoldX is licensed for academic, non-commercial research. This deployment runs it for a small research
-team on that basis (the owner's statement). The binary is not in the repository and is never
-redistributed: it is mounted from `tools/foldx_linux` on the server. Anyone setting up their own copy
-must get their own licence from <https://foldxsuite.crg.eu/>.
+team on that basis (the owner's statement). The binary is not in the repository and is not
+redistributed by default: it is mounted from `tools/foldx_linux` on the server. Anyone setting up their own copy
+must get their own licence from <https://foldxsuite.crg.eu/>. The one exception is the team bundle an admin
+chooses to upload for team members' own computers (`doc/AGENT.md`), which records the admin's licence
+confirmation and can be removed from every computer with one button.
 
 The academic builds stop working on the date in their file name (`foldx_20261231` works until
 31 December 2026). The `[host-probe]` line names that date and warns from 45 days before it; once the

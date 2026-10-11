@@ -104,8 +104,10 @@ describe("queue rules", () => {
     db.prepare(`INSERT INTO biophysical_jobs (id, type, data, status, created_at, started_at, placement, claimed_by, lease_expires_at)
       VALUES ('j', 'foldx', '{}', 'running', 1, 2, 'agent:a1', 'agent:a1', 999)`).run();
     (q as any).recoverInterruptedJobs();
+    // The lease was already spent, so the computer lost the job: like any hand-back it goes to the server
+    // (which keeps it), while the lease fields themselves are cleared.
     expect(db.prepare("SELECT status, placement, claimed_by, lease_expires_at FROM biophysical_jobs WHERE id = 'j'").get())
-      .toEqual({ status: "queued", placement: null, claimed_by: null, lease_expires_at: null });
+      .toEqual({ status: "queued", placement: "server", claimed_by: null, lease_expires_at: null });
   });
 
   it("finished jobs and old telemetry are pruned; waiting jobs never are", () => {

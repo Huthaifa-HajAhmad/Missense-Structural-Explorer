@@ -104,7 +104,11 @@ export class JobRegistry {
    * The job registered for `cacheKey`, if it is still queued or running. Clears the entry when the job
    * has settled or vanished, which makes the map self-healing rather than a permanent block.
    */
-  private async readRegistered(cacheKey: string, queue: FoldxQueueLike): Promise<FoldxSubmitOrJoinResult | null> {
+  private async readRegistered(
+    cacheKey: string,
+    queue: FoldxQueueLike,
+    mayJoin?: (jobId: string) => boolean,
+  ): Promise<FoldxSubmitOrJoinResult | null> {
     const existingJobId = this.active.get(cacheKey);
     if (!existingJobId) return null;
 
@@ -113,6 +117,9 @@ export class JobRegistry {
       this.release(cacheKey, existingJobId);
       return null;
     }
+    // Running on someone's own computer, and its result may not be given to this caller (Review 3, S2):
+    // not joinable. The caller then runs its own job, which becomes the registered one for the key.
+    if (mayJoin && !mayJoin(existingJobId)) return null;
 
     const jobData = await queue.getJobData(existingJobId);
     return {
@@ -137,10 +144,16 @@ export class JobRegistry {
    *   degenerate→ the leader's job settled before the follower could read it: the follower still
    *               reports `joined: true` for that job id rather than enqueueing a second one.
    */
-  async submitOrJoin(params: { cacheKey: string; queue: FoldxQueueLike; enqueue: () => Promise<string> }): Promise<FoldxSubmitOrJoinResult> {
-    const { cacheKey, queue, enqueue } = params;
+  async submitOrJoin(params: {
+    cacheKey: string;
+    queue: FoldxQueueLike;
+    enqueue: () => Promise<string>;
+    /** Whether this caller may be given that job's result (owner-aware for agent jobs, WP-F). Omitted: always. */
+    mayJoin?: (jobId: string) => boolean;
+  }): Promise<FoldxSubmitOrJoinResult> {
+    const { cacheKey, queue, enqueue, mayJoin } = params;
 
-    const registered = await this.readRegistered(cacheKey, queue);
+    const registered = await this.readRegistered(cacheKey, queue, mayJoin);
     if (registered) return registered;
 
     const leaderInFlight = this.pending.get(cacheKey);
@@ -154,8 +167,13 @@ export class JobRegistry {
         if (this.pending.get(cacheKey) === leaderInFlight) this.pending.delete(cacheKey);
         return this.submitOrJoin(params);
       }
-      const registeredAfterLeader = await this.readRegistered(cacheKey, queue);
+      const registeredAfterLeader = await this.readRegistered(cacheKey, queue, mayJoin);
       if (registeredAfterLeader) return registeredAfterLeader;
+      if (mayJoin && !mayJoin(leader.queueJobId)) {
+        const queueJobId = await enqueue();
+        this.register(cacheKey, queueJobId);
+        return { queueJobId, joined: false, status: null, startedAt: null, phase: null, jobData: null };
+      }
       // Settled between registration and this read: its record still decides ownership (`prewarm`).
       const jobData = await queue.getJobData(leader.queueJobId);
       return { ...leader, joined: true, jobData };
@@ -232,6 +250,7 @@ export function submitOrJoinFoldxJob(params: {
   cacheKey: string;
   queue: FoldxQueueLike;
   enqueue: () => Promise<string>;
+  mayJoin?: (jobId: string) => boolean;
 }): Promise<FoldxSubmitOrJoinResult> {
   return foldxJobRegistry.submitOrJoin(params);
 }

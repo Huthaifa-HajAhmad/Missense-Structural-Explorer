@@ -12,10 +12,11 @@ import { relativeTime } from "../../account/accountUi";
 import { FormAlert, PasswordChecklist, PasswordField } from "../../account/fields";
 import { describeLimits, describeUsage } from "../../../shared/jobsCopy";
 import type { MeInfo } from "../../../api/accountApi";
+import { YourComputers } from "../../account/YourComputers";
 
 const PLACEMENT_COPY: Record<PlacementPref, string> = {
-  auto: "Each job runs wherever it should finish first.",
-  my_machine: "Your own computer takes your jobs whenever it is connected and about as fast.",
+  auto: "Your connected computer takes your jobs that are waiting for the shared server.",
+  my_machine: "Your connected computer takes your jobs that are waiting for the shared server. Choosing where each job starts comes with live routing.",
   server_only: "Your jobs always run on the shared server, even when your computer is connected.",
 };
 
@@ -255,7 +256,6 @@ export function AccountSection() {
               { value: "server_only", label: "Shared server only" },
             ]}
           />
-          <p className="acct-note">Connecting your own computer arrives with the desktop agent. Until then, every job runs on the shared server.</p>
         </SettingsRow>
         <Switch
           label="Share my results with the team"
@@ -263,6 +263,7 @@ export function AccountSection() {
           checked={user.shareResults}
           onChange={(shareResults) => void save({ shareResults })}
         />
+        <YourComputers />
         <UsageSummary />
       </SettingsSection>
 

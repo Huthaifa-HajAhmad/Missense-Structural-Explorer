@@ -21,7 +21,16 @@ import { isAgentPath, resolvePrincipal, type Principal } from "./principal.ts";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /** Writes that must work while signed out, or nobody could ever sign in. Paths without `/api/v1`. */
-export const SIGN_IN_WRITES = new Set(["/auth/login", "/auth/logout", "/auth/accept-invite", "/auth/invite-info", "/auth/reset", "/setup"]);
+export const SIGN_IN_WRITES = new Set([
+  "/auth/login",
+  "/auth/logout",
+  "/auth/accept-invite",
+  "/auth/invite-info",
+  "/auth/reset",
+  "/setup",
+  // A computer being paired has no token yet; the one-time code it presents is its credential.
+  "/agent/pair/redeem",
+]);
 
 export const SIGN_IN_REQUIRED_MESSAGE =
   "Sign in to run this. If you do not have an account, ask your workspace admin for an invite link.";

@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS agent_tokens (
   last_seen_at INTEGER,
   revoked_at   INTEGER
 );
+CREATE TABLE IF NOT EXISTS agent_pairing_codes (
+  code_hash  TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
 CREATE TABLE IF NOT EXISTS login_attempts (
   key TEXT PRIMARY KEY,
   count INTEGER NOT NULL,
@@ -114,8 +120,25 @@ export function accountsDb(): DatabaseSync {
   } catch (_) {}
   opened.exec("PRAGMA foreign_keys = ON;");
   opened.exec(SCHEMA);
+  migrateAgentTokens(opened);
   db = opened;
   return db;
+}
+
+/**
+ * Additive columns for paired computers (WP-F). `agent_tokens` shipped with WP-A's schema so the table
+ * exists everywhere; what the machine reports about itself arrives with the agent protocol.
+ */
+function migrateAgentTokens(d: DatabaseSync): void {
+  const have = new Set((d.prepare("PRAGMA table_info(agent_tokens)").all() as { name: string }[]).map((c) => c.name));
+  const add = (name: string, ddl: string) => {
+    if (!have.has(name)) d.exec(`ALTER TABLE agent_tokens ADD COLUMN ${name} ${ddl}`);
+  };
+  add("host_json", "TEXT");
+  add("agent_version", "TEXT");
+  add("paused", "INTEGER NOT NULL DEFAULT 0");
+  add("status_json", "TEXT");
+  d.exec("CREATE INDEX IF NOT EXISTS idx_agent_tokens_user ON agent_tokens(user_id)");
 }
 
 /** Close the database. Under test the next call opens a fresh, empty in-memory one. */
@@ -366,6 +389,95 @@ export function getAgentByTokenHash(tokenHash: string): { id: string; user_id: s
   return (accountsDb().prepare("SELECT id, user_id, revoked_at FROM agent_tokens WHERE token_hash = ?").get(tokenHash) as
     | { id: string; user_id: string; revoked_at: number | null }
     | undefined) ?? null;
+}
+
+/** A paired computer as stored. `host_json` is the machine's last self-report (`AgentHostReport`). */
+export interface AgentRow {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: number;
+  last_seen_at: number | null;
+  revoked_at: number | null;
+  host_json: string | null;
+  agent_version: string | null;
+  paused: number;
+  status_json: string | null;
+}
+
+/** Store a new paired computer. Only the token's hash is kept; the caller hands the token over once. */
+export function insertAgentToken(input: { id: string; userId: string; tokenHash: string; name: string; now: number }): void {
+  accountsDb()
+    .prepare("INSERT INTO agent_tokens (id, user_id, token_hash, name, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(input.id, input.userId, input.tokenHash, input.name.trim(), input.now, input.now);
+}
+
+export function getAgent(id: string): AgentRow | null {
+  return (accountsDb().prepare("SELECT * FROM agent_tokens WHERE id = ?").get(id) as AgentRow | undefined) ?? null;
+}
+
+/** A person's paired computers that have not been disconnected, newest first. */
+export function listAgentsFor(userId: string): AgentRow[] {
+  return accountsDb()
+    .prepare("SELECT * FROM agent_tokens WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC")
+    .all(userId) as unknown as AgentRow[];
+}
+
+/** Every computer still connected, for the queue's housekeeping (placements on an agent that went away). */
+export function listActiveAgents(): AgentRow[] {
+  return accountsDb().prepare("SELECT * FROM agent_tokens WHERE revoked_at IS NULL").all() as unknown as AgentRow[];
+}
+
+/** Record what the machine said about itself, and that it was seen now. */
+export function updateAgentReport(
+  id: string,
+  patch: { now: number; hostJson?: string; agentVersion?: string; paused?: boolean; statusJson?: string },
+): void {
+  const sets = ["last_seen_at = ?"];
+  const values: (string | number)[] = [patch.now];
+  if (patch.hostJson !== undefined) { sets.push("host_json = ?"); values.push(patch.hostJson); }
+  if (patch.agentVersion !== undefined) { sets.push("agent_version = ?"); values.push(patch.agentVersion); }
+  if (patch.paused !== undefined) { sets.push("paused = ?"); values.push(patch.paused ? 1 : 0); }
+  if (patch.statusJson !== undefined) { sets.push("status_json = ?"); values.push(patch.statusJson); }
+  accountsDb().prepare(`UPDATE agent_tokens SET ${sets.join(", ")} WHERE id = ? AND revoked_at IS NULL`).run(...values, id);
+}
+
+/**
+ * Disconnect one computer. `userId` scopes it to its owner (a person may only disconnect their own);
+ * omitted, the agent is revoking itself. True when a live token was revoked.
+ */
+export function revokeAgent(id: string, now: number, userId?: string): boolean {
+  const r = userId
+    ? accountsDb().prepare("UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL").run(now, id, userId)
+    : accountsDb().prepare("UPDATE agent_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(now, id);
+  return Number(r.changes) === 1;
+}
+
+// ── Pairing codes (the six characters a person types into their computer's setup page) ─────────────
+
+/** A new code replaces any unused one of the same person, atomically: only the newest code works. */
+export function replacePairingCode(input: { codeHash: string; userId: string; expiresAt: number }): void {
+  inTransaction(() => {
+    accountsDb().prepare("DELETE FROM agent_pairing_codes WHERE user_id = ? AND used_at IS NULL").run(input.userId);
+    accountsDb()
+      .prepare("INSERT INTO agent_pairing_codes (code_hash, user_id, expires_at) VALUES (?, ?, ?)")
+      .run(input.codeHash, input.userId, input.expiresAt);
+  });
+}
+
+/** Single use: the owner's id only for the one caller that consumed a live code. */
+export function consumePairingCode(codeHash: string, now: number): string | null {
+  const row = accountsDb()
+    .prepare("SELECT user_id FROM agent_pairing_codes WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?")
+    .get(codeHash, now) as { user_id: string } | undefined;
+  if (!row) return null;
+  const r = accountsDb().prepare("UPDATE agent_pairing_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL").run(now, codeHash);
+  return Number(r.changes) === 1 ? row.user_id : null;
+}
+
+/** Codes are short-lived; drop the dead ones so the table cannot grow. */
+export function deleteExpiredPairingCodes(now: number): void {
+  accountsDb().prepare("DELETE FROM agent_pairing_codes WHERE expires_at <= ? OR used_at IS NOT NULL").run(now);
 }
 
 // ── Login throttling ───────────────────────────────────────────────────────────────────────────────

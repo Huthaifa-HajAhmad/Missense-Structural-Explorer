@@ -52,6 +52,7 @@ import { submitterId, submitterLimits, submitterPlacementPref } from "../../auth
 import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import { AdmissionError } from "../../services/infra/admission.ts";
 import { countResidues, foldxQueueCostEstimateMs, isAlphaFoldModel } from "../../services/stability/foldx/estimate.ts";
+import { agentJoinGuard } from "../../services/infra/agent-jobs.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -492,6 +493,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           const submission = await submitOrJoinFoldxJob({
             cacheKey: foldxCacheKey,
             queue,
+            // A job running on someone's own computer is joined only if its result may be given to this caller.
+            mayJoin: agentJoinGuard(queue, submitterId(req) ?? null),
             enqueue: async () => {
               await AuditLogger.log("GENERATE_MUTANT", {
                 mutation: actualMutation

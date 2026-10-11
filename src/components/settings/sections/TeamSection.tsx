@@ -8,6 +8,7 @@ import { Avatar } from "../../account/AccountMenu";
 import { OneTimeLink, relativeTime } from "../../account/accountUi";
 import { FormAlert } from "../../account/fields";
 import { isValidEmail } from "../../../shared/accountPolicy";
+import { TeamFoldx } from "../../account/TeamFoldx";
 
 function messageOf(err: unknown, fallback: string): string {
   return err instanceof AccountError ? err.message : fallback;
@@ -399,6 +400,7 @@ export function TeamSection() {
           />
         ))}
       </SettingsSection>
+      <TeamFoldx />
     </div>
   );
 }

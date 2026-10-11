@@ -658,6 +658,11 @@ export function generateOpenApiSpec() {
         "name": "mse_session",
         "description": "A signed-in browser session (HttpOnly, SameSite=Lax), set by /auth/login, /setup, /auth/accept-invite and /auth/reset. With AUTH_MODE=hybrid or accounts, every write needs it (hybrid also accepts the APP_API_TOKEN bearer)."
       },
+      "AgentToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A paired computer's own token (WP-F), issued once by /agent/pair/redeem and stored hashed. Opens /agent/* only; a browser cookie is neither required nor sufficient there."
+      },
       "SessionAuth": {
         "type": "apiKey",
         "in": "header",

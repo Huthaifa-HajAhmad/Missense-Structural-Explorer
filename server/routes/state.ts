@@ -59,6 +59,11 @@ export const PUBLIC_ENDPOINTS = [
   "/api/v1/me",
   "/admin",
   "/api/v1/admin",
+  // Pairing a computer (WP-F): asking for a code needs a signed-in person (requireUser); trading a code
+  // for a token is the unpaired computer's own sign-in, throttled. Every other `/agent/*` route answers
+  // only to an agent token, enforced in `accountAccess` before this list is read.
+  "/agent/pair",
+  "/api/v1/agent/pair",
   "/health",
   "/version",
   "/diagnostics",

@@ -59,6 +59,7 @@ one agent can take it without the others.
 | WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
+| WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** on `feat/wp-f-agent` (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -167,6 +168,65 @@ one agent can take it without the others.
   `validateAgentResult`.
 - Still process-local: two replicas can both run the same job (unchanged; the reservation would have to move into
   the shared store).
+
+**Where WP-F differs from section 7** (the code is the source of truth):
+- **Pairing is a code exchange.** `POST /agent/pair` (signed-in person) returns a six-character, single-use,
+  10-minute code (no 0/O/1/I/L), stored hashed; the agent trades it for its token at `POST /agent/pair/redeem`
+  (public, a sign-in write, throttled with the address limit of 20 per 15 min). The token is shown once.
+  `GET /me/agents` and `DELETE /me/agents/:id` list and disconnect a person's computers. A token stops working
+  the moment its owner is disabled, not only when revoked.
+- **The claim answers 200 `{job: null}`** instead of 204, so every answer carries `foldxBundleVersion`.
+- **What an agent may take, and when.** Only its OWNER's queued jobs, `placement` NULL or its own, a kind it has
+  a self-tested tool for, passing the engine's hard filters for that computer (`decidePlacement` with the
+  computer as the only host and the owner's `placement_pref`; `server_only` never claims). Nothing PLACES a job
+  on an agent yet (WP-G2), and an idle server claims a job within 50 ms, so today a computer takes its owner's
+  **backlog while the server is busy**. A job placed on an agent that goes offline is released by a one-minute
+  housekeeping sweep. A team FoldX copy whose version no longer matches the bundle is not offered FoldX work.
+- **Agent jobs are not server load.** Everywhere the queue measures the server (fair rotation, positions, wait
+  estimates, the load snapshot, `serverMsSince` and the daily cap, the 960 s reaper) rows with
+  `claimed_by = 'agent:%'` are excluded; `claimed_by` stays on a finished agent job so history is attributable.
+  Restart recovery leaves an agent's job alone while its lease is live.
+- **One rule for every hand-back.** A lost lease, any agent failure (whatever its class), an invalid result, or a
+  computer disconnecting hands the job to the server with `placement = 'server'`, so it is retried exactly once
+  and never re-offered to a computer. A computer is never trusted to FAIL a job: someone else may have joined it,
+  and the server's run gives the real answer. The 960 s reaper does not judge agent jobs; a job held past its cap
+  plus a minute is handed back too.
+- **The FoldX worker was split** at the portable seam (`services/stability/foldx-queue-job.ts`, behaviour
+  unchanged for the server): at an agent's claim the server starts RaSP and StabilityOracle, and when the
+  computer's validated FoldX result arrives it is finished (published early, companions awaited, enriched)
+  exactly like a server run. The lease is extended for that finishing so it cannot expire mid-way.
+- **`validateAgentResult`** (`agent-results.ts`): zod schemas (unknown keys dropped, never stored), finite and
+  bounded numbers (|ddG| <= 200), identity (the mutant structure has the requested residue type at the requested
+  residue and chain, and keeps >= 95% of the template's residues; the paired wild type has the wild-type
+  residue), P2Rank only as `success` with engine `p2rank` or `none_detected`, and a well-formed tool version on
+  the optional `AGENT_ACCEPTED_*_VERSIONS` list. Provenance `{computedOn: "agent", validated: true, shared:
+  owner's share_results}`. Cache keys carry the tool version only when it differs from the server's.
+- **Telemetry** for an agent attempt is keyed `<jobId>@agent:<id>`, so a later server run of the same job does not
+  erase what the computer's attempt taught (an out-of-memory death sets that computer class's ceiling). Lease
+  losses are counted in `agent_claims` (queue database) and give the engine its `leaseLossRate`.
+- **Team FoldX upload is `PUT /admin/tools/foldx/:platform` with a raw zip** and the header
+  `X-Foldx-Licence-Confirmed: yes`, not multipart (the app accepts only JSON bodies; this one path is exempted in
+  `validateContentType`, and a zip content type always needs a CORS preflight). The zip is checked before it is
+  stored: the program for that platform recognised by its executable header (PE / ELF / Mach-O), `molecules/`,
+  `rotabase.txt`, the build date. The same checker serves the agent's "drop your zip" step. Versions are a
+  monotonically increasing generation, so a revoke or re-upload always changes the number computers compare.
+- **Agent downloads**: `GET /me/agent-downloads` lists the zips in `AGENT_BUNDLE_DIR` (default
+  `data/agent-bundles`, on the data volume); the admin builds them with `npm run build:agent` and
+  `npm run build:agent-bundle -- --platform <p>` (portable Node 22.23.3 with its pinned SHA-256).
+- **Rate limits**: agent requests skip the per-address `apiLimiter` (a lab's computers share its NAT address with
+  its browsers) and get 120 per minute per computer; the FoldX bundle download 12 per hour per computer.
+- **Runtime downloads are pinned**: Temurin JRE 21.0.12.1+1 per platform (Adoptium's checksums) and P2Rank
+  2.6-alpha (the server's version, so pocket results share its cache keys; GitHub's published digest). A verified
+  download is reused if unpacking failed. On Windows the agent uses `System32\tar.exe`: Git's GNU tar, often first
+  on PATH, reads `C:\...` as a remote host (found in the real run below).
+
+**Verified for real on Windows (2026-10-11).** The bundled `dist/agent/agent.cjs`, as its own process with an empty
+home folder, against the real router in-process: paired by code; downloaded and hash-checked Java and P2Rank;
+ran P2Rank 2.6-alpha on 2OCJ (residue 175, 5 s); the result passed validation and completed the job as
+`computedOn: agent`. Then the team path: the admin uploaded the licensed Windows FoldX (checked, licence
+recorded), the computer installed it by itself, its self-test passed (FoldX 5.1), it ran 2OCJ R175H (23 s, phases
+reported through heartbeats), and the real output passed `validateAgentResult`. Not yet run for real: macOS and
+Linux bundles, a clean Windows machine without Git, and a browser walk of the two new settings screens.
 
 **How the client behaves** (`AccountGate`, mounted around `<App/>` in `main.tsx`):
 - `legacy` with no accounts, or a server without the account routes: the app exactly as before, with no
@@ -292,8 +352,9 @@ to fpocket and is not learned; `repaired` in telemetry is the plan at submit, no
 ### 0.4 Consolidated status and next phases (2026-10-11, after WP-0 and Review 3)
 
 **Everything through WP-H is on `main`:** WP-A, WP-B, WP-C, WP-0 (core #100-series and the remainder #110), WP-D
-(in `shadow`), WP-E (#103, review fixes #105), WP-G1 (#106), WP-H (#109). The list below is what is still
-missing, so a later agent does not have to re-derive it from the per-package notes above.
+(in `shadow`), WP-E (#103, review fixes #105), WP-G1 (#106), WP-H (#109). **WP-F** is on `feat/wp-f-agent`
+(2026-10-11). The list below is what is still missing, so a later agent does not have to re-derive it from the
+per-package notes above.
 
 **Owner actions (not code):**
 1. Accounts rollout: `/setup`, invite the team, then `AUTH_MODE` legacy → hybrid → accounts, step by step in
@@ -308,7 +369,10 @@ missing, so a later agent does not have to re-derive it from the per-package not
 |---|---|---|
 | The server's own benchmark (`compute:benchmark` on the ARM host); emulated RepairPDB prior is still an estimate | priors for the server class | owner action, ACCOUNTS.md |
 | Admission by running cost; "one heavy job per host" | memory is measured per job now; the memory fit needs 8 MEASURED peaks (not weeks) before it replaces the size rule, which still applies | WP-D2 |
-| `doc/AGENT.md` (end-user guide to "Connect my computer") | describes a feature that does not exist yet | WP-F |
+| Nothing PLACES a job on a computer: a computer takes its owner's backlog only while the server is busy | the speed-up reaches people only when the server is loaded | WP-G2 |
+| The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
+| macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
+| Agent telemetry for a handed-back attempt is recorded, but nothing yet SHOWS a person their computer's speed | informational only | WP-G2 |
 | No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
 | De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
 | 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
@@ -321,11 +385,8 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
 
 **Next phases, in order:**
 
-1. **WP-F — agents** (F1 server, F2 runtime and bundle). The largest package, and the next one to build. WP-E
-   already defines how an agent result is stored: stamp `computeProvenance` with `computedOn: "agent"`, `shared`
-   from the owner's `share_results`, `validated` from `validateAgentResult`, and pass `toolVersion` into the
-   cache keys. **Before it ships, close Review 3's finding S2** (the de-duplication join is owner-blind, so a
-   second person can read an unshared agent result).
+1. **WP-F — agents** — done on `feat/wp-f-agent` (see 0.3 and WP-F), including Review 3's finding S2 (see the
+   WP-F notes).
 2. **WP-G2 — live routing** (agents in `HostFeatures[]`, placement shown before and during a run), then
    `COMPUTE_ROUTING=on`.
 3. **WP-I — outbound governor**, I3 (team-wide 429 pause) first.
@@ -1308,6 +1369,9 @@ learn rates from observed 429s rather than guess.
 | `ROUTING_RAM_HEADROOM`, `ROUTING_TIE_MARGIN` | 1.25, 0.20 | C |
 | `AGENT_LEASE_SEC`, `AGENT_HEARTBEAT_SEC` | 60, 20 | F |
 | `AGENT_SERVER_URL`, `AGENT_TOKEN`, `AGENT_MAX_RAM_GB`, `AGENT_PAUSE` | none | F (agent side) |
+| `AGENT_HOME`, `AGENT_PAGE_PORT` | `%LOCALAPPDATA%\MissenseAgent` or `~/.missense-agent`; a random loopback port | F (agent side) |
+| `TOOL_BUNDLES_DIR`, `AGENT_BUNDLE_DIR` | `data/tool-bundles`, `data/agent-bundles` | F |
+| `AGENT_ACCEPTED_FOLDX_VERSIONS`, `AGENT_ACCEPTED_P2RANK_VERSIONS` | none (any well-formed version) | F |
 
 ---
 
