@@ -1,4 +1,5 @@
 import { CANCELLED_RUN_MESSAGE, isCancelledJobError } from "../../shared/jobsCopy";
+import { announceJobsChanged } from "../../api/jobsApi";
 import { BiophysicsConditions, StructureProvenance } from "../../types";
 import { generateMutantResponseSchema } from "../../shared/contracts";
 import { isFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
@@ -566,6 +567,8 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
       if (!jobId) {
         throw new Error("No foldxJobId returned for queued biophysical simulation.");
       }
+      // The queue now holds this person's work: let the header badge say so without waiting for a poll.
+      announceJobsChanged();
 
       let delay = 2000;
       let foldxCommitted = false;

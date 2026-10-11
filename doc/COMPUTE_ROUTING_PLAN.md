@@ -55,7 +55,7 @@ one agent can take it without the others.
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
 | WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (17 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
 | WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test) | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
-| WP-0 remainder: memory sampler, tool self-tests and versions, `compute:benchmark` | **done** on `feat/wp0-measure` (7 sampler + 13 probe + 1 telemetry + 3 report tests; benchmark run on the development machine) | `server/services/infra/{process-sampler,job-meter}.ts`, `scripts/compute-benchmark.ts`, `doc/COMPUTE_BENCHMARK.md` |
+| WP-0 remainder: memory sampler, tool self-tests and versions, `compute:benchmark` | **done** (#110; follow-ups in #111) (7 sampler + 13 probe + 1 telemetry + 3 report tests; benchmark run on the development machine) | `server/services/infra/{process-sampler,job-meter}.ts`, `scripts/compute-benchmark.ts`, `doc/COMPUTE_BENCHMARK.md` |
 | WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
@@ -202,6 +202,37 @@ wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-
   (`resolveAlphaGenomeAccess` in the bridge): a request-supplied URL gets only a request-supplied key, and
   its answers stay out of the shared cache.
 
+**Review 3 (routing line), 2026-10-11 (WP-G1, WP-H, and the fixes from Review 2).** Four read-only reviewers
+(queue correctness, security, client UX, contracts/docs) on everything after Review 2 — `6573035`, `673eb16`,
+`981dc08`, `4c80cca` and the then-unmerged `feat/wp0-measure`. No critical defect and no regression from the
+five packages. (A separate round the same day covered the WP-0 remainder after #110 merged; its record is the
+**Review 3 (post-merge of #110)** note in the WP-0 section below, and it shipped the two findings both rounds
+reached independently — see below.) Fixed: a caller-chosen GPN URL that merely *mentioned* `.huggingface.co` was
+handed the server's `HF_TOKEN` (now only the configured endpoint receives it, `resolveGpnAccess`); a cancelled
+FoldX run read as "Failed — The calculation failed for this variant." in Energetics (a new `cancelled` engine
+state, so the panel and the result now agree); the FoldX wait estimate divided the work ahead by the *queue's*
+slots instead of the FoldX semaphore, reporting about a quarter of the real wait on the 2-core host; the badge
+missed a job started in the focused window (a submit announces, and `visibilitychange` refreshes); Settings
+promised queue headroom that an admin-set quota removes (`queuedPerUserExplicit` is now on `/auth/me`); the
+owner of a shared job was told "Stop this job" though stopping only withdrew their own interest (`watchers` on
+`JobSummary`); a cancel could leave no visible confirmation; the panel printed the queue's own error prose; the
+runbook contradicted `resolveFoldxConcurrency`; the spec published the write routes as unauthenticated and
+omitted the `409 STALE_STRUCTURE_REF` that `/pocket-finder` and `/nearest-residues` really return; and §0.4
+still listed shipped packages as outstanding.
+
+**Two findings this round shared with the WP-0 round, and where their fix landed.** A non-clean host probe ran
+its self-test inside the serialised submit chain, stalling **every** submitter for up to 60 s; and a
+lease-expiry timeout recorded no peak memory, losing the measurement on the ending most likely to be a memory
+runaway. Both were found independently by this round and by the WP-0 round, and **#111 shipped the fixes**
+(`serverToolsCached` on the submit path; the reaper reading the job's own meter), so this branch carries
+neither — two competing fixes for one bug would be worse than one.
+
+Left, by decision: `BIOPHYSICAL_CONCURRENCY` keeps its documented "explicit value wins" behaviour (the docs
+were wrong, not the code); the de-duplication join stays owner-blind until WP-F exists (finding S2, recorded as
+a WP-F prerequisite above); and the low-severity notes (a public uncapped `/jobs/events`, the public
+`/test-hf-connection` disclosing the server's HF account name, and test-quality gaps) are listed in the review's
+own report rather than fixed here.
+
 **Where WP-C's shipped contract differs from section 5** (the code is the source of truth; these are the
 places a later package would otherwise trip):
 - `Prediction.wallMs` is **nullable**. P2Rank has no timing prior, so before telemetry it is `null` and the
@@ -220,8 +251,11 @@ places a later package would otherwise trip):
   RAM to the nearest GiB (`x64-native-8c-16g`), so a machine reporting 15.6 GiB shares the 16 GB class.
 - `cost-models.ts` takes **rows, not a database**: `buildCostModels(TelemetrySample[])`. WP-0 owns the
   `job_telemetry` table and maps its rows to `TelemetrySample`. Only `completed` rows feed the curves and
-  `maxCompletedResidues`; only `oom` rows set `oomCeilingResidues` (two at the same size = `sticky`, see
-  `oomCeiling`).
+  `maxCompletedResidues`; only `oom` rows set `oomCeilingResidues`, and the ENFORCED ceiling is
+  `enforcedOomCeiling` — the **second-smallest** out-of-memory size, i.e. the smallest size at or below which
+  the host has died at least twice. One death is deliberately not enough (a single misclassified failure would
+  otherwise refuse every job of that size and larger for good). The older `oomCeiling` helper still exists but
+  nothing enforces it; do not build on it.
 - The conservative memory rule is applied as a **size** rule while memory is unmeasured: refuse above
   1.25 x the largest completed size, and never refuse a class with nothing completed (that would refuse
   every first job). "One heavy job per host" is an admission rule for WP-D, not a placement filter.
@@ -255,12 +289,11 @@ are read from the environment. Left, by decision: without accounts, anonymous wo
 reserve counts waiting jobs while the backstop also counts running ones; a P2Rank out-of-memory death falls back
 to fpocket and is not learned; `repaired` in telemetry is the plan at submit, not what ran; OpenAPI is WP-H.
 
-### 0.4 Consolidated status and next phases (2026-10-10, after WP-E)
+### 0.4 Consolidated status and next phases (2026-10-11, after WP-0 and Review 3)
 
-**Shipped to production:** WP-C, WP-A (server and client), WP-B, WP-0 core, WP-D (in `shadow`), WP-E (#103,
-review fixes #105), WP-G1 (#106), WP-H (#109). The **WP-0 remainder** is on `feat/wp0-measure` (2026-10-11; see WP-0). Everything below
-is the single list of what is still missing, so a later agent does not have to re-derive it from the
-per-package notes above.
+**Everything through WP-H is on `main`:** WP-A, WP-B, WP-C, WP-0 (core #100-series and the remainder #110), WP-D
+(in `shadow`), WP-E (#103, review fixes #105), WP-G1 (#106), WP-H (#109). The list below is what is still
+missing, so a later agent does not have to re-derive it from the per-package notes above.
 
 **Owner actions (not code):**
 1. Accounts rollout: `/setup`, invite the team, then `AUTH_MODE` legacy → hybrid → accounts, step by step in
@@ -288,23 +321,19 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
 
 **Next phases, in order:**
 
-1. **WP-G1 — jobs and preferences UI (server-only, no agents needed).** Everything it calls exists:
-   `GET /my-jobs`, `POST /jobs/:id/cancel` (JSON body, 200 `{cancelled, stillRunningForOthers}` / 403 / 404 /
-   409), `queuedAhead` + `queuedEtaMs` on the FoldX submit and poll responses, `queuedAhead` on the P2Rank poll,
-   `/auth/me` `quota` and `usage`, `PUT /me/preferences` (`placementPref`, `shareResults`), 429
-   `QUEUED_PER_USER` / `DAILY_SERVER_TIME` and 422 `CANNOT_RUN_HERE` with reader-facing messages. Build:
-   a "My jobs" panel (status, position, ETA, cancel with the watcher wording), a cancel-aware job state in the
-   FoldX stepper (`src/shared/foldxPhase.ts`) and pocket path, usage in Settings → Account, and copy through pure
-   functions in `src/shared` (like `foldingLimits.ts`). Same design language as the account screens.
-2. **WP-H — docs and operations.** Runbook, Cloudflare corrections, OpenAPI for the new endpoints, `doc/API.md`.
-   Small, and it makes WP-F reviewable.
-3. **WP-0 remainder** — done (see WP-0). Owner action: run `compute:benchmark` once on the server.
-4. **WP-F — agents** (F1 server, F2 runtime and bundle). The largest package. WP-E already defines how an agent
-   result is stored: stamp `computeProvenance` with `computedOn: "agent"`, `shared` from the owner's
-   `share_results`, `validated` from `validateAgentResult`, and pass `toolVersion` into the cache keys.
-5. **WP-G2 — live routing** (agents in `HostFeatures[]`, placement shown before and during a run), then
+1. **WP-F — agents** (F1 server, F2 runtime and bundle). The largest package, and the next one to build. WP-E
+   already defines how an agent result is stored: stamp `computeProvenance` with `computedOn: "agent"`, `shared`
+   from the owner's `share_results`, `validated` from `validateAgentResult`, and pass `toolVersion` into the
+   cache keys. **Before it ships, close Review 3's finding S2** (the de-duplication join is owner-blind, so a
+   second person can read an unshared agent result).
+2. **WP-G2 — live routing** (agents in `HostFeatures[]`, placement shown before and during a run), then
    `COMPUTE_ROUTING=on`.
-6. **WP-I — outbound governor**, I3 (team-wide 429 pause) first.
+3. **WP-I — outbound governor**, I3 (team-wide 429 pause) first.
+
+Shipped since the previous revision of this list, so nobody rebuilds them: **WP-G1** (`/my-jobs`, cancel and the
+wait estimate reached the interface; #106) and **WP-H** (runbook, Cloudflare corrections, OpenAPI and
+`doc/API.md`; #109). **WP-0 remainder** (#110) added the process sampler, `compute:benchmark`, tool self-tests
+and measured memory; the only part left is an owner action — run `compute:benchmark` once on the server.
 
 ---
 
@@ -698,8 +727,9 @@ CREATE TABLE job_telemetry (
   `host_class` is derived from `arch`, `emulated`, `cores`, total RAM bucket.
 - Fit: per (type, host_class), log-log regression of `wall_ms` and `peak_rss_bytes` on `residues`, with
   empirical p90 residual. Refit every 10 new samples, not per request. Plain and explainable, no black box.
-- Ceiling: an OOM at size S sets `maxResidues < S` for that class; two OOMs at the same size make it
-  sticky until a host with more RAM appears.
+- Ceiling: the enforced rule is the **second-smallest** out-of-memory size — two deaths at or below a size, not
+  two at the same size — so a single misclassified failure cannot refuse a class forever. Deaths older than
+  30 days are forgotten and an admin can clear the rest (`DELETE /admin/compute/ceilings`).
 
 ### 5.4 Shadow mode first
 
@@ -1266,6 +1296,8 @@ learn rates from observed 429s rather than guess.
 | `QUOTA_QUEUED_PER_USER` | 25 | A, B |
 | `QUOTA_SERVER_SECONDS_PER_DAY` | **unset (no daily cap)** | A, B |
 | `QUEUE_MAX_TOTAL` | 50 (waiting + running across everyone; the host backstop; a lone person may queue up to this minus 5) | B |
+| `BIOPHYSICAL_CONCURRENCY` | 4 (jobs running at once). Unset, FoldX is capped at `min(this, CPUs − 1)` — 1 on the 2-core server. **Set, FoldX gets exactly this value too**, so 4 there means 4 Box64 FoldX at once. | B |
+| `JOB_RETENTION_DAYS`, `TELEMETRY_RETENTION_DAYS` | 14, 180 (finished jobs, then timing records) | B, 0 |
 | `EGRESS_GOVERNOR` | `off` (then `shadow`, then `on`) | I |
 | `SHARED_TOKEN_FALLBACK` | `limited` (`on`, `limited`, `off`) | I |
 | `EGRESS_PROVIDER_LIMITS_JSON` | none; optional override of the registry's per-provider limits | I |

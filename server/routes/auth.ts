@@ -186,6 +186,12 @@ export function registerAuthRoutes(apiRouter: Router, jsonParserRegular: any): v
       quota: {
         queuedPerUser: p.user.quota?.queuedPerUser ?? s.queuedPerUser,
         serverSecondsPerDay: p.user.quota?.serverSecondsPerDay ?? s.serverSecondsPerDay,
+        /**
+         * Whether an administrator set this person's own number. The queue applies an explicit quota
+         * even while nobody else is waiting (work-conserving only for the shared default), so the
+         * client cannot describe the limit honestly without knowing which rule is in force.
+         */
+        queuedPerUserExplicit: p.user.quota?.queuedPerUser != null,
       },
       // Informational (plan 4.4): server seconds today (UTC) and over the last 7 days.
       usage: queueUsage(p.userId),

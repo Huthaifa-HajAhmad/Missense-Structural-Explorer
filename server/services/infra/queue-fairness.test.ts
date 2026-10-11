@@ -319,6 +319,50 @@ describe("limits and listing", () => {
     expect(q.getEta("d")?.waitMs).toBeNull();
   });
 
+  it("prices a FoldX wait with FoldX's own semaphore, not the queue's slot count", async () => {
+    // The production 2-core shape (PR #104): the queue claims 4 jobs at once, FoldX runs 1 at a time.
+    const previous = process.env.BIOPHYSICAL_CONCURRENCY;
+    process.env.BIOPHYSICAL_CONCURRENCY = "1";
+    try {
+      const { q } = controlled(4);
+      track(q);
+      for (const n of ["f1", "f2", "f3", "f4"]) {
+        await q.addJob(n, "foldx", { name: n }, { ownerId: "X", costEstimateMs: 60_000 });
+      }
+      await q.addJob("f5", "foldx", { name: "f5" }, { ownerId: "X", costEstimateMs: 60_000 });
+      await tick();
+      // Four FoldX jobs are "running" on the queue's four slots, but three of them are blocked on the
+      // FoldX semaphore: the fifth waits for the whole serial run, not for a quarter of it. The
+      // divisor that produced the pre-review number (4) reported about a minute here.
+      const wait = q.getEta("f5")?.waitMs ?? 0;
+      expect(wait).toBeGreaterThan(200_000);
+      expect(wait).toBeLessThanOrEqual(240_000);
+    } finally {
+      if (previous === undefined) delete process.env.BIOPHYSICAL_CONCURRENCY;
+      else process.env.BIOPHYSICAL_CONCURRENCY = previous;
+    }
+  });
+
+  it("keeps the queue's parallelism for a tool that does not take the FoldX semaphore", async () => {
+    const previous = process.env.BIOPHYSICAL_CONCURRENCY;
+    process.env.BIOPHYSICAL_CONCURRENCY = "1";
+    try {
+      const { q } = controlled(4);
+      track(q);
+      for (const n of ["p1", "p2", "p3", "p4"]) {
+        await q.addJob(n, "p2rank", { name: n }, { ownerId: "X", costEstimateMs: 60_000 });
+      }
+      await q.addJob("p5", "p2rank", { name: "p5" }, { ownerId: "X", costEstimateMs: 60_000 });
+      await tick();
+      const wait = q.getEta("p5")?.waitMs ?? 0;
+      expect(wait).toBeGreaterThan(55_000);
+      expect(wait).toBeLessThanOrEqual(60_000);
+    } finally {
+      if (previous === undefined) delete process.env.BIOPHYSICAL_CONCURRENCY;
+      else process.env.BIOPHYSICAL_CONCURRENCY = previous;
+    }
+  });
+
   it("queue positions match the real start order when several jobs start in the same pass", async () => {
     // The reviewer's case: concurrency 3, owners A(a1,a2), B(b1,b2), C(c1). a1,b1,c1 start in one pass.
     const { q, started, release } = controlled(3);

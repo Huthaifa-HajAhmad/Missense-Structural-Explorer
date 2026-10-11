@@ -569,6 +569,12 @@ export function generateOpenApiSpec() {
                 }
               }
             }
+          },
+          "400": {
+            "description": "BAD_REQUEST."
+          },
+          "409": {
+            "description": "STALE_STRUCTURE_REF: the `structureRef` has expired; submit the structure again."
           }
         }
       }

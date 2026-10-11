@@ -120,7 +120,12 @@ export async function createExpressApp(): Promise<express.Express> {
 
   app.use(cors((req, callback) => {
     const decision = corsDecision(req.headers.origin);
-    if (!decision.allowed) return callback(new Error(`Origin '${req.headers.origin}' not allowed by CORS`));
+    // A disallowed origin is not a server error. Answer WITHOUT CORS headers (the browser then blocks
+    // the response) instead of throwing: throwing produced a 500 whose body echoed the caller's own
+    // Origin back at them and reported "server error" for a client-side refusal — `Origin: null` from
+    // a sandboxed iframe or a `file://` page met exactly that. A cookie write from a foreign origin is
+    // refused in its own right, with 403 CROSS_SITE_REQUEST (see `crossSiteWrite`).
+    if (!decision.allowed) return callback(null, { origin: false });
     callback(null, { origin: true, credentials: decision.credentials });
   }));
 

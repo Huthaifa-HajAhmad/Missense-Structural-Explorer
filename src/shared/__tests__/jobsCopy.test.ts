@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   CANCELLED_JOB_ERROR,
+  cancelActionLabel,
   describeCancelOutcome,
+  describeJobError,
   describeJobStatus,
   describeJobTiming,
   describeLimits,
@@ -10,6 +12,7 @@ import {
   formatApproxDuration,
   formatServerTime,
   isCancelledJobError,
+  isSharedJob,
 } from "../jobsCopy";
 
 describe("jobsCopy", () => {
@@ -69,5 +72,65 @@ describe("jobsCopy", () => {
     expect(none[0]).toMatch(/Up to 25 jobs waiting at once while other people are also waiting/);
     expect(none[1]).toBe("No daily limit on server time.");
     expect(describeLimits({ queuedPerUser: 10, serverSecondsPerDay: 3600 })[1]).toBe("Daily server time: 60 min (resets at 00:00 UTC).");
+  });
+});
+
+/**
+ * The Review-3 additions: shared work is judged by the server's watcher count (so the OWNER is warned
+ * too), a failed row no longer prints the engine's prose, the limits sentence respects an admin-set
+ * quota, and a running row prefers the server's measured elapsed time over the client's clock.
+ */
+describe("jobsCopy — Review 3 additions", () => {
+  it("treats a job as shared from the watcher count, not from ownership", () => {
+    expect(isSharedJob(2)).toBe(true);
+    expect(isSharedJob(3)).toBe(true);
+    expect(isSharedJob(1)).toBe(false);
+    expect(isSharedJob(0)).toBe(false);
+    expect(isSharedJob(null)).toBe(false);
+    expect(isSharedJob(undefined)).toBe(false);
+    expect(cancelActionLabel(2)).toBe("Remove from my jobs");
+    expect(cancelActionLabel(1)).toBe("Stop this job");
+  });
+
+  it("translates the queue's error prose instead of printing paths and binary names", () => {
+    expect(describeJobError("FoldX binary not found or not executable at: /app/tools/foldx_linux/FoldX"))
+      .toBe("The tool this job needs is not installed on the server that ran it.");
+    expect(describeJobError("FoldX parameter files missing: rotabase.txt not found in /app/tools"))
+      .toBe("The server's FoldX installation is incomplete, so the run could not start.");
+    expect(describeJobError("Job execution timed out"))
+      .toBe("The run took longer than its time budget and was stopped.");
+    expect(describeJobError("Killed for using too much memory"))
+      .toBe("The structure needed more memory than the server had, so the run was stopped.");
+    // The queue's own out-of-memory sentence (`DID_NOT_FIT_IN_MEMORY` in failure-class.ts).
+    expect(describeJobError("did not fit in memory on the server"))
+      .toBe("The structure needed more memory than the server had, so the run was stopped.");
+    // A deliberate cancel is not an error at all: the chip already says Cancelled.
+    expect(describeJobError(CANCELLED_JOB_ERROR)).toBeNull();
+    expect(describeJobError("")).toBeNull();
+    expect(describeJobError(null)).toBeNull();
+    expect(describeJobError("Box64 Signal 11")).toBe("The run stopped with an internal error. The server log has the details.");
+  });
+
+  it("does not promise queue headroom an admin-set quota removes", () => {
+    const shared = describeLimits({ queuedPerUser: 25, serverSecondsPerDay: null })[0];
+    expect(shared).toMatch(/while other people are also waiting/);
+    expect(shared).toMatch(/otherwise idle you can queue more/);
+
+    const fixed = describeLimits({ queuedPerUser: 4, serverSecondsPerDay: null, queuedPerUserExplicit: true })[0];
+    expect(fixed).toMatch(/^Up to 4 jobs waiting at once\./);
+    expect(fixed).toMatch(/administrator set this limit/);
+    expect(fixed).not.toMatch(/otherwise idle/);
+  });
+
+  it("prefers the server's measured elapsed time for a running job", () => {
+    const base = {
+      status: "running" as const, queuedAhead: null, etaMs: null,
+      startedAt: 1_000, completedAt: null, createdAt: 1_000,
+    };
+    // Client clock far behind the server's: without elapsedMs this clamped to "under a minute".
+    expect(describeJobTiming({ ...base, elapsedMs: 3 * 60_000 }, 2_000)).toBe("Running for 3 min");
+    // No server measurement: fall back to the local difference, as before.
+    expect(describeJobTiming({ ...base, elapsedMs: null }, 1_000 + 5 * 60_000)).toBe("Running for 5 min");
+    expect(describeJobTiming({ ...base, elapsedMs: -1 }, 1_000 + 7 * 60_000)).toBe("Running for 7 min");
   });
 });

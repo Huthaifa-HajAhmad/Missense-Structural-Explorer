@@ -6,6 +6,7 @@ import { AccountProvider } from "../../../context/AccountContext";
 import { JobsMenu } from "../JobsMenu";
 import type { SessionInfo } from "../../../api/accountApi";
 import type { JobSummary } from "../../../api/jobsApi";
+import { JOBS_CHANGED_EVENT } from "../../../api/jobsApi";
 
 /**
  * The header's "My jobs" control: shown only to a signed-in person, a badge for what is still active,
@@ -21,7 +22,7 @@ const NOW = Date.now();
 function job(over: Partial<JobSummary>): JobSummary {
   return {
     id: "j", type: "foldx", status: "queued", createdAt: NOW - 60_000, startedAt: null, completedAt: null,
-    ownerId: "u1", mine: true, queuedAhead: 2, etaMs: 4 * 60_000, label: "R175H", ...over,
+    ownerId: "u1", mine: true, queuedAhead: 2, etaMs: 4 * 60_000, elapsedMs: null, label: "R175H", watchers: 1, ...over,
   };
 }
 
@@ -61,10 +62,13 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("JobsMenu", () => {
   it("is absent without a signed-in person", async () => {
-    mockServer({ session: { user: null }, jobs: [] });
+    const calls = mockServer({ session: { user: null }, jobs: [] });
     renderMenu();
-    await new Promise((r) => setTimeout(r, 50));
-    expect(screen.queryByRole("button", { name: /My jobs/ })).toBeNull();
+    // Wait for the session to have RESOLVED first: sleeping a fixed 50 ms and then asserting absence
+    // passes when the answer is merely slow, which is not the same as the guard hiding the control.
+    await waitFor(() => expect(calls).toContain("GET /api/v1/auth/session"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /My jobs/ })).toBeNull());
+    expect(calls.some((c) => c.endsWith("/my-jobs"))).toBe(false);
   });
 
   it("badges the active jobs and lists where each stands", async () => {
@@ -89,7 +93,7 @@ describe("JobsMenu", () => {
   it("cancelling a shared job says it keeps running for the other person", async () => {
     const calls = mockServer({
       session: { user: USER },
-      jobs: [job({ id: "shared-1", mine: false, ownerId: null })],
+      jobs: [job({ id: "shared-1", mine: false, ownerId: null, watchers: 2 })],
       cancel: { cancelled: false, stillRunningForOthers: true, remainingWatchers: 1 },
     });
     renderMenu();
@@ -100,6 +104,48 @@ describe("JobsMenu", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Cancel R175H" })));
     await waitFor(() => expect(screen.getAllByText(/keeps running for one other person/).length).toBeGreaterThan(0));
     expect(calls).toContain("POST /api/v1/jobs/shared-1/cancel");
+  });
+
+  it("tells the OWNER of a shared job that stopping it only removes their interest", async () => {
+    // The owner is a watcher too, so `mine: true` with two watchers is shared work: the row must warn
+    // before the click, not afterwards, and the tooltip must not promise to stop it.
+    mockServer({
+      session: { user: USER },
+      jobs: [job({ id: "shared-2", mine: true, watchers: 2 })],
+    });
+    renderMenu();
+    const button = await screen.findByRole("button", { name: /My jobs/ }, { timeout: 5000 });
+    await act(async () => fireEvent.click(button));
+    expect(await screen.findByText(/Shared with someone who asked for the same result/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel R175H" }).getAttribute("title")).toBe("Remove from my jobs");
+  });
+
+  it("renders a failed job's reason in plain words, with the server text kept for whoever needs it", async () => {
+    mockServer({
+      session: { user: USER },
+      jobs: [job({
+        id: "f1", status: "failed", completedAt: NOW - 60_000, queuedAhead: null, etaMs: null,
+        error: "FoldX binary not found or not executable at: /app/tools/foldx_linux/FoldX",
+      })],
+    });
+    renderMenu();
+    const button = await screen.findByRole("button", { name: /My jobs/ }, { timeout: 5000 });
+    await act(async () => fireEvent.click(button));
+    const plain = await screen.findByText(/not installed on the server that ran it/);
+    expect(plain.getAttribute("title")).toContain("/app/tools/foldx_linux/FoldX");
+  });
+
+  it("refreshes when a job is submitted elsewhere in the app", async () => {
+    // The badge's other triggers (mount, window focus, its own interval) all miss a job started in
+    // this window while nothing was active yet.
+    const calls = mockServer({ session: { user: USER }, jobs: [] });
+    renderMenu();
+    await screen.findByRole("button", { name: "My jobs" }, { timeout: 5000 });
+    const before = calls.filter((c) => c.endsWith("/my-jobs")).length;
+    await act(async () => {
+      window.dispatchEvent(new Event(JOBS_CHANGED_EVENT));
+    });
+    await waitFor(() => expect(calls.filter((c) => c.endsWith("/my-jobs")).length).toBeGreaterThan(before));
   });
 
   it("Escape closes the panel and returns focus to the button", async () => {

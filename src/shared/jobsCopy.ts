@@ -17,7 +17,23 @@ export function isCancelledJobError(error: unknown): boolean {
 }
 
 /** What a cancelled FoldX or pocket run says instead of an error. */
-export const CANCELLED_RUN_MESSAGE = "This run was cancelled. Nothing was computed; run it again whenever you like.";
+export const CANCELLED_RUN_MESSAGE = "This run was cancelled. No result was recorded; run it again whenever you like.";
+
+/**
+ * True when a failure detail means "the person cancelled this", not "something went wrong".
+ *
+ * Two spellings reach different layers: the queue's own `error` column carries `CANCELLED_JOB_ERROR`,
+ * while the client rewrites it to `CANCELLED_RUN_MESSAGE` before it travels any further. A surface
+ * that decides how to *label* an ending must recognise both, or a deliberate cancel re-appears as an
+ * engine failure (the defect this guards: Energetics said "Failed — The calculation failed for this
+ * variant." for a job the person had stopped).
+ */
+export function isCancelledRun(detail: unknown): boolean {
+  return (
+    isCancelledJobError(detail) ||
+    (typeof detail === "string" && detail.trim() === CANCELLED_RUN_MESSAGE)
+  );
+}
 
 /**
  * A rough duration for a waiting person: "under a minute", "about 4 min", "about 1.5 h".
@@ -89,6 +105,57 @@ export function describeCancelOutcome(outcome: { cancelled: boolean; remainingWa
 /** The confirmation shown before cancelling a job other people are also waiting for. */
 export const SHARED_JOB_NOTE = "Someone else asked for the same result, so this run is shared. Cancelling removes it from your list; it only stops if nobody else is waiting.";
 
+/**
+ * Whether somebody else is waiting for this job's result.
+ *
+ * Driven by the server's watcher count, not by ownership. The owner is a watcher too, so the OWNER of
+ * a shared job used to see an ordinary row whose Cancel said "Stop this job" — and the job kept running
+ * after they clicked, because cancelling only removed their own interest. The warning belongs to
+ * whoever is looking at the row, owner included.
+ */
+export function isSharedJob(watchers: number | null | undefined): boolean {
+  return typeof watchers === "number" && watchers > 1;
+}
+
+/** What the Cancel button promises: for shared work it only removes this person's interest. */
+export function cancelActionLabel(watchers: number | null | undefined): string {
+  return isSharedJob(watchers) ? "Remove from my jobs" : "Stop this job";
+}
+
+/**
+ * What a failed job's row says instead of the engine's own words.
+ *
+ * The queue's `error` column carries infrastructure prose — absolute paths to a missing binary,
+ * `rotabase.txt`, container paths — and the same policy that removed those words from the engine copy
+ * (`engineStatus.ts`, "the previous copy leaked 'Zenodo', 'BioSig', 'rotabase.txt'") applies here. The
+ * exact text stays available to the reader who asks for it (the row shows it as a tooltip), so nothing
+ * is hidden from whoever is debugging; it is simply not the first thing a clinical reader meets.
+ */
+export function describeJobError(error: string | null | undefined): string | null {
+  if (typeof error !== "string") return null;
+  const text = error.trim();
+  if (text === "" || isCancelledJobError(text)) return null;
+  if (/not found or not executable|not installed|no such file|ENOENT/i.test(text)) {
+    return "The tool this job needs is not installed on the server that ran it.";
+  }
+  if (/parameter files missing|rotabase/i.test(text)) {
+    return "The server's FoldX installation is incomplete, so the run could not start.";
+  }
+  if (/timed out|timeout|exceeded its time budget/i.test(text)) {
+    return "The run took longer than its time budget and was stopped.";
+  }
+  if (/out of memory|oom\b|memory limit|peak_rss|did not fit in memory|too much memory/i.test(text)) {
+    return "The structure needed more memory than the server had, so the run was stopped.";
+  }
+  if (/mutation mismatch/i.test(text)) {
+    return "The requested mutation does not match the structure's sequence, so the run was stopped.";
+  }
+  if (/repair/i.test(text)) {
+    return "Structure preparation failed, so no estimate was produced.";
+  }
+  return "The run stopped with an internal error. The server log has the details.";
+}
+
 export interface UsageView {
   today: string;
   week: string;
@@ -102,11 +169,20 @@ export function describeUsage(usage: { todaySeconds: number; weekSeconds: number
 /**
  * The limits as a person meets them. The waiting-jobs limit is a share that only binds while others
  * are waiting too (WP-B); the daily cap exists only when an admin set one.
+ *
+ * `queuedPerUserExplicit` is the exception that makes the share sentence false: when an administrator
+ * has set this person's number by hand, the queue applies it even while nobody else is waiting
+ * (`biophysical-queue.ts`: `alone = othersWaiting === 0 && !queuedPerUserExplicit`), so promising
+ * headroom "when the server is otherwise idle" would be a promise the server does not keep.
  */
-export function describeLimits(quota: { queuedPerUser: number; serverSecondsPerDay: number | null } | null | undefined): string[] {
+export function describeLimits(
+  quota: { queuedPerUser: number; serverSecondsPerDay: number | null; queuedPerUserExplicit?: boolean } | null | undefined,
+): string[] {
   if (!quota) return [];
   const lines = [
-    `Up to ${quota.queuedPerUser} jobs waiting at once while other people are also waiting. When the server is otherwise idle you can queue more.`,
+    quota.queuedPerUserExplicit
+      ? `Up to ${quota.queuedPerUser} job${quota.queuedPerUser === 1 ? "" : "s"} waiting at once. An administrator set this limit for you.`
+      : `Up to ${quota.queuedPerUser} jobs waiting at once while other people are also waiting. When the server is otherwise idle you can queue more.`,
   ];
   lines.push(
     quota.serverSecondsPerDay == null
@@ -119,15 +195,23 @@ export function describeLimits(quota: { queuedPerUser: number; serverSecondsPerD
 /**
  * The second line of a job row: where it stands now. Waiting → queue line; running → how long so far;
  * finished → how long ago. `now` is passed in so the module stays pure and testable.
+ *
+ * A running job's elapsed time is preferred from the SERVER (`elapsedMs`, measured on the machine that
+ * started it) and only falls back to subtracting `startedAt` from this client's clock: the FoldX poll
+ * route already works this way for the same reason ("measured HERE, so a client never subtracts its own
+ * clock from this host's"), and a client whose clock lags the server's used to read "under a minute"
+ * for a job that had been running for an hour, because the difference clamped to zero.
  */
 export function describeJobTiming(
-  job: { status: "queued" | "running" | "completed" | "failed"; queuedAhead: number | null; etaMs: number | null; startedAt: number | null; completedAt: number | null; createdAt: number },
+  job: { status: "queued" | "running" | "completed" | "failed"; queuedAhead: number | null; etaMs: number | null; startedAt: number | null; completedAt: number | null; createdAt: number; elapsedMs?: number | null },
   now: number,
 ): string {
   if (job.status === "queued") return describeQueueWait(job.queuedAhead, job.etaMs) ?? "Waiting for a free slot";
   if (job.status === "running") {
+    const serverElapsed = typeof job.elapsedMs === "number" && Number.isFinite(job.elapsedMs) && job.elapsedMs >= 0 ? job.elapsedMs : null;
     const since = job.startedAt ?? job.createdAt;
-    return `Running for ${formatApproxDuration(Math.max(0, now - since)).replace(/^about /, "")}`;
+    const elapsed = serverElapsed ?? Math.max(0, now - since);
+    return `Running for ${formatApproxDuration(elapsed).replace(/^about /, "")}`;
   }
   const at = job.completedAt ?? job.createdAt;
   const ago = Math.max(0, now - at);

@@ -6,7 +6,7 @@ The machine-readable OpenAPI 3.1 spec is served at `GET /api/v1/openapi.json`, w
 
 ## Authentication & Sessions
 
-Endpoints marked with 🔒 require the standard Bearer Token auth (`Authorization: Bearer <API_TOKEN>`) configured on the server via `APP_API_TOKEN`.
+Endpoints marked with 🔒 are **not open**. What that requires depends on `AUTH_MODE` (see the table below): the `APP_API_TOKEN` bearer in `legacy`, and a signed-in session in `hybrid`/`accounts` — where the bearer token may only read. A 🔒 write endpoint is therefore *not* reachable with the bearer token once accounts are on.
 
 **Accounts.** A signed-in browser carries the `mse_session` cookie (HttpOnly, SameSite=Lax), set by sign-in, setup, accepting an invite or a password reset. The server's `AUTH_MODE` decides what a write (`POST`/`PUT`/`PATCH`/`DELETE`) needs:
 

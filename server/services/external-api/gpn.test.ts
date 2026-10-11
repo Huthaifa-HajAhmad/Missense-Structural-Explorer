@@ -3,6 +3,7 @@ import {
   fetchGpnStarScore,
   fetchGpnStarByCoordinate,
   clearGpnCache,
+  resolveGpnAccess,
   setGpnTabixInstance
 } from "./gpn.ts";
 
@@ -96,5 +97,61 @@ describe("GPN-Star Foundation Model Service", () => {
     const res = await fetchGpnStarByCoordinate("chr1", 46485279, "C", "T");
     expect(res.status).toBe("live");
     expect(res.score).toBe(-1.88);
+  });
+});
+
+describe("resolveGpnAccess — who may be called with the server's HF token", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv, HF_TOKEN: "hf_server_secret" };
+    delete process.env.GPN_API_URL;
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("never sends the server token to a URL that merely mentions huggingface.co", () => {
+    // The regression this guards: a substring test read the query string as proof of identity.
+    for (const url of [
+      "https://attacker.example/collect?x=.huggingface.co",
+      "https://huggingface.co.evil.example/scores",
+      "https://attacker.example/.hf.space",
+    ]) {
+      const access = resolveGpnAccess(null, url);
+      expect(access.token).toBeNull();
+      expect(access.customEndpoint).toBe(true);
+      expect(access.endpoint).toBe(url);
+    }
+  });
+
+  it("does not trust a Space, which anyone may create", () => {
+    expect(resolveGpnAccess(null, "https://someone-elses.hf.space/gpn").token).toBeNull();
+  });
+
+  it("keeps the server token on the endpoint the server is configured to use", () => {
+    expect(resolveGpnAccess(null, null).token).toBe("hf_server_secret");
+    expect(resolveGpnAccess(null, null).customEndpoint).toBe(false);
+
+    process.env.GPN_API_URL = "https://gpn.hf.space/score";
+    const same = resolveGpnAccess(null, "https://gpn.hf.space/score/");
+    expect(same.token).toBe("hf_server_secret");
+    expect(same.customEndpoint).toBe(false);
+
+    const other = resolveGpnAccess(null, "https://gpn.hf.space/other");
+    expect(other.token).toBeNull();
+    expect(other.customEndpoint).toBe(true);
+  });
+
+  it("leaves a caller's own token with the caller's own URL", () => {
+    const access = resolveGpnAccess("hf_caller_own", "https://lab-proxy.example/gpn");
+    expect(access.token).toBe("hf_caller_own");
+    expect(access.customEndpoint).toBe(true);
+  });
+
+  it("sends nothing when no token is configured anywhere", () => {
+    delete process.env.HF_TOKEN;
+    expect(resolveGpnAccess(null, null).token).toBeNull();
   });
 });
