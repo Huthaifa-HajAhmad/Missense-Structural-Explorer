@@ -557,7 +557,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       sub: !forms ? "No protein notation" : probeDone ? `${forms.label} · title, abstract or open-access text` : `${forms.label} · ${probe.state === "error" ? "search incomplete" : "not searched yet"}`,
     },
     {
-      label: "Loaded here",
+      label: "Query matches loaded",
       value: n(queryTotal),
       sub: [
         degraded ? "Cached fallback; query membership unverified" : hitCount !== null && hitCount > queryTotal ? `${n(queryTotal)} of ${n(hitCount)} query matches loaded` : "All retrieved query matches",

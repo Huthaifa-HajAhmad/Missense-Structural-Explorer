@@ -6,6 +6,7 @@ import { MarkedText } from "./MarkedText";
 import { MechanismPanel } from "./MechanismPanel";
 import { ScreeningChips, screeningTagLabels } from "./ScreeningChips";
 import { whyRead } from "../../shared/literatureScreening";
+import { safeExternalHref } from '../../shared/externalLink';
 
 interface PaperTableProps {
   papers: readonly PaperReading[];
@@ -14,6 +15,10 @@ interface PaperTableProps {
   onTogglePin: (paper: PaperReading) => void;
   constraint: GeneConstraint | null;
   constraintUnavailableReason?: string;
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+  reveal?: number;
+  onRevealed?: () => void;
 }
 
 /**
@@ -27,24 +32,38 @@ interface PaperTableProps {
  * Chips state what the literal check found and nothing more ("Names p.Asp116Gly", "Gene not in
  * abstract"); they are not assertions about the paper's conclusions.
  */
-export function PaperTable({ papers, gene, forms, onTogglePin, constraint, constraintUnavailableReason }: PaperTableProps) {
+export function PaperTable({ papers, gene, forms, onTogglePin, constraint, constraintUnavailableReason, selectedId, onSelect, reveal = 0, onRevealed }: PaperTableProps) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!reveal || !selectedId) return;
+    const target = document.getElementById(`lit-paper-${selectedId}`);
+    if (!target) return;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'nearest' });
+    onRevealed?.();
+  }, [reveal, selectedId, papers]);
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
-  const copy = (id: string) => {
-    void navigator.clipboard?.writeText(id);
-    setCopied(id);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setCopied(null), 2000);
+  const copy = async (id: string) => {
+    setCopyError(null);
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(id);
+      setCopied(id);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(null), 2000);
+    } catch { setCopyError('Could not copy the identifier. Select and copy it from the record.'); }
   };
 
   return (
     <div className="lit-table-wrap">
+      {copyError && <p className="lit-callout" role="alert">{copyError}</p>}
       <table className="lit-table" data-testid="literature-table">
         <thead>
           <tr>
@@ -57,18 +76,19 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
         {papers.map(paper => {
           const { citation: c, mentions: m, identifier } = paper;
           const isOpen = !!open[c.id];
-          const detailId = `lit-detail-${c.id.replace(/[^A-Za-z0-9_-]/g, "")}`;
+          const detailId = `lit-detail-${encodeURIComponent(c.id)}`;
           return (
-            <tbody key={c.id} data-open={isOpen || undefined} data-level={m.level}>
+            <tbody key={c.id} data-open={isOpen || undefined} data-level={m.level} data-selected={selectedId === c.id || undefined}>
               <tr className="lit-row" data-testid={`paper-${c.id}`}>
                 <td className="lit-col-year lit-mono">{c.year ?? <span className="lit-dim">—</span>}</td>
                 <td className="lit-paper">
                   <button
                     type="button"
                     className="lit-title"
+                    id={`lit-paper-${c.id}`}
                     aria-expanded={isOpen}
                     aria-controls={detailId}
-                    onClick={() => setOpen(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                    onClick={() => { onSelect?.(c.id); setOpen(prev => ({ ...prev, [c.id]: !prev[c.id] })); }}
                   >
                     <ChevronRight className="lit-title__chev" aria-hidden="true" />
                     <span><MarkedText text={c.title} gene={gene} forms={forms} /></span>
@@ -79,6 +99,7 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                     <span className="lit-meta__id lit-mono">{identifier.label}</span>
                   </span>
                   <a className="lit-link lit-open-paper" href={paper.href} target="_blank" rel="noopener noreferrer" aria-label={`Open paper: ${c.title}`}><ExternalLink aria-hidden="true" />Open paper<span className="sr-only"> (opens in a new tab)</span></a>
+                  {onSelect && <button type="button" className="lit-link lit-inspect-paper" aria-pressed={selectedId === c.id} onClick={() => onSelect(c.id)}>Inspect source</button>}
                   {whyRead(paper.screening) && <p className="lit-why-read" title={whyRead(paper.screening) ?? undefined}>Why read this: {whyRead(paper.screening)}</p>}
                   <span className="lit-chips">
                     <ScreeningChips tags={paper.screening.tags} />
@@ -89,7 +110,8 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                       <a
                         key={`${link.pmid}-${link.sourceUrl}`}
                         className="lit-curated-chip"
-                        href={link.sourceUrl}
+                        href={safeExternalHref(link.sourceUrl) ?? undefined}
+                        aria-disabled={!safeExternalHref(link.sourceUrl) || undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         title={`${link.label}${link.detail ? ` · ${link.detail}` : ""} · PMID ${link.pmid}`}
@@ -134,7 +156,7 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                         <p className="lit-curated__detail">
                           {link.detail && <span>{link.detail}</span>}
                           <span className="lit-mono">PMID {link.pmid}</span>
-                          <a className="lit-link" href={link.sourceUrl} target="_blank" rel="noopener noreferrer">
+                          <a className="lit-link" href={safeExternalHref(link.sourceUrl) ?? undefined} aria-disabled={!safeExternalHref(link.sourceUrl) || undefined} target="_blank" rel="noopener noreferrer">
                             <ExternalLink aria-hidden="true" />
                             Provider record
                             <span className="sr-only"> (opens in a new tab)</span>

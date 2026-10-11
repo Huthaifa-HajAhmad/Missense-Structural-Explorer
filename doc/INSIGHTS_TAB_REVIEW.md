@@ -1,5 +1,7 @@
 # Insights tab (Synthesis): review
 
+The 2026-10-11 second pass is documented in [Insights and Literature workspaces](./REVIEW_WORKSPACES_REVIEW.md): evidence-map navigation, criterion records, persistent inspection, streaming/error states, inspector stability parity and exact ordinal strength labels.
+
 Reference variant: NAE1 p.Asp116Gly (Q13564). The tab is rebuilt as a consolidator: it reads the recorded call of
 each evidence tab, shows where they agree and disagree, and states the rule engine's tier and what would move it.
 It adds no science and no combined score.

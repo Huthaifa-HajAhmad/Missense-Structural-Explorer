@@ -3,12 +3,16 @@ import { GitBranch, Bot, BookOpen, Sparkles, Vote } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../context/VariantAnalysisContext";
 import { formatEvidenceCode } from "../../shared/thresholds";
-import { buildInsightsEvidence } from "../../shared/insightsEvidence";
+import { buildInsightsEvidence, criterionForLane } from "../../shared/insightsEvidence";
+import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { deriveNarrativeAuthorship } from "../../shared/narrativeAuthorship";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
 import { functionEvidenceInputFrom } from "../evidence/function/functionInput";
 import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
+import { useReviewWorkspace } from '../review/ReviewWorkspace';
+import { deriveConsensus } from '../../lib/insightsConsensus';
+import type { EnergeticsData } from '../../types';
 
 /**
  * Insights rail: how the case on screen was assembled.
@@ -21,6 +25,9 @@ import { NarrativeProvenanceRow } from "./NarrativeProvenanceRow";
 interface InsightsInspectorProps {
   analysisResult: AnalysisResult | null;
   isNarrativeLoading?: boolean;
+  foldingEnergetics?: EnergeticsData | null;
+  foldingDdG?: number | null;
+  isEvidenceLoading?: boolean;
 }
 
 type StepState = "done" | "warn" | "idle";
@@ -46,21 +53,26 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisResult, isNarrativeLoading = false }) => {
+export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisResult, isNarrativeLoading = false, foldingEnergetics, foldingDdG, isEvidenceLoading = false }) => {
   const userDirections = useVariantAnalysisStore(s => s.userDirections ?? "");
+  const w = useReviewWorkspace('insights');
 
   const ev = useMemo(
-    () =>
-      analysisResult
-        ? buildInsightsEvidence({ result: analysisResult, functionInput: functionEvidenceInputFrom(analysisResult), stability: null, isLoading: isNarrativeLoading })
-        : null,
-    [analysisResult, isNarrativeLoading]
+    () => {
+      if (!analysisResult) return null;
+      const consensus = deriveConsensus({ result: analysisResult, foldingEnergetics, foldingDdG });
+      return buildInsightsEvidence({ result: analysisResult, functionInput: functionEvidenceInputFrom(analysisResult),
+        stability: consensus ? { verdict: consensus.consensusVerdict, enginesCounted: consensus.enginesCounted, enginesDestabilizing: consensus.enginesDestabilizing } : null,
+        isLoading: isEvidenceLoading,
+        narrativeDegraded: isFallbackNarrative(analysisResult.analysis, analysisResult.isFallback, analysisResult.fallbackReason) });
+    },
+    [analysisResult, foldingEnergetics, foldingDdG, isEvidenceLoading]
   );
   const predictors = useMemo(() => (analysisResult ? buildPredictorEvidence({ result: analysisResult }) : null), [analysisResult]);
 
   if (!analysisResult || !ev) {
     return (
-      <div className="pop-rail ins-rail">
+      <div className="ins-rail">
         <p className="ins-p">Run a variant to see how its case was assembled.</p>
       </div>
     );
@@ -76,9 +88,18 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
   const vote = predictors?.vote;
   const voters = predictors?.voters;
   const names = (rs: Array<{ name: string }> | undefined) => (rs && rs.length ? rs.map(r => r.name).join(", ") : "none");
+  const selected = ev.lanes.find(lane => lane.key === w.selected);
 
   return (
-    <div className="pop-rail ins-rail" data-testid="insights-rail">
+    <div className="ins-rail" data-testid="insights-rail">
+      <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
+        <div className="review-selection__head"><span>Selected evidence</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
+        {selected ? <><h3>{selected.name}</h3><p><strong>{selected.lead}</strong> {selected.rest}</p>
+          <p>{selected.counted ? `Counted as ${selected.code}.` : selected.state === 'pending' ? 'Still running; no criterion recorded.' : 'No counted criterion for this area.'}</p>
+          {selected.counted && <p>Recorded strength: {criterionForLane(ev, selected)?.strength ?? 'Strength unavailable'}.</p>}
+          <button type="button" className="review-action" onClick={w.showSelected}>Show in evidence map</button></>
+          : <p>Select an evidence area in the map to keep its reading here.</p>}
+      </section>
       <section className="rail-section" aria-labelledby="ins-rail-trace">
         <h3 className="eyebrow" id="ins-rail-trace"><GitBranch className="w-3.5 h-3.5" />How the case was built</h3>
         <ol className="rail-steps" data-testid="insights-trace">
@@ -111,9 +132,9 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
         <h3 className="eyebrow" id="ins-rail-vote"><Vote className="w-3.5 h-3.5" />In-silico vote, live</h3>
         {vote && vote.nVoting > 0 ? (
           <dl className="rail-kv">
-            <Row label="Pathogenic"><span className="pop-mono">{vote.nPathogenic}</span> · {names(voters?.pathogenic)}</Row>
-            <Row label="Benign"><span className="pop-mono">{vote.nBenign}</span> · {names(voters?.benign)}</Row>
-            <Row label="Indeterminate"><span className="pop-mono">{vote.nIndeterminate}</span></Row>
+            <Row label="Pathogenic"><span className="ins-mono">{vote.nPathogenic}</span> · {names(voters?.pathogenic)}</Row>
+            <Row label="Benign"><span className="ins-mono">{vote.nBenign}</span> · {names(voters?.benign)}</Row>
+            <Row label="Indeterminate"><span className="ins-mono">{vote.nIndeterminate}</span></Row>
           </dl>
         ) : (
           <p className="ins-p">No voting predictor returned a score.</p>

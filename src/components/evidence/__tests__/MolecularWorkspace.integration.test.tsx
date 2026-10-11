@@ -71,7 +71,10 @@ describe('molecular workspace interaction contracts', () => {
   });
   it('pins a probability through the real chart, then selects the same model-specific record', async () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
-    const chart = await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ });
+    // ResidueDetail lazy-loads the real chart stack. A one-second DOM query deadline can expire
+    // during parallel suite/build load before that module resolves; keep a bounded wait and all
+    // of the real chart's keyboard, pin and record assertions.
+    const chart = await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ }, { timeout: 10_000 });
     fireEvent.focus(chart); fireEvent.keyDown(chart, { key: 'Home' }); fireEvent.keyDown(chart, { key: 'Enter' });
     await waitFor(() => expect(inspector().getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
@@ -93,7 +96,7 @@ describe('molecular workspace interaction contracts', () => {
 
   it('does not call a model picked in the strip a reading outside the probability chart', async () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="perturbation" />);
-    await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ });
+    await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ }, { timeout: 10_000 });
     // The detail tabs pin the model id, which is an inspector row but not a dot on the chart.
     fireEvent.click(screen.getByRole('button', { name: 'ESM-2' }));
     expect(screen.queryByText(/outside this probability chart/)).toBeNull();
