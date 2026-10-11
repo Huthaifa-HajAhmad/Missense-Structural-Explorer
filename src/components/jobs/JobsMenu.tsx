@@ -18,13 +18,16 @@ import { Cpu, Loader2, RefreshCw, Users, X } from "lucide-react";
 import { useOptionalAccount } from "../../context/AccountContext";
 import { useSettings } from "../../context/SettingsContext";
 import { CHROME_ICON_BUTTON } from "../ui/chrome";
-import { activeJobs, jobsApi, type JobSummary } from "../../api/jobsApi";
+import { activeJobs, jobsApi, JOBS_CHANGED_EVENT, type JobSummary } from "../../api/jobsApi";
 import { AccountError } from "../../api/accountApi";
 import {
+  cancelActionLabel,
   describeCancelOutcome,
+  describeJobError,
   describeJobStatus,
   describeJobTiming,
   describeJobTool,
+  isSharedJob,
   SHARED_JOB_NOTE,
 } from "../../shared/jobsCopy";
 
@@ -82,8 +85,22 @@ function JobsMenuInner() {
   // A started job from anywhere in the app should appear without waiting for the next background tick.
   useEffect(() => {
     const onFocus = () => void load();
+    const onChanged = () => void load();
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    window.addEventListener(JOBS_CHANGED_EVENT, onChanged);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(JOBS_CHANGED_EVENT, onChanged);
+    };
+  }, [load]);
+  // The other half of "never in a hidden tab": the guard in `load` stops requests while hidden, so
+  // nothing refreshed when the person came back. A same-window tab switch fires no `focus` event.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && !document.hidden) void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [load]);
   // "Running for 3 min" keeps moving between polls.
   useEffect(() => {
@@ -205,6 +222,18 @@ function JobsMenuInner() {
             </p>
           )}
 
+          {/*
+            A cancel's outcome lives here rather than on the row. A cancelled job can leave the list
+            entirely (finished jobs are capped at the most recent few), and the message used to survive
+            only in the screen-reader region — so a sighted reader who cancelled an older job saw
+            nothing at all. One live region, in the panel, is both visible and announced.
+          */}
+          {notice && (
+            <p className={notice.tone === "ok" ? "jobs-notice" : "jobs-error"} role="status" aria-live="polite">
+              {notice.text}
+            </p>
+          )}
+
           {jobs === null && !loadError && (
             <p className="jobs-empty">
               <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> Loading…
@@ -220,7 +249,7 @@ function JobsMenuInner() {
           {active.length > 0 && (
             <ul className="jobs-list" aria-label="Waiting or running">
               {active.map((job) => (
-                <JobRow key={job.id} job={job} now={now} busy={busyId === job.id} notice={notice?.id === job.id ? notice : null} onCancel={cancel} />
+                <JobRow key={job.id} job={job} now={now} busy={busyId === job.id} onCancel={cancel} />
               ))}
             </ul>
           )}
@@ -230,15 +259,11 @@ function JobsMenuInner() {
               <h3 className="jobs-section">Recent</h3>
               <ul className="jobs-list" aria-label="Recent">
                 {recent.map((job) => (
-                  <JobRow key={job.id} job={job} now={now} busy={false} notice={notice?.id === job.id ? notice : null} onCancel={cancel} />
+                  <JobRow key={job.id} job={job} now={now} busy={false} onCancel={cancel} />
                 ))}
               </ul>
             </>
           )}
-
-          <p className="sr-only" role="status" aria-live="polite">
-            {notice?.text ?? ""}
-          </p>
         </div>
       )}
     </div>
@@ -249,18 +274,16 @@ function JobRow({
   job,
   now,
   busy,
-  notice,
   onCancel,
 }: {
   job: JobSummary;
   now: number;
   busy: boolean;
-  notice: { text: string; tone: "ok" | "error" } | null;
   onCancel: (job: JobSummary) => void;
 }) {
   const status = describeJobStatus(job.status, job.error);
   const activeJob = job.status === "queued" || job.status === "running";
-  const failedDetail = status.tone === "failed" && job.error ? job.error : null;
+  const failedDetail = status.tone === "failed" ? describeJobError(job.error) : null;
   return (
     <li className="jobs-row" data-tone={status.tone}>
       <div className="jobs-row-main">
@@ -270,15 +293,12 @@ function JobRow({
         </div>
         {/* One run of text, so a long queue line wraps as a sentence rather than leaving a dangling "·". */}
         <div className="jobs-row-meta">{`${describeJobTool(job.type)} · ${describeJobTiming(job, now)}`}</div>
-        {!job.mine && (
+        {isSharedJob(job.watchers) && (
           <div className="jobs-row-shared" title={SHARED_JOB_NOTE}>
             <Users className="w-3 h-3" aria-hidden /> Shared with someone who asked for the same result
           </div>
         )}
-        {failedDetail && <div className="jobs-row-error">{failedDetail}</div>}
-        {notice && (
-          <div className={notice.tone === "ok" ? "jobs-row-notice" : "jobs-row-error"}>{notice.text}</div>
-        )}
+        {failedDetail && <div className="jobs-row-error" title={job.error ?? undefined}>{failedDetail}</div>}
       </div>
       {activeJob && (
         <button
@@ -287,7 +307,7 @@ function JobRow({
           disabled={busy}
           onClick={() => onCancel(job)}
           aria-label={`Cancel ${job.label ?? "this job"}`}
-          title={job.mine ? "Stop this job" : SHARED_JOB_NOTE}
+          title={cancelActionLabel(job.watchers)}
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> : "Cancel"}
         </button>

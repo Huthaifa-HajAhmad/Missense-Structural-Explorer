@@ -21,6 +21,7 @@ import {
   type EnergyEngineId,
   type EngineObservation,
 } from "../engineStatus.ts";
+import { CANCELLED_RUN_MESSAGE } from "../jobsCopy.ts";
 
 /**
  * These tests encode the contract that the Energetics surfaces rely on. They exist because the
@@ -290,6 +291,8 @@ describe("engineStatus — resolution honesty rules", () => {
                       ? { id: "ddmut", value: null, status: "error" }
                       : state === "failed"
                       ? { id: "foldx", value: null, problem: "pipeline-failed" }
+                      : state === "cancelled"
+                      ? { id: "foldx", value: null, problem: "cancelled" }
                       : { id: "stabilityoracle", value: null };
       const outcome = resolveEngineOutcome(probe);
       expect(outcome.state, JSON.stringify(probe)).toBe(state);
@@ -802,5 +805,44 @@ describe("engineStatus — a listening remote engine says so", () => {
     const done = build({ dynamut2: -1, dynamut2Status: "done", dynamut2Listening: true });
     expect(done.state).toBe("computed");
     expect(done.reason).toBe("");
+  });
+});
+
+describe("engineStatus — a cancelled run is not a failure", () => {
+  const foldxOf = (facts: Parameters<typeof buildEngineOutcomes>[0]) =>
+    buildEngineOutcomes(facts).find(o => o.id === "foldx")!;
+
+  it("reports the queue's own cancel error as Cancelled, not Failed", () => {
+    // The queue writes status:"failed", error:"Cancelled." - the exact shape that used to render
+    // "Failed / The calculation failed for this variant."
+    const out = foldxOf({ isFolding: false, foldingStatus: "failed", foldingError: "Cancelled." });
+    expect(out.state).toBe("cancelled");
+    expect(out.label).toBe("Cancelled");
+    expect(out.tone).toBe("muted");
+    expect(out.reason).toMatch(/cancelled/i);
+    expect(out.reason).not.toMatch(/failed for this variant/i);
+  });
+
+  it("also recognises the sentence the client shows for it", () => {
+    const out = foldxOf({ isFolding: false, foldingStatus: "failed", foldingError: CANCELLED_RUN_MESSAGE });
+    expect(out.state).toBe("cancelled");
+    expect(out.reason).toBe(CANCELLED_RUN_MESSAGE);
+  });
+
+  it("still reports a real FoldX failure as Failed", () => {
+    const out = foldxOf({ isFolding: false, foldingStatus: "failed", foldingError: "Box64 Signal 11" });
+    expect(out.state).toBe("failed");
+    expect(out.label).toBe("Failed");
+    expect(out.reason).toBe("The calculation failed for this variant.");
+  });
+
+  it("keeps a cancelled run out of the consensus and out of the warning tones", () => {
+    const all = buildEngineOutcomes({ isFolding: false, foldingStatus: "failed", foldingError: "Cancelled." });
+    for (const o of all) {
+      if (o.id === "foldx") {
+        expect(o.contributesToConsensus).toBe(false);
+        expect(o.tone).not.toBe("danger");
+      }
+    }
   });
 });

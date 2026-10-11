@@ -66,6 +66,34 @@ describe("OpenAPI & Documentation Routes", () => {
       expect(jobRoutes.length).toBeGreaterThan(0);
       expect(missing, "registered but missing from server/services/infra/openapi-compute.ts").toEqual([]);
     });
+
+    /**
+     * Presence of a PATH is not accuracy of its contract. Review 3 found `POST /pocket-finder` really
+     * answering `409 STALE_STRUCTURE_REF` while the spec documented only 200/400/422/429/503, and this
+     * gate passed it because it never looked at status codes. These two are the statuses a caller has
+     * to handle to use the endpoint at all, so they are pinned to the handler's own source: if the
+     * route stops sending one, the spec must stop promising it too.
+     */
+    it("documents the 409 that the pocket and residue routes really send", () => {
+      const spec = generateOpenApiSpec().paths as Record<string, any>;
+      const pocketSource = fs.readFileSync(path.join(routesDir, "biophysics", "pocket.ts"), "utf8");
+      const sendsStaleRef = /sendError\(res,\s*409,\s*"STALE_STRUCTURE_REF"/.test(pocketSource);
+      expect(sendsStaleRef, "biophysical/pocket.ts no longer sends 409 STALE_STRUCTURE_REF").toBe(true);
+
+      for (const p of ["/pocket-finder", "/nearest-residues"]) {
+        expect(Object.keys(spec[p].post.responses), `${p} documented responses`).toContain("409");
+      }
+    });
+
+    /**
+     * The write routes are session-gated in `hybrid`/`accounts` mode (`accountAccess`), so the spec
+     * must say so: an agent reading it otherwise codes an unauthenticated cancel and meets a 401.
+     */
+    it("marks every job write as requiring a session", () => {
+      const spec = generateOpenApiSpec().paths as Record<string, any>;
+      expect(spec["/jobs/{jobId}/cancel"].post.security).toBeDefined();
+      expect(spec["/my-jobs"].get.security).toBeDefined();
+    });
   });
 
   /**

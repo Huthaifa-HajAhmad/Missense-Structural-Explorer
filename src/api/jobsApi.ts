@@ -22,8 +22,18 @@ export interface JobSummary {
   queuedAhead: number | null;
   /** Estimated wait before it starts, while waiting; null when the server cannot estimate it. */
   etaMs: number | null;
+  /**
+   * How long it has been running, measured on the server that started it; null when it is not running.
+   * A duration rather than a timestamp, so the client never subtracts its own clock from the server's.
+   */
+  elapsedMs: number | null;
   /** Mutation or protein the job is about, when its input names one. */
   label: string | null;
+  /**
+   * How many people are waiting on it, the caller included. More than one means somebody else asked
+   * for the same result, so cancelling only removes this person's interest and the work continues.
+   */
+  watchers: number;
 }
 
 export interface CancelResult {
@@ -64,4 +74,18 @@ export const jobsApi = {
 /** Jobs that still occupy the queue (the badge count). */
 export function activeJobs(jobs: JobSummary[]): JobSummary[] {
   return jobs.filter((j) => j.status === "queued" || j.status === "running");
+}
+
+/**
+ * The browser-side signal that the queue changed for this person.
+ *
+ * The jobs panel's own triggers are mount, its poll interval (which only runs while something is
+ * already active) and `window.focus`. None of them fires when the person submits their FIRST job and
+ * stays in the window, so the badge silently missed precisely the moment it is looked for. Submitting
+ * announces instead, and the panel reloads at once.
+ */
+export const JOBS_CHANGED_EVENT = "mse:jobs-changed";
+
+export function announceJobsChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(JOBS_CHANGED_EVENT));
 }

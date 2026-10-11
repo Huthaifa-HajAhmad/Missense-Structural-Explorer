@@ -20,6 +20,8 @@
 .ifc-search__clear::after,
 .acct-close::after,
 .acct-avatar-btn::after,
+.jobs-icon-btn::after,
+.jobs-cancel::after,
 .ms-brand-mark::after {
   content: "";
   position: absolute;
@@ -32,7 +34,9 @@
 .tour-icon-btn,
 .s3d-legend__toggle,
 .ifc-search__clear,
-.acct-avatar-btn {
+.acct-avatar-btn,
+.jobs-icon-btn,
+.jobs-cancel {
   position: relative;
 }
 

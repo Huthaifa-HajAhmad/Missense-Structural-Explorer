@@ -34,16 +34,22 @@ function UsageSummary() {
   if (failed) return null; // usage is a convenience; its absence must not look like an error
   const usage = describeUsage(me?.usage);
   const limits = describeLimits(me?.quota);
+  /**
+   * "…" means "still loading" and is announced as busy; a server that answers without usage (the queue
+   * is not running in this process) left the tiles on that ellipsis forever. Say so instead.
+   */
+  const usageMissing = me !== null && !usage;
+  const value = (text: string) => (usageMissing ? "Not available" : usage ? text : "…");
   return (
     <SettingsRow label="Server time used" description="Time your jobs spent running on the shared server." stacked>
       <dl className="acct-usage" aria-busy={me === null}>
         <div className="acct-usage-tile">
           <dt>Today (UTC)</dt>
-          <dd>{usage ? usage.today : "…"}</dd>
+          <dd>{value(usage?.today ?? "")}</dd>
         </div>
         <div className="acct-usage-tile">
           <dt>Last 7 days</dt>
-          <dd>{usage ? usage.week : "…"}</dd>
+          <dd>{value(usage?.week ?? "")}</dd>
         </div>
       </dl>
       {limits.length > 0 && (

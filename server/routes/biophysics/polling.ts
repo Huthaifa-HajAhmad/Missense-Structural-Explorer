@@ -210,7 +210,10 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       const userId = (req.principal as Extract<NonNullable<typeof req.principal>, { kind: "user" }>).userId;
       res.json({ jobs: await BiophysicalJobQueue.getInstance().listFor(userId) });
     } catch (err: any) {
-      sendError(res, 500, "INTERNAL_SERVER_ERROR", `Could not list jobs: ${err.message}`);
+      // The reader gets a fixed sentence: a SQLite failure's message can name a filesystem path on the
+      // server, which is not the reader's business and is not actionable for them.
+      console.error("[my-jobs] failed to list jobs:", err?.message ?? err);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", "Could not list your jobs. Please try again.");
     }
   });
 

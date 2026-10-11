@@ -4,7 +4,7 @@ import crypto from "crypto";
 import os from "os";
 import { DatabaseSync } from "node:sqlite";
 import { Queue, Worker } from "bullmq";
-import { CONFIG } from "../../config.ts";
+import { CONFIG, resolveFoldxConcurrency } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
 import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
 import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute-telemetry.ts";
@@ -13,7 +13,7 @@ import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, routingMode, type AdmissionInput } from "./admission.ts";
 import { probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
-import { foldxRepairApplies, hostClassOf, type CostModels, type PlacementPref } from "../../../src/shared/computeRouting.ts";
+import { foldxRepairApplies, hostClassOf, type CostModels, type JobType, type PlacementPref } from "../../../src/shared/computeRouting.ts";
 
 export interface QueueJob {
   id: string;
@@ -64,8 +64,21 @@ export interface JobSummary {
   queuedAhead: number | null;
   /** Estimated wait before it starts, while queued; null when unknown or not waiting (see `getEta`). */
   etaMs: number | null;
+  /**
+   * How long it has been running, measured on the HOST that started it, or null when it is not running.
+   * The client must not subtract the server's `startedAt` from its own clock (a lagging clock reads
+   * "under a minute" forever), so the elapsed time travels as a duration.
+   */
+  elapsedMs: number | null;
   /** Short human label taken from the job's own input (mutation / protein), when it has one. */
   label: string | null;
+  /**
+   * How many people are waiting on this job, the owner included (each is a watcher row). More than one
+   * means somebody else asked for the same result, so stopping it here would only remove THIS person's
+   * interest — the row says so before they click, and the owner is told too (they are a watcher as well).
+   * A count, not a list: another person's identity is not the caller's business.
+   */
+  watchers: number;
 }
 
 export type CancelOutcome =
@@ -368,9 +381,9 @@ export class SQLiteQueue {
    * "running" and "just served", exactly as claiming it would. A test drains the real scheduler and
    * compares, so the two cannot drift apart.
    */
-  private queuedInStartOrder(): { id: string; ownerId: string; costEstimateMs: number | null }[] {
+  private queuedInStartOrder(): { id: string; ownerId: string; type: JobType; costEstimateMs: number | null }[] {
     const rows = this.db.prepare(`
-      SELECT id, owner_id, priority, cost_estimate_ms, created_at, rowid AS rid
+      SELECT id, owner_id, type, priority, cost_estimate_ms, created_at, rowid AS rid
       FROM biophysical_jobs WHERE status = 'queued' LIMIT 1000
     `).all() as any[];
     if (rows.length === 0) return [];
@@ -384,7 +397,7 @@ export class SQLiteQueue {
     }
     let tick = Number.MAX_SAFE_INTEGER - rows.length - 1; // after every real timestamp, increasing
     const remaining = rows.slice();
-    const order: { id: string; ownerId: string; costEstimateMs: number | null }[] = [];
+    const order: { id: string; ownerId: string; type: JobType; costEstimateMs: number | null }[] = [];
     while (remaining.length) {
       const oldestOf = new Map<string, number>();
       for (const r of remaining) {
@@ -406,7 +419,7 @@ export class SQLiteQueue {
       const [pick] = remaining.splice(best, 1);
       running.set(pick.owner_id, (running.get(pick.owner_id) ?? 0) + 1);
       served.set(pick.owner_id, ++tick);
-      order.push({ id: pick.id, ownerId: pick.owner_id, costEstimateMs: pick.cost_estimate_ms ?? null });
+      order.push({ id: pick.id, ownerId: pick.owner_id, type: pick.type, costEstimateMs: pick.cost_estimate_ms ?? null });
     }
     return order;
   }
@@ -442,28 +455,46 @@ export class SQLiteQueue {
   /**
    * Estimated wait before a queued job starts, from the cost estimates of what is ahead of it.
    * `waitMs` is `null` when any job ahead has no estimate: a partial sum would read as a promise.
+   *
+   * The divisor is the number of slots the job's OWN tool can use, not the queue's bound. FoldX takes
+   * a semaphore of its own (`resolveFoldxConcurrency`: 1 on the 2-core server, because FoldX is
+   * CPU-bound and two Box64 processes only slow each other). The queue still claims up to
+   * `concurrency` jobs, so four FoldX jobs can be "running" with three of them blocked on the
+   * semaphore — dividing their cost by 4 reported a quarter of the real wait, and the client shows
+   * this number ("starts in about 4 min"). P2Rank does not take that semaphore, so it keeps the
+   * queue bound.
+   *
+   * Work of the other tool is not counted as ahead for this reason: it never holds the slot this job
+   * is waiting for. (It does share the CPU, which this model deliberately does not attempt to price.)
    */
   getEta(id: string): { waitMs: number | null; runMs: number | null } | null {
     try {
-      const row = this.db.prepare("SELECT status, cost_estimate_ms FROM biophysical_jobs WHERE id = ?").get(id) as any;
+      const row = this.db.prepare("SELECT status, type, cost_estimate_ms FROM biophysical_jobs WHERE id = ?").get(id) as any;
       if (!row) return null;
       const runMs = row.cost_estimate_ms ?? null;
       if (row.status !== "queued") return { waitMs: 0, runMs };
+      const isFoldx = row.type === "foldx";
+      // FoldX can only use as many processes as BOTH the queue bound and its own semaphore allow.
+      const slots = isFoldx
+        ? Math.max(1, Math.min(this.concurrency, resolveFoldxConcurrency()))
+        : Math.max(1, this.concurrency);
       const now = Date.now();
       let total = 0;
       let known = true;
-      for (const r of this.db.prepare("SELECT cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running'").all() as any[]) {
+      for (const r of this.db.prepare("SELECT type, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running'").all() as any[]) {
+        if (isFoldx && r.type !== "foldx") continue;
         if (r.c == null) known = false;
         else total += Math.max(0, r.c - (now - (r.s ?? now)));
       }
       let found = false;
       for (const j of this.queuedInStartOrder()) {
         if (j.id === id) { found = true; break; }
+        if (isFoldx && j.type !== "foldx") continue;
         if (j.costEstimateMs == null) known = false;
         else total += j.costEstimateMs;
       }
       if (!found) return { waitMs: 0, runMs }; // claimed between the two reads
-      return { waitMs: known ? Math.round(total / Math.max(1, this.concurrency)) : null, runMs };
+      return { waitMs: known ? Math.round(total / slots) : null, runMs };
     } catch {
       return null;
     }
@@ -532,6 +563,16 @@ export class SQLiteQueue {
     const running = anyQueued
       ? (this.db.prepare("SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running'").get() as any).c as number
       : 0;
+    // One grouped query for every row's watcher count, so a row can say whether stopping it here would
+    // stop the work for anyone else (the owner is a watcher too: see `addJob`).
+    const watcherCounts = new Map<string, number>();
+    if (rows.length > 0) {
+      const ids = rows.map(r => r.id);
+      const holders = ids.map(() => "?").join(",");
+      for (const w of this.db.prepare(`SELECT job_id, count(*) AS c FROM job_watchers WHERE job_id IN (${holders}) GROUP BY job_id`).all(...ids) as any[]) {
+        watcherCounts.set(w.job_id as string, w.c as number);
+      }
+    }
     return rows.map(r => {
       let label: string | null = null;
       try {
@@ -552,7 +593,9 @@ export class SQLiteQueue {
         mine: r.owner_id === userId,
         queuedAhead: idx < 0 ? null : running + idx,
         etaMs: r.status === "queued" ? (this.getEta(r.id)?.waitMs ?? null) : null,
+        elapsedMs: r.status === "running" && r.started_at ? Math.max(0, Date.now() - r.started_at) : null,
         label,
+        watchers: watcherCounts.get(r.id) ?? 0,
       };
     });
   }
@@ -687,6 +730,9 @@ export class SQLiteQueue {
             UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
             WHERE id = ? AND status = 'queued'
           `).run(refusal, Date.now(), jobId);
+          // Every other ending writes a telemetry row; this one used to be the exception, so a refusal
+          // was invisible in the data that decides future ceilings.
+          this.recordEnding(jobId, "failed", "ceiling-refused");
           continue;
         }
       }
@@ -907,7 +953,6 @@ export class SQLiteQueue {
    */
   pruneHistory(now = Date.now()): void {
     if (now - this.lastPrunedAt < 60 * 60 * 1000) return;
-    this.lastPrunedAt = now;
     const days = (name: string, fallback: number) => {
       const n = Number(process.env[name]);
       return Number.isFinite(n) && n > 0 ? n : fallback;
@@ -922,6 +967,9 @@ export class SQLiteQueue {
       `).run(jobCutoff);
       this.db.prepare("DELETE FROM biophysical_jobs WHERE status IN ('completed', 'failed') AND coalesce(completed_at, created_at) < ?").run(jobCutoff);
       this.db.prepare("DELETE FROM job_telemetry WHERE created_at < ?").run(telemetryCutoff);
+      // Only now: the stamp throttles the next run, and setting it before the deletes meant one
+      // transient SQLite error suppressed pruning for a further hour.
+      this.lastPrunedAt = now;
     } catch (err: any) {
       console.warn("[Queue] History prune failed:", err?.message ?? err);
     }

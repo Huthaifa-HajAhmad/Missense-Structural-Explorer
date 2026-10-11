@@ -136,13 +136,16 @@ const ProgressPanel = memo(function ProgressPanel({
     .join(", ");
   const foldxFinished = foldingStatus === "success" || foldingStatus === "failed" || foldingStatus === "unavailable";
   const otherEnginesRunning = evidence.readings.filter(reading => reading.key !== "foldx" && reading.outcome.state === "running").length;
+  const foldxCancelled = evidence.readings.some(reading => reading.key === "foldx" && reading.outcome.state === "cancelled");
   const title = foldingStatus === "success"
     ? "FoldX score ready"
-    : foldingStatus === "failed" || foldingStatus === "unavailable"
-      ? "FoldX finished · collecting other engine results"
-      : queued
-        ? "Energetics job queued"
-        : "Energetics calculations in progress";
+    : foldxCancelled
+      ? "FoldX run cancelled"
+      : foldingStatus === "failed" || foldingStatus === "unavailable"
+        ? "FoldX finished · collecting other engine results"
+        : queued
+          ? "Energetics job queued"
+          : "Energetics calculations in progress";
   const currentActivity = foldxFinished
     ? otherEnginesRunning > 0
       ? `FoldX has finished. ${otherEnginesRunning} independent engine${otherEnginesRunning === 1 ? " is" : "s are"} still running.`

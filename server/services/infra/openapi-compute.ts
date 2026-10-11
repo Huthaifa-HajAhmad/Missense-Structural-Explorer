@@ -69,7 +69,9 @@ export const COMPUTE_SCHEMAS = {
       mine: { type: "boolean", description: "True when the caller owns the job." },
       queuedAhead: { type: ["integer", "null"], description: "Jobs that will start before this one, while queued." },
       etaMs: { type: ["integer", "null"], description: "Estimated wait before it starts, while queued; null when unknown." },
+      elapsedMs: { type: ["integer", "null"], description: "How long it has been running, measured on the server that started it; null when not running." },
       label: { type: ["string", "null"], description: "Short human label from the job's input (mutation or protein)." },
+      watchers: { type: "integer", description: "How many people are waiting on it, the caller included. More than 1 means somebody else asked for the same result, so cancelling only withdraws the caller's interest." },
     },
   },
 } as const;
@@ -104,6 +106,7 @@ const QUEUED_COMPUTE_PATHS = {
         "Identical requests share one job: a second caller joins the job instead of starting another. " +
         "Poll `/foldx-job/{jobId}` (or subscribe to `/jobs/events`) while `status` is `queued`.",
       operationId: "generateMutant",
+      security: signedIn,
       requestBody: body({
         type: "object",
         required: ["mutation"],
@@ -156,8 +159,12 @@ const QUEUED_COMPUTE_PATHS = {
             elapsedMs: { type: ["integer", "null"] },
             createdAt: { type: ["integer", "null"] },
             queuedAhead: { type: "integer", description: "0 unless queued." },
-            queuedEtaMs: { type: ["integer", "null"] },
-            error: { type: "string" },
+            queuedEtaMs: { type: ["integer", "null"], description: "The server's estimate of the wait before it starts; null when unknown or already running." },
+            result: {
+              type: "object",
+              description: "On `completed`, the energetics result (FoldX ddG, the other engines and `computeProvenance`). Absent while queued or running, and absent on `failed`, where `error` explains why.",
+            },
+            error: { type: "string", description: "Set on `failed`; exactly `Cancelled.` when the person cancelled the run rather than the engine failing." },
           },
         }),
         "400": error("BAD_REQUEST: malformed job id."),
@@ -169,7 +176,12 @@ const QUEUED_COMPUTE_PATHS = {
     post: {
       tags: ["Structural Biophysics"],
       summary: "Find the binding pocket nearest a residue (P2Rank, fpocket fallback): answered from cache, or queued",
+      description:
+        "Always answers with a queued envelope or a cached job; the result itself comes from `GET /pocket-job/{jobId}`, " +
+        "including when the answer was already cached. A `structureRef` from an earlier call that has expired is refused " +
+        "with `409 STALE_STRUCTURE_REF`; resubmit the structure to get a fresh reference.",
       operationId: "findPocket",
+      security: signedIn,
       requestBody: body({
         type: "object",
         description: "One structure source (`pdbText`, `pdbRef`, `uniprotId` or `structureRef`) and one residue (`targetIndex` or `mutIndex`).",
@@ -187,12 +199,13 @@ const QUEUED_COMPUTE_PATHS = {
         "200": json(
           {
             type: "object",
-            description: "Either the finished result, or `{status: \"queued\", pocketJobId, structureResolution}`.",
+            description: "The queued envelope `{status: \"queued\", pocketJobId, structureResolution}`; poll `/pocket-job/{jobId}` for the answer. A cached find is reported the same way.",
             properties: { status: { type: "string" }, pocketJobId: { type: "string" }, structureResolution: { type: "object" } },
           },
-          "Result or queued job",
+          "Queued pocket job",
         ),
         "400": error("BAD_REQUEST."),
+        "409": error("STALE_STRUCTURE_REF: the `structureRef` has expired; submit the structure again."),
         "422": error("UNPROCESSABLE_ENTITY (the residue is not in the structure) or CANNOT_RUN_HERE (refused by the placement engine)."),
         "429": queueRefusals["429"],
         "503": queueRefusals["503"],
@@ -307,6 +320,7 @@ export const COMPUTE_PATHS = {
               properties: {
                 queuedPerUser: { type: "integer", description: "Waiting jobs allowed while others wait too." },
                 serverSecondsPerDay: { type: ["integer", "null"], description: "null = no daily cap." },
+                queuedPerUserExplicit: { type: "boolean", description: "True when an admin set `queuedPerUser` for this person, in which case it applies even while nobody else is waiting." },
               },
             },
             usage: {
@@ -425,6 +439,7 @@ export const COMPUTE_PATHS = {
         "An admin's cancel always stops it. In `legacy` mode a caller without an account may cancel jobs that have no owner. " +
         "A cancelled job then reads as `failed` with the error `Cancelled.`.",
       operationId: "cancelJob",
+      security: signedIn,
       parameters: [jobIdParam],
       responses: {
         "200": json({

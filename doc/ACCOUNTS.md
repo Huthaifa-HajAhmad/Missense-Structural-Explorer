@@ -107,7 +107,7 @@ still waiting for it. An admin's cancel always stops the job.
 | `QUOTA_QUEUED_PER_USER` | 25 | Waiting jobs per person **while others are waiting too**. Someone alone may queue up to `QUEUE_MAX_TOTAL − 5`, leaving room for a colleague who arrives. An admin can give one person a fixed limit. |
 | `QUEUE_MAX_TOTAL` | 50 | Waiting plus running jobs across everyone; protects the server. |
 | `QUOTA_SERVER_SECONDS_PER_DAY` | unset (no cap) | A daily server-time allowance per person; resets 00:00 UTC. |
-| `BIOPHYSICAL_CONCURRENCY` | 4 | Jobs running at once. FoldX also stays at or below the CPU count minus one (1 on the 2-core server). |
+| `BIOPHYSICAL_CONCURRENCY` | 4 | Jobs running at once. FoldX's own limit is `min(BIOPHYSICAL_CONCURRENCY, CPUs − 1)` when this is unset (1 on the 2-core server, where Box64 makes two FoldX runs slower than one), and **this value exactly when it is set** — so setting it to 4 on the 2-core server also raises FoldX to 4. Leave it unset there. |
 | `JOB_RETENTION_DAYS` | 14 | Finished jobs are deleted after this long. |
 | `TELEMETRY_RETENTION_DAYS` | 180 | Job timing records, used for wait estimates, are deleted after this long. |
 | `COMPUTE_ROUTING` | `shadow` | `off`, `shadow` or `on`; see below. |

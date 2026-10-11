@@ -16,7 +16,10 @@
   height: 16px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--cs-accent-clay);
+  /* AA: the clay token itself is 3.87:1 against white, below the 4.5:1 this 10px/700 text needs.
+     Darkened to about 5.8:1 here, and inverted for dark mode where a dark pill would sink into the
+     surface behind it. */
+  background: color-mix(in srgb, var(--cs-accent-clay) 78%, #000);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -24,6 +27,10 @@
   text-align: center;
   font-variant-numeric: tabular-nums;
   box-shadow: 0 0 0 2px var(--cs-surface);
+}
+.dark .jobs-badge {
+  background: color-mix(in srgb, var(--cs-accent-clay) 68%, #fff);
+  color: #3A1B12;
 }
 
 .acct-menu.jobs-panel {
@@ -123,6 +130,9 @@
 
 .jobs-empty { display: flex; align-items: center; gap: 8px; margin: 6px; padding: 14px 10px; font-size: 12.5px; color: var(--cs-text-muted); border: 1px dashed var(--cs-border-subtle); border-radius: var(--cs-radius-input); }
 .jobs-error { margin: 0 6px 8px; padding: 8px 10px; font-size: 12.5px; border-radius: var(--cs-radius-input); background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+/* The panel-level outcome of a cancel: same shape as .jobs-error, success tone. It lives in the panel
+   rather than on a row because the row can leave the list entirely. */
+.jobs-notice { margin: 0 6px 8px; padding: 8px 10px; font-size: 12.5px; border-radius: var(--cs-radius-input); background: var(--cs-bg-success); color: var(--cs-text-success); }
 
 /* Phones: the panel spans the screen with an even margin instead of hugging one edge. */
 @media (max-width: 480px) {

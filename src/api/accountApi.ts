@@ -35,7 +35,7 @@ export interface SessionInfo {
 export interface MeInfo {
   user: AccountUser;
   mode: AuthMode;
-  quota: { queuedPerUser: number; serverSecondsPerDay: number | null };
+  quota: { queuedPerUser: number; serverSecondsPerDay: number | null; queuedPerUserExplicit: boolean };
   /** null when the server's queue is not running in this process. */
   usage: { todaySeconds: number; weekSeconds: number } | null;
 }
