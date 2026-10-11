@@ -54,7 +54,8 @@ one agent can take it without the others.
 | WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
 | WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (17 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
-| WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test). Not done: process memory sampler, `compute:benchmark` | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
+| WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test) | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
+| WP-0 remainder: memory sampler, tool self-tests and versions, `compute:benchmark` | **done** on `feat/wp0-measure` (7 sampler + 13 probe + 1 telemetry + 3 report tests; benchmark run on the development machine) | `server/services/infra/{process-sampler,job-meter}.ts`, `scripts/compute-benchmark.ts`, `doc/COMPUTE_BENCHMARK.md` |
 | WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
@@ -254,7 +255,7 @@ to fpocket and is not learned; `repaired` in telemetry is the plan at submit, no
 ### 0.4 Consolidated status and next phases (2026-10-10, after WP-E)
 
 **Shipped to production:** WP-C, WP-A (server and client), WP-B, WP-0 core, WP-D (in `shadow`), WP-E (#103,
-review fixes #105), WP-G1 (#106). **WP-H** is on `docs/wp-h-ops` (2026-10-11; see its section). Everything below
+review fixes #105), WP-G1 (#106), WP-H (#109). The **WP-0 remainder** is on `feat/wp0-measure` (2026-10-11; see WP-0). Everything below
 is the single list of what is still missing, so a later agent does not have to re-derive it from the
 per-package notes above.
 
@@ -269,8 +270,8 @@ per-package notes above.
 
 | Gap | Why it matters | Home |
 |---|---|---|
-| Memory is not sampled (`peak_rss_bytes` null), no `compute:benchmark`, tool versions not probed, `verified` = present | admission judges size only; agents need versions | WP-0 remainder (before WP-F) |
-| Admission by running cost; "one heavy job per host" | needs measured memory | WP-0 remainder, then WP-D2 |
+| The server's own benchmark (`compute:benchmark` on the ARM host); emulated RepairPDB prior is still an estimate | priors for the server class | owner action, ACCOUNTS.md |
+| Admission by running cost; "one heavy job per host" | memory is now measured per job; needs a few weeks of rows | WP-D2 |
 | `doc/AGENT.md` (end-user guide to "Connect my computer") | describes a feature that does not exist yet | WP-F |
 | No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
 | De-duplication is process-local (two replicas can run the same job) | only matters with replicas | later; shared-store reservation |
@@ -294,8 +295,7 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
    functions in `src/shared` (like `foldingLimits.ts`). Same design language as the account screens.
 2. **WP-H — docs and operations.** Runbook, Cloudflare corrections, OpenAPI for the new endpoints, `doc/API.md`.
    Small, and it makes WP-F reviewable.
-3. **WP-0 remainder** — process sampler (Linux `/proc`, Windows fallback), `compute:benchmark`, tool version
-   probing and self-tests. Required before agents: WP-F's `validateAgentResult` checks `toolVersion`.
+3. **WP-0 remainder** — done (see WP-0). Owner action: run `compute:benchmark` once on the server.
 4. **WP-F — agents** (F1 server, F2 runtime and bundle). The largest package. WP-E already defines how an agent
    result is stored: stamp `computeProvenance` with `computedOn: "agent"`, `shared` from the owner's
    `share_results`, `validated` from `validateAgentResult`, and pass `toolVersion` into the cache keys.
@@ -769,6 +769,32 @@ Acceptance
 - Telemetry rows are written for a completed and a failed job in an integration test.
 
 Out of scope: any routing change.
+
+**Done (2026-10-11, `feat/wp0-measure`).** Where it differs from the list above (the code is the source of truth):
+- **Memory.** `process-sampler.ts` sums a process TREE (P2Rank is a script that starts Java; FoldX on the server
+  runs under Box64): Linux reads `/proc/<pid>/status` and uses the kernel's own high-water mark `VmHWM`, so a
+  spike between samples is not missed; macOS uses one `ps`; Windows uses PowerShell CIM (`wmic` no longer
+  exists) every 2 s. The queue runs each job inside `runInJobMeter` (AsyncLocalStorage) and the two runners call
+  `meterChildProcess(child)`, so no worker signature changed. `peak_rss_bytes` is now written for every ending,
+  including timeouts and out-of-memory deaths. The engine therefore starts judging memory once a class has 8
+  completed rows, against `freeRamBytes()`, which now honours the container's limit (`process.availableMemory`).
+- **Self-tests, versions.** `host-probe.ts` runs each tool the way its runner does: FoldX with no command (it prints
+  its banner and ends with "Foldx will end" and exit code -1, which is its normal ending), P2Rank `-v` with the
+  runner's Java. Missing = cannot start; unverified = starts but fails; a self-test that only times out keeps the
+  tool usable (a busy host proves nothing). Versions go to telemetry (`tool_version`) and to `computeProvenance`.
+  A clean probe is kept for the process; it runs in the background at start-up and logs one `[host-probe]` line.
+  A bare `foldx` on PATH that cannot start is now missing, where before it was assumed present.
+- **FoldX licence date.** Academic builds are named for the day they stop working (`foldx_20261231`). The probe
+  reads it, warns from 45 days before, and reports FoldX failed after it. **The Linux build in `tools/foldx_linux`
+  stops working on 2026-12-31.**
+- **Benchmark.** `npm run compute:benchmark` (bundled as `dist/compute-benchmark.cjs` for the container) measures
+  SOD1 154, GCK 465 (the ~489 slot) and SLC12A4 1,085 AlphaFold models, mutation in the middle of chain A;
+  RepairPDB where production repairs (<= 400 residues, or `--repair-all`). One JSON per host class in
+  `doc/compute-benchmark/`, rendered into `doc/COMPUTE_BENCHMARK.md` against the engine's CURRENT prior.
+  `scripts/lib/foldx-job.ts` is the job layout shared with `foldx-timing.ts`.
+- **Prior corrected.** Native RepairPDB measured 49 s for SOD1; the prior (205 s anchor / 60) said 0.6 s. The native
+  repair prior is now anchored on the measurement. The emulated repair prior and the native BuildModel line
+  (5.4 s predicted, 17 s measured at 1,085 residues, one run) wait for more data; telemetry replaces both after 8 jobs.
 
 ---
 

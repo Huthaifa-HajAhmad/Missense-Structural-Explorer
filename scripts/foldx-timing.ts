@@ -45,14 +45,7 @@ import { buildModelBudgetMs } from "../server/services/stability/foldx/budget.ts
 import { detectFoldxBinaryAndDir, getFoldxExecutionTarget } from "../server/services/stability/foldx/detector.ts";
 import { cleanPdbForFoldX } from "../server/services/stability/foldx/pdb-utils.ts";
 import { parseFoldxDifFile } from "../server/services/stability/foldx/parser.ts";
-
-const AA3: Record<string, string> = {
-  A: "ALA", R: "ARG", N: "ASN", D: "ASP", C: "CYS", Q: "GLN", E: "GLU", G: "GLY", H: "HIS", I: "ILE",
-  L: "LEU", K: "LYS", M: "MET", F: "PHE", P: "PRO", S: "SER", T: "THR", W: "TRP", Y: "TYR", V: "VAL"
-};
-
-/** Same environment the production logs show: pH 7.4, 298.15 K, 0.15 M, fixed rotabase seed. */
-const EXTRA_ARGS = ["--timeSeedRotabase=false", "--pH=7.4", "--temperature=298.15", "--ionStrength=0.15"];
+import { AA3, EXTRA_ARGS, defaultWorkRoot, prepareFoldxJobDir } from "./lib/foldx-job.ts";
 
 interface StepResult {
   step: string;
@@ -80,15 +73,6 @@ const flag = (name: string) => process.argv.includes(`--${name}`);
 function fail(message: string): never {
   console.error(`foldx-timing: ${message}`);
   process.exit(2);
-}
-
-function linkOrCopy(source: string, dest: string, kind: "dir" | "file") {
-  if (fs.existsSync(dest)) return;
-  try {
-    fs.symlinkSync(source, dest, kind === "dir" ? (process.platform === "win32" ? "junction" : "dir") : "file");
-  } catch {
-    fs.cpSync(source, dest, { recursive: true });
-  }
 }
 
 /** Peak resident set size of a pid in MB, Linux only (`/proc`); null elsewhere. */
@@ -165,13 +149,8 @@ async function main() {
   const runsList = (arg("runs") ?? "1,5").split(",").map(s => parseInt(s, 10)).filter(n => n > 0);
   const timeoutSec = parseInt(arg("timeout") ?? "600", 10);
   const keep = flag("keep");
-  /**
-   * Where job dirs live. On Windows FoldX "runs OK" in `%TEMP%` but silently writes NO output
-   * (RepairPDB: no wt_Repair.pdb; BuildModel: "BuildModel failed:" with no wt_1.pdb) — antivirus
-   * or an indexer interferes, the same fault scripts/with-local-tmp.mjs works around for esbuild.
-   * The identical inputs succeed inside the repo, so default there.
-   */
-  const workRoot = arg("workdir") ?? (process.platform === "win32" ? path.join(process.cwd(), "node_modules", ".cache", "tmp") : os.tmpdir());
+  // Where job dirs live (see defaultWorkRoot for the Windows %TEMP% fault).
+  const workRoot = arg("workdir") ?? defaultWorkRoot();
 
   const m = mut.match(/^([A-Za-z])(\d+)([A-Za-z])$/);
   if (!m) fail(`--mut must look like Q867H, got "${mut}"`);
@@ -216,15 +195,8 @@ async function main() {
 
   const results: StepResult[] = [];
 
-  const newJob = (label: string) => {
-    fs.mkdirSync(workRoot, { recursive: true });
-    const jobDir = fs.mkdtempSync(path.join(workRoot, `foldx-timing-${label}-`));
-    fs.writeFileSync(path.join(jobDir, "wt.pdb"), cleaned, "utf8");
-    fs.writeFileSync(path.join(jobDir, "individual_list.txt"), `${wt1.toUpperCase()}${chain}${pos}${mut1.toUpperCase()};\n`, "utf8");
-    linkOrCopy(molecules, path.join(jobDir, "molecules"), "dir");
-    linkOrCopy(rotabase, path.join(jobDir, "rotabase.txt"), "file");
-    return jobDir;
-  };
+  const mutation = `${wt1.toUpperCase()}${chain}${pos}${mut1.toUpperCase()}`;
+  const newJob = (label: string) => prepareFoldxJobDir({ workRoot, label: `timing-${label}`, pdbText: cleaned, mutation, foldxDir });
 
   // Optional: RepairPDB once, reused as the input of every BuildModel config below.
   let repairedPdb: string | null = null;

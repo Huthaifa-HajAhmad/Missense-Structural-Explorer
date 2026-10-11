@@ -115,3 +115,6 @@ tools/brand-mark/.browser-profile/
 # Machine-local agent/tooling config (paths are absolute to one checkout)
 /.codex/config.toml
 /.dsh-validate-yaml.cjs
+
+# compute:benchmark structure cache (AlphaFold models, re-downloaded on demand)
+data/benchmark-structures/

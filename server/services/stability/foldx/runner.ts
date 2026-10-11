@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
 import { CONFIG, resolveFoldxConcurrency } from "../../../config.ts";
 import { Semaphore } from "../../../utils.ts";
+import { meterChildProcess } from "../../infra/job-meter.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
   parseAtomsFromPdb
@@ -71,6 +72,8 @@ function execFileAsync(
         resolve({ stdout, stderr });
       }
     });
+    // Its memory counts toward the queue job running it (job-meter.ts); a no-op outside a job.
+    meterChildProcess(child);
 
     if (options.signal) {
       const onAbort = () => {

@@ -19,6 +19,7 @@ import {
 import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
 import { shutdownPool } from "./server/services/biophysics-pool.ts";
 import { shutdownDbPool } from "./server/services/infra/analysis-db-pool.ts";
+import { warmServerTools } from "./server/services/infra/host-probe.ts";
 import { startSidecarSupervisor } from "./server/sidecar-supervisor.ts";
 import { createExpressApp } from "./server/express-config.ts";
 import { registerGracefulShutdown } from "./server/graceful-shutdown.ts";
@@ -275,6 +276,8 @@ async function startServer(): Promise<void> {
 
   // Initialize job worker queue & ML model sidecar
   initBiophysicalJobQueue();
+  // FoldX and P2Rank self-tests (versions, licence date) in the background, logged as [host-probe].
+  warmServerTools();
   const sidecar = startSidecarSupervisor();
 
   // Build configured Express application
