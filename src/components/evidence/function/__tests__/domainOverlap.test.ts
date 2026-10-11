@@ -30,10 +30,13 @@ describe('domain overlap and source identity', () => {
     expect(segments[0].x).toBe(L.x0);
     expect(segments[1].x + segments[1].width).toBe(L.x1);
   });
-  it('reports multiple covering annotations without changing PM1', () => {
-    expect(ev.finding.lead).toContain('2 overlapping domain annotations');
-    expect(ev.trace.map(s => s.text).join(' ')).toContain('2 domain annotations cover residue 116');
-    expect(ev.trace.map(s => s.text).join(' ')).not.toContain('Only the');
+  it('counts the specific covering annotation and never pads it with a broad fold-level match', () => {
+    // The 97% THIF fold also covers the residue; the count must not include it — it is not the
+    // residue's domain (see the Function rail's own policy) — and the caveat still flags it.
+    expect(ev.finding.lead).toContain('inside the Illustrative overlap (SMART, 90–245)');
+    expect(ev.finding.lead).not.toContain('covering domain annotations');
+    expect(ev.trace.map(s => s.text).join(' ')).toContain('Only the Illustrative overlap');
+    expect(ev.caveats.some(c => c.lead.includes('% of the protein'))).toBe(true);
     expect(ev.pm1.status).not.toBe('met');
   });
 });
