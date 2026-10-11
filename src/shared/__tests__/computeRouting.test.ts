@@ -93,6 +93,13 @@ describe("priors (plan section 2.3)", () => {
     expect(ms).toBeLessThan(12_000);
   });
 
+  it("native RepairPDB reproduces the benchmark's SOD1 measurement (49 s), not a 60x guess", () => {
+    const repair = (r: number) =>
+      foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: true }, false) - foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: false }, false);
+    expect(repair(154)).toBeCloseTo(49_000, -2);
+    expect(repair(400)).toBeGreaterThan(repair(154)); // grows with size
+  });
+
   it("the decision for 1,085 residues on the server is a prior with p90 = 2 x p50", () => {
     const d = decidePlacement(foldxJob(1085), [server], policy(), NONE);
     expect(d.prediction?.basis).toBe("prior");

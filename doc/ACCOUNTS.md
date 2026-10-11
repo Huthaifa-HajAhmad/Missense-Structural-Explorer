@@ -128,6 +128,27 @@ Check that no line says FoldX or P2Rank is missing on the server, and how often 
 refused for size. With `on`, a job that cannot run here is refused with a plain message (HTTP 422)
 instead of running out of memory.
 
+At start-up the server runs FoldX and P2Rank once and logs what it found, with versions:
+
+```bash
+docker logs <that container> 2>&1 | grep '\[host-probe\]'
+# [host-probe] FoldX 5.1 passed its self-test (build valid until 2026-12-31); P2Rank 2.6-alpha passed its self-test.
+```
+
+A tool that "could not be started" or "failed its self-test" counts as missing: with `on`, its jobs
+are refused with that reason. Once, before `on`, measure the server itself (about 10 minutes, best
+when nobody is running jobs) and keep the numbers in the repository:
+
+```bash
+docker exec -it <that container> npm run compute:benchmark -- --out /app/data
+docker cp <that container>:/app/data/compute-benchmark/. doc/compute-benchmark/   # on the host, in the checkout
+npm run compute:benchmark -- --render   # on a development machine, then commit doc/
+```
+
+`doc/COMPUTE_BENCHMARK.md` then shows the server's real FoldX and P2Rank times and memory beside the
+engine's estimates. From then on every job also records its own peak memory, so the engine learns
+memory as well as time.
+
 The server learns a size limit only after **two** out-of-memory failures, and forgets failures after
 30 days. If a learned limit is wrong (for example, the server got more memory), an admin can clear it
 with `DELETE /api/v1/admin/compute/ceilings`; a button for it is planned with live routing (WP-G2).
@@ -167,3 +188,8 @@ FoldX is licensed for academic, non-commercial research. This deployment runs it
 team on that basis (the owner's statement). The binary is not in the repository and is never
 redistributed: it is mounted from `tools/foldx_linux` on the server. Anyone setting up their own copy
 must get their own licence from <https://foldxsuite.crg.eu/>.
+
+The academic builds stop working on the date in their file name (`foldx_20261231` works until
+31 December 2026). The `[host-probe]` line names that date, warns from 45 days before it, and after
+it reports FoldX as failed. To renew, download the current build, put it in `tools/foldx_linux` in
+place of the old one, and apply it with the handover (`--restart`, above).

@@ -8,9 +8,11 @@ import { CONFIG } from "../../config.ts";
 import { initialDeploymentPaused } from "../../deployment-role.ts";
 import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
 import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute-telemetry.ts";
+import { runInJobMeter } from "./job-meter.ts";
+import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, routingMode, type AdmissionInput } from "./admission.ts";
-import { probeServerHost, serverHostFacts, serverProvenance, SERVER_HOST_ID } from "./host-probe.ts";
+import { probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
 import { foldxRepairApplies, hostClassOf, type CostModels, type PlacementPref } from "../../../src/shared/computeRouting.ts";
 
 export interface QueueJob {
@@ -589,7 +591,12 @@ export class SQLiteQueue {
    * One telemetry row for a job that has just ended. Never throws: bookkeeping must not be able to
    * change how the job itself ended.
    */
-  private recordEnding(jobId: string, outcome: "completed" | ReturnType<typeof classifyJobFailure>, errorClass: string | null) {
+  private recordEnding(
+    jobId: string,
+    outcome: "completed" | ReturnType<typeof classifyJobFailure>,
+    errorClass: string | null,
+    peakRssBytes: number | null = null,
+  ) {
     try {
       const row = this.db.prepare("SELECT type, residues, repaired, started_at, completed_at FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
       if (!row) return;
@@ -602,10 +609,10 @@ export class SQLiteQueue {
         repaired: row.repaired == null ? null : row.repaired === 1,
         runs: row.type === "foldx" ? 5 : null,
         wallMs: row.started_at ? Math.max(0, (row.completed_at ?? Date.now()) - row.started_at) : null,
-        peakRssBytes: null,
+        peakRssBytes,
         outcome,
         errorClass,
-        toolVersion: null,
+        toolVersion: serverToolVersion(row.type),
         createdAt: Date.now(),
       });
       this.costModels.noteRecorded(outcome);
@@ -703,6 +710,8 @@ export class SQLiteQueue {
       this.runningCount++;
       const abortController = new AbortController();
       this.activeJobs.set(jobId, { abortController });
+      // Peak memory of the tool processes this job starts (FoldX, Java), read when it ends.
+      const meter = new ProcessTreeSampler();
 
       // Run job asynchronously in the background
       (async () => {
@@ -717,7 +726,7 @@ export class SQLiteQueue {
             }, timeoutMs);
           });
 
-          const jobPromise = this.processCallback(type, data, abortController.signal, jobId);
+          const jobPromise = runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId));
           const resData = await Promise.race([jobPromise, timeoutPromise]);
 
           if (timeoutId) clearTimeout(timeoutId);
@@ -734,7 +743,7 @@ export class SQLiteQueue {
           const owner = row.owner_id && row.owner_id !== LEGACY_OWNER && row.owner_id !== SYSTEM_OWNER ? row.owner_id : null;
           if (resData && typeof resData === "object") {
             const p = resData.computeProvenance;
-            if (!p) resData.computeProvenance = serverProvenance(owner);
+            if (!p) resData.computeProvenance = serverProvenance(owner, type);
             else if (p.computedOn === "server" && p.ownerId == null && owner) resData.computeProvenance = { ...p, ownerId: owner };
           }
           const written = this.db.prepare(`
@@ -744,12 +753,12 @@ export class SQLiteQueue {
           `).run(JSON.stringify(resData), Date.now(), jobId);
           if ((written.changes ?? 0) === 0) {
             // Cancelled while it was finishing: the cancel's ending stands, and it was not a completed run.
-            this.recordEnding(jobId, "cancelled", "cancelled");
+            this.recordEnding(jobId, "cancelled", "cancelled", meter.peakBytes);
           } else {
             // A worker can resolve with a failure instead of throwing (FoldX soft failure, P2Rank
             // "unavailable"): that is not a completed run, and must not teach the time curves.
             const soft = resData && typeof resData === "object" && (resData.status === "failed" || resData.status === "unavailable");
-            this.recordEnding(jobId, soft ? "failed" : "completed", soft ? `result:${resData.status}` : null);
+            this.recordEnding(jobId, soft ? "failed" : "completed", soft ? `result:${resData.status}` : null, meter.peakBytes);
           }
         } catch (err: any) {
           // Read BEFORE abortJob below, which aborts the controller itself: did WE stop it?
@@ -783,8 +792,9 @@ export class SQLiteQueue {
               WHERE id = ? AND status = 'running'
             `).run(message, Date.now(), jobId);
           } catch (_) {}
-          this.recordEnding(jobId, outcome, outcome === "failed" ? (err?.name ?? null) : outcome);
+          this.recordEnding(jobId, outcome, outcome === "failed" ? (err?.name ?? null) : outcome, meter.peakBytes);
         } finally {
+          void meter.stop();
           if (!this.isShutdown && isAccounted) {
             if (this.activeJobs.has(jobId)) {
               this.activeJobs.delete(jobId);

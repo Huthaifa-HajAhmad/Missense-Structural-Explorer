@@ -112,7 +112,7 @@ export function writeMutantToCache(cacheKey: string, result: any) {
 
     // Every stored result says where it ran. Results written here without one were computed by
     // this server (agent results arrive with their own, WP-F).
-    if (!result.computeProvenance) result.computeProvenance = serverProvenance(null);
+    if (!result.computeProvenance) result.computeProvenance = serverProvenance(null, "foldx");
     mutantCache.set(cacheKey, result);
     const entry = {
       ...result,

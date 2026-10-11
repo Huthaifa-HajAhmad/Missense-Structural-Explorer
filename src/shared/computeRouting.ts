@@ -251,14 +251,18 @@ const EMULATED_FIXED_SHARE = 13_300 / EMULATED_ANCHOR_TOTAL_MS;
 const EMULATED_EXPONENT = 1.44;
 
 /**
- * RepairPDB: a 489-residue template took 205 s (comment in the FoldX worker branch of `server.ts`). The
- * host is not stated; it must be the emulated server, because the 420 s repair cap could not hold a
- * native time scaled by 60x. Scaled with the emulated exponent; native is divided by the ~60x factor
- * the plan measured for BuildModel. Both are [estimate] and are replaced by the fit once measured.
+ * RepairPDB, emulated: a 489-residue template took 205 s (comment in the FoldX worker branch of
+ * `server.ts`), host not stated, scaled with the emulated exponent. [estimate] until
+ * `npm run compute:benchmark` runs on the server (doc/COMPUTE_BENCHMARK.md).
+ *
+ * RepairPDB, native: MEASURED by `npm run compute:benchmark` (2026-10-11, x64-native-20c-16g): SOD1,
+ * 154 residues, 49 s. The earlier prior divided the 205 s anchor by the ~60x BuildModel emulation factor
+ * and predicted 0.6 s, 80x too fast; RepairPDB is slow natively too. Scaled with the same exponent.
  */
 const EMULATED_REPAIR_ANCHOR_RESIDUES = 489;
 const EMULATED_REPAIR_ANCHOR_MS = 205_000;
-const NATIVE_SPEEDUP_OVER_EMULATED = 60;
+const NATIVE_REPAIR_ANCHOR_RESIDUES = 154;
+const NATIVE_REPAIR_ANCHOR_MS = 49_000;
 
 /** Prior p50 for a FoldX job (RepairPDB when it applies, then BuildModel). */
 export function foldxPriorP50Ms(job: Pick<JobFeatures, "residues" | "numberOfRuns" | "repair">, emulated: boolean): number {
@@ -273,7 +277,7 @@ export function foldxPriorP50Ms(job: Pick<JobFeatures, "residues" | "numberOfRun
   } else {
     buildModel = NATIVE_BUILDMODEL_FIXED_MS + runs * r * NATIVE_BUILDMODEL_MS_PER_RESIDUE_RUN;
     if (job.repair) {
-      repair = (EMULATED_REPAIR_ANCHOR_MS * (r / EMULATED_REPAIR_ANCHOR_RESIDUES) ** EMULATED_EXPONENT) / NATIVE_SPEEDUP_OVER_EMULATED;
+      repair = NATIVE_REPAIR_ANCHOR_MS * (r / NATIVE_REPAIR_ANCHOR_RESIDUES) ** EMULATED_EXPONENT;
     }
   }
   return Math.round(buildModel + repair);

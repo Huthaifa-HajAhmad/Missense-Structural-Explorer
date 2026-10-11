@@ -33,6 +33,7 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 ### 7. [Accounts & Server Jobs Runbook](./ACCOUNTS.md)
 * **Goal**: For the server owner: create the first admin, invite people, switch on sign-in, and set how server jobs are shared.
 * **Key Topics**: `AUTH_MODE` cut-over and rollback, applying a setting safely, job limits, `COMPUTE_ROUTING`, backups, FoldX licence.
+* **Measurements**: [Compute Benchmark](./COMPUTE_BENCHMARK.md), FoldX and P2Rank time and peak memory per machine class (`npm run compute:benchmark`).
 
 ### 8. [Future Work & Enhancements Roadmap](./FUTURE_WORK.md)
 * **Goal**: Highlights alternative machine learning models, visualization upgrades, and technical roadmap items.

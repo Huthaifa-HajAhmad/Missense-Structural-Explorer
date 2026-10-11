@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { spawn } from "node:child_process";
 import type { DatabaseSync } from "node:sqlite";
 import { SQLiteQueue, BiophysicalJobQueue, AdmissionError } from "./biophysical-queue.ts";
 import { classifyJobFailure, isOutOfMemory } from "./failure-class.ts";
 import { _resetHostProbe, serverHostFacts } from "./host-probe.ts";
 import { recordTelemetry } from "./compute-telemetry.ts";
+import { meterChildProcess } from "./job-meter.ts";
 import { ceilingRefusal, routingPolicyFromEnv } from "./admission.ts";
 import { hostClassOf } from "../../../src/shared/computeRouting.ts";
 import { classifyFoldxFailure, describeFoldxFailure } from "../stability/foldx/failure.ts";
@@ -87,6 +89,41 @@ describe("telemetry (WP-0)", () => {
       q.shutdown();
     }
   });
+
+  it("records the peak memory of the tool a job ran, and the tool's version, whether it completed or failed", async () => {
+    _resetHostProbe([
+      { name: "foldx", version: "5.1", verified: true },
+      { name: "p2rank", version: "2.6-alpha", verified: true },
+    ]);
+    const MiB = 1024 * 1024;
+    // What a runner does: start the tool and hand it to the meter. This "tool" holds 128 MiB.
+    const runTool = async () => {
+      const child = spawn(process.execPath, ["-e", `const b = Buffer.alloc(128 * 1024 * 1024, 1); process.stdout.write("ready"); setInterval(() => b[0]++, 1000);`], { stdio: ["ignore", "pipe", "inherit"] });
+      meterChildProcess(child);
+      await new Promise((r) => child.stdout!.once("data", r));
+      await tick(2_500); // at least one timed sample on every platform (Windows samples every 2 s)
+      await new Promise((r) => { child.once("exit", r); child.kill("SIGKILL"); });
+    };
+    const q = new SQLiteQueue(":memory:", 2, async (_t, d) => {
+      await runTool();
+      if (d.fail) throw new Error("engine rejected input");
+      return "ok";
+    });
+    try {
+      await q.addJob("ok", "foldx", {}, { ownerId: "X", residues: 154 });
+      await q.addJob("bad", "p2rank", { fail: true }, { ownerId: "X", residues: 300 });
+      const db = (q as any).db as DatabaseSync;
+      for (let i = 0; i < 100 && (db.prepare("SELECT count(*) AS n FROM job_telemetry").get() as any).n < 2; i++) await tick(100);
+      const rows = db.prepare("SELECT job_id, outcome, peak_rss_bytes, tool_version FROM job_telemetry ORDER BY job_id").all() as any[];
+      expect(rows.map((r) => [r.job_id, r.outcome, r.tool_version])).toEqual([["bad", "failed", "2.6-alpha"], ["ok", "completed", "5.1"]]);
+      for (const r of rows) {
+        expect(r.peak_rss_bytes).toBeGreaterThanOrEqual(120 * MiB);
+        expect(r.peak_rss_bytes).toBeLessThan(1024 * MiB);
+      }
+    } finally {
+      q.shutdown();
+    }
+  }, 30_000);
 });
 
 describe("admission (WP-D)", () => {

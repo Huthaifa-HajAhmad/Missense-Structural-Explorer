@@ -4,7 +4,8 @@ import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { mayServe } from "../../../../src/shared/computeProvenance.ts";
 import { serverProvenance } from "../../infra/host-probe.ts";
-import { execFile } from "child_process";
+import { meterChildProcess } from "../../infra/job-meter.ts";
+import { execFile, type ChildProcess } from "child_process";
 import { promisify } from "util";
 import {
   type PdbAtom,
@@ -18,6 +19,12 @@ import { getAaPropensities, determineLikelyCofactor } from "./propensities.ts";
 import { selectPocketForResidue } from "./selection.ts";
 
 const execFileAsync = promisify(execFile);
+
+/** Count a P2Rank run (the script and the Java it starts) toward the queue job's memory (job-meter.ts). */
+function metered<T>(run: Promise<T> & { child?: ChildProcess }): Promise<T> {
+  meterChildProcess(run.child);
+  return run;
+}
 
 export const pocketCache = new LRUCache<string, any>({
   max: 100,
@@ -139,7 +146,7 @@ export async function findBindingPocket(
   const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
   if (result.status === "success" || result.status === "none_detected" || result.status === "fallback") {
     // Every stored result says where it ran (WP-E); this one ran on this server.
-    if (!(result as any).computeProvenance) (result as any).computeProvenance = serverProvenance(null);
+    if (!(result as any).computeProvenance) (result as any).computeProvenance = serverProvenance(null, "p2rank");
     cache.set(cacheKey, result);
   }
   return result;
@@ -341,12 +348,12 @@ export async function findBindingPocketInternal(
       if (isBatch && process.platform === "win32") {
         const shellBinary = process.env.ComSpec || "cmd.exe";
         const quotedCmdLine = `"${[resolvedCmd, ...args].map(a => `"${a.replace(/"/g, '""')}"`).join(" ")}"`;
-        return await execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
+        return await metered(execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
           ...opt,
           windowsVerbatimArguments: true
-        });
+        }));
       }
-      return await execFileAsync(resolvedCmd, args, opt);
+      return await metered(execFileAsync(resolvedCmd, args, opt));
     };
     
     let stdout = "";
