@@ -114,6 +114,11 @@ export interface FoldxProgress {
   elapsedMs: number | null;
   /** Positions ahead of this job in the queue, when the server can count them. */
   queuePosition: number | null;
+  /**
+   * The server's estimate of the wait before this job starts, in ms (`queuedEtaMs`), or null when it
+   * cannot estimate it. Optional so a snapshot built before this field existed still type-checks.
+   */
+  queueEtaMs?: number | null;
   /** Local clock at the moment this snapshot was RECEIVED — the client's own baseline. */
   receivedAt: number;
 }

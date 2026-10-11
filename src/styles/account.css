@@ -287,11 +287,16 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
    so the gap stays on the trigger's side. `span-*` (not `center`) keeps the flips working when the
    menu is wider than its grid cell. Gated: position-area is Chrome 133, Firefox 147, Safari 26. */
 @supports (position-area: block-end) {
+  /* The anchor is named explicitly. A popover opened with showPopover() has no implicit anchor, so
+     without these two lines `position-area` had nothing to place against and the menu opened at the
+     viewport's top-left corner (seen in a real browser, 2026-10-10). */
+  .acct-avatar-btn { anchor-name: --acct-menu-trigger; }
   .acct-menu {
+    position-anchor: --acct-menu-trigger;
     inset: auto;
     margin: 0;
     margin-block-start: 0.5rem;
-    position-area: block-end span-inline-end;
+    position-area: block-end span-inline-start;
     position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
   }
 }
@@ -430,3 +435,10 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   .acct-card, .acct-overlay, .acct-menu, .acct-link-card, .acct-person-panel, .acct-splash-mark, .acct-skeleton { animation: none; }
   .acct-splash-mark { opacity: 1; }
 }
+
+/* Settings → Account → Compute: server time used and the limits that apply (UsageSummary). */
+.acct-usage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.acct-usage-tile { padding: 10px 12px; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-input); background: var(--cs-surface); }
+.acct-usage-tile dt { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--cs-text-muted); }
+.acct-usage-tile dd { margin: 4px 0 0; font-size: 18px; font-weight: 600; color: var(--cs-text-primary); font-variant-numeric: tabular-nums; }
+.acct-usage-limits { margin: 10px 0 0; padding-left: 18px; list-style: disc; display: grid; gap: 4px; font-size: 12.5px; color: var(--cs-text-secondary); }

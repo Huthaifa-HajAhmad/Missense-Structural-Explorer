@@ -13,6 +13,7 @@ import { CHROME_DIVIDER, CHROME_ICON_BUTTON } from "./ui/chrome";
 import { VariantIdentity } from "./header/VariantIdentity";
 import { useVariantHeaderModel, type VariantHeaderInput } from "./header/variantHeaderModel";
 import { AccountMenu } from "./account/AccountMenu";
+import { JobsMenu } from "./jobs/JobsMenu";
 
 interface HeaderBarProps {
   masterView: MasterView;
@@ -382,6 +383,10 @@ export function HeaderBar({
         >
           <Settings className="w-4 h-4" />
         </button>
+
+        {/* My jobs: the signed-in reader's queued and running calculations, with cancel. Renders
+            nothing without an account (there is no "mine" to list). */}
+        <JobsMenu />
 
         {/* Account: "Sign in", or the reader's initials and menu. Renders nothing until the workspace
             uses accounts, so a server still on AUTH_MODE=legacy looks exactly as before. */}

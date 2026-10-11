@@ -1,3 +1,4 @@
+import { describeQueueWait } from "../shared/jobsCopy";
 import { useState, useEffect, useMemo, useCallback, memo, lazy, Suspense } from "react";
 import { Activity, AlertTriangle, ExternalLink, Info, ListChecks, Scale } from "lucide-react";
 import { AnalysisState, EnergeticsData } from "../types";
@@ -152,12 +153,8 @@ const ProgressPanel = memo(function ProgressPanel({
   const repairNote = !foldxFinished && progress?.phase === "repairing"
     ? "FoldX does not report a percentage for structure repair. A first repair can take a few minutes; the repaired template is reused on later variants."
     : null;
-  const queueNote =
-    queued && progress?.queuePosition !== null && progress.queuePosition !== undefined
-      ? progress.queuePosition === 0
-        ? "Next in line"
-        : `${progress.queuePosition} job${progress.queuePosition === 1 ? "" : "s"} ahead`
-      : null;
+  // "3 jobs ahead · starts in about 4 min": the server's own position and estimate (src/shared/jobsCopy.ts).
+  const queueNote = queued ? describeQueueWait(progress?.queuePosition, progress?.queueEtaMs) : null;
 
   return (
     <section className="nrg-card nrg-progress" aria-label="Energetics run progress" data-testid="energetics-progress">

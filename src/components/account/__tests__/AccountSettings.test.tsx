@@ -35,6 +35,9 @@ function mockSession(session: Partial<SessionInfo>) {
       if (url.endsWith("/auth/session")) return new Response(JSON.stringify(full), { status: 200 });
       if (url.endsWith("/admin/users")) return new Response(JSON.stringify({ users: [full.user] }), { status: 200 });
       if (url.endsWith("/admin/invites")) return new Response(JSON.stringify({ invites: [] }), { status: 200 });
+      if (url.endsWith("/auth/me")) {
+        return new Response(JSON.stringify({ user: full.user, mode: full.mode, quota: { queuedPerUser: 25, serverSecondsPerDay: null }, usage: { todaySeconds: 720, weekSeconds: 6000 } }), { status: 200 });
+      }
       return Promise.reject(new Error("offline"));
     }),
   );
@@ -126,6 +129,18 @@ describe("Settings: account sections", () => {
     expect(selected).toHaveLength(1);
     const labelledBy = screen.getByRole("tabpanel").getAttribute("aria-labelledby");
     expect(labelledBy && document.getElementById(labelledBy)).toBeTruthy();
+  });
+});
+
+describe("Settings: server time used", () => {
+  it("shows today's and the week's server time, and the limits that apply", async () => {
+    mockSession({ user: { ...ADMIN, role: "member" } });
+    renderAll();
+    fireEvent.click(await screen.findByText("open-settings"));
+    fireEvent.click(await screen.findByRole("tab", { name: "Account" }));
+    expect(await screen.findByText("12 min")).toBeTruthy();
+    expect(screen.getByText("1.7 h")).toBeTruthy();
+    expect(screen.getByText("No daily limit on server time.")).toBeTruthy();
   });
 });
 
