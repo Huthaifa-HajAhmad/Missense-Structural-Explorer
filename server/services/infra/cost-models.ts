@@ -100,10 +100,13 @@ export function buildCostModels(samples: TelemetrySample[]): CostModels {
   const models: Record<string, ClassCostModel> = {};
   for (const [key, rows] of groups) {
     const completed = rows.filter((r) => r.outcome === "completed");
+    const measured = completed.filter((r) => r.peakRssBytes != null);
     models[key] = {
       samples: completed.length,
       wall: fitPowerLaw(completed.filter((r) => r.wallMs != null).map((r) => ({ x: r.residues, y: r.wallMs as number }))),
-      peakRam: fitPowerLaw(completed.filter((r) => r.peakRssBytes != null).map((r) => ({ x: r.residues, y: r.peakRssBytes as number }))),
+      peakRam: fitPowerLaw(measured.map((r) => ({ x: r.residues, y: r.peakRssBytes as number }))),
+      // Only rows that actually carried a peak gate the memory fit; a cache hit must not help it.
+      peakRamSamples: measured.length,
       maxCompletedResidues: completed.length > 0 ? Math.max(...completed.map((r) => r.residues)) : null,
       oomCeilingResidues: enforcedOomCeiling(rows),
     };

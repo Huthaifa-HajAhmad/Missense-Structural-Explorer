@@ -76,7 +76,7 @@ export class SQLiteQueue {
   private db: DatabaseSync;
   private concurrency: number;
   private runningCount = 0;
-  private activeJobs = new Map<string, { abortController?: AbortController }>();
+  private activeJobs = new Map<string, { abortController?: AbortController; meter?: ProcessTreeSampler }>();
   private processCallback: (type: string, data: any, signal?: AbortSignal, jobId?: string) => Promise<any>;
 
   private timer: NodeJS.Timeout | null = null;
@@ -596,6 +596,8 @@ export class SQLiteQueue {
     outcome: "completed" | ReturnType<typeof classifyJobFailure>,
     errorClass: string | null,
     peakRssBytes: number | null = null,
+    /** The tool version that actually ran the job; `undefined` means "ask the probe by job type". */
+    toolVersion?: string | null,
   ) {
     try {
       const row = this.db.prepare("SELECT type, residues, repaired, started_at, completed_at FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
@@ -612,7 +614,7 @@ export class SQLiteQueue {
         peakRssBytes,
         outcome,
         errorClass,
-        toolVersion: serverToolVersion(row.type),
+        toolVersion: toolVersion === undefined ? serverToolVersion(row.type) : toolVersion,
         createdAt: Date.now(),
       });
       this.costModels.noteRecorded(outcome);
@@ -709,9 +711,10 @@ export class SQLiteQueue {
 
       this.runningCount++;
       const abortController = new AbortController();
-      this.activeJobs.set(jobId, { abortController });
-      // Peak memory of the tool processes this job starts (FoldX, Java), read when it ends.
+      // Peak memory of the tool processes this job starts (FoldX, Java). Stored with the controller so
+      // the reaper can record a lease-expiry timeout's peak as well.
       const meter = new ProcessTreeSampler();
+      this.activeJobs.set(jobId, { abortController, meter });
 
       // Run job asynchronously in the background
       (async () => {
@@ -751,14 +754,23 @@ export class SQLiteQueue {
             SET status = 'completed', result = ?, completed_at = ?
             WHERE id = ? AND status = 'running'
           `).run(JSON.stringify(resData), Date.now(), jobId);
+          // Settle the sampler and read its peak BEFORE writing telemetry, so the last in-flight sample
+          // (the one that can catch an out-of-memory spike) is counted. stop() only awaits one listing.
+          const peak = await meter.stop();
+          // The tool that RAN is not always the job's tool (a P2Rank job can fall back to fpocket), so
+          // prefer the result's own provenance version; `undefined` falls back to the probe by job type.
+          const resultTool = resData && typeof resData === "object" && resData.computeProvenance
+            ? (resData.computeProvenance.toolVersion ?? null)
+            : undefined;
           if ((written.changes ?? 0) === 0) {
             // Cancelled while it was finishing: the cancel's ending stands, and it was not a completed run.
-            this.recordEnding(jobId, "cancelled", "cancelled", meter.peakBytes);
+            this.recordEnding(jobId, "cancelled", "cancelled", peak, resultTool);
           } else {
             // A worker can resolve with a failure instead of throwing (FoldX soft failure, P2Rank
-            // "unavailable"): that is not a completed run, and must not teach the time curves.
-            const soft = resData && typeof resData === "object" && (resData.status === "failed" || resData.status === "unavailable");
-            this.recordEnding(jobId, soft ? "failed" : "completed", soft ? `result:${resData.status}` : null, meter.peakBytes);
+            // "unavailable", or an fpocket "fallback" that ran a DIFFERENT tool): that is not a
+            // completed run of this job's tool, and must not teach its time or memory curves.
+            const soft = resData && typeof resData === "object" && (resData.status === "failed" || resData.status === "unavailable" || resData.status === "fallback");
+            this.recordEnding(jobId, soft ? "failed" : "completed", soft ? `result:${resData.status}` : null, peak, resultTool);
           }
         } catch (err: any) {
           // Read BEFORE abortJob below, which aborts the controller itself: did WE stop it?
@@ -792,7 +804,7 @@ export class SQLiteQueue {
               WHERE id = ? AND status = 'running'
             `).run(message, Date.now(), jobId);
           } catch (_) {}
-          this.recordEnding(jobId, outcome, outcome === "failed" ? (err?.name ?? null) : outcome, meter.peakBytes);
+          this.recordEnding(jobId, outcome, outcome === "failed" ? (err?.name ?? null) : outcome, await meter.stop());
         } finally {
           void meter.stop();
           if (!this.isShutdown && isAccounted) {
@@ -845,13 +857,15 @@ export class SQLiteQueue {
           console.error(`[Queue Reaper] Failed to update database status for ${job.id}:`, dbErr.message);
         }
 
-        // If it was in the active map, remove it and decrement runningCount
-        if (this.activeJobs.has(job.id)) {
+        // Remove it and decrement runningCount. Capture the meter BEFORE the delete: a lease-expiry reap
+        // is the one ending the job's own path cannot write (it bails once it is no longer active), so
+        // without this its peak would always be null.
+        const active = this.activeJobs.get(job.id);
+        if (active) {
           this.activeJobs.delete(job.id);
           this.runningCount = Math.max(0, this.runningCount - 1);
         }
-        // The queue imposed this ending; it is the main source of timeout telemetry.
-        this.recordEnding(job.id, "timeout", "lease-expired");
+        this.recordEnding(job.id, "timeout", "lease-expired", active?.meter?.peakBytes ?? null);
       }
 
       // Also reap stuck queued jobs. The wait is longer than the running lease because a queued

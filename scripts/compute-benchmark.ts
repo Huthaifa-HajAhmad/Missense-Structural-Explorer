@@ -43,6 +43,7 @@ import { cleanPdbForFoldX } from "../server/services/stability/foldx/pdb-utils.t
 import { checkP2RankCapability, discoverJavaHome } from "../server/services/structure/pocket/java-detector.ts";
 import { selectP2RankProfile } from "../server/services/structure/pocket/runner.ts";
 import { fetchAlphafoldPdb } from "../server/services/structure/structure-fetcher.ts";
+import { killProcessTree } from "../server/utils/process-tree.ts";
 import { AA3, EXTRA_ARGS, defaultWorkRoot, prepareFoldxJobDir } from "./lib/foldx-job.ts";
 
 /** The fixed set. AlphaFold models, so every machine measures identical coordinates. */
@@ -64,6 +65,8 @@ interface Step {
   state: "completed" | "timed-out" | "failed";
   wallMs: number;
   peakRssBytes: number | null;
+  /** FoldX only: this BuildModel ran on RepairPDB's output, so it is not comparable to the others. */
+  repairedInput?: boolean;
   note?: string;
 }
 
@@ -102,6 +105,19 @@ async function alphaFoldPdb(uniprot: string, cacheDir: string): Promise<string> 
   return text;
 }
 
+/**
+ * Strip machine-specific paths from a diagnostic note before it is persisted. The note is committed to
+ * `doc/compute-benchmark/*.json`, and spawn/tool diagnostics routinely contain executable, working
+ * directory and home paths; the raw tail stays on the console.
+ */
+export function redactPaths(text: string, ...roots: string[]): string {
+  let out = text;
+  for (const r of roots) {
+    if (r && r.length > 1) out = out.split(r).join("<path>");
+  }
+  return out;
+}
+
 /** Residues of chain A, and a mutation in the middle of it (to Ala, or Gly where it is Ala). */
 function middleMutation(cleanedPdb: string): { residues: number; mutation: string } {
   const seen = new Map<number, string>();
@@ -131,12 +147,15 @@ function measure(
     let output = "";
     let timedOut = false;
     let settled = false;
-    const child = spawn(file, args, { cwd: opts.cwd, env: opts.env, windowsHide: true, windowsVerbatimArguments: opts.verbatim });
+    // `detached` gives the child its own process group on POSIX, so killProcessTree's -pid reaches the
+    // JVM or container it starts, not only the wrapper.
+    const child = spawn(file, args, { cwd: opts.cwd, env: opts.env, windowsHide: true, windowsVerbatimArguments: opts.verbatim, detached: process.platform !== "win32" });
     sampler.track(child.pid);
     const cap = setTimeout(() => {
       timedOut = true;
-      if (process.platform === "win32" && child.pid) spawn("taskkill", ["/F", "/T", "/PID", String(child.pid)]);
-      else child.kill("SIGKILL");
+      // Kill the whole tool tree: a bare child.kill() signals only the wrapper (the prank script, or
+      // `docker`), leaving its JVM/container running — and unmeasured — for the rest of the run.
+      killProcessTree(child.pid);
     }, opts.timeoutMs);
     child.stdout?.on("data", (d) => { output = (output + d).slice(-2_000); });
     child.stderr?.on("data", (d) => { output = (output + d).slice(-2_000); });
@@ -175,6 +194,9 @@ async function benchFoldx(opts: {
     return measure(target.file, target.args, { cwd: jobDir, timeoutMs: opts.timeoutMs });
   };
   let input = opts.cleaned;
+  let repairedInput = false;
+  // Called only when a step "completed" but produced no output file.
+  const missingNote = (tail: string, missing: string) => `no ${missing}: ${redactPaths(tail, opts.workRoot)}`;
   try {
     if (opts.repair) {
       const jobDir = prepareFoldxJobDir({ workRoot: opts.workRoot, label: `bench-repair-${opts.gene}`, pdbText: input, mutation: opts.mutation, foldxDir });
@@ -183,11 +205,14 @@ async function benchFoldx(opts: {
       const r = await run(["--command=RepairPDB", "--pdb=wt.pdb", ...EXTRA_ARGS], jobDir);
       const repaired = path.join(jobDir, "wt_Repair.pdb");
       const produced = fs.existsSync(repaired);
-      if (produced) input = fs.readFileSync(repaired, "utf8");
+      if (produced) {
+        input = fs.readFileSync(repaired, "utf8");
+        repairedInput = true;
+      }
       steps.push({
         tool: "foldx", step: "RepairPDB", gene: opts.gene, residues: opts.residues,
         state: r.state === "completed" && !produced ? "failed" : r.state, wallMs: r.wallMs, peakRssBytes: r.peakRssBytes,
-        note: r.state === "completed" && !produced ? `no wt_Repair.pdb: ${r.tail}` : r.state !== "completed" ? r.tail : undefined,
+        note: r.state === "completed" && !produced ? missingNote(r.tail, "wt_Repair.pdb") : r.state !== "completed" ? redactPaths(r.tail, opts.workRoot) : undefined,
       });
     }
     const jobDir = prepareFoldxJobDir({ workRoot: opts.workRoot, label: `bench-bm-${opts.gene}`, pdbText: input, mutation: opts.mutation, foldxDir });
@@ -198,7 +223,8 @@ async function benchFoldx(opts: {
     steps.push({
       tool: "foldx", step: "BuildModel x5", gene: opts.gene, residues: opts.residues,
       state: r.state === "completed" && !produced ? "failed" : r.state, wallMs: r.wallMs, peakRssBytes: r.peakRssBytes,
-      note: r.state === "completed" && !produced ? `no Dif_wt.fxout: ${r.tail}` : r.state !== "completed" ? r.tail : undefined,
+      repairedInput,
+      note: r.state === "completed" && !produced ? missingNote(r.tail, "Dif_wt.fxout") : r.state !== "completed" ? redactPaths(r.tail, opts.workRoot) : undefined,
     });
   } finally {
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
@@ -228,7 +254,7 @@ async function benchP2Rank(opts: { gene: string; pdbText: string; residues: numb
     return {
       tool: "p2rank", step: "predict", gene: opts.gene, residues: opts.residues,
       state: r.state === "completed" && !produced ? "failed" : r.state, wallMs: r.wallMs, peakRssBytes: r.peakRssBytes,
-      note: r.state === "completed" && !produced ? `no predictions file: ${r.tail}` : r.state !== "completed" ? r.tail : undefined,
+      note: r.state === "completed" && !produced ? `no predictions file: ${redactPaths(r.tail, opts.workRoot)}` : r.state !== "completed" ? redactPaths(r.tail, opts.workRoot) : undefined,
     };
   } finally {
     fs.rmSync(jobDir, { recursive: true, force: true });
@@ -264,8 +290,11 @@ export function renderBenchmarkMarkdown(reports: BenchmarkReport[]): string {
     "  Native RepairPDB is anchored on the SOD1 row below. P2Rank has no time prior.",
     "- One run per row: a single measurement, not a distribution. The engine learns the spread from telemetry.",
     "- Structures are AlphaFold models with one mutation in the middle of chain A. Production skips",
-    "  RepairPDB for AlphaFold models; it is measured where production repairs experimental structures",
-    "  (400 residues or fewer), so both paths have a number.",
+    "  RepairPDB for AlphaFold models; here it is forced on an AlphaFold model (400 residues or fewer),",
+    "  so the RepairPDB row is a LOWER BOUND for the experimental structures production actually repairs",
+    "  (an AlphaFold model has almost nothing to repair).",
+    "- A BuildModel row marked `repaired input` ran on RepairPDB's output, so it is not comparable to a",
+    "  BuildModel row on the cleaned model.",
     "",
   ];
   if (reports.length === 0) lines.push("No measurements yet. Run `npm run compute:benchmark`.", "");
@@ -285,7 +314,7 @@ export function renderBenchmarkMarkdown(reports: BenchmarkReport[]): string {
       "| Tool | Step | Structure | Residues | Result | Wall time | Prior | Peak memory |",
       "|---|---|---|---:|---|---:|---:|---:|",
       ...r.steps.map((s) =>
-        `| ${s.tool === "foldx" ? "FoldX" : "P2Rank"} | ${s.step} | ${s.gene} | ${s.residues} | ${s.state}${s.note ? ` (${s.note.replace(/\|/g, "/")})` : ""} | ${formatDuration(s.wallMs)} | ${prior(s)} | ${mib(s.peakRssBytes)} |`,
+        `| ${s.tool === "foldx" ? "FoldX" : "P2Rank"} | ${s.step} | ${s.gene} | ${s.residues} | ${s.state}${s.repairedInput ? " (repaired input)" : ""}${s.note ? ` (${s.note.replace(/\|/g, "/")})` : ""} | ${formatDuration(s.wallMs)} | ${prior(s)} | ${mib(s.peakRssBytes)} |`,
       ),
       "",
     );

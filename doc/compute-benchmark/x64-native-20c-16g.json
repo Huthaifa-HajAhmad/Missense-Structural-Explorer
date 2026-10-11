@@ -39,7 +39,8 @@
       "residues": 154,
       "state": "completed",
       "wallMs": 4166,
-      "peakRssBytes": 73814016
+      "peakRssBytes": 73814016,
+      "repairedInput": true
     },
     {
       "tool": "p2rank",

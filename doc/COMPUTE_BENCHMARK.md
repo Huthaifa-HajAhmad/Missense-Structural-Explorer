@@ -10,8 +10,11 @@ the JSON beside this file (`doc/compute-benchmark/`) holds the same numbers for 
   Native RepairPDB is anchored on the SOD1 row below. P2Rank has no time prior.
 - One run per row: a single measurement, not a distribution. The engine learns the spread from telemetry.
 - Structures are AlphaFold models with one mutation in the middle of chain A. Production skips
-  RepairPDB for AlphaFold models; it is measured where production repairs experimental structures
-  (400 residues or fewer), so both paths have a number.
+  RepairPDB for AlphaFold models; here it is forced on an AlphaFold model (400 residues or fewer),
+  so the RepairPDB row is a LOWER BOUND for the experimental structures production actually repairs
+  (an AlphaFold model has almost nothing to repair).
+- A BuildModel row marked `repaired input` ran on RepairPDB's output, so it is not comparable to a
+  BuildModel row on the cleaned model.
 
 ## x64-native-20c-16g
 
@@ -21,7 +24,7 @@ Tools: foldx 5.1, p2rank 2.6-alpha; this FoldX build stops working on 2027-01-31
 | Tool | Step | Structure | Residues | Result | Wall time | Prior | Peak memory |
 |---|---|---|---:|---|---:|---:|---:|
 | FoldX | RepairPDB | SOD1 | 154 | completed | 49 s | 49 s | 57 MiB |
-| FoldX | BuildModel x5 | SOD1 | 154 | completed | 4.2 s | 2.3 s | 70 MiB |
+| FoldX | BuildModel x5 | SOD1 | 154 | completed (repaired input) | 4.2 s | 2.3 s | 70 MiB |
 | P2Rank | predict | SOD1 | 154 | completed | 4.4 s |  | 444 MiB |
 | FoldX | BuildModel x5 | GCK | 465 | completed | 2.6 s | 3.3 s | 155 MiB |
 | P2Rank | predict | GCK | 465 | completed | 4.6 s |  | 520 MiB |

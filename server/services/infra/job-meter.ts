@@ -21,6 +21,14 @@ export function runInJobMeter<T>(sampler: ProcessTreeSampler, fn: () => Promise<
   return current.run(sampler, fn);
 }
 
+/**
+ * The meter of the job `fn` is running in, or undefined outside a job. For tests and the queue's own
+ * bookkeeping (so a caller can settle the peak before it stops the sampler).
+ */
+export function currentJobMeter(): ProcessTreeSampler | undefined {
+  return current.getStore();
+}
+
 /** Count `child` (and everything it starts) toward the current job's memory, until it exits. */
 export function meterChildProcess(child: ChildProcess | undefined): void {
   const sampler = current.getStore();

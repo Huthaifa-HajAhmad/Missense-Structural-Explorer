@@ -100,6 +100,15 @@ describe("priors (plan section 2.3)", () => {
     expect(repair(400)).toBeGreaterThan(repair(154)); // grows with size
   });
 
+  it("native RepairPDB passes through the 305-residue point too; emulated is never faster than native", () => {
+    const repair = (r: number, emulated: boolean) =>
+      foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: true }, emulated) - foldxPriorP50Ms({ residues: r, numberOfRuns: 5, repair: false }, emulated);
+    // The same curve reproduces both native measurements: 49 s at 154 and 205.4 s at 305 (foldx/cache.ts).
+    expect(repair(305, false)).toBeCloseTo(205_400, -3);
+    // The engine must never claim Box64 repair is FASTER than bare metal (the inversion the review found).
+    for (const r of [154, 200, 305, 400]) expect(repair(r, true)).toBeGreaterThan(repair(r, false));
+  });
+
   it("the decision for 1,085 residues on the server is a prior with p90 = 2 x p50", () => {
     const d = decidePlacement(foldxJob(1085), [server], policy(), NONE);
     expect(d.prediction?.basis).toBe("prior");
@@ -159,6 +168,7 @@ describe("hard filters", () => {
         samples: 10,
         wall: { a: 0, b: 1, p90Ratio: 1.2 },
         peakRam: { a: Math.log(8 * GIB), b: 0, p90Ratio: 1 },
+        peakRamSamples: 10,
         maxCompletedResidues: 1100,
         oomCeilingResidues: null,
       },
@@ -171,7 +181,7 @@ describe("hard filters", () => {
 
   it("an OOM ceiling refuses that size and above", () => {
     const models: CostModels = {
-      [costModelKey("foldx", hostClassOf(server))]: { samples: 2, wall: null, peakRam: null, maxCompletedResidues: 900, oomCeilingResidues: 1000 },
+      [costModelKey("foldx", hostClassOf(server))]: { samples: 2, wall: null, peakRam: null, peakRamSamples: 0, maxCompletedResidues: 900, oomCeilingResidues: 1000 },
     };
     expect(decidePlacement(foldxJob(1000), [server], policy(), models).placement.kind).toBe("reject");
     expect(decidePlacement(foldxJob(999), [server], policy(), models).placement.kind).toBe("server");
@@ -179,13 +189,30 @@ describe("hard filters", () => {
 
   it("with memory unmeasured, refuses beyond 1.25 x the largest completed size, but never the first job", () => {
     const models: CostModels = {
-      [costModelKey("foldx", hostClassOf(server))]: { samples: 3, wall: null, peakRam: null, maxCompletedResidues: 400, oomCeilingResidues: null },
+      [costModelKey("foldx", hostClassOf(server))]: { samples: 3, wall: null, peakRam: null, peakRamSamples: 0, maxCompletedResidues: 400, oomCeilingResidues: null },
     };
     expect(decidePlacement(foldxJob(500), [server], policy(), models).placement.kind).toBe("server");
     const d = decidePlacement(foldxJob(501), [server], policy(), models);
     expect(d.placement.kind).toBe("reject");
     expect(d.reasons[0]).toMatch(/memory use is not measured yet/);
     expect(decidePlacement(foldxJob(5000), [server], policy(), NONE).placement.kind).toBe("server");
+  });
+
+  it("keeps the size guard even once memory is measured, so a two-point fit cannot license a huge job", () => {
+    const models: CostModels = {
+      [costModelKey("foldx", hostClassOf(server))]: {
+        samples: 10,
+        wall: null,
+        // A tiny measured peak, so the RAM rule passes and only the size guard can refuse.
+        peakRam: { a: Math.log(1024 * 1024), b: 0, p90Ratio: 1 },
+        peakRamSamples: 10,
+        maxCompletedResidues: 400,
+        oomCeilingResidues: null,
+      },
+    };
+    const d = decidePlacement(foldxJob(900), [server], policy(), models);
+    expect(d.placement.kind).toBe("reject");
+    expect(d.reasons[0]).toMatch(/well beyond the largest structure that has completed there \(500 residues\)/);
   });
 
   it("with every host offline, says exactly that", () => {
@@ -230,7 +257,7 @@ describe("ranking and near ties", () => {
   it("a fitted curve replaces the prior once the class has enough samples", () => {
     const key = costModelKey("foldx", hostClassOf(server));
     const fit = { a: Math.log(1000), b: 0, p90Ratio: 1.5 };
-    const few: CostModels = { [key]: { samples: 7, wall: fit, peakRam: null, maxCompletedResidues: null, oomCeilingResidues: null } };
+    const few: CostModels = { [key]: { samples: 7, wall: fit, peakRam: null, peakRamSamples: 0, maxCompletedResidues: null, oomCeilingResidues: null } };
     const enough: CostModels = { [key]: { ...few[key], samples: 8 } };
     expect(decidePlacement(foldxJob(154), [server], policy(), few).prediction?.basis).toBe("prior");
     const d = decidePlacement(foldxJob(154), [server], policy(), enough);
@@ -248,7 +275,7 @@ describe("ranking and near ties", () => {
   it("a host with no time estimate is never treated as tied (mixed timed and untimed hosts)", () => {
     const job: JobFeatures = { type: "p2rank", residues: 300, chains: 1, numberOfRuns: 0, repair: false, ownerId: "u1", requires: [{ tool: "p2rank" }] };
     const models: CostModels = {
-      [costModelKey("p2rank", hostClassOf(server))]: { samples: 10, wall: { a: Math.log(1000), b: 0, p90Ratio: 1.2 }, peakRam: null, maxCompletedResidues: 400, oomCeilingResidues: null },
+      [costModelKey("p2rank", hostClassOf(server))]: { samples: 10, wall: { a: Math.log(1000), b: 0, p90Ratio: 1.2 }, peakRam: null, peakRamSamples: 0, maxCompletedResidues: 400, oomCeilingResidues: null },
     };
     const busyDesktop: HostFeatures = { ...desktop, runningJobs: 1 };
     const d = decidePlacement(job, [server, busyDesktop], policy({ placementPref: "my_machine" }), models);

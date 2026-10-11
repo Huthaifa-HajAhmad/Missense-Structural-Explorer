@@ -6,8 +6,10 @@
  * when a job settles: it is the one place that sees every ending (completed, failed, timed out,
  * cancelled, killed for memory), including the ones the worker callback never returns from.
  *
- * Peak memory is not sampled yet (WP-0's process sampler), so `peak_rss_bytes` is null and the engine
- * uses its conservative size rule. Wall time and out-of-memory ceilings are learned now.
+ * Peak memory IS sampled now (`process-sampler.ts`, WP-0): `peak_rss_bytes` holds the peak resident
+ * bytes of the job's whole tool process tree. Rows written before WP-0 carry null, and a class needs a
+ * minimum number of MEASURED peaks before the memory fit (not just the size rule) is used. Wall time
+ * and out-of-memory ceilings are learned from the same rows.
  */
 import type { DatabaseSync } from "node:sqlite";
 import type { JobType } from "../../../src/shared/computeRouting.ts";

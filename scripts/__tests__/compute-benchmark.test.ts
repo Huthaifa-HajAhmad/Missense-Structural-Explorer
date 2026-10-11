@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderBenchmarkMarkdown, stepPriorMs, type BenchmarkReport } from "../compute-benchmark.ts";
 
@@ -33,5 +35,29 @@ describe("compute benchmark report", () => {
     expect(stepPriorMs({ tool: "foldx", step: "BuildModel x5", residues: 1085 }, true)).toBeCloseTo(167_200, -2);
     expect(stepPriorMs({ tool: "foldx", step: "RepairPDB", residues: 154 }, false)).toBeCloseTo(49_000, -2);
     expect(stepPriorMs({ tool: "p2rank", step: "predict", residues: 1085 }, true)).toBeNull();
+  });
+
+  it("marks a BuildModel row that ran on RepairPDB's output as not comparable", () => {
+    const md = renderBenchmarkMarkdown([{ ...report, steps: [{ ...report.steps[0], step: "BuildModel x5", repairedInput: true }] }]);
+    expect(md).toContain("| completed (repaired input) |");
+  });
+
+  it("the npm wrapper forwards flags to the script, not to node", () => {
+    // `npm run compute:benchmark -- --render` becomes `node -e "…" --render`, which node rejects with
+    // "bad option". The wrapper must end its -e string with ` --` so the flags arrive as argv.
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as { scripts: Record<string, string> };
+    expect(pkg.scripts["compute:benchmark"]).toMatch(/" --$/);
+  });
+
+  it("renders the committed benchmark faithfully from its JSON, and its filename is the host class", () => {
+    const dir = path.join(process.cwd(), "doc", "compute-benchmark");
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+    const reports = files.map((f) => {
+      const r = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as BenchmarkReport;
+      expect(r.hostClass).toBe(path.basename(f, ".json"));
+      return r;
+    });
+    const committed = fs.readFileSync(path.join(process.cwd(), "doc", "COMPUTE_BENCHMARK.md"), "utf8");
+    expect(committed).toBe(renderBenchmarkMarkdown(reports));
   });
 });

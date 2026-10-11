@@ -190,6 +190,9 @@ redistributed: it is mounted from `tools/foldx_linux` on the server. Anyone sett
 must get their own licence from <https://foldxsuite.crg.eu/>.
 
 The academic builds stop working on the date in their file name (`foldx_20261231` works until
-31 December 2026). The `[host-probe]` line names that date, warns from 45 days before it, and after
-it reports FoldX as failed. To renew, download the current build, put it in `tools/foldx_linux` in
-place of the old one, and apply it with the handover (`--restart`, above).
+31 December 2026). The `[host-probe]` line names that date and warns from 45 days before it; once the
+day has passed, the probe marks FoldX as failed, so with `COMPUTE_ROUTING=on` its jobs are refused with
+that reason. (If the mounted binary's name carries no date, the line says so — the warning is then not
+armed, and the first sign of an expired build would be failing jobs.) To renew, download the current
+build, put it in `tools/foldx_linux` in place of the old one, and apply it with the handover
+(`--restart`, above).

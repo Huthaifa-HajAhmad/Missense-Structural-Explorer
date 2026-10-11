@@ -6,6 +6,7 @@ import { classifyJobFailure, isOutOfMemory } from "./failure-class.ts";
 import { _resetHostProbe, serverHostFacts } from "./host-probe.ts";
 import { recordTelemetry } from "./compute-telemetry.ts";
 import { meterChildProcess } from "./job-meter.ts";
+import { _resetProcessTableCache } from "./process-sampler.ts";
 import { ceilingRefusal, routingPolicyFromEnv } from "./admission.ts";
 import { hostClassOf } from "../../../src/shared/computeRouting.ts";
 import { classifyFoldxFailure, describeFoldxFailure } from "../stability/foldx/failure.ts";
@@ -26,6 +27,7 @@ let savedMode: string | undefined;
 beforeEach(() => {
   savedMode = process.env.COMPUTE_ROUTING;
   _resetHostProbe(BOTH_TOOLS);
+  _resetProcessTableCache();
   BiophysicalJobQueue.resetForTesting();
 });
 afterEach(() => {
@@ -124,6 +126,26 @@ describe("telemetry (WP-0)", () => {
       q.shutdown();
     }
   }, 30_000);
+
+  it("records an fpocket fallback as a failed P2Rank run, crediting it to neither tool's version", async () => {
+    _resetHostProbe([
+      { name: "foldx", version: "5.1", verified: true },
+      { name: "p2rank", version: "2.6-alpha", verified: true },
+    ]);
+    const fallback = { status: "fallback", computeProvenance: { computedOn: "server", hostClass: null, toolVersion: null, ownerId: null } };
+    const q = new SQLiteQueue(":memory:", 2, async () => fallback);
+    try {
+      await q.addJob("fb", "p2rank", {}, { ownerId: "X", residues: 300 });
+      const db = (q as any).db as DatabaseSync;
+      for (let i = 0; i < 100 && (db.prepare("SELECT count(*) AS n FROM job_telemetry").get() as any).n < 1; i++) await tick(50);
+      const row = db.prepare("SELECT outcome, error_class, tool_version FROM job_telemetry WHERE job_id = 'fb'").get() as any;
+      expect(row.outcome).toBe("failed"); // it ran a DIFFERENT tool; it must not teach P2Rank's curves
+      expect(row.error_class).toBe("result:fallback");
+      expect(row.tool_version).toBeNull();
+    } finally {
+      q.shutdown();
+    }
+  });
 });
 
 describe("admission (WP-D)", () => {

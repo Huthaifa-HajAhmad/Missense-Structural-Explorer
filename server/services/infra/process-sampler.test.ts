@@ -1,8 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInJobMeter, meterChildProcess } from "./job-meter.ts";
 import {
   ProcessTreeSampler,
+  _resetProcessTableCache,
+  listProcessesShared,
   parseProcStatus,
   parsePsOutput,
   parseWindowsProcessList,
@@ -29,6 +31,7 @@ function allocatingChild(mib: number): Promise<ChildProcess> {
   });
 }
 
+beforeEach(() => _resetProcessTableCache());
 afterEach(() => {
   for (const c of children.splice(0)) c.kill("SIGKILL");
 });
@@ -82,6 +85,12 @@ describe("process tree memory", () => {
     phase = 1;
     await sampler.sample();
     expect(await sampler.stop()).toBe(150);
+  });
+
+  it("shares one process listing between concurrent samplers (no N-way enumeration)", async () => {
+    const [a, b] = await Promise.all([listProcessesShared(), listProcessesShared()]);
+    // The same array instance: the second caller joined the first's listing instead of starting another.
+    expect(a).toBe(b);
   });
 
   it("never throws when listing fails; the peak simply stays unknown", async () => {
