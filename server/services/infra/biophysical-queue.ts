@@ -29,6 +29,58 @@ export interface QueueJob {
   ownerId?: string;
   priority?: number;
   costEstimateMs?: number | null;
+  /** `agent:<id>` while (or after) a paired computer ran it; null when the server did. */
+  claimedBy?: string | null;
+  residues?: number | null;
+}
+
+/**
+ * Rows the SERVER is (or was) executing, as opposed to a paired computer (WP-F). An agent's job is not
+ * server load: it holds no server slot, is not ahead of anyone in the server's queue, and its time is
+ * never counted against a person's server time (plan 4.4: "Agent compute is never counted against the
+ * server"). `claimed_by` stays set on a job an agent finished, so the history stays attributable.
+ */
+const ON_SERVER = "(claimed_by IS NULL OR claimed_by NOT LIKE 'agent:%')";
+
+/**
+ * Queued rows the server may start. A job PLACED on a paired computer (`placement = 'agent:<id>'`, set by
+ * live routing, WP-G) waits for that computer; the agent registry clears the placement if the computer
+ * goes away, so such a job can never wait forever.
+ */
+const SERVER_CLAIMABLE = "(placement IS NULL OR placement NOT LIKE 'agent:%')";
+
+/**
+ * A lease longer than this is the server's own "finish" lease on a delivered result (agent-jobs.ts,
+ * 15 min), never a heartbeat lease (`AGENT_LEASE_SEC` is capped at 600 s).
+ */
+const FINISHING_LEASE_FLOOR_MS = 10 * 60 * 1000;
+
+/** A computer's job is handed back after this long even if it keeps renewing its lease: the job cap plus slack. */
+function agentHardCapMs(type: string): number {
+  return (type === "foldx" ? CONFIG.timeouts.foldxSec : CONFIG.timeouts.p2rankSec) * 1000 + 60_000;
+}
+
+/** What an agent is handed when it claims a job (`SQLiteQueue.claimForAgent`). */
+export interface AgentClaimedJob {
+  id: string;
+  type: "foldx" | "p2rank";
+  data: any;
+  ownerId: string;
+  residues: number | null;
+  repaired: boolean | null;
+  leaseExpiresAt: number;
+}
+
+/** How an agent's claim ended, for its lease-loss rate (the engine's reliability penalty). */
+export type AgentClaimOutcome = "completed" | "failed" | "requeued" | "lease_lost" | "over_cap" | "disconnected" | "invalid_result" | "cancelled";
+
+/** The host an agent ran on, for its telemetry row. */
+export interface AgentHostStamp {
+  hostId: string;
+  hostClass: string;
+  wallMs: number | null;
+  peakRssBytes: number | null;
+  toolVersion: string | null;
 }
 
 export { LEGACY_OWNER, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, AdmissionError };
@@ -159,6 +211,10 @@ export class SQLiteQueue {
     add("lease_expires_at", "INTEGER");
     add("claimed_by", "TEXT");
     add("residues", "INTEGER");
+    // When a job last went back to waiting after a paired computer gave it up (WP-F). The stale-queued
+    // reaper measures the wait from here, not from submission: a computer takes a job only while the
+    // server is busy, so on hand-back the server usually still is, and the original clock may be spent.
+    add("requeued_at", "INTEGER");
     add("repaired", "INTEGER");
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_status ON biophysical_jobs(owner_id, status, created_at);
@@ -170,6 +226,15 @@ export class SQLiteQueue {
         PRIMARY KEY (job_id, user_id)
       );
       CREATE INDEX IF NOT EXISTS idx_job_watchers_user ON job_watchers(user_id);
+      CREATE TABLE IF NOT EXISTS agent_claims (
+        job_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        outcome TEXT,
+        PRIMARY KEY (job_id, claimed_at)
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_claims_agent ON agent_claims(agent_id, claimed_at);
     `);
   }
 
@@ -179,8 +244,13 @@ export class SQLiteQueue {
     // The phase is cleared with it. A job re-queued by a restart has NOT been repaired or modelled,
     // and leaving the old phase in the record made the poll route report "Structure repair —
     // repacking side chains" for work that was waiting for a worker slot.
+    //
+    // A job a paired computer holds under a LIVE lease is not interrupted: the computer is still working
+    // on it and will heartbeat this (new) process. It is left running; if its lease runs out, the lease
+    // reaper hands it back to the server.
+    const interrupted = `status = 'running' AND (${ON_SERVER} OR lease_expires_at IS NULL OR lease_expires_at < ${Date.now()})`;
     try {
-      const requeued = this.db.prepare("SELECT id, data FROM biophysical_jobs WHERE status = 'running'").all() as any[];
+      const requeued = this.db.prepare(`SELECT id, data FROM biophysical_jobs WHERE ${interrupted}`).all() as any[];
       for (const row of requeued) {
         try {
           const data = JSON.parse(row.data);
@@ -194,11 +264,24 @@ export class SQLiteQueue {
     } catch (err: any) {
       console.warn("[Queue] Failed to clear stale phases on startup:", err.message);
     }
-    // Lease and placement go too: a re-queued job is decided again, never left "leased" to an agent.
+    // A paired computer whose lease ran out while the server was down lost that job: it goes to the server
+    // like any other hand-back (placement 'server', a fresh wait clock), and the loss is recorded.
+    const now = Date.now();
+    try {
+      for (const row of this.db.prepare(`SELECT id, claimed_by FROM biophysical_jobs WHERE ${interrupted} AND claimed_by LIKE 'agent:%'`).all() as any[]) {
+        this.endClaim(row.id, String(row.claimed_by).slice("agent:".length), "lease_lost", now);
+        this.db.prepare("UPDATE biophysical_jobs SET placement = 'server', requeued_at = ? WHERE id = ?").run(now, row.id);
+      }
+    } catch (err: any) {
+      console.warn("[Queue] Failed to hand expired agent jobs to the server on startup:", err.message);
+    }
+    // Lease and placement go too: a re-queued job is decided again, never left "leased" to an agent. A job
+    // marked for the server just above keeps that placement.
     this.db.exec(`
       UPDATE biophysical_jobs
-      SET status = 'queued', started_at = NULL, lease_expires_at = NULL, claimed_by = NULL, placement = NULL
-      WHERE status = 'running';
+      SET status = 'queued', started_at = NULL, lease_expires_at = NULL, claimed_by = NULL,
+          placement = CASE WHEN placement = 'server' THEN 'server' ELSE NULL END
+      WHERE ${interrupted};
     `);
 
   }
@@ -265,7 +348,7 @@ export class SQLiteQueue {
     const row = this.db.prepare(`
       SELECT coalesce(sum(max(0, coalesce(completed_at, ?) - max(started_at, ?))), 0) AS ms
       FROM biophysical_jobs
-      WHERE owner_id = ? AND started_at IS NOT NULL AND coalesce(completed_at, ?) > ?
+      WHERE owner_id = ? AND started_at IS NOT NULL AND coalesce(completed_at, ?) > ? AND ${ON_SERVER}
     `).get(now, since, ownerId, now, since) as any;
     return row?.ms ?? 0;
   }
@@ -291,7 +374,7 @@ export class SQLiteQueue {
     let ms = 0;
     for (const r of this.db.prepare(`
       SELECT status, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs
-      WHERE owner_id = ? AND status IN ('queued', 'running') AND cost_estimate_ms IS NOT NULL
+      WHERE owner_id = ? AND status IN ('queued', 'running') AND cost_estimate_ms IS NOT NULL AND ${ON_SERVER}
     `).all(ownerId) as any[]) {
       ms += r.status === "queued" ? r.c : Math.max(0, r.c - (now - (r.s ?? now)));
     }
@@ -321,7 +404,8 @@ export class SQLiteQueue {
       const row = this.db.prepare("SELECT count(*) as count FROM biophysical_jobs WHERE status = ?").get(status) as any;
       return row ? row.count : 0;
     }
-    const row = this.db.prepare("SELECT count(*) as count FROM biophysical_jobs WHERE status IN ('queued', 'running')").get() as any;
+    // The host backstop: jobs running on a paired computer hold no server slot and do not count.
+    const row = this.db.prepare(`SELECT count(*) as count FROM biophysical_jobs WHERE status IN ('queued', 'running') AND ${ON_SERVER}`).get() as any;
     return row ? row.count : 0;
   }
 
@@ -340,6 +424,8 @@ export class SQLiteQueue {
       ownerId: row.owner_id ?? LEGACY_OWNER,
       priority: row.priority ?? 0,
       costEstimateMs: row.cost_estimate_ms ?? null,
+      claimedBy: row.claimed_by ?? null,
+      residues: row.residues ?? null,
     };
   }
 
@@ -384,15 +470,15 @@ export class SQLiteQueue {
   private queuedInStartOrder(): { id: string; ownerId: string; type: JobType; costEstimateMs: number | null }[] {
     const rows = this.db.prepare(`
       SELECT id, owner_id, type, priority, cost_estimate_ms, created_at, rowid AS rid
-      FROM biophysical_jobs WHERE status = 'queued' LIMIT 1000
+      FROM biophysical_jobs WHERE status = 'queued' AND ${SERVER_CLAIMABLE} LIMIT 1000
     `).all() as any[];
     if (rows.length === 0) return [];
     const running = new Map<string, number>();
-    for (const r of this.db.prepare("SELECT owner_id, count(*) AS c FROM biophysical_jobs WHERE status = 'running' GROUP BY owner_id").all() as any[]) {
+    for (const r of this.db.prepare(`SELECT owner_id, count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER} GROUP BY owner_id`).all() as any[]) {
       running.set(r.owner_id, r.c);
     }
     const served = new Map<string, number>();
-    for (const r of this.db.prepare("SELECT owner_id, max(started_at) AS s FROM biophysical_jobs WHERE started_at IS NOT NULL GROUP BY owner_id").all() as any[]) {
+    for (const r of this.db.prepare(`SELECT owner_id, max(started_at) AS s FROM biophysical_jobs WHERE started_at IS NOT NULL AND ${ON_SERVER} GROUP BY owner_id`).all() as any[]) {
       served.set(r.owner_id, r.s ?? 0);
     }
     let tick = Number.MAX_SAFE_INTEGER - rows.length - 1; // after every real timestamp, increasing
@@ -437,14 +523,14 @@ export class SQLiteQueue {
       const row = this.db.prepare("SELECT created_at, rowid, status FROM biophysical_jobs WHERE id = ?").get(id) as any;
       if (!row) return null;
       if (row.status === "queued") {
-        const running = (this.db.prepare("SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running'").get() as any).c as number;
+        const running = (this.db.prepare(`SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).get() as any).c as number;
         const idx = this.queuedInStartOrder().findIndex(j => j.id === id);
         return idx < 0 ? null : running + idx;
       }
       const ahead = this.db.prepare(`
         SELECT count(*) AS count FROM biophysical_jobs
         WHERE status IN ('queued', 'running')
-          AND (created_at < ? OR (created_at = ? AND rowid <= ?))
+          AND (created_at < ? OR (created_at = ? AND rowid <= ?)) AND ${ON_SERVER}
       `).get(row.created_at, row.created_at, row.rowid) as any;
       return ahead ? Math.max(0, ahead.count - 1) : 0;
     } catch {
@@ -481,7 +567,7 @@ export class SQLiteQueue {
       const now = Date.now();
       let total = 0;
       let known = true;
-      for (const r of this.db.prepare("SELECT type, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running'").all() as any[]) {
+      for (const r of this.db.prepare(`SELECT type, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).all() as any[]) {
         if (isFoldx && r.type !== "foldx") continue;
         if (r.c == null) known = false;
         else total += Math.max(0, r.c - (now - (r.s ?? now)));
@@ -543,6 +629,9 @@ export class SQLiteQueue {
 
   /** Ends a queued or running job as failed with `reason`; a running one is also aborted. */
   private stopJob(id: string, reason: string) {
+    // A paired computer learns of the stop at its next heartbeat (410) and kills its tool then.
+    const holder = (this.db.prepare("SELECT claimed_by FROM biophysical_jobs WHERE id = ? AND status = 'running'").get(id) as any)?.claimed_by;
+    if (typeof holder === "string" && holder.startsWith("agent:")) this.endClaim(id, holder.slice("agent:".length), "cancelled", Date.now());
     this.db.prepare(`
       UPDATE biophysical_jobs SET status = 'failed', error = ?, completed_at = ?
       WHERE id = ? AND status IN ('queued', 'running')
@@ -561,7 +650,7 @@ export class SQLiteQueue {
     const anyQueued = rows.some(r => r.status === "queued");
     const queued = anyQueued ? this.queuedInStartOrder() : [];
     const running = anyQueued
-      ? (this.db.prepare("SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running'").get() as any).c as number
+      ? (this.db.prepare(`SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).get() as any).c as number
       : 0;
     // One grouped query for every row's watcher count, so a row can say whether stopping it here would
     // stop the work for anyone else (the owner is a watcher too: see `addJob`).
@@ -618,7 +707,7 @@ export class SQLiteQueue {
   /** What the server is doing now, for the engine: running jobs and the predicted cost of running and waiting work. */
   loadSnapshot(now = Date.now()): { runningJobs: number; runningCostMs: number; queuedCostMs: number } {
     let runningCostMs = 0;
-    for (const r of this.db.prepare("SELECT cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running'").all() as any[]) {
+    for (const r of this.db.prepare(`SELECT cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).all() as any[]) {
       if (r.c != null) runningCostMs += Math.max(0, r.c - (now - (r.s ?? now)));
     }
     const queued = this.db.prepare("SELECT coalesce(sum(cost_estimate_ms), 0) AS c FROM biophysical_jobs WHERE status = 'queued'").get() as any;
@@ -641,19 +730,27 @@ export class SQLiteQueue {
     peakRssBytes: number | null = null,
     /** The tool version that actually ran the job; `undefined` means "ask the probe by job type". */
     toolVersion?: string | null,
+    /** A paired computer ran it (WP-F): its host, and the wall time it measured for the tool itself. */
+    agent?: Pick<AgentHostStamp, "hostId" | "hostClass" | "wallMs">,
   ) {
     try {
       const row = this.db.prepare("SELECT type, residues, repaired, started_at, completed_at FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
       if (!row) return;
+      const measuredWall = row.started_at ? Math.max(0, (row.completed_at ?? Date.now()) - row.started_at) : null;
       recordTelemetry(this.db, {
-        jobId,
+        // An agent's attempt gets its own row: a job handed back to the server is recorded again under its
+        // plain id, and that row must not erase what the computer's attempt taught (an out-of-memory death
+        // sets a ceiling for the computer's class).
+        jobId: agent ? `${jobId}@${agent.hostId}` : jobId,
         type: row.type,
-        hostId: SERVER_HOST_ID,
-        hostClass: hostClassOf(serverHostFacts()),
+        hostId: agent?.hostId ?? SERVER_HOST_ID,
+        hostClass: agent?.hostClass ?? hostClassOf(serverHostFacts()),
         residues: row.residues ?? 0,
         repaired: row.repaired == null ? null : row.repaired === 1,
         runs: row.type === "foldx" ? 5 : null,
-        wallMs: row.started_at ? Math.max(0, (row.completed_at ?? Date.now()) - row.started_at) : null,
+        // An agent's own measurement excludes the network; the server's clock bounds it, so a computer
+        // cannot report a time longer than the job was actually out.
+        wallMs: agent?.wallMs != null && measuredWall != null ? Math.min(agent.wallMs, measuredWall) : measuredWall,
         peakRssBytes,
         outcome,
         errorClass,
@@ -664,6 +761,210 @@ export class SQLiteQueue {
     } catch (err: any) {
       console.warn(`[Queue] Could not record telemetry for ${jobId}:`, err?.message ?? err);
     }
+  }
+
+  // ── Paired computers (WP-F) ─────────────────────────────────────────────────────────────────────────
+  //
+  // An agent claims only its OWNER's queued jobs that are not placed elsewhere, under a lease it renews by
+  // heartbeat. Every write below is guarded by `claimed_by`, so a computer whose lease was lost (reaped,
+  // cancelled, handed back) can never write over what happened since: its late result is a 409.
+
+  /**
+   * Hand `agentId` the first of its owner's queued jobs that `accept` (the engine's hard filters for
+   * this computer) allows, or null. Atomic: two computers racing for one job get it once.
+   */
+  claimForAgent(
+    agent: { agentId: string; userId: string },
+    types: readonly ("foldx" | "p2rank")[],
+    accept: (row: { id: string; type: "foldx" | "p2rank"; residues: number | null; repaired: boolean | null; othersWatching: boolean }) => boolean,
+    leaseMs: number,
+    now = Date.now(),
+  ): AgentClaimedJob | null {
+    if (this.isShutdown || this.processingPaused || types.length === 0) return null;
+    const claimant = `agent:${agent.agentId}`;
+    const candidates = this.db.prepare(`
+      SELECT id, type, data, owner_id, residues, repaired FROM biophysical_jobs
+      WHERE status = 'queued' AND owner_id = ? AND type IN (${types.map(() => "?").join(", ")})
+        AND (placement IS NULL OR placement = ?)
+      ORDER BY priority DESC, created_at ASC, rowid ASC
+      LIMIT 25
+    `).all(agent.userId, ...types, claimant) as any[];
+    for (const row of candidates) {
+      const repaired = row.repaired == null ? null : row.repaired === 1;
+      const othersWatching = Boolean(this.db.prepare("SELECT 1 FROM job_watchers WHERE job_id = ? AND user_id != ? LIMIT 1").get(row.id, agent.userId));
+      if (!accept({ id: row.id, type: row.type, residues: row.residues ?? null, repaired, othersWatching })) continue;
+      const leaseExpiresAt = now + leaseMs;
+      const won = this.db.prepare(`
+        UPDATE biophysical_jobs SET status = 'running', started_at = ?, claimed_by = ?, lease_expires_at = ?
+        WHERE id = ? AND status = 'queued'
+      `).run(now, claimant, leaseExpiresAt, row.id);
+      if (Number(won.changes ?? 0) === 0) continue; // the server or another computer took it first
+      this.db.prepare("INSERT OR REPLACE INTO agent_claims (job_id, agent_id, claimed_at) VALUES (?, ?, ?)").run(row.id, agent.agentId, now);
+      let data: any = {};
+      try { data = JSON.parse(row.data); } catch { /* the payload builder reports what is missing */ }
+      return { id: row.id, type: row.type, data, ownerId: row.owner_id, residues: row.residues ?? null, repaired, leaseExpiresAt };
+    }
+    return null;
+  }
+
+  /** Renew the lease. False when the job is no longer this computer's (cancelled, reaped, finished). */
+  renewAgentLease(jobId: string, agentId: string, leaseMs: number, now = Date.now()): number | null {
+    const leaseExpiresAt = now + leaseMs;
+    const r = this.db.prepare(`
+      UPDATE biophysical_jobs SET lease_expires_at = max(coalesce(lease_expires_at, 0), ?)
+      WHERE id = ? AND status = 'running' AND claimed_by = ?
+    `).run(leaseExpiresAt, jobId, `agent:${agentId}`);
+    if (Number(r.changes ?? 0) !== 1) return null;
+    // Never shortened: a heartbeat still in flight when the server took a long "finish" lease must not cut it.
+    return (this.db.prepare("SELECT lease_expires_at AS l FROM biophysical_jobs WHERE id = ?").get(jobId) as any)?.l ?? leaseExpiresAt;
+  }
+
+  /**
+   * May `requesterId` (null = no account) JOIN this in-flight job and so receive its result? Always for a
+   * job the server runs. For a job a paired computer is running, only its owner, or anyone when that
+   * owner's agent results may be shared (`ownerShares`). Review 3's finding S2: the de-duplication join
+   * was owner-blind, so joining would have handed a private agent result to someone else.
+   */
+  mayJoin(jobId: string, requesterId: string | null, ownerShares: (ownerId: string) => boolean): boolean {
+    const row = this.db.prepare("SELECT owner_id, claimed_by FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+    if (!row || !(typeof row.claimed_by === "string" && row.claimed_by.startsWith("agent:"))) return true;
+    if (requesterId && requesterId === row.owner_id) return true;
+    return ownerShares(row.owner_id);
+  }
+
+  jobExists(jobId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM biophysical_jobs WHERE id = ?").get(jobId));
+  }
+
+  /** Is this job running on this computer right now? */
+  isClaimedBy(jobId: string, agentId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM biophysical_jobs WHERE id = ? AND status = 'running' AND claimed_by = ?").get(jobId, `agent:${agentId}`));
+  }
+
+  /**
+   * The computer's validated result ends the job. False (409 to the agent) when the job is no longer
+   * its own: the result is then discarded, whatever it says.
+   */
+  completeAgentJob(jobId: string, agentId: string, result: unknown, host: AgentHostStamp, now = Date.now()): boolean {
+    const r = this.db.prepare(`
+      UPDATE biophysical_jobs SET status = 'completed', result = ?, completed_at = ?, lease_expires_at = NULL
+      WHERE id = ? AND status = 'running' AND claimed_by = ?
+    `).run(JSON.stringify(result), now, jobId, `agent:${agentId}`);
+    if (Number(r.changes ?? 0) === 0) return false;
+    this.endClaim(jobId, agentId, "completed", now);
+    this.recordEnding(jobId, "completed", null, host.peakRssBytes, host.toolVersion, host);
+    return true;
+  }
+
+  /**
+   * The computer could not finish (or its result failed validation): give the job back to the SERVER.
+   * `placement = 'server'` keeps any computer from claiming it again, so the hand-back happens once. The
+   * computer's attempt is recorded under its own host. False when the job was no longer its own.
+   */
+  requeueAgentJobToServer(
+    jobId: string,
+    agentId: string,
+    ending: { outcome: AgentClaimOutcome; telemetry: ReturnType<typeof classifyJobFailure>; errorClass: string; host: AgentHostStamp },
+    now = Date.now(),
+  ): boolean {
+    // Telemetry first, while the row still carries this attempt's start time.
+    if (!this.isClaimedBy(jobId, agentId)) return false;
+    this.recordEnding(jobId, ending.telemetry, ending.errorClass, ending.host.peakRssBytes, ending.host.toolVersion, ending.host);
+    const r = this.db.prepare(`
+      UPDATE biophysical_jobs
+      SET status = 'queued', started_at = NULL, claimed_by = NULL, lease_expires_at = NULL, placement = 'server', requeued_at = ?
+      WHERE id = ? AND status = 'running' AND claimed_by = ?
+    `).run(now, jobId, `agent:${agentId}`);
+    if (Number(r.changes ?? 0) === 0) return false;
+    this.clearPhase(jobId);
+    this.endClaim(jobId, agentId, ending.outcome, now);
+    this.scheduleNext();
+    return true;
+  }
+
+  /** Share of this computer's last 20 claims whose lease ran out (0 with no history). */
+  leaseLossRate(agentId: string): number {
+    const rows = this.db.prepare("SELECT outcome FROM agent_claims WHERE agent_id = ? AND outcome IS NOT NULL ORDER BY claimed_at DESC LIMIT 20").all(agentId) as any[];
+    if (rows.length === 0) return 0;
+    return rows.filter(r => r.outcome === "lease_lost").length / rows.length;
+  }
+
+  /** Jobs this computer is running now (normally 0 or 1: an agent runs one heavy job at a time). */
+  runningOnAgent(agentId: string): number {
+    return (this.db.prepare("SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND claimed_by = ?").get(`agent:${agentId}`) as any).c as number;
+  }
+
+  /**
+   * Placements on a computer that is gone (disconnected, or silent past `offlineAfterMs`) are cleared, so
+   * the server takes those jobs. `isOnline` is the registry's view. Returns how many were released.
+   */
+  releasePlacementsOf(isOnline: (agentId: string) => boolean): number {
+    const rows = this.db.prepare("SELECT DISTINCT placement FROM biophysical_jobs WHERE status = 'queued' AND placement LIKE 'agent:%'").all() as any[];
+    let released = 0;
+    for (const { placement } of rows) {
+      if (isOnline(String(placement).slice("agent:".length))) continue;
+      released += Number(this.db.prepare("UPDATE biophysical_jobs SET placement = NULL WHERE status = 'queued' AND placement = ?").run(placement).changes ?? 0);
+    }
+    if (released > 0) this.scheduleNext();
+    return released;
+  }
+
+  /**
+   * Lease reaper for paired computers: a job whose lease ran out (the computer died, lost its network or
+   * was closed), or that has been out longer than the job cap, goes back to the server. Run with the
+   * other reapers, never on a paused standby.
+   */
+  reapAgentLeases(now = Date.now(), disconnectedAgentId?: string): number {
+    // `disconnectedAgentId`: that computer has disconnected itself; everything it holds goes back now.
+    const rows = (disconnectedAgentId
+      ? this.db.prepare("SELECT id, type, claimed_by, started_at, lease_expires_at FROM biophysical_jobs WHERE status = 'running' AND claimed_by = ?").all(`agent:${disconnectedAgentId}`)
+      : this.db.prepare("SELECT id, type, claimed_by, started_at, lease_expires_at FROM biophysical_jobs WHERE status = 'running' AND claimed_by LIKE 'agent:%'").all()) as any[];
+    let handedBack = 0;
+    for (const row of rows) {
+      const leaseLost = disconnectedAgentId != null || row.lease_expires_at == null || row.lease_expires_at < now;
+      // The server itself is finishing a delivered result (agent-jobs.ts holds a long "finish" lease):
+      // the cap guards against a computer that never delivers, not against the server's own finishing.
+      const finishing = row.lease_expires_at != null && row.lease_expires_at - now > FINISHING_LEASE_FLOOR_MS;
+      const overCap = !finishing && row.started_at != null && now - row.started_at > agentHardCapMs(row.type);
+      if (!leaseLost && !overCap) continue;
+      const r = this.db.prepare(`
+        UPDATE biophysical_jobs
+        SET status = 'queued', started_at = NULL, claimed_by = NULL, lease_expires_at = NULL, placement = 'server', requeued_at = ?
+        WHERE id = ? AND status = 'running' AND claimed_by = ?
+      `).run(now, row.id, row.claimed_by);
+      if (Number(r.changes ?? 0) === 0) continue;
+      console.warn(`[Queue Reaper] ${row.claimed_by} ${leaseLost ? "lost its lease on" : "held past the job cap"} ${row.id}; handing it to the server.`);
+      this.clearPhase(row.id);
+      // Only a lease that ran out counts against the computer's reliability; a deliberate disconnect or a
+      // job held past its cap is recorded as what it was.
+      const outcome: AgentClaimOutcome = disconnectedAgentId != null ? "disconnected" : leaseLost ? "lease_lost" : "over_cap";
+      this.endClaim(row.id, String(row.claimed_by).slice("agent:".length), outcome, now);
+      handedBack++;
+    }
+    return handedBack;
+  }
+
+  private endClaim(jobId: string, agentId: string, outcome: AgentClaimOutcome, now: number): void {
+    try {
+      this.db.prepare(`
+        UPDATE agent_claims SET ended_at = ?, outcome = ?
+        WHERE job_id = ? AND agent_id = ? AND outcome IS NULL
+      `).run(now, outcome, jobId, agentId);
+    } catch (err: any) {
+      console.warn(`[Queue] Could not record the end of ${agentId}'s claim on ${jobId}:`, err?.message ?? err);
+    }
+  }
+
+  /** A job handed back has not been repaired or modelled on its new host yet. */
+  private clearPhase(jobId: string): void {
+    const row = this.db.prepare("SELECT data FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+    if (!row) return;
+    try {
+      const data = JSON.parse(row.data);
+      delete data.phase;
+      delete data.phaseAt;
+      this.db.prepare("UPDATE biophysical_jobs SET data = ? WHERE id = ?").run(JSON.stringify(data), jobId);
+    } catch { /* an unparseable record keeps its data; the job is still handed back */ }
   }
 
   /**
@@ -679,12 +980,15 @@ export class SQLiteQueue {
   private pickNext(): any {
     return this.db.prepare(`
       SELECT j.* FROM biophysical_jobs j
-      WHERE j.status = 'queued'
+      WHERE j.status = 'queued' AND (j.placement IS NULL OR j.placement NOT LIKE 'agent:%')
       ORDER BY
         j.priority DESC,
-        (SELECT count(*) FROM biophysical_jobs r WHERE r.owner_id = j.owner_id AND r.status = 'running') ASC,
-        (SELECT coalesce(max(s.started_at), 0) FROM biophysical_jobs s WHERE s.owner_id = j.owner_id) ASC,
-        (SELECT min(q.created_at) FROM biophysical_jobs q WHERE q.owner_id = j.owner_id AND q.status = 'queued') ASC,
+        (SELECT count(*) FROM biophysical_jobs r WHERE r.owner_id = j.owner_id AND r.status = 'running'
+           AND (r.claimed_by IS NULL OR r.claimed_by NOT LIKE 'agent:%')) ASC,
+        (SELECT coalesce(max(s.started_at), 0) FROM biophysical_jobs s WHERE s.owner_id = j.owner_id
+           AND (s.claimed_by IS NULL OR s.claimed_by NOT LIKE 'agent:%')) ASC,
+        (SELECT min(q.created_at) FROM biophysical_jobs q WHERE q.owner_id = j.owner_id AND q.status = 'queued'
+           AND (q.placement IS NULL OR q.placement NOT LIKE 'agent:%')) ASC,
         j.created_at ASC,
         j.rowid ASC
       LIMIT 1
@@ -881,9 +1185,10 @@ export class SQLiteQueue {
     const cutoff = Date.now() - maxExecutionTime;
 
     try {
+      // A paired computer's job is judged by its lease instead (`reapAgentLeases`, below).
       const staleJobs = this.db.prepare(`
         SELECT id FROM biophysical_jobs
-        WHERE status = 'running' AND started_at < ?
+        WHERE status = 'running' AND started_at < ? AND ${ON_SERVER}
       `).all(cutoff) as { id: string }[];
 
       for (const job of staleJobs) {
@@ -920,7 +1225,7 @@ export class SQLiteQueue {
       const queueCutoff = Date.now() - maxQueueWait;
       const staleQueuedJobs = this.db.prepare(`
         SELECT id FROM biophysical_jobs
-        WHERE status = 'queued' AND created_at < ?
+        WHERE status = 'queued' AND coalesce(requeued_at, created_at) < ?
       `).all(queueCutoff) as { id: string }[];
 
       for (const job of staleQueuedJobs) {
@@ -936,7 +1241,9 @@ export class SQLiteQueue {
         }
       }
 
-      if (staleJobs.length > 0 || staleQueuedJobs.length > 0) {
+      const handedBack = this.reapAgentLeases();
+
+      if (staleJobs.length > 0 || staleQueuedJobs.length > 0 || handedBack > 0) {
         this.scheduleNext();
       }
       this.pruneHistory();
@@ -967,6 +1274,7 @@ export class SQLiteQueue {
       `).run(jobCutoff);
       this.db.prepare("DELETE FROM biophysical_jobs WHERE status IN ('completed', 'failed') AND coalesce(completed_at, created_at) < ?").run(jobCutoff);
       this.db.prepare("DELETE FROM job_telemetry WHERE created_at < ?").run(telemetryCutoff);
+      this.db.prepare("DELETE FROM agent_claims WHERE claimed_at < ?").run(telemetryCutoff);
       // Only now: the stamp throttles the next run, and setting it before the deletes meant one
       // transient SQLite error suppressed pruning for a further hour.
       this.lastPrunedAt = now;
@@ -1227,6 +1535,14 @@ export class BiophysicalJobQueue {
     }
 
     return jobId;
+  }
+
+  /**
+   * The SQLite queue, for the paired-computer protocol (WP-F), or null on the Redis backend, which has
+   * no owners or leases: agents are then refused with a plain reason, and everything runs on the server.
+   */
+  agentQueue(): SQLiteQueue | null {
+    return this.sqliteQueue;
   }
 
   /** The person (or `legacy`/`system`) a job belongs to; `null` when unknown or on Redis. */

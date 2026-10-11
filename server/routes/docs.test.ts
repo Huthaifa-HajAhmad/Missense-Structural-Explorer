@@ -58,8 +58,8 @@ describe("OpenAPI & Documentation Routes", () => {
       expect(fictional, "documented in openapi but not registered by any route file").toEqual([]);
     });
 
-    it("documents every account, admin and job route", () => {
-      const accountRoutes = registered([path.join(routesDir, "auth.ts"), path.join(routesDir, "admin.ts")]);
+    it("documents every account, admin, agent and job route", () => {
+      const accountRoutes = registered([path.join(routesDir, "auth.ts"), path.join(routesDir, "admin.ts"), path.join(routesDir, "agent.ts")]);
       const jobRoutes = [...registered([path.join(routesDir, "biophysics", "polling.ts")])].filter((op) => / \/(my-jobs|jobs\/)/.test(op));
       const docs = documented();
       const missing = [...accountRoutes, ...jobRoutes].filter((op) => !docs.has(op));

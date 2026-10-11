@@ -17,15 +17,76 @@ const body = (schema: object) => ({ required: true, content: { "application/json
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 const error = (description: string) => json(ref("ErrorResponse"), description);
 const signedIn = [{ SessionCookie: [] }];
+const agentToken = [{ AgentToken: [] }];
 const jobIdParam = { name: "jobId", in: "path", required: true, schema: { type: "string", pattern: "^[a-zA-Z0-9_\\-]{1,100}$" } };
 const userIdParam = { name: "id", in: "path", required: true, schema: { type: "string" } };
 
 const signInRequired = error("SIGN_IN_REQUIRED: no signed-in session.");
 const adminOnly = error("ADMIN_ONLY: the signed-in person is not a workspace admin.");
 const tooManyAttempts = error("TOO_MANY_ATTEMPTS: throttled; `Retry-After` gives the seconds to wait.");
+const agentOnly = error("AGENT_TOKEN_REQUIRED: only a paired computer's token opens this route.");
+const standby = error("STANDBY (a paused standby during a handover), QUEUE_UNAVAILABLE or AGENTS_UNSUPPORTED (Redis queue). Retry later.");
 const weakPassword = error("BAD_REQUEST or WEAK_PASSWORD, with a reader-facing message.");
 
 export const COMPUTE_SCHEMAS = {
+  AgentHostReport: {
+    type: "object",
+    description: "What a paired computer reports about itself (src/shared/agentProtocol.ts).",
+    properties: {
+      agentVersion: { type: "string" },
+      protocol: { type: "integer" },
+      os: { type: "string", enum: ["win32", "linux", "darwin"] },
+      arch: { type: "string", enum: ["x64", "arm64"] },
+      cores: { type: "integer" },
+      totalRamBytes: { type: "number" },
+      freeRamBytes: { type: "number", description: "Already limited by the owner's AGENT_MAX_RAM_GB." },
+      paused: { type: "boolean" },
+      tools: { type: "object", properties: { foldx: ref("AgentToolReport"), p2rank: ref("AgentToolReport") } },
+      foldxSource: { type: "string", enum: ["team", "guided", "none"] },
+      foldxBundleVersion: { type: ["string", "null"] },
+    },
+  },
+  AgentToolReport: {
+    type: "object",
+    properties: {
+      state: { type: "string", enum: ["ready", "installing", "missing", "failed"] },
+      version: { type: ["string", "null"] },
+      detail: { type: ["string", "null"], description: "Reader-facing, when not ready." },
+    },
+  },
+  AgentView: {
+    type: "object",
+    description: "One of the signed-in person's computers.",
+    properties: {
+      id: { type: "string" },
+      name: { type: "string" },
+      createdAt: { type: "integer" },
+      lastSeenAt: { type: ["integer", "null"] },
+      online: { type: "boolean" },
+      paused: { type: "boolean" },
+      runningJobs: { type: "integer" },
+      os: { type: ["string", "null"] },
+      totalRamBytes: { type: ["number", "null"] },
+      tools: { type: ["object", "null"], properties: { foldx: ref("AgentToolReport"), p2rank: ref("AgentToolReport") } },
+      foldxSource: { type: ["string", "null"] },
+    },
+  },
+  FoldxBundle: {
+    type: "object",
+    properties: {
+      platform: { type: "string", enum: ["win32", "linux", "darwin"] },
+      version: { type: "string" },
+      sha256: { type: "string" },
+      sizeBytes: { type: "integer" },
+      binaryName: { type: "string" },
+      expiry: { type: ["string", "null"], description: "The build's last working day, from its file name." },
+      uploadedBy: { type: "string" },
+      uploadedByName: { type: ["string", "null"] },
+      uploadedAt: { type: "integer" },
+      licenceConfirmedAt: { type: "integer" },
+    },
+  },
+
   User: {
     type: "object",
     description: "What the browser may see of an account. Never the password hash.",
@@ -79,7 +140,8 @@ export const COMPUTE_SCHEMAS = {
 export const COMPUTE_TAGS = [
   { name: "Accounts", description: "Invite-only sign-in, first-admin setup, password reset and personal preferences. See doc/ACCOUNTS.md." },
   { name: "Jobs", description: "The signed-in person's queued FoldX and pocket jobs: list, cancel, live updates." },
-  { name: "Admin", description: "Workspace admin tools: invites, accounts, reset links and learned compute limits." },
+  { name: "Admin", description: "Workspace admin tools: invites, accounts, reset links, learned compute limits and the team FoldX bundle." },
+  { name: "Agents", description: "A person's own computer lending itself to their own jobs (WP-F): pairing, the claim/lease protocol, the team FoldX bundle. See doc/AGENT.md." },
 ];
 
 /** Refusals a queued submission can meet, shared by the FoldX and pocket submit routes. */
@@ -591,6 +653,259 @@ export const COMPUTE_PATHS = {
       operationId: "forgetComputeCeilings",
       security: signedIn,
       responses: { "200": json({ type: "object", properties: { removed: { type: "integer" } } }), "401": signInRequired, "403": adminOnly },
+    },
+  },
+  // ── Paired computers (WP-F) ─────────────────────────────────────────────────────────────────────
+  "/agent/pair": {
+    post: {
+      tags: ["Agents"],
+      summary: "Get a one-time code to connect a computer",
+      description: "Six characters, valid once for 10 minutes. A new code replaces the person's unused one. The person types it into the agent's setup page on their computer.",
+      operationId: "createPairingCode",
+      security: signedIn,
+      responses: {
+        "201": json({ type: "object", properties: { code: { type: "string", example: "K7M-Q2X" }, expiresAt: { type: "integer" } } }, "Created"),
+        "401": signInRequired,
+      },
+    },
+  },
+  "/agent/pair/redeem": {
+    post: {
+      tags: ["Agents"],
+      summary: "Trade a pairing code for this computer's token",
+      description: "Called by the agent, not a browser. Public and throttled (20 wrong codes per address per 15 minutes). The token is shown once; only its hash is stored.",
+      operationId: "redeemPairingCode",
+      security: [],
+      requestBody: body({ type: "object", required: ["code", "name"], properties: { code: { type: "string" }, name: { type: "string", maxLength: 60 } } }),
+      responses: {
+        "201": json({ type: "object", properties: { agentId: { type: "string" }, token: { type: "string" }, ownerName: { type: "string" } } }, "Created"),
+        "401": error("PAIRING_CODE_INVALID: wrong, used or expired code."),
+        "429": tooManyAttempts,
+      },
+    },
+  },
+  "/me/agents": {
+    get: {
+      tags: ["Agents"],
+      summary: "My connected computers",
+      operationId: "listMyAgents",
+      security: signedIn,
+      responses: { "200": json({ type: "object", properties: { agents: { type: "array", items: ref("AgentView") } } }), "401": signInRequired },
+    },
+  },
+  "/me/agents/{id}": {
+    delete: {
+      tags: ["Agents"],
+      summary: "Disconnect one of my computers",
+      description: "Its token stops working on the next request; a job it was running goes back to the server when its lease runs out.",
+      operationId: "revokeMyAgent",
+      security: signedIn,
+      parameters: [userIdParam],
+      responses: { "204": { description: "Disconnected" }, "401": signInRequired, "404": error("No such computer.") },
+    },
+  },
+  "/me/agent-downloads": {
+    get: {
+      tags: ["Agents"],
+      summary: "Agent downloads available on this workspace",
+      description: "One zip per platform, built by `npm run build:agent-bundle` and placed in AGENT_BUNDLE_DIR by the admin.",
+      operationId: "listAgentDownloads",
+      security: signedIn,
+      responses: {
+        "200": json({ type: "object", properties: { platforms: { type: "array", items: { type: "object", properties: { platform: { type: "string" }, label: { type: "string" }, sizeBytes: { type: "integer" }, url: { type: "string" } } } } } }),
+        "401": signInRequired,
+      },
+    },
+  },
+  "/me/agent-download/{platform}": {
+    get: {
+      tags: ["Agents"],
+      summary: "Download the agent for one kind of computer",
+      operationId: "downloadAgent",
+      security: signedIn,
+      parameters: [{ name: "platform", in: "path", required: true, schema: { type: "string", enum: ["win32-x64", "darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] } }],
+      responses: { "200": { description: "The zip", content: { "application/zip": { schema: { type: "string", format: "binary" } } } }, "401": signInRequired, "404": error("Not built for this platform yet.") },
+    },
+  },
+  "/agent/register": {
+    post: {
+      tags: ["Agents"],
+      summary: "A computer says what it is and what it can run",
+      operationId: "registerAgent",
+      security: agentToken,
+      requestBody: body({ type: "object", required: ["report"], properties: { report: ref("AgentHostReport") } }),
+      responses: {
+        "200": json({
+          type: "object",
+          properties: {
+            agentId: { type: "string" },
+            name: { type: "string" },
+            leaseSec: { type: "integer" },
+            heartbeatSec: { type: "integer" },
+            claimWaitMaxSec: { type: "integer" },
+            foldxBundleVersion: { type: ["string", "null"], description: "The team FoldX bundle for this computer's platform; null = none (erase any team copy)." },
+          },
+        }),
+        "401": agentOnly,
+        "426": error("AGENT_OUTDATED: protocol version mismatch."),
+        "503": standby,
+      },
+    },
+  },
+  "/agent/claim": {
+    post: {
+      tags: ["Agents"],
+      summary: "Long-poll (up to 25 s) for one of the owner's queued jobs",
+      description:
+        "Only the owner's own queued jobs that are not placed elsewhere, that this computer has a self-tested tool for, and that pass the placement engine's hard filters for this computer. The job is leased: renew it by heartbeat. The payload never contains a server path.",
+      operationId: "claimAgentJob",
+      security: agentToken,
+      requestBody: body({ type: "object", required: ["report"], properties: { report: ref("AgentHostReport"), waitSec: { type: "integer", minimum: 0, maximum: 25 } } }),
+      responses: {
+        "200": json({
+          type: "object",
+          properties: {
+            job: {
+              type: ["object", "null"],
+              properties: {
+                id: { type: "string" },
+                type: { type: "string", enum: ["foldx", "p2rank"] },
+                payload: { type: "object", description: "FoldX: {wtPdb, mutation, uniprotId, options}. P2Rank: {pdbText, mutIndex, targetChain}." },
+                leaseExpiresAt: { type: "integer" },
+                deadlineMs: { type: "integer", description: "The job cap; stop and report `timeout` after it." },
+              },
+            },
+            foldxBundleVersion: { type: ["string", "null"] },
+          },
+        }),
+        "401": agentOnly,
+        "503": standby,
+      },
+    },
+  },
+  "/agent/jobs/{jobId}/heartbeat": {
+    post: {
+      tags: ["Agents"],
+      summary: "Renew the lease and report the FoldX phase",
+      operationId: "agentHeartbeat",
+      security: agentToken,
+      parameters: [jobIdParam],
+      requestBody: body({ type: "object", properties: { phase: { type: "string", enum: ["queued", "repairing", "modelling", "finalizing"] }, rssBytes: { type: "number" } } }),
+      responses: {
+        "200": json({ type: "object", properties: { leaseExpiresAt: { type: "integer" }, foldxBundleVersion: { type: ["string", "null"] } } }),
+        "401": agentOnly,
+        "410": error("LEASE_LOST: cancelled, finished or handed to the server. Stop the tool."),
+        "503": standby,
+      },
+    },
+  },
+  "/agent/jobs/{jobId}/result": {
+    post: {
+      tags: ["Agents"],
+      summary: "Deliver a result (validated before it completes the job)",
+      description:
+        "Schema, sanity and identity checks (the mutant structure carries the requested substitution at the requested residue). An invalid result is not an error: `accepted: false` with the reasons, and the job goes to the server once. A valid one is stamped `computedOn: agent`, cached, and shared with colleagues only if the owner shares results.",
+      operationId: "agentResult",
+      security: agentToken,
+      parameters: [jobIdParam],
+      requestBody: body({
+        type: "object",
+        required: ["result", "toolVersion"],
+        properties: { result: { type: "object" }, wallMs: { type: "number" }, peakRssBytes: { type: "number" }, toolVersion: { type: "string" } },
+      }),
+      responses: {
+        "200": json({ type: "object", properties: { accepted: { type: "boolean" }, reasons: { type: "array", items: { type: "string" } } } }),
+        "401": agentOnly,
+        "404": error("No such job."),
+        "409": error("LEASE_LOST: the job is no longer this computer's; the result was discarded."),
+        "503": standby,
+      },
+    },
+  },
+  "/agent/jobs/{jobId}/fail": {
+    post: {
+      tags: ["Agents"],
+      summary: "Give a job back; the server runs it",
+      description: "Whatever the reason, the job goes to the server once: a computer never fails a job for everyone (someone else may have joined it).",
+      operationId: "agentFail",
+      security: agentToken,
+      parameters: [jobIdParam],
+      requestBody: body({
+        type: "object",
+        required: ["errorClass"],
+        properties: {
+          errorClass: { type: "string", enum: ["tool_missing", "tool_failed", "oom", "timeout", "aborted", "input", "other"] },
+          message: { type: "string" },
+          wallMs: { type: "number" },
+          peakRssBytes: { type: "number" },
+          toolVersion: { type: ["string", "null"] },
+        },
+      }),
+      responses: { "200": json({ type: "object", properties: { handedToServer: { type: "boolean" } } }), "401": agentOnly, "409": error("LEASE_LOST."), "503": standby },
+    },
+  },
+  "/agent/self": {
+    delete: {
+      tags: ["Agents"],
+      summary: "The computer disconnects itself",
+      description: "Its token is revoked and anything it was running goes back to the server at once.",
+      operationId: "agentDisconnect",
+      security: agentToken,
+      responses: { "204": { description: "Disconnected" }, "401": agentOnly },
+    },
+  },
+  "/agent/tools/foldx": {
+    get: {
+      tags: ["Agents"],
+      summary: "Download the team FoldX bundle for one platform",
+      description: "Agent token only, rate limited (12 per hour per computer). Verify the bytes against `X-Bundle-Sha256` before installing. `If-None-Match` with the ETag answers 304.",
+      operationId: "downloadFoldxBundle",
+      security: agentToken,
+      parameters: [{ name: "platform", in: "query", required: true, schema: { type: "string", enum: ["win32", "linux", "darwin"] } }],
+      responses: {
+        "200": { description: "The zip", content: { "application/zip": { schema: { type: "string", format: "binary" } } } },
+        "304": { description: "Unchanged" },
+        "400": error("Unknown platform."),
+        "401": agentOnly,
+        "404": error("NO_BUNDLE: none uploaded for this platform, or revoked."),
+      },
+    },
+  },
+  "/admin/tools/foldx": {
+    get: {
+      tags: ["Admin"],
+      summary: "The team FoldX bundles",
+      operationId: "listFoldxBundles",
+      security: signedIn,
+      responses: { "200": json({ type: "object", properties: { platforms: { type: "array", items: ref("FoldxBundle") } } }), "401": signInRequired, "403": adminOnly },
+    },
+    delete: {
+      tags: ["Admin"],
+      summary: "Remove FoldX from the team",
+      description: "Deletes every stored bundle; each computer erases its team copy at its next contact, and FoldX jobs run on the server.",
+      operationId: "revokeFoldxBundles",
+      security: signedIn,
+      responses: { "204": { description: "Removed" }, "401": signInRequired, "403": adminOnly },
+    },
+  },
+  "/admin/tools/foldx/{platform}": {
+    put: {
+      tags: ["Admin"],
+      summary: "Upload the licensed FoldX zip for one platform",
+      description:
+        "Raw zip body (`application/zip`) and the header `X-Foldx-Licence-Confirmed: yes`: the admin confirms the licence permits sharing it with the team for research use; who and when go to the audit log. The zip is checked (the program for this platform, recognised by its executable header; the molecules folder; rotabase.txt; the build date) before it is stored.",
+      operationId: "uploadFoldxBundle",
+      security: signedIn,
+      parameters: [{ name: "platform", in: "path", required: true, schema: { type: "string", enum: ["win32", "linux", "darwin"] } }],
+      requestBody: { required: true, content: { "application/zip": { schema: { type: "string", format: "binary" } } } },
+      responses: {
+        "201": json({ type: "object", properties: { bundle: ref("FoldxBundle") } }, "Created"),
+        "400": error("LICENCE_NOT_CONFIRMED or a bad platform."),
+        "401": signInRequired,
+        "403": adminOnly,
+        "413": error("TOO_LARGE."),
+        "422": error("NOT_FOLDX: the zip is not a usable FoldX for this platform; the message says why."),
+      },
     },
   },
 };

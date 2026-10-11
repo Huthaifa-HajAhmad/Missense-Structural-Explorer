@@ -13,6 +13,7 @@ import { docsRouter } from "./docs.ts";
 import { registerEvidenceContextRoutes } from "./evidence-context.ts";
 import { registerAuthRoutes } from "./auth.ts";
 import { registerAdminRoutes } from "./admin.ts";
+import { registerAgentRoutes } from "./agent.ts";
 
 export function registerAllRoutes(
   apiRouter: Router,
@@ -29,4 +30,6 @@ export function registerAllRoutes(
   registerSessionRoutes(apiRouter, jsonParserRegular);
   registerAuthRoutes(apiRouter, jsonParserRegular);
   registerAdminRoutes(apiRouter, jsonParserRegular);
+  // After auth/admin: `/me` and `/admin` guards registered there also cover the agent module's routes.
+  registerAgentRoutes(apiRouter, jsonParserRegular);
 }

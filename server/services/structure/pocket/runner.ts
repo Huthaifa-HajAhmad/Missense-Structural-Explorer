@@ -5,6 +5,7 @@ import { LRUCache } from "lru-cache";
 import { mayServe } from "../../../../src/shared/computeProvenance.ts";
 import { serverProvenance } from "../../infra/host-probe.ts";
 import { meterChildProcess } from "../../infra/job-meter.ts";
+import { killProcessTree } from "../../../utils/process-tree.ts";
 import { execFile, type ChildProcess } from "child_process";
 import { promisify } from "util";
 import {
@@ -24,6 +25,24 @@ const execFileAsync = promisify(execFile);
 function metered<T>(run: Promise<T> & { child?: ChildProcess }): Promise<T> {
   meterChildProcess(run.child);
   return run;
+}
+
+/**
+ * Stop the WHOLE tool tree when the run is aborted or times out. `prank` is a script (a `.bat` through
+ * cmd.exe on Windows) that starts Java as its child; Node's own abort/timeout kill reaches only the script,
+ * so the JVM (up to 2 GB) used to keep running after a cancel, a pause on a paired computer, or a timeout.
+ * On POSIX the run is spawned `detached` so the script and its JVM form one process group to kill.
+ */
+function treeKilledOnStop<T>(run: Promise<T> & { child?: ChildProcess }, signal?: AbortSignal): Promise<T> {
+  const pid = run.child?.pid;
+  const kill = () => killProcessTree(pid);
+  signal?.addEventListener("abort", kill, { once: true });
+  return run
+    .catch((err: any) => {
+      if (err?.killed || err?.name === "AbortError" || signal?.aborted) kill();
+      throw err;
+    })
+    .finally(() => signal?.removeEventListener("abort", kill));
 }
 
 export const pocketCache = new LRUCache<string, any>({
@@ -342,7 +361,7 @@ export async function findBindingPocketInternal(
       ? parseInt(process.env.P2RANK_TIMEOUT_S, 10) * 1000
       : 120000;
     const effectiveTimeoutMs = Math.max(90000, isNaN(p2rankTimeoutMs) ? 120000 : p2rankTimeoutMs);
-    let options: any = { timeout: effectiveTimeoutMs, cwd: jobDir, signal, env };
+    let options: any = { timeout: effectiveTimeoutMs, cwd: jobDir, signal, env, detached: process.platform !== "win32" };
 
     const runP2Rank = async (cmd: string, args: string[], opt: any) => {
       let resolvedCmd = cmd;
@@ -354,12 +373,12 @@ export async function findBindingPocketInternal(
       if (isBatch && process.platform === "win32") {
         const shellBinary = process.env.ComSpec || "cmd.exe";
         const quotedCmdLine = `"${[resolvedCmd, ...args].map(a => `"${a.replace(/"/g, '""')}"`).join(" ")}"`;
-        return await metered(execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
+        return await treeKilledOnStop(metered(execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
           ...opt,
           windowsVerbatimArguments: true
-        }));
+        })), opt.signal);
       }
-      return await metered(execFileAsync(resolvedCmd, args, opt));
+      return await treeKilledOnStop(metered(execFileAsync(resolvedCmd, args, opt)), opt.signal);
     };
     
     let stdout = "";

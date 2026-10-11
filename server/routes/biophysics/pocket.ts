@@ -28,6 +28,7 @@ import {
   type StructureReferenceIdentity,
 } from "../../services/structure/structure-reference-store.ts";
 import { type StructureResolutionEcho } from "../../../src/shared/structureRefs.ts";
+import { agentJoinGuard } from "../../services/infra/agent-jobs.ts";
 
 /**
  * What the routes computed on, and where it came from.
@@ -286,6 +287,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
             const submission = await pocketJobRegistry.submitOrJoin({
               cacheKey: pocketKey,
               queue,
+              mayJoin: agentJoinGuard(queue, requester ?? null),
               enqueue: () => queue.pushJob("p2rank", { pdbText: effectivePdbText, mutIndex: mutIndexVal, targetChain: effectiveTargetChain, jobDir }, {
                 ownerId: requester,
                 limits: submitterLimits(req),

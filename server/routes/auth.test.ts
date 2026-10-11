@@ -446,8 +446,8 @@ describe("fixes from review", () => {
   it("pairing (/agent/pair) is a signed-in person's request, not an agent's", async () => {
     await seedUser("m@lab.org");
     const cookie = await signIn("m@lab.org");
-    // No route exists yet (WP-F): reaching the 404 shows the agent-only rule let the user through.
-    expect((await call("POST", "/agent/pair", { body: {}, cookie })).status).toBe(404);
+    // The agent-only rule lets the signed-in person through, and the route hands them a pairing code.
+    expect((await call("POST", "/agent/pair", { body: {}, cookie })).status).toBe(201);
   });
 });
 

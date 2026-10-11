@@ -286,6 +286,19 @@ export function serverToolVersion(type: JobType): string | null {
   return v && v !== "unknown" ? v : null;
 }
 
+/**
+ * Run the self-tests again now, ignoring the cache, and return each tool's result with its reason. The
+ * agent (WP-F2) calls this after it installs or removes a tool, so a computer is judged by exactly the
+ * tests the server applies to itself.
+ */
+export async function probeToolsNow(now = Date.now()): Promise<{ foldx: ToolCheck; p2rank: ToolCheck }> {
+  toolCache = null;
+  const failed = (label: string) => (err: unknown): ToolCheck => ({ tool: null, detail: `${label}'s self-test could not run (${(err as Error)?.message ?? err})`, clean: false });
+  const [foldx, p2rank] = await Promise.all([checkFoldx(now).catch(failed("FoldX")), checkP2Rank().catch(failed("P2Rank"))]);
+  toolCache = { at: now, tools: [foldx, p2rank].flatMap((c) => (c.tool ? [c.tool] : [])), clean: foldx.clean && p2rank.clean };
+  return { foldx, p2rank };
+}
+
 /** Probe in the background at start-up, so the first submission does not wait for the self-tests. */
 export function warmServerTools(): void {
   void serverTools().catch(() => {});
