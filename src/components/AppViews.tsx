@@ -396,7 +396,7 @@ export function AppViews({
         </div>
       }>
         <EvidenceWorkspaceProvider result={analysisState.result}>
-        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && ['clinical', 'predictors', 'alphagenome', 'gene-disease', 'expression-models', 'species-models', 'structure', 'perturbation', 'function'].includes(activeEvidenceTab) ? 'evidence' : undefined}>
+        <WorkspaceLayout kind={masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && ['clinical', 'predictors', 'alphagenome', 'gene-disease', 'expression-models', 'species-models', 'structure', 'perturbation', 'function', 'splicing'].includes(activeEvidenceTab) ? 'evidence' : undefined}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (

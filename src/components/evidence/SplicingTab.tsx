@@ -21,6 +21,9 @@ import { SpliceRuler } from "./splicing/SpliceRuler";
 import { SpliceMap } from "./splicing/SpliceMap";
 import { SpliceWindowControl } from "./splicing/SpliceWindowControl";
 import { Prose } from "../ui/Prose";
+import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { SplicingRecords } from './splicing/SplicingRecords';
+import { splicingReadings, spliceRequestIdentity } from '../../shared/splicingWorkspace';
 
 /**
  * RNA splicing.
@@ -162,7 +165,7 @@ function ChannelsList({ rows }: { rows: SpliceReading[] }) {
           return (
             <li key={r.key} className="spl-channel" data-max={isMax || undefined} data-testid={`splice-${r.key}`} title={r.score !== null ? `${r.name}: Δ ${r.score}${r.sub ? `; ${r.sub}` : ""}` : r.availability.reason ?? undefined}>
               <span className="spl-channel__name">
-                {r.name}
+                <InspectReadingButton tab="splicing" readingKey={r.key}>{r.name}</InspectReadingButton>
                 {isMax && <span className="ev-tier" data-tone="accent">Maximum</span>}
               </span>
               <span className="spl-channel__value">
@@ -309,19 +312,30 @@ function MapNote({ map }: { map: NonNullable<SplicingEvidence["map"]> }) {
 }
 
 export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }: TabComponentProps) {
+  // Local disclosures and in-flight requests belong to this allele, including same-residue changes.
+  return <SplicingContent key={spliceRequestIdentity(analysisState.result)} analysisState={analysisState} isBiophysicalLoading={isBiophysicalLoading} onTabChange={onTabChange} />;
+}
+
+function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: Pick<TabComponentProps, 'analysisState' | 'isBiophysicalLoading' | 'onTabChange'>) {
   const { settings } = useSettings();
+  const workspace = useEvidenceWorkspace('splicing');
   const [knowledgeKey, setKnowledgeKey] = useState<string | null>(null);
-  const [showSmallSignals, setShowSmallSignals] = useState(false);
+  const [localSmallSignals, setLocalSmallSignals] = useState(false);
   const result = analysisState.result;
   if (!result) return null;
 
-  const ev = buildSplicingEvidence({
+  const base = buildSplicingEvidence({
     result,
     isLoading: Boolean(analysisState.isLoading || isBiophysicalLoading),
     // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
     alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined,
-    showSmallSignals,
   });
+  const savedView = workspace.spliceMap?.transcript === base.geometry.transcriptId ? workspace.spliceMap : undefined;
+  const mapView = savedView ?? { transcript: base.geometry.transcriptId, halfWidth: null, focusedScore: false, showSmallSignals: false };
+  const showSmallSignals = workspace.enabled ? mapView.showSmallSignals : localSmallSignals;
+  const setShowSmallSignals = (value: boolean) => workspace.enabled ? workspace.setOptions({ spliceMap: { ...mapView, showSmallSignals: value } }) : setLocalSmallSignals(value);
+  const ev = showSmallSignals ? buildSplicingEvidence({ result, isLoading: base.pending, alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined, showSmallSignals }) : base;
+  const readings = splicingReadings(ev, result);
   const finding = splicingFinding(ev);
   const { geometry: g, rule } = ev;
   const spliceRow = ev.readings.find(r => r.key === "spliceai")!;
@@ -339,6 +353,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
           would make of it.
         </p>
       </header>
+      <EvidenceViewTabs tab="splicing" comparisonLabel="Splice map" />
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="spl-card spl-hero" aria-labelledby="spl-finding-title" data-testid="splicing-finding">
@@ -413,6 +428,12 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
         )}
       </section>
 
+      {workspace.enabled && <div className="spl-workspace-tools">
+        <p>Pin a channel to follow its score, location and source in the inspector.</p>
+        <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />
+      </div>}
+      <EvidencePanel tab="splicing">
+      {workspace.enabled && !workspace.comparison ? <SplicingRecords rows={readings} /> : <>
       <section className="spl-section" aria-labelledby="spl-geometry-title">
         <h2 className="eyebrow" id="spl-geometry-title">
           <MapPin className="w-3.5 h-3.5" />
@@ -441,7 +462,6 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
                 </div>
                 {map ? (
                   <>
-                    <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />
                     <div className="spl-map-controls">
                       <span>Reporting window: {ev.spliceai.windowText}</span>
                       <label><input type="checkbox" checked={showSmallSignals} onChange={e => setShowSmallSignals(e.target.checked)} /> Show non-zero signals below {SPLICE_MAP_FLOOR}</label>
@@ -449,10 +469,14 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
                     </div>
                     <div className="spl-geo__figure">
                       {/* Reset geometry-specific view state on transcript changes; re-scoring the same transcript retains it. */}
-                      <SpliceMap key={g.transcriptId ?? "unresolved"} map={map} geometry={g} />
+                      <SpliceMap key={g.transcriptId ?? "unresolved"} map={map} geometry={g}
+                        selectedKey={workspace.selected} onSelect={workspace.enabled ? workspace.select : undefined}
+                        view={workspace.enabled ? mapView : undefined}
+                        onViewChange={workspace.enabled ? patch => workspace.setOptions({ spliceMap: { ...mapView, ...patch } }) : undefined} />
                     </div>
                     <MapLegend map={map} />
                     <MapNote map={map} />
+                    <ChannelsList rows={ev.readings.filter(r => r.group === "channels")} />
                   </>
                 ) : null}
               </div>
@@ -484,7 +508,11 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
           </div>
         </div>
       </section>
+      {workspace.enabled && <p className="spl-records-caption">The map shows location; Source records retains every exact reading, including channels with no position or no returned score.</p>}
+      </>}
+      </EvidencePanel>
 
+      {!workspace.enabled &&
       <section className="spl-section" aria-labelledby="spl-readings-title">
         <div className="spl-section__head">
           <h2 className="eyebrow" id="spl-readings-title">
@@ -530,7 +558,7 @@ export function SplicingTab({ analysisState, isBiophysicalLoading, onTabChange }
             <span className="spl-legend__item"><i className="spl-legend__marker" />This variant</span>
           </div>
         </div>
-      </section>
+      </section>}
 
     </div>
   );
