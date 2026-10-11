@@ -6,6 +6,7 @@
 @import "./theme-accents.css";
 @import "./primitives.css";
 @import "./layout.css";
+@import "./query.css";
 @import "./sidebar.css";
 @import "./command-palette.css";
 @import "./onboarding.css";

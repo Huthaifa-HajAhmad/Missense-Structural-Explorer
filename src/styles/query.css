@@ -1,0 +1,31 @@
+/* Query hierarchy inside the deliberately equal-height form and service columns. */
+.query-routes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1.5rem;
+}
+.query-route { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.query-route legend { padding: 0; margin-block-end: .875rem; font-size: 13px; font-weight: 600; color: var(--cs-text-primary); }
+.query-route--coordinate legend { color: var(--cs-text-secondary); }
+.query-route__fields { display: flex; flex-direction: column; gap: 1rem; }
+.query-route__hint { margin: 0; max-inline-size: 34ch; color: var(--cs-text-muted); font-size: 12px; line-height: 1.6; text-wrap: pretty; }
+.query-reference { border-block: 1px solid var(--cs-border-subtle); padding-block: .625rem; }
+.query-reference summary { font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
+.query-reference summary span { display: inline; margin-inline-start: .5rem; font-weight: 400; color: var(--cs-text-muted); overflow-wrap: anywhere; }
+.query-reference__field { max-inline-size: 24rem; padding-block: .75rem .25rem; }
+.query-examples { display: flex; flex-direction: column; align-items: start; gap: .125rem; color: var(--cs-text-muted); font-size: 11px; }
+.query-examples__primary, .query-examples__more { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; }
+.query-examples__more { padding-block: .375rem; }
+.query-examples details { max-inline-size: 100%; }
+.query-example { max-inline-size: 100%; min-block-size: 1.75rem; padding: .125rem .375rem; border: 0; border-radius: var(--cs-radius-badge); background: var(--cs-surface-2); color: var(--cs-text-secondary); font-family: var(--cs-font-mono); font-size: 11px; overflow-wrap: anywhere; text-align: start; cursor: pointer; }
+:is(.query-examples, .query-reference) summary { min-block-size: 1.75rem; align-content: center; cursor: pointer; }
+:is(.query-examples, .query-reference) summary:focus-visible, .query-example:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+:is(.query-examples, .query-reference) summary:active, .query-example:active { color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  :is(.query-examples, .query-reference) summary:hover { color: var(--cs-text-primary); }
+  .query-example:hover { color: var(--cs-text-accent); background: color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .query-example { transition: color 120ms, background-color 120ms, transform 120ms; }
+  .query-example:active { transform: scale(.96); }
+}
