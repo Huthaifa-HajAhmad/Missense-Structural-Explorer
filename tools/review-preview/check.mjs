@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /** Recorded/illustrative fixtures only. Run against the local Vite preview. */
 import fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const candidates = [process.env.PLAYWRIGHT_MODULE,
+  path.join(root, 'tools/review-preview/node_modules/playwright-core/index.mjs'),
   path.join(root, 'node_modules/playwright-core/index.mjs'),
   path.join(root, 'scratch/literature-browser/node_modules/playwright-core/index.mjs')];
 const modulePath = candidates.find(p => p && existsSync(p));
@@ -19,13 +20,22 @@ const executablePath = [process.env.BROWSER_PATH, process.env.CHROME_PATH,
   '/usr/bin/google-chrome', '/usr/bin/chromium'].find(p => p && existsSync(p));
 const output = path.join(root, 'scratch/review-preview');
 await fs.mkdir(output, { recursive: true });
+// Start an isolated fixture server unless the caller provides one.
+let server;
+let previewUrl = process.env.REVIEW_PREVIEW_URL;
+if (!previewUrl) {
+ const { createServer } = await import('vite');
+ server = await createServer({ root, server: { host: '127.0.0.1', port: 5189, fs: { allow: [root, realpathSync(path.join(root, 'node_modules'))] } } });
+ await server.listen();
+ previewUrl = server.resolvedUrls.local[0] + 'tools/review-preview/index.html';
+}
 const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true });
 const checks = [], errors = [];
 const check = (name, pass) => { checks.push({ name, pass }); if (!pass) console.log('FAIL', name); };
 try {
  const page = await browser.newPage({ viewport: { width: 1500, height: 1100 } });
  page.on('pageerror', e => errors.push(e.message));
- await page.goto(process.env.REVIEW_PREVIEW_URL ?? 'http://127.0.0.1:5187/tools/review-preview/index.html');
+ await page.goto(previewUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
  await page.getByRole('button', { name: 'Computational', exact: true }).waitFor();
  // A real wheel gesture must reach the bottom; hidden overflow can still pass focus checks.
  const primary = page.locator('.review-workspace > .data-screen-primary');
@@ -114,8 +124,25 @@ try {
  await page.getByRole('button', { name: 'Computational', exact: true }).click();
  await page.getByLabel('Example', { exact: true }).selectOption('New allele');
  check('New allele resets selection', await page.getByRole('button', { name: 'Clear selection', exact: true }).count() === 0);
+ await page.getByLabel('Workspace', { exact: true }).selectOption('search');
+ const toggle = page.getByRole('button', { name: 'Set UniProt accession', exact: true });
+ await toggle.focus();
+ await page.keyboard.press('Enter');
+ const accession = page.locator('#input-uniprot-acc');
+ check('Query disclosure opening focuses accession', await accession.evaluate(e => e === document.activeElement));
+ await accession.fill('Q9H8M5');
+ const inputRows = await page.locator('#input-uniprot-acc, #input-variant-notation').evaluateAll(elements => elements.map(e => { const r = e.getBoundingClientRect(); return { top: r.top, height: r.height, width: r.width }; }));
+ check('Query reference aligns with protein field', inputRows.length === 2 && Math.abs(inputRows[0].top - inputRows[1].top) < 1 && Math.abs(inputRows[0].height - inputRows[1].height) < 1);
+ await page.getByRole('button', { name: 'Hide UniProt accession', exact: true }).click();
+ check('Query closing returns focus to persistent action', await toggle.evaluate(e => e === document.activeElement));
+ const using = page.getByRole('button', { name: 'Using Q9H8M5', exact: true });
+ check('Query override accessible name matches visible text', await using.count() === 1 && await using.getAttribute('aria-label') === null);
+ await page.screenshot({ path: `${output}/query-desktop.png` });
+ await page.setViewportSize({ width: 390, height: 1100 });
+ check('Query fits phone viewport', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+ await page.screenshot({ path: `${output}/query-phone.png` });
  check('No runtime errors', errors.length === 0);
  await fs.writeFile(`${output}/checks.json`, JSON.stringify({ checks, errors }, null, 2));
  console.log(JSON.stringify({ passed: checks.filter(c => c.pass).length, total: checks.length, failed: checks.filter(c => !c.pass), errors }));
  if (checks.some(c => !c.pass) || errors.length) process.exitCode = 1;
-} finally { await browser.close(); }
+} finally { await browser.close(); await server?.close(); }

@@ -68,11 +68,14 @@ function renderCard(result: any, overrides: Record<string, unknown> = {}) {
     ...overrides
   };
 
-  return render(
+  const view = render(
     <SettingsProvider>
       <ClinicalInsightsCard {...(props as any)} />
     </SettingsProvider>
   );
+  return { ...view, rerenderCard: (nextResult: any, nextOverrides: Record<string, unknown>) => view.rerender(
+    <SettingsProvider><ClinicalInsightsCard {...(props as any)} analysisState={{ result: nextResult, isLoading: false, error: null }} {...nextOverrides} /></SettingsProvider>
+  ) };
 }
 
 // The residue-property radar and the biochemical-shift prose were removed from this tab: both repeat the
@@ -264,5 +267,29 @@ describe("ClinicalInsightsCard consolidated case", () => {
     renderCard(null, { analysisState: { result: null, isLoading: false, error: 'Provider connection timed out.' } });
     expect(screen.getByText('Provider connection timed out.')).toBeInTheDocument();
     expect(screen.queryByText('Variant Interpretation Awaiting Configuration')).not.toBeInTheDocument();
+  });
+});
+
+
+describe('Analysis failure recovery', () => {
+  it.each(['Network request failed', 'Invalid API key'])('returns to the query for %s', error => {
+    const navigate = vi.fn();
+    renderCard(null, { analysisState: { result: null, isLoading: false, error }, onNavigateToView: navigate });
+    expect(screen.getByText(error)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review API settings' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Return to variant query' }));
+    expect(navigate).toHaveBeenCalledWith('search');
+  });
+});
+
+
+describe('Current Insights evidence', () => {
+  it('updates stability readings when remote engine values arrive for the same result', () => {
+    const result = baseResult();
+    const view = renderCard(result, { foldingEnergetics: { thermompnn: 2, stabilityoracle: 2 } });
+    const lane = () => screen.getByRole('button', { name: 'Stability' }).closest('.ins-lane')!;
+    const initial = lane().textContent;
+    view.rerenderCard(result, { foldingEnergetics: { thermompnn: -2, stabilityoracle: -2 } });
+    expect(lane().textContent).not.toBe(initial);
   });
 });

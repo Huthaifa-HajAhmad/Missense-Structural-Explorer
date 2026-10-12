@@ -576,7 +576,19 @@ function VariantSearchPanel({
   const customGenomic = storeCustomGenomic;
   const setCustomGenomic = actions.setCustomGenomic;
   const setUserDirections = actions.setUserDirections;
+  const referenceActionRef = useRef<HTMLButtonElement>(null);
+  const referenceInputRef = useRef<HTMLInputElement>(null);
   const [referenceOpen, setReferenceOpen] = useState(() => Boolean(customUniprot.trim()));
+  const referenceFocusPending = useRef(false);
+  const toggleReference = () => {
+    referenceFocusPending.current = true;
+    setReferenceOpen(open => !open);
+  };
+  useEffect(() => {
+    if (!referenceFocusPending.current) return;
+    referenceFocusPending.current = false;
+    (referenceOpen ? referenceInputRef.current : referenceActionRef.current)?.focus();
+  }, [referenceOpen]);
   useEffect(() => {
     // Reveal a reference restored from history; clearing an edited field must not close it.
     if (customUniprot.trim()) setReferenceOpen(true);
@@ -1376,7 +1388,7 @@ function VariantSearchPanel({
                     <div className="query-reference">
                           <FieldLabel
                             htmlFor="input-uniprot-acc"
-                            action={referenceOpen ? <button type="button" className="query-reference__hide" aria-label="Hide UniProt accession" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={() => setReferenceOpen(false)}>Hide</button> : undefined}
+                            action={<button ref={referenceActionRef} type="button" className="query-reference__hide" aria-label={`${referenceOpen ? 'Hide' : 'Set'} UniProt accession`} aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>{referenceOpen ? 'Hide' : 'Set'}</button>}
                             badge={
                               <FieldBadge
                                 tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
@@ -1392,7 +1404,7 @@ function VariantSearchPanel({
                           >
                             UniProt accession
                           </FieldLabel>
-                      {!referenceOpen && <button type="button" className="query-reference__toggle" aria-label="Set UniProt accession" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={() => setReferenceOpen(true)}>
+                      {!referenceOpen && <button type="button" className="query-reference__toggle" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>
                         <span>{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically'}</span>
                         <span aria-hidden="true">+</span>
                       </button>}
@@ -1400,6 +1412,7 @@ function VariantSearchPanel({
                           <div className="relative">
                             <input
                               id="input-uniprot-acc"
+                              ref={referenceInputRef}
                               type="text"
                               placeholder="e.g. Q9H8M5"
                               autoComplete="off"

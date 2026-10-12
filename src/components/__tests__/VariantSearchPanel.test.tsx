@@ -775,3 +775,26 @@ describe("VariantSearchPanel keyless-first", () => {
     expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
   });
 });
+
+
+describe("UniProt disclosure focus", () => {
+  it("focuses the field when opened and the persistent action when closed", () => {
+    act(() => { useVariantAnalysisStore.setState({ customUniprot: "", analysisState: { isLoading: false, error: null, result: null } }); });
+    renderPanel();
+    const action = screen.getByRole('button', { name: 'Set UniProt accession' });
+    const collapsed = screen.getByRole('button', { name: 'Resolved automatically' });
+    collapsed.focus(); fireEvent.click(collapsed);
+    const input = screen.getByLabelText('UniProt accession');
+    expect(input).toHaveFocus();
+    expect(action).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.change(input, { target: { value: 'Q9H8M5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide UniProt accession' }));
+    expect(action).toHaveFocus();
+    expect(action).toHaveAttribute('aria-expanded', 'false');
+    const using = screen.getByRole('button', { name: 'Using Q9H8M5' });
+    expect(using).not.toHaveAttribute('aria-label');
+    fireEvent.click(using);
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('Q9H8M5');
+  });
+});

@@ -31,7 +31,7 @@
     "test:geometry": "node tools/header-geometry/check.mjs",
     "test:geometry:function-track": "node tools/function-track-geometry/check.mjs",
     "test:geometry:landscape": "node tools/landscape-geometry/check.mjs",
-    "verify:geometry": "npm run test:geometry && npm run test:geometry:function-track && npm run test:geometry:landscape",
+    "verify:geometry": "npm run test:geometry && npm run test:geometry:function-track && npm run test:geometry:landscape && npm run test:geometry:review",
     "verify": "npm run lint && npm run test:deployment && npm run test:evidence-context-import && npm run test:coverage && npm run verify:geometry && npm run build",
     "verify:image": "tsc --noEmit",
     "benchmark:proteingym": "tsx tools/run_proteingym_benchmark.ts",
@@ -45,7 +45,8 @@
     "graft": "node tools/graft/cli.cjs",
     "search": "zg query",
     "search:index": "zg index --embedding local/potion-code-16m-v2",
-    "search:status": "zg status"
+    "search:status": "zg status",
+    "test:geometry:review": "node tools/review-preview/check.mjs"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",

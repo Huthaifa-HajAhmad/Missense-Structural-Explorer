@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, type ReactNode } from 'react';
 import type { AnalysisResult } from '../../types';
 import type { EvidenceWorkspaceTab, AttributionFilter } from '../../shared/evidenceComparison';
-import { evidenceWorkspaceIdentity } from '../../shared/evidenceContextIdentity';
+import { useAlleleWorkspaceState } from '../../hooks/useAlleleWorkspaceState';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 import { ReviewWorkspaceProvider } from '../review/ReviewWorkspace';
@@ -14,14 +14,7 @@ const Context = createContext<{ states: Partial<Record<EvidenceWorkspaceTab, Tab
 /** Scope to the analysed allele, not residue exploration or payload object identity.
  * Reset only Evidence state synchronously; never remount the other workspace canvases. */
 export function EvidenceWorkspaceProvider({ result, children }: { result: AnalysisResult | null; children: ReactNode }) {
-  // Memoized: AppViews re-renders on pointer movement, and the key sat on that hot path.
-  const key = useMemo(() => evidenceWorkspaceIdentity(result), [result]);
-  const [scope, setScope] = useState<{ key: string; states: Partial<Record<EvidenceWorkspaceTab, TabState>> }>({ key, states: {} });
-  if (scope.key !== key) setScope({ key, states: {} });
-  const update = useCallback((tab: EvidenceWorkspaceTab, patch: Partial<TabState>) => setScope(s => ({
-    key, states: { ...(s.key === key ? s.states : {}), [tab]: { ...initial, ...(s.key === key ? s.states[tab] : {}), ...patch } },
-  })), [key]);
-  const value = useMemo(() => ({ states: scope.key === key ? scope.states : {}, update }), [scope, key, update]);
+  const value = useAlleleWorkspaceState<EvidenceWorkspaceTab, TabState>(result, initial);
   return <Context.Provider value={value}><ReviewWorkspaceProvider result={result}>{children}</ReviewWorkspaceProvider></Context.Provider>;
 }
 export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {

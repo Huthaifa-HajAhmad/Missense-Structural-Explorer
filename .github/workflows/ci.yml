@@ -155,7 +155,10 @@ jobs:
       # take `GEOMETRY_BROWSER` / `CHROME_PATH` as an override, failing with that instruction rather
       # than a stack trace. The Ubuntu runner images ship Chrome at /usr/bin/google-chrome. Deployment
       # gates on this workflow's overall conclusion, so a geometry failure stops a deploy.
-      - name: Variant header, Functional Domains and Landscape geometry
+      - name: Install review workspace browser driver
+        run: npm ci --prefix tools/review-preview
+
+      - name: Variant header, Functional Domains, Landscape and Synthesis geometry
         id: geometry
         if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
         env:
@@ -174,6 +177,7 @@ jobs:
         with:
           name: geometry-renders
           path: |
+            scratch/review-preview/
             tools/header-geometry/dist/
             tools/function-track-geometry/dist/
             tools/landscape-geometry/dist/

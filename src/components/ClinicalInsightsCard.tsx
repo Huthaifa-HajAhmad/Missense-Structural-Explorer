@@ -18,11 +18,8 @@ import {
   Copy,
   Lightbulb,
   Download,
-  KeyRound,
-  Settings,
   AlertTriangle
 } from "lucide-react";
-import { useSettings } from "../context/SettingsContext";
 import { InsightsScreen } from "./insights/InsightsScreen";
 import { buildInsightsEvidence } from "../shared/insightsEvidence";
 import { functionEvidenceInputFrom } from "./evidence/function/functionInput";
@@ -145,7 +142,6 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   onNavigateToView,
   onOpenEvidenceTab
 }: ClinicalInsightsCardProps) {
-  const { openSettingsTab } = useSettings();
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
   );
@@ -460,7 +456,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           /* Clean, modern empty/notice state inside insights card */
           <div className="flex flex-col items-center justify-center p-6 rounded-xl my-4 max-w-lg mx-auto text-center border border-cs-border bg-cs-surface-2">
             <div className="p-3 rounded-full border mb-3" style={{ background: "var(--cs-warn-soft)", borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", color: "var(--cs-warn)" }}>
-              <KeyRound className="w-6 h-6" />
+              <AlertTriangle className="w-6 h-6" />
             </div>
             <h4 className="font-semibold text-sm text-cs-text-primary mb-1">
               Variant analysis failed
@@ -468,15 +464,15 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             <p className="text-xs text-cs-text-secondary leading-relaxed max-w-sm mb-4">
               {analysisState.error}
             </p>
-            <button
+            {onNavigateToView && <button
               type="button"
-              onClick={() => openSettingsTab("api")}
+              onClick={() => onNavigateToView("search")}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 cursor-pointer"
               style={{ background: "var(--cs-text-accent)", color: "var(--cs-bg)" }}
             >
-              <Settings className="w-3.5 h-3.5" />
-              Review API settings
-            </button>
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Return to variant query
+            </button>}
           </div>
         ) : analysisState.result ? (
           <div className="flex flex-col gap-5 w-full">
