@@ -10,12 +10,59 @@ import { Switch } from "../ui/Switch";
 import { Avatar } from "../../account/AccountMenu";
 import { relativeTime } from "../../account/accountUi";
 import { FormAlert, PasswordChecklist, PasswordField } from "../../account/fields";
+import { describeLimits, describeUsage } from "../../../shared/jobsCopy";
+import type { MeInfo } from "../../../api/accountApi";
+import { YourComputers } from "../../account/YourComputers";
 
 const PLACEMENT_COPY: Record<PlacementPref, string> = {
-  auto: "Each job runs wherever it should finish first.",
-  my_machine: "Your own computer takes your jobs whenever it is connected and about as fast.",
+  auto: "Your connected computer takes your jobs that are waiting for the shared server.",
+  my_machine: "Your connected computer takes your jobs that are waiting for the shared server. Choosing where each job starts comes with live routing.",
   server_only: "Your jobs always run on the shared server, even when your computer is connected.",
 };
+
+/**
+ * Server time this person's jobs used, and the limits that apply to them. Informational: there is no
+ * daily cap unless an admin set one (plan 4.4). Loaded once when the section opens.
+ */
+function UsageSummary() {
+  const [me, setMe] = useState<MeInfo | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    accountApi.me().then((info) => live && setMe(info)).catch(() => live && setFailed(true));
+    return () => { live = false; };
+  }, []);
+  if (failed) return null; // usage is a convenience; its absence must not look like an error
+  const usage = describeUsage(me?.usage);
+  const limits = describeLimits(me?.quota);
+  /**
+   * "…" means "still loading" and is announced as busy; a server that answers without usage (the queue
+   * is not running in this process) left the tiles on that ellipsis forever. Say so instead.
+   */
+  const usageMissing = me !== null && !usage;
+  const value = (text: string) => (usageMissing ? "Not available" : usage ? text : "…");
+  return (
+    <SettingsRow label="Server time used" description="Time your jobs spent running on the shared server." stacked>
+      <dl className="acct-usage" aria-busy={me === null}>
+        <div className="acct-usage-tile">
+          <dt>Today (UTC)</dt>
+          <dd>{value(usage?.today ?? "")}</dd>
+        </div>
+        <div className="acct-usage-tile">
+          <dt>Last 7 days</dt>
+          <dd>{value(usage?.week ?? "")}</dd>
+        </div>
+      </dl>
+      {limits.length > 0 && (
+        <ul className="acct-usage-limits">
+          {limits.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+    </SettingsRow>
+  );
+}
 
 function SaveState({ state }: { state: "idle" | "saving" | "saved" | "error" }) {
   return (
@@ -209,7 +256,6 @@ export function AccountSection() {
               { value: "server_only", label: "Shared server only" },
             ]}
           />
-          <p className="acct-note">Connecting your own computer arrives with the desktop agent. Until then, every job runs on the shared server.</p>
         </SettingsRow>
         <Switch
           label="Share my results with the team"
@@ -217,6 +263,8 @@ export function AccountSection() {
           checked={user.shareResults}
           onChange={(shareResults) => void save({ shareResults })}
         />
+        <YourComputers />
+        <UsageSummary />
       </SettingsSection>
 
       <SettingsSection title="Security">

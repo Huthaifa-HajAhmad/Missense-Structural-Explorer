@@ -31,9 +31,9 @@ window.fetch = async (input, init) => {
 };
 function scenario(name: string) {
   example = name;
-  const result = nae1Reference({ isDemoData: true, metadata: { variant: name === 'New allele' ? 'p.Asp116Ala' : 'p.Asp116Gly' },
+  const result = nae1Reference({ isDemoData: true, metadata: { variant: name === 'New allele' ? 'p.Asp116Ala' : name === 'Unsupported notation' ? 'c.123A>G' : 'p.Asp116Gly' },
     analysis: name === 'Missing' ? '' : '### Clinical and Pathogenicity Interpretation\n\nIllustrative summary: this fixture tests the distinction between recorded criteria, uncounted context, and a written interpretation. It is not a clinical assessment.',
-    ruleBasedInsights: { acmgVerdict: 'Variant of Uncertain Significance (VUS)', acmgCriteria: [{ code: 'PP3', reason: 'Illustrative engine record.' }], plausibility: '' },
+    ruleBasedInsights: { acmgVerdict: 'Variant of Uncertain Significance (VUS)', acmgCriteria: [{ code: name === 'Strength suffix' ? 'PP3_Moderate' : 'PP3', reason: 'Illustrative engine record.' }], plausibility: '' },
     insights: { source: 'rule_based', acmgCriteria: [], biochemicalShift: '', structuralImpact: '' } });
   store.setState({ gene: 'NAE1', variant: result.metadata.variant, uniprotId: 'Q13564', analysisState: { result, isLoading: false, error: null }, isBiophysicalLoading: false });
   store.getState().setFoldingEnergetics(name === 'Missing' ? null : { foldx: 2.62, dynamut2: -1.4, ddmut: -1.2, rasp: .9, thermompnn: 1.1, stabilityoracle: 1.3 });
@@ -50,7 +50,7 @@ function Preview() {
     <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 12, fontSize: 13 }}>
       <strong>Illustrative review fixtures · not clinical evidence</strong>
       <label>Workspace <select aria-label="Workspace" value={view} onChange={e => setView(e.target.value as MasterView)}><option value="search">Query</option><option value="insights">Insights</option><option value="literature">Literature</option></select></label>
-      <label>Example <select aria-label="Example" value={name} onChange={e => { setName(e.target.value); scenario(e.target.value); }}>{['Dense', 'Sparse', 'Missing', 'Degraded', 'Error', 'New allele'].map(n => <option key={n}>{n}</option>)}</select></label>
+      <label>Example <select aria-label="Example" value={name} onChange={e => { setName(e.target.value); scenario(e.target.value); }}>{['Dense', 'Sparse', 'Missing', 'Degraded', 'Error', 'New allele', 'Strength suffix', 'Unsupported notation'].map(n => <option key={n}>{n}</option>)}</select></label>
       <button className="review-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
     </header>
     <AppViews masterView={view} setMasterView={setView} pushErrorEntry={console.error} setIsSettingsOpen={() => {}}

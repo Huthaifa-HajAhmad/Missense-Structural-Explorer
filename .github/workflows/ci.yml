@@ -24,6 +24,14 @@ on:
           - ubuntu-24.04
           - ubuntu-26.04
 
+# READ-ONLY, AND SCOPED TO THE PROBE BELOW. Without a `permissions:` block the job gets the repository
+# default token, which on a private repo is broader than anything here needs: this workflow reads PRs,
+# commits and run history to decide which gates to run, and does nothing with a write scope.
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
 # A superseded push cancels its own run. Deployment waits on this workflow, so time spent finishing a
 # stale run is latency added to the deploy of the newer commit.
 concurrency:
@@ -87,6 +95,42 @@ concurrency:
 # report. The old note here ("49s with coverage vs 48s without") was measured against a 2,176-test suite;
 # re-measured on 2026-10-08 at 4,267 tests with two workers: 158s without, 176s with (+11%). Dropping it
 # from PR runs would save ~18s locally and forfeit the threshold gate, so it stays.
+# THE MERGE COMMIT ALREADY RAN THIS SUITE, SO IT ONLY RUNS IT AGAIN WHEN IT HAS TO.
+#
+# A push to main is the landing of a PR merge. That PR's `pull_request` run already executed this exact
+# gate set, and — this is the part that makes the saving provable rather than assumed — it executed it
+# on the same TREE. GitHub checks a `pull_request` run out at `refs/pull/N/merge`, so the tree it tests
+# is `merge-tree(base_at_run_time, head)`. The commit that lands is `merge-tree(base_at_merge, head)`.
+# If `base_at_merge` had advanced past `base_at_run_time`, the two trees differ; if it had not, they are
+# the same tree. So:
+#
+#   tree(push commit) == tree(PR head)  implies  base_at_merge is an ancestor of head
+#                                      implies  base_at_run_time is too   (base only moves forward)
+#                                      implies  the PR run tested tree(push commit) exactly.
+#
+# Equality is a sound SUFFICIENT condition, and it is the one that is cheap to test: two `commits/{sha}`
+# lookups. Inequality proves nothing and falls through to the full gate. Measured on PR #112: head tree
+# 76d4fba5e8cb == merge tree 76d4fba5e8cb, one `quality` job billed 7 min to re-derive a green already
+# established, on content that was byte-identical.
+#
+# WHAT THE REDUCED RUN STILL DOES. It is not a no-op, and it is not "trust the PR": it installs, runs the
+# live-advisory audit (whose verdict is about *when* it runs, so the PR's answer is not reusable), lints,
+# runs the deployment-path and evidence-context tests, and builds the production bundle. Those are the
+# checks that are about main rather than about the tree, plus the cheap ones whose absence would make a
+# green main mean less than it looks like it means.
+#
+# WHAT IT SKIPS, AND WHY THAT IS SAFE. `geometry` and `test:coverage` are pure functions of the tree —
+# getBBox, computed styles, coverage thresholds, all derived from the files checked out and nothing else.
+# A tree that passed them in a PR run passes them on main, byte for byte. They are the two expensive
+# steps (270s of the 415s job, plus a 31s Chromium harness), so skipping exactly them is where the
+# minutes are.
+#
+# FAIL SAFE, ALWAYS. The probe can only ever REMOVE work, never approve a commit: every early return,
+# every API error, every unexpected shape leaves `full` true and the whole gate set runs. That includes
+# the cases that would otherwise be silent holes — a direct push to main with no PR behind it, a merge
+# whose base advanced, or a PR whose run never went green. A broken probe costs minutes; it cannot cost
+# correctness. The decision and its reason are printed to the log and the step summary so a run's shape
+# is auditable after the fact rather than inferred from its duration.
 jobs:
   quality:
     runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
@@ -95,6 +139,92 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      # See "THE MERGE COMMIT ALREADY RAN THIS SUITE" above. This step decides WHICH gates run below;
+      # it is not itself a gate, and its default — done nothing, matched nothing, errored — is the full
+      # set. `gh` ships on the runner images, so this costs a few API calls and no installed toolchain.
+      - name: Decide the gate set
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+
+          full=true
+          reason="gate set is full: not a push to the default branch"
+
+          # PUBLISH THE DEFAULT BEFORE PROBING. The steps below test `full != 'false'`, so an unset or
+          # empty output already means "run everything" — but writing the default first means a hard
+          # failure inside the probe (a crash, a killed runner) still leaves the summary and the log
+          # saying which gate set was intended, rather than leaving a reader to infer it.
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+          # Every `return 1` here means "cannot prove the tree was already tested", which is the same
+          # answer as "it was not". The happy path returns 0 only after all four facts line up.
+          probe() {
+            sha="$(git rev-parse HEAD)"
+
+            # 1. A push that is not the landing of a merged PR has no PR run behind it at all. This is
+            #    the direct-push case, and it is why the reduced path cannot be reached by pushing
+            #    straight to main.
+            num="$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" \
+                    --jq '[.[] | select(.merged_at != null)][0].number // empty')"
+            # A NUMBER, not merely non-empty. An API that fails can put its error text on the stream
+            # this captures, and "the string is non-empty" is not the same claim as "a PR was found".
+            case "$num" in ''|*[!0-9]*) return 1;; esac
+
+            head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$num" --jq .head.sha)"
+            merge="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$num" --jq .merge_commit_sha)"
+
+            # 2. The commit being tested is the one that PR produced, not some later push on top of it.
+            [ "$merge" = "$sha" ] || return 1
+
+            # 3. THE PROOF. Equal trees mean the PR's run saw exactly this content (see the block above
+            #    for why equality is sufficient). Unequal means main moved underneath the PR and this
+            #    commit contains code no test run has seen.
+            th="$(gh api "repos/$GITHUB_REPOSITORY/commits/$head" --jq .commit.tree.sha)"
+            tm="$(gh api "repos/$GITHUB_REPOSITORY/commits/$merge" --jq .commit.tree.sha)"
+            # Both have to be real object names before equality means anything. Two failed lookups can
+            # return the SAME error text, and `[ "$th" = "$tm" ]` would then be true for the one reason
+            # this comparison must never accept: neither value is a tree.
+            case "$th" in ''|*[!0-9a-f]*) return 1;; esac
+            case "$tm" in ''|*[!0-9a-f]*) return 1;; esac
+            [ "${#th}" = 40 ] && [ "${#tm}" = 40 ] || return 1
+            [ "$th" = "$tm" ] || return 1
+
+            # 4. And that run has to have gone GREEN. An in-flight or failed PR run proves nothing.
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$head&status=success" \
+                     --jq '.workflow_runs | length')"
+            case "$runs" in ''|*[!0-9]*) return 1;; esac
+            [ "$runs" -gt 0 ] || return 1
+
+            echo "PR #$num already ran this suite on tree ${th:0:12}"
+            return 0
+          }
+
+          # ONLY A PUSH CAN BE THE LANDING OF A PR. A `pull_request` run's own commit is the merge ref
+          # (`refs/pull/N/merge`), and the API resolves that to the PR too — so without this guard a PR
+          # run would find itself, conclude the tree was already tested, and skip its own suite. That is
+          # the one mistake this step can make that costs correctness instead of minutes, so it is a
+          # plain event test here rather than something inferred from whatever the API happens to return.
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            if detail="$(probe)"; then
+              full=false
+              reason="$detail"
+            else
+              reason="gate set is full: no green PR run covers this commit's tree"
+            fi
+          fi
+
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "gate set: full=$full — $reason"
+          {
+            echo "### Gate set: $([ "$full" = true ] && echo 'full' || echo 'reduced')"
+            echo ""
+            echo "$reason"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # NO npm cache. `package.json` declares `packageManager`, and `setup-node@v5` turns on npm caching
       # for any project that does — silently, with no `cache:` input — so this step was restoring and
@@ -154,13 +284,16 @@ jobs:
       # Chromium-based browser is required. The harnesses search the usual locations per platform and
       # take `GEOMETRY_BROWSER` / `CHROME_PATH` as an override, failing with that instruction rather
       # than a stack trace. The Ubuntu runner images ship Chrome at /usr/bin/google-chrome. Deployment
-      # gates on this workflow's overall conclusion, so a geometry failure stops a deploy.
+      # gates on this workflow's conclusion, so on a full run a geometry failure stops a deploy; on the
+      # reduced run this step is skipped, because the tree it would measure is the tree the PR run
+      # already measured (see the gate-set block above).
       - name: Install review workspace browser driver
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
         run: npm ci --prefix tools/review-preview
 
       - name: Variant header, Functional Domains, Landscape and Synthesis geometry
         id: geometry
-        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
         env:
           # Makes the harness save the render it measured, for the artifact step below.
           TRACK_SHOT: "1"
@@ -206,9 +339,10 @@ jobs:
           path: dist/
           retention-days: 7
 
-      # Last because it is the long one. Everything above has already reported.
+      # Last because it is the long one. Everything above has already reported. Skipped on the reduced
+      # run: the suite is a function of the tree, and that tree is the one the PR run already covered.
       - name: Run tests and collect coverage
-        if: ${{ !cancelled() && steps.lint.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
         run: npm run test:coverage
 
       - name: Generate CI Summary Report
@@ -220,4 +354,10 @@ jobs:
           echo "- **Branch / Ref**: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner image**: \`${{ inputs.runner || 'ubuntu-24.04' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Gates**: architectural boundaries, TypeScript typecheck, geometry, deployment and evidence-context tests, production build, and tests with coverage thresholds." >> $GITHUB_STEP_SUMMARY
+          echo "- **Gate set**: \`${{ steps.scope.outputs.full == 'false' && 'reduced (skip geometry + coverage)' || 'full' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Gate-set reason**: ${{ steps.scope.outputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.scope.outputs.full }}" = "false" ]; then
+            echo "- **Gates**: architectural boundaries, TypeScript typecheck, deployment and evidence-context tests, production build. Geometry and coverage came from the PR run on this same tree." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Gates**: architectural boundaries, TypeScript typecheck, geometry, deployment and evidence-context tests, production build, and tests with coverage thresholds." >> $GITHUB_STEP_SUMMARY
+          fi

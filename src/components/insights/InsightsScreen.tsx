@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { ReviewNavigation, useReviewWorkspace } from "../review/ReviewWorkspace";
 import type { InsightsEvidence, Lane, EvidenceTabId } from "../../shared/insightsEvidence";
-import { TIERS } from "../../shared/insightsEvidence";
+import { TIERS, criterionForLane } from "../../shared/insightsEvidence";
 import { ACMG_SOURCE_LABEL } from "../../shared/acmgCriteriaView";
 import { NARRATIVE_PROMPT_EVIDENCE } from "../../shared/narrativeSynthesis";
 import { formatEvidenceCode } from "../../shared/thresholds";
@@ -34,7 +34,7 @@ function CodeChip({ code, tone }: { code: string; tone: "danger" | "good" | "mut
 function LaneRow({ lane, strength, selected, onSelect, onOpenTab }: { lane: Lane; strength?: string; selected: boolean; onSelect: () => void; onOpenTab?: (tab: EvidenceTabId) => void }) {
   const label = `${lane.name}: ${lane.state === "read"
     ? lane.lean === "none" ? "no lean" : `leans ${lane.lean}`
-    : lane.state === "pending" ? "still running" : "no reading"}${lane.counted ? `, counted as ${lane.code}` : ", not counted"}`;
+    : lane.state === "pending" ? "live inputs still running" : "live inputs unavailable"}${lane.counted ? `, counted as ${lane.code}` : ", not counted"}`;
   return (
     <div className="ins-lane" data-lane={lane.key} data-selected={selected || undefined}>
       <div>
@@ -132,7 +132,7 @@ export function InsightsScreen({ evidence: ev, narrative, onOpenTab, onOpenRepor
         <div className="ins-axis"><span />
           <div className="ins-axis__scale ins-label"><span>Benign ←</span><span>→ Pathogenic</span></div>
         </div>
-        {ev.lanes.map(l => <LaneRow key={l.key} lane={l} strength={ev.criteria.find(c => c.code === l.code)?.strength} selected={w.selected === l.key} onSelect={() => w.select(l.key)} onOpenTab={onOpenTab} />)}
+        {ev.lanes.map(l => <LaneRow key={l.key} lane={l} strength={criterionForLane(ev, l)?.strength} selected={w.selected === l.key} onSelect={() => w.select(l.key)} onOpenTab={onOpenTab} />)}
         <div className="ins-card__foot"><span><b>Bar length:</b> supporting, moderate, or strong and above. The exact recorded strength is labelled; the scale is ordinal, not a probability. Dashed bars have no code and carry no magnitude.</span></div>
       </section>
 

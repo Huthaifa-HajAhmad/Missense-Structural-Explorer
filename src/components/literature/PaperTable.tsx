@@ -6,6 +6,7 @@ import { MarkedText } from "./MarkedText";
 import { MechanismPanel } from "./MechanismPanel";
 import { ScreeningChips, screeningTagLabels } from "./ScreeningChips";
 import { whyRead } from "../../shared/literatureScreening";
+import { safeExternalHref } from '../../shared/externalLink';
 
 interface PaperTableProps {
   papers: readonly PaperReading[];
@@ -108,7 +109,8 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                       <a
                         key={`${link.pmid}-${link.sourceUrl}`}
                         className="lit-curated-chip"
-                        href={link.sourceUrl}
+                        href={safeExternalHref(link.sourceUrl) ?? undefined}
+                        aria-disabled={!safeExternalHref(link.sourceUrl) || undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         title={`${link.label}${link.detail ? ` · ${link.detail}` : ""} · PMID ${link.pmid}`}
@@ -153,7 +155,7 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
                         <p className="lit-curated__detail">
                           {link.detail && <span>{link.detail}</span>}
                           <span className="lit-mono">PMID {link.pmid}</span>
-                          <a className="lit-link" href={link.sourceUrl} target="_blank" rel="noopener noreferrer">
+                          <a className="lit-link" href={safeExternalHref(link.sourceUrl) ?? undefined} aria-disabled={!safeExternalHref(link.sourceUrl) || undefined} target="_blank" rel="noopener noreferrer">
                             <ExternalLink aria-hidden="true" />
                             Provider record
                             <span className="sr-only"> (opens in a new tab)</span>

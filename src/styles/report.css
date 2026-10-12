@@ -64,11 +64,17 @@
   color: var(--cs-text-primary); background: var(--cs-surface);
   border: 1px solid var(--cs-border); border-radius: 8px;
 }
-.rpt-btn:hover { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .rpt-btn:hover { background: var(--cs-surface-2); }
+}
 .rpt-btn[data-variant="primary"] { color: var(--cs-surface); background: var(--cs-accent-clay); border-color: var(--cs-accent-clay); }
-.rpt-btn[data-variant="primary"]:hover { background: color-mix(in srgb, var(--cs-accent-clay) 88%, var(--cs-text-primary)); }
+@media (hover: hover) and (pointer: fine) {
+  .rpt-btn[data-variant="primary"]:hover { background: color-mix(in srgb, var(--cs-accent-clay) 88%, var(--cs-text-primary)); }
+}
 .rpt-btn[data-variant="quiet"] { color: var(--cs-text-accent); background: transparent; border-color: transparent; }
-.rpt-btn[data-variant="quiet"]:hover { text-decoration: underline; background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .rpt-btn[data-variant="quiet"]:hover { text-decoration: underline; background: transparent; }
+}
 .rpt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .rpt-btn:focus-visible, .rpt-link:focus-visible, .rpt-edit__area:focus-visible {
   outline: 2px solid var(--cs-accent-clay); outline-offset: 2px;
@@ -78,7 +84,9 @@
   font: inherit; font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-semibold);
   color: var(--cs-text-accent); min-height: 24px;
 }
-.rpt-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .rpt-link:hover { text-decoration: underline; }
+}
 
 
 /* ── Classification ────────────────────────────────────────── */
@@ -230,7 +238,9 @@
 .rpt-list__row[data-active] { background: var(--cs-surface-2); border-radius: 6px; }
 .rpt-list__meta { max-width: 82px; white-space: normal; text-align: right; overflow-wrap: anywhere; }
 .rpt-jump { flex: none; display: grid; place-items: center; width: 28px; min-height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--cs-text-accent); font: inherit; cursor: pointer; }
-.rpt-jump:hover { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .rpt-jump:hover { background: var(--cs-surface-2); }
+}
 .rpt-jump:focus-visible, .rpt-review-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 .rpt-jump:disabled { opacity: .4; cursor: default; }
 .rpt-review-link { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px 10px; font: inherit; color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: 8px; background: var(--cs-surface); cursor: pointer; }

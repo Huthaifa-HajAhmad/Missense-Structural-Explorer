@@ -76,6 +76,17 @@ export function oomCeiling(samples: TelemetrySample[]): { residues: number; stic
   return { residues: min, sticky: sizes.filter((s) => s === min).length >= 2 };
 }
 
+/**
+ * The ceiling the engine ENFORCES: the second-smallest out-of-memory size, i.e. the smallest size at or
+ * below which the host has died for memory at least twice. One death alone teaches nothing enforceable:
+ * a single misclassified failure would otherwise refuse every job that size and larger, for good.
+ * Old deaths age out in `loadSamples` (30 days), and an admin can forget them (`DELETE /admin/compute/ceilings`).
+ */
+export function enforcedOomCeiling(samples: TelemetrySample[]): number | null {
+  const sizes = samples.filter((s) => s.outcome === "oom").map((s) => s.residues).sort((a, b) => a - b);
+  return sizes.length >= 2 ? sizes[1] : null;
+}
+
 /** Build the snapshot. Only completed jobs feed the curves; only OOMs set ceilings. */
 export function buildCostModels(samples: TelemetrySample[]): CostModels {
   const groups = new Map<string, TelemetrySample[]>();
@@ -89,12 +100,15 @@ export function buildCostModels(samples: TelemetrySample[]): CostModels {
   const models: Record<string, ClassCostModel> = {};
   for (const [key, rows] of groups) {
     const completed = rows.filter((r) => r.outcome === "completed");
+    const measured = completed.filter((r) => r.peakRssBytes != null);
     models[key] = {
       samples: completed.length,
       wall: fitPowerLaw(completed.filter((r) => r.wallMs != null).map((r) => ({ x: r.residues, y: r.wallMs as number }))),
-      peakRam: fitPowerLaw(completed.filter((r) => r.peakRssBytes != null).map((r) => ({ x: r.residues, y: r.peakRssBytes as number }))),
+      peakRam: fitPowerLaw(measured.map((r) => ({ x: r.residues, y: r.peakRssBytes as number }))),
+      // Only rows that actually carried a peak gate the memory fit; a cache hit must not help it.
+      peakRamSamples: measured.length,
       maxCompletedResidues: completed.length > 0 ? Math.max(...completed.map((r) => r.residues)) : null,
-      oomCeilingResidues: oomCeiling(rows)?.residues ?? null,
+      oomCeilingResidues: enforcedOomCeiling(rows),
     };
   }
   return Object.freeze(models);

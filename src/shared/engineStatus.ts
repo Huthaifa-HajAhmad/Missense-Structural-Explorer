@@ -31,6 +31,7 @@
  */
 
 import { THRESHOLDS } from "./thresholds/constants.ts";
+import { CANCELLED_RUN_MESSAGE, isCancelledRun } from "./jobsCopy.ts";
 import type { StructureProvenance } from "./contracts.ts";
 import type { RaspCoverage } from "./raspIndex.ts";
 
@@ -325,6 +326,9 @@ export function classifyRawDdg(
  * `upstream-busy`  a third-party queue did not answer in time (retryable)
  * `upstream-error` a third party returned an error (retryable)
  * `failed`         our pipeline failed for this engine
+ * `cancelled`      the person cancelled the run before it produced a value. Deliberately NOT
+ *                  `failed`: nothing went wrong, and reporting an engine failure for a decision
+ *                  the person made is a lie about their own action (WP-G1's cancelled state).
  * `no-result`      the run ended without producing a value and no cause is known.
  *                  This is the honest answer where the UI previously said "Standby" (which
  *                  implies waiting) or left an engine spinning on "In Progress" forever.
@@ -342,6 +346,7 @@ export type EngineState =
   | "upstream-busy"
   | "upstream-error"
   | "failed"
+  | "cancelled"
   | "no-result"
   | "paused"
   | "skipped";
@@ -354,6 +359,7 @@ export const ENGINE_STATE_IDS: readonly EngineState[] = [
   "upstream-busy",
   "upstream-error",
   "failed",
+  "cancelled",
   "no-result",
   "paused",
   "skipped",
@@ -371,6 +377,7 @@ export const ENGINE_STATE_LABELS: Record<EngineState, string> = {
   "upstream-busy": "Provider busy",
   "upstream-error": "Provider error",
   failed: "Failed",
+  cancelled: "Cancelled",
   "no-result": "No result",
   paused: "Paused",
   skipped: "Hidden",
@@ -387,6 +394,8 @@ const STATE_TONES: Record<EngineState, EngineTone> = {
   "upstream-busy": "warn",
   "upstream-error": "warn",
   failed: "danger",
+  // Neutral on purpose: the person chose this, so it must not read as a warning about their data.
+  cancelled: "muted",
   "no-result": "warn",
   paused: "warn",
   skipped: "muted",
@@ -400,6 +409,7 @@ export type EngineProblem =
   | "binary-missing"
   | "repair-failed"
   | "pipeline-failed"
+  | "cancelled"
   | "coverage-miss"
   | "upstream-busy"
   | "upstream-error"
@@ -478,6 +488,7 @@ const PROBLEM_TO_STATE: Record<EngineProblem, EngineState> = {
   "binary-missing": "not-installed",
   "repair-failed": "failed",
   "pipeline-failed": "failed",
+  cancelled: "cancelled",
   "coverage-miss": "not-covered",
   "upstream-busy": "upstream-busy",
   "upstream-error": "upstream-error",
@@ -528,6 +539,10 @@ function reasonFor(state: EngineState, engine: EngineDescriptor, detail: string 
       return `${engine.name}'s provider did not answer in time. This can be retried later.`;
     case "upstream-error":
       return `${engine.name}'s provider returned an error. This can be retried later.`;
+    case "cancelled":
+      // The person's own decision, so the sentence says what happened and offers the next step
+      // without implying the pipeline or the variant was at fault.
+      return CANCELLED_RUN_MESSAGE;
     case "failed":
       return detail && /repair/i.test(detail)
         ? "Structure preparation failed, so no reliable estimate was produced."
@@ -846,11 +861,16 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
       ? "binary-missing"
       : facts.foldxRepairFailed
         ? "repair-failed"
-        : facts.foldingStatus === "failed" || Boolean(facts.foldingError)
-          ? "pipeline-failed"
-          : facts.foldingStatus === "unavailable"
-            ? "not-configured"
-            : null;
+        // A cancel is checked BEFORE the generic failure: the queue records it as
+        // `status:"failed", error:"Cancelled."`, which would otherwise be indistinguishable from a
+        // real pipeline failure and would report the person's own decision back to them as a fault.
+        : isCancelledRun(facts.foldingError)
+          ? "cancelled"
+          : facts.foldingStatus === "failed" || Boolean(facts.foldingError)
+            ? "pipeline-failed"
+            : facts.foldingStatus === "unavailable"
+              ? "not-configured"
+              : null;
 
   const raspReason = typeof facts.raspReason === "string" ? facts.raspReason : null;
   const lapsed = (facts.energeticsAuthLapsed ?? null) as Partial<Record<EnergyEngineId, boolean>> | null;

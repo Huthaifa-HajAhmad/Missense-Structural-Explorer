@@ -121,9 +121,11 @@
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
-.tour-icon-btn:hover {
+@media (hover: hover) and (pointer: fine) {
+  .tour-icon-btn:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 
 .tour-title {
@@ -299,8 +301,10 @@
   cursor: pointer;
   transition: background-color 120ms ease;
 }
-.tour-preset:hover {
+@media (hover: hover) and (pointer: fine) {
+  .tour-preset:hover {
   background: var(--cs-bg-subtle);
+}
 }
 .tour-preset:focus-visible {
   outline: 2px solid var(--cs-accent-clay);
@@ -331,9 +335,11 @@
   color: var(--cs-text-muted);
   transition: transform 120ms ease, color 120ms ease;
 }
-.tour-preset:hover .tour-preset-go {
+@media (hover: hover) and (pointer: fine) {
+  .tour-preset:hover .tour-preset-go {
   color: var(--cs-accent-clay);
   transform: translateX(2px);
+}
 }
 
 /* ── Footer ── */
@@ -395,8 +401,10 @@
   background: var(--cs-accent-clay);
   color: #fff;
 }
-.tour-btn-primary:hover {
+@media (hover: hover) and (pointer: fine) {
+  .tour-btn-primary:hover {
   filter: brightness(1.06);
+}
 }
 .tour-btn-primary:active {
   filter: brightness(0.95);
@@ -404,9 +412,11 @@
 .tour-btn-ghost {
   color: var(--cs-text-secondary);
 }
-.tour-btn-ghost:hover {
+@media (hover: hover) and (pointer: fine) {
+  .tour-btn-ghost:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 .tour-btn-quiet {
   height: 28px;
@@ -416,8 +426,10 @@
   font-size: 12.5px;
   color: var(--cs-text-primary);
 }
-.tour-btn-quiet:hover {
+@media (hover: hover) and (pointer: fine) {
+  .tour-btn-quiet:hover {
   border-color: color-mix(in srgb, var(--cs-accent-clay) 50%, var(--cs-border));
+}
 }
 
 @keyframes tour-fade {

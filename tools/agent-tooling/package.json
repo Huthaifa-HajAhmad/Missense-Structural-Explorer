@@ -1,0 +1,10 @@
+{
+  "name": "missense-agent-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-only agent/developer tooling: semantic workspace search (zg) and the AST codebase graph (graft). Deliberately NOT in the root package.json — see README.md.",
+  "dependencies": {
+    "@nanonets/graft": "^0.16.0",
+    "@zvec/zvec-grep": "^0.2.2"
+  }
+}

@@ -11,6 +11,7 @@
  *   - janitor.ts: Filesystem temp directory sweeps
  *   - mutation.ts: Protein sequence mutation applier
  *   - client-disconnect.ts: Correct client-disconnect detection (res 'close', not req 'close')
+ *   - process-tree.ts: Kill a spawned tool and every process it started
  */
 
 export * from "./utils/signals.ts";
@@ -22,3 +23,4 @@ export * from "./utils/audit-logger.ts";
 export * from "./utils/janitor.ts";
 export * from "./utils/mutation.ts";
 export * from "./utils/client-disconnect.ts";
+export * from "./utils/process-tree.ts";

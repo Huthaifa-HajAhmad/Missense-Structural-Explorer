@@ -17,8 +17,9 @@
  * HONESTY RULES
  * -------------
  *   • A prediction says whether it was fitted (`measured`) or taken from the priors below (`prior`).
- *   • Memory has NO prior. Until telemetry exists `peakRamBytes` is null and the engine uses the
- *     conservative size rule in {@link decidePlacement}, never an invented number of gigabytes.
+ *   • Memory has NO invented number of gigabytes. `peakRamBytes` is null until a class has enough
+ *     MEASURED peaks, and even then the conservative size rule in {@link decidePlacement} still bounds
+ *     the job, so a two-point fit can never authorise a structure far past anything that has run.
  *   • P2Rank has no timing prior at all, so its wall time is null and hosts are ranked by load alone.
  *   • A rejection always names the closest miss. A bare "cannot run" is never emitted.
  */
@@ -76,8 +77,14 @@ export interface JobFeatures {
 export interface HostTool {
   name: string;
   version: string;
-  /** The host ran the tool's self-test successfully. An unverified tool is never relied on. */
+  /**
+   * The tool may be relied on for routing. True when it passed its self-test, or when the self-test
+   * only TIMED OUT on a busy host (a busy host proves nothing, so the tool is kept rather than
+   * refused); false when it could not start or started and failed. `selfTest` carries that nuance.
+   */
   verified: boolean;
+  /** How the last self-test ended, when known. A timeout keeps `verified` true but is recorded here. */
+  selfTest?: "passed" | "timeout" | "failed";
 }
 
 export interface HostFeatures {
@@ -119,10 +126,12 @@ export interface PowerLawFit {
 
 /** What has been learned for one (job type, host class). Built by `server/services/infra/cost-models.ts`. */
 export interface ClassCostModel {
-  /** Completed samples behind the fits. */
+  /** Completed samples behind the wall fit. */
   samples: number;
   wall: PowerLawFit | null;
   peakRam: PowerLawFit | null;
+  /** Completed samples that carried a MEASURED peak; the memory fit needs this many, not `samples`. */
+  peakRamSamples: number;
   /** Largest structure that completed on this class. */
   maxCompletedResidues: number | null;
   /** Hard ceiling learned from out-of-memory failures: jobs must be strictly below it. */
@@ -250,32 +259,50 @@ const EMULATED_ANCHOR_RUNS = 5;
 const EMULATED_FIXED_SHARE = 13_300 / EMULATED_ANCHOR_TOTAL_MS;
 const EMULATED_EXPONENT = 1.44;
 
+/** Total BuildModel time for `runs` on each host. Extracted so the repair prior can reuse the ratio. */
+function nativeBuildModelTotalMs(r: number, runs: number): number {
+  return NATIVE_BUILDMODEL_FIXED_MS + runs * r * NATIVE_BUILDMODEL_MS_PER_RESIDUE_RUN;
+}
+function emulatedBuildModelTotalMs(r: number, runs: number): number {
+  const scaled = EMULATED_ANCHOR_TOTAL_MS * (r / EMULATED_ANCHOR_RESIDUES) ** EMULATED_EXPONENT;
+  return scaled * (EMULATED_FIXED_SHARE + (1 - EMULATED_FIXED_SHARE) * (runs / EMULATED_ANCHOR_RUNS));
+}
+
 /**
- * RepairPDB: a 489-residue template took 205 s (comment in the FoldX worker branch of `server.ts`). The
- * host is not stated; it must be the emulated server, because the 420 s repair cap could not hold a
- * native time scaled by 60x. Scaled with the emulated exponent; native is divided by the ~60x factor
- * the plan measured for BuildModel. Both are [estimate] and are replaced by the fit once measured.
+ * RepairPDB, ONE measured curve. Two points, both NATIVE:
+ *   • SOD1, 154 residues, 49 s — `npm run compute:benchmark` (2026-10-11, x64-native-20c-16g).
+ *   • An experimental structure, 305 residues, 205.4 s — the table in `foldx/cache.ts`. That table is
+ *     natively measured: its BuildModel column (2.2 s at 305) matches the native BuildModel prior
+ *     (`nativeBuildModelTotalMs(305, 5)` ≈ 2.8 s), not the emulated one (≈ 31 s).
+ * A line through them gives ln(205.4/49) / ln(305/154) ≈ 2.1, which reproduces both points (205.8 s at
+ * 305). The old prior divided a 205 s anchor by the ~60x BuildModel factor and predicted 0.6 s at 154 —
+ * ~76x too fast. [estimate] for the emulated host only.
  */
-const EMULATED_REPAIR_ANCHOR_RESIDUES = 489;
-const EMULATED_REPAIR_ANCHOR_MS = 205_000;
-const NATIVE_SPEEDUP_OVER_EMULATED = 60;
+const NATIVE_REPAIR_ANCHOR_RESIDUES = 154;
+const NATIVE_REPAIR_ANCHOR_MS = 49_000;
+const REPAIR_EXPONENT = 2.1;
+
+function nativeRepairMs(r: number): number {
+  return NATIVE_REPAIR_ANCHOR_MS * (r / NATIVE_REPAIR_ANCHOR_RESIDUES) ** REPAIR_EXPONENT;
+}
+
+/**
+ * The emulated server has never been benchmarked for RepairPDB, so rather than invent a factor its prior
+ * reuses the measured native curve scaled by the emulation penalty this file already applies to
+ * BuildModel at the SAME size (never below 1). Emulated repair is therefore never predicted faster than
+ * native — the inversion the review found — and `npm run compute:benchmark` on the server replaces it.
+ */
+function emulatedRepairMs(r: number): number {
+  const penalty = emulatedBuildModelTotalMs(r, 1) / nativeBuildModelTotalMs(r, 1);
+  return nativeRepairMs(r) * Math.max(1, penalty);
+}
 
 /** Prior p50 for a FoldX job (RepairPDB when it applies, then BuildModel). */
 export function foldxPriorP50Ms(job: Pick<JobFeatures, "residues" | "numberOfRuns" | "repair">, emulated: boolean): number {
   const r = Math.max(1, job.residues);
   const runs = Math.max(1, job.numberOfRuns);
-  let buildModel: number;
-  let repair = 0;
-  if (emulated) {
-    const scaled = EMULATED_ANCHOR_TOTAL_MS * (r / EMULATED_ANCHOR_RESIDUES) ** EMULATED_EXPONENT;
-    buildModel = scaled * (EMULATED_FIXED_SHARE + (1 - EMULATED_FIXED_SHARE) * (runs / EMULATED_ANCHOR_RUNS));
-    if (job.repair) repair = EMULATED_REPAIR_ANCHOR_MS * (r / EMULATED_REPAIR_ANCHOR_RESIDUES) ** EMULATED_EXPONENT;
-  } else {
-    buildModel = NATIVE_BUILDMODEL_FIXED_MS + runs * r * NATIVE_BUILDMODEL_MS_PER_RESIDUE_RUN;
-    if (job.repair) {
-      repair = (EMULATED_REPAIR_ANCHOR_MS * (r / EMULATED_REPAIR_ANCHOR_RESIDUES) ** EMULATED_EXPONENT) / NATIVE_SPEEDUP_OVER_EMULATED;
-    }
-  }
+  const buildModel = emulated ? emulatedBuildModelTotalMs(r, runs) : nativeBuildModelTotalMs(r, runs);
+  const repair = job.repair ? (emulated ? emulatedRepairMs(r) : nativeRepairMs(r)) : 0;
   return Math.round(buildModel + repair);
 }
 
@@ -283,7 +310,9 @@ export function foldxPriorP50Ms(job: Pick<JobFeatures, "residues" | "numberOfRun
 export function predictJob(job: JobFeatures, host: HostFeatures, models: CostModels, minSamples: number): Prediction {
   const model = models[costModelKey(job.type, hostClassOf(host))];
   const samples = model?.samples ?? 0;
-  const peakRamBytes = model?.peakRam && samples >= minSamples ? evalPowerLaw(model.peakRam, job.residues) : null;
+  // The memory curve needs MEASURED peaks, not merely completed rows: a cache hit completes with no
+  // peak and must not help a two-point fit look trustworthy.
+  const peakRamBytes = model?.peakRam && model.peakRamSamples >= minSamples ? evalPowerLaw(model.peakRam, job.residues) : null;
   if (model?.wall && samples >= minSamples) {
     return { wallMs: evalPowerLaw(model.wall, job.residues), peakRamBytes, basis: "measured", samples };
   }
@@ -301,7 +330,7 @@ type FilterMiss =
   | { kind: "pref" }
   | { kind: "owner" }
   | { kind: "tool"; tool: ToolName; state: "missing" | "unverified" | "old"; minVersion?: string }
-  | { kind: "ceiling"; limit: number; learnedFrom: "oom" | "largest_completed" }
+  | { kind: "ceiling"; limit: number; learnedFrom: "oom" | "largest_completed"; measured: boolean }
   | { kind: "ram"; neededBytes: number; availableBytes: number };
 
 function describeMiss(miss: FilterMiss, job: JobFeatures): string {
@@ -319,9 +348,9 @@ function describeMiss(miss: FilterMiss, job: JobFeatures): string {
       return `its ${name} is older than the required version ${miss.minVersion}`;
     }
     case "ceiling":
-      return miss.learnedFrom === "oom"
-        ? `a structure of ${miss.limit} residues ran out of memory there, and this one has ${job.residues}`
-        : `memory use is not measured yet, and ${job.residues} residues is beyond the safe size of ${Math.floor(miss.limit)} learned from completed jobs`;
+      if (miss.learnedFrom === "oom") return `a structure of ${miss.limit} residues ran out of memory there, and this one has ${job.residues}`;
+      if (miss.measured) return `${job.residues} residues is well beyond the largest structure that has completed there (${Math.floor(miss.limit)} residues)`;
+      return `memory use is not measured yet, and ${job.residues} residues is beyond the safe size of ${Math.floor(miss.limit)} learned from completed jobs`;
     case "ram":
       return `it needs about ${formatGb(miss.neededBytes)} free and has ${formatGb(miss.availableBytes)}`;
   }
@@ -343,17 +372,25 @@ function firstMiss(job: JobFeatures, host: HostFeatures, policy: RoutingPolicy, 
 
   const model = models[costModelKey(job.type, hostClassOf(host))];
   if (model?.oomCeilingResidues != null && job.residues >= model.oomCeilingResidues) {
-    return { kind: "ceiling", limit: model.oomCeilingResidues, learnedFrom: "oom" };
+    return { kind: "ceiling", limit: model.oomCeilingResidues, learnedFrom: "oom", measured: true };
   }
 
   const availableBytes = Math.max(0, host.freeRamBytes - host.minFreeBytes);
   if (prediction.peakRamBytes) {
     const neededBytes = prediction.peakRamBytes.p90 * policy.ramHeadroom;
     if (neededBytes > availableBytes) return { kind: "ram", neededBytes, availableBytes };
-  } else if (model?.maxCompletedResidues != null && job.residues > model.maxCompletedResidues * UNMEASURED_SIZE_GROWTH) {
-    // Memory unmeasured: never extrapolate more than 25% past the largest size known to complete.
-    // A class with nothing completed yet is not refused — that would refuse every first job.
-    return { kind: "ceiling", limit: model.maxCompletedResidues * UNMEASURED_SIZE_GROWTH, learnedFrom: "largest_completed" };
+  }
+  // The size guard is an AND with the memory rule, not an alternative to it: the memory fit can rest on
+  // as few as two distinct sizes, so it never licenses a structure far past the largest one that
+  // actually completed. A class with nothing completed yet is not refused — that would refuse every
+  // first job.
+  if (model?.maxCompletedResidues != null && job.residues > model.maxCompletedResidues * UNMEASURED_SIZE_GROWTH) {
+    return {
+      kind: "ceiling",
+      limit: model.maxCompletedResidues * UNMEASURED_SIZE_GROWTH,
+      learnedFrom: "largest_completed",
+      measured: prediction.peakRamBytes != null,
+    };
   }
   return null;
 }

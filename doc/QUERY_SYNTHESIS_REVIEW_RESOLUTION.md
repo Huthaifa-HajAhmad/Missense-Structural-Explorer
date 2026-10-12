@@ -19,3 +19,9 @@
 Validation: 172 distinct affected tests pass across Query, Literature, Insights, consensus parity and Evidence workspace suites. Lint (boundaries, focus indicators, verification parity and TypeScript) and the production client build pass. Browser fixtures exercise the actual AppViews integration and contain illustrative data, not clinical evidence. No new reviewer agents or additional model reviews were run in this fix pass.
 
 Run the browser check locally after `npm ci --prefix tools/review-preview` with `npm run test:geometry:review`. `REVIEW_PREVIEW_URL` can point to an existing fixture server; `BROWSER_PATH`/`CHROME_PATH` can override browser discovery.
+
+## Reconciliation with main
+
+PR #117 had already merged a separately committed version of the synthesis work. Opening this PR from the older thread branch without reconciling those overlapping changes produced 23 conflicted files. Merge current main while retaining its criterion lookup helper, safe external links and security tests, print behavior, fuller browser checks, splicing workspace state and CI gate selection. Keep the Query revisions and additional review fixes from this thread. The existing commit history is retained; no force push is needed.
+
+The combined tree passes 181 affected tests across 12 files, 52 integrated browser checks and lint/TypeScript. The duplicate synthesis changes now disappear from the PR's diff against main.

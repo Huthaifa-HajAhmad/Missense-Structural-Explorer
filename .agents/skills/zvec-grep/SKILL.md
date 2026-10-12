@@ -20,7 +20,9 @@ description: Local-first semantic and hybrid workspace search using zvec-grep (z
 
 ## CLI Command Reference (v0.2.2)
 
-Always invoke via `npm run search -- ...` or `npx zg query ...`.
+Always invoke via `npm run search -- ...`. `zg` is not on the root `PATH`: it is installed by
+`npm run tools:install` into `tools/agent-tooling/`, so the script name is the supported entry point
+(see `tools/agent-tooling/README.md` for why it is not a root dependency).
 
 ### 1. Conceptual Search (Default Hybrid)
 Fuses BM25 keyword matching with local vector embeddings:

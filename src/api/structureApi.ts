@@ -1,3 +1,5 @@
+import { CANCELLED_RUN_MESSAGE, isCancelledJobError } from "../shared/jobsCopy";
+import { announceJobsChanged } from "./jobsApi";
 import { z } from "zod";
 import {
   translateVariantResponseSchema,
@@ -286,6 +288,8 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       }
       const initialData = await res.json();
       if (initialData.status === "queued" && initialData.pocketJobId) {
+        // The queue now holds this person's work: let the header badge say so without waiting for a poll.
+        announceJobsChanged();
         let attempt = 0;
         const maxAttempts = 60;
         while (attempt < maxAttempts) {
@@ -304,7 +308,7 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
           if (jobData.status === "completed") {
             return pocketFinderResponseSchema.parse(jobData.result);
           } else if (jobData.status === "failed") {
-            throw new Error(jobData.error || "Pocket detection job failed.");
+            throw new Error(isCancelledJobError(jobData.error) ? CANCELLED_RUN_MESSAGE : (jobData.error || "Pocket detection job failed."));
           }
           attempt++;
           await new Promise((resolve) => setTimeout(resolve, 2000));

@@ -54,11 +54,26 @@ describe("buildCostModels", () => {
     const foldx = models[costModelKey("foldx", CLASS)];
     expect(foldx.samples).toBe(3);
     expect(foldx.maxCompletedResidues).toBe(1085);
-    expect(foldx.oomCeilingResidues).toBe(1400);
+    // One out-of-memory death is not enough to enforce a ceiling (it may be misclassified).
+    expect(foldx.oomCeilingResidues).toBeNull();
+    const twice = buildCostModels([...rows, sample(1600, 0, { outcome: "oom" })]);
+    // Two deaths: the ceiling is the smallest size at or below which the host died twice.
+    expect(twice[costModelKey("foldx", CLASS)].oomCeilingResidues).toBe(1600);
     expect(foldx.wall?.b).toBeGreaterThan(1);
     expect(foldx.peakRam).toBeNull();
+    expect(foldx.peakRamSamples).toBe(0); // no row carried a peak
     expect(models[costModelKey("p2rank", CLASS)].samples).toBe(1);
     expect(Object.isFrozen(models)).toBe(true);
+  });
+
+  it("counts only MEASURED peaks toward the memory fit, so cache hits cannot gate it", () => {
+    const MiB = 1024 * 1024;
+    const measured = Array.from({ length: 8 }, (_, i) => sample(200 + i * 100, 40 * (200 + i * 100), { peakRssBytes: (200 + i * 100) * MiB }));
+    const cacheHits = Array.from({ length: 20 }, () => sample(500, 5, { peakRssBytes: null }));
+    const foldx = buildCostModels([...measured, ...cacheHits])[costModelKey("foldx", CLASS)];
+    expect(foldx.samples).toBe(28); // every completed row counts toward the wall fit
+    expect(foldx.peakRamSamples).toBe(8); // but only the measured ones toward memory
+    expect(foldx.peakRam).not.toBeNull();
   });
 
   it("feeds the engine: with enough samples the server prediction is measured", () => {

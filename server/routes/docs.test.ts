@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import express from "express";
+import fs from "node:fs";
+import path from "node:path";
 import { docsRouter } from "./docs.ts";
 import { generateOpenApiSpec } from "../services/openapi.ts";
 
@@ -11,9 +13,87 @@ describe("OpenAPI & Documentation Routes", () => {
     expect(spec.info.title).toBe("Missense Structural Explorer API");
     expect(spec.paths["/translate-variant"]).toBeDefined();
     expect(spec.paths["/analyze-variant"]).toBeDefined();
-    expect(spec.paths["/biophysical-analysis"]).toBeDefined();
-    expect(spec.paths["/align-sequences"]).toBeDefined();
+    expect(spec.paths["/generate-mutant"]).toBeDefined();
+    expect(spec.paths["/my-jobs"]).toBeDefined();
     expect(spec.components.securitySchemes.SessionAuth).toBeDefined();
+    expect(spec.components.securitySchemes.SessionCookie).toBeDefined();
+  });
+
+  /**
+   * The spec once listed `/biophysical-analysis`, `/find-pocket` and `/align-sequences`, none of which
+   * the server has ever registered, while the account, job and admin routes were missing entirely. An
+   * agent reading the spec got 404s for the first and could not discover the second. Both directions
+   * are now checked against the route source.
+   */
+  describe("matches the registered routes", () => {
+    const routesDir = path.join(__dirname);
+    const sourceFiles = (dir: string): string[] =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) return sourceFiles(full);
+        return e.name.endsWith(".ts") && !e.name.endsWith(".test.ts") ? [full] : [];
+      });
+    const routePattern = /\.(get|post|put|patch|delete)\(\s*["'`](\/[^"'`]*)["'`]/g;
+    /** `METHOD /path/{param}` for every route registered in these files. */
+    const registered = (files: string[]): Set<string> => {
+      const out = new Set<string>();
+      for (const file of files) {
+        for (const m of fs.readFileSync(file, "utf8").matchAll(routePattern)) {
+          out.add(`${m[1].toUpperCase()} ${m[2].replace(/:([A-Za-z]+)/g, "{$1}")}`);
+        }
+      }
+      return out;
+    };
+    const documented = (): Set<string> => {
+      const out = new Set<string>();
+      for (const [p, ops] of Object.entries(generateOpenApiSpec().paths as Record<string, object>)) {
+        for (const method of Object.keys(ops)) out.add(`${method.toUpperCase()} ${p}`);
+      }
+      return out;
+    };
+
+    it("documents no route the server does not register", () => {
+      const all = registered(sourceFiles(routesDir));
+      const fictional = [...documented()].filter((op) => !all.has(op));
+      expect(fictional, "documented in openapi but not registered by any route file").toEqual([]);
+    });
+
+    it("documents every account, admin, agent and job route", () => {
+      const accountRoutes = registered([path.join(routesDir, "auth.ts"), path.join(routesDir, "admin.ts"), path.join(routesDir, "agent.ts")]);
+      const jobRoutes = [...registered([path.join(routesDir, "biophysics", "polling.ts")])].filter((op) => / \/(my-jobs|jobs\/)/.test(op));
+      const docs = documented();
+      const missing = [...accountRoutes, ...jobRoutes].filter((op) => !docs.has(op));
+      expect(jobRoutes.length).toBeGreaterThan(0);
+      expect(missing, "registered but missing from server/services/infra/openapi-compute.ts").toEqual([]);
+    });
+
+    /**
+     * Presence of a PATH is not accuracy of its contract. Review 3 found `POST /pocket-finder` really
+     * answering `409 STALE_STRUCTURE_REF` while the spec documented only 200/400/422/429/503, and this
+     * gate passed it because it never looked at status codes. These two are the statuses a caller has
+     * to handle to use the endpoint at all, so they are pinned to the handler's own source: if the
+     * route stops sending one, the spec must stop promising it too.
+     */
+    it("documents the 409 that the pocket and residue routes really send", () => {
+      const spec = generateOpenApiSpec().paths as Record<string, any>;
+      const pocketSource = fs.readFileSync(path.join(routesDir, "biophysics", "pocket.ts"), "utf8");
+      const sendsStaleRef = /sendError\(res,\s*409,\s*"STALE_STRUCTURE_REF"/.test(pocketSource);
+      expect(sendsStaleRef, "biophysical/pocket.ts no longer sends 409 STALE_STRUCTURE_REF").toBe(true);
+
+      for (const p of ["/pocket-finder", "/nearest-residues"]) {
+        expect(Object.keys(spec[p].post.responses), `${p} documented responses`).toContain("409");
+      }
+    });
+
+    /**
+     * The write routes are session-gated in `hybrid`/`accounts` mode (`accountAccess`), so the spec
+     * must say so: an agent reading it otherwise codes an unauthenticated cancel and meets a 401.
+     */
+    it("marks every job write as requiring a session", () => {
+      const spec = generateOpenApiSpec().paths as Record<string, any>;
+      expect(spec["/jobs/{jobId}/cancel"].post.security).toBeDefined();
+      expect(spec["/my-jobs"].get.security).toBeDefined();
+    });
   });
 
   /**

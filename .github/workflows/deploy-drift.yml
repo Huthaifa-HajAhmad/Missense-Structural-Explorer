@@ -1,0 +1,165 @@
+name: Production drift watch
+
+# WHY THIS EXISTS
+# `cd.yml` dispatches a detached worker on the host and returns after a short confirmation window,
+# deliberately, so a slow VM never bills idle runner minutes. The cost is that a deploy which fails
+# *after* that window — a build that runs out of disk at the final image unpack, a handover that
+# cannot drain — leaves the CD run GREEN. Production then keeps serving an older revision and
+# nothing says so. That is not hypothetical: on 2026-10-10 two deploys (d8d9f6d, then a39e81ff)
+# died at "no space left on device" while their runs showed success, and the box stayed two
+# revisions behind until it was noticed by hand.
+#
+# This watch is the missing signal. It compares the revision production actually reports (the same
+# public `/api/v1/version` that `rollout.py` itself trusts) against the tip of `main`, and fails when
+# a commit CD claims to have deployed is not live.
+#
+# WHEN IT RUNS. A cron alone is not enough: GitHub throttles scheduled workflows on quiet repositories
+# (observed gaps of 5–6 h despite an hourly cron, 2026-10-10/11), so a silent failure could sit
+# unnoticed for most of a day. It therefore also runs on every CD completion, which is the moment
+# production state changes, as well as hourly as a backstop.
+#
+# THE GRACE WINDOW ONLY EXCUSES A ROLLOUT THAT CAN STILL BE IN FLIGHT. After a SUCCESSFUL CD run a
+# detached rollout may still be building/handing over, so a mismatch younger than GRACE_MINUTES is a
+# notice. A NON-SUCCESS CD run is different: the worker either never started or already stopped
+# (rollback keeps the old generation serving), so nothing is in flight and the mismatch is reported
+# at once — that is what makes running on CD completion worth doing rather than decorative.
+#
+# A red run here is email/The-Actions-tab visible by default. Add Slack/webhook delivery later only
+# if that proves too quiet.
+on:
+  schedule:
+    # Hourly backstop. Cheap: one curated API call, one curl, no checkout.
+    - cron: "23 * * * *"
+  # Prompt check at the moment a deploy finishes, instead of waiting for the throttled cron.
+  workflow_run:
+    workflows: ["Continuous Deployment (OCI)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: production-drift-watch
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      LIVE_URL: https://missense-resolve.duckdns.org/api/v1/version
+      # A detached rollout (build + handover + drain) can outlast CD by a wide margin. Below this age
+      # a mismatch is expected and never fails the watch.
+      GRACE_MINUTES: "45"
+    steps:
+      - name: Compare the deployed revision with main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          main=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha) || {
+            echo "::error::Could not read the tip of main via the API; cannot check for drift."
+            exit 1
+          }
+          echo "main       = $main"
+
+          live=$(curl -fsS --max-time 20 "$LIVE_URL" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || true)
+          echo "production = ${live:-<unreachable>}"
+
+          if [ -z "$live" ]; then
+            echo "::error::Production did not report a revision from $LIVE_URL. The site may be down."
+            exit 1
+          fi
+
+          if [ "$live" = "$main" ]; then
+            echo "Production matches main."
+            {
+              echo "## Production drift watch"
+              echo ""
+              echo "✅ \`$live\` = \`main\` = \`$main\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Production is behind. Distinguish "a deploy is still running" from a silent failure using
+          # the newest CD run for the commit that main points at.
+          #
+          # `--repo` is load-bearing: `gh run list` otherwise resolves the repository from the git
+          # remotes, and this job deliberately has no checkout. On 2026-10-11 (run 38146183763) the
+          # resulting `fatal: not a git repository` aborted the step under `set -euo pipefail` the
+          # moment production was mid-rollout — exactly the branch that handles a mismatch — so the
+          # watch red-Xed on the case it exists to tolerate and never reached its grace logic. The
+          # explicit guard keeps any future gh failure legible instead of an opaque abort.
+          run_json=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=cd.yml --branch main --limit 30 \
+            --json headSha,status,conclusion,createdAt,updatedAt,url \
+            --jq "[.[] | select(.headSha == \"$main\")] | sort_by(.createdAt) | last // empty") || {
+            echo "::error::Could not list CD runs (gh run list failed); cannot tell a slow detached rollout from real drift. main=$main, production=${live:-<unreachable>}."
+            exit 1
+          }
+
+          if [ -z "$run_json" ]; then
+            echo "::warning::main ($main) has no CD run yet; production is on $live. Not failing the watch."
+            exit 0
+          fi
+
+          STATUS=$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+          CONCLUSION=$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("conclusion") or "")')
+          UPDATED_AT=$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("updatedAt",""))')
+          RUN_URL=$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("url",""))')
+          echo "CD run for main: status=${STATUS:-none} conclusion=${CONCLUSION:-none} url=${RUN_URL:-none}"
+
+          if [ "${STATUS:-}" != "completed" ]; then
+            echo "::notice::CD for main is still ${STATUS:-unknown}; production may be mid-handover. Not failing the watch."
+            exit 0
+          fi
+
+          # THE GRACE WINDOW ONLY APPLIES TO A SUCCESSFUL RUN. `cd.yml` returns after a short
+          # confirmation window while its detached worker finishes build + handover, so a freshly
+          # completed successful run may not be live yet — defer then. A non-success run has no
+          # rollout in flight: the worker either never started (credentials/SSH failure, job timeout)
+          # or already stopped (a `DEPLOY_FAILED` inside the window rolls back and keeps the old
+          # generation serving). Waiting GRACE_MINUTES for it just delays a red the cron would
+          # eventually produce — and on a throttled schedule that "eventually" was hours.
+          if [ "${CONCLUSION:-}" = "success" ]; then
+            if [ -z "$UPDATED_AT" ]; then
+              echo "::notice::CD run for main is complete but has no timestamp to age. Not failing the watch."
+              exit 0
+            fi
+            age=$(( ( $(date -u +%s) - $(date -u -d "$UPDATED_AT" +%s) ) / 60 ))
+            echo "CD run completed ${age} min ago"
+            AGE_TEXT="${age} min ago"
+            if [ "$age" -lt "$GRACE_MINUTES" ]; then
+              echo "::notice::Within the ${GRACE_MINUTES}-minute grace window; a detached rollout may still be finishing. Not failing the watch."
+              exit 0
+            fi
+          else
+            AGE_TEXT="no grace window applies"
+            echo "CD run concluded '${CONCLUSION:-unknown}': nothing is in flight, so no grace window applies."
+          fi
+
+          {
+            echo "## Production drift watch"
+            echo ""
+            echo "❌ Production is **not** serving the revision CD reported."
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| main | \`$main\` |"
+            echo "| production | \`$live\` |"
+            echo "| newest CD run for main | ${CONCLUSION:-unknown}, ${AGE_TEXT} |"
+            echo "| run | ${RUN_URL:-none} |"
+            echo ""
+            echo "Inspect \`deploy/runtime/rollout.json\` and the newest \`~/mse-deploy-*.log\` on the host."
+            echo "A \`success\` CD run that did not land means the detached rollout failed after CD returned."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${CONCLUSION:-}" = "success" ]; then
+            echo "::error::CD reported success for $main, but production still serves $live (${age} min later). The detached rollout failed silently."
+          else
+            echo "::error::The newest CD run for $main concluded '${CONCLUSION:-unknown}', and production still serves $live."
+          fi
+          exit 1

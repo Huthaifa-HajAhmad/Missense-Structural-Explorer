@@ -66,7 +66,12 @@
   cursor: pointer;
   transition: background-color 150ms ease, color 150ms ease;
 }
-.ms-brand-mark[data-expander="true"]:hover,
+@media (hover: hover) and (pointer: fine) {
+  .ms-brand-mark[data-expander="true"]:hover {
+  background: var(--cs-bg-subtle);
+  color: var(--cs-text-primary);
+}
+}
 .ms-brand-mark[data-expander="true"]:focus-visible {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
@@ -163,16 +168,20 @@
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease;
 }
-.ms-nav-btn:hover {
+@media (hover: hover) and (pointer: fine) {
+  .ms-nav-btn:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 .ms-nav-btn[data-active="true"] {
   background: var(--ms-tint);
   color: var(--cs-text-primary);
 }
-.ms-nav-btn[data-active="true"]:hover {
+@media (hover: hover) and (pointer: fine) {
+  .ms-nav-btn[data-active="true"]:hover {
   background: var(--ms-tint-strong);
+}
 }
 
 .ms-nav-icon {
@@ -182,8 +191,10 @@
   color: var(--cs-text-muted);
   transition: color 120ms ease;
 }
-.ms-nav-btn:hover .ms-nav-icon {
+@media (hover: hover) and (pointer: fine) {
+  .ms-nav-btn:hover .ms-nav-icon {
   color: var(--cs-text-secondary);
+}
 }
 .ms-nav-btn[data-active="true"] .ms-nav-icon {
   color: var(--cs-accent-clay);
@@ -385,16 +396,20 @@
   color: var(--cs-text-muted);
   transition: background-color 120ms ease, color 120ms ease;
 }
-.ms-sub-btn:hover {
+@media (hover: hover) and (pointer: fine) {
+  .ms-sub-btn:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 .ms-sub-btn[data-active="true"] {
   color: var(--cs-text-accent);
   background: var(--ms-tint);
 }
-.ms-sub-btn[data-active="true"]:hover {
+@media (hover: hover) and (pointer: fine) {
+  .ms-sub-btn[data-active="true"]:hover {
   background: var(--ms-tint-strong);
+}
 }
 /* The active child lights its segment of the tree line. */
 .ms-sub-btn[data-active="true"]::before {
@@ -414,8 +429,10 @@
   background: var(--cs-border);
   transition: background-color 120ms ease;
 }
-.ms-sub-btn:hover .ms-sub-dot {
+@media (hover: hover) and (pointer: fine) {
+  .ms-sub-btn:hover .ms-sub-dot {
   background: var(--cs-text-muted);
+}
 }
 .ms-sub-btn[data-active="true"] .ms-sub-dot {
   background: var(--cs-accent-clay);
@@ -470,7 +487,11 @@
   background: transparent;
   transition: background-color 150ms ease 80ms;
 }
-.ms-resize-handle:hover::before,
+@media (hover: hover) and (pointer: fine) {
+  .ms-resize-handle:hover::before {
+  background: var(--cs-border);
+}
+}
 .ms-resize-handle:focus-visible::before {
   background: var(--cs-border);
 }

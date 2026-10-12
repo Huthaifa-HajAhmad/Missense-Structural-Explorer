@@ -6,6 +6,7 @@
  */
 
 import crypto from "crypto";
+import os from "os";
 import { authEnvironmentProblems } from "./auth/config.ts";
 
 /**
@@ -22,13 +23,49 @@ export function ensureSidecarSecret(): string {
 // Guarantee SIDECAR_SECRET is populated early upon config initialization
 ensureSidecarSecret();
 
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const n = parseInt(raw ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * How many biophysical jobs the queue runs at once: `BIOPHYSICAL_CONCURRENCY`, default 4.
+ *
+ * This is the UPPER bound for every tool. It is deliberately not reduced to the CPU count: P2Rank jobs
+ * do not take the FoldX semaphore, so on a 2-core host a queue of `cpus - 1 = 1` slot made every pocket
+ * job wait behind whatever FoldX run was in progress (a regression shipped and reverted, 2026-10-10).
+ */
+export function resolveBiophysicalConcurrency(): number {
+  return positiveInt(process.env.BIOPHYSICAL_CONCURRENCY, 4);
+}
+
+/**
+ * How many FoldX processes run at once: derived from the queue bound so the two cannot disagree upward,
+ * and capped by the CPU count when no explicit value is set (FoldX is CPU-bound; under Box64 on the
+ * 2-core server two at once only slow both). Unset on that host: queue 4, FoldX 1, exactly as before.
+ */
+export function resolveFoldxConcurrency(): number {
+  const explicit = positiveInt(process.env.BIOPHYSICAL_CONCURRENCY, 0);
+  if (explicit > 0) return explicit;
+  return Math.min(resolveBiophysicalConcurrency(), Math.max(1, os.cpus().length - 1));
+}
+
 export const CONFIG = {
   server: {
     port: parseInt(process.env.PORT || "3000", 10),
     nodeEnv: process.env.NODE_ENV || "development",
     isProduction: process.env.NODE_ENV === "production",
     isTest: process.env.NODE_ENV === "test",
-    biophysicalConcurrency: parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "4", 10),
+    biophysicalConcurrency: resolveBiophysicalConcurrency(),
+  },
+  /**
+   * Queue safety limit (doc/COMPUTE_ROUTING_PLAN.md section 4.4). This protects the host; fairness
+   * between people comes from the scheduler's rotation. Per-person limits (`QUOTA_QUEUED_PER_USER`,
+   * `QUOTA_SERVER_SECONDS_PER_DAY`) are account settings: `authSettings()` and the user's overrides.
+   */
+  queue: {
+    /** Queued + running across everyone; the backstop behind the per-person limit. */
+    maxTotal: positiveInt(process.env.QUEUE_MAX_TOTAL, 50),
   },
   /**
    * ─────────────────────────────────────────────────────────────────────────────

@@ -16,3 +16,11 @@ Shared fixture: `src/test/evidenceWorkspaceFixture.ts`. Model contracts:
 `src/test/evidenceComparison.test.ts`; interactions and tab/rail integration:
 `src/components/evidence/__tests__/EvidenceWorkspace.test.tsx` and
 `EvidenceTabs.integration.test.tsx`.
+
+RNA splicing includes Reverse strand, Forward strand, Small signals, Zero, Missing, Unknown
+strand, Missing positions and New variant cases. Its map and Source records share the selected
+reading with the inspector. Check the annotated-transcript and prediction tracks, channel
+keyboard navigation, exact offsets, map controls, and selection across views. Fixtures live in
+`src/test/splicingWorkspaceFixture.ts`; model and interaction tests are
+`src/test/splicingWorkspace.test.ts` and `src/components/evidence/__tests__/SplicingWorkspace.test.tsx`.
+Re-scoring requests are blocked in this preview; successful and stale replies are covered by tests.

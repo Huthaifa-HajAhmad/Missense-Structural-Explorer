@@ -2,7 +2,20 @@
 
 2026-10-11. Three independent OpenCode reviewer agents used `opencode-go/deepseek-v4.1-flash`: Insights correctness and scientific integrity; Literature retrieval and data integrity; shared architecture, accessibility, security, performance and validation. The lead validated their findings against the saved code and performed targeted reproductions.
 
-**Verdict: changes requested.** Two refactor defects are confirmed: P1 desktop scrolling and P2 recorded-strength lookup. One P3 coverage defect is also confirmed. A preexisting P2 glossary contradiction remains inside the refactored Insights surface. No classification-engine change, new injection vulnerability, or provider/state-reset failure was established.
+**Final verdict: confirmed findings addressed.** The initial review requested changes for the four findings below. A subsequent bounded, read-only OpenCode closure review using the same `opencode-go/deepseek-v4.1-flash` model found no confirmed remaining blocker. Original observations are retained below as the review history.
+
+## Resolution
+
+| Finding | Implemented correction | Regression coverage |
+| --- | --- | --- |
+| F1: desktop Insights clipping | The Insights primary pane owns vertical scrolling; narrow primary panes expand into the page scroll. | Actual wheel gestures reach the final section, criterion guide and summary at 1500, 800 and 390 pixels. |
+| F2: suffixed criterion strength | Map and inspector share an exact-first, canonical-fallback recorded-criterion lookup. | PP3_Moderate, PP3_Strong and BP4_Moderate component cases; rendered suffix fixture. |
+| F3: unsupported notation | Omit the unavailable variant-match category and name the gene-only check. | Unsupported notation component and browser fixtures. |
+| F4: PM2 guide contradiction | Guide states Supporting, matching the existing engine/default strength. | Guide/table parity assertion. |
+
+The additional comments were also addressed: query-loaded facts and curated-addition wording; cancellation when a reveal target leaves completed results; closed disclosure content in print; registered inspector IDs; visible review actions of at least 44px; a general analysis-error icon and provider-settings action; safe-scheme validation for curated URLs; corrected helper comments; and explicit live-input availability language. Added tests read downloaded BibTeX/RIS/CSV contents for desk versus shortlist, check query-change selection and focus, and await clipboard success/failure. Invalid curated URLs remain inert.
+
+Validation and final counts are recorded in `REVIEW_WORKSPACES_REVIEW.md`. Raw reviewer transcripts, reproduction outputs and screenshots are local, ignored artifacts under `scratch/`; they are not included in this PR.
 
 ## Scope and method
 
@@ -10,9 +23,9 @@ The review covered the 30-file Insights/Literature scope, including new untracke
 
 All three agents completed successfully. Their reports are preserved unedited:
 
-- [Insights reviewer](../scratch/senior-review-insights-report.md), session `ses_ed3cbadfbffezKwt5lgTAamLV1`.
-- [Literature reviewer](../scratch/senior-review-literature-report.md), session `ses_ed3cbadf5ffediQSkiwyzd0bfB`.
-- [Shared-platform reviewer](../scratch/senior-review-platform-report.md), session `ses_ed3cbadffffe3QJ6P9jq2EXL2V`.
+- Insights reviewer: `scratch/senior-review-insights-report.md`, session `ses_ed3cbadfbffezKwt5lgTAamLV1`.
+- Literature reviewer: `scratch/senior-review-literature-report.md`, session `ses_ed3cbadf5ffediQSkiwyzd0bfB`.
+- Shared-platform reviewer: `scratch/senior-review-platform-report.md`, session `ses_ed3cbadffffe3QJ6P9jq2EXL2V`.
 
 The lead checked the hashes after completion: **all 30 scoped files were unchanged**. This pass produced findings and review artifacts; it did not fix application code or alter tests.
 
@@ -38,7 +51,7 @@ The original 29-check browser matrix asserted horizontal fit, selection and focu
 
 **Suggested correction:** restore vertical scrolling on the Insights reading surface or on a deliberately scoped review primary pane; retain the existing mobile stacking behavior. Avoid an unconstrained nested scroller. Add a rendered check that a real wheel gesture reaches the final evidence section on desktop, and that records and summary remain reachable at desktop and narrow widths.
 
-**Reproduction:** `scratch/senior-review-scroll-check.mjs`, [measured result](../scratch/senior-review-scroll-reproduction.json), [screenshot](../scratch/senior-review-scroll-reproduction.png).
+**Local reproduction:** `scratch/senior-review-scroll-check.mjs`, `scratch/senior-review-scroll-reproduction.json`, `scratch/senior-review-scroll-reproduction.png`.
 
 ### F2 — P2: strength-suffixed criteria get a false inspector strength
 
@@ -58,7 +71,7 @@ This is reachable for supported cached/earlier-engine records with suffixed comp
 
 **Suggested correction:** resolve both consumers against the same recorded criterion identity, comparing exact codes or consistently canonicalizing both sides. Preserve the full recorded strength. Add a component regression using `PP3_Moderate` and assert the selected inspector states Moderate and the map's dedicated strength label agrees with the records view.
 
-**Reproduction:** [evidence-builder result](../scratch/senior-review-strength-reproduction.json). Its PM2 case inspects the row join only; that fixture does not establish a suffixed population lane.
+**Local reproduction:** `scratch/senior-review-strength-reproduction.json`. Its PM2 case inspects the row join only; that fixture does not establish a suffixed population lane.
 
 ### F3 — P3: unsupported variant notation is presented as a zero-match coverage group
 
@@ -70,7 +83,7 @@ The lead reproduced this with a loaded illustrative paper whose title and abstra
 
 **Suggested correction:** omit or explicitly mark the variant group unavailable when forms are null, matching the existing refinement behavior. Add a regression for unsupported notation with loaded papers.
 
-**Reproduction:** [unsupported-notation result](../scratch/senior-review-unsupported-notation-reproduction.json).
+**Local reproduction:** `scratch/senior-review-unsupported-notation-reproduction.json`.
 
 ## Confirmed preexisting defect in the reviewed surface
 
@@ -111,7 +124,3 @@ Prioritize regressions for F1–F3 and glossary parity for F4. Additional useful
 - **Moved-helper comments:** `insightsSnapshot.ts` still names the former helper location; re-export compatibility remains intact. Documentation follow-up only.
 
 The reviewers did not audit live provider authentication, every server route or unrelated concurrent changes. Browser reproduction used labelled fixtures, not clinical evidence. The report records defects and limits; it does not imply a complete security or scientific sign-off.
-
-## Resolution
-
-The subsequent Query and synthesis finishing pass resolved F1–F4 and added regression coverage. Desktop wheel scrolling, recorded strengths, PM2 guidance, and unsupported-notation coverage were verified in the integrated browser. See [implementation and verification](QUERY_SYNTHESIS_FINISHING_PASS.md). The original review above is retained as the historical findings.

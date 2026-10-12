@@ -1,0 +1,145 @@
+/* jobs.css — the header's "My jobs" control and panel (src/components/jobs/JobsMenu.tsx).
+   The panel reuses .acct-menu (native popover, anchoring, surface, shadow, entrance) and widens it. */
+
+.jobs-btn { position: relative; }
+@supports (position-area: block-end) {
+  /* Its own anchor, so the panel opens under this button and not under the avatar (account.css). */
+  .jobs-btn { anchor-name: --jobs-trigger; }
+  .acct-menu.jobs-panel { position-anchor: --jobs-trigger; }
+}
+.jobs-btn[aria-expanded="true"] { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+.jobs-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  /* AA: the clay token itself is 3.87:1 against white, below the 4.5:1 this 10px/700 text needs.
+     Darkened to about 5.8:1 here, and inverted for dark mode where a dark pill would sink into the
+     surface behind it. */
+  background: color-mix(in srgb, var(--cs-accent-clay) 78%, #000);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--cs-surface);
+}
+.dark .jobs-badge {
+  background: color-mix(in srgb, var(--cs-accent-clay) 68%, #fff);
+  color: #3A1B12;
+}
+
+.acct-menu.jobs-panel {
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 8px;
+}
+.jobs-panel:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+
+.jobs-head { display: flex; align-items: flex-start; gap: 4px; padding: 6px 6px 10px; }
+.jobs-head > div { flex: 1; min-width: 0; }
+.jobs-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--cs-text-primary); }
+.jobs-sub { margin: 2px 0 0; font-size: 12px; color: var(--cs-text-muted); }
+.jobs-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--cs-radius-input);
+  background: transparent;
+  color: var(--cs-text-muted);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .jobs-icon-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+}
+.jobs-icon-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
+
+.jobs-section {
+  margin: 10px 6px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted);
+}
+.jobs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.jobs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface);
+}
+.jobs-row[data-tone="running"] { border-color: color-mix(in srgb, var(--cs-accent-clay) 40%, var(--cs-border-subtle)); }
+.jobs-row-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.jobs-row-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.jobs-row-label {
+  font-family: var(--cs-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cs-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-row-meta { font-size: 12px; line-height: 1.45; color: var(--cs-text-muted); font-variant-numeric: tabular-nums; }
+.jobs-row-shared { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--cs-text-secondary); }
+.jobs-row-error { font-size: 12px; color: var(--cs-text-danger); overflow-wrap: anywhere; }
+.jobs-row-notice { font-size: 12px; color: var(--cs-text-secondary); }
+
+.jobs-chip {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--cs-surface-2);
+  color: var(--cs-text-muted);
+}
+.jobs-chip[data-tone="running"] { background: color-mix(in srgb, var(--cs-accent-clay) 14%, transparent); color: var(--cs-text-accent); }
+.jobs-chip[data-tone="done"] { background: var(--cs-bg-success); color: var(--cs-text-success); }
+.jobs-chip[data-tone="failed"] { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+
+.jobs-cancel {
+  flex-shrink: 0;
+  min-width: 64px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface);
+  color: var(--cs-text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .jobs-cancel:hover:not(:disabled) { border-color: var(--cs-text-muted); color: var(--cs-text-primary); }
+}
+.jobs-cancel:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
+.jobs-cancel:disabled { opacity: 0.6; cursor: default; display: inline-grid; place-items: center; }
+
+.jobs-empty { display: flex; align-items: center; gap: 8px; margin: 6px; padding: 14px 10px; font-size: 12.5px; color: var(--cs-text-muted); border: 1px dashed var(--cs-border-subtle); border-radius: var(--cs-radius-input); }
+.jobs-error { margin: 0 6px 8px; padding: 8px 10px; font-size: 12.5px; border-radius: var(--cs-radius-input); background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+/* The panel-level outcome of a cancel: same shape as .jobs-error, success tone. It lives in the panel
+   rather than on a row because the row can leave the list entirely. */
+.jobs-notice { margin: 0 6px 8px; padding: 8px 10px; font-size: 12.5px; border-radius: var(--cs-radius-input); background: var(--cs-bg-success); color: var(--cs-text-success); }
+
+/* Phones: the panel spans the screen with an even margin instead of hugging one edge. */
+@media (max-width: 480px) {
+  .acct-menu.jobs-panel {
+    position-area: none;
+    inset: 56px 12px auto 12px;
+    width: auto;
+    margin: 0;
+  }
+}

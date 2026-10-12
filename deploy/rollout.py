@@ -14,6 +14,26 @@ ROOT = Path(__file__).resolve().parent.parent
 PROXY = "missense-resolve-caddy"
 SLOTS = ("missense-resolve-blue", "missense-resolve-green")
 
+# A build exports the whole image again, and the same volume already holds two generations. On
+# 2026-10-10 it filled up: every deploy died at the final unpack with ENOSPC *while CD reported
+# success*, so production sat two revisions behind and nothing said so. This floor turns that
+# eight-minutes-in failure-in-the-dark into an immediate, named refusal — and reclaims the
+# rebuildable space first, so the common case (accumulated images) heals itself.
+#
+# 20 GiB is generous for one image export and small enough that a healthy host never reaches it;
+# override with MSE_MIN_FREE_DISK_MB. MSE_DISK_PATH exists for tests and unusual mounts.
+MIN_FREE_DISK_MB = 20 * 1024
+DISK_PATH = os.environ.get("MSE_DISK_PATH", "/")
+
+
+def min_free_disk_mb():
+    raw = os.environ.get("MSE_MIN_FREE_DISK_MB", "").strip()
+    return int(raw) if raw else MIN_FREE_DISK_MB
+
+
+def free_disk_mb(path=DISK_PATH):
+    return shutil.disk_usage(path).free // (1024 * 1024)
+
 
 class Docker:
     def run(self, *args, capture=False, timeout=60, env=None):
@@ -74,6 +94,31 @@ class Docker:
                 return int(line.split()[1]) // 1024
         raise RuntimeError("Cannot determine host memory headroom")
 
+    def reclaim_build_space(self):
+        # Only rebuildable, non-serving things: build cache and images no container references. This
+        # driver always builds a fresh image and never runs an older one, so none of it is needed to
+        # serve or to roll back. Failures are non-fatal — the headroom check below is the real gate.
+        for args in (("builder", "prune", "-f"), ("image", "prune", "-a", "-f")):
+            try:
+                self.run(*args, capture=True, timeout=600)
+            except subprocess.SubprocessError as error:
+                print(f"[CD] reclaim ({' '.join(args)}) failed: {error}", flush=True)
+
+    def ensure_build_headroom(self, commit):
+        required = min_free_disk_mb()
+        free = free_disk_mb()
+        if free < required:
+            print(f"[CD] {free} MiB free (< {required} MiB); reclaiming build cache and unused images", flush=True)
+            self.reclaim_build_space()
+            free = free_disk_mb()
+        if free < required:
+            raise RuntimeError(
+                f"Only {free} MiB free on {DISK_PATH}; the image export needs about {required} MiB. "
+                f"Free space on the host (or lower MSE_MIN_FREE_DISK_MB), then redeploy — the serving "
+                f"generation is untouched."
+            )
+        return free
+
     def public_version(self):
         with urllib.request.urlopen("https://missense-resolve.duckdns.org/api/v1/version", timeout=10) as response:
             return json.load(response)["commit"]
@@ -85,6 +130,9 @@ class Docker:
             if self.inspect(name)["State"]["Running"]:
                 raise RuntimeError(f"{name} is still running; resolve the previous handover first")
             self.run("rm", name)
+        # Refuse (after reclaiming) before the build starts: a build that fills the volume fails at
+        # the very end, long after the CD runner has returned, and takes production's headroom with it.
+        self.ensure_build_headroom(commit)
         env = dict(os.environ, APP_CONTAINER_NAME=name, APP_IMAGE=f"missense-resolve:oci-{commit}",
                    DEPLOYMENT_STANDBY="true", APP_MEMORY_LIMIT="4g", BUILD_COMMIT=commit)
         compose = ("compose", "-p", name, "-f", "deploy/docker-compose.oci.yml")
@@ -111,8 +159,14 @@ def drained(status):
 
 class Rollout:
     def __init__(self, docker, commit, readiness_timeout=600, drain_timeout=1800,
-                 clock=time.monotonic, sleep=time.sleep, journal=None):
+                 clock=time.monotonic, sleep=time.sleep, journal=None, restart=False):
         self.docker, self.commit = docker, commit
+        # Hand over to a fresh generation of the SAME revision, so an edited .env.oci takes effect
+        # (Compose reads it only when a container is created). Without this a same-revision run is a
+        # no-op, and the only way to apply a setting was recreating the serving container by hand,
+        # which skips the drain. The proxy switch is still verified through Caddy's admin config;
+        # the public version check can only confirm the revision, which both generations share.
+        self.restart = restart
         self.readiness_timeout, self.drain_timeout = readiness_timeout, drain_timeout
         self.clock, self.sleep = clock, sleep
         self.journal = journal or ROOT / "deploy/runtime/rollout.json"
@@ -159,7 +213,7 @@ class Rollout:
         except Exception:
             self.record("refused")
             raise
-        if status.get("commit") == self.commit:
+        if status.get("commit") == self.commit and not self.restart:
             self.record("complete", active=self.old)
             print(f"[CD] DEPLOY_OK {self.commit} (already serving)", flush=True)
             return
@@ -228,6 +282,8 @@ def main():
     import fcntl  # This driver is intentionally Linux-only; tests can exercise its state machine anywhere.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--restart", action="store_true",
+                        help="hand over even when this revision already serves, to apply an edited .env.oci")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         parser.error("--commit must be a full Git SHA")
@@ -240,24 +296,24 @@ def main():
             if (inherited_stat.st_dev, inherited_stat.st_ino) != (target_stat.st_dev, target_stat.st_ino):
                 raise RuntimeError("Inherited deployment lock does not match the host lock")
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            run_verified_checkout(args.commit)
+            run_verified_checkout(args.commit, args.restart)
         else:
             with lock_path.open("a") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                run_verified_checkout(args.commit)
+                run_verified_checkout(args.commit, args.restart)
     except Exception as error:
         print(f"[CD] DEPLOY_FAILED: {error}", flush=True)
         return 1
     return 0
 
 
-def run_verified_checkout(commit):
+def run_verified_checkout(commit, restart=False):
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if actual != commit:
         raise RuntimeError("Checkout revision does not match --commit; refusing a mislabeled image")
     subprocess.run(["git", "diff", "--quiet", "--exit-code"], cwd=ROOT, check=True)
     subprocess.run(["git", "diff", "--cached", "--quiet", "--exit-code"], cwd=ROOT, check=True)
-    Rollout(Docker(), commit).execute()
+    Rollout(Docker(), commit, restart=restart).execute()
 
 
 if __name__ == "__main__":

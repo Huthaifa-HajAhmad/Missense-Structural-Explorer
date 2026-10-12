@@ -6,6 +6,8 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import { THRESHOLDS, formatEvidenceCode } from "../../shared/thresholds";
 import { SPLICE_CHANNEL_NAME, SPLICING_SOURCES, buildSplicingEvidence, formatDelta } from "../../shared/splicingEvidence";
+import { splicingReadings } from '../../shared/splicingWorkspace';
+import { SplicingReadingInspector } from './SplicingReadingInspector';
 
 /**
  * SplicingRail — the Evidence Lineage inspector for the RNA Splicing tab.
@@ -71,6 +73,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
 
   return (
     <div className="spl-rail" data-testid="splicing-rail">
+      <SplicingReadingInspector rows={splicingReadings(ev, analysisResult)} />
       {/* ── 1. How the reading was reached ── */}
       <section className="spl-rsec" aria-labelledby="spl-rail-trace">
         <h3 className="eyebrow" id="spl-rail-trace">
@@ -163,7 +166,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <BookOpen className="w-3.5 h-3.5" />
           Method
         </h3>
-        <details className="spl-notes" open>
+        <details className="spl-notes">
           <summary>How to read this tab</summary>
           <ul>
             <li>
@@ -201,7 +204,7 @@ export function SplicingRail({ analysisResult, isBiophysicalLoading = false }: {
           <Database className="w-3.5 h-3.5" />
           Sources
         </h3>
-        <dl className="spl-kv">
+        <dl className="spl-source-facts">
           {sources.map(([label, value]) => (
             <div key={label}>
               <dt>{label}</dt>

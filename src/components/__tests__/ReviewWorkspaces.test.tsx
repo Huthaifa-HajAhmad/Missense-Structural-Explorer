@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReviewWorkspaceProvider } from '../review/ReviewWorkspace';
+import { ReviewWorkspaceProvider, useReviewWorkspace } from '../review/ReviewWorkspace';
 import { InsightsScreen } from '../insights/InsightsScreen';
 import { InsightsInspector } from '../inspector/InsightsInspector';
 import { SettingsProvider } from '../../context/SettingsContext';
@@ -15,7 +15,7 @@ import { PaperTable } from '../literature/PaperTable';
 import { buildLiteratureEvidence } from '../../shared/literatureEvidence';
 import LiteratureInspector from '../inspector/LiteratureInspector';
 import type { LiteratureEvidence } from '../../shared/literatureEvidence';
-import { formatEvidenceCode } from '../../shared/thresholds';
+import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 
 const api = vi.hoisted(() => ({ getLiterature: vi.fn() }));
 vi.mock('../../apiClient', () => ({ useApiClient: () => ({ apiClient: api }) }));
@@ -30,17 +30,26 @@ beforeEach(() => {
 });
 
 describe('Insights reading workspace', () => {
-  it.each([['PP3_Moderate', 'Moderate'], ['PP3_Strong', 'Strong']])('keeps %s strength identical in the map, inspector and records', (code, strength) => {
-    const analysis = { ...result, ruleBasedInsights: { ...result.ruleBasedInsights!, acmgCriteria: [{ code, reason: 'Recorded criterion' }] } };
+  it.each([['PP3_Moderate', 'Moderate'], ['PP3_Strong', 'Strong'], ['BP4_Moderate', 'Strong']] as const)('shows the recorded strength of %s in both panes', (code, strength) => {
+    const analysis = nae1Reference({ ruleBasedInsights: { acmgVerdict: 'Variant of Uncertain Significance (VUS)', acmgCriteria: [{ code, reason: 'Recorded calibrated criterion' }] }, insights: { acmgCriteria: [] } });
     const ev = buildInsightsEvidence({ result: analysis, functionInput: functionEvidenceInputFrom(analysis), stability: null });
     render(<SettingsProvider><ReviewWorkspaceProvider result={analysis}><InsightsScreen evidence={ev} narrative={null} /><InsightsInspector analysisResult={analysis} /></ReviewWorkspaceProvider></SettingsProvider>);
-    const lane = screen.getByRole('button', { name: 'Computational' }).closest('.ins-lane') as HTMLElement;
-    expect(within(lane).getByText(strength, { exact: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Computational' }));
-    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent(`Recorded strength: ${strength}.`);
+    const selected = screen.getByRole('region', { name: 'Selected evidence reading' });
+    expect(selected).toHaveAttribute('id', INSPECTOR_SECTIONS.evidenceReading);
+    expect(selected).toHaveTextContent(`Recorded strength: ${strength}.`);
+    expect(selected).not.toHaveTextContent('Not weighted');
+    const lane = screen.getByRole('button', { name: 'Computational' }).closest('.ins-lane')!;
+    expect(within(lane as HTMLElement).getByText(strength, { selector: '.ins-dim' })).toBeInTheDocument();
+  });
+  it('keeps PM2 guide wording consistent with the records table', () => {
+    const analysis = nae1Reference({ ruleBasedInsights: { acmgVerdict: 'Uncertain', acmgCriteria: [{ code: 'PM2', reason: 'Recorded rarity' }] }, insights: { acmgCriteria: [] } });
+    const ev = buildInsightsEvidence({ result: analysis, functionInput: functionEvidenceInputFrom(analysis), stability: null });
+    render(<InsightsScreen evidence={ev} narrative={null} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Criterion records' }));
-    const record = within(screen.getByRole('table')).getByText(formatEvidenceCode(code)).closest('tr')!;
-    expect(record).toHaveTextContent(strength);
+    const pm2 = screen.getByRole('rowheader', { name: /PM2/ });
+    expect(pm2).toHaveTextContent('Supporting');
+    expect(screen.getByText('The change is very rare or absent in healthy population databases. Supporting.')).toBeInTheDocument();
   });
   function tree(mounted = true, analysis = result) {
     return <SettingsProvider><ReviewWorkspaceProvider result={analysis}>
@@ -84,21 +93,92 @@ describe('Insights reading workspace', () => {
 });
 
 describe('Literature reading workspace', () => {
-  it('does not present an unsupported notation check as zero variant matches', async () => {
-    api.getLiterature.mockResolvedValue({ gene: 'NAE1', citations: [{ ...papers[0], title: 'NAE1 c.123A>G', abstract: 'NAE1 c.123A>G was observed.' }], hitCount: 1, degraded: false });
-    render(<ReviewWorkspaceProvider result={result}><LiteratureView gene="NAE1" variant="c.123A>G" /></ReviewWorkspaceProvider>);
-    await screen.findByTestId('literature-table');
-    const coverage = screen.getByRole('heading', { name: 'What the loaded text names' }).closest('section')!;
-    expect(within(coverage).getAllByRole('button')).toHaveLength(2);
-    expect(within(coverage).queryByRole('button', { name: /Names (the variant|p\.|c\.)/ })).not.toBeInTheDocument();
-    expect(screen.getByText(/Variant mentions were not checked/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /^Names NAE1/ }));
-    expect(screen.getByTestId('paper-91000000')).toBeInTheDocument();
-  });
   function Harness({ report }: { report: (e: LiteratureEvidence) => void }) {
     const [ev, setEv] = React.useState<LiteratureEvidence | null>(null);
     return <ReviewWorkspaceProvider result={result}><LiteratureView gene="NAE1" variant="p.Asp116Gly" onEvidenceChange={e => { setEv(e); report(e); }} /><LiteratureInspector gene="NAE1" variant="p.Asp116Gly" evidence={ev} /></ReviewWorkspaceProvider>;
   }
+  it('does not present an unsupported variant check as a zero-match group', async () => {
+    render(<LiteratureView gene="NAE1" variant="c.123A>G" />);
+    await screen.findByTestId('literature-table');
+    const coverage = screen.getByRole('region', { name: 'What the loaded text names' });
+    expect(within(coverage).getAllByRole('button')).toHaveLength(2);
+    expect(within(coverage).queryByRole('button', { name: /Names (the variant|p\.|c\.)/ })).not.toBeInTheDocument();
+    expect(coverage).toHaveTextContent('Variant notation is unavailable; these groups check the gene only.');
+    expect(within(coverage).getByRole('button', { name: /^Names NAE1/ })).toBeInTheDocument();
+  });
+  it('identifies a selected source that is absent from a subsequent query', async () => {
+    function SearchHarness() {
+      const [query, setQuery] = React.useState('');
+      const [ev, setEv] = React.useState<LiteratureEvidence | null>(null);
+      return <ReviewWorkspaceProvider result={result}><LiteratureView gene="NAE1" variant="p.Asp116Gly" searchQuery={query} onSearchQueryChange={setQuery} onEvidenceChange={setEv} /><LiteratureInspector gene="NAE1" variant="p.Asp116Gly" searchQuery={query} onSearch={setQuery} evidence={ev} /></ReviewWorkspaceProvider>;
+    }
+    render(<SearchHarness />);
+    await screen.findByTestId('paper-91000000');
+    fireEvent.click(within(screen.getByTestId('paper-91000000')).getByRole('button', { name: 'Inspect source' }));
+    const search = screen.getByLabelText('Search literature');
+    fireEvent.change(search, { target: { value: 'no sources' } });
+    fireEvent.submit(search.closest('form')!);
+    await screen.findByText('The selected paper is not in this search result. Clear the selection or select another loaded source.');
+    expect(within(screen.getByRole('region', { name: 'Selected paper' })).queryByText('NAE1 source 1')).not.toBeInTheDocument();
+  });
+  it('consumes a reveal whose selected source is absent from the completed set', async () => {
+    function RevealControl() {
+      const w = useReviewWorkspace('literature');
+      return <><button onClick={() => { w.select('missing'); w.showSelected(); }}>Simulate lost source</button><output data-testid="reveal-request">{w.reveal}</output></>;
+    }
+    render(<ReviewWorkspaceProvider result={result}><LiteratureView gene="NAE1" variant="p.Asp116Gly" /><RevealControl /></ReviewWorkspaceProvider>);
+    await screen.findByTestId('literature-table');
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate lost source' }));
+    await waitFor(() => expect(screen.getByTestId('reveal-request')).toHaveTextContent('0'));
+    const search = screen.getByLabelText('Search literature'); search.focus();
+    fireEvent.change(search, { target: { value: 'NAE1' } });
+    expect(search).toHaveFocus();
+  });
+  it('downloads eight displayed records and all twelve shortlist records', async () => {
+    render(<Harness report={() => {}} />);
+    await screen.findByTestId('literature-table');
+    fireEvent.click(screen.getByRole('button', { name: 'Show all tiers' }));
+    await waitFor(() => expect(screen.getByText('The 8 papers shown, with any filter applied.')).toBeInTheDocument());
+    const blobs: Blob[] = [];
+    const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((blob: Blob) => { blobs.push(blob); return 'blob:fixture'; }) });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.useFakeTimers();
+    try {
+      for (const name of ['BibTeX', 'RIS', 'CSV', 'Export shortlist']) fireEvent.click(screen.getByRole('button', { name }));
+      vi.runOnlyPendingTimers(); vi.useRealTimers();
+      const texts = await Promise.all(blobs.map(blob => new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsText(blob);
+      })));
+      expect(texts[0].match(/@article\{/g)).toHaveLength(8);
+      expect(texts[1].match(/TY  - JOUR/g)).toHaveLength(8);
+      expect(texts[2].match(/^NAE1,p\.Asp116Gly,\d+,/gm)).toHaveLength(8);
+      expect(texts[3].match(/^NAE1,p\.Asp116Gly,\d+,/gm)).toHaveLength(12);
+      expect(texts[2]).not.toContain('91000011');
+      expect(texts[3]).toContain('91000011');
+    } finally {
+      vi.useRealTimers(); click.mockRestore();
+      if (originalCreate) Object.defineProperty(URL, 'createObjectURL', originalCreate); else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (originalRevoke) Object.defineProperty(URL, 'revokeObjectURL', originalRevoke); else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
+  });
+  it('reports success only after the clipboard write completes', async () => {
+    let complete!: () => void;
+    const writeText = vi.fn(() => new Promise<void>(resolve => { complete = resolve; }));
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    try {
+      render(<Harness report={() => {}} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'NAE1 source 1' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Copy PMID' }));
+      expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument();
+      await act(async () => complete());
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+      expect(writeText).toHaveBeenCalledWith('91000000');
+    } finally { if (original) Object.defineProperty(navigator, 'clipboard', original); else Reflect.deleteProperty(navigator, 'clipboard'); }
+  });
   it('explains a supported zero-match coverage group and recovers to all sources', async () => {
     api.getLiterature.mockResolvedValue({ gene: 'NAE1', citations: papers.slice(1), hitCount: 11, degraded: false });
     render(<Harness report={() => {}} />);
@@ -160,7 +240,6 @@ describe('Literature reading workspace', () => {
     } finally { if (original) Object.defineProperty(navigator, 'clipboard', original); else Reflect.deleteProperty(navigator, 'clipboard'); }
   });
 });
-
 
 describe('Source reveal lifecycle', () => {
   it('consumes a missing target so a later result cannot steal focus', () => {

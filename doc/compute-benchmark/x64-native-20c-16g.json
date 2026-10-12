@@ -1,0 +1,91 @@
+{
+  "hostClass": "x64-native-20c-16g",
+  "measuredAt": "2026-10-11T09:47:30.032Z",
+  "host": {
+    "os": "win32",
+    "arch": "x64",
+    "emulated": false,
+    "cores": 20,
+    "cpuModel": "13th Gen Intel(R) Core(TM) i7-13700H",
+    "totalRamGiB": 16
+  },
+  "tools": [
+    {
+      "name": "foldx",
+      "version": "5.1",
+      "verified": true
+    },
+    {
+      "name": "p2rank",
+      "version": "2.6-alpha",
+      "verified": true
+    }
+  ],
+  "foldxBuildExpires": "2027-01-31",
+  "steps": [
+    {
+      "tool": "foldx",
+      "step": "RepairPDB",
+      "gene": "SOD1",
+      "residues": 154,
+      "state": "completed",
+      "wallMs": 48552,
+      "peakRssBytes": 59658240
+    },
+    {
+      "tool": "foldx",
+      "step": "BuildModel x5",
+      "gene": "SOD1",
+      "residues": 154,
+      "state": "completed",
+      "wallMs": 4166,
+      "peakRssBytes": 73814016,
+      "repairedInput": true
+    },
+    {
+      "tool": "p2rank",
+      "step": "predict",
+      "gene": "SOD1",
+      "residues": 154,
+      "state": "completed",
+      "wallMs": 4409,
+      "peakRssBytes": 465391616
+    },
+    {
+      "tool": "foldx",
+      "step": "BuildModel x5",
+      "gene": "GCK",
+      "residues": 465,
+      "state": "completed",
+      "wallMs": 2610,
+      "peakRssBytes": 162308096
+    },
+    {
+      "tool": "p2rank",
+      "step": "predict",
+      "gene": "GCK",
+      "residues": 465,
+      "state": "completed",
+      "wallMs": 4584,
+      "peakRssBytes": 545255424
+    },
+    {
+      "tool": "foldx",
+      "step": "BuildModel x5",
+      "gene": "SLC12A4",
+      "residues": 1085,
+      "state": "completed",
+      "wallMs": 16562,
+      "peakRssBytes": 446140416
+    },
+    {
+      "tool": "p2rank",
+      "step": "predict",
+      "gene": "SLC12A4",
+      "residues": 1085,
+      "state": "completed",
+      "wallMs": 5253,
+      "peakRssBytes": 503635968
+    }
+  ]
+}

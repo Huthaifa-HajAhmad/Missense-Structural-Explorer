@@ -456,7 +456,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
           /* Clean, modern empty/notice state inside insights card */
           <div className="flex flex-col items-center justify-center p-6 rounded-xl my-4 max-w-lg mx-auto text-center border border-cs-border bg-cs-surface-2">
             <div className="p-3 rounded-full border mb-3" style={{ background: "var(--cs-warn-soft)", borderColor: "color-mix(in srgb, var(--cs-warn) 25%, transparent)", color: "var(--cs-warn)" }}>
-              <AlertTriangle className="w-6 h-6" />
+              <AlertTriangle className="w-6 h-6" aria-hidden="true" />
             </div>
             <h4 className="font-semibold text-sm text-cs-text-primary mb-1">
               Variant analysis failed

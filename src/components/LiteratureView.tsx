@@ -365,11 +365,17 @@ export default function LiteratureView({
   }, [evidence.papers, evidence.visible, tierFilter, tagFilters]);
 
   const deskPapers = workspace.view === 'map' ? screeningVisible.slice(0, READING_DESK_LIMIT) : screeningVisible;
-  const coverage = useMemo(() => literatureCoverage(evidence.papers), [evidence.papers]);
+  const coverage = useMemo(() => literatureCoverage(evidence.papers).filter(row => forms || row.level !== 'variant'), [evidence.papers, forms]);
   useEffect(() => {
     if (!workspace.reveal) return;
     setGroupFilter('all'); setTierFilter('all'); setTagFilters([]); setRevealedDraft(internalQuery);
   }, [workspace.reveal]);
+
+  // A missing DOM target may still be hidden by filters. Cancel only when the completed
+  // loaded set no longer contains the source, so a later search cannot steal focus.
+  useEffect(() => {
+    if (workspace.reveal && !isLoading && !evidence.papers.some(paper => paper.citation.id === workspace.selected)) workspace.finishReveal();
+  }, [workspace.reveal, workspace.selected, isLoading, evidence.papers]);
 
   const displayedEvidence = useMemo(() => ({
     ...evidence,
@@ -496,14 +502,14 @@ export default function LiteratureView({
         <ReviewNavigation tab="literature" workspace={workspace} />
         <div role="tabpanel" id={`review-literature-panel-${workspace.view}`} aria-labelledby={`review-literature-tab-${workspace.view}`}>
         {workspace.view === 'map' && counts.total > 0 && <section className="lit-coverage" aria-labelledby="lit-coverage-title">
-          <header><h2 id="lit-coverage-title">What the loaded text names</h2><p>{counts.total} loaded papers · literal title and abstract checks · select a group to explore</p></header>
-          <div className="lit-coverage__rows">{coverage.filter(row => forms || row.level !== 'variant').map(row => <button type="button" key={row.level} aria-pressed={groupFilter === row.level} onClick={() => { setGroupFilter(groupFilter === row.level ? 'all' : row.level); setTierFilter('all'); setTagFilters([]); }}>
-            <span>{row.level === 'variant' ? `Names ${forms?.label}` : row.level === 'gene' ? `Names ${forms ? 'only ' : ''}${gene}` : forms ? 'Neither in title / abstract' : `Does not name ${gene}`}</span>
+          <header><h2 id="lit-coverage-title">What the loaded text names</h2><p>{counts.total} loaded papers{curatedAdded > 0 ? ` (including ${curatedAdded} curated additions)` : ''} · literal title and abstract checks · select a group to explore</p></header>
+          <div className="lit-coverage__rows">{coverage.map(row => <button type="button" key={row.level} aria-pressed={groupFilter === row.level} onClick={() => { setGroupFilter(groupFilter === row.level ? 'all' : row.level); setTierFilter('all'); setTagFilters([]); }}>
+            <span>{row.level === 'variant' ? `Names ${forms?.label}` : row.level === 'gene' ? `Names ${forms ? 'only ' : ''}${gene}` : forms ? 'Neither in title / abstract' : 'Gene not in title / abstract'}</span>
             <span className="lit-coverage__track" aria-hidden="true"><i style={{ inlineSize: `${row.percent}%` }} /></span>
             <span className="lit-mono">{row.count}<small> / {row.total}</small></span>
           </button>)}</div>
           <p className="lit-coverage__note">These are mentions, not evidence of a paper’s conclusion. Curated additions are included in this loaded set; unreturned search matches are not screened.</p>
-          {!forms && <p className="lit-coverage__note">Variant mentions were not checked: this notation is not supported by the protein-notation matcher.</p>}
+          {!forms && <p className="lit-coverage__note">Variant notation is unavailable; these groups check the gene only.</p>}
         </section>}
 
         {/* ── 2. The papers ──────────────────────────────────────────────────────────────── */}

@@ -53,6 +53,13 @@ one agent can take it without the others.
 | WP-I2 cache audit (read-only part) | **done**; the fixes it lists are not | `doc/EGRESS_AUDIT.md` |
 | WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
+| WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (17 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
+| WP-0 core: telemetry table + recording, server host probe | **done** (in the queue; 1 integration test) | `server/services/infra/{compute-telemetry,host-probe,failure-class}.ts` |
+| WP-0 remainder: memory sampler, tool self-tests and versions, `compute:benchmark` | **done** (#110; follow-ups in #111) (7 sampler + 13 probe + 1 telemetry + 3 report tests; benchmark run on the development machine) | `server/services/infra/{process-sampler,job-meter}.ts`, `scripts/compute-benchmark.ts`, `doc/COMPUTE_BENCHMARK.md` |
+| WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
+| WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
+| WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
+| WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** on `feat/wp-f-agent` (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -76,12 +83,150 @@ one agent can take it without the others.
 - `deploy/backup-sqlite.sh` now also backs up `accounts.sqlite`.
 - Agent tokens: the `/agent/*` rule (agent token only; a cookie is neither required nor sufficient) is
   enforced centrally in `accountAccess`; pairing and the agent routes are WP-F.
-- Not yet: cancelling a disabled user's queued jobs and usage numbers in `/auth/me` (both need WP-B).
+- Disabling a user now cancels their queued and running jobs, and `/auth/me` reports usage (both WP-B).
 - Added for the client: `GET /auth/session` (public, never 401: mode, user or null, `setupAvailable`,
   `accountsExist`), `GET /admin/invites` and `DELETE /admin/invites/:id`. A new invite for an address
   replaces its older unused one. Setup, invite acceptance and reset all record `last_login_at`.
 - The password rule lives in `src/shared/accountPolicy.ts`, read by both the server check and the
   browser's live checklist.
+
+**Where WP-B differs from section 7** (the code is the source of truth):
+- The claim rule is `priority`, then fewest running jobs for the owner, then the owner **served least recently**,
+  then the owner whose oldest queued job is oldest, then that owner's oldest job. The "served least recently"
+  step is an addition: with the specified rule alone a single slot (concurrency 1) has no running job to
+  compare and falls back to arrival order, so one person's 30 jobs would still block everyone.
+- Queue position (`queuedAhead`) is computed by applying the same rule in memory (`queuedInStartOrder`) and a
+  test consumes the real scheduler and compares. It assumes nothing finishes in between, which is the honest
+  upper bound. `queuedEtaMs` is added to the FoldX submit and poll responses; it is `null` unless every job ahead
+  has a cost estimate. FoldX jobs get one at submit time: the WP-C prior for the structure's residue count,
+  repair rule and this host's emulation (`server/services/stability/foldx/estimate.ts`). P2Rank jobs have none
+  yet, so a P2Rank job ahead makes the wait unknown. The P2Rank poll now returns `queuedAhead` as well.
+- The submitter is the first row of `job_watchers`. A person who submits the same request as a running job
+  joins it; joining a pre-warm job lifts it from `-10` to `0` so
+  someone's wait is not behind other people's newer work.
+- `POST /jobs/:id/cancel` (not under `/biophysics`; the existing job routes have no such prefix). Owner or
+  watcher: withdraws their own interest, and the job stops only when nobody is left. Admin: stops it outright.
+  Anyone else: 403. Without accounts, the shared token may cancel jobs that have no owner.
+- `GET /my-jobs` needs an account. The `legacy` owner shares one rotation slot between all unowned work.
+- Limits: `QUOTA_QUEUED_PER_USER` (25) counts **waiting** jobs only; `QUEUE_MAX_TOTAL` (50, was a constant)
+  remains the host backstop. Running jobs are never counted against a person. **The queued limit is
+  work-conserving, like the scheduler** (a deliberate change to 4.4's fixed 25): it is a per-person *share* that
+  binds only while someone else (a person or unowned work; not pre-warm) is also waiting. Alone, a person may
+  queue up to `QUEUE_MAX_TOTAL - 5`; the 5 are kept for a colleague who arrives. When someone does, nothing
+  already queued is dropped: the heavy user simply cannot add more until back under 25, and the rotation starts
+  the newcomer's work next. An admin's explicit per-person override (`quota_json.queuedPerUser`) is a
+  restriction, not a share, and applies at all times. `QUOTA_SERVER_SECONDS_PER_DAY` (or the override) is enforced when set, per UTC day,
+  counting failed and cancelled time too. A person's own limit answers **429** with their numbers
+  (`QUEUED_PER_USER`, `DAILY_SERVER_TIME`); a full host stays 503.
+- `/auth/me` `usage` is now `{ todaySeconds, weekSeconds }` (today = UTC day, week = last 7 days).
+- Concurrency: the queue runs `BIOPHYSICAL_CONCURRENCY` jobs (default 4) and the FoldX semaphore is derived
+  from it (`resolveFoldxConcurrency`: the explicit value when set, else `min(queue, cpus - 1)`), so FoldX can
+  never be given more slots than the queue. A first version used one shared `min(4, cpus - 1)` for both; on the
+  2-core server that is 1 and P2Rank (which does not take the FoldX semaphore) waited behind every FoldX run.
+  Reverted the same day; `server/tests/concurrency-defaults.test.ts` pins it.
+- Item 7's admission **by running cost** (rather than job count) is left to WP-D, which owns admission; WP-B
+  only unified the two counts.
+- The Redis backend ignores owners, priorities, watchers, `my-jobs` and cancel-by-person (documented, as planned).
+- A stopped running job is marked `failed` with the error `Cancelled.`; the unwinding callback can no longer
+  overwrite that (status-guarded writes).
+
+**Where WP-0/WP-D differ from section 7** (the code is the source of truth):
+- Telemetry is written by the **queue** when a job settles, not by a wrapper in `server.ts`: the queue is the one
+  place that sees every ending (including timeouts it imposes and cancels). `job_telemetry` lives in the queue's
+  database as planned. `residues` and `repaired` are stored on the job at submit, so the row is exact.
+- `peak_rss_bytes` is null (no sampler yet), so memory never filters; the size rules do. Cost models are refitted
+  every 10 rows and **immediately after an OOM**, so a ceiling stops the very next larger job.
+- `COMPUTE_ROUTING` defaults to `shadow` (and to `off` under `NODE_ENV=test`). In `shadow` each submit logs one
+  `[routing:shadow] {...}` JSON line with the Decision. In `on`: a `reject` is **422 `CANNOT_RUN_HERE`** with the
+  engine's sentence; and a queued job is failed at **claim** time, with a reason and without starting, if an
+  out-of-memory ceiling at or below its size was learned while it waited. Jobs of unknown size are never judged.
+- The server's tools are reported from the same detectors that run them (`detectFoldxBinaryAndDir`,
+  `checkP2RankCapability`), cached 10 min; `verified` means "present" until a self-test exists. Read the shadow
+  log for a false "missing" before switching to `on`.
+- Out of memory = SIGKILL that Node did not send, exit 137, Java `OutOfMemoryError`, Node heap exhaustion,
+  `bad_alloc`/ENOMEM. FoldX reports it as "did not fit in memory on the server" (new `out-of-memory` failure kind,
+  checked before the Box64 crash text); for other tools the queue prefixes the same sentence.
+- Not done: admission **by running cost** (needs measured memory to mean anything); "one heavy job per host".
+
+**Where WP-E differs from section 7** (the code is the source of truth):
+- The cache keys already covered the coordinates actually used (FoldX: hash of the cleaned `effectiveWtPdb`;
+  P2Rank: hash of the exact text) plus mutation/residue, chain and conditions. **Tool version is added only when
+  a host reports one** (agents, WP-F), so every existing server cache entry stays valid; the server's bundled
+  FoldX/P2Rank are the versions those entries were computed with.
+- The leader/follower logic is now a reusable `JobRegistry`; FoldX keeps its function names, P2Rank uses
+  `pocketJobRegistry`. Every person who submits or joins is a watcher (WP-B), so one cancel never stops the run
+  for the others.
+- P2Rank now checks its result cache **before** queueing and answers a hit as an already-completed job (the
+  client's polling is unchanged; no queue slot). Before, every request queued a job, even for a cached result.
+- Provenance is the `computeProvenance` field on each stored result: `computedOn`, `hostClass`, `toolVersion`,
+  `ownerId`, and for agent results `shared` and `validated`. The queue stamps the job's own result with its owner;
+  the FoldX cache stamps what it stores. A result with no provenance predates this and is the server's.
+- The sharing rule is one pure function, `mayServe` (`src/shared/computeProvenance.ts`): server results go to
+  anyone; an agent result goes to its owner, and to others only when validated **and** shared. Both cache reads
+  (FoldX `getMutantFromCache(key, requesterId)`, P2Rank in the route) apply it. Agents do not exist yet, so today
+  every result is the server's; WP-F must stamp `shared` from the owner's `share_results` and `validated` from
+  `validateAgentResult`.
+- Still process-local: two replicas can both run the same job (unchanged; the reservation would have to move into
+  the shared store).
+
+**Where WP-F differs from section 7** (the code is the source of truth):
+- **Pairing is a code exchange.** `POST /agent/pair` (signed-in person) returns a six-character, single-use,
+  10-minute code (no 0/O/1/I/L), stored hashed; the agent trades it for its token at `POST /agent/pair/redeem`
+  (public, a sign-in write, throttled with the address limit of 20 per 15 min). The token is shown once.
+  `GET /me/agents` and `DELETE /me/agents/:id` list and disconnect a person's computers. A token stops working
+  the moment its owner is disabled, not only when revoked.
+- **The claim answers 200 `{job: null}`** instead of 204, so every answer carries `foldxBundleVersion`.
+- **What an agent may take, and when.** Only its OWNER's queued jobs, `placement` NULL or its own, a kind it has
+  a self-tested tool for, passing the engine's hard filters for that computer (`decidePlacement` with the
+  computer as the only host and the owner's `placement_pref`; `server_only` never claims). Nothing PLACES a job
+  on an agent yet (WP-G2), and an idle server claims a job within 50 ms, so today a computer takes its owner's
+  **backlog while the server is busy**. A job placed on an agent that goes offline is released by a one-minute
+  housekeeping sweep. A team FoldX copy whose version no longer matches the bundle is not offered FoldX work.
+- **Agent jobs are not server load.** Everywhere the queue measures the server (fair rotation, positions, wait
+  estimates, the load snapshot, `serverMsSince` and the daily cap, the 960 s reaper) rows with
+  `claimed_by = 'agent:%'` are excluded; `claimed_by` stays on a finished agent job so history is attributable.
+  Restart recovery leaves an agent's job alone while its lease is live.
+- **One rule for every hand-back.** A lost lease, any agent failure (whatever its class), an invalid result, or a
+  computer disconnecting hands the job to the server with `placement = 'server'`, so it is retried exactly once
+  and never re-offered to a computer. A computer is never trusted to FAIL a job: someone else may have joined it,
+  and the server's run gives the real answer. The 960 s reaper does not judge agent jobs; a job held past its cap
+  plus a minute is handed back too.
+- **The FoldX worker was split** at the portable seam (`services/stability/foldx-queue-job.ts`, behaviour
+  unchanged for the server): at an agent's claim the server starts RaSP and StabilityOracle, and when the
+  computer's validated FoldX result arrives it is finished (published early, companions awaited, enriched)
+  exactly like a server run. The lease is extended for that finishing so it cannot expire mid-way.
+- **`validateAgentResult`** (`agent-results.ts`): zod schemas (unknown keys dropped, never stored), finite and
+  bounded numbers (|ddG| <= 200), identity (the mutant structure has the requested residue type at the requested
+  residue and chain, and keeps >= 95% of the template's residues; the paired wild type has the wild-type
+  residue), P2Rank only as `success` with engine `p2rank` or `none_detected`, and a well-formed tool version on
+  the optional `AGENT_ACCEPTED_*_VERSIONS` list. Provenance `{computedOn: "agent", validated: true, shared:
+  owner's share_results}`. Cache keys carry the tool version only when it differs from the server's.
+- **Telemetry** for an agent attempt is keyed `<jobId>@agent:<id>`, so a later server run of the same job does not
+  erase what the computer's attempt taught (an out-of-memory death sets that computer class's ceiling). Lease
+  losses are counted in `agent_claims` (queue database) and give the engine its `leaseLossRate`.
+- **Team FoldX upload is `PUT /admin/tools/foldx/:platform` with a raw zip** and the header
+  `X-Foldx-Licence-Confirmed: yes`, not multipart (the app accepts only JSON bodies; this one path is exempted in
+  `validateContentType`, and a zip content type always needs a CORS preflight). The zip is checked before it is
+  stored: the program for that platform recognised by its executable header (PE / ELF / Mach-O), `molecules/`,
+  `rotabase.txt`, the build date. The same checker serves the agent's "drop your zip" step. Versions are a
+  monotonically increasing generation, so a revoke or re-upload always changes the number computers compare.
+- **Agent downloads**: `GET /me/agent-downloads` lists the zips in `AGENT_BUNDLE_DIR` (default
+  `data/agent-bundles`, on the data volume); the admin builds them with `npm run build:agent` and
+  `npm run build:agent-bundle -- --platform <p>` (portable Node 22.23.3 with its pinned SHA-256).
+- **Rate limits**: agent requests skip the per-address `apiLimiter` (a lab's computers share its NAT address with
+  its browsers) and get 120 per minute per computer; the FoldX bundle download 12 per hour per computer.
+- **Runtime downloads are pinned**: Temurin JRE 21.0.12.1+1 per platform (Adoptium's checksums) and P2Rank
+  2.6-alpha (the server's version, so pocket results share its cache keys; GitHub's published digest). A verified
+  download is reused if unpacking failed. On Windows the agent uses `System32\tar.exe`: Git's GNU tar, often first
+  on PATH, reads `C:\...` as a remote host (found in the real run below).
+
+**Verified for real on Windows (2026-10-11).** The bundled `dist/agent/agent.cjs`, as its own process with an empty
+home folder, against the real router in-process: paired by code; downloaded and hash-checked Java and P2Rank;
+ran P2Rank 2.6-alpha on 2OCJ (residue 175, 5 s); the result passed validation and completed the job as
+`computedOn: agent`. Then the team path: the admin uploaded the licensed Windows FoldX (checked, licence
+recorded), the computer installed it by itself, its self-test passed (FoldX 5.1), it ran 2OCJ R175H (23 s, phases
+reported through heartbeats), and the real output passed `validateAgentResult`. Not yet run for real: macOS and
+Linux bundles, a clean Windows machine without Git, and a browser walk of the two new settings screens.
 
 **How the client behaves** (`AccountGate`, mounted around `<App/>` in `main.tsx`):
 - `legacy` with no accounts, or a server without the account routes: the app exactly as before, with no
@@ -117,6 +262,37 @@ wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-
   (`resolveAlphaGenomeAccess` in the bridge): a request-supplied URL gets only a request-supplied key, and
   its answers stay out of the shared cache.
 
+**Review 3 (routing line), 2026-10-11 (WP-G1, WP-H, and the fixes from Review 2).** Four read-only reviewers
+(queue correctness, security, client UX, contracts/docs) on everything after Review 2 — `6573035`, `673eb16`,
+`981dc08`, `4c80cca` and the then-unmerged `feat/wp0-measure`. No critical defect and no regression from the
+five packages. (A separate round the same day covered the WP-0 remainder after #110 merged; its record is the
+**Review 3 (post-merge of #110)** note in the WP-0 section below, and it shipped the two findings both rounds
+reached independently — see below.) Fixed: a caller-chosen GPN URL that merely *mentioned* `.huggingface.co` was
+handed the server's `HF_TOKEN` (now only the configured endpoint receives it, `resolveGpnAccess`); a cancelled
+FoldX run read as "Failed — The calculation failed for this variant." in Energetics (a new `cancelled` engine
+state, so the panel and the result now agree); the FoldX wait estimate divided the work ahead by the *queue's*
+slots instead of the FoldX semaphore, reporting about a quarter of the real wait on the 2-core host; the badge
+missed a job started in the focused window (a submit announces, and `visibilitychange` refreshes); Settings
+promised queue headroom that an admin-set quota removes (`queuedPerUserExplicit` is now on `/auth/me`); the
+owner of a shared job was told "Stop this job" though stopping only withdrew their own interest (`watchers` on
+`JobSummary`); a cancel could leave no visible confirmation; the panel printed the queue's own error prose; the
+runbook contradicted `resolveFoldxConcurrency`; the spec published the write routes as unauthenticated and
+omitted the `409 STALE_STRUCTURE_REF` that `/pocket-finder` and `/nearest-residues` really return; and §0.4
+still listed shipped packages as outstanding.
+
+**Two findings this round shared with the WP-0 round, and where their fix landed.** A non-clean host probe ran
+its self-test inside the serialised submit chain, stalling **every** submitter for up to 60 s; and a
+lease-expiry timeout recorded no peak memory, losing the measurement on the ending most likely to be a memory
+runaway. Both were found independently by this round and by the WP-0 round, and **#111 shipped the fixes**
+(`serverToolsCached` on the submit path; the reaper reading the job's own meter), so this branch carries
+neither — two competing fixes for one bug would be worse than one.
+
+Left, by decision: `BIOPHYSICAL_CONCURRENCY` keeps its documented "explicit value wins" behaviour (the docs
+were wrong, not the code); the de-duplication join stays owner-blind until WP-F exists (finding S2, recorded as
+a WP-F prerequisite above); and the low-severity notes (a public uncapped `/jobs/events`, the public
+`/test-hf-connection` disclosing the server's HF account name, and test-quality gaps) are listed in the review's
+own report rather than fixed here.
+
 **Where WP-C's shipped contract differs from section 5** (the code is the source of truth; these are the
 places a later package would otherwise trip):
 - `Prediction.wallMs` is **nullable**. P2Rank has no timing prior, so before telemetry it is `null` and the
@@ -135,15 +311,90 @@ places a later package would otherwise trip):
   RAM to the nearest GiB (`x64-native-8c-16g`), so a machine reporting 15.6 GiB shares the 16 GB class.
 - `cost-models.ts` takes **rows, not a database**: `buildCostModels(TelemetrySample[])`. WP-0 owns the
   `job_telemetry` table and maps its rows to `TelemetrySample`. Only `completed` rows feed the curves and
-  `maxCompletedResidues`; only `oom` rows set `oomCeilingResidues` (two at the same size = `sticky`, see
-  `oomCeiling`).
+  `maxCompletedResidues`; only `oom` rows set `oomCeilingResidues`, and the ENFORCED ceiling is
+  `enforcedOomCeiling` — the **second-smallest** out-of-memory size, i.e. the smallest size at or below which
+  the host has died at least twice. One death is deliberately not enough (a single misclassified failure would
+  otherwise refuse every job of that size and larger for good). The older `oomCeiling` helper still exists but
+  nothing enforces it; do not build on it.
 - The conservative memory rule is applied as a **size** rule while memory is unmeasured: refuse above
   1.25 x the largest completed size, and never refuse a class with nothing completed (that would refuse
   every first job). "One heavy job per host" is an admission rule for WP-D, not a placement filter.
 - Priors: native BuildModel is a line through the two native measurements (2.3 s at 154, 4.7 s at 875);
   emulated BuildModel is `167.2 s x (residues/1085)^1.44` split 13.3 : 153.9 between fixed and per-run
-  (reproduces 167.2 s, the 44.0 s single run and ~10 s for SOD1); RepairPDB scales the 205 s / 489-residue
-  measurement (inferred to be the emulated host) and divides by 60 for native **[estimate]**.
+  (reproduces 167.2 s, the 44.0 s single run and ~10 s for SOD1). RepairPDB is ONE measured curve,
+  `49 s x (residues/154)^2.1`, through two **native** points (49 s at 154 from `compute:benchmark`; 205.4 s
+  at 305 from the `foldx/cache.ts` table, whose BuildModel column is native — not the emulated 489-residue
+  reading once assumed). The emulated repair prior reuses that curve times the same-size BuildModel
+  emulation penalty, so it is never faster than native **[emulated estimate]**.
+
+---
+
+**Review 2, 2026-10-10 (WP-B, WP-0/D, WP-E).** Four read-only reviewers (queue correctness, security, ops,
+tests/docs). Fixed: the queue running ONE job at a time on the 2-core server (shipped in WP-B; PR #104 restores
+4 slots and derives the FoldX limit); a ceiling is now enforced only after **two** out-of-memory deaths at or
+below the size, deaths older than 30 days are forgotten, and `DELETE /admin/compute/ceilings` clears them; a job
+we kill ourselves is never recorded as out of memory; the claim-time size check cannot crash the queue;
+telemetry records reaper timeouts, soft failures (a worker that resolves with `failed`/`unavailable`) as failed,
+and a job cancelled while finishing as cancelled; start times are strictly increasing, so queue positions match
+the claim order; submissions are serialised, so concurrent requests cannot jointly exceed a limit; the daily
+cap counts the estimates of jobs already waiting; an admin's cancel always stops the job; joining lifts only
+pre-warm priority; restart recovery clears agent lease fields; finished jobs are pruned after 14 days
+(`JOB_RETENTION_DAYS`) and telemetry after 180 (`TELEMETRY_RETENTION_DAYS`); a follower is never handed the
+leader's refusal; the host class is read once per process and the tool probe is single-flight; the P2Rank
+worker never reuses a private result from its cache and pocket cache entries carry provenance; poll responses,
+the broadcast stream and `/my-jobs` never show another person's account id; the shadow log uses a pseudonym and
+skips pre-warm; signed-in (credentialed) CORS is limited to exact origins (`corsDecision`); the engine tunables
+are read from the environment. Left, by decision: without accounts, anonymous work meets only the host backstop
+(turn accounts on); the cancel route distinguishes 404/403/409 (job ids are unguessable UUIDs); the newcomer
+reserve counts waiting jobs while the backstop also counts running ones; a P2Rank out-of-memory death falls back
+to fpocket and is not learned; `repaired` in telemetry is the plan at submit, not what ran; OpenAPI is WP-H.
+
+### 0.4 Consolidated status and next phases (2026-10-11, after WP-0 and Review 3)
+
+**Everything through WP-H is on `main`:** WP-A, WP-B, WP-C, WP-0 (core #100-series and the remainder #110), WP-D
+(in `shadow`), WP-E (#103, review fixes #105), WP-G1 (#106), WP-H (#109). **WP-F** is on `feat/wp-f-agent`
+(2026-10-11). The list below is what is still missing, so a later agent does not have to re-derive it from the
+per-package notes above.
+
+**Owner actions (not code):**
+1. Accounts rollout: `/setup`, invite the team, then `AUTH_MODE` legacy → hybrid → accounts, step by step in
+   `doc/ACCOUNTS.md`. Apply each change with `python3 deploy/rollout.py --restart --commit <serving sha>`.
+   Until then every job is `legacy`-owned: fairness, limits, my-jobs and usage are inactive in practice.
+2. Read a few days of `[routing:shadow]` lines (`docker logs`) before `COMPUTE_ROUTING=on`. Check: no line says
+   FoldX or P2Rank is missing on the server; how often the 1.25 x largest-completed size rule would refuse.
+
+**Gaps left on purpose, each with its home:**
+
+| Gap | Why it matters | Home |
+|---|---|---|
+| The server's own benchmark (`compute:benchmark` on the ARM host); emulated RepairPDB prior is still an estimate | priors for the server class | owner action, ACCOUNTS.md |
+| Admission by running cost; "one heavy job per host" | memory is measured per job now; the memory fit needs 8 MEASURED peaks (not weeks) before it replaces the size rule, which still applies | WP-D2 |
+| Nothing PLACES a job on a computer: a computer takes its owner's backlog only while the server is busy | the speed-up reaches people only when the server is loaded | WP-G2 |
+| The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
+| macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
+| Agent telemetry for a handed-back attempt is recorded, but nothing yet SHOWS a person their computer's speed | informational only | WP-G2 |
+| No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
+| De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
+| 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
+| Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
+
+**Who uses it today (2026-10-10):** the owner alone, with a team expected soon. Decision (owner): build in
+the team order below, as if colleagues were joining now. One owner action is still worth doing first, because
+it costs nothing with one user: create the admin account (`/setup`) and set `AUTH_MODE=accounts`, which closes
+the anonymous compute surface the security review flagged (in `legacy` mode anyone with the URL can queue jobs).
+
+**Next phases, in order:**
+
+1. **WP-F — agents** — done on `feat/wp-f-agent` (see 0.3 and WP-F), including Review 3's finding S2 (see the
+   WP-F notes).
+2. **WP-G2 — live routing** (agents in `HostFeatures[]`, placement shown before and during a run), then
+   `COMPUTE_ROUTING=on`.
+3. **WP-I — outbound governor**, I3 (team-wide 429 pause) first.
+
+Shipped since the previous revision of this list, so nobody rebuilds them: **WP-G1** (`/my-jobs`, cancel and the
+wait estimate reached the interface; #106) and **WP-H** (runbook, Cloudflare corrections, OpenAPI and
+`doc/API.md`; #109). **WP-0 remainder** (#110) added the process sampler, `compute:benchmark`, tool self-tests
+and measured memory; the only part left is an owner action — run `compute:benchmark` once on the server.
 
 ---
 
@@ -398,7 +649,7 @@ safety limits [proposed defaults, env-overridable, per-user overrides in `quota_
 | Mechanism | Behaviour |
 |---|---|
 | **Fair share (scheduler, WP-B)** | When nobody else is waiting, a user may use **every** free slot. When others are waiting, slots are shared round-robin, and a user over their share simply waits behind the others. No one is ever refused for using idle capacity. |
-| Queued jobs per user | 25, to stop a runaway script or a client bug from filling the queue. Message says how many are queued and how to cancel. |
+| Queued jobs per user | 25 **while others are waiting too** (a share); alone, up to the host backstop less a 5-job reserve for newcomers (as shipped, see 0.3). Stops a runaway script or a client bug from filling the queue for others. Message says how many are queued and why. An admin override is a fixed limit. |
 | Memory admission (WP-D) | Refuses or defers a job that would not fit the host's RAM, with the reason. This protects the host, not the budget. |
 | Requests per user per minute | 20 at the HTTP layer, same purpose. |
 | **Usage display, not enforcement** | Each user and the admin can see server seconds used (today, week). Informational. |
@@ -532,12 +783,14 @@ CREATE TABLE job_telemetry (
   error_class TEXT, tool_version TEXT, created_at INTEGER NOT NULL
 );
 ```
-- Peak RSS: sample the child process tree (FoldX, Java) at 1 s intervals; for the sidecar the route
-  reads its own RSS before and after. `host_class` is derived from `arch`, `emulated`, `cores`, total RAM bucket.
+- Peak RSS: sample the child process tree (FoldX, Java) at 1 s intervals (`process-sampler.ts`). The sidecar
+  is not a `JobType` and has no telemetry row, so its own RSS is **not** sampled — deferred, not done.
+  `host_class` is derived from `arch`, `emulated`, `cores`, total RAM bucket.
 - Fit: per (type, host_class), log-log regression of `wall_ms` and `peak_rss_bytes` on `residues`, with
   empirical p90 residual. Refit every 10 new samples, not per request. Plain and explainable, no black box.
-- Ceiling: an OOM at size S sets `maxResidues < S` for that class; two OOMs at the same size make it
-  sticky until a host with more RAM appears.
+- Ceiling: the enforced rule is the **second-smallest** out-of-memory size — two deaths at or below a size, not
+  two at the same size — so a single misclassified failure cannot refuse a class forever. Deaths older than
+  30 days are forgotten and an admin can clear the rest (`DELETE /admin/compute/ceilings`).
 
 ### 5.4 Shadow mode first
 
@@ -611,6 +864,49 @@ Acceptance
 - Telemetry rows are written for a completed and a failed job in an integration test.
 
 Out of scope: any routing change.
+
+**Done (2026-10-11, `feat/wp0-measure`).** Where it differs from the list above (the code is the source of truth):
+- **Memory.** `process-sampler.ts` sums a process TREE (P2Rank is a script that starts Java; FoldX on the server
+  runs under Box64): Linux reads `/proc/<pid>/status` and uses the kernel's own high-water mark `VmHWM`, so a
+  spike between samples is not missed; macOS uses one `ps`; Windows uses PowerShell CIM (`wmic` no longer
+  exists) every 2 s. The queue runs each job inside `runInJobMeter` (AsyncLocalStorage) and the two runners call
+  `meterChildProcess(child)`, so no worker signature changed. `peak_rss_bytes` is written for every ending that has
+  a meter — the in-process timeout and an out-of-memory death included; the ONE exception is a lease-expiry reap of
+  a job orphaned by another process, which has no meter and writes null. The engine uses the memory fit once a class
+  has 8 MEASURED peaks (cache hits do not count), and even then keeps the size guard; free memory honours the
+  container's limit (`process.availableMemory`), and a container reading of 0 is taken as 0, not the host's number.
+- **Self-tests, versions.** `host-probe.ts` runs each tool the way its runner does: FoldX with no command (it prints
+  its banner and ends with "Foldx will end" and exit code -1, which is its normal ending), P2Rank `-v` with the
+  runner's Java. Missing = cannot start; unverified = starts but fails; a self-test that only times out keeps the
+  tool usable (a busy host proves nothing). Versions go to telemetry (`tool_version`) and to `computeProvenance`.
+  A clean probe is kept for the process; it runs in the background at start-up and logs one `[host-probe]` line.
+  A bare `foldx` on PATH that cannot start is now missing, where before it was assumed present.
+- **FoldX licence date.** Academic builds are named for the day they stop working (`foldx_20261231`). The probe
+  reads that date, warns from 45 days before, and after the day has passed marks FoldX **failed** (so `on` refuses
+  its jobs); a binary whose name carries no date is reported as having no possible warning. **The Linux build in
+  `tools/foldx_linux` stops working on 2026-12-31.**
+- **Benchmark.** `npm run compute:benchmark` (bundled as `dist/compute-benchmark.cjs` for the container) measures
+  SOD1 154, GCK 465 (the ~489 slot) and SLC12A4 1,085 AlphaFold models, mutation in the middle of chain A;
+  RepairPDB where production repairs (<= 400 residues, or `--repair-all`). One JSON per host class in
+  `doc/compute-benchmark/`, rendered into `doc/COMPUTE_BENCHMARK.md` against the engine's CURRENT prior.
+  `scripts/lib/foldx-job.ts` is the job layout shared with `foldx-timing.ts`.
+- **Prior corrected.** RepairPDB is now ONE measured curve, `49 s x (residues/154)^2.1`, through two **native**
+  points (49 s at 154 from the benchmark; 205.4 s at 305 from `foldx/cache.ts`, whose BuildModel column is native).
+  The old prior divided a 205 s anchor by the ~60x BuildModel factor and predicted 0.6 s at 154 — ~76x too fast.
+  The emulated server's repair prior reuses that curve times the same-size emulation penalty (never faster than
+  native); the server benchmark replaces it. The native BuildModel line (5.4 s predicted, 17 s measured at 1,085
+  residues, one run) waits for more data; telemetry replaces it after 8 jobs.
+
+**Review 3, 2026-10-11 (post-merge of #110).** Five reviewers (GPT-5.6-Sol, Claude, DeepSeek V4.1 Flash) across four
+dimensions. The follow-ups landed on `fix/wp0-review-followups`: the `compute:benchmark -- <flags>` wrapper was fixed
+(it passed flags straight to `node -e`, which rejected them, so every documented invocation failed); RepairPDB became
+one native curve (above); an fpocket `fallback` is no longer stamped or recorded as P2Rank; the reaper writes a
+lease-expiry's peak; the memory fit needs MEASURED peaks and keeps the size guard; `freeRamBytes()` treats a zero
+container reading as zero; the FoldX licence date is authoritative; the submit path no longer waits on a self-test
+(stale tools are served and refreshed in the background); the tool timeout kills the whole process tree;
+`peak_rss_bytes` uses a high-water mark on Windows too; and the self-test mirrors the runner's batch invocation.
+Test gaps the review named that are still open: a test that the two runners actually CALL `meterChildProcess`
+(so deleting it fails the suite), a `measure()` test for the benchmark, and the joining-job peak above.
 
 ---
 
@@ -1021,6 +1317,31 @@ learn rates from observed 429s rather than guess.
 - `doc/API.md` and `server/services/infra/openapi.ts` for the new endpoints.
 - `.env.example` entries (check the root for the existing file name).
 
+**Done (2026-10-11, `docs/wp-h-ops`):**
+- `doc/ACCOUNTS.md`, the owner runbook: how access works, applying a setting, first admin, invites, the
+  `AUTH_MODE` cut-over and rollback, day-to-day admin, job limits, `COMPUTE_ROUTING` shadow → on, backups
+  and restore, a settings reference, the FoldX licence note. Linked from `README.md`, `doc/README.md`,
+  `doc/DEPLOY.md` and `doc/API.md`.
+- **Applying a setting had no safe path:** Compose reads `.env.oci` only when it creates a container, and
+  `rollout.py` returned "already serving" for the same revision, so the plan's "set it back and restart"
+  could only be done with `docker compose up`, which skips the drain. `rollout.py --restart` now runs the
+  full handover on the serving revision (`deploy/test_rollout.py` covers the order).
+- Cloudflare claims corrected in `README.md` and the owner's untracked `doc/DEPLOYMENT_OCI.md` (it is
+  deliberately not in the repository; CD preserves the host copy, so the owner copies the update there).
+  `deploy/setup-oci.sh` closed every web port for the tunnel design; the site worked only because
+  Docker-published ports bypass UFW. It now opens 80 and 443 for Caddy.
+- OpenAPI: the queued-compute, account, job and admin paths are in `server/services/infra/openapi-compute.ts`,
+  with a `SessionCookie` scheme. Three documented paths never existed (`/biophysical-analysis`,
+  `/find-pocket`, `/align-sequences`); they are replaced by the real `/generate-mutant`, `/foldx-job/{jobId}`,
+  `/pocket-finder` and `/pocket-job/{jobId}`. `server/routes/docs.test.ts` now fails on a documented route
+  the server does not register, and on an account, admin or job route missing from the spec.
+- `doc/API.md`: the `AUTH_MODE` rules, queued responses and refusals, and the account, job and admin routes.
+- `Caddyfile`: confirmed nothing caches the account routes (Caddy has no cache here, the app sends
+  `no-store`); a comment says so.
+- `.env.example`: concurrency, retention and the placement tunables.
+- **Not done, by decision:** `doc/AGENT.md` moves to WP-F, because it would describe a feature that does
+  not exist yet.
+
 ---
 
 ## 8. Environment variables introduced
@@ -1035,16 +1356,22 @@ learn rates from observed 429s rather than guess.
 | `SESSION_TTL_DAYS`, `SESSION_IDLE_HOURS` (password mode only) | 14, 24 | A |
 | `QUOTA_QUEUED_PER_USER` | 25 | A, B |
 | `QUOTA_SERVER_SECONDS_PER_DAY` | **unset (no daily cap)** | A, B |
+| `QUEUE_MAX_TOTAL` | 50 (waiting + running across everyone; the host backstop; a lone person may queue up to this minus 5) | B |
+| `BIOPHYSICAL_CONCURRENCY` | 4 (jobs running at once). Unset, FoldX is capped at `min(this, CPUs − 1)` — 1 on the 2-core server. **Set, FoldX gets exactly this value too**, so 4 there means 4 Box64 FoldX at once. | B |
+| `JOB_RETENTION_DAYS`, `TELEMETRY_RETENTION_DAYS` | 14, 180 (finished jobs, then timing records) | B, 0 |
 | `EGRESS_GOVERNOR` | `off` (then `shadow`, then `on`) | I |
 | `SHARED_TOKEN_FALLBACK` | `limited` (`on`, `limited`, `off`) | I |
 | `EGRESS_PROVIDER_LIMITS_JSON` | none; optional override of the registry's per-provider limits | I |
 | `AGENT_FOLDX_SOURCE` | `team` (falls back to `guided` automatically when no bundle is uploaded) | F |
 | `ADMIN_SETUP_SECRET` | none; enables `/setup` only while no user exists | A |
-| `COMPUTE_ROUTING` | `off` | C, D, G |
+| `COMPUTE_ROUTING` | `shadow` (logs only; `off` under test) — move to `on` after reviewing the log | C, D, G |
 | `COST_MODEL_MIN_SAMPLES` | 8 | C |
 | `ROUTING_RAM_HEADROOM`, `ROUTING_TIE_MARGIN` | 1.25, 0.20 | C |
 | `AGENT_LEASE_SEC`, `AGENT_HEARTBEAT_SEC` | 60, 20 | F |
 | `AGENT_SERVER_URL`, `AGENT_TOKEN`, `AGENT_MAX_RAM_GB`, `AGENT_PAUSE` | none | F (agent side) |
+| `AGENT_HOME`, `AGENT_PAGE_PORT` | `%LOCALAPPDATA%\MissenseAgent` or `~/.missense-agent`; a random loopback port | F (agent side) |
+| `TOOL_BUNDLES_DIR`, `AGENT_BUNDLE_DIR` | `data/tool-bundles`, `data/agent-bundles` | F |
+| `AGENT_ACCEPTED_FOLDX_VERSIONS`, `AGENT_ACCEPTED_P2RANK_VERSIONS` | none (any well-formed version) | F |
 
 ---
 

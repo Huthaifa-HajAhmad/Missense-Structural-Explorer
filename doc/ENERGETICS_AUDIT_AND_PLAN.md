@@ -1593,7 +1593,7 @@ node scratch/validate-rasp-parse.mjs
 
 # Environment: no local ML sidecar, no Tamarind key
 GET http://127.0.0.1:8000/health -> connection refused
-.env: GEMINI_API_KEY, OCR_API_KEY, APP_API_TOKEN, APP_SESSION_SECRET,
+.env: GEMINI_API_KEY, APP_API_TOKEN, APP_SESSION_SECRET,
       GENOS_EMAIL, GENOS_ACCESS_KEY   (no TAMARIND_API_KEY, no SIDECAR_SECRET)
 
 # Consensus arithmetic check for the observed DynaMut2 = -0.09

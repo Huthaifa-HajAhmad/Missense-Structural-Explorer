@@ -54,45 +54,146 @@ export function buildFoldxCacheKey(
 }
 
 /**
- * In-flight FoldX queue jobs by cache key — PROCESS-LOCAL, and that is a LIMITATION rather than a
- * design property.
+ * In-flight queue jobs by cache key, with single-flight submission — one instance per tool.
  *
- * The queue's own store is shared: the SQLite backend keeps every job in `data/shared_state.sqlite`
- * and the BullMQ backend keeps them in Redis, so a job id minted here is perfectly readable by
- * another process — the id is NOT process-bound. What is process-bound is this map (and the
- * reservation below), so a second replica does not see that a run is already in flight and can
- * submit the same run again. Closing that needs the reservation itself in the shared store, which is
- * a queue-level change rather than something this module can do.
- */
-export const activeFoldxJobs = new Map<string, string>();
-
-export function getActiveFoldxJobId(cacheKey: string): string | undefined {
-  return activeFoldxJobs.get(cacheKey);
-}
-
-export function registerActiveFoldxJob(cacheKey: string, jobId: string): void {
-  activeFoldxJobs.set(cacheKey, jobId);
-}
-
-/**
- * Removes the entry only when it still points at `jobId`.
+ * Written for FoldX first; P2Rank uses a second instance (`pocketJobRegistry`) so two people asking for
+ * the same pocket at the same time share one job too (WP-E). The FoldX functions below keep their names
+ * and delegate to `foldxJobRegistry`.
  *
- * Owner-checked because two callers can share a key across time: if a pre-warm's entry was cleared
- * as stale and an interactive request registered its own job under the same key, the pre-warm's
- * cleanup must not delete the interactive request's entry and let a third job start.
+ * PROCESS-LOCAL, and that is a LIMITATION rather than a design property. The queue's own store is
+ * shared (SQLite file, or Redis for BullMQ), so a job id minted here is readable by another process;
+ * what is process-bound is this registry, so a second replica does not see that a run is already in
+ * flight and can submit it again. Closing that needs the reservation in the shared store.
  */
-export function releaseActiveFoldxJob(cacheKey: string, jobId: string): boolean {
-  if (activeFoldxJobs.get(cacheKey) !== jobId) return false;
-  return activeFoldxJobs.delete(cacheKey);
-}
-
-export function resetActiveFoldxJobs(): void {
-  activeFoldxJobs.clear();
+export class JobRegistry {
+  /** Registered queue job per cache key. */
+  readonly active = new Map<string, string>();
   /**
-   * The reservation map is cleared with it. A leader still in flight will find its entry gone and
-   * simply not delete anything — its promise is unaffected, and its job id is still registered.
+   * PER-KEY SINGLE-FLIGHT RESERVATIONS. The registration map can only answer for jobs that already
+   * EXIST; creating one is not synchronous (an `await` separates the read from the enqueue), so two
+   * concurrent callers would both read "nothing in flight" and both enqueue. The first caller for a
+   * key becomes the LEADER and records its in-flight promise here; later callers wait for it and then
+   * resolve themselves against the queue, reporting the leader's job as a JOIN.
    */
-  pendingSubmissions.clear();
+  private readonly pending = new Map<string, Promise<FoldxSubmitOrJoinResult>>();
+
+  get(cacheKey: string): string | undefined {
+    return this.active.get(cacheKey);
+  }
+
+  register(cacheKey: string, jobId: string): void {
+    this.active.set(cacheKey, jobId);
+  }
+
+  /**
+   * Removes the entry only when it still points at `jobId`: two callers can share a key across time,
+   * and one's cleanup must not delete the other's registration and let a third job start.
+   */
+  release(cacheKey: string, jobId: string): boolean {
+    if (this.active.get(cacheKey) !== jobId) return false;
+    return this.active.delete(cacheKey);
+  }
+
+  /** A leader still in flight finds its entry gone and simply deletes nothing. */
+  reset(): void {
+    this.active.clear();
+    this.pending.clear();
+  }
+
+  /**
+   * The job registered for `cacheKey`, if it is still queued or running. Clears the entry when the job
+   * has settled or vanished, which makes the map self-healing rather than a permanent block.
+   */
+  private async readRegistered(
+    cacheKey: string,
+    queue: FoldxQueueLike,
+    mayJoin?: (jobId: string) => boolean,
+  ): Promise<FoldxSubmitOrJoinResult | null> {
+    const existingJobId = this.active.get(cacheKey);
+    if (!existingJobId) return null;
+
+    const statusInfo = await queue.getJobStatus(existingJobId);
+    if (!statusInfo || (statusInfo.status !== "queued" && statusInfo.status !== "running")) {
+      this.release(cacheKey, existingJobId);
+      return null;
+    }
+    // Running on someone's own computer, and its result may not be given to this caller (Review 3, S2):
+    // not joinable. The caller then runs its own job, which becomes the registered one for the key.
+    if (mayJoin && !mayJoin(existingJobId)) return null;
+
+    const jobData = await queue.getJobData(existingJobId);
+    return {
+      queueJobId: existingJobId,
+      joined: true,
+      status: statusInfo.status,
+      startedAt: statusInfo.startedAt ?? null,
+      phase: typeof jobData?.phase === "string" ? jobData.phase : null,
+      jobData
+    };
+  }
+
+  /**
+   * Joins an in-flight job for `cacheKey`, or enqueues one — never two.
+   *
+   * `enqueue` is called ONLY by the leader, and only when nothing is registered and no other caller is
+   * already submitting this key, so it owns whatever is specific to a new submission.
+   *
+   * LIFECYCLE:
+   *   leader    → enqueue, register, return `joined: false`; clears its own reservation on settle.
+   *   follower  → await the leader, then re-read the queue so it reports that job's REAL state.
+   *   degenerate→ the leader's job settled before the follower could read it: the follower still
+   *               reports `joined: true` for that job id rather than enqueueing a second one.
+   */
+  async submitOrJoin(params: {
+    cacheKey: string;
+    queue: FoldxQueueLike;
+    enqueue: () => Promise<string>;
+    /** Whether this caller may be given that job's result (owner-aware for agent jobs, WP-F). Omitted: always. */
+    mayJoin?: (jobId: string) => boolean;
+  }): Promise<FoldxSubmitOrJoinResult> {
+    const { cacheKey, queue, enqueue, mayJoin } = params;
+
+    const registered = await this.readRegistered(cacheKey, queue, mayJoin);
+    if (registered) return registered;
+
+    const leaderInFlight = this.pending.get(cacheKey);
+    if (leaderInFlight) {
+      let leader: FoldxSubmitOrJoinResult;
+      try {
+        leader = await leaderInFlight;
+      } catch {
+        // The leader's submission was refused (its own limit, admission). That refusal is about the
+        // leader, so this caller tries for itself rather than reporting someone else's limit.
+        if (this.pending.get(cacheKey) === leaderInFlight) this.pending.delete(cacheKey);
+        return this.submitOrJoin(params);
+      }
+      const registeredAfterLeader = await this.readRegistered(cacheKey, queue, mayJoin);
+      if (registeredAfterLeader) return registeredAfterLeader;
+      if (mayJoin && !mayJoin(leader.queueJobId)) {
+        const queueJobId = await enqueue();
+        this.register(cacheKey, queueJobId);
+        return { queueJobId, joined: false, status: null, startedAt: null, phase: null, jobData: null };
+      }
+      // Settled between registration and this read: its record still decides ownership (`prewarm`).
+      const jobData = await queue.getJobData(leader.queueJobId);
+      return { ...leader, joined: true, jobData };
+    }
+
+    const attempt = (async (): Promise<FoldxSubmitOrJoinResult> => {
+      const queueJobId = await enqueue();
+      this.register(cacheKey, queueJobId);
+      return { queueJobId, joined: false, status: null, startedAt: null, phase: null, jobData: null };
+    })();
+
+    // Recorded synchronously, before the leader's first `await` yields, so no follower slips past it.
+    this.pending.set(cacheKey, attempt);
+
+    try {
+      return await attempt;
+    } finally {
+      if (this.pending.get(cacheKey) === attempt) this.pending.delete(cacheKey);
+    }
+  }
 }
 
 export interface FoldxQueueStatus {
@@ -121,110 +222,35 @@ export interface FoldxSubmitOrJoinResult {
   jobData: any | null;
 }
 
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- * PER-KEY SINGLE-FLIGHT RESERVATIONS — process-local
- * ─────────────────────────────────────────────────────────────────────────────
- * The registration map can only answer for jobs that already EXIST. It cannot reserve a job that is
- * still being created, and creating one is not synchronous: `activeFoldxJobs.get()` and the enqueue
- * are separated by an `await`. Two concurrent callers for one request therefore both read "nothing in
- * flight" and both enqueue — a check-then-act race of exactly the kind the map was introduced to
- * remove, one level up.
- *
- * So the reservation is explicit: the first caller for a key becomes the LEADER and records its
- * in-flight promise here; every later caller waits for that promise and then resolves itself against
- * the queue, reporting the leader's job as a JOIN.
- *
- * Scope: this map is PROCESS-LOCAL, like the registration map. Two processes (two replicas sharing
- * the queue's store) can still submit the same run concurrently; only a reservation in the shared
- * store could prevent that.
- */
-const pendingSubmissions = new Map<string, Promise<FoldxSubmitOrJoinResult>>();
+/** FoldX runs: the interactive path and the pre-warm submit through this one instance. */
+export const foldxJobRegistry = new JobRegistry();
+/** P2Rank pocket runs (WP-E). */
+export const pocketJobRegistry = new JobRegistry();
 
-/**
- * Reads the job registered for `cacheKey`, if it is still queued or running.
- *
- * Returns null — and clears the entry — when the recorded job has settled or vanished, which is what
- * makes the map self-healing rather than a permanent block after a crash.
- */
-async function readRegisteredJob(cacheKey: string, queue: FoldxQueueLike): Promise<FoldxSubmitOrJoinResult | null> {
-  const existingJobId = activeFoldxJobs.get(cacheKey);
-  if (!existingJobId) return null;
+export const activeFoldxJobs = foldxJobRegistry.active;
 
-  const statusInfo = await queue.getJobStatus(existingJobId);
-  if (!statusInfo || (statusInfo.status !== "queued" && statusInfo.status !== "running")) {
-    releaseActiveFoldxJob(cacheKey, existingJobId);
-    return null;
-  }
-
-  const jobData = await queue.getJobData(existingJobId);
-  return {
-    queueJobId: existingJobId,
-    joined: true,
-    status: statusInfo.status,
-    startedAt: statusInfo.startedAt ?? null,
-    phase: typeof jobData?.phase === "string" ? jobData.phase : null,
-    jobData
-  };
+export function getActiveFoldxJobId(cacheKey: string): string | undefined {
+  return foldxJobRegistry.get(cacheKey);
 }
 
-/**
- * Joins an in-flight FoldX job for `cacheKey`, or enqueues one — never two.
- *
- * `enqueue` is called ONLY by the leader, and only when nothing is registered and no other caller is
- * already submitting this key, so it owns whatever is specific to a new submission (audit logging,
- * the job payload).
- *
- * LIFECYCLE (leader and followers differ, deliberately):
- *   leader    → enqueue, register, return `joined: false`; clears its own reservation on settle.
- *   follower  → await the leader, then re-read the queue so it reports that job's REAL state
- *               (`joined: true`, with status/phase/data).
- *   degenerate→ the leader's job settled before the follower could read it: the follower still
- *               reports `joined: true` for that job id rather than enqueueing a second one, because
- *               it did not create that job and must not take ownership of its remote engines.
- */
-export async function submitOrJoinFoldxJob(params: {
+export function registerActiveFoldxJob(cacheKey: string, jobId: string): void {
+  foldxJobRegistry.register(cacheKey, jobId);
+}
+
+export function releaseActiveFoldxJob(cacheKey: string, jobId: string): boolean {
+  return foldxJobRegistry.release(cacheKey, jobId);
+}
+
+export function resetActiveFoldxJobs(): void {
+  foldxJobRegistry.reset();
+}
+
+/** Joins an in-flight FoldX job for `cacheKey`, or enqueues one — never two. See `JobRegistry.submitOrJoin`. */
+export function submitOrJoinFoldxJob(params: {
   cacheKey: string;
   queue: FoldxQueueLike;
   enqueue: () => Promise<string>;
+  mayJoin?: (jobId: string) => boolean;
 }): Promise<FoldxSubmitOrJoinResult> {
-  const { cacheKey, queue, enqueue } = params;
-
-  const registered = await readRegisteredJob(cacheKey, queue);
-  if (registered) return registered;
-
-  const leaderInFlight = pendingSubmissions.get(cacheKey);
-  if (leaderInFlight) {
-    const leader = await leaderInFlight;
-    const registeredAfterLeader = await readRegisteredJob(cacheKey, queue);
-    if (registeredAfterLeader) return registeredAfterLeader;
-    /**
-     * The leader's job is no longer queued/running — it settled between registration and this read.
-     * Its record still carries the facts that decide ownership (notably `prewarm`), so the record is
-     * fetched rather than guessed, and the caller is told it joined a job it did not create.
-     */
-    const jobData = await queue.getJobData(leader.queueJobId);
-    return { ...leader, joined: true, jobData };
-  }
-
-  const attempt = (async (): Promise<FoldxSubmitOrJoinResult> => {
-    const queueJobId = await enqueue();
-    registerActiveFoldxJob(cacheKey, queueJobId);
-    return { queueJobId, joined: false, status: null, startedAt: null, phase: null, jobData: null };
-  })();
-
-  /**
-   * Recorded synchronously, in the same turn as the enqueue call: the leader's body runs up to its
-   * first `await` before any other caller can observe this key, so no follower can slip past it.
-   */
-  pendingSubmissions.set(cacheKey, attempt);
-
-  try {
-    return await attempt;
-  } finally {
-    // Only the leader clears it, and only if the entry is still its own.
-    if (pendingSubmissions.get(cacheKey) === attempt) {
-      pendingSubmissions.delete(cacheKey);
-    }
-  }
+  return foldxJobRegistry.submitOrJoin(params);
 }

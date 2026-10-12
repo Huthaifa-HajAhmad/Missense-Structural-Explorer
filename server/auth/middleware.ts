@@ -21,7 +21,16 @@ import { isAgentPath, resolvePrincipal, type Principal } from "./principal.ts";
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /** Writes that must work while signed out, or nobody could ever sign in. Paths without `/api/v1`. */
-export const SIGN_IN_WRITES = new Set(["/auth/login", "/auth/logout", "/auth/accept-invite", "/auth/invite-info", "/auth/reset", "/setup"]);
+export const SIGN_IN_WRITES = new Set([
+  "/auth/login",
+  "/auth/logout",
+  "/auth/accept-invite",
+  "/auth/invite-info",
+  "/auth/reset",
+  "/setup",
+  // A computer being paired has no token yet; the one-time code it presents is its credential.
+  "/agent/pair/redeem",
+]);
 
 export const SIGN_IN_REQUIRED_MESSAGE =
   "Sign in to run this. If you do not have an account, ask your workspace admin for an invite link.";
@@ -52,9 +61,10 @@ function allowedOrigins(req: express.Request): Set<string> {
 
 /**
  * CSRF for cookie-authenticated writes: the body must be JSON (`validateContentType`) AND, when the
- * browser sends an Origin, it must be this site's. CORS here accepts any `*.duckdns.org` origin
- * with credentials, so this exact-match check — not CORS — is what stops another DuckDNS site from
- * acting as a signed-in user.
+ * browser sends an Origin, it must be this site's. CORS grants credentials to exact origins only
+ * (`corsDecision`, express-config.ts), but still answers other `*.duckdns.org` and
+ * `*.trycloudflare.com` origins without them; this exact-match check is the second, independent
+ * guard against another site acting as a signed-in user.
  */
 export function crossSiteWrite(req: express.Request): boolean {
   if (!UNSAFE_METHODS.has(req.method)) return false;

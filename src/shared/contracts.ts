@@ -1393,7 +1393,9 @@ export const conservationDataSchema = z.object({
       masked: z.number().nullable().optional(),
       /** True when the model ran for this request rather than a table answering. */
       computedLive: z.boolean().optional(),
-      annotationSet: z.string().nullable().optional()
+      annotationSet: z.string().nullable().optional(),
+      /** The transcript the model's own annotation names, when the service answered for one. */
+      transcriptId: z.string().nullable().optional()
     }).optional()
   }).nullable().optional(),
   /**
@@ -1476,6 +1478,8 @@ export const generateMutantResponseSchema = z.object({
    */
   elapsedMs: nullableFiniteNumber.optional(),
   queuedAhead: nullableFiniteNumber.optional(),
+  /** Estimated wait before the job starts, in ms; null when the server has no estimate for what is ahead. */
+  queuedEtaMs: nullableFiniteNumber.optional(),
   energetics: energeticsDataSchema.optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),

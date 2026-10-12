@@ -138,7 +138,9 @@
   border: 1px solid var(--cs-border);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
-.settings-theme-option:hover .settings-theme-frame { border-color: var(--cs-text-muted); }
+@media (hover: hover) and (pointer: fine) {
+  .settings-theme-option:hover .settings-theme-frame { border-color: var(--cs-text-muted); }
+}
 .settings-theme-option.is-selected .settings-theme-frame {
   border-color: var(--cs-accent-clay);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-accent-clay) 22%, transparent);
@@ -195,7 +197,9 @@
   background: color-mix(in srgb, var(--cs-text-muted) 22%, var(--st-card));
   border-color: transparent;
 }
-.settings-dialog .cs-switch:not([data-checked="true"]):hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .settings-dialog .cs-switch:not([data-checked="true"]):hover:not(:disabled) {
   background: color-mix(in srgb, var(--cs-text-muted) 32%, var(--st-card));
+}
 }
 .settings-dialog .cs-switch-thumb { background: #fff; }

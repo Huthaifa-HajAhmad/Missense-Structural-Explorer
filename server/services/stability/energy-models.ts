@@ -862,6 +862,9 @@ export function enrichBiophysicalResult(
   const consensusVerdict = calResult.consensusVerdict;
 
   return {
+    // Where the FoldX result was computed (WP-E/F): the server or the owner's own computer. Carried through
+    // this whitelist so the poll response can say so; `withProvenanceFor` hides the owner from others.
+    ...(foldxRawResult?.computeProvenance ? { computeProvenance: foldxRawResult.computeProvenance } : {}),
     pdb: finalPdb,
     // FoldX's paired wild type from the same BuildModel run; null for results cached before it was kept.
     wtReferencePdb: typeof foldxRawResult?.wtReferencePdb === "string" ? foldxRawResult.wtReferencePdb : null,

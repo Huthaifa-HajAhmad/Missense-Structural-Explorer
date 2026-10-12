@@ -48,6 +48,21 @@ container makes preflight refuse the update because its origin topology cannot b
 Supporting that profile requires routing it through the stable Caddy proxy and adding a verified
 preflight for that topology. Until then, tunnel deployments require planned maintenance.
 
+## Applying a changed setting
+
+Compose reads `deploy/.env.oci` only when it creates a container, and a same-revision run of the
+driver is a no-op. To apply an edited setting (`AUTH_MODE`, a quota, `COMPUTE_ROUTING` …) without
+cutting off running work, hand over to a fresh generation of the serving revision:
+
+```bash
+python3 deploy/rollout.py --restart --commit "$(git rev-parse HEAD)"
+```
+
+It is the full handover above: warm, switch, drain, activate, retire. The proxy switch is still
+verified through Caddy's admin configuration; the public version check can only confirm the
+revision, which both generations share. Do not use `docker restart` (it keeps the old environment)
+or `docker compose up` (it skips the drain).
+
 ## Observe and recover
 
 `deploy/runtime/rollout.json` is an atomic, credential-free journal containing the revision,
@@ -72,6 +87,26 @@ their owner; the deployment cannot rotate user-provided credentials.
 Shared database migrations must remain backward-compatible across the overlap. Breaking schema
 changes require a maintenance migration rather than a handover. Large model changes may require
 more memory or a separate sidecar deployment; do not weaken readiness to force an update.
+
+## Failures that must not be silent
+
+A push deploy returns from GitHub in seconds and the work continues on the host, so a step that
+fails minutes later is **not** a red CI run. Two guards close the gap:
+
+- **Disk headroom, before the build.** `rollout.py` reclaims build cache and container-unreferenced
+  images, then refuses to start a build unless at least `MSE_MIN_FREE_DISK_MB` (default 20480) is
+  free on `MSE_DISK_PATH` (default `/`). The image export rewrites every layer, and on 2026-10-10
+  it filled the volume *after* the runner had returned: every deploy died at the final unpack with
+  `no space left on device` while CD showed success. The guard turns that eight-minutes-in death
+  into an immediate, named refusal and leaves the serving generation untouched.
+- **Drift watch.** `.github/workflows/deploy-drift.yml` (hourly + manual) compares the public
+  `/api/v1/version` commit against the tip of `main` and fails when a revision CD reported as
+  deployed is not actually live. A run still in progress, or one inside the 45-minute grace window,
+  is a notice rather than a failure. A red run here is the signal that the on-host log
+  (`~/mse-deploy-*.log`) and `deploy/runtime/rollout.json` are worth reading.
+
+When either guard fires, the fix is on the host, not another push: free disk or repair the handover,
+then redeploy the same commit.
 
 Run the driver failure-path tests with `python -m unittest discover -s deploy -p 'test_rollout.py'`.
 Queue handover, persisted roles, and loopback control regression tests run in the normal Vitest

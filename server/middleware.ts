@@ -37,9 +37,20 @@ export function requestLogger(req: express.Request, res: express.Response, next:
   next();
 }
 
+/**
+ * The one write that is not JSON: an admin uploading the team's FoldX bundle as a raw zip (WP-F,
+ * routes/agent.ts). A zip content type is not a "simple" one, so a cross-site page cannot send it
+ * without a CORS preflight, and the route also requires an admin session and an explicit licence header.
+ */
+const RAW_ZIP_UPLOAD = /^\/(?:api\/v1\/)?admin\/tools\/foldx\/[a-z0-9]+$/i;
+
+function isRawZipUpload(req: express.Request): boolean {
+  return req.method === "PUT" && RAW_ZIP_UPLOAD.test(req.path) && Boolean(req.is(["application/zip", "application/octet-stream"]));
+}
+
 // Content-Type validation middleware (A-4)
 export const validateContentType = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH") && !req.is("application/json")) {
+  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH") && !req.is("application/json") && !isRawZipUpload(req)) {
     sendError(res, 415, "UNSUPPORTED_MEDIA_TYPE", "Request body must be application/json.");
     return;
   }
@@ -152,6 +163,9 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => getClientIp(req),
+  // A paired computer has its own per-agent limit (`agentLimiter`, routes/agent.ts). It sits behind the
+  // same lab NAT address as its owner's browser, and its long polls must not use up the browser's budget.
+  skip: (req) => req.principal?.kind === "agent",
   message: {
     error: {
       code: "RATE_LIMITED",

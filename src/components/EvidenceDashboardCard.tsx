@@ -187,7 +187,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
             </div>
 
             {/* Skeleton cards row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4">
               {[1, 2, 3].map(i => (
                 <div key={i} className="p-4 rounded-xl border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
                   <div className="h-2 w-24 rounded animate-pulse mb-4" style={{ background: "var(--cs-surface-2)" }} />
@@ -201,7 +201,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
             </div>
 
             {/* Skeleton second row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4">
               {[1, 2].map(i => (
                 <div key={i} className="p-4 rounded-xl border" style={{ background: "var(--cs-surface)", borderColor: "var(--cs-border)" }}>
                   <div className="h-2 w-20 rounded animate-pulse mb-3" style={{ background: "var(--cs-surface-2)" }} />

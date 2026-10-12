@@ -428,7 +428,6 @@
 
 /* ── Narrow column: drop the identifier column, keep everything else ── */
 @container (max-width: 640px) {
-  .lit-screen { padding: 16px 12px 32px; }
   .lit-col-id { display: none; }
   .lit-table td { padding-left: 12px; padding-right: 12px; }
   .lit-table thead th { padding-left: 12px; padding-right: 12px; }
@@ -568,4 +567,5 @@
 .lit-empty__body { max-inline-size: 65ch; }
 @media (hover: hover) and (pointer: fine) { .lit-coverage__rows > button:hover { background: var(--cs-surface-2); } }
 @container (inline-size < 35rem) { .lit-coverage__rows > button { grid-template-columns: minmax(0, 1fr) 5rem; gap: .5rem; } .lit-coverage__track { grid-column: 1 / -1; grid-row: 2; } .lit-coverage__rows > button > .lit-mono { grid-column: 2; grid-row: 1; } .lit-meta, .lit-chips, .lit-open-paper { margin-inline-start: 0; } .lit-table td.lit-col-year { padding-inline: .5rem; } .lit-table td.lit-col-pin { padding-inline: .25rem; } }
-@media print { .lit-coverage, .lit-search-facts > summary, .lit-inspect-paper { display: none; } }
+.lit-link[aria-disabled='true'], .lit-curated-chip[aria-disabled='true'] { color: var(--cs-text-muted); cursor: default; }
+@media print { .lit-coverage, .lit-inspect-paper { display: none; } .lit-search-facts::details-content { display: block; content-visibility: visible; } }

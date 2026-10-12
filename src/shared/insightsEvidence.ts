@@ -167,6 +167,14 @@ export interface InsightsEvidence {
   glossary: Array<{ term: string; text: string }>;
 }
 
+/** Resolve the recorded criterion before falling back to its canonical family. */
+export function criterionForLane(evidence: InsightsEvidence, lane: Pick<Lane, 'code'>) {
+  const code = lane.code;
+  if (!code) return undefined;
+  return evidence.criteria.find(c => c.code === code)
+    ?? evidence.criteria.find(c => baseAcmgCode(c.code) === baseAcmgCode(code));
+}
+
 // ── Strength vocabulary ──────────────────────────────────────────────────────────────────────────
 
 const STRENGTH_WORD: Record<number, string> = { 8: "Very strong", 4: "Strong", 2: "Moderate", 1: "Supporting" };

@@ -1,10 +1,11 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useSettings } from "../../../context/SettingsContext";
 import { useApiClient } from "../../../apiClient";
 import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 import { SPLICEAI_WINDOWS, describeSpliceAiFailure, type SplicingEvidence } from "../../../shared/splicingEvidence";
 import type { SpliceAiScoreRequest } from "../../../shared/contracts";
 import type { AnalysisResult } from "../../../types";
+import { spliceRequestIdentity } from '../../../shared/splicingWorkspace';
 
 /**
  * The SpliceAI window, where the reader is looking at it.
@@ -54,20 +55,28 @@ export function SpliceWindowControl({
   ev: SplicingEvidence;
   disabled?: boolean;
 }) {
+  return <SpliceWindowRequest key={spliceRequestIdentity(result)} result={result} ev={ev} disabled={disabled} />;
+}
+
+function SpliceWindowRequest({ result, ev, disabled }: { result: AnalysisResult; ev: SplicingEvidence; disabled?: boolean }) {
   const { settings, updateSetting } = useSettings();
   const { fetchWithAuth } = useApiClient();
   const [target, setTarget] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A late reply for a window the reader has already moved off must not land.
   const latest = useRef(0);
+  useEffect(() => () => { latest.current++; }, []);
+  const identity = spliceRequestIdentity(result);
 
   // `genomicCoordinates` and `assembly` ride on the payload's metadata beyond its declared type (as the rail reads them).
   const md: { genomicCoordinates?: string | null; assembly?: string | null } = (result as any).metadata ?? {};
   const coordinates = md.genomicCoordinates ?? null;
   const assembly = assemblyOf(md.assembly);
-  const scoredWindow = ev.spliceai.provenance?.source === "broad-lookup" ? ev.spliceai.provenance.distanceBp : null;
-  const selected =
-    target ?? (scoredWindow !== null && (SPLICEAI_WINDOWS as readonly number[]).includes(scoredWindow) ? scoredWindow : settings.spliceaiWindow ?? 500);
+  const scoredWindow = ev.spliceai.provenance?.distanceBp ?? null;
+  // A saved default is a request preference, never provenance for an existing score.
+  const selected = target ?? scoredWindow;
+  const retained = ev.rule.maxDs === null ? 'No score was replaced.' : ev.spliceai.windowText === 'Not stated'
+    ? 'Kept the previous score; its reporting window is not stated.' : `Kept ${ev.spliceai.windowText}.`;
   const busy = target !== null;
   const unavailable = !coordinates || Boolean(disabled);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -89,16 +98,20 @@ export function SpliceWindowControl({
       if (!json.attempted) {
         setError("SpliceAI was not asked: this coordinate's genome build is not one its service covers.");
       } else if (json.spliceai) {
+        if (json.distance !== distance || json.spliceai.provenance?.distanceBp !== distance) {
+          setError(`${retained} The response did not identify the requested reporting window.`);
+          return;
+        }
         updateSetting?.("spliceaiWindow", distance);
         const store = useVariantAnalysisStore.getState();
         store.setAnalysisState((prev: any) =>
-          prev?.result?.conservationData ? { ...prev, result: { ...prev.result, conservationData: mergeSpliceAiRescore(prev.result.conservationData, json) } } : prev
+          prev?.result && spliceRequestIdentity(prev.result) === identity ? { ...prev, result: { ...prev.result, conservationData: mergeSpliceAiRescore(prev.result.conservationData ?? {}, json) } } : prev
         );
       } else {
-        setError(`Kept ±${scoredWindow ?? settings.spliceaiWindow ?? 500} bp. ${json.spliceaiFailure ? describeSpliceAiFailure(json.spliceaiFailure) : "SpliceAI returned no score at that window."}`);
+        setError(`${retained} ${json.spliceaiFailure ? describeSpliceAiFailure(json.spliceaiFailure) : "SpliceAI returned no score at that window."}`);
       }
     } catch (err: any) {
-      if (mine === latest.current) setError(`Kept ±${scoredWindow ?? settings.spliceaiWindow ?? 500} bp. ${err?.message ?? "The re-score failed."}`);
+      if (mine === latest.current) setError(`${retained} ${err?.message ?? "The re-score failed."}`);
     } finally {
       if (mine === latest.current) setTarget(null);
     }
@@ -119,7 +132,7 @@ export function SpliceWindowControl({
     optionRefs.current[next]?.focus();
   };
   // One tab stop for the group: the selected option, or the first when none is.
-  const stop = Math.max(0, (SPLICEAI_WINDOWS as readonly number[]).indexOf(selected));
+  const stop = Math.max(0, (SPLICEAI_WINDOWS as readonly number[]).indexOf(selected ?? settings.spliceaiWindow ?? 500));
 
   return (
     <div className="spl-window" data-testid="splice-window">
@@ -144,7 +157,7 @@ export function SpliceWindowControl({
         ))}
       </div>
       <span className="spl-window__status" role="status" aria-live="polite" data-error={error ? true : undefined}>
-        {busy ? `Re-scoring at ±${target}…` : error ?? (unavailable && !coordinates ? "No genomic coordinate to re-score" : "")}
+        {busy ? `Re-scoring at ±${target}…` : error ?? (unavailable && !coordinates ? "No genomic coordinate to re-score" : scoredWindow === null ? 'Current reporting window not stated; choose a window to re-score.' : '')}
       </span>
     </div>
   );

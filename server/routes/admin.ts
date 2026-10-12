@@ -37,6 +37,7 @@ import {
   updateUser,
 } from "../auth/store.ts";
 import { publicUser } from "./auth.ts";
+import { BiophysicalJobQueue } from "../services/infra/biophysical-queue.ts";
 
 export const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 export const RESET_TTL_MS = 24 * 60 * 60 * 1000;
@@ -100,8 +101,8 @@ export function registerAdminRoutes(apiRouter: Router, jsonParserRegular: any): 
       if (losesAdmin && countActiveAdmins() <= 1) return { error: 409 as const };
       const updated = updateUser(target.id, parsed.data);
       if (parsed.data.status === "disabled") {
-        // Disabled means out now: sessions and paired computers stop working on their next request.
-        // Queued jobs are cancelled once jobs have owners (WP-B).
+        // Disabled means out now: sessions and paired computers stop working on their next request,
+        // and (below, outside the transaction) their queued and running jobs are cancelled.
         deleteUserSessions(target.id);
         revokeUserAgentTokens(target.id, now);
       }
@@ -113,8 +114,16 @@ export function registerAdminRoutes(apiRouter: Router, jsonParserRegular: any): 
         ? sendError(res, 404, "NOT_FOUND", "No such user.")
         : sendError(res, 409, "LAST_ADMIN", "This is the only active admin. Make someone else an admin first.");
     }
-    void AuditLogger.log("admin.user_updated", { adminId: req.principal!.userId, userId: outcome.user.id, ...parsed.data });
-    res.json({ user: { ...publicUser(outcome.user), quota: outcome.user.quota } });
+    let jobsCancelled = 0;
+    if (parsed.data.status === "disabled") {
+      try {
+        jobsCancelled = BiophysicalJobQueue.getInstance().cancelAllFor(outcome.user.id);
+      } catch {
+        // The queue is not running (a minimal deployment): there is nothing of theirs to cancel.
+      }
+    }
+    void AuditLogger.log("admin.user_updated", { adminId: req.principal!.userId, userId: outcome.user.id, jobsCancelled, ...parsed.data });
+    res.json({ user: { ...publicUser(outcome.user), quota: outcome.user.quota }, jobsCancelled });
   });
 
   apiRouter.post("/admin/users/:id/reset-link", jsonParserRegular, (req, res) => {
@@ -126,6 +135,22 @@ export function registerAdminRoutes(apiRouter: Router, jsonParserRegular: any): 
     insertPasswordReset({ tokenHash: hashToken(token), userId: target.id, expiresAt, createdBy: req.principal!.userId as string });
     void AuditLogger.log("admin.reset_link_created", { adminId: req.principal!.userId, userId: target.id });
     res.status(201).json({ resetUrl: `${authSettings().publicBaseUrl}/#reset=${token}`, expiresAt });
+  });
+
+  /**
+   * Forget the out-of-memory size limits the server has learned (WP-D). For when a limit is wrong: a
+   * misclassified failure, or the host got more memory. Jobs of any size are admitted again until two
+   * new out-of-memory deaths teach a limit afresh.
+   */
+  apiRouter.delete("/admin/compute/ceilings", (req, res) => {
+    let removed = 0;
+    try {
+      removed = BiophysicalJobQueue.getInstance().forgetOomCeilings();
+    } catch {
+      // No queue in this process: nothing learned to forget.
+    }
+    void AuditLogger.log("admin.compute_ceilings_reset", { adminId: req.principal!.userId, removed });
+    res.json({ removed });
   });
 
   apiRouter.post("/admin/users/:id/sign-out", jsonParserRegular, (req, res) => {

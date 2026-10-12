@@ -64,8 +64,10 @@
 .structure-main { overflow-y: auto; }
 .structure-workspace .s3d-seg { border: 0; background: transparent; padding: 0; gap: 6px; }
 .structure-workspace .s3d-seg__btn { border-radius: 999px; border: 1px solid var(--cs-border); min-height: 34px; padding: 6px 12px; }
-.structure-workspace .s3d-seg__btn[aria-checked="true"],
-.structure-workspace .s3d-seg__btn[aria-checked="true"]:hover { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .structure-workspace .s3d-seg__btn[aria-checked="true"]:hover { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
+}
+.structure-workspace .s3d-seg__btn[aria-checked="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
 .s3d-site:disabled { cursor: default; opacity: .55; }
 .s3d-selection { padding: 16px; margin-bottom: 20px; background: var(--cs-surface-2); border-radius: 12px; }
 .s3d-selection h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--cs-text-primary); }
@@ -128,7 +130,9 @@
 }
 .s3d-site > svg { width: 13px; height: 13px; }
 button.s3d-site { cursor: pointer; }
-button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%, transparent); }
+}
 .s3d-site[data-kind="selected"] {
   color: var(--cs-text-secondary);
   border-color: var(--cs-border);
@@ -157,7 +161,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   cursor: pointer;
   white-space: nowrap;
 }
-.s3d-seg__btn:hover:not([aria-disabled="true"]) { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-seg__btn:hover:not([aria-disabled="true"]) { color: var(--cs-text-primary); }
+}
 .s3d-seg__btn[aria-checked="true"] {
   background: var(--cs-surface);
   color: var(--cs-text-primary);
@@ -196,7 +202,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   font-size: var(--cs-font-size-caption);
   cursor: pointer;
 }
-.s3d-select:hover { border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border)); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-select:hover { border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border)); }
+}
 .s3d-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-height: 34px; min-width: 34px; padding: 4px 10px;
@@ -218,7 +226,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   color: var(--cs-text-muted); font-weight: var(--cs-font-weight-regular);
 }
 .s3d-btn--display > svg:last-child { width: 12px; }
-.s3d-btn:hover { background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-btn:hover { background: var(--cs-bg-subtle); }
+}
 .s3d-btn[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--cs-accent-clay) 55%, transparent);
   background: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
@@ -227,7 +237,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 .s3d-btn[aria-pressed="true"] > svg { color: var(--cs-text-accent); }
 .s3d-btn--icon { padding: 2px 6px; }
 .s3d-btn:disabled { cursor: not-allowed; opacity: 0.58; }
-.s3d-btn:disabled:hover { background: var(--cs-surface); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-btn:disabled:hover { background: var(--cs-surface); }
+}
 
 .s3d-seg__btn:focus-visible,
 .s3d-select:focus-visible,
@@ -258,7 +270,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   color: var(--cs-text-primary); font-size: var(--cs-font-size-caption); text-align: left; cursor: pointer;
 }
 .s3d-menu__item > svg { width: 14px; height: 14px; color: var(--cs-text-muted); }
-.s3d-menu__item:hover { background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-menu__item:hover { background: var(--cs-bg-subtle); }
+}
 .s3d-menu__note { margin: 4px 8px 2px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 /* Warning banner under the toolbar (warnings only; information lives in the rail) */
@@ -298,7 +312,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent;
   color: var(--cs-text-muted); cursor: pointer;
 }
-.s3d-legend__toggle:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-legend__toggle:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+}
 .s3d-legend__list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, auto)); gap: 3px 14px; }
 .s3d-legend__item { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-text-secondary); white-space: nowrap; }
 .s3d-legend__swatch {
@@ -367,7 +383,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   font-family: var(--cs-font-mono); font-size: var(--cs-font-size-caption); color: var(--cs-text-primary);
   cursor: pointer;
 }
-.s3d-residue:hover { border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border)); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-residue:hover { border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border)); }
+}
 .s3d-residue > span:last-child { color: var(--cs-text-muted); font-size: var(--cs-font-size-badge); }
 
 .s3d-link {
@@ -376,7 +394,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   color: var(--cs-text-accent); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium);
   text-decoration: none;
 }
-.s3d-link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-link:hover { text-decoration: underline; }
+}
 .s3d-link > svg { width: 13px; height: 13px; }
 
 /* key/value rows shared by the pocket panel and the rail */
@@ -435,7 +455,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 .s3d-canvas-card__role { padding-top: 2px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 .s3d-canvas-card__name { font-family: var(--cs-font-mono); font-size: var(--cs-font-size-caption); font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); overflow-wrap: anywhere; }
 .s3d-canvas-card__name a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--cs-border); }
-.s3d-canvas-card__name a:hover { border-bottom-color: var(--cs-accent-clay); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-canvas-card__name a:hover { border-bottom-color: var(--cs-accent-clay); }
+}
 .s3d-canvas-card__name a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 2px; }
 .s3d-canvas-card__sub { display: block; margin-top: 3px; font-family: var(--cs-font-sans); font-weight: var(--cs-font-weight-regular); font-size: var(--cs-font-size-badge); line-height: 1.4; color: var(--cs-text-muted); }
 
@@ -508,7 +530,9 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
   border: 1px solid var(--cs-border); border-radius: 6px; background: var(--cs-surface);
   color: var(--cs-text-primary); font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-medium); cursor: pointer;
 }
-.s3d-entry__load:hover { background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-entry__load:hover { background: var(--cs-bg-subtle); }
+}
 .s3d-entry__load[aria-pressed="true"] { color: var(--cs-text-accent); border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, transparent); }
 
 /* Progressive disclosure keeps detailed lineage and citations available without dominating the rail. */
@@ -522,14 +546,18 @@ button.s3d-site:hover { background: color-mix(in srgb, var(--cs-accent-clay) 14%
 .s3d-disclosure > summary::-webkit-details-marker { display: none; }
 .s3d-disclosure > summary::after { content: "⌄"; margin-left: auto; color: var(--cs-text-muted); transition: transform 150ms cubic-bezier(0.2, 0, 0, 1); }
 .s3d-disclosure[open] > summary::after { transform: rotate(180deg); }
-.s3d-disclosure > summary:hover { color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-disclosure > summary:hover { color: var(--cs-text-accent); }
+}
 .s3d-disclosure > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px; }
 .s3d-method-list { margin: 3px 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; font-size: var(--cs-font-size-caption); line-height: 1.45; }
 .s3d-disclosure .s3d-steps { margin: 4px 0 10px; }
 .s3d-disclosure .s3d-entries { margin-bottom: 9px; }
 .s3d-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--cs-font-size-caption); line-height: 1.45; color: var(--cs-text-secondary); }
 .s3d-refs a { color: var(--cs-text-accent); text-decoration: none; font-family: var(--cs-font-mono); font-size: var(--cs-font-size-badge); }
-.s3d-refs a:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .s3d-refs a:hover { text-decoration: underline; }
+}
 .s3d-refs a:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 3px; }
 
 @media (prefers-reduced-motion: reduce) {

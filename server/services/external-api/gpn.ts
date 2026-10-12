@@ -198,6 +198,44 @@ export async function fetchGpnStarByCoordinate(
   });
 }
 
+export interface GpnAccess {
+  token: string | null;
+  endpoint: string | null;
+  customEndpoint: boolean;
+}
+
+function normaliseGpnEndpoint(url: string): string {
+  return url.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * WHO MAY BE CALLED WITH THE SERVER'S HUGGING FACE TOKEN.
+ *
+ * The rule is the one `resolveAlphaGenomeAccess` applies to `ALPHAGENOME_API_KEY`: the server's
+ * `HF_TOKEN` only ever accompanies the endpoint the server itself is configured to use
+ * (`GPN_API_URL`, or the built-in default when that is unset). A URL the request chose gets a
+ * request-supplied token or none.
+ *
+ * This replaced a `String.includes(".huggingface.co")` test. A substring test asks "does this text
+ * mention Hugging Face?", not "is this Hugging Face?", so a caller could point the request at a host
+ * they control, put `.huggingface.co` in the query string, and have the server send its token there in
+ * an `Authorization` header. A hostname test would not have been enough either: anyone may create a
+ * Space, so a `*.hf.space` prefix is not a claim of identity.
+ *
+ * `customEndpoint` also keeps that proxy's answers out of the shared cache, for the same reason.
+ */
+export function resolveGpnAccess(callerToken?: string | null, callerUrl?: string | null): GpnAccess {
+  const serverKey = process.env.HF_TOKEN || null;
+  const serverEndpoint = process.env.GPN_API_URL || null;
+  const endpoint = callerUrl || serverEndpoint;
+  const customEndpoint =
+    Boolean(callerUrl) &&
+    (!serverEndpoint || normaliseGpnEndpoint(callerUrl as string) !== normaliseGpnEndpoint(serverEndpoint));
+  let token = callerToken || serverKey;
+  if (customEndpoint && serverKey && token === serverKey) token = null;
+  return { token, endpoint, customEndpoint };
+}
+
 /**
  * Backwards-compatible variant coordinator that resolves GPN-Star score.
  */

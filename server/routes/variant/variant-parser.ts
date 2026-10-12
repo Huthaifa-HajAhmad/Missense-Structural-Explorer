@@ -23,6 +23,7 @@ import { classifyNotation, type GenomeAssembly } from "../../../src/shared/varia
 import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
+import { resolveGpnAccess } from "../../services/external-api/gpn.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
@@ -510,6 +511,17 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
+  /**
+   * The server's Hugging Face token only ever accompanies the endpoint the server is configured to
+   * use; a URL the request chose gets a request-supplied token or none (`resolveGpnAccess`, and the
+   * same rule for AlphaGenome below). The substring test this replaced let any URL that merely
+   * *mentioned* `.huggingface.co` collect the server token.
+   */
+  const gpnAccess = resolveGpnAccess(
+    sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken),
+    sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl),
+  );
+
   const numberingVerified = canonicalConfirmed || (numbering !== null && numbering.status === "canonical");
   const numberingWarning = numberingVerified
     ? undefined
@@ -544,18 +556,8 @@ export async function validateAndParseVariantRequest(
     wt1Letter,
     mut1Letter,
     biohubToken: sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken) || sanitizeToken(process.env.BIOHUB_API_TOKEN),
-    hfToken: (() => {
-      const userHfToken = sanitizeToken(req.headers["x-hf-token"]) || sanitizeToken(req.body?.hfToken);
-      if (userHfToken) return userHfToken;
-      const clientGpnUrl = sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl);
-      const isCustomGpnUrl = Boolean(
-        clientGpnUrl &&
-        !clientGpnUrl.includes(".huggingface.co") &&
-        !clientGpnUrl.includes(".hf.space")
-      );
-      return !isCustomGpnUrl ? sanitizeToken(process.env.HF_TOKEN) : null;
-    })(),
-    gpnApiUrl: sanitizeUrl(req.headers["x-gpn-api-url"]) || sanitizeUrl(req.body?.gpnApiUrl) || sanitizeUrl(process.env.GPN_API_URL),
+    hfToken: gpnAccess.token,
+    gpnApiUrl: gpnAccess.endpoint,
     // The server's key never accompanies a URL the request chose (see resolveAlphaGenomeAccess).
     ...(() => {
       const requestUrl = sanitizeUrl(req.headers["x-alphagenome-url"]) || sanitizeUrl(req.body?.alphagenomeApiUrl);

@@ -5,6 +5,8 @@ import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { LEXICON_VERSION } from "../../shared/literatureScreening";
 import { curatedLinkLabel } from "../../shared/curatedLiterature";
 import { useReviewWorkspace } from '../review/ReviewWorkspace';
+import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
+import { safeExternalHref } from '../../shared/externalLink';
 
 interface LiteratureInspectorProps {
   gene: string;
@@ -294,7 +296,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
 
   return (
     <div className="lit-rail" data-testid="literature-rail">
-      <section className="review-selection" id="inspector-evidence-reading" tabIndex={-1} aria-label="Selected paper">
+      <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected paper">
         <div className="review-selection__head"><span>Selected source</span>{workspace.selected && <button type="button" className="review-action" onClick={() => workspace.select(null)}>Clear selection</button>}</div>
         {selected ? <><h3>{selected.citation.title}</h3><p className="lit-mono">{selected.identifier.label} · {selected.citation.year ?? 'Year not reported'}</p>
           <p>{selected.citation.journal || 'Journal not reported'}</p>
@@ -435,7 +437,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
         <h3 className="eyebrow" id="lit-rail-summary-inputs"><Sparkles className="w-3.5 h-3.5" />Summary inputs</h3>
         {summaryReceipt ? <>
           <p className="lit-rail__lead">{summaryReceipt.citations.length} {summaryReceipt.citations.length === 1 ? "abstract" : "abstracts"} supplied to the current AI narrative. Selection is separate from this tab's filters.</p>
-          <ol className="lit-summary-papers">{summaryReceipt.citations.map(c => <li key={c.id}><a className="lit-link" href={c.url ?? `https://europepmc.org/search?query=${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer">{c.title}</a><span className="lit-dim lit-mono">{c.id} / tier {c.tier}</span></li>)}</ol>
+          <ol className="lit-summary-papers">{summaryReceipt.citations.map(c => <li key={c.id}><a className="lit-link" href={safeExternalHref(c.url) ?? `https://europepmc.org/search?query=${encodeURIComponent(c.id)}`} target="_blank" rel="noopener noreferrer">{c.title}</a><span className="lit-dim lit-mono">{c.id} / tier {c.tier}</span></li>)}</ol>
           {summaryReceipt.coverage.map((row, i) => <p className="lit-rail__field" key={`${row.scope}-${i}`}>{row.scope}: {row.loaded} loaded{row.matched !== null ? ` of ${row.matched}` : "; total not reported"}{row.truncated ? " / bounded, more matches remain" : ""}{row.state === "error" ? " / retrieval incomplete" : ""}</p>)}
           {Object.entries(summaryReceipt.scopes).filter(([, state]) => state !== "complete").map(([scope, state]) => <p className="lit-rail__field" key={scope}>{scope}: {state === "error" ? "retrieval incomplete" : "not available"}</p>)}
         </> : <p className="lit-rail__lead">Summary inputs are not recorded for this result. Generate a new AI narrative to inspect its selected abstracts.</p>}

@@ -32,21 +32,24 @@ if (!previewUrl) {
 const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true });
 const checks = [], errors = [];
 const check = (name, pass) => { checks.push({ name, pass }); if (!pass) console.log('FAIL', name); };
+// Use actual wheel input: scrollIntoView would make hidden-overflow panes look reachable.
+async function reachWithWheel(page, locator) {
+ const size = page.viewportSize();
+ await page.locator('.data-screen-layout, .data-screen-primary').evaluateAll(es => es.forEach(e => { e.scrollTop = 0; }));
+ const pane = await page.locator('.data-screen-primary').boundingBox();
+ await page.mouse.move(pane.x + pane.width / 2, Math.min(size.height - 60, Math.max(100, pane.y + 400)));
+ for (let i = 0; i < 12; i++) {
+  const bounds = await locator.boundingBox();
+  if (bounds && bounds.y >= 0 && bounds.y < size.height - 40) return true;
+  await page.mouse.wheel(0, 500); await page.waitForTimeout(100);
+ }
+ return false;
+}
 try {
  const page = await browser.newPage({ viewport: { width: 1500, height: 1100 } });
  page.on('pageerror', e => errors.push(e.message));
  await page.goto(previewUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
  await page.getByRole('button', { name: 'Computational', exact: true }).waitFor();
- // A real wheel gesture must reach the bottom; hidden overflow can still pass focus checks.
- const primary = page.locator('.review-workspace > .data-screen-primary');
- await primary.hover();
- await page.mouse.wheel(0, 5000);
- await page.waitForFunction(() => {
-  const pane = document.querySelector('.review-workspace > .data-screen-primary');
-  return pane && pane.scrollTop > 0 && pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
- });
- check('Insights desktop wheel reaches final content', await primary.evaluate(e => getComputedStyle(e).overflowY === 'auto' && e.scrollTop > 0));
- await primary.evaluate(e => { e.scrollTop = 0; });
  await page.getByRole('button', { name: 'Computational', exact: true }).click();
  check('Lane selection shares inspector', (await page.getByRole('region', { name: 'Selected evidence reading' }).innerText()).includes('Computational'));
  await page.getByRole('tab', { name: 'Criterion records' }).click();
@@ -58,11 +61,24 @@ try {
  check('Explicit lane reveal focuses', await page.getByRole('button', { name: 'Computational', exact: true }).evaluate(e => e === document.activeElement));
  for (const width of [1500, 800, 390]) {
   await page.setViewportSize({ width, height: 1100 });
+  check('Insights final section reachable by wheel ' + width, await reachWithWheel(page, page.locator('.ins-screen [role="tabpanel"] > :last-child')));
+  await page.getByRole('tab', { name: 'Criterion records' }).click();
+  check('Insights guide reachable by wheel ' + width, await reachWithWheel(page, page.locator('.ins-details')));
+  await page.getByRole('tab', { name: 'Written summary' }).click();
+  check('Written summary reachable ' + width, await reachWithWheel(page, page.locator('.ins-prose')));
+  await page.getByRole('tab', { name: 'Evidence map' }).click();
   check('Insights fits width ' + width, await page.locator('.ins-screen').evaluate(e => e.scrollWidth <= e.clientWidth + 1));
+  if (width <= 1000) check('Narrow Insights expands into page scroll ' + width, await page.locator('.data-screen-primary').evaluate(e => e.scrollHeight <= e.clientHeight + 1));
   await page.locator('.data-screen-layout, .data-screen-primary, .lit-view').evaluateAll(elements => elements.forEach(e => { e.scrollTop = 0; }));
   await page.screenshot({ path: `${output}/insights-${width}-light.png` });
  }
  await page.setViewportSize({ width: 1500, height: 1100 });
+ await page.getByRole('button', { name: 'Open inspector', exact: true }).click();
+ check('Open inspector uses registered section', await page.getByRole('region', { name: 'Selected evidence reading' }).evaluate(e => e.id === 'inspector-evidence-reading' && e === document.activeElement));
+ check('Review actions meet 44px touch size', await page.locator('.review-action').evaluateAll(es => { const visible = es.filter(e => e.getBoundingClientRect().height > 0); return visible.length > 0 && visible.every(e => e.getBoundingClientRect().height >= 44); }));
+ await page.emulateMedia({ media: 'print' });
+ check('Closed classification disclosure prints', await page.locator('.ins-tiers').evaluate(e => e.getBoundingClientRect().height > 0));
+ await page.emulateMedia({ media: 'screen' });
  await page.getByRole('tab', { name: 'Written summary' }).click();
  check('Rule-based summary labelled', await page.getByText('Rule-based synthesis', { exact: false }).isVisible());
  await page.getByRole('button', { name: 'Switch theme', exact: true }).click();
@@ -70,6 +86,9 @@ try {
  await page.screenshot({ path: `${output}/insights-dark.png` });
  await page.getByRole('button', { name: 'Switch theme', exact: true }).click();
  await page.getByLabel('Workspace', { exact: true }).selectOption('literature');
+ await page.emulateMedia({ media: 'print' });
+ check('Closed search facts print', await page.locator('.lit-facts').evaluate(e => e.getBoundingClientRect().height > 0));
+ await page.emulateMedia({ media: 'screen' });
  await page.getByRole('button', { name: 'Show all tiers' }).click();
  check('Desk bounded at eight', await page.locator('.lit-row').count() === 8);
  check('Coverage denominator is loaded count', (await page.locator('.lit-coverage').innerText()).includes('25 loaded papers'));
@@ -120,6 +139,15 @@ try {
  await page.getByTestId('literature-papers').getByRole('button', { name: 'Search Europe PMC', exact: true }).click();
  await page.getByText('Europe PMC search failed.', { exact: true }).waitFor();
  check('Provider failure stays visible beside retained sources', await page.locator('.lit-row').count() > 0);
+ await page.getByLabel('Workspace', { exact: true }).selectOption('insights');
+ await page.getByLabel('Example', { exact: true }).selectOption('Strength suffix');
+ await page.getByRole('button', { name: 'Computational', exact: true }).click();
+ check('Suffixed strength shown in inspector', (await page.getByRole('region', { name: 'Selected evidence reading' }).innerText()).includes('Recorded strength: Moderate.'));
+ check('Suffixed strength shown in map', await page.locator('[data-lane="computational"] .ins-dim').innerText() === 'Moderate');
+ await page.getByLabel('Workspace', { exact: true }).selectOption('literature');
+ await page.getByLabel('Example', { exact: true }).selectOption('Unsupported notation');
+ await page.locator('.lit-coverage').waitFor();
+ check('Unsupported notation has no zero-match variant group', await page.locator('.lit-coverage__rows button').count() === 2 && (await page.locator('.lit-coverage').innerText()).includes('check the gene only'));
  await page.getByLabel('Workspace', { exact: true }).selectOption('insights');
  await page.getByRole('button', { name: 'Computational', exact: true }).click();
  await page.getByLabel('Example', { exact: true }).selectOption('New allele');

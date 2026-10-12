@@ -98,4 +98,4 @@
 .ins-record-table .ins-link { display: block; }
 @media (hover: hover) and (pointer: fine) { .ins-link:hover, .ins-lane__name:hover { color: var(--cs-text-accent); text-decoration: underline; text-underline-offset: .2em; } }
 @container (inline-size < 35rem) { .ins-axis, .ins-lane, .ins-rows > div, .ins-proposal { grid-template-columns: minmax(0, 1fr); gap: .375rem; } .ins-axis > :first-child { display: none; } .ins-lane > :first-child { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; align-items: baseline; } }
-@media print { .ins-bar, .ins-tier { print-color-adjust: exact; } .ins-link, .ins-method > summary { display: none; } }
+@media print { .ins-bar, .ins-tier { print-color-adjust: exact; } .ins-link { display: none; } .ins-method::details-content { display: block; content-visibility: visible; } }

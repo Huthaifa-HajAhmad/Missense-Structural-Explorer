@@ -3,7 +3,8 @@ import { GitBranch, Bot, BookOpen, Sparkles, Vote } from "lucide-react";
 import { AnalysisResult } from "../../types";
 import { useVariantAnalysisStore } from "../../context/VariantAnalysisContext";
 import { formatEvidenceCode } from "../../shared/thresholds";
-import { buildInsightsEvidence } from "../../shared/insightsEvidence";
+import { buildInsightsEvidence, criterionForLane } from "../../shared/insightsEvidence";
+import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
 import { buildPredictorEvidence } from "../../shared/predictorEvidence";
 import { deriveNarrativeAuthorship } from "../../shared/narrativeAuthorship";
 import { isFallbackNarrative } from "../../services/pipeline/variantCache";
@@ -91,11 +92,11 @@ export const InsightsInspector: React.FC<InsightsInspectorProps> = ({ analysisRe
 
   return (
     <div className="ins-rail" data-testid="insights-rail">
-      <section className="review-selection" id="inspector-evidence-reading" tabIndex={-1} aria-label="Selected evidence reading">
+      <section className="review-selection" id={INSPECTOR_SECTIONS.evidenceReading} tabIndex={-1} aria-label="Selected evidence reading">
         <div className="review-selection__head"><span>Selected evidence</span>{selected && <button type="button" className="review-action" onClick={() => w.select(null)}>Clear selection</button>}</div>
         {selected ? <><h3>{selected.name}</h3><p><strong>{selected.lead}</strong> {selected.rest}</p>
           <p>{selected.counted ? `Counted as ${selected.code}.` : selected.state === 'pending' ? 'Still running; no criterion recorded.' : 'No counted criterion for this area.'}</p>
-          {selected.counted && <p>Recorded strength: {ev.criteria.find(c => c.code === selected.code)?.strength ?? 'Not weighted'}.</p>}
+          {selected.counted && <p>Recorded strength: {criterionForLane(ev, selected)?.strength ?? 'Strength unavailable'}.</p>}
           <button type="button" className="review-action" onClick={w.showSelected}>Show in evidence map</button></>
           : <p>Select an evidence area in the map to keep its reading here.</p>}
       </section>

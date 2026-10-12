@@ -1,3 +1,4 @@
+import { describeQueueWait } from "../shared/jobsCopy";
 import { useState, useEffect, useMemo, useCallback, memo, lazy, Suspense } from "react";
 import { Activity, AlertTriangle, ExternalLink, Info, ListChecks, Scale } from "lucide-react";
 import { AnalysisState, EnergeticsData } from "../types";
@@ -135,13 +136,16 @@ const ProgressPanel = memo(function ProgressPanel({
     .join(", ");
   const foldxFinished = foldingStatus === "success" || foldingStatus === "failed" || foldingStatus === "unavailable";
   const otherEnginesRunning = evidence.readings.filter(reading => reading.key !== "foldx" && reading.outcome.state === "running").length;
+  const foldxCancelled = evidence.readings.some(reading => reading.key === "foldx" && reading.outcome.state === "cancelled");
   const title = foldingStatus === "success"
     ? "FoldX score ready"
-    : foldingStatus === "failed" || foldingStatus === "unavailable"
-      ? "FoldX finished · collecting other engine results"
-      : queued
-        ? "Energetics job queued"
-        : "Energetics calculations in progress";
+    : foldxCancelled
+      ? "FoldX run cancelled"
+      : foldingStatus === "failed" || foldingStatus === "unavailable"
+        ? "FoldX finished · collecting other engine results"
+        : queued
+          ? "Energetics job queued"
+          : "Energetics calculations in progress";
   const currentActivity = foldxFinished
     ? otherEnginesRunning > 0
       ? `FoldX has finished. ${otherEnginesRunning} independent engine${otherEnginesRunning === 1 ? " is" : "s are"} still running.`
@@ -152,12 +156,8 @@ const ProgressPanel = memo(function ProgressPanel({
   const repairNote = !foldxFinished && progress?.phase === "repairing"
     ? "FoldX does not report a percentage for structure repair. A first repair can take a few minutes; the repaired template is reused on later variants."
     : null;
-  const queueNote =
-    queued && progress?.queuePosition !== null && progress.queuePosition !== undefined
-      ? progress.queuePosition === 0
-        ? "Next in line"
-        : `${progress.queuePosition} job${progress.queuePosition === 1 ? "" : "s"} ahead`
-      : null;
+  // "3 jobs ahead · starts in about 4 min": the server's own position and estimate (src/shared/jobsCopy.ts).
+  const queueNote = queued ? describeQueueWait(progress?.queuePosition, progress?.queueEtaMs) : null;
 
   return (
     <section className="nrg-card nrg-progress" aria-label="Energetics run progress" data-testid="energetics-progress">

@@ -20,6 +20,31 @@ export { validateStartupEnvironment };
  * Creates and configures the Express application with security middleware,
  * API routes, and Vite dev / production SPA static serving.
  */
+/**
+ * Which cross-origin callers may use the API, and which of them may do so signed in.
+ *
+ * Credentialed access (cookies, so a signed-in session) goes only to EXACT origins: `ALLOWED_ORIGINS`
+ * and the public origin (`PUBLIC_BASE_URL`). Any other `*.duckdns.org` / `*.trycloudflare.com` origin
+ * still gets plain CORS, as before, but never with credentials: those are subdomains anyone can
+ * register, and with credentials a page there could read `/my-jobs`, `/auth/me` or `/admin/users` in a
+ * signed-in browser. `ALLOWED_ORIGINS=*` allows any origin, also without credentials.
+ */
+export function corsDecision(origin: string | undefined, env: NodeJS.ProcessEnv = process.env): { allowed: boolean; credentials: boolean } {
+  if (!origin) return { allowed: true, credentials: true }; // same-origin and non-browser callers
+  const listed = (env.ALLOWED_ORIGINS?.split(",") || [`http://localhost:${CONFIG.server.port}`]).map(o => o.trim());
+  const exact = new Set(listed.filter(o => o !== "*"));
+  try {
+    exact.add(new URL(env.PUBLIC_BASE_URL || "https://missense-resolve.duckdns.org").origin);
+  } catch (_) {}
+  if (exact.has(origin)) return { allowed: true, credentials: true };
+  if (listed.includes("*")) return { allowed: true, credentials: false };
+  try {
+    const host = new URL(origin).hostname;
+    if (host.endsWith(".trycloudflare.com") || host.endsWith(".duckdns.org")) return { allowed: true, credentials: false };
+  } catch (_) {}
+  return { allowed: false, credentials: false };
+}
+
 export async function createExpressApp(): Promise<express.Express> {
   validateStartupEnvironment();
 
@@ -93,21 +118,15 @@ export async function createExpressApp(): Promise<express.Express> {
     }
   }));
 
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS?.split(",") || [`http://localhost:${CONFIG.server.port}`]).map(o => o.trim());
-  app.use(cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      try {
-        const url = new URL(origin);
-        if (url.hostname.endsWith(".trycloudflare.com") || url.hostname.endsWith(".duckdns.org")) {
-          return callback(null, true);
-        }
-      } catch (_) {}
-      callback(new Error(`Origin '${origin}' not allowed by CORS`));
-    },
-    credentials: true
+  app.use(cors((req, callback) => {
+    const decision = corsDecision(req.headers.origin);
+    // A disallowed origin is not a server error. Answer WITHOUT CORS headers (the browser then blocks
+    // the response) instead of throwing: throwing produced a 500 whose body echoed the caller's own
+    // Origin back at them and reported "server error" for a client-side refusal — `Origin: null` from
+    // a sandboxed iframe or a `file://` page met exactly that. A cookie write from a foreign origin is
+    // refused in its own right, with 403 CROSS_SITE_REQUEST (see `crossSiteWrite`).
+    if (!decision.allowed) return callback(null, { origin: false });
+    callback(null, { origin: true, credentials: decision.credentials });
   }));
 
   // Mount versioned API router

@@ -7,6 +7,10 @@ description: Graft codebase context engine — use for token-efficient file skel
 
 Graft provides a deterministic, AST-level code context layer (`graft/`) powered by tree-sitter. It operates locally with zero token cost ($0) and automatically reflects working-tree changes in ~3ms.
 
+> **Prerequisite:** `npm run tools:install`, once per clone. Graft is deliberately kept out of the root
+> `package.json` so CI does not install it — see `tools/agent-tooling/README.md`. Without it, `npm run
+> graft` and the `graft` MCP server both exit with that instruction.
+
 ## 1. When to Use Graft
 
 * **Inspecting API Surfaces without Reading Full Files**: Use `graft_file_api` (MCP) or `npm run graft -- skeleton <file>`. This extracts all exported functions, methods, interfaces, and classes without bodies, saving ~90% context tokens.

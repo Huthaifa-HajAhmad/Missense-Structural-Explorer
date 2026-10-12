@@ -45,9 +45,11 @@
   font-weight: 500;
   font-family: var(--cs-font-sans);
 }
-.ev-nav-item:hover {
+@media (hover: hover) and (pointer: fine) {
+  .ev-nav-item:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 .ev-nav-item.active {
   color: var(--cs-accent-clay);
@@ -114,9 +116,11 @@
   border-bottom: none;
   width: 100%;
 }
-.ev-sidebar-toggle:hover {
+@media (hover: hover) and (pointer: fine) {
+  .ev-sidebar-toggle:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 
 /* DATA AVAILABILITY DOTS */
@@ -205,8 +209,10 @@
   gap: 10px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.predictor-card:hover {
+@media (hover: hover) and (pointer: fine) {
+  .predictor-card:hover {
   border-color: rgba(196, 104, 73, 0.35);
+}
 }
 
 /* Rankscore progress bar */
@@ -267,7 +273,9 @@
   text-decoration: none;
   font-weight: 500;
 }
-.method-info-panel a:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .method-info-panel a:hover { text-decoration: underline; }
+}
 
 /* ============================================================
    EVIDENCE PANEL — one section grammar for the inspector tabs
@@ -587,7 +595,9 @@
   cursor: pointer;
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
-.ev-table tbody tr:hover { background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .ev-table tbody tr:hover { background: var(--cs-bg-subtle); }
+}
 
 .ev-rank {
   flex: none;
@@ -609,7 +619,9 @@
   text-decoration: none;
   border-radius: 4px;
 }
-.ev-partner:hover { color: var(--cs-text-accent); text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .ev-partner:hover { color: var(--cs-text-accent); text-decoration: underline; }
+}
 .ev-partner:focus-visible {
   outline: 2px solid var(--cs-accent-clay);
   outline-offset: 2px;
@@ -627,7 +639,9 @@
   color: var(--cs-text-secondary);
   transition: color 120ms cubic-bezier(0.2, 0, 0, 1);
 }
-.ev-partner:hover > svg { color: var(--cs-text-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .ev-partner:hover > svg { color: var(--cs-text-accent); }
+}
 
 /* Association strength: bar then number on one line, so the column scans as a
    length and stays precise as a value. The bar carries the published band cuts
@@ -848,7 +862,9 @@
   font-family: inherit;
   font-size: inherit;
 }
-.ev-inline-cta:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .ev-inline-cta:hover { text-decoration: underline; }
+}
 .ev-inline-cta:focus-visible {
   outline: 2px solid var(--cs-accent-clay);
   outline-offset: 2px;

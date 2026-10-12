@@ -2,7 +2,11 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
-import { execFile } from "child_process";
+import { mayServe } from "../../../../src/shared/computeProvenance.ts";
+import { serverProvenance } from "../../infra/host-probe.ts";
+import { meterChildProcess } from "../../infra/job-meter.ts";
+import { killProcessTree } from "../../../utils/process-tree.ts";
+import { execFile, type ChildProcess } from "child_process";
 import { promisify } from "util";
 import {
   type PdbAtom,
@@ -16,6 +20,30 @@ import { getAaPropensities, determineLikelyCofactor } from "./propensities.ts";
 import { selectPocketForResidue } from "./selection.ts";
 
 const execFileAsync = promisify(execFile);
+
+/** Count a P2Rank run (the script and the Java it starts) toward the queue job's memory (job-meter.ts). */
+function metered<T>(run: Promise<T> & { child?: ChildProcess }): Promise<T> {
+  meterChildProcess(run.child);
+  return run;
+}
+
+/**
+ * Stop the WHOLE tool tree when the run is aborted or times out. `prank` is a script (a `.bat` through
+ * cmd.exe on Windows) that starts Java as its child; Node's own abort/timeout kill reaches only the script,
+ * so the JVM (up to 2 GB) used to keep running after a cancel, a pause on a paired computer, or a timeout.
+ * On POSIX the run is spawned `detached` so the script and its JVM form one process group to kill.
+ */
+function treeKilledOnStop<T>(run: Promise<T> & { child?: ChildProcess }, signal?: AbortSignal): Promise<T> {
+  const pid = run.child?.pid;
+  const kill = () => killProcessTree(pid);
+  signal?.addEventListener("abort", kill, { once: true });
+  return run
+    .catch((err: any) => {
+      if (err?.killed || err?.name === "AbortError" || signal?.aborted) kill();
+      throw err;
+    })
+    .finally(() => signal?.removeEventListener("abort", kill));
+}
 
 export const pocketCache = new LRUCache<string, any>({
   max: 100,
@@ -96,6 +124,27 @@ export function selectP2RankProfile(pdbText: string): string {
   return isXray ? "default" : "alphafold";
 }
 
+/**
+ * The identity of a pocket run: the exact coordinates (hash), the residue, the chain and the P2Rank
+ * profile the structure selects; plus the P2Rank version when a host reports one (agents, WP-F).
+ * The route uses it to serve a cached result and to join an identical run already in flight.
+ */
+export function pocketResultCacheKey(pdbText: string, targetIndex: number, targetChain?: string, toolVersion?: string): string {
+  const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
+  const tool = toolVersion ? `_p2rank:${toolVersion}` : "";
+  return `${pdbHash}_${targetIndex}_${targetChain || "any"}_${selectP2RankProfile(pdbText)}${tool}`;
+}
+
+/**
+ * A cached pocket result the WORKER may use: only one anyone may have. The worker does not know who is
+ * waiting, so a re-queued job for someone who was refused a private result (an agent result its owner
+ * does not share, `computeProvenance`) must recompute rather than be handed that result here.
+ */
+export function shareableCachedPocket(cache: LRUCache<string, any>, cacheKey: string): any | null {
+  const found = cache.get(cacheKey);
+  return found && mayServe(found, null) ? found : null;
+}
+
 export async function findBindingPocket(
   pdbText: string,
   targetIndex: number,
@@ -104,10 +153,9 @@ export async function findBindingPocket(
   signal?: AbortSignal,
   options?: { l1Cache?: LRUCache<string, any> }
 ): Promise<PocketInfoResult> {
-  const pdbHash = crypto.createHash("sha256").update(pdbText).digest("hex");
-  const cacheKey = `${pdbHash}_${targetIndex}_${targetChain || "any"}_${selectP2RankProfile(pdbText)}`;
+  const cacheKey = pocketResultCacheKey(pdbText, targetIndex, targetChain);
   const cache = options?.l1Cache ?? pocketCache;
-  const cached = cache.get(cacheKey);
+  const cached = shareableCachedPocket(cache, cacheKey);
   if (cached) {
     if (process.env.NODE_ENV !== "production") {
       console.log(`[Biophysical Caching] Cache Hit for binding pocket at residue: ${targetIndex}`);
@@ -116,6 +164,14 @@ export async function findBindingPocket(
   }
   const result = await findBindingPocketInternal(pdbText, targetIndex, jobDir, targetChain, signal);
   if (result.status === "success" || result.status === "none_detected" || result.status === "fallback") {
+    // Every stored result says where it ran (WP-E) and with WHICH tool. A P2Rank job can fall back to
+    // fpocket (status "fallback"), and the early none_detected returns happen before any tool ran, so
+    // stamp P2Rank's version only when the result's own provenance says P2Rank produced it. Otherwise
+    // the telemetry row would credit an fpocket run to P2Rank and teach P2Rank's curves from it.
+    if (!(result as any).computeProvenance) {
+      const engine = (result as any).provenance?.engine;
+      (result as any).computeProvenance = serverProvenance(null, engine === "p2rank" ? "p2rank" : undefined);
+    }
     cache.set(cacheKey, result);
   }
   return result;
@@ -305,7 +361,7 @@ export async function findBindingPocketInternal(
       ? parseInt(process.env.P2RANK_TIMEOUT_S, 10) * 1000
       : 120000;
     const effectiveTimeoutMs = Math.max(90000, isNaN(p2rankTimeoutMs) ? 120000 : p2rankTimeoutMs);
-    let options: any = { timeout: effectiveTimeoutMs, cwd: jobDir, signal, env };
+    let options: any = { timeout: effectiveTimeoutMs, cwd: jobDir, signal, env, detached: process.platform !== "win32" };
 
     const runP2Rank = async (cmd: string, args: string[], opt: any) => {
       let resolvedCmd = cmd;
@@ -317,12 +373,12 @@ export async function findBindingPocketInternal(
       if (isBatch && process.platform === "win32") {
         const shellBinary = process.env.ComSpec || "cmd.exe";
         const quotedCmdLine = `"${[resolvedCmd, ...args].map(a => `"${a.replace(/"/g, '""')}"`).join(" ")}"`;
-        return await execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
+        return await treeKilledOnStop(metered(execFileAsync(shellBinary, ["/d", "/s", "/c", quotedCmdLine], {
           ...opt,
           windowsVerbatimArguments: true
-        });
+        })), opt.signal);
       }
-      return await execFileAsync(resolvedCmd, args, opt);
+      return await treeKilledOnStop(metered(execFileAsync(resolvedCmd, args, opt)), opt.signal);
     };
     
     let stdout = "";
@@ -580,7 +636,7 @@ export async function findBindingPocketInternal(
       let hasNativeFpocket = false;
       const nativeFpocketCmd = process.platform === "win32" ? "fpocket.exe" : "fpocket";
       try {
-        await execFileAsync(nativeFpocketCmd, ["-v"]);
+        await metered(execFileAsync(nativeFpocketCmd, ["-v"]));
         hasNativeFpocket = true;
       } catch (err: any) {
         if (err.code === "ENOENT") {
@@ -597,7 +653,7 @@ export async function findBindingPocketInternal(
       if (useDocker) {
         const absoluteJobDir = path.resolve(jobDir);
         const volumeMount = `${absoluteJobDir}:/workdir`;
-        await execFileAsync("docker", [
+        await metered(execFileAsync("docker", [
           "run",
           "--rm",
           "-v",
@@ -606,9 +662,9 @@ export async function findBindingPocketInternal(
           "fpocket",
           "-f",
           "/workdir/wt.pdb"
-        ], { timeout: 30000, signal });
+        ], { timeout: 30000, signal }));
       } else if (hasNativeFpocket) {
-        await execFileAsync(nativeFpocketCmd, ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal });
+        await metered(execFileAsync(nativeFpocketCmd, ["-f", fullPdbPath], { cwd: jobDir, timeout: 20000, signal }));
       } else {
         console.log(`[Pocket Finder Fallback] Skipping fpocket execution: neither native binary nor Docker engine is accessible.`);
       }

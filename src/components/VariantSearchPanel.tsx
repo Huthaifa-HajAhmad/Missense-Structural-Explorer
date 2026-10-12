@@ -64,7 +64,7 @@ const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
     title="Paste from clipboard"
     aria-label="Paste from clipboard"
     onClick={() => pasteFromClipboard(setter)}
-    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 inline-flex items-center justify-center rounded-md cursor-pointer text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 z-10"
+    className="absolute cs-tap-44 right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 inline-flex items-center justify-center rounded-md cursor-pointer text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 z-10"
   >
     <Clipboard className="w-3.5 h-3.5" />
   </button>

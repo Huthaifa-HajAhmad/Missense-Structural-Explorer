@@ -5,7 +5,9 @@
 .workspace-selection strong { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-primary); }
 .workspace-selection__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .workspace-selection button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; min-height: 32px; border-radius: 8px; border: 1px solid var(--cs-border); color: var(--cs-text-primary); background: var(--cs-surface); cursor: pointer; }
-.workspace-selection button:hover { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .workspace-selection button:hover { background: var(--cs-surface-2); }
+}
 .workspace-selection button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .workspace-selection svg { width: 14px; height: 14px; }
 .landscape-workspace__selection { padding: 20px 24px 0; }
@@ -23,9 +25,6 @@
   box-shadow: 0 2px 5px #00000003;
 }
 .exploration-workspace > .data-screen-primary { overflow: hidden; }
-/* Insights flows as one document; Literature owns its own inner scroller. */
-.review-workspace > .data-screen-primary:has(.ins-shell) { overflow-y: auto; scrollbar-gutter: stable; }
-.review-workspace .ins-shell { flex-shrink: 0; }
 .exploration-workspace > aside[data-workspace-inspector] { max-width: 42%; min-width: 280px !important; }
 .exploration-workspace .inspector-heading { background: var(--cs-surface); padding: 20px; }
 .exploration-workspace .inspector-body { padding: 20px; scrollbar-gutter: stable; }
@@ -33,7 +32,9 @@
 .workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--cs-border-subtle); }
 .workspace-tabs button { padding: 8px 16px; min-height: 36px; border: 1px solid var(--cs-border); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--cs-text-secondary); background: var(--cs-surface); cursor: pointer; transition: background-color 120ms, color 120ms; }
 .workspace-tabs button[aria-selected="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
-.workspace-tabs button:hover:not([aria-selected="true"]) { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .workspace-tabs button:hover:not([aria-selected="true"]) { background: var(--cs-surface-2); }
+}
 .workspace-tabs button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 
 @container (max-width: 850px) {
@@ -42,7 +43,6 @@
 @media (max-width: 1000px) {
   .data-screen-layout.exploration-workspace { flex-direction: column; overflow-y: auto; padding: 12px; gap: 12px; }
   .exploration-workspace > .data-screen-primary { flex: none; overflow: visible; }
-  .review-workspace > .data-screen-primary:has(.ins-shell) { overflow: visible; }
   .exploration-workspace .landscape-main { height: auto; overflow: visible; }
   .exploration-workspace > aside[data-workspace-inspector] { width: 100% !important; min-width: 0 !important; max-width: none; height: auto; overflow: visible; }
   .exploration-workspace > aside [role="separator"] { display: none; }

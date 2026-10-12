@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("rollout", Path(__file__).with_name("rollout.py"))
 rollout = importlib.util.module_from_spec(spec)
@@ -158,6 +159,20 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(self.docker.target, OLD)
         self.assertNotIn(("start", NEW), self.docker.events)
 
+    def test_restart_hands_over_the_same_revision_with_the_full_drain(self):
+        # Applying an edited .env.oci: a fresh generation of the serving revision, and the same
+        # warm-switch-drain-activate order as a deploy, so no running job is cut short.
+        self.docker.states[OLD]["commit"] = COMMIT
+        driver = self.driver()
+        driver.restart = True
+        driver.execute()
+        self.assertEqual(self.docker.target, NEW)
+        self.assertNotIn(OLD, self.docker.states)
+        events = self.docker.events
+        self.assertLess(events.index(("start", NEW)), events.index(("switch", NEW)))
+        self.assertLess(events.index(("pause", OLD)), events.index(("resume", NEW)))
+        self.assertLess(events.index(("resume", NEW)), events.index(("stop", "--time", "30", OLD)))
+
     def test_missing_drain_fields_are_never_treated_as_zero(self):
         self.assertFalse(rollout.drained({"protocol": 1, "paused": True}))
 
@@ -170,6 +185,49 @@ class RolloutTests(unittest.TestCase):
         docker.run = run
         self.assertEqual(docker.proxy_target(), OLD)
         self.assertIn("http://127.0.0.1:2019/config/", calls[0])
+
+
+class BuildHeadroomTests(unittest.TestCase):
+    """The disk guard that turns a late, silent ENOSPC into an immediate, named refusal."""
+
+    def recording_docker(self):
+        docker = rollout.Docker()
+        calls = []
+        docker.run = lambda *args, **kwargs: calls.append(args) or ""
+        return docker, calls
+
+    def test_plenty_of_space_skips_reclaim(self):
+        docker, calls = self.recording_docker()
+        with mock.patch.object(rollout, "min_free_disk_mb", return_value=1000), \
+             mock.patch.object(rollout, "free_disk_mb", return_value=50_000):
+            docker.ensure_build_headroom(COMMIT)
+        self.assertEqual(calls, [])
+
+    def test_low_space_reclaims_then_proceeds(self):
+        docker, calls = self.recording_docker()
+        values = iter([100, 50_000])
+        with mock.patch.object(rollout, "min_free_disk_mb", return_value=1000), \
+             mock.patch.object(rollout, "free_disk_mb", side_effect=lambda *a, **k: next(values)):
+            docker.ensure_build_headroom(COMMIT)
+        self.assertIn(("builder", "prune", "-f"), calls)
+        self.assertIn(("image", "prune", "-a", "-f"), calls)
+
+    def test_space_that_never_recovers_refuses_by_name(self):
+        docker, calls = self.recording_docker()
+        with mock.patch.object(rollout, "min_free_disk_mb", return_value=1000), \
+             mock.patch.object(rollout, "free_disk_mb", return_value=100):
+            with self.assertRaisesRegex(RuntimeError, "MiB free"):
+                docker.ensure_build_headroom(COMMIT)
+        self.assertIn(("builder", "prune", "-f"), calls)
+
+    def test_start_candidate_refuses_before_building(self):
+        docker, calls = self.recording_docker()
+        docker.available_mb = lambda: 8000
+        with mock.patch.object(rollout, "min_free_disk_mb", return_value=1000), \
+             mock.patch.object(rollout, "free_disk_mb", return_value=10):
+            with self.assertRaises(RuntimeError):
+                docker.start_candidate(NEW, COMMIT)
+        self.assertFalse(any(args and args[0] == "compose" and "build" in args for args in calls))
 
 
 if __name__ == "__main__":

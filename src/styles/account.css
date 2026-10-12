@@ -98,7 +98,9 @@
   border: 0;
   cursor: pointer;
 }
-.acct-reveal:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+@media (hover: hover) and (pointer: fine) {
+  .acct-reveal:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+}
 .acct-reveal:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
 
 .acct-hint { font-size: 12px; line-height: 1.45; color: var(--cs-text-muted); }
@@ -151,7 +153,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   text-decoration-color: color-mix(in srgb, var(--cs-text-accent) 40%, transparent);
   cursor: pointer;
 }
-.acct-link:hover { text-decoration-color: currentColor; }
+@media (hover: hover) and (pointer: fine) {
+  .acct-link:hover { text-decoration-color: currentColor; }
+}
 .acct-link:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 2px; }
 
 .acct-divider { height: 1px; background: var(--cs-border-subtle); margin: 4px 0; }
@@ -189,7 +193,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   color: var(--cs-text-muted);
   cursor: pointer;
 }
-.acct-close:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .acct-close:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+}
 .acct-close:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 /* ── Start-up splash: invisible for the first 300 ms, so a fast answer never flashes ── */
@@ -214,7 +220,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   flex-shrink: 0;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.acct-signin-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .acct-signin-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+}
 .acct-signin-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
 .acct-menu-anchor { position: relative; flex-shrink: 0; margin-left: 4px; }
@@ -229,7 +237,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   background: transparent;
   cursor: pointer;
 }
-.acct-avatar-btn:hover .acct-avatar,
+@media (hover: hover) and (pointer: fine) {
+  .acct-avatar-btn:hover .acct-avatar { box-shadow: 0 0 0 2px var(--cs-surface), 0 0 0 4px color-mix(in srgb, var(--cs-accent-clay) 35%, transparent); }
+}
 .acct-avatar-btn[aria-expanded="true"] .acct-avatar { box-shadow: 0 0 0 2px var(--cs-surface), 0 0 0 4px color-mix(in srgb, var(--cs-accent-clay) 35%, transparent); }
 .acct-avatar-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; }
 
@@ -257,8 +267,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
 .acct-avatar-dim { opacity: 0.45; filter: grayscale(1); display: inline-flex; }
 
 .acct-menu {
-  /* Portalled to <body>; top/right come from the avatar button (AccountMenu.tsx). 58 clears the
-     header, the workspace rail and the settings drawer (50), and stays under the palette (60). */
+  /* A native popover: the browser keeps it in the top layer, so no stacking context needs to be
+     cleared. Without anchor positioning (below) it opens centered; z-index covers the in-flow
+     fallback used where showPopover() is missing. */
   position: fixed;
   z-index: 58;
   font-family: var(--cs-font-sans);
@@ -271,6 +282,23 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   box-shadow: 0 16px 40px -16px color-mix(in srgb, var(--cs-text-primary) 35%, transparent);
   animation: acct-menu-in 0.14s ease-out both;
   transform-origin: top right;
+}
+/* good-css — Popover anchored to its trigger. `margin-block-start` is the gap; the flips mirror it,
+   so the gap stays on the trigger's side. `span-*` (not `center`) keeps the flips working when the
+   menu is wider than its grid cell. Gated: position-area is Chrome 133, Firefox 147, Safari 26. */
+@supports (position-area: block-end) {
+  /* The anchor is named explicitly. A popover opened with showPopover() has no implicit anchor, so
+     without these two lines `position-area` had nothing to place against and the menu opened at the
+     viewport's top-left corner (seen in a real browser, 2026-10-10). */
+  .acct-avatar-btn { anchor-name: --acct-menu-trigger; }
+  .acct-menu {
+    position-anchor: --acct-menu-trigger;
+    inset: auto;
+    margin: 0;
+    margin-block-start: 0.5rem;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
 }
 @keyframes acct-menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
 .acct-menu-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 12px; }
@@ -294,7 +322,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   cursor: pointer;
 }
 .acct-menu-item svg { color: var(--cs-text-muted); }
-.acct-menu-item:hover,
+@media (hover: hover) and (pointer: fine) {
+  .acct-menu-item:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+}
 .acct-menu-item:focus-visible { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
 .acct-menu-item:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
 
@@ -355,7 +385,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
 
 .acct-person { display: flex; align-items: center; gap: 12px; padding: 12px 16px; width: 100%; }
 .acct-person--button { background: transparent; border: 0; cursor: pointer; text-align: left; transition: background 0.12s ease; }
-.acct-person--button:hover { background: color-mix(in srgb, var(--cs-bg-subtle) 50%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .acct-person--button:hover { background: color-mix(in srgb, var(--cs-bg-subtle) 50%, transparent); }
+}
 .acct-person--button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
 .acct-person-wrap { padding: 0; }
 .acct-person-name { display: block; font-size: 13.5px; font-weight: 500; color: var(--cs-text-primary); }
@@ -369,7 +401,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
 .acct-panel-hint { font-size: 12px; line-height: 1.45; color: var(--cs-text-muted); max-width: 46ch; }
 
 .cs-btn-ghost.acct-danger { color: var(--cs-text-danger-on-soft); border-color: color-mix(in srgb, var(--cs-text-danger) 35%, var(--cs-border)); }
-.cs-btn-ghost.acct-danger:hover { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .cs-btn-ghost.acct-danger:hover { background: var(--cs-bg-danger); color: var(--cs-text-danger-on-soft); }
+}
 
 .acct-icon-btn {
   display: grid;
@@ -382,7 +416,9 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   color: var(--cs-text-muted);
   cursor: pointer;
 }
-.acct-icon-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .acct-icon-btn:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+}
 .acct-icon-btn:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
 .acct-skeleton { display: inline-block; border-radius: 6px; background: var(--cs-bg-subtle); animation: acct-shimmer 1.4s ease-in-out infinite; }
@@ -399,3 +435,27 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
   .acct-card, .acct-overlay, .acct-menu, .acct-link-card, .acct-person-panel, .acct-splash-mark, .acct-skeleton { animation: none; }
   .acct-splash-mark { opacity: 1; }
 }
+
+/* Settings → Account → Compute: server time used and the limits that apply (UsageSummary). */
+.acct-usage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.acct-usage-tile { padding: 10px 12px; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-input); background: var(--cs-surface); }
+.acct-usage-tile dt { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--cs-text-muted); }
+.acct-usage-tile dd { margin: 4px 0 0; font-size: 18px; font-weight: 600; color: var(--cs-text-primary); font-variant-numeric: tabular-nums; }
+.acct-usage-limits { margin: 10px 0 0; padding-left: 18px; list-style: disc; display: grid; gap: 4px; font-size: 12.5px; color: var(--cs-text-secondary); }
+
+/* ── Settings: Account → Your computers (WP-F) ─────────────────── */
+.acct-actions--start { justify-content: flex-start; margin-top: 10px; }
+.acct-agents { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.acct-agent { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-input); background: var(--cs-surface); color: var(--cs-text-secondary); }
+.acct-agent .acct-note { margin-top: 2px; }
+.acct-agent-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.acct-agent-name { font-size: 13.5px; font-weight: 600; color: var(--cs-text-primary); }
+.acct-agent-state { font-size: 11.5px; font-weight: 600; color: var(--cs-text-muted); }
+.acct-agent[data-tone="ready"] .acct-agent-state { color: var(--cs-text-success); }
+.acct-agent[data-tone="attention"] .acct-agent-state { color: var(--cs-text-warning-on-soft); }
+.acct-pair { margin-top: 10px; padding: 12px 14px; border: 1px dashed var(--cs-border); border-radius: var(--cs-radius-input); }
+.acct-pair .acct-note { margin-top: 0; }
+.acct-pair-code { margin: 6px 0; font-family: var(--cs-font-mono, ui-monospace, monospace); font-size: 28px; font-weight: 600; letter-spacing: 0.12em; color: var(--cs-text-primary); font-variant-numeric: tabular-nums; }
+.acct-downloads { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.acct-foldx { display: grid; gap: 10px; }
+.acct-foldx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

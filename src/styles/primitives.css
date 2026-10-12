@@ -2,6 +2,44 @@
    COMPONENT PRIMITIVES & BASE UTILITY CLASSES
    ============================================================ */
 
+/* ── Hit area larger than the visual (good-css) ──
+   Icon and close controls keep their compact look but get a 44px touch target.
+   The `::after` overlay IS the tap area; it grows out of the control's own box,
+   so it needs a positioned ancestor. Several callers below are `position: relative`
+   (added by the grouped rule) or already `position: absolute`. Never clip the
+   control with `overflow: hidden`/`clip`, which cuts the overlay to the visual box.
+   `.cs-tap-44` is the same overlay for controls styled with Tailwind utilities;
+   add `relative` (or keep the existing `absolute`) in the className. */
+.cs-tap-44::after,
+.acct-icon-btn::after,
+.cx-icon-btn::after,
+.lit-icon-btn::after,
+.tour-icon-btn::after,
+.s3d-legend__toggle::after,
+.about-filter-clear::after,
+.ifc-search__clear::after,
+.acct-close::after,
+.acct-avatar-btn::after,
+.jobs-icon-btn::after,
+.jobs-cancel::after,
+.ms-brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, (100% - 44px) / 2);
+}
+
+.acct-icon-btn,
+.cx-icon-btn,
+.lit-icon-btn,
+.tour-icon-btn,
+.s3d-legend__toggle,
+.ifc-search__clear,
+.acct-avatar-btn,
+.jobs-icon-btn,
+.jobs-cancel {
+  position: relative;
+}
+
 /* Gene stat pill (like "189 aa", "91.5 mean pLDDT") */
 .cs-stat-pill {
   display: inline-flex;
@@ -112,7 +150,9 @@
   gap: 6px;
   font-family: var(--cs-font-sans);
 }
-.cs-btn-primary:hover { background: #b55a3e; }
+@media (hover: hover) and (pointer: fine) {
+  .cs-btn-primary:hover { background: #b55a3e; }
+}
 .cs-btn-primary:active { transform: scale(0.98); }
 .cs-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -132,9 +172,11 @@
   gap: 5px;
   font-family: var(--cs-font-sans);
 }
-.cs-btn-ghost:hover {
+@media (hover: hover) and (pointer: fine) {
+  .cs-btn-ghost:hover {
   background: var(--cs-bg-subtle);
   color: var(--cs-text-primary);
+}
 }
 .cs-btn-ghost:focus-visible {
   outline: 2px solid var(--cs-accent-clay);
@@ -144,9 +186,11 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-.cs-btn-ghost:disabled:hover {
+@media (hover: hover) and (pointer: fine) {
+  .cs-btn-ghost:disabled:hover {
   background: transparent;
   color: var(--cs-text-secondary);
+}
 }
 
 /* Compact ghost button in the accent color (report header actions) */
@@ -155,9 +199,11 @@
   border: 1px solid var(--cs-accent-clay);
   color: var(--cs-text-accent);
 }
-.cs-btn-ghost-accent:hover {
+@media (hover: hover) and (pointer: fine) {
+  .cs-btn-ghost-accent:hover {
   background: color-mix(in srgb, var(--cs-accent-clay) 18%, transparent);
   color: var(--cs-text-accent);
+}
 }
 .cs-btn-ghost-accent:focus-visible {
   outline: 2px solid var(--cs-accent-clay);
@@ -170,9 +216,11 @@
 /* Same specificity as .cs-btn-ghost:disabled:hover but declared later, so the
    disabled accent button keeps its tinted background / accent label instead of
    reverting to the plain ghost colors. */
-.cs-btn-ghost-accent:disabled:hover {
+@media (hover: hover) and (pointer: fine) {
+  .cs-btn-ghost-accent:disabled:hover {
   background: color-mix(in srgb, var(--cs-accent-clay) 8%, transparent);
   color: var(--cs-text-accent);
+}
 }
 
 /* Segmented control (Wild-Type / Mutant) */
@@ -196,7 +244,9 @@
   transition: background 0.12s, color 0.12s;
   font-family: var(--cs-font-sans);
 }
-.cs-seg-btn:hover { color: var(--cs-text-primary); }
+@media (hover: hover) and (pointer: fine) {
+  .cs-seg-btn:hover { color: var(--cs-text-primary); }
+}
 .cs-seg-btn.active {
   background: var(--cs-surface);
   color: var(--cs-text-primary);
@@ -218,10 +268,12 @@
   transition: background 0.12s, border-color 0.12s;
   color: var(--cs-text-secondary);
 }
-.cs-chip:hover {
+@media (hover: hover) and (pointer: fine) {
+  .cs-chip:hover {
   background: var(--cs-bg-subtle);
   border-color: var(--cs-accent-clay);
   color: var(--cs-text-primary);
+}
 }
 .cs-chip.active {
   background: var(--cs-surface-2);
@@ -353,7 +405,9 @@
   left: -4px;
   right: -4px;
 }
-.cs-switch:hover:not(:disabled) { border-color: var(--cs-text-muted); }
+@media (hover: hover) and (pointer: fine) {
+  .cs-switch:hover:not(:disabled) { border-color: var(--cs-text-muted); }
+}
 .cs-switch:disabled { opacity: 0.5; cursor: not-allowed; }
 .cs-switch[data-checked="true"] {
   background: var(--cs-accent-clay);

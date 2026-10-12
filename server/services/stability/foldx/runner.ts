@@ -1,13 +1,15 @@
-import os from "os";
 import path from "path";
 import fs from "fs";
 import { execFile } from "child_process";
 import { buildModelBudgetMs, FOLDX_REPAIR_MAX_RESIDUES } from "./budget.ts";
+import { isAlphaFoldModel } from "./estimate.ts";
 import { canRetryFoldxAfterRepair, classifyFoldxFailure, describeFoldxFailure, foldxCrashContext, type FoldxRunContext } from "./failure.ts";
 import crypto from "crypto";
 import { AMINO_ACID_1_TO_3 } from "../../../../src/shared/aminoAcids.ts";
-import { CONFIG } from "../../../config.ts";
+import { CONFIG, resolveFoldxConcurrency } from "../../../config.ts";
 import { Semaphore } from "../../../utils.ts";
+import { killProcessTree } from "../../../utils/process-tree.ts";
+import { meterChildProcess } from "../../infra/job-meter.ts";
 import {
   parseResiduesFromPdbMaybeAsync,
   parseAtomsFromPdb
@@ -35,23 +37,6 @@ import {
   injectBFactorsFromWtPdb
 } from "./pdb-utils.ts";
 
-function killProcessSafely(pid?: number) {
-  if (!pid) return;
-  if (process.platform === "win32") {
-    try {
-      execFile("taskkill", ["/F", "/T", "/PID", String(pid)], () => {});
-    } catch (_) {}
-  } else {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch (_) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch (_) {}
-    }
-  }
-}
-
 function execFileAsync(
   file: string,
   args: string[],
@@ -64,19 +49,21 @@ function execFileAsync(
       if (err) {
         if (!killed) {
           killed = true;
-          killProcessSafely(child.pid);
+          killProcessTree(child.pid);
         }
         reject(err);
       } else {
         resolve({ stdout, stderr });
       }
     });
+    // Its memory counts toward the queue job running it (job-meter.ts); a no-op outside a job.
+    meterChildProcess(child);
 
     if (options.signal) {
       const onAbort = () => {
         if (!killed) {
           killed = true;
-          killProcessSafely(child.pid);
+          killProcessTree(child.pid);
         }
       };
       options.signal.addEventListener("abort", onAbort);
@@ -89,9 +76,8 @@ function execFileAsync(
   });
 }
 
-// A-4 Fix: Dynamically size biophysical semaphore concurrency based on CPU core availability
-const defaultConcurrency = parseInt(process.env.BIOPHYSICAL_CONCURRENCY || "", 10) || Math.max(1, os.cpus().length - 1);
-export const biophysicalSemaphore = new Semaphore(defaultConcurrency);
+// Derived from the queue's bound and capped by the CPU count (server/config.ts, resolveFoldxConcurrency).
+export const biophysicalSemaphore = new Semaphore(resolveFoldxConcurrency());
 
 export interface FoldxOptions {
   pH?: number;
@@ -355,10 +341,7 @@ export async function generateMutantPdbInternal(
    * whether repairing small AlphaFold models helps; the skip is disclosed via
    * `foldxRepairSkippedReason`, so the UI says the template was not repaired and why.
    */
-  const isAlphaFoldPdb = /ALPHAFOLD|DBREF.*AF\-/i.test(wtPdb) || 
-    /^REMARK.*ALPHAFOLD/mi.test(wtPdb) ||
-    /^HEADER.*PREDICTED/mi.test(wtPdb) ||
-    detectBFactorProvenance(wtPdb).source === "alphafold";
+  const isAlphaFoldPdb = isAlphaFoldModel(wtPdb);
   const shouldRepair = residueCount <= FOLDX_REPAIR_MAX_RESIDUES && !isAlphaFoldPdb;
   const foldxEmulated = getFoldxExecutionTarget(foldxBin, []).file !== foldxBin;
   /** Sized to this structure and host (see budget.ts): a flat 180 s killed working Box64 runs. */

@@ -2,9 +2,21 @@
 
 All backend endpoints are prefixed with `/api/v1` and are defined in `server/routes.ts`.
 
+The machine-readable OpenAPI 3.1 spec is served at `GET /api/v1/openapi.json`, with a browsable view at `/api/v1/docs`. `server/routes/docs.test.ts` fails when the spec lists a route the server does not register, or misses an account, admin or job route.
+
 ## Authentication & Sessions
 
-Endpoints marked with 🔒 require the standard Bearer Token auth (`Authorization: Bearer <API_TOKEN>`) configured on the server via `APP_API_TOKEN`.
+Endpoints marked with 🔒 are **not open**. What that requires depends on `AUTH_MODE` (see the table below): the `APP_API_TOKEN` bearer in `legacy`, and a signed-in session in `hybrid`/`accounts` — where the bearer token may only read. A 🔒 write endpoint is therefore *not* reachable with the bearer token once accounts are on.
+
+**Accounts.** A signed-in browser carries the `mse_session` cookie (HttpOnly, SameSite=Lax), set by sign-in, setup, accepting an invite or a password reset. The server's `AUTH_MODE` decides what a write (`POST`/`PUT`/`PATCH`/`DELETE`) needs:
+
+| `AUTH_MODE` | Writes need |
+|---|---|
+| `legacy` (default) | the existing rules: the 🔒 token where marked |
+| `hybrid` | a signed-in session, or the `APP_API_TOKEN` bearer |
+| `accounts` | a signed-in session; the bearer token may only read |
+
+The sign-in endpoints themselves are always open. Signed-out writes in `hybrid`/`accounts` get `401 SIGN_IN_REQUIRED`; a cookie-authenticated write from another site gets `403 CROSS_SITE_REQUEST`. Account responses are `Cache-Control: no-store`. The owner's runbook is [`ACCOUNTS.md`](./ACCOUNTS.md).
 
 For Gemini analysis, a stateless session key is exchanged via `/session/keys`. The client sends their Gemini API key, and receives an encrypted stateless session token (`sessionId`) which must be supplied in the `X-Gemini-Session-ID` header for analysis requests.
 
@@ -182,7 +194,11 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
     }
   }
   ```
+* **Queued**: unless the result is cached, the job is queued and the response is `{ "status": "queued", "foldxJobId", "phase", "queuedAhead", "queuedEtaMs", ... }`. Poll `GET /api/v1/foldx-job/:jobId` (which adds `startedAt`, `elapsedMs`, `createdAt`), or subscribe to `GET /api/v1/jobs/events?jobs=<id>`. Two identical requests share one job. A cancelled job reads as `failed` with the error `Cancelled.`.
 * **Error Codes**:
+  - `429 QUEUED_PER_USER` / `429 DAILY_SERVER_TIME`: the caller's own limit; the message says what to do.
+  - `422 CANNOT_RUN_HERE`: the placement engine refused the job (only with `COMPUTE_ROUTING=on`).
+  - `503 SERVICE_UNAVAILABLE`: the server-wide queue is full.
   - `503 MODELING_UNAVAILABLE`: Returned with `{ foldxReady: false }` if FoldX is missing or execution fails.
   - `422 UNPROCESSABLE_ENTITY`: Returned if the target residue is missing from the PDB file or there is a residue mismatch.
   - `502 BAD_GATEWAY`: Returned if FoldX runs but outputs an invalid/corrupt result.
@@ -345,6 +361,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   }
   ```
 * **Description**: Runs P2Rank machine learning predictions on coordinates to detect ligand-binding pocket proximity. Follows a strict No-Heuristics Policy: returns ML-detected pockets or explicit `none_detected`/`unavailable` status. No heuristic approximations are permitted.
+* **Queued**: unless cached, returns `{ "status": "queued", "pocketJobId", "structureResolution" }`; poll `GET /api/v1/pocket-job/:jobId` (`status`, `result`, `error`, `queuedAhead`). The result's `computeProvenance` says where it ran and whether it is a shared result. Same `429`/`422 CANNOT_RUN_HERE` refusals as FoldX; a full queue is `503 CONCURRENCY_LIMIT`.
 
 ### 9. Nearest Residues
 * **Route**: `POST /api/v1/nearest-residues`
@@ -421,3 +438,42 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Auth**: None
 * **Description**: Provides runtime statistics, sidecar availability checks, FoldX local build state, and process memory configurations.
 
+### 17. Accounts
+All under `/api/v1`, `Cache-Control: no-store`. Request and response schemas are in the OpenAPI spec (tag *Accounts*).
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /setup` | | `200 {needed:true}` while the first admin can be created, else `404` |
+| `POST /setup` | `{secret, email, displayName, password}` | `201 {user}` + cookie; `401 SETUP_SECRET_INVALID` |
+| `POST /auth/login` | `{email, password}` | `200 {user}` + cookie; `401 INVALID_CREDENTIALS`; `429 TOO_MANY_ATTEMPTS` with `Retry-After` |
+| `POST /auth/logout` | | `204` |
+| `GET /auth/session` | | `200 {mode, provider, user \| null, setupAvailable, accountsExist}`; never `401` |
+| `GET /auth/me` | | `200 {user, mode, quota, usage}`; `401` signed out |
+| `POST /auth/invite-info` | `{token}` | `200 {email, role}`; `404 INVITE_INVALID` |
+| `POST /auth/accept-invite` | `{token, password, displayName}` | `201 {user}` + cookie; `409 ACCOUNT_EXISTS` |
+| `POST /auth/reset` | `{token, password}` | `200 {user}` + cookie; `404 RESET_INVALID` |
+| `POST /auth/change-password` | `{current, next}` | `204`; signs out other browsers |
+| `GET` / `PUT /me/preferences` | `{shareResults?, placementPref?}` | `200 {shareResults, placementPref}` |
+
+Passwords need at least 12 characters (`400 WEAK_PASSWORD`). Invite and reset tokens travel in the link's URL fragment (`#invite=…`, `#reset=…`), never in a query string.
+
+### 18. Jobs
+| Route | Answer |
+|---|---|
+| `GET /my-jobs` (signed in) | `200 {jobs: JobSummary[]}`: your submitted and joined jobs, newest 50, with `queuedAhead` and `etaMs` while waiting. `ownerId` is your own id or null, never someone else's. |
+| `POST /jobs/:jobId/cancel` | `200 {cancelled, stillRunningForOthers, remainingWatchers}`. Withdraws your interest; the job stops when nobody else waits for it. An admin's cancel always stops it. `403` someone else's job, `404` unknown, `409 JOB_FINISHED`. |
+| `GET /jobs/events?jobs=<ids>` | Server-sent events: `connected`, then `job_update {jobId, tool, status, ...}`. |
+
+### 19. Admin
+Role `admin` only (`403 ADMIN_ONLY`). Tag *Admin* in the OpenAPI spec.
+
+| Route | Answer |
+|---|---|
+| `POST /admin/invites` `{email, role}` | `201 {inviteUrl, expiresAt}`; single use, 72 h |
+| `GET /admin/invites` | `200 {invites}`: unused and unexpired |
+| `DELETE /admin/invites/:id` | `204`: withdraw |
+| `GET /admin/users` | `200 {users}` with each person's `quota` override |
+| `PATCH /admin/users/:id` `{status?, role?, quota?}` | `200 {user, jobsCancelled}`. Disabling signs the person out and cancels their jobs. `409 LAST_ADMIN` |
+| `POST /admin/users/:id/reset-link` | `201 {resetUrl, expiresAt}`; single use, 24 h |
+| `POST /admin/users/:id/sign-out` | `204` |
+| `DELETE /admin/compute/ceilings` | `200 {removed}`: forget learned out-of-memory size limits |
