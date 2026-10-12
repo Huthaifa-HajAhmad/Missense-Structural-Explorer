@@ -507,7 +507,7 @@ const ExampleRow: React.FC<{
       </button>
   );
   return <div className="query-examples">
-    <div className="query-examples__primary"><span>Try</span>{example(primary)}</div>
+    <div className="query-examples__primary"><span>Try {group.target === "genomic" ? "coordinates" : "protein"}</span>{example(primary)}</div>
     <details>
       <summary>More {group.target === "genomic" ? "coordinate" : "protein & cDNA"} formats</summary>
       <div className="query-examples__more">{group.values.filter(value => value !== primary).map(example)}</div>
@@ -1372,19 +1372,11 @@ function VariantSearchPanel({
                       />
                       <PasteBtn setter={setCustomGenomic} />
                     </div>
-                    <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                   </div>
-                    <p className="query-route__hint">Coordinates resolve the gene and protein change.</p>
                     <div className="query-reference">
-                      <button type="button" className="query-reference__toggle" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={() => setReferenceOpen(open => !open)}>
-                        <span aria-hidden="true">{referenceOpen ? '−' : '+'}</span>
-                        {referenceOpen ? 'Hide UniProt accession' : 'Set UniProt accession'}
-                      </button>
-                      {!referenceOpen && <span className="query-reference__note">{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically unless specified.'}</span>}
-                      <div id="query-uniprot-option" className="query-reference__field" hidden={!referenceOpen}>
-                        <div className="flex flex-col gap-1.5">
                           <FieldLabel
                             htmlFor="input-uniprot-acc"
+                            action={referenceOpen ? <button type="button" className="query-reference__hide" aria-label="Hide UniProt accession" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={() => setReferenceOpen(false)}>Hide</button> : undefined}
                             badge={
                               <FieldBadge
                                 tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
@@ -1400,6 +1392,11 @@ function VariantSearchPanel({
                           >
                             UniProt accession
                           </FieldLabel>
+                      {!referenceOpen && <button type="button" className="query-reference__toggle" aria-label="Set UniProt accession" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={() => setReferenceOpen(true)}>
+                        <span>{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically'}</span>
+                        <span aria-hidden="true">+</span>
+                      </button>}
+                      <div id="query-uniprot-option" hidden={!referenceOpen}>
                           <div className="relative">
                             <input
                               id="input-uniprot-acc"
@@ -1414,8 +1411,8 @@ function VariantSearchPanel({
                             />
                             <PasteBtn setter={setCustomUniprot} />
                           </div>
-                        </div>
                       </div>
+                      <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                     </div>
                   </div>
                 </fieldset>

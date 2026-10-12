@@ -49,3 +49,7 @@ Code, component and rendered layout checks: **Approve**.
 The initial Query presentation was not fully accepted. Removed the full-width Protein reference disclosure and placed a compact optional UniProt control beneath genomic coordinates. Opening it reveals the accession field inline. A collapsed populated override remains explicitly labelled with its accession. Tightened the coordinate explanation and removed the full-width divider row while preserving the equal-height outer columns.
 
 Verified the actual component in the integrated browser at 1500px and 390px: the reference stays inside the coordinate route, the narrow expanded field fits without horizontal overflow, Tab enters the field, collapse preserves the accession, and clearing keeps the input visible and focused. All 52 Query tests and lint passed.
+
+### Alignment revision
+
+Following further feedback, paired the first-row gene and coordinate inputs and the second-row protein input and UniProt option. The collapsed option uses the same 40px field dimensions; opening it retains the same alignment. Removed the stacked explanatory text and aligned the example rows, with explicit protein/coordinate captions. Desktop measurements confirmed matching input tops at 276.75px and 358.75px, widths of 386.328125px, and 40px heights. Query tests and lint passed.
