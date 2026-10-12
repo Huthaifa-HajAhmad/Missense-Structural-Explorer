@@ -10,6 +10,7 @@ import {
   ExternalLink,
   GitBranch,
   Info,
+  Link2,
   Search,
   Settings2,
   ShieldAlert,
@@ -379,6 +380,44 @@ function KeyValueRows({ rows }: { rows: KeyValueRow[] }) {
  */
 function CreditEntry({ entry }: { entry: AttributionEntry }) {
   const host = creditHost(entry.url);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const copyTimerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(copyTimerRef.current), []);
+
+  const handleCopyLink = useCallback(async () => {
+    const anchorUrl = `${window.location.origin}${window.location.pathname}#credit-${entry.id}`;
+    let success = false;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(anchorUrl);
+        success = true;
+      } catch {
+        success = false;
+      }
+    }
+    if (!success && typeof document !== "undefined") {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = anchorUrl;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.pointerEvents = "none";
+        document.body.appendChild(textarea);
+        textarea.select();
+        success = document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch {
+        success = false;
+      }
+    }
+    if (success) {
+      setCopiedLink(true);
+      window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCopiedLink(false), 2000);
+    }
+  }, [entry.id]);
+
   return (
     <li id={`credit-${entry.id}`} className="about-credit">
       <div className="about-credit-top">
@@ -393,6 +432,15 @@ function CreditEntry({ entry }: { entry: AttributionEntry }) {
             {entry.name}
             <ArrowUpRight className="about-credit-arrow" aria-hidden="true" />
           </a>
+          <button
+            type="button"
+            className={`about-credit-anchor-btn${copiedLink ? " about-credit-anchor-copied" : ""}`}
+            onClick={handleCopyLink}
+            title={copiedLink ? "Deep link copied" : `Copy deep link to ${entry.name}`}
+            aria-label={copiedLink ? "Deep link copied" : `Copy link to ${entry.name}`}
+          >
+            {copiedLink ? <Check className="w-3 h-3" /> : <Link2 className="w-3 h-3" />}
+          </button>
         </h4>
         <span className={`about-kind about-kind-${entry.kind}`}>{KIND_LABELS[entry.kind]}</span>
         <span className="about-credit-host" aria-hidden="true">{host}</span>
@@ -451,6 +499,14 @@ function CreditEntry({ entry }: { entry: AttributionEntry }) {
     </li>
   );
 }
+
+const TOPIC_PRESETS = [
+  { label: "Structure 3D", query: "structure" },
+  { label: "Biophysics", query: "stability" },
+  { label: "Predictors", query: "predictor" },
+  { label: "Genomics", query: "genom" },
+  { label: "Clinical", query: "clin" }
+] as const;
 
 /**
  * Filter bar for the credit roll: a text query, a kind filter, and a bibliography copy for
@@ -533,6 +589,23 @@ function CreditToolbar({
               <span className="about-kind-pill-count">{kindCounts[value]}</span>
             </button>
           ))}
+        </div>
+        <div className="about-topic-chips" role="group" aria-label="Topic quick presets">
+          {TOPIC_PRESETS.map((preset) => {
+            const isActive = query.toLowerCase() === preset.query.toLowerCase();
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                className="about-topic-chip"
+                data-active={isActive}
+                aria-pressed={isActive}
+                onClick={() => onQuery(isActive ? "" : preset.query)}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
         </div>
         <span className="about-toolbar-status" role="status" aria-live="polite">
           {failed
@@ -659,6 +732,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
               <BrandMark size={48} />
             </div>
             <div className="min-w-0">
+              <p className="about-eyebrow">Scientific Provenance &amp; Disclosures</p>
               <h1 className="about-title">About Missense &amp; Fold</h1>
               <p className="about-tagline">
                 A structural exploration workspace for human missense variants.

@@ -34,14 +34,15 @@ function StatusBadge({ status }: { status: TraceSpan["status"] }) {
 export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExport, onClear }: Props) {
   const [scale, setScale] = useState<TimelineScale>("focus");
   const [collapsed, setCollapsed] = useState<Set<PipelineStage>>(new Set());
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [stageFilter, setStageFilter] = useState<PipelineStage | "all">("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { copy, status } = useCopy();
 
-  // A span name only identifies a span within its run.
-  useEffect(() => setSelectedName(null), [activeRun?.traceId]);
+  // A span id only identifies a span within its run.
+  useEffect(() => setSelectedId(null), [activeRun?.traceId]);
 
   const spans = activeRun?.spans ?? [];
-  const selected = useMemo(() => spans.find((s) => s.name === selectedName) ?? null, [spans, selectedName]);
+  const selected = useMemo(() => spans.find((s) => s.id === selectedId) ?? null, [spans, selectedId]);
   const timeline = useMemo(() => (activeRun ? buildTimeline(activeRun, scale) : null), [activeRun, scale]);
   const slowestName = useMemo(() => {
     const slowest = [...spans].sort((a, b) => b.durationMs - a.durationMs)[0];
@@ -56,8 +57,11 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
       return next;
     });
 
+  const allCollapsed = STAGE_ORDER.every((s) => collapsed.has(s));
+  const toggleExpandAll = () => setCollapsed(allCollapsed ? new Set() : new Set(STAGE_ORDER));
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape" && selected) setSelectedName(null);
+    if (e.key === "Escape" && selected) setSelectedId(null);
   };
 
   const hasLongSpans = !!timeline && timeline.outliers.size > 0;
@@ -85,6 +89,36 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
           )}
         </select>
 
+        {activeRun && activeRun.spans.length > 0 && (
+          <div className="cx-tabs" role="group" aria-label="Filter stages">
+            <button
+              type="button"
+              className="cx-tab"
+              aria-pressed={stageFilter === "all"}
+              onClick={() => setStageFilter("all")}
+            >
+              All stages
+            </button>
+            {STAGE_ORDER.map((stage) => {
+              const count = spans.filter((s) => s.stage === stage).length;
+              if (count === 0) return null;
+              return (
+                <button
+                  key={stage}
+                  type="button"
+                  className="cx-tab"
+                  aria-pressed={stageFilter === stage}
+                  onClick={() => setStageFilter(stageFilter === stage ? "all" : stage)}
+                >
+                  <span className="cx-stage-dot" data-stage={stage} style={{ width: 6, height: 6 }} />
+                  <span style={{ textTransform: "capitalize" }}>{stage}</span>
+                  <span className="cx-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {hasLongSpans && (
           <div className="cx-tabs" role="group" aria-label="Timeline scale">
             <button
@@ -107,6 +141,16 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
             </button>
           </div>
         )}
+
+        <button
+          type="button"
+          className="cx-btn"
+          disabled={!activeRun || spans.length === 0}
+          onClick={toggleExpandAll}
+          title={allCollapsed ? "Expand all pipeline stages" : "Collapse all pipeline stages"}
+        >
+          {allCollapsed ? "Expand all" : "Collapse all"}
+        </button>
 
         <span className="cx-spacer" />
         <button type="button" className="cx-btn" disabled={runs.length === 0} onClick={onExport} aria-label="Export trace runs as JSON">
@@ -164,6 +208,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
               </div>
 
               {STAGE_ORDER.map((stage) => {
+                if (stageFilter !== "all" && stageFilter !== stage) return null;
                 const stageSpans = activeRun.spans.filter((s) => s.stage === stage);
                 if (stageSpans.length === 0) return null;
                 const isCollapsed = collapsed.has(stage);
@@ -191,16 +236,16 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
 
                     {!isCollapsed &&
                       stageSpans.map((span) => {
-                        const isSelected = selectedName === span.name;
+                        const isSelected = selectedId === span.id;
                         const geo = barGeometry(span, timeline.axisMax);
                         const tip = `+${formatDuration(span.offsetMs)} · ${formatDuration(span.durationMs)}${span.cached ? " · cached" : ""}${span.error ? ` · ${span.error}` : ""}`;
                         return (
                           <button
-                            key={span.name}
+                            key={span.id}
                             type="button"
                             data-selected={isSelected}
                             aria-pressed={isSelected}
-                            onClick={() => setSelectedName(isSelected ? null : span.name)}
+                            onClick={() => setSelectedId(isSelected ? null : span.id)}
                             aria-label={`${span.name}, ${span.stage} stage, ${span.durationMs} milliseconds${span.cached ? ", cached" : ""}${span.status === "failed" ? ", failed" : ""}${span.status === "unavailable" ? ", unavailable" : ""}`}
                             className="gantt-row"
                           >
@@ -256,7 +301,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
               <span className="cx-stage-dot" data-stage={selected.stage} />
               <b style={{ minWidth: 0, overflowWrap: "anywhere" }}>{selected.name}</b>
               <span className="cx-spacer" />
-              <button type="button" className="cx-icon-btn" onClick={() => setSelectedName(null)} aria-label="Close span inspector">
+              <button type="button" className="cx-icon-btn" onClick={() => setSelectedId(null)} aria-label="Close span inspector">
                 <X />
               </button>
             </div>
