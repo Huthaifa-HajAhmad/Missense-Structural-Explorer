@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Check,
+  Copy,
   Download,
   Layers,
   Pause,
@@ -19,6 +20,7 @@ import {
   IMPACT_OPTIONS,
   LEVEL_OPTIONS,
   SOURCE_OPTIONS,
+  buildMarkdownReport,
   countImpacts,
   downloadJson,
   formatDuration,
@@ -70,10 +72,18 @@ export default function DevConsolePanel() {
 
   const [compact, setCompact] = useState(false);
   const [confirmingClearAll, setConfirmingClearAll] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const clearAllTimer = useRef<number | undefined>(undefined);
+  const copyMarkdownTimer = useRef<number | undefined>(undefined);
 
-  useEffect(() => () => window.clearTimeout(clearAllTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(clearAllTimer.current);
+      window.clearTimeout(copyMarkdownTimer.current);
+    },
+    []
+  );
 
   // Anything arriving while its stream is on screen is read by definition.
   useEffect(() => {
@@ -159,6 +169,39 @@ export default function DevConsolePanel() {
     dispatch({ type: "SET_SOURCE_FILTER", stream, source: "all" });
     dispatch({ type: "SET_IMPACT_FILTER", stream, impact: "all" });
     dispatch({ type: "SET_SEARCH", stream, query: "" });
+  };
+
+  const handleCopyMarkdown = async () => {
+    const md = filteredEntries.map((e) => buildMarkdownReport(e)).join("\n\n---\n\n");
+    let success = false;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(md);
+        success = true;
+      } catch {
+        success = false;
+      }
+    }
+    if (!success && typeof document !== "undefined") {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = md;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.pointerEvents = "none";
+        document.body.appendChild(textarea);
+        textarea.select();
+        success = document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch {
+        success = false;
+      }
+    }
+    if (success) {
+      setCopiedAll(true);
+      window.clearTimeout(copyMarkdownTimer.current);
+      copyMarkdownTimer.current = window.setTimeout(() => setCopiedAll(false), 2000);
+    }
   };
 
   const toggleImpact = (impact: ErrorImpact) =>
@@ -441,6 +484,16 @@ export default function DevConsolePanel() {
                   type="button"
                   className="cx-icon-btn"
                   disabled={filteredEntries.length === 0}
+                  onClick={handleCopyMarkdown}
+                  aria-label={copiedAll ? "Copied markdown report" : "Copy filtered entries as markdown"}
+                  title={copiedAll ? "Copied markdown report" : "Copy filtered entries as markdown"}
+                >
+                  {copiedAll ? <Check style={{ color: "var(--cs-good)" }} /> : <Copy />}
+                </button>
+                <button
+                  type="button"
+                  className="cx-icon-btn"
+                  disabled={filteredEntries.length === 0}
                   onClick={() => downloadJson(`${stream}-console-log`, filteredEntries)}
                   aria-label={`Download ${filtersActive ? "filtered " : ""}${stream} logs as JSON`}
                   title={filtersActive ? `Download the ${filteredEntries.length} filtered entries` : "Download as JSON"}
@@ -471,6 +524,145 @@ export default function DevConsolePanel() {
                   {filtersActive ? `${filteredEntries.length} of ${streamState.entries.length}` : `${streamState.entries.length} entries`}
                 </span>
               </div>
+            </div>
+
+            {/* ── Preset filter chips ── */}
+            <div className="cx-presets-bar" role="group" aria-label="Preset filters">
+              <span className="cx-presets-label">Presets:</span>
+              {stream === "error" ? (
+                <>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.impactFilter === "fatal"}
+                    aria-pressed={streamState.impactFilter === "fatal"}
+                    onClick={() => toggleImpact("fatal")}
+                  >
+                    Fatal ({impacts.fatal})
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.impactFilter === "degraded"}
+                    aria-pressed={streamState.impactFilter === "degraded"}
+                    onClick={() => toggleImpact("degraded")}
+                  >
+                    Degraded ({impacts.degraded})
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.impactFilter === "recoverable"}
+                    aria-pressed={streamState.impactFilter === "recoverable"}
+                    onClick={() => toggleImpact("recoverable")}
+                  >
+                    Recoverable ({impacts.recoverable})
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.sourceFilter === "biophysics"}
+                    aria-pressed={streamState.sourceFilter === "biophysics"}
+                    onClick={() =>
+                      dispatch({
+                        type: "SET_SOURCE_FILTER",
+                        stream: "error",
+                        source: streamState.sourceFilter === "biophysics" ? "all" : "biophysics",
+                      })
+                    }
+                  >
+                    Biophysics
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.sourceFilter === "genomics"}
+                    aria-pressed={streamState.sourceFilter === "genomics"}
+                    onClick={() =>
+                      dispatch({
+                        type: "SET_SOURCE_FILTER",
+                        stream: "error",
+                        source: streamState.sourceFilter === "genomics" ? "all" : "genomics",
+                      })
+                    }
+                  >
+                    Genomics
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.searchQuery.toLowerCase() === "http"}
+                    aria-pressed={streamState.searchQuery.toLowerCase() === "http"}
+                    onClick={() =>
+                      dispatch({
+                        type: "SET_SEARCH",
+                        stream: "live",
+                        query: streamState.searchQuery.toLowerCase() === "http" ? "" : "http",
+                      })
+                    }
+                  >
+                    API / HTTP ({liveStats.http})
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.searchQuery.toLowerCase() === "[cache hit]"}
+                    aria-pressed={streamState.searchQuery.toLowerCase() === "[cache hit]"}
+                    onClick={() =>
+                      dispatch({
+                        type: "SET_SEARCH",
+                        stream: "live",
+                        query: streamState.searchQuery.toLowerCase() === "[cache hit]" ? "" : "[cache hit]",
+                      })
+                    }
+                  >
+                    Cache Hits ({liveStats.cached})
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.sourceFilter === "biophysics"}
+                    aria-pressed={streamState.sourceFilter === "biophysics"}
+                    onClick={() =>
+                      dispatch({
+                        type: "SET_SOURCE_FILTER",
+                        stream: "live",
+                        source: streamState.sourceFilter === "biophysics" ? "all" : "biophysics",
+                      })
+                    }
+                  >
+                    Biophysics
+                  </button>
+                  <button
+                    type="button"
+                    className="cx-preset-chip"
+                    data-active={streamState.sourceFilter === "structure-3d"}
+                    aria-pressed={streamState.sourceFilter === "structure-3d"}
+                    onClick={() =>
+                      dispatch({
+                        type: "SET_SOURCE_FILTER",
+                        stream: "live",
+                        source: streamState.sourceFilter === "structure-3d" ? "all" : "structure-3d",
+                      })
+                    }
+                  >
+                    Structure 3D
+                  </button>
+                </>
+              )}
+              {filtersActive && (
+                <button
+                  type="button"
+                  className="cx-preset-chip cx-preset-chip-clear"
+                  onClick={resetFilters}
+                  title="Clear all active filters"
+                >
+                  Clear filters ×
+                </button>
+              )}
             </div>
 
             {!streamState.isCapturing && (

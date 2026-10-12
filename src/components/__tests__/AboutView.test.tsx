@@ -230,4 +230,35 @@ describe("AboutView — attribution and acknowledgments", () => {
     fireEvent.click(screen.getByRole("button", { name: /manage data & caches/i }));
     expect(openSettingsTab).toHaveBeenCalledWith("data");
   });
+
+  it("quick-filters sources with topic presets and toggles back", () => {
+    renderPage();
+    const structureChip = screen.getByRole("button", { name: /^structure 3d$/i });
+    expect(structureChip).toBeInTheDocument();
+    expect(structureChip.getAttribute("aria-pressed")).toBe("false");
+
+    // Click to filter
+    fireEvent.click(structureChip);
+    expect(structureChip.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByDisplayValue("structure")).toBeInTheDocument();
+
+    // Toggle off
+    fireEvent.click(structureChip);
+    expect(structureChip.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByPlaceholderText(/filter by name/i)).toHaveValue("");
+  });
+
+  it("copies direct credit deep link with visual confirmation", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    renderPage();
+    const anchorBtn = screen.getByRole("button", { name: /copy link to foldx/i });
+    expect(anchorBtn).toBeInTheDocument();
+
+    fireEvent.click(anchorBtn);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0][0]).toContain("#credit-foldx");
+    expect(await screen.findByRole("button", { name: /deep link copied/i })).toBeInTheDocument();
+  });
 });

@@ -135,27 +135,59 @@ export default function ConsoleInspector({ entry, onClose }: Props) {
               </tbody>
             </table>
             {http.requestBody !== undefined && (
-              <>
-                <h4 className="cx-section-title" style={{ marginTop: 12 }}>
-                  Request body
-                </h4>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <h4 className="cx-section-title" style={{ margin: 0 }}>Request body</h4>
+                  <button
+                    type="button"
+                    className="cx-btn"
+                    style={{ padding: "2px 7px", fontSize: 10.5 }}
+                    onClick={() => copy(stringifyPayload(http.requestBody), "reqBody")}
+                    title="Copy request body"
+                  >
+                    {status("reqBody") === "copied" ? <Check style={{ width: 11, height: 11, color: "var(--cs-good)" }} /> : <Copy style={{ width: 11, height: 11 }} />}
+                    <span>{status("reqBody") === "copied" ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
                 <pre className="dev-console-stack-trace">{stringifyPayload(http.requestBody)}</pre>
-              </>
+              </div>
             )}
             {Boolean(http.responseBody) && (
-              <>
-                <h4 className="cx-section-title" style={{ marginTop: 12 }}>
-                  Response body
-                </h4>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <h4 className="cx-section-title" style={{ margin: 0 }}>Response body</h4>
+                  <button
+                    type="button"
+                    className="cx-btn"
+                    style={{ padding: "2px 7px", fontSize: 10.5 }}
+                    onClick={() => copy(stringifyPayload(http.responseBody), "resBody")}
+                    title="Copy response body"
+                  >
+                    {status("resBody") === "copied" ? <Check style={{ width: 11, height: 11, color: "var(--cs-good)" }} /> : <Copy style={{ width: 11, height: 11 }} />}
+                    <span>{status("resBody") === "copied" ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
                 <pre className="dev-console-stack-trace">{stringifyPayload(http.responseBody)}</pre>
-              </>
+              </div>
             )}
           </section>
         )}
 
         {entry.detail && (
           <section>
-            <h4 className="cx-section-title">Stack trace / detail</h4>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h4 className="cx-section-title" style={{ margin: 0 }}>Stack trace / detail</h4>
+              <button
+                type="button"
+                className="cx-btn"
+                style={{ padding: "2px 7px", fontSize: 10.5 }}
+                onClick={() => copy(entry.detail!, "detail")}
+                title="Copy detail / stack trace"
+              >
+                {status("detail") === "copied" ? <Check style={{ width: 11, height: 11, color: "var(--cs-good)" }} /> : <Copy style={{ width: 11, height: 11 }} />}
+                <span>{status("detail") === "copied" ? "Copied" : "Copy"}</span>
+              </button>
+            </div>
             <pre className="dev-console-stack-trace">{entry.detail}</pre>
           </section>
         )}

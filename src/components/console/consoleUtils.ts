@@ -288,6 +288,7 @@ export function summarizeTrace(run: TraceRun | null): TraceSummary {
 
 /** Wall-clock the run spent, from the first span start to the last span end. */
 export function stageWindow(spans: TraceSpan[]): { start: number; end: number } {
+  if (spans.length === 0) return { start: 0, end: 0 };
   return {
     start: Math.min(...spans.map((s) => s.offsetMs)),
     end: Math.max(...spans.map((s) => s.offsetMs + s.durationMs)),
