@@ -189,10 +189,22 @@ export class SidecarAdapter implements ExternalServiceAdapter<any, any> {
       const latencyMs = Math.round(performance.now() - start);
       if (sidecarRes.ok) {
         const data = await sidecarRes.json() as any;
+        /**
+         * `tools/model_server.py` returns `status: "healthy"` unconditionally and puts the real
+         * distinction in `state`. Reading `status` alone therefore reported "ML Model Server
+         * Healthy" — and downstream, a green "Neural Sidecar Live" — for the whole ~180 s
+         * weight-loading window, while every ML-backed call in that window failed. `state` is the
+         * only honest signal here, and its absence from this probe is what made the
+         * "ML Sidecar Model Loading" arm below unreachable.
+         */
+        const warming = data.state === "warming_up";
         return {
-          healthy: data.status === "healthy",
+          healthy: !warming && data.status === "healthy",
+          state: warming ? "warming_up" : "ready",
           latencyMs,
-          message: data.status === "healthy" ? "ML Model Server Healthy" : "ML Sidecar Model Loading",
+          message: warming
+            ? "Loading model weights — ML features unavailable until ready"
+            : "ML Model Server Healthy",
           timestamp: new Date().toISOString()
         };
       }

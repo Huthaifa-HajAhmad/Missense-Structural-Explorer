@@ -2,7 +2,8 @@ import React, { useEffect, useState, useSyncExternalStore } from "react";
 import {
   RefreshCw,
   Settings,
-  ChevronRight
+  ChevronRight,
+  ChevronDown
 } from "lucide-react";
 import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
@@ -12,6 +13,30 @@ import { getAuthLapse, subscribeAuthLapse } from "../../api/authSession";
 interface LiveTelemetryPanelProps {
   onConfigureClick?: (tab: "connections" | "api") => void;
   className?: string;
+}
+
+/**
+ * One "label — value" line inside an expanded row. `tone` drives its leading dot; `info` is for a
+ * fact that is neither a state nor a value (a technical name, a caveat).
+ */
+interface ServiceDetailRow {
+  label: string;
+  value: string;
+  tone?: "ready" | "warming" | "absent" | "info";
+}
+
+/**
+ * The plain-language explanation shown when a row is expanded.
+ *
+ * Split from `statusText` on purpose: the collapsed row has room for three or four words beside a
+ * dot, which is not enough to explain anything. Every row is therefore expandable, so a reader is
+ * never left holding a status word with no way to find out what it means or whether they must act.
+ */
+interface ServiceExplanation {
+  /** A short verdict in the reader's terms, not the engine's. */
+  heading: string;
+  /** What this means for the reader, and whether they need to do anything. */
+  body: string;
 }
 
 interface ServiceStatusCard {
@@ -26,6 +51,12 @@ interface ServiceStatusCard {
   isDegraded?: boolean;
   /** Every tier of this service's ladder answered that it cannot serve. */
   isDown?: boolean;
+  /**
+   * Up but not yet serving — a cold start loading weights. Amber, steady, and counted as NOT
+   * online: it is neither ready nor broken, and rendering it as either is a lie about whether the
+   * next request will succeed.
+   */
+  isWarming?: boolean;
   /** Primary unreachable and coverage could not be determined — explicitly not an outage. */
   isUnknown?: boolean;
   latency?: number | string | null;
@@ -37,7 +68,19 @@ interface ServiceStatusCard {
   /** Overrides the default "Configure <name> settings" accessible label. */
   actionLabel?: string;
   onAction?: () => void;
+  /** Opens the row to reveal `explain` and `detailRows`. */
+  explain?: ServiceExplanation;
+  /** Per-component breakdown, rendered beneath the explanation. */
+  detailRows?: ServiceDetailRow[];
 }
+
+/** Dot colour for an expanded detail line. Absent is deliberately the border token, not a warning. */
+const DETAIL_DOT: Record<NonNullable<ServiceDetailRow["tone"]>, string> = {
+  ready: "bg-[var(--cs-text-success)]",
+  warming: "bg-[var(--cs-text-warning)]",
+  absent: "bg-cs-border",
+  info: "bg-cs-text-muted"
+};
 
 /**
  * Leading status dot. `isWarning` pulses because it marks a state the operator must act on
@@ -53,6 +96,9 @@ interface ServiceStatusCard {
 function statusDotClass(svc: ServiceStatusCard): string {
   if (svc.isDown) return "bg-[var(--cs-text-danger)]";
   if (svc.isWarning) return "bg-[var(--cs-text-warning)] animate-pulse";
+  // Warming sits below the pulse: an outage outranks a cold start, and a cold start outranks
+  // "degraded but covered". Steady amber, because nothing here needs the reader's action.
+  if (svc.isWarming) return "bg-[var(--cs-text-warning)]";
   if (svc.isDegraded) return "bg-[var(--cs-text-warning)]";
   if (svc.isUnknown) return "bg-cs-text-muted";
   if (svc.isReady) return "bg-[var(--cs-text-success)]";
@@ -62,7 +108,7 @@ function statusDotClass(svc: ServiceStatusCard): string {
 /** Tinted chip for the states that need attention. Nominal states never reach this. */
 function statusPillClass(svc: ServiceStatusCard): string {
   if (svc.isDown) return "bg-[var(--cs-bg-danger)] text-[var(--cs-text-danger-on-soft)]";
-  if (svc.isWarning || svc.isDegraded) {
+  if (svc.isWarning || svc.isDegraded || svc.isWarming) {
     return "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]";
   }
   return "bg-cs-surface-2 text-cs-text-secondary";
@@ -70,7 +116,14 @@ function statusPillClass(svc: ServiceStatusCard): string {
 
 /** Ready with nothing to flag: rendered as quiet text rather than a coloured chip. */
 function isNominal(svc: ServiceStatusCard): boolean {
-  return svc.isReady && !svc.isWarning && !svc.isDegraded && !svc.isDown && !svc.isUnknown;
+  return (
+    svc.isReady &&
+    !svc.isWarning &&
+    !svc.isDegraded &&
+    !svc.isDown &&
+    !svc.isUnknown &&
+    !svc.isWarming
+  );
 }
 
 export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
@@ -94,6 +147,21 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   }, []);
 
   const authLapse = useSyncExternalStore(subscribeAuthLapse, getAuthLapse, getAuthLapse);
+
+  /**
+   * Which row is open. One at a time, because the rail is narrow and two open explanations would
+   * push every other service out of view — the reader would lose the list they came to read in
+   * order to understand one entry in it.
+   */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  /**
+   * A warming sidecar resolves itself, but nothing here needs to actively close an open
+   * explanation: the copy is derived from the current probe on every render, so the panel flips to
+   * the ready wording the moment the sidecar does. There is no latched state to go stale.
+   */
+  const toggleExpanded = (id: string) =>
+    setExpandedId(prev => (prev === id ? null : id));
 
   const handleConfigure = (tab: "connections" | "api" = "connections") => {
     if (onConfigureClick) {
@@ -292,16 +360,130 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
   // 9. Python ML Sidecar & Sovereign Cloud
   const sidecarHealth = diagnostics?.serviceHealth?.sidecar;
-  const sidecarReady = Boolean(diagnostics?.modelServerReady || sidecarHealth?.healthy);
+  /**
+   * Cold start is its own state, and it is the one the rail used to have no word for.
+   *
+   * The sidecar answers `/health` with `status: "healthy"` from the moment uvicorn binds, up to
+   * ~180 s before the weights it was spawned to load become usable (`sidecar-supervisor.ts` opens
+   * exactly that grace window on spawn). `modelServerReady` counted that window as ready, so the
+   * row wore a green dot and read "Neural Sidecar Live" while every ML-backed feature in it
+   * failed — the reader was told the opposite of the truth, in the one place they would look to
+   * check. Warming is now reported separately by both probes that can see it, and rendered as its
+   * own state below: amber, counted as NOT online, and named.
+   *
+   * Warming is deliberately NOT `isWarning`: that tone pulses, and the panel reserves the pulse for
+   * a state the operator must act on. A cold start needs no action — it resolves itself — so a
+   * steady amber beside a lapsed-key pulse keeps the one pulse that means something.
+   */
+  const sidecarWarming =
+    diagnostics?.modelServerState === "warming_up" ||
+    sidecarHealth?.state === "warming_up" ||
+    capabilities?.engines?.some(
+      e => (e.id === "thermompnn" || e.id === "stabilityoracle") && e.status === "warming_up"
+    ) === true;
+  const sidecarReady =
+    !sidecarWarming && Boolean(diagnostics?.modelServerReady || sidecarHealth?.healthy);
   const japanFoldCap = capabilities?.engines?.find(e => e.id === "japanfold");
   const isJapanFoldReady = japanFoldCap?.status === "ready";
   const sidecarStatusText = !isLoaded && loading
     ? "Checking…"
+    : sidecarWarming
+    ? "Starting up"
     : sidecarReady
-    ? "Neural Sidecar Live"
+    ? "Predictions ready"
     : isJapanFoldReady
     ? "JapanFold Sovereign"
     : "Standby / Cloud";
+  const sidecarDescription = sidecarWarming
+    ? "Starting up — predictions available shortly"
+    : "ThermoMPNN, SaProt & StabilityOracle";
+  /**
+   * What the row means when opened, in words that assume no knowledge of what a sidecar is.
+   *
+   * The collapsed row has room for three words beside a dot, so it cannot say any of this — which
+   * is exactly why it must be expandable. The three questions a non-specialist actually has are
+   * answered in order: what is this, is it broken, and what do I do. "Cold start", "warming" and
+   * "sidecar" appear nowhere; the technical name is kept as a quiet parenthetical for the reader
+   * who does want it, which is the same pattern the rest of this app uses for method names.
+   *
+   * No progress estimate is offered. The sidecar reports only `warming_up` — not how far in, and
+   * not how long remains — so any figure here would be invented, and an invented countdown is the
+   * defect `doc/UNMAPPING_DEFECT_SPLICE_AUDIT.md` records: a banner that guessed its stage from
+   * elapsed seconds and drew a fake progress bar.
+   */
+  const sidecarExplain: ServiceExplanation | undefined = sidecarWarming
+    ? {
+        heading: "Not broken — just starting up",
+        body:
+          "The prediction models are loading into memory. This happens once, shortly after the app " +
+          "is opened, and takes a few minutes. Everything else on this panel is unaffected. You " +
+          "can keep reading evidence and results now; stability and structure predictions will " +
+          "start working on their own as each model finishes, and this line will turn green."
+      }
+    : sidecarReady
+    ? {
+        heading: "Ready",
+        body:
+          "The prediction models are loaded and available. Stability and structure predictions run " +
+          "on demand — the first one after startup may take a little longer than the rest."
+      }
+    : {
+        heading: "Not running",
+        body:
+          "The local prediction models are not running, so stability and structure predictions are " +
+          "unavailable. This is not something a search or a retry will fix. Everything on this " +
+          "panel that shows green is unaffected and fully usable."
+      };
+  /**
+   * Per-model breakdown, taken only from what the server actually reported.
+   *
+   * `capabilities.engines[].status` is the sidecar's own per-model state, so this is the one place
+   * a reader can see *which* model is still loading rather than just that "something" is. An engine
+   * the server did not report is omitted rather than guessed at, so the list can be as short as
+   * the technical name alone — the explanation above always stands on its own without it.
+   */
+  const sidecarDetailRows: ServiceDetailRow[] | undefined = (() => {
+    const rows: ServiceDetailRow[] = [];
+    const statusOf = (id: string) =>
+      capabilities?.engines?.find(e => e.id === id)?.status;
+    const engineRows: Array<[string, string]> = [
+      ["thermompnn", "Stability prediction (ThermoMPNN)"],
+      ["stabilityoracle", "Structure stability (StabilityOracle)"],
+      ["saprot", "Structure-aware language model (SaProt)"]
+    ];
+    for (const [id, label] of engineRows) {
+      const st = statusOf(id);
+      if (!st) continue; // the server did not report this one; say nothing rather than guess
+      rows.push({
+        label,
+        value:
+          st === "ready" ? "Available" : st === "warming_up" ? "Still loading" : "Not available",
+        tone: st === "ready" ? "ready" : st === "warming_up" ? "warming" : "absent"
+      });
+    }
+    const jf = statusOf("japanfold");
+    if (jf) {
+      rows.push({
+        label: "Cloud structure folding (JapanFold)",
+        value: jf === "ready" ? "Available" : "Not available",
+        tone: jf === "ready" ? "ready" : "absent"
+      });
+    }
+    /**
+     * The technical name, for the reader who wants it.
+     *
+     * Every plain phrase above had to avoid "sidecar", so the reader who meets that word in a log
+     * line or a bug report needs somewhere to learn it means this row. `info` tone is a neutral
+     * grey dot: it is a fact, not a state, and must not read as a fourth colour of health.
+     */
+    rows.push({
+      label: "Technical name",
+      value: "Python ML sidecar",
+      tone: "info"
+    });
+    return rows.length > 0 ? rows : undefined;
+  })();
+
   const formatLatency = (ms?: number | null) => {
     if (typeof ms !== "number" || isNaN(ms) || ms < 0) return null;
     return ms < 1 ? "< 1ms" : `${Math.round(ms)}ms`;
@@ -337,7 +519,26 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       // Only when the primary has failed: re-probing re-runs the whole ladder, including
       // the conditional fallback check, so the pill can flip back to REST Live.
       actionLabel: "Re-check Ensembl VEP and its fallback",
-      onAction: ensemblReady ? undefined : () => refresh()
+      onAction: ensemblReady ? undefined : () => refresh(),
+      explain: {
+        heading: ensemblDegraded
+          ? "Answered by a backup service"
+          : ensemblUncovered
+          ? "Not answering"
+          : ensemblCoverageUnknown
+          ? "Could not be determined"
+          : "Working normally",
+        body:
+          "Translates the genomic position you searched for into the matching transcript and " +
+          "protein change, and checks the coordinates against the genome build. " +
+          (ensemblDegraded
+            ? "The main service did not answer, so this was handled by a backup service instead. Results are complete — they just came from a different source."
+            : ensemblUncovered
+            ? "Searches that need this translation will not complete until it responds again. Anything already on screen is unaffected."
+            : ensemblCoverageUnknown
+            ? "The main service did not answer and the backup could not be checked either. This is not confirmed as an outage — trying again may well succeed."
+            : "Genomic coordinates and protein changes are resolving normally.")
+      }
     },
     {
       id: "alphagenome",
@@ -347,7 +548,21 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       statusText: alphagenomeStatusText,
       isReady: alphagenomeReady,
       latency: formatLatency(alphagenomeLatency),
-      onAction: () => handleConfigure("connections")
+      onAction: () => handleConfigure("connections"),
+      explain: alphagenomeReady
+        ? {
+            heading: "Working normally",
+            body:
+              "Scores how a change is likely to affect regulatory activity, using DeepMind's " +
+              "multimodal model. This feeds the Insights view; the rest of the app does not depend on it."
+          }
+        : {
+            heading: "No API key connected",
+            body:
+              "Regulatory-impact scoring is switched off because no API key is connected. This " +
+              "limits the Insights view only — every other view works normally. Add a key in " +
+              "Settings to enable it."
+          }
     },
     {
       id: "myvariant",
@@ -356,7 +571,15 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "REVEL, CADD, AlphaMissense, MetaRNN",
       statusText: myvariantStatusText,
       isReady: myvariantReady,
-      latency: formatLatency(myvariantLatency)
+      latency: formatLatency(myvariantLatency),
+      explain: {
+        heading: myvariantReady ? "Working normally" : "Not answering",
+        body: myvariantReady
+          ? "Supplies the published computational predictor scores you see in Evidence — REVEL, " +
+            "CADD, AlphaMissense and others. Each score keeps its own name and citation."
+          : "The published predictor scores are unavailable, so the Predictors view will be empty " +
+            "for now. A search or a retry may succeed — this is usually temporary."
+      }
     },
     {
       id: "clinvar",
@@ -365,7 +588,16 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Pathogenicity & VCV classifications",
       statusText: clinvarStatusText,
       isReady: clinvarReady,
-      latency: formatLatency(clinvarLatency)
+      latency: formatLatency(clinvarLatency),
+      explain: {
+        heading: clinvarReady ? "Working normally" : "Not answering",
+        body: clinvarReady
+          ? "Provides laboratory classifications of whether a change is known to be disease-causing. " +
+            "This is the strongest evidence in the app, and it is labelled as a clinical " +
+            "classification rather than a prediction."
+          : "Laboratory classifications are unavailable, so the Evidence view will not show how " +
+            "this change has been classified elsewhere. Everything else still works."
+      }
     },
     {
       id: "europepmc",
@@ -374,7 +606,15 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Biomedical literature mining & citations",
       statusText: europePmcStatusText,
       isReady: europePmcReady,
-      latency: formatLatency(europePmcLatency)
+      latency: formatLatency(europePmcLatency),
+      explain: {
+        heading: europePmcReady ? "Working normally" : "Not answering",
+        body: europePmcReady
+          ? "Finds published papers about this gene or change, with their citations. Results are " +
+            "screened for relevance before they are shown."
+          : "Literature search is unavailable, so the Literature view will be empty. The evidence " +
+            "from every other source is unaffected."
+      }
     },
     {
       id: "gemini",
@@ -400,7 +640,29 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
        */
       onAction: (sessionLapsed || authLost) && keyLinkable && !linking
         ? () => linkGeminiKey()
-        : () => handleConfigure(keyLinkable ? "api" : "connections")
+        : () => handleConfigure(keyLinkable ? "api" : "connections"),
+      explain: sessionLapsed || authLost
+        ? {
+            heading: "Your key needs reconnecting",
+            body:
+              "The stored key is no longer accepted, so written interpretations are paused. " +
+              "Nothing has been lost — click this line to reconnect with the same key."
+          }
+        : geminiWarning
+        ? {
+            heading: "Needs an API key",
+            body:
+              "Written clinical interpretations are switched off because no API key is connected. " +
+              "All measured evidence, scores and structure still work. Add a key in Settings to " +
+              "enable the written summaries."
+          }
+        : {
+            heading: "Working normally",
+            body:
+              "Writes the plain-language interpretation that summarises the evidence you have " +
+              "gathered. This is a summary of that evidence, never a source of it — every claim " +
+              "it makes is traceable to a reading above it."
+          }
     },
     {
       id: "foldx",
@@ -410,7 +672,21 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       statusText: foldxReady ? "Forcefield Live" : "Local Standby",
       isReady: foldxReady,
       tag: foldxTag,
-      onAction: () => handleConfigure("connections")
+      onAction: () => handleConfigure("connections"),
+      explain: foldxReady
+        ? {
+            heading: "Working normally",
+            body:
+              "Estimates how much a change destabilises the protein using a physical model of " +
+              "atomic forces. It runs locally, so results do not depend on any outside service."
+          }
+        : {
+            heading: "Not installed in this setup",
+            body:
+              "This engine runs as a separate program on the server, and it is not installed here. " +
+              "Stability estimates that rely on it will be missing; any other stability engine " +
+              "that is available still contributes, and the app says which ones did."
+          }
     },
     {
       id: "p2rank",
@@ -420,16 +696,39 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       statusText: p2rankStatusText,
       isReady: p2rankReady,
       isWarning: p2rankWarning,
-      onAction: () => handleConfigure("connections")
+      onAction: () => handleConfigure("connections"),
+      explain: p2rankReady
+        ? {
+            heading: "Working normally",
+            body:
+              "Predicts where other molecules are likely to bind on the protein surface, which " +
+              "helps interpret whether a change sits in a functionally important spot."
+          }
+        : p2rankWarning
+        ? {
+            heading: "Installed, but needs Java",
+            body:
+              "The pocket-detection program needs a Java runtime, which is missing or too old. " +
+              "Binding-site predictions are unavailable until that is fixed. Everything else is unaffected."
+          }
+        : {
+            heading: "Not installed in this setup",
+            body:
+              "The pocket-detection program is not installed on this server, so binding-site " +
+              "predictions are unavailable. Other structural evidence still works."
+          }
     },
     {
       id: "sidecar",
-      name: "Neural Sidecar / JapanFold",
+      name: "AI prediction models / JapanFold",
       category: "compute",
-      description: "ThermoMPNN, SaProt & StabilityOracle",
+      description: sidecarDescription,
       statusText: sidecarStatusText,
-      isReady: sidecarReady || isJapanFoldReady,
-      latency: sidecarLatency
+      isReady: !sidecarWarming && (sidecarReady || isJapanFoldReady),
+      isWarming: sidecarWarming,
+      latency: sidecarLatency,
+      explain: sidecarExplain,
+      detailRows: sidecarDetailRows
     },
     {
       id: "uniprot",
@@ -438,7 +737,16 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       description: "Functional domains & catalytic residues",
       statusText: uniprotStatusText,
       isReady: uniprotReady,
-      latency: formatLatency(uniprotLatency)
+      latency: formatLatency(uniprotLatency),
+      explain: {
+        heading: uniprotReady ? "Working normally" : "Not answering",
+        body: uniprotReady
+          ? "Provides the protein's known functional regions and active sites, which is how the app " +
+            "judges whether a change sits somewhere that matters. Domains and boundaries keep their " +
+            "source and the residue numbers they were defined on."
+          : "Functional regions and active sites are unavailable, so the app cannot yet say whether " +
+            "this change falls inside a known functional region. Every other source of evidence is unaffected."
+      }
     }
   ];
 
@@ -463,6 +771,16 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
   const counterLabel = coveredCount > 0
     ? `${onlineCount}/${totalCount} online · ${coveredCount} on fallback`
     : `${onlineCount}/${totalCount} online`;
+  /**
+   * A service that is still warming is counted out of the online total, so the header's bare
+   * fraction would otherwise name a deficit with no cause. Naming it here is what stops the reader
+   * from concluding that an ML engine is broken during a cold start — and stops them waiting for a
+   * prediction that cannot arrive yet.
+   */
+  const warmingNote = services
+    .filter(s => s.isWarming)
+    .map(s => `${s.name} is still starting up`)
+    .join("; ");
 
   /**
    * One tone for the summary, derived in one place.
@@ -522,8 +840,10 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             title={
               isChecking
                 ? "Checking service reachability and engines…"
-                : coverageNote
-                ? `${onlineCount} of ${totalCount} services online — ${coverageNote}`
+                : [coverageNote, warmingNote].filter(Boolean).length > 0
+                ? `${onlineCount} of ${totalCount} services online — ${[coverageNote, warmingNote]
+                    .filter(Boolean)
+                    .join(" — ")}`
                 : `${onlineCount} of ${totalCount} services online and responsive`
             }
           >
@@ -568,31 +888,63 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             <h3 className="px-1 text-[11px] font-medium text-cs-text-muted">{group.label}</h3>
             <div className="rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface divide-y divide-cs-border-subtle overflow-hidden">
               {group.items.map(svc => {
-                const isClickable = Boolean(svc.onAction);
+                const isExpandable = Boolean(svc.explain);
+                const isOpen = expandedId === svc.id;
                 const nominal = isNominal(svc);
                 const slow = typeof svc.latency === "string" && parseInt(svc.latency, 10) >= 1000;
+                /**
+                 * A row may carry an action (re-check, open Settings), an explanation, or both.
+                 * See the note on `rowRole` below for how the two are kept from colliding.
+                 */
+                const rowAction = svc.onAction;
+                /**
+                 * The row's own accessible name, and whether it is a control at all.
+                 *
+                 * The chevron is THE disclosure control: one role, one tab stop, one `aria-expanded`,
+                 * and a name that says what it opens. The row header is only a wider hit target for
+                 * the same action, never a second control — a row that is both a button and contains
+                 * a button gives a keyboard user two tab stops for one thing, and nesting the two is
+                 * invalid HTML.
+                 *
+                 * `role="button"` on the row therefore belongs to a row that carries an *action*
+                 * (re-check, open Settings), exactly as before. A row with no action keeps no role
+                 * even though it opens: `LiveTelemetryFallback.test.tsx` pins this for a healthy
+                 * Ensembl row, and it is right — a row with nothing to do must not look like a control.
+                 */
+                const rowLabel = rowAction
+                  ? (svc.actionLabel ?? `Configure ${svc.name} settings`)
+                  : svc.name;
+                const rowRole = rowAction ? "button" : undefined;
                 return (
+                  <div key={svc.id} className="flex flex-col">
                   <div
-                    key={svc.id}
                     data-service-id={svc.id}
-                    onClick={svc.onAction}
-                    role={isClickable ? "button" : undefined}
-                    tabIndex={isClickable ? 0 : undefined}
-                    aria-label={isClickable ? (svc.actionLabel ?? `Configure ${svc.name} settings`) : svc.name}
+                    data-expanded={isExpandable ? (isOpen ? "true" : "false") : undefined}
+                    onClick={
+                      rowAction
+                        ? rowAction
+                        : isExpandable
+                        ? () => toggleExpanded(svc.id)
+                        : undefined
+                    }
+                    role={rowRole}
+                    tabIndex={rowAction ? 0 : undefined}
+                    aria-label={rowLabel}
                     onKeyDown={e => {
-                      if (isClickable && (e.key === "Enter" || e.key === " ")) {
+                      if (!rowAction) return;
+                      if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        svc.onAction?.();
+                        rowAction();
                       }
                     }}
                     className={`group flex items-center gap-2.5 px-3 py-1 min-h-[42px] select-none transition-colors duration-150 ${
                       svc.isDown
                         ? "bg-[var(--cs-bg-danger)]"
-                        : svc.isDegraded
+                        : svc.isDegraded || svc.isWarming
                         ? "bg-[var(--cs-bg-warning)]"
                         : ""
                     } ${
-                      isClickable
+                      rowAction || isExpandable
                         ? "cursor-pointer hover:bg-cs-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cs-accent-clay)]"
                         : ""
                     }`}
@@ -636,7 +988,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       </span>
                       {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
                           only cue was its aria-label, and the settings rows had no cue at all. */}
-                      {isClickable && (
+                      {rowAction && (
                         <span
                           className="text-cs-text-muted group-hover:text-cs-text-primary transition-colors duration-150"
                           aria-hidden="true"
@@ -644,7 +996,75 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                           {svc.actionIcon ?? <ChevronRight className="w-3.5 h-3.5" />}
                         </span>
                       )}
+                      {/* The disclosure affordance, only on a row that opens. A chevron that rotates
+                          rather than a "+"/"−" pair: one glyph, and its orientation states which way
+                          the panel will move.
+
+                          It is a real <button> because that is the only way a keyboard reader gets a
+                          control that is reachable and named. The name states what it opens and its
+                          current state, which the row's own label cannot: on an action row the row's
+                          label already names the action (re-check, open Settings), so a second
+                          meaning there would announce the wrong thing. `stopPropagation` keeps the
+                          chevron from also firing the row's own click. */}
+                      {isExpandable && (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            toggleExpanded(svc.id);
+                          }}
+                          aria-label={`${isOpen ? "Hide" : "Show"} details for ${svc.name}`}
+                          aria-expanded={isOpen}
+                          className="relative cs-tap-44 w-7 h-7 -mr-1 inline-flex items-center justify-center rounded-[var(--cs-radius-input)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cs-accent-clay)]"
+                        >
+                          <ChevronDown
+                            className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}
+                          />
+                        </button>
+                      )}
                     </div>
+                  </div>
+
+                  {/* ── Expanded detail ── */}
+                  {isExpandable && isOpen && (
+                    <div
+                      data-service-detail={svc.id}
+                      className="px-3 pb-2.5 pt-0.5 flex flex-col gap-2 border-l-2 border-[var(--cs-accent-clay)] ml-[7px]"
+                    >
+                      <p className="text-[11.5px] font-medium text-cs-text-primary m-0">
+                        {svc.explain!.heading}
+                      </p>
+                      <p className="text-[11.5px] leading-relaxed text-cs-text-secondary m-0">
+                        {svc.explain!.body}
+                      </p>
+                      {svc.detailRows && svc.detailRows.length > 0 && (
+                        <ul className="flex flex-col gap-1 m-0 p-0 list-none">
+                          {svc.detailRows.map(row => (
+                            <li key={row.label} className="flex items-baseline gap-2 min-w-0">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 translate-y-[-1px] ${DETAIL_DOT[row.tone ?? "info"]}`}
+                                aria-hidden="true"
+                              />
+                              <span className="text-[11px] text-cs-text-muted min-w-0 flex-1 leading-snug">
+                                {row.label}
+                              </span>
+                              <span className="text-[11px] font-medium text-cs-text-secondary whitespace-nowrap">
+                                {row.value}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {/* How current this reading is. A cold start resolves itself, so an
+                          explanation with no timestamp cannot be distinguished from one the reader
+                          opened three minutes ago and never closed. */}
+                      {sweptAtLabel && (
+                        <span className="text-[10.5px] text-cs-text-muted tabular-nums">
+                          Checked at {sweptAtLabel}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   </div>
                 );
               })}

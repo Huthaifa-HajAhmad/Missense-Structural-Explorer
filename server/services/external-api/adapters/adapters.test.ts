@@ -126,3 +126,68 @@ describe("External Service Adapters & Registry Tests", () => {
     }
   });
 });
+
+/**
+ * The sidecar's `/health` returns `status: "healthy"` from the moment uvicorn binds — up to ~180 s
+ * before the weights it was spawned to load are usable — and reports that window only in `state`.
+ * These tests pin that a bound-but-cold sidecar is NOT reported healthy, because reading `status`
+ * alone is what put a green "Neural Sidecar Live" on the status rail over engines that would have
+ * refused the next request.
+ */
+describe("SidecarAdapter health probe — cold start vs readiness", () => {
+  const sidecarHealth = (over: Record<string, unknown> = {}) =>
+    Promise.resolve({
+      ok: true,
+      json: async () => ({
+        status: "healthy",
+        state: "ready",
+        models: {},
+        model_status: {},
+        ...over
+      })
+    }) as any;
+
+  beforeEach(() => {
+    initStandardAdapters();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports a ready sidecar as healthy", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sidecarHealth({ state: "ready" })));
+
+    const status = await adapterRegistry.get("sidecar")!.healthCheck();
+
+    expect(status.healthy).toBe(true);
+    expect(status.state).toBe("ready");
+    expect(status.message).toBe("ML Model Server Healthy");
+  });
+
+  it("reports a bound-but-cold sidecar as NOT healthy, and says warming", async () => {
+    // `status` is "healthy" here on purpose: that is exactly what the real sidecar sends while the
+    // weights are still loading, and reading it alone is the defect these tests exist to prevent.
+    vi.stubGlobal("fetch", vi.fn(async () => sidecarHealth({ state: "warming_up" })));
+
+    const status = await adapterRegistry.get("sidecar")!.healthCheck();
+
+    expect(status.healthy).toBe(false);
+    expect(status.state).toBe("warming_up");
+    expect(status.message).toMatch(/model weights/i);
+  });
+
+  it("reports an unreachable sidecar as unhealthy with no state claimed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Connection refused");
+      })
+    );
+
+    const status = await adapterRegistry.get("sidecar")!.healthCheck();
+
+    expect(status.healthy).toBe(false);
+    // Absence of a probe must never be dressed up as a cold start: "offline" and "warming" call
+    // for different reactions from whoever reads this.
+    expect(status.state).toBeUndefined();
+  });
+});
+

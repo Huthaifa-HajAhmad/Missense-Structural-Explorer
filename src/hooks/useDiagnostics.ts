@@ -35,6 +35,11 @@ export interface ServiceHealthItem {
   latencyMs: number;
   message: string;
   timestamp: string;
+  /**
+   * Up-but-not-yet-serving. Present only for a producer that draws the distinction; absent means
+   * "unknown", which a consumer must never render as an outage — or as readiness.
+   */
+  state?: "ready" | "warming_up";
   fallback?: FallbackHealthItem;
 }
 
@@ -45,6 +50,16 @@ export interface DiagnosticsData {
   geminiReady: boolean;
   geminiModel?: string;
   modelServerReady: boolean;
+  /**
+   * Whether the ML sidecar can actually serve, as opposed to merely running.
+   *
+   * The sidecar answers `/health` with `status: "healthy"` the instant uvicorn binds — up to ~180 s
+   * before the weights it was spawned to load are usable. `modelServerReady` alone could not tell
+   * "warming" from "up" or "down", so the rail reported a green light over engines that would
+   * refuse the next request. `offline` is the default, so a payload from a server that predates
+   * this field reads as "no information" rather than "warming".
+   */
+  modelServerState?: "ready" | "warming_up" | "offline";
   p2rankReady?: boolean;
   p2rankStatus?: "ready" | "standby" | "unavailable";
   p2rankJavaCompatible?: boolean;

@@ -221,12 +221,25 @@ export function registerHealthRoutes(apiRouter: Router): void {
     const geminiModel = getConfiguredGeminiModels()[0];
 
     // modelServerReady: query local FastAPI sidecar health endpoint (A-6)
+    //
+    // `warming_up` is NOT ready. The sidecar's `/health` returns `status: "healthy"` from the
+    // moment uvicorn binds, long before the weights it was spawned to load become usable, and
+    // reports that window only in `state`. Counting it as ready put a green "Neural Sidecar Live"
+    // on the rail for the whole ~180 s cold start while every ML-backed feature in it failed — so
+    // `modelServerReady` now means "can serve", and `modelServerState` carries the three-way
+    // distinction the rail needs to say "warming" rather than "up" or "down".
     let modelServerReady = false;
+    let modelServerState: "ready" | "warming_up" | "offline" = "offline";
     try {
       const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
       if (sidecarRes.ok) {
         const data = await sidecarRes.json() as any;
-        modelServerReady = data.status === "ok" || data.status === "healthy" || data.state === "ready" || data.state === "warming_up";
+        if (data.state === "warming_up") {
+          modelServerState = "warming_up";
+        } else if (data.status === "ok" || data.status === "healthy" || data.state === "ready") {
+          modelServerState = "ready";
+          modelServerReady = true;
+        }
       }
     } catch (_) {
       modelServerReady = false;
@@ -254,6 +267,7 @@ export function registerHealthRoutes(apiRouter: Router): void {
       geminiReady,
       geminiModel,
       modelServerReady,
+      modelServerState,
       p2rankReady: p2rankCap.ready,
       p2rankStatus: p2rankCap.status,
       p2rankJavaCompatible: p2rankCap.javaVersionCompatible,
