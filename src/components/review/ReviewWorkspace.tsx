@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import type { AnalysisResult } from '../../types';
-import { evidenceWorkspaceIdentity } from '../../shared/evidenceContextIdentity';
+import { useAlleleWorkspaceState } from '../../hooks/useAlleleWorkspaceState';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 
@@ -12,13 +12,7 @@ const Context = createContext<{ states: Partial<Record<ReviewTab, State>>; updat
 
 /** Review selections outlive a tab remount, but never the analysed allele. */
 export function ReviewWorkspaceProvider({ result, children }: { result: AnalysisResult | null; children: ReactNode }) {
-  const key = useMemo(() => evidenceWorkspaceIdentity(result), [result]);
-  const [scope, setScope] = useState<{ key: string; states: Partial<Record<ReviewTab, State>> }>({ key, states: {} });
-  if (scope.key !== key) setScope({ key, states: {} });
-  const update = useCallback((tab: ReviewTab, patch: Partial<State>) => setScope(s => ({ key,
-    states: { ...(s.key === key ? s.states : {}), [tab]: { ...initial, ...(s.key === key ? s.states[tab] : {}), ...patch } },
-  })), [key]);
-  const value = useMemo(() => ({ states: scope.key === key ? scope.states : {}, update }), [scope, key, update]);
+  const value = useAlleleWorkspaceState<ReviewTab, State>(result, initial);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

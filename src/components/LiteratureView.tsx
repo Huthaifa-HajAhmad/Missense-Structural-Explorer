@@ -98,6 +98,7 @@ export default function LiteratureView({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [internalQuery, setInternalQuery] = useState(searchQuery);
+  const [revealedDraft, setRevealedDraft] = useState<string | null>(null);
   const [executedQuery, setExecutedQuery] = useState(searchQuery.trim());
   const [response, setResponse] = useState<LiteratureResponseMeta | null>(null);
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
@@ -233,6 +234,7 @@ export default function LiteratureView({
       setGeneHitCount(null);
     }
     setInternalQuery(searchQuery);
+    setRevealedDraft(null);
     setExecutedQuery(searchQuery.trim());
     void fetchCitations(false, searchQuery || undefined);
     // Keyed on what actually changes: the gene, an executed query, the variant context, or an
@@ -281,6 +283,7 @@ export default function LiteratureView({
     const queryChanged = query !== executedQuery;
     if (queryOverride !== undefined) setInternalQuery(queryOverride);
     setExecutedQuery(query);
+    setRevealedDraft(null);
     if (queryChanged) {
       defaultTierApplied.current = false;
       setCitations([]);
@@ -304,7 +307,7 @@ export default function LiteratureView({
   // list over results that already matched.
   const activeFilter = internalQuery.trim();
   const executedFilter = executedQuery.trim();
-  const isNarrowingFilter = Boolean(activeFilter && activeFilter.toLowerCase() !== executedFilter.toLowerCase());
+  const isNarrowingFilter = Boolean(activeFilter && activeFilter.toLowerCase() !== executedFilter.toLowerCase() && internalQuery !== revealedDraft);
 
   const evidence = useMemo(
     () =>
@@ -365,7 +368,7 @@ export default function LiteratureView({
   const coverage = useMemo(() => literatureCoverage(evidence.papers).filter(row => forms || row.level !== 'variant'), [evidence.papers, forms]);
   useEffect(() => {
     if (!workspace.reveal) return;
-    setGroupFilter('all'); setTierFilter('all'); setTagFilters([]); setInternalQuery(executedQuery);
+    setGroupFilter('all'); setTierFilter('all'); setTagFilters([]); setRevealedDraft(internalQuery);
   }, [workspace.reveal]);
 
   // A missing DOM target may still be hidden by filters. Cancel only when the completed
@@ -563,7 +566,7 @@ export default function LiteratureView({
                   id="lit-search-input"
                   type="text"
                   value={internalQuery}
-                  onChange={e => setInternalQuery(e.target.value)}
+                  onChange={e => { setRevealedDraft(null); setInternalQuery(e.target.value); }}
                   placeholder="Keyword, author or MeSH — typing narrows this list, Enter searches Europe PMC"
                   autoComplete="off"
                   spellCheck={false}
@@ -689,7 +692,7 @@ export default function LiteratureView({
               </div>
             ) : (
               <PaperTable papers={deskPapers} gene={gene} forms={forms} onTogglePin={togglePin} constraint={constraint} constraintUnavailableReason={constraintUnavailableReason}
-                selectedId={workspace.selected} onSelect={workspace.select} reveal={workspace.reveal} onRevealed={workspace.finishReveal} />
+                selectedId={workspace.selected} onSelect={workspace.select} reveal={groupFilter === "all" && tierFilter === "all" && !tagFilters.length && !isNarrowingFilter ? workspace.reveal : 0} onRevealed={workspace.finishReveal} />
             )}
 
             {workspace.view === 'map' && screeningVisible.length > READING_DESK_LIMIT && <div className="lit-load-more">

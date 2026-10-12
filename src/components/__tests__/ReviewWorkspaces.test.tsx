@@ -11,6 +11,8 @@ import { functionEvidenceInputFrom } from '../evidence/function/functionInput';
 import { deriveConsensus } from '../../lib/insightsConsensus';
 import { nae1Reference } from '../../shared/__tests__/fixtures/splicingReference';
 import LiteratureView from '../LiteratureView';
+import { PaperTable } from '../literature/PaperTable';
+import { buildLiteratureEvidence } from '../../shared/literatureEvidence';
 import LiteratureInspector from '../inspector/LiteratureInspector';
 import type { LiteratureEvidence } from '../../shared/literatureEvidence';
 import { INSPECTOR_SECTIONS } from '../../lib/inspectorFocus';
@@ -99,7 +101,8 @@ describe('Literature reading workspace', () => {
     render(<LiteratureView gene="NAE1" variant="c.123A>G" />);
     await screen.findByTestId('literature-table');
     const coverage = screen.getByRole('region', { name: 'What the loaded text names' });
-    expect(within(coverage).queryByRole('button', { name: /Names the variant/ })).not.toBeInTheDocument();
+    expect(within(coverage).getAllByRole('button')).toHaveLength(2);
+    expect(within(coverage).queryByRole('button', { name: /Names (the variant|p\.|c\.)/ })).not.toBeInTheDocument();
     expect(coverage).toHaveTextContent('Variant notation is unavailable; these groups check the gene only.');
     expect(within(coverage).getByRole('button', { name: /^Names NAE1/ })).toBeInTheDocument();
   });
@@ -176,6 +179,31 @@ describe('Literature reading workspace', () => {
       expect(writeText).toHaveBeenCalledWith('91000000');
     } finally { if (original) Object.defineProperty(navigator, 'clipboard', original); else Reflect.deleteProperty(navigator, 'clipboard'); }
   });
+  it('explains a supported zero-match coverage group and recovers to all sources', async () => {
+    api.getLiterature.mockResolvedValue({ gene: 'NAE1', citations: papers.slice(1), hitCount: 11, degraded: false });
+    render(<Harness report={() => {}} />);
+    await screen.findByTestId('literature-table');
+    const coverage = screen.getByRole('heading', { name: 'What the loaded text names' }).closest('section')!;
+    const zeroGroup = within(coverage).getByRole('button', { name: /^Names p.Asp116Gly/ });
+    expect(zeroGroup).toHaveTextContent('0 / 11');
+    fireEvent.click(zeroGroup);
+    expect(screen.getByText('None in this group')).toBeInTheDocument();
+    fireEvent.click(zeroGroup);
+    expect(screen.getByTestId('literature-table')).toBeInTheDocument();
+  });
+  it('preserves a draft query while revealing a source outside its narrowing filter', async () => {
+    render(<Harness report={() => {}} />);
+    await screen.findByTestId('literature-table');
+    fireEvent.click(within(screen.getByTestId('paper-91000000')).getByRole('button', { name: 'Inspect source' }));
+    const search = screen.getByLabelText('Search literature');
+    fireEvent.change(search, { target: { value: 'unsubmitted draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Show selected source record' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'NAE1 source 1' })).toHaveFocus());
+    expect(search).toHaveValue('unsubmitted draft');
+    search.focus(); fireEvent.change(search, { target: { value: 'new draft' } });
+    expect(search).toHaveFocus();
+    expect(screen.queryByTestId('paper-91000000')).not.toBeInTheDocument();
+  });
   it('bounds the desk and its export to eight papers; records expose all twelve loaded papers', async () => {
     let latest: LiteratureEvidence | null = null;
     render(<Harness report={e => { latest = e; }} />);
@@ -210,5 +238,20 @@ describe('Literature reading workspace', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('Could not copy');
       expect(screen.queryByRole('button', { name: 'Copied' })).not.toBeInTheDocument();
     } finally { if (original) Object.defineProperty(navigator, 'clipboard', original); else Reflect.deleteProperty(navigator, 'clipboard'); }
+  });
+});
+
+describe('Source reveal lifecycle', () => {
+  it('consumes a missing target so a later result cannot steal focus', () => {
+    const ev = buildLiteratureEvidence({ gene: 'NAE1', variant: 'p.Asp116Gly', citations: papers, load: 'ready', response: null, executedQuery: '', narrowingFilter: '', groupFilter: 'all', pinnedIds: new Set(), probe: { state: 'idle', hitCount: null }, error: null });
+    function Harness({ loaded }: { loaded: boolean }) {
+      const [reveal, setReveal] = React.useState(1);
+      return <><input aria-label="Draft search" /><PaperTable papers={loaded ? ev.papers : []} gene="NAE1" forms={null} constraint={null} onTogglePin={() => {}} selectedId="91000000" reveal={reveal} onRevealed={() => setReveal(0)} /></>;
+    }
+    const view = render(<Harness loaded={false} />);
+    screen.getByLabelText('Draft search').focus();
+    view.rerender(<Harness loaded />);
+    expect(screen.getByRole('button', { name: 'NAE1 source 1' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Draft search')).toHaveFocus();
   });
 });

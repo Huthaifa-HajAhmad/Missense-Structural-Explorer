@@ -38,9 +38,8 @@ export function PaperTable({ papers, gene, forms, onTogglePin, constraint, const
   const timer = useRef<number | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   useEffect(() => {
-    if (!reveal || !selectedId) return;
+    if (!reveal) return;
     const target = document.getElementById(`lit-paper-${selectedId}`);
-    if (!target) return;
     target?.focus({ preventScroll: true });
     target?.scrollIntoView?.({ block: 'nearest' });
     onRevealed?.();

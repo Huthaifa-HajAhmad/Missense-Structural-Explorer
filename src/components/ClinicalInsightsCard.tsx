@@ -18,10 +18,8 @@ import {
   Copy,
   Lightbulb,
   Download,
-  Settings,
   AlertTriangle
 } from "lucide-react";
-import { useSettings } from "../context/SettingsContext";
 import { InsightsScreen } from "./insights/InsightsScreen";
 import { buildInsightsEvidence } from "../shared/insightsEvidence";
 import { functionEvidenceInputFrom } from "./evidence/function/functionInput";
@@ -144,7 +142,6 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
   onNavigateToView,
   onOpenEvidenceTab
 }: ClinicalInsightsCardProps) {
-  const { openSettingsTab } = useSettings();
   const isPresetData = VARIANT_PRESETS.some(
     (p) => p.gene.toUpperCase() === gene.toUpperCase() && p.variant.toLowerCase() === variant.toLowerCase()
   );
@@ -467,15 +464,15 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             <p className="text-xs text-cs-text-secondary leading-relaxed max-w-sm mb-4">
               {analysisState.error}
             </p>
-            <button
+            {onNavigateToView && <button
               type="button"
-              onClick={() => openSettingsTab("api")}
+              onClick={() => onNavigateToView("search")}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 cursor-pointer"
               style={{ background: "var(--cs-text-accent)", color: "var(--cs-bg)" }}
             >
-              <Settings className="w-3.5 h-3.5" />
-              Review provider settings
-            </button>
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Return to variant query
+            </button>}
           </div>
         ) : analysisState.result ? (
           <div className="flex flex-col gap-5 w-full">

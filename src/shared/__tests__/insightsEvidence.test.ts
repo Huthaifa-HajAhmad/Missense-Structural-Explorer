@@ -33,6 +33,14 @@ function nae1(over: Record<string, any> = {}) {
 }
 
 describe("buildInsightsEvidence", () => {
+  it("describes PM2 with the same Supporting strength as the recorded criterion", () => {
+    const result = nae1({ insights: null, ruleBasedInsights: { ...nae1().ruleBasedInsights, acmgCriteria: [{ code: "PM2", reason: "Recorded rarity" }] } });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    const strength = model.criteria.find(c => c.code === "PM2")!.strength;
+    expect(model.criteria.find(c => c.code === "PM2")!.state).toBe("met");
+    expect(strength).toBe("Supporting");
+    expect(model.glossary.find(g => g.term === "PM2")!.text).toContain(`${strength}.`);
+  });
   const ev = buildInsightsEvidence({ result: nae1(), functionInput, stability: { verdict: "Destabilizing (Engines Agree)", enginesCounted: 3, enginesDestabilizing: 3 } });
 
   it("takes the tier from the engine record", () => {

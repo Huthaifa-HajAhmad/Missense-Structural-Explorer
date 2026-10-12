@@ -527,12 +527,10 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     it("shows the AI focus field open, with its privacy note and live counter", async () => {
       renderPanel();
 
-      // The field is no longer a disclosure: there is no closed row left to announce content,
-      // because the content is always visible. Absence of the old details shape is asserted so
-      // a collapse cannot silently come back.
-      expect(document.querySelectorAll("details")).toHaveLength(0);
-
       const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions") as HTMLTextAreaElement;
+      // Optional reference and example disclosures do not collapse the writing surface.
+      expect(textarea.closest("details")).toBeNull();
+      expect(textarea).toBeVisible();
       expect(screen.getByText(/Do not include patient identifiers/)).toBeInTheDocument();
       expect(screen.getByText("0/2000")).toBeInTheDocument();
 
@@ -583,6 +581,42 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   });
 
   describe("accepted-inputs catalogue", () => {
+    it("reveals additional formats and applies an accessioned notation without losing its reference", () => {
+      renderPanel();
+      const exampleName = `Use example ${ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned} in the Variant notation field`;
+      expect(screen.getByRole("button", { name: exampleName })).not.toBeVisible();
+      fireEvent.click(screen.getByText("More protein & cDNA formats"));
+      expect(screen.getByRole("button", { name: exampleName })).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: exampleName }));
+      expect(useVariantAnalysisStore.getState().customVariant).toBe(ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned);
+      expect(useVariantAnalysisStore.getState().customGenomic).toBe("");
+    });
+
+    it("preserves a specified accession when its inline option is collapsed", () => {
+      renderPanel();
+      const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
+      expect(reference).not.toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Set UniProt accession" }));
+      expect(reference).toBeVisible();
+      fireEvent.change(reference, { target: { value: "Q9H8M5" } });
+      fireEvent.click(screen.getByRole("button", { name: "Hide UniProt accession" }));
+      expect(reference).not.toBeVisible();
+      expect(useVariantAnalysisStore.getState().customUniprot).toBe("Q9H8M5");
+      expect(screen.getByText("Using Q9H8M5")).toBeVisible();
+    });
+
+    it("keeps a populated protein reference visible when returning to the form", () => {
+      act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
+      renderPanel();
+      expect(screen.getByPlaceholderText("e.g. Q9H8M5")).toBeVisible();
+      expect(screen.getByPlaceholderText("e.g. Q9H8M5")).toHaveValue("Q9H8M5");
+      const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
+      reference.focus();
+      fireEvent.change(reference, { target: { value: "" } });
+      expect(reference).toBeVisible();
+      expect(reference).toHaveFocus();
+    });
+
     it("sources every example from the shared catalogue, and every one parses", () => {
       renderPanel();
 
@@ -739,5 +773,28 @@ describe("VariantSearchPanel keyless-first", () => {
     expect(screen.queryByText(/add api key to analyse/i)).not.toBeInTheDocument();
     expect(screen.getByText(/rule-based classification work without Gemini/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^add a key$/i })).toBeInTheDocument();
+  });
+});
+
+
+describe("UniProt disclosure focus", () => {
+  it("focuses the field when opened and the persistent action when closed", () => {
+    act(() => { useVariantAnalysisStore.setState({ customUniprot: "", analysisState: { isLoading: false, error: null, result: null } }); });
+    renderPanel();
+    const action = screen.getByRole('button', { name: 'Set UniProt accession' });
+    const collapsed = screen.getByRole('button', { name: 'Resolved automatically' });
+    collapsed.focus(); fireEvent.click(collapsed);
+    const input = screen.getByLabelText('UniProt accession');
+    expect(input).toHaveFocus();
+    expect(action).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.change(input, { target: { value: 'Q9H8M5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide UniProt accession' }));
+    expect(action).toHaveFocus();
+    expect(action).toHaveAttribute('aria-expanded', 'false');
+    const using = screen.getByRole('button', { name: 'Using Q9H8M5' });
+    expect(using).not.toHaveAttribute('aria-label');
+    fireEvent.click(using);
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('Q9H8M5');
   });
 });

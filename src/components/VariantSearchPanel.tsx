@@ -488,27 +488,32 @@ const EXAMPLE_HINTS: Record<string, string> = {
   [ACCEPTED_NOTATION_EXAMPLES.genomicDashed]: "Dashed chromosome-position form",
 };
 
-/** Example chips shown beneath a notation field. */
+/** One example per route; additional accepted forms remain available on demand. */
 const ExampleRow: React.FC<{
   group: (typeof NOTATION_EXAMPLE_GROUPS)[number];
   onPick: (target: "variant" | "genomic", value: string) => void;
-}> = ({ group, onPick }) => (
-  <div className="flex flex-wrap items-center gap-1 pt-0.5">
-    <span className="text-[11px] text-cs-text-muted mr-0.5">Try</span>
-    {group.values.map(value => (
+}> = ({ group, onPick }) => {
+  const primary = group.target === "genomic" ? ACCEPTED_NOTATION_EXAMPLES.genomicDashed : group.values[0];
+  const example = (value: string) => (
       <button
         key={value}
         type="button"
         onClick={() => onPick(group.target, value)}
         title={EXAMPLE_HINTS[value] ?? `${group.label} example`}
         aria-label={`Use example ${value} in the ${group.label} field`}
-        className="px-1.5 h-5 rounded-[var(--cs-radius-badge)] font-mono text-[11px] leading-5 text-cs-text-secondary bg-cs-surface-2 hover:bg-cs-accent-clay/10 hover:text-cs-text-accent cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] max-w-full truncate"
+        className="query-example"
       >
         {value}
       </button>
-    ))}
-  </div>
-);
+  );
+  return <div className="query-examples">
+    <div className="query-examples__primary"><span>Try {group.target === "genomic" ? "coordinates" : "protein"}</span>{example(primary)}</div>
+    <details>
+      <summary>More {group.target === "genomic" ? "coordinate" : "protein & cDNA"} formats</summary>
+      <div className="query-examples__more">{group.values.filter(value => value !== primary).map(example)}</div>
+    </details>
+  </div>;
+};
 
 function VariantSearchPanel({
   isDark,
@@ -571,6 +576,23 @@ function VariantSearchPanel({
   const customGenomic = storeCustomGenomic;
   const setCustomGenomic = actions.setCustomGenomic;
   const setUserDirections = actions.setUserDirections;
+  const referenceActionRef = useRef<HTMLButtonElement>(null);
+  const referenceInputRef = useRef<HTMLInputElement>(null);
+  const [referenceOpen, setReferenceOpen] = useState(() => Boolean(customUniprot.trim()));
+  const referenceFocusPending = useRef(false);
+  const toggleReference = () => {
+    referenceFocusPending.current = true;
+    setReferenceOpen(open => !open);
+  };
+  useEffect(() => {
+    if (!referenceFocusPending.current) return;
+    referenceFocusPending.current = false;
+    (referenceOpen ? referenceInputRef.current : referenceActionRef.current)?.focus();
+  }, [referenceOpen]);
+  useEffect(() => {
+    // Reveal a reference restored from history; clearing an edited field must not close it.
+    if (customUniprot.trim()) setReferenceOpen(true);
+  }, [customUniprot]);
 
   const analysisState = propsAnalysisState ?? storeAnalysisState;
   const gene = propsGene ?? storeGene;
@@ -1006,8 +1028,8 @@ function VariantSearchPanel({
         <div className="min-w-0">
           <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
           <p className="mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
-            Give a gene and protein change, or genomic coordinates. Evidence, structure and stability
-            arrive independently. AI synthesis is optional.
+            Start with a gene and protein change, or use genomic coordinates.
+            Evidence, structure and stability arrive independently; AI synthesis is optional.
           </p>
         </div>
 
@@ -1202,10 +1224,10 @@ function VariantSearchPanel({
                 )
               ) : null}
 
-              {/* Protein identity */}
-              <fieldset className="flex flex-col gap-3">
-                <legend className="text-[13px] font-semibold text-cs-text-primary mb-3">Protein</legend>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="query-routes" id="workspace-accepted-inputs">
+                <fieldset className="query-route">
+                  <legend>Gene &amp; protein change</legend>
+                  <div className="query-route__fields">
                   <div className="flex flex-col gap-1.5">
                     <FieldLabel
                       htmlFor="input-gene-symbol"
@@ -1235,50 +1257,6 @@ function VariantSearchPanel({
                       <PasteBtn setter={setCustomGene} />
                     </div>
                   </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <FieldLabel
-                      htmlFor="input-uniprot-acc"
-                      badge={
-                        <FieldBadge
-                          tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
-                          title={
-                            uniprotLooksValid
-                              ? "Optional: the accession is auto-resolved from the gene when omitted."
-                              : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
-                          }
-                        >
-                          {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                        </FieldBadge>
-                      }
-                    >
-                      UniProt accession
-                    </FieldLabel>
-                    <div className="relative">
-                      <input
-                        id="input-uniprot-acc"
-                        type="text"
-                        placeholder="e.g. Q9H8M5"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={customUniprot}
-                        onChange={(e) => setCustomUniprot(e.target.value)}
-                        aria-invalid={!uniprotLooksValid || undefined}
-                        className={inputBase + " font-mono uppercase"}
-                      />
-                      <PasteBtn setter={setCustomUniprot} />
-                    </div>
-                  </div>
-                </div>
-              </fieldset>
-
-              {/* Variant — two alternative routes, shown side by side with an explicit "or" */}
-              <fieldset className="flex flex-col" id="workspace-accepted-inputs">
-                <legend className="w-full flex items-baseline justify-between gap-2 mb-3">
-                  <span className="text-[13px] font-semibold text-cs-text-primary">Variant</span>
-                  <span className="text-[11px] text-cs-text-muted">Use one or the other</span>
-                </legend>
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-x-3 gap-y-4 items-start">
                   <div className="flex flex-col gap-1.5 min-w-0">
                     <FieldLabel
                       htmlFor="input-variant-notation"
@@ -1340,11 +1318,11 @@ function VariantSearchPanel({
                     </div>
                     <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
                   </div>
-
-                  <div className="hidden md:flex flex-col items-center self-stretch pt-5" aria-hidden="true">
-                    <span className="h-10 flex items-center text-[11px] font-medium text-cs-text-muted">or</span>
                   </div>
-
+                </fieldset>
+                <fieldset className="query-route query-route--coordinate">
+                  <legend>Or use coordinates</legend>
+                  <div className="query-route__fields">
                   <div className="flex flex-col gap-1.5 min-w-0">
                     <FieldLabel
                       htmlFor="input-genomic-coords"
@@ -1406,10 +1384,52 @@ function VariantSearchPanel({
                       />
                       <PasteBtn setter={setCustomGenomic} />
                     </div>
-                    <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                   </div>
-                </div>
-              </fieldset>
+                    <div className="query-reference">
+                          <FieldLabel
+                            htmlFor="input-uniprot-acc"
+                            action={<button ref={referenceActionRef} type="button" className="query-reference__hide" aria-label={`${referenceOpen ? 'Hide' : 'Set'} UniProt accession`} aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>{referenceOpen ? 'Hide' : 'Set'}</button>}
+                            badge={
+                              <FieldBadge
+                                tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
+                                title={
+                                  uniprotLooksValid
+                                    ? "Optional: the accession is auto-resolved from the gene when omitted."
+                                    : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                                }
+                              >
+                                {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                              </FieldBadge>
+                            }
+                          >
+                            UniProt accession
+                          </FieldLabel>
+                      {!referenceOpen && <button type="button" className="query-reference__toggle" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>
+                        <span>{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically'}</span>
+                        <span aria-hidden="true">+</span>
+                      </button>}
+                      <div id="query-uniprot-option" hidden={!referenceOpen}>
+                          <div className="relative">
+                            <input
+                              id="input-uniprot-acc"
+                              ref={referenceInputRef}
+                              type="text"
+                              placeholder="e.g. Q9H8M5"
+                              autoComplete="off"
+                              spellCheck={false}
+                              value={customUniprot}
+                              onChange={(e) => setCustomUniprot(e.target.value)}
+                              aria-invalid={!uniprotLooksValid || undefined}
+                              className={inputBase + " font-mono uppercase"}
+                            />
+                            <PasteBtn setter={setCustomUniprot} />
+                          </div>
+                      </div>
+                      <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
+                    </div>
+                  </div>
+                </fieldset>
+              </div>
 
               {/* AI focus (optional) — an open field, not a disclosure.
                   The workspace form flexes to share one bottom line with the rail, so a collapsed
@@ -1475,7 +1495,7 @@ function VariantSearchPanel({
                       <CornerDownLeft className="w-3 h-3" />
                       Enter
                     </kbd>
-                    runs from any field
+                    runs from a query field
                   </>
                 ) : (
                   <>

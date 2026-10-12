@@ -287,7 +287,11 @@ jobs:
       # gates on this workflow's conclusion, so on a full run a geometry failure stops a deploy; on the
       # reduced run this step is skipped, because the tree it would measure is the tree the PR run
       # already measured (see the gate-set block above).
-      - name: Variant header, Functional Domains and Landscape geometry
+      - name: Install review workspace browser driver
+        if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
+        run: npm ci --prefix tools/review-preview
+
+      - name: Variant header, Functional Domains, Landscape and Synthesis geometry
         id: geometry
         if: ${{ !cancelled() && steps.lint.outcome == 'success' && steps.scope.outputs.full != 'false' }}
         env:
@@ -306,6 +310,7 @@ jobs:
         with:
           name: geometry-renders
           path: |
+            scratch/review-preview/
             tools/header-geometry/dist/
             tools/function-track-geometry/dist/
             tools/landscape-geometry/dist/

@@ -49,7 +49,7 @@ function Preview() {
   return <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--cs-bg)', color: 'var(--cs-text-primary)' }}>
     <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 12, fontSize: 13 }}>
       <strong>Illustrative review fixtures · not clinical evidence</strong>
-      <label>Workspace <select aria-label="Workspace" value={view} onChange={e => setView(e.target.value as MasterView)}><option value="insights">Insights</option><option value="literature">Literature</option></select></label>
+      <label>Workspace <select aria-label="Workspace" value={view} onChange={e => setView(e.target.value as MasterView)}><option value="search">Query</option><option value="insights">Insights</option><option value="literature">Literature</option></select></label>
       <label>Example <select aria-label="Example" value={name} onChange={e => { setName(e.target.value); scenario(e.target.value); }}>{['Dense', 'Sparse', 'Missing', 'Degraded', 'Error', 'New allele', 'Strength suffix', 'Unsupported notation'].map(n => <option key={n}>{n}</option>)}</select></label>
       <button className="review-action" onClick={() => setTheme(isDark ? 'light' : 'dark')}>Switch theme</button>
     </header>
