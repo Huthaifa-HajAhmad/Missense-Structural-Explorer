@@ -71,6 +71,60 @@ export interface AgentView {
   totalRamBytes: number | null;
   tools: AgentHostReport["tools"] | null;
   foldxSource: FoldxSource | null;
+  /** What it has done lately, measured on it (WP-G2); null before its first job. */
+  recent?: AgentRecentWork | null;
+}
+
+/** One tool's typical run on one computer: medians of its completed jobs. */
+export interface AgentToolSpeed {
+  jobs: number;
+  medianMs: number;
+  /** Median size of the structures behind `medianMs`, so the time has a scale. */
+  medianResidues: number | null;
+}
+
+/** A computer's recent work, from its own telemetry. */
+export interface AgentRecentWork {
+  days: number;
+  /** Jobs it finished. */
+  completed: number;
+  /** Jobs it started and gave back to the server (failure, lost connection, invalid result). */
+  handedBack: number;
+  foldx: AgentToolSpeed | null;
+  p2rank: AgentToolSpeed | null;
+}
+
+function roughDuration(ms: number): string {
+  if (ms < 1_000) return "under a second";
+  if (ms < 90_000) return `about ${Math.round(ms / 1000)} s`;
+  return `about ${Math.round(ms / 60_000)} min`;
+}
+
+/**
+ * "In the last 30 days it finished 12 of your jobs. FoldX took about 9 s (structures around 300 residues);
+ * pocket detection about 20 s." Null before its first job. Medians, measured on that computer, so the
+ * person sees what lending it is worth.
+ */
+export function describeAgentRecent(recent: AgentRecentWork | null | undefined): string | null {
+  if (!recent || recent.completed + recent.handedBack === 0) return null;
+  const parts: string[] = [];
+  parts.push(
+    recent.completed > 0
+      ? `In the last ${recent.days} days it finished ${recent.completed === 1 ? "one" : recent.completed} of your jobs.`
+      : `In the last ${recent.days} days it finished none of your jobs.`,
+  );
+  const speeds: string[] = [];
+  const speed = (name: string, s: AgentToolSpeed | null) => {
+    if (!s) return;
+    speeds.push(`${name} ${speeds.length === 0 ? "took " : ""}${roughDuration(s.medianMs)}${s.medianResidues ? ` (structures around ${s.medianResidues} residues)` : ""}`);
+  };
+  speed("FoldX", recent.foldx);
+  speed(recent.foldx ? "pocket detection" : "Pocket detection", recent.p2rank);
+  if (speeds.length > 0) parts.push(`${speeds.join("; ")}.`);
+  if (recent.handedBack > 0) {
+    parts.push(`${recent.handedBack === 1 ? "One job" : `${recent.handedBack} jobs`} went to the shared server instead, because this computer could not finish ${recent.handedBack === 1 ? "it" : "them"}.`);
+  }
+  return parts.join(" ");
 }
 
 export type AgentTone = "ready" | "attention" | "paused" | "offline";

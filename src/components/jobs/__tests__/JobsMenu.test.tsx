@@ -61,6 +61,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("JobsMenu", () => {
+  it("says which host runs each job, and why, once live routing has placed it", async () => {
+    const reason = "It runs on Lab PC, which is expected to finish first.";
+    mockServer({
+      session: { user: USER },
+      jobs: [
+        job({ id: "a", label: "R175H", runsOn: { where: "your_computer", computerName: "Lab PC", started: false, expectedMs: { p50: 9000, p90: 18000 }, basis: "prior", samples: 0, reasons: [reason] } }),
+        job({ id: "b", label: "G12D", status: "running", startedAt: NOW - 60_000, queuedAhead: null, etaMs: null, runsOn: { where: "teammate_computer", computerName: null, started: true, expectedMs: null, basis: null, samples: null, reasons: [] } }),
+        job({ id: "c", label: "V600E", runsOn: null }),
+      ],
+    });
+    renderMenu();
+    const button = await screen.findByRole("button", { name: "My jobs (3 active)" }, { timeout: 5000 });
+    await act(async () => fireEvent.click(button));
+    const dialog = await screen.findByRole("dialog", { name: "My jobs" }, { timeout: 5000 });
+    expect(dialog.textContent).toContain(`Waiting for your computer (Lab PC) to pick it up · ${reason}`);
+    expect(dialog.textContent).toContain("Running on a teammate's computer");
+    // A job routing never touched shows no host line at all.
+    expect(dialog.querySelectorAll(".jobs-row-host")).toHaveLength(2);
+  });
+
   it("is absent without a signed-in person", async () => {
     const calls = mockServer({ session: { user: null }, jobs: [] });
     renderMenu();

@@ -446,6 +446,7 @@ li[data-met="true"] .acct-check { background: var(--cs-text-success); border-col
 /* ── Settings: Account → Your computers (WP-F) ─────────────────── */
 .acct-actions--start { justify-content: flex-start; margin-top: 10px; }
 .acct-agents { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; }
+.acct-limits { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .acct-agent { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-input); background: var(--cs-surface); color: var(--cs-text-secondary); }
 .acct-agent .acct-note { margin-top: 2px; }
 .acct-agent-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }

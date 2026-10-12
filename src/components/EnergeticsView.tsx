@@ -22,6 +22,7 @@ import {
 } from "../shared/energeticsEvidence";
 import { DdgRuler } from "./energetics/DdgRuler";
 import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../shared/foldxPhase";
+import { describeRunsOn, hostPhrase } from "../shared/jobPlacement";
 import { WorkspaceTabs } from './ui/WorkspaceTabs';
 import type { EnergyEngineId } from '../shared/engineStatus';
 import { energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates, type EnergeticsChartOptions } from '../shared/energeticsComparison';
@@ -121,7 +122,9 @@ const ProgressPanel = memo(function ProgressPanel({
     return () => clearInterval(interval);
   }, []);
 
-  const view = describeFoldxPhase(progress?.phase);
+  const view = describeFoldxPhase(progress?.phase, progress?.runsOn);
+  const runsOn = progress?.runsOn ?? null;
+  const host = hostPhrase(runsOn);
   const elapsed = formatElapsed(
     progress && progress.elapsedMs !== null ? progress.elapsedMs + Math.max(0, nowMs - progress.receivedAt) : null
   );
@@ -151,18 +154,22 @@ const ProgressPanel = memo(function ProgressPanel({
       ? `FoldX has finished. ${otherEnginesRunning} independent engine${otherEnginesRunning === 1 ? " is" : "s are"} still running.`
       : "FoldX has finished; the remaining results are being assembled."
     : queued
-      ? "Waiting for a compute worker to start this job."
-    : view?.detail ?? "The compute server has not reported a stage yet.";
+      ? runsOn && runsOn.where !== "server" ? `Waiting for ${host} to pick it up.` : "Waiting for a compute worker to start this job."
+    : view?.detail ?? `${runsOn ? host.charAt(0).toUpperCase() + host.slice(1) : "The compute server"} has not reported a stage yet.`;
   const repairNote = !foldxFinished && progress?.phase === "repairing"
     ? "FoldX does not report a percentage for structure repair. A first repair can take a few minutes; the repaired template is reused on later variants."
     : null;
   // "3 jobs ahead · starts in about 4 min": the server's own position and estimate (src/shared/jobsCopy.ts).
   const queueNote = queued ? describeQueueWait(progress?.queuePosition, progress?.queueEtaMs) : null;
+  // Where it runs and why, only once routing has had a say (null keeps today's card for everyone else). While
+  // it waits, the queue line above already says what it waits for, so only the reasons follow.
+  const placementLine = !foldxFinished && !queued ? describeRunsOn(runsOn, "running") : null;
+  const placementWhy = !foldxFinished && runsOn ? runsOn.reasons.join(" ") : "";
 
   return (
     <section className="nrg-card nrg-progress" aria-label="Energetics run progress" data-testid="energetics-progress">
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {returned} of {evidence.readings.length} engine scores returned. {outstandingEngineSummary || "All engine scores returned."} {currentActivity}
+        {returned} of {evidence.readings.length} engine scores returned. {outstandingEngineSummary || "All engine scores returned."} {placementLine ? `${placementLine}. ` : ""}{currentActivity}
       </p>
       <div className="nrg-progress__head">
         <span className="nrg-progress__title">
@@ -209,6 +216,13 @@ const ProgressPanel = memo(function ProgressPanel({
         {foldxFinished ? "FoldX:" : queued ? "Queue:" : "Current stage:"}{" "}
         <strong>{currentActivity}</strong>
       </p>
+      {(placementLine || placementWhy) && (
+        <p className="nrg-progress__note" data-testid="energetics-runs-on">
+          {placementLine && <strong>{placementLine}.</strong>}
+          {placementLine && placementWhy ? " " : ""}
+          {placementWhy}
+        </p>
+      )}
       {repairNote && <p className="nrg-progress__note">{repairNote}</p>}
       <ul className="nrg-progress__engines" aria-label="Engine result status">
         {evidence.readings.map(reading => {

@@ -39,12 +39,27 @@ wrong one (for example "This looks like the Linux build of FoldX; this computer 
 - Close the black window to stop the agent. A job in progress goes back to the shared server; nothing is
   lost.
 
-### What runs where (today)
+### What runs where
 
-Your computer takes **your jobs that are waiting** for the shared server: when the server is busy, your
-backlog runs on your computer instead of waiting. Choosing where each job starts, before it waits, comes
-with live routing (WP-G2). With **Settings → Account → Where your jobs run = Shared server only**, your
-computer takes nothing.
+When your workspace has switched live routing on (`COMPUTE_ROUTING=on`), each FoldX or pocket job you
+start is sent to **whichever of your connected computers or the shared server should finish it first**.
+FoldX usually goes to your computer, because the shared server runs FoldX under emulation and is much
+slower. A second job waits behind the first on your computer only if that is still quicker than the server.
+"My jobs" and the Energetics progress card say where each job runs and why ("Waiting for your computer
+(Lab PC) to pick it up", "Running on your computer (Lab PC)").
+
+If your computer does not pick a job up (it went offline, was paused, lost the tool, or has not claimed it
+within two minutes), the shared server runs it instead, and the job says so. If your computer starts a job
+and cannot finish it, the server runs it too. Nothing is lost either way.
+
+Before live routing is on (the default, `shadow`), your computer still takes **your jobs that are waiting**
+for the shared server: when the server is busy, your backlog runs on your computer instead of waiting.
+
+With **Settings → Account → Where your jobs run = Shared server only**, your computer takes nothing. With
+**My computer**, a near tie goes to your computer instead of the server.
+
+**Settings → Account → Your computers** shows what each computer did in the last 30 days: how many of your
+jobs it finished, and how long FoldX and pocket detection typically took on it.
 
 A result your computer produced is checked by the server before it is used (it must be for the variant and
 residue that was asked, with sensible numbers). It is shared with colleagues only if **Share my results

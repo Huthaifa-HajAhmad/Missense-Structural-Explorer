@@ -69,6 +69,39 @@ export const COMPUTE_SCHEMAS = {
       totalRamBytes: { type: ["number", "null"] },
       tools: { type: ["object", "null"], properties: { foldx: ref("AgentToolReport"), p2rank: ref("AgentToolReport") } },
       foldxSource: { type: ["string", "null"] },
+      recent: {
+        type: ["object", "null"],
+        description: "What it did in the last `days` days, measured on it: jobs finished, jobs it gave back to the server, and the median run per tool. Null before its first job.",
+        properties: {
+          days: { type: "integer" },
+          completed: { type: "integer" },
+          handedBack: { type: "integer" },
+          foldx: ref("AgentToolSpeed"),
+          p2rank: ref("AgentToolSpeed"),
+        },
+      },
+    },
+  },
+  AgentToolSpeed: {
+    type: ["object", "null"],
+    properties: {
+      jobs: { type: "integer" },
+      medianMs: { type: "integer" },
+      medianResidues: { type: ["integer", "null"] },
+    },
+  },
+  JobRunsOn: {
+    type: ["object", "null"],
+    description:
+      "Where the job runs (or ran) and why, for the caller (live routing, `src/shared/jobPlacement.ts`). Null when it is simply the shared server's, which is always the case unless `COMPUTE_ROUTING=on` and the owner has a connected computer, or a computer took the job from the owner's backlog. A computer's name, the reasons and the prediction are given to its owner only; anyone else holding the job id reads `teammate_computer` and only `where`/`started`.",
+    properties: {
+      where: { type: "string", enum: ["server", "your_computer", "teammate_computer"] },
+      computerName: { type: ["string", "null"] },
+      started: { type: "boolean" },
+      expectedMs: { type: ["object", "null"], properties: { p50: { type: "number" }, p90: { type: "number" } }, description: "The placement engine's run-time prediction for this host." },
+      basis: { type: ["string", "null"], enum: ["measured", "prior", null], description: "`measured`: fitted from completed jobs on this kind of computer; `prior`: from earlier benchmarks." },
+      samples: { type: ["integer", "null"] },
+      reasons: { type: "array", items: { type: "string" }, description: "Plain sentences: why it runs there, and what changed since (for example, the computer went offline and the server took it)." },
     },
   },
   FoldxBundle: {
@@ -133,6 +166,7 @@ export const COMPUTE_SCHEMAS = {
       elapsedMs: { type: ["integer", "null"], description: "How long it has been running, measured on the server that started it; null when not running." },
       label: { type: ["string", "null"], description: "Short human label from the job's input (mutation or protein)." },
       watchers: { type: "integer", description: "How many people are waiting on it, the caller included. More than 1 means somebody else asked for the same result, so cancelling only withdraws the caller's interest." },
+      runsOn: ref("JobRunsOn"),
     },
   },
 } as const;
@@ -194,6 +228,7 @@ const QUEUED_COMPUTE_PATHS = {
               elapsedMs: { type: ["integer", "null"] },
               queuedAhead,
               queuedEtaMs: { type: ["integer", "null"], description: "Estimated wait before it starts; null when unknown or running." },
+              runsOn: ref("JobRunsOn"),
             },
           },
           "Result or queued job",
@@ -221,7 +256,8 @@ const QUEUED_COMPUTE_PATHS = {
             elapsedMs: { type: ["integer", "null"] },
             createdAt: { type: ["integer", "null"] },
             queuedAhead: { type: "integer", description: "0 unless queued." },
-            queuedEtaMs: { type: ["integer", "null"], description: "The server's estimate of the wait before it starts; null when unknown or already running." },
+            queuedEtaMs: { type: ["integer", "null"], description: "The estimate of the wait before it starts (on the computer it is placed on, when it is); null when unknown or already running." },
+            runsOn: ref("JobRunsOn"),
             result: {
               type: "object",
               description: "On `completed`, the energetics result (FoldX ddG, the other engines and `computeProvenance`). Absent while queued or running, and absent on `failed`, where `error` explains why.",
@@ -262,7 +298,7 @@ const QUEUED_COMPUTE_PATHS = {
           {
             type: "object",
             description: "The queued envelope `{status: \"queued\", pocketJobId, structureResolution}`; poll `/pocket-job/{jobId}` for the answer. A cached find is reported the same way.",
-            properties: { status: { type: "string" }, pocketJobId: { type: "string" }, structureResolution: { type: "object" } },
+            properties: { status: { type: "string" }, pocketJobId: { type: "string" }, runsOn: ref("JobRunsOn"), structureResolution: { type: "object" } },
           },
           "Queued pocket job",
         ),
@@ -289,6 +325,7 @@ const QUEUED_COMPUTE_PATHS = {
             result: { type: "object", description: "Carries `computeProvenance`: where it ran and whether it is a shared result." },
             error: { type: "string" },
             queuedAhead,
+            runsOn: ref("JobRunsOn"),
           },
         }),
         "404": error("NOT_FOUND."),
@@ -390,6 +427,7 @@ export const COMPUTE_PATHS = {
               description: "Server seconds used today (UTC) and over the last 7 days; null when the queue is not running.",
               properties: { todaySeconds: { type: "integer" }, weekSeconds: { type: "integer" } },
             },
+            liveRouting: { type: "boolean", description: "True with `COMPUTE_ROUTING=on`: each job goes where it should finish first (the person's connected computer or the shared server)." },
           },
         }),
         "401": signInRequired,
@@ -646,6 +684,35 @@ export const COMPUTE_PATHS = {
     },
   },
   "/admin/compute/ceilings": {
+    get: {
+      tags: ["Admin"],
+      summary: "List the out-of-memory size limits the server has learned",
+      description: "Per job type and kind of computer (host class), the smallest structure size that ran out of memory there. `enforced` is true only with `COMPUTE_ROUTING=on`, when a submission that only such a host could take is refused with `422 CANNOT_RUN_HERE`; otherwise the limits are recorded but not applied.",
+      operationId: "listComputeCeilings",
+      security: signedIn,
+      responses: {
+        "200": json({
+          type: "object",
+          properties: {
+            enforced: { type: "boolean" },
+            ceilings: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  type: { type: "string", enum: ["foldx", "p2rank"] },
+                  hostClass: { type: "string", description: "e.g. `arm64-emulated-2c-12g`; a member's computer is `agent/<class>`." },
+                  residues: { type: "integer" },
+                  onServer: { type: "boolean" },
+                },
+              },
+            },
+          },
+        }),
+        "401": signInRequired,
+        "403": adminOnly,
+      },
+    },
     delete: {
       tags: ["Admin"],
       summary: "Forget the out-of-memory size limits the server has learned",

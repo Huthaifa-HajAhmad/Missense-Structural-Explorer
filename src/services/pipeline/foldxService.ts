@@ -1,7 +1,7 @@
 import { CANCELLED_RUN_MESSAGE, isCancelledJobError } from "../../shared/jobsCopy";
 import { announceJobsChanged } from "../../api/jobsApi";
 import { BiophysicsConditions, StructureProvenance } from "../../types";
-import { generateMutantResponseSchema } from "../../shared/contracts";
+import { generateMutantResponseSchema, jobRunsOnSchema } from "../../shared/contracts";
 import { isFoldxPhase, type FoldxProgress } from "../../shared/foldxPhase";
 import {
   CLIENT_FOLDX_POLL_BUDGET_MS,
@@ -166,7 +166,7 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
   const publishProgress = (progress: FoldxProgress | null) => {
     if (!sink.setFoldingProgress) return;
     const signature = progress
-      ? `${progress.phase}|${progress.elapsedMs === null ? "null" : Math.round(progress.elapsedMs / 1000)}|${progress.queuePosition}|${progress.queueEtaMs == null ? "null" : Math.round(progress.queueEtaMs / 60_000)}`
+      ? `${progress.phase}|${progress.elapsedMs === null ? "null" : Math.round(progress.elapsedMs / 1000)}|${progress.queuePosition}|${progress.queueEtaMs == null ? "null" : Math.round(progress.queueEtaMs / 60_000)}|${progress.runsOn ? `${progress.runsOn.where}:${progress.runsOn.started}:${progress.runsOn.computerName}:${progress.runsOn.expectedMs?.p50 ?? ""}:${progress.runsOn.reasons.join("~")}` : "none"}`
       : "none";
     if (signature === lastProgressSignature) return;
     lastProgressSignature = signature;
@@ -190,7 +190,10 @@ async function runFoldxPipeline(options: FoldxExecutionOptions): Promise<void> {
     const rawEta = Number(payload.queuedEtaMs);
     const queueEtaMs = payload.queuedEtaMs != null && Number.isFinite(rawEta) && rawEta >= 0 ? rawEta : null;
     if (!phase && elapsedMs === null && queuePosition === null) return null;
-    return { phase, elapsedMs, queuePosition, queueEtaMs, receivedAt: Date.now() };
+    // Validated like everything else here: a malformed placement is dropped, never rendered.
+    const runsOnParsed = payload.runsOn == null ? null : jobRunsOnSchema.safeParse(payload.runsOn);
+    const runsOn = runsOnParsed?.success ? runsOnParsed.data : null;
+    return { phase, elapsedMs, queuePosition, queueEtaMs, runsOn, receivedAt: Date.now() };
   };
 
   sink.setIsFolding(true);

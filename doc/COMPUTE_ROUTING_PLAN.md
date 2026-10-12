@@ -59,7 +59,8 @@ one agent can take it without the others.
 | WP-D admission and out-of-memory handling | **done**, ships in `shadow` (9 tests) | `server/services/infra/admission.ts`, `foldx/failure.ts` |
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
-| WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** on `feat/wp-f-agent` (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
+| WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** (#118) (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
+| WP-G2 live routing: placement on the owner's computers, `runsOn` (where, why, prediction) on every job surface, fallback to the server, each computer's own speed, learned memory limits on the admin page | **done** on `feat/wp-g2-routing` (17 live-routing + 11 copy + 1 jobs-panel + 3 Energetics + 4 screen tests); placement is live only with `COMPUTE_ROUTING=on` | `admission.ts` (`placementOf`), `biophysical-queue.ts` (`routing` column, `agentLoad`, `releasePlacementsOf`), `routes/agent.ts` (`ownerAgentHosts`, `releaseStrandedPlacements`), `src/shared/jobPlacement.ts`, `ComputeLimits.tsx` |
 | everything else | not started | |
 
 **Where WP-A's server side differs from section 4** (the code is the source of truth):
@@ -178,10 +179,10 @@ one agent can take it without the others.
 - **The claim answers 200 `{job: null}`** instead of 204, so every answer carries `foldxBundleVersion`.
 - **What an agent may take, and when.** Only its OWNER's queued jobs, `placement` NULL or its own, a kind it has
   a self-tested tool for, passing the engine's hard filters for that computer (`decidePlacement` with the
-  computer as the only host and the owner's `placement_pref`; `server_only` never claims). Nothing PLACES a job
-  on an agent yet (WP-G2), and an idle server claims a job within 50 ms, so today a computer takes its owner's
-  **backlog while the server is busy**. A job placed on an agent that goes offline is released by a one-minute
-  housekeeping sweep. A team FoldX copy whose version no longer matches the bundle is not offered FoldX work.
+  computer as the only host and the owner's `placement_pref`; `server_only` never claims). Without live
+  routing an idle server claims a job within 50 ms, so a computer takes its owner's **backlog while the server
+  is busy**; with `COMPUTE_ROUTING=on`, WP-G2 PLACES jobs on it (see WP-G). A job placed on a computer that
+  cannot take it is released by the housekeeping sweep (every 15 s since WP-G2). A team FoldX copy whose version no longer matches the bundle is not offered FoldX work.
 - **Agent jobs are not server load.** Everywhere the queue measures the server (fair rotation, positions, wait
   estimates, the load snapshot, `serverMsSince` and the daily cap, the 960 s reaper) rows with
   `claimed_by = 'agent:%'` are excluded; `claimed_by` stays on a finished agent job so history is attributable.
@@ -352,8 +353,8 @@ to fpocket and is not learned; `repaired` in telemetry is the plan at submit, no
 ### 0.4 Consolidated status and next phases (2026-10-11, after WP-0 and Review 3)
 
 **Everything through WP-H is on `main`:** WP-A, WP-B, WP-C, WP-0 (core #100-series and the remainder #110), WP-D
-(in `shadow`), WP-E (#103, review fixes #105), WP-G1 (#106), WP-H (#109). **WP-F** is on `feat/wp-f-agent`
-(2026-10-11). The list below is what is still missing, so a later agent does not have to re-derive it from the
+(in `shadow`), WP-E (#103, review fixes #105), WP-G1 (#106), WP-H (#109), WP-F (#118). **WP-G2** is on
+`feat/wp-g2-routing` (2026-10-12). The list below is what is still missing, so a later agent does not have to re-derive it from the
 per-package notes above.
 
 **Owner actions (not code):**
@@ -361,7 +362,9 @@ per-package notes above.
    `doc/ACCOUNTS.md`. Apply each change with `python3 deploy/rollout.py --restart --commit <serving sha>`.
    Until then every job is `legacy`-owned: fairness, limits, my-jobs and usage are inactive in practice.
 2. Read a few days of `[routing:shadow]` lines (`docker logs`) before `COMPUTE_ROUTING=on`. Check: no line says
-   FoldX or P2Rank is missing on the server; how often the 1.25 x largest-completed size rule would refuse.
+   FoldX or P2Rank is missing on the server; how often the 1.25 x largest-completed size rule would refuse; and
+   (since WP-G2 the lines weigh each person's connected computers) how often a job would have gone to one.
+   `on` turns on both the refusals and live routing.
 
 **Gaps left on purpose, each with its home:**
 
@@ -369,14 +372,13 @@ per-package notes above.
 |---|---|---|
 | The server's own benchmark (`compute:benchmark` on the ARM host); emulated RepairPDB prior is still an estimate | priors for the server class | owner action, ACCOUNTS.md |
 | Admission by running cost; "one heavy job per host" | memory is measured per job now; the memory fit needs 8 MEASURED peaks (not weeks) before it replaces the size rule, which still applies | WP-D2 |
-| Nothing PLACES a job on a computer: a computer takes its owner's backlog only while the server is busy | the speed-up reaches people only when the server is loaded | WP-G2 |
 | The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
 | macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
-| Agent telemetry for a handed-back attempt is recorded, but nothing yet SHOWS a person their computer's speed | informational only | WP-G2 |
-| No admin button for `DELETE /admin/compute/ceilings` | only matters once `COMPUTE_ROUTING=on` | WP-G2 |
 | De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
 | 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
+| A placement is decided once, at submit: a job placed on a busy computer is not moved when the server frees up (only when the computer cannot take it, or sits idle 2 min without claiming it) | the engine already prices the computer's queue, so a second job overflows to the server when that is quicker; re-deciding waiting jobs is an optimisation | later, if the logs show long waits on a computer |
+| No preview before submit: the decision is shown from the moment the job is queued (submit response, poll, My jobs), not before the button is pressed | the job is queued or placed within the same request, so a preview would show the same thing a moment earlier | later, if wanted |
 
 **Who uses it today (2026-10-10):** the owner alone, with a team expected soon. Decision (owner): build in
 the team order below, as if colleagues were joining now. One owner action is still worth doing first, because
@@ -385,10 +387,9 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
 
 **Next phases, in order:**
 
-1. **WP-F — agents** — done on `feat/wp-f-agent` (see 0.3 and WP-F), including Review 3's finding S2 (see the
-   WP-F notes).
-2. **WP-G2 — live routing** (agents in `HostFeatures[]`, placement shown before and during a run), then
-   `COMPUTE_ROUTING=on`.
+1. **WP-F — agents** — done (#118).
+2. **WP-G2 — live routing** — done on `feat/wp-g2-routing` (see WP-G). Then the owner action above:
+   `COMPUTE_ROUTING=on` after reading the shadow log.
 3. **WP-I — outbound governor**, I3 (team-wide 429 pause) first.
 
 Shipped since the previous revision of this list, so nobody rebuilds them: **WP-G1** (`/my-jobs`, cancel and the
@@ -1186,6 +1187,43 @@ Depends on WP-D and WP-F.
 
 Acceptance: end to end, a job from a user with an online agent runs on the agent; with the agent killed it
 falls back to the server; a user without an agent is unaffected; another user never sees the first user's agent.
+
+**Where WP-G2 differs** (the code is the source of truth; `server/routes/live-routing.test.ts` is the acceptance):
+- **One switch.** Placement is live only with `COMPUTE_ROUTING=on`, the same switch that lets admission refuse.
+  In `shadow` the engine already weighs `[server, ...owner's online computers]` and logs the decision
+  (`[routing:shadow]`, `actual: "server"`); `on` logs `[routing:on]` with the real placement.
+- **Hosts.** The agent routes register `ownerAgentHosts` with the queue (`setAgentHostsProvider`), so the queue
+  never imports the accounts database. Only the owner's computers that are online and offer the tool now
+  (self-tested, not paused, team FoldX copy current) are hosts; `legacy`/`system` work has none.
+- **What is stored.** A computer's placement sets `placement = 'agent:<id>'`; a job the engine keeps on the server
+  stays unplaced (NULL), so the owner's computer may still take it from the backlog. Each decision is a
+  `RoutingRecord` in the new `routing` column (host, computer name, the engine's prediction and `basis`, its
+  reasons, and a note when the job later moved: `released`, `handed_back`, `taken_from_backlog`). A person
+  without a computer gets no record: nothing new is shown to them.
+- **Load.** A computer's `runningCostMs`/`queuedCostMs` come from the predictions stored with the jobs placed on
+  it (`agentLoad`), so a second job sees the first one waiting; the server's `queuedCostMs`, the fairness
+  count `othersWaiting`, the daily-cap `pendingEstimateMsFor` and the 50-job host backstop now exclude jobs placed
+  on a computer (the per-person waiting limit still counts them: they return to the server if the computer
+  goes). A computer claims the jobs placed on it before its owner's older backlog, so position and wait for a
+  placed job (`queuedAhead`, `queuedEtaMs`, `etaMs`) count only what is ahead of it on that computer.
+- **Fallback.** Housekeeping now runs every 15 s (`releaseStrandedPlacements`) and releases a placed job to the
+  server when its computer is offline (90 s window), paused, no longer offers the tool, or has been idle for
+  2 min (`PLACEMENT_IDLE_PATIENCE_MS`) without claiming it, measured from the placement and from the computer's
+  last claim, so a computer finishing a long job is not robbed of the next. A started job falls back through
+  WP-F's hand-back rules. Both are recorded on the job and told to its owner.
+- **Joining.** `mayJoin` treats a job WAITING for a computer like one running on it, so a private computer result
+  is never handed to someone who joined before the computer claimed it.
+- **Shown.** `runsOn` (`src/shared/jobPlacement.ts`, `runsOnFor`) is on the FoldX and pocket submit and poll
+  responses and on `/my-jobs`: where, the computer's name, started or not, the prediction with its basis, and
+  the reasons. Anyone but the owner (someone who joined, or a poll without an account) reads only where and
+  whether it started. A finished job names a computer only if that computer claimed it. The routing log
+  writes `agent:<id>`, never a computer's name. The jobs panel shows a host line; the Energetics card names the host
+  ("Waiting for your computer (Lab PC) to pick it up") instead of "compute server". There is no pre-submit
+  preview (0.4). Predicted RAM is not shown: it is null until a class has 8 measured peaks.
+- **Also closed from 0.4:** "Your computers" shows each computer's last 30 days (jobs finished, given back, and
+  the median FoldX and pocket time, from its own telemetry, bounded by the server's clock); Settings → Team →
+  "Learned memory limits" lists the out-of-memory ceilings (`GET /admin/compute/ceilings`, new) and forgets them;
+  `/auth/me` reports `liveRouting`, so "Where your jobs run" describes what the preference really does.
 
 ---
 

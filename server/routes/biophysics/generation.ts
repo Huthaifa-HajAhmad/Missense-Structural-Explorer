@@ -924,6 +924,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
           queuedEtaMs: joinedJobStatus === "running" || !queueJobId
             ? null
             : ((await BiophysicalJobQueue.getInstance().getEta(queueJobId))?.waitMs ?? null),
+          // Where it runs and why (live routing, WP-G2); null when it is simply the server's, as always.
+          runsOn: queueJobId ? BiophysicalJobQueue.getInstance().runsOn(queueJobId, submitterId(req) ?? null) : null,
           dynamut2JobId,
           dynamut2Status,
           ddmutJobId,

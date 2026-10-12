@@ -470,7 +470,9 @@ Passwords need at least 12 characters (`400 WEAK_PASSWORD`). Invite and reset to
 ### 18. Jobs
 | Route | Answer |
 |---|---|
-| `GET /my-jobs` (signed in) | `200 {jobs: JobSummary[]}`: your submitted and joined jobs, newest 50, with `queuedAhead` and `etaMs` while waiting. `ownerId` is your own id or null, never someone else's. |
+| `GET /my-jobs` (signed in) | `200 {jobs: JobSummary[]}`: your submitted and joined jobs, newest 50, with `queuedAhead` and `etaMs` while waiting, and `runsOn` (below). `ownerId` is your own id or null, never someone else's. |
+
+`runsOn` (also on the FoldX and pocket submit and poll responses) says where a job runs and why: `{where: "server" | "your_computer" | "teammate_computer", computerName, started, expectedMs: {p50, p90} | null, basis: "measured" | "prior" | null, samples, reasons: string[]}`. It is `null` when the job is simply the shared server's, which is always the case unless `COMPUTE_ROUTING=on` and the owner has a connected computer, or a computer took the job from its owner's backlog. A computer's name, the reasons and the prediction are given to its owner only; anyone else reads `where` and `started`. While a job waits for the owner's computer, `queuedAhead`/`queuedEtaMs` count what is ahead of it on that computer.
 | `POST /jobs/:jobId/cancel` | `200 {cancelled, stillRunningForOthers, remainingWatchers}`. Withdraws your interest; the job stops when nobody else waits for it. An admin's cancel always stops it. `403` someone else's job, `404` unknown, `409 JOB_FINISHED`. |
 | `GET /jobs/events?jobs=<ids>` | Server-sent events: `connected`, then `job_update {jobId, tool, status, ...}`. |
 
@@ -486,4 +488,5 @@ Role `admin` only (`403 ADMIN_ONLY`). Tag *Admin* in the OpenAPI spec.
 | `PATCH /admin/users/:id` `{status?, role?, quota?}` | `200 {user, jobsCancelled}`. Disabling signs the person out and cancels their jobs. `409 LAST_ADMIN` |
 | `POST /admin/users/:id/reset-link` | `201 {resetUrl, expiresAt}`; single use, 24 h |
 | `POST /admin/users/:id/sign-out` | `204` |
+| `GET /admin/compute/ceilings` | `200 {enforced, ceilings: [{type, hostClass, residues, onServer}]}`: learned out-of-memory size limits; `enforced` only with `COMPUTE_ROUTING=on` |
 | `DELETE /admin/compute/ceilings` | `200 {removed}`: forget learned out-of-memory size limits |

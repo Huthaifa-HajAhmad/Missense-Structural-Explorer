@@ -29,6 +29,7 @@ import { noStore, requireUser } from "../auth/middleware.ts";
 import { signInWithPassword } from "../auth/providers/password.ts";
 import { lockedFor, recordFailure, recordSuccess, throttleKeys } from "../auth/throttle.ts";
 import { BiophysicalJobQueue } from "../services/infra/biophysical-queue.ts";
+import { routingMode } from "../services/infra/admission.ts";
 import {
   consumeInvite,
   consumePasswordReset,
@@ -195,6 +196,8 @@ export function registerAuthRoutes(apiRouter: Router, jsonParserRegular: any): v
       },
       // Informational (plan 4.4): server seconds today (UTC) and over the last 7 days.
       usage: queueUsage(p.userId),
+      // Whether jobs are placed where they should finish first (WP-G2), so the preference is described truly.
+      liveRouting: routingMode() === "on",
     });
   });
 

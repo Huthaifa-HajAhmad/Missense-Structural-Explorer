@@ -126,7 +126,11 @@ docker logs <that container> 2>&1 | grep '\[routing:shadow\]'
 
 Check that no line says FoldX or P2Rank is missing on the server, and how often a job would have been
 refused for size. With `on`, a job that cannot run here is refused with a plain message (HTTP 422)
-instead of running out of memory.
+instead of running out of memory, **and live routing starts**: a job from someone with a connected
+computer is placed on that computer when it should finish first there (each line then reads
+`[routing:on]` with `"actual":"agent:<id>"`). In `shadow` the log already weighs those computers, so
+the lines show how often that would happen. The learned memory limits are listed, and can be forgotten,
+in **Settings → Team → Learned memory limits**.
 
 At start-up the server runs FoldX and P2Rank once and logs what it found, with versions:
 

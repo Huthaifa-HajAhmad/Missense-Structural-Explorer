@@ -97,6 +97,9 @@ export function offeredJobTypes(report: AgentHostReport): ("foldx" | "p2rank")[]
 
 /** This computer as a placement-engine host. */
 export function agentHostFeatures(row: AgentRow, report: AgentHostReport, queue: SQLiteQueue | null, now = Date.now()): HostFeatures {
+  // What is already running on it and placed on it, priced by the engine's own predictions (WP-G2), so a
+  // second job does not see an idle computer when the first is still waiting for it.
+  const load = queue?.agentLoad(row.id, now) ?? { runningJobs: 0, runningCostMs: 0, queuedCostMs: 0 };
   return {
     id: `agent:${row.id}`,
     kind: "agent",
@@ -110,9 +113,9 @@ export function agentHostFeatures(row: AgentRow, report: AgentHostReport, queue:
     totalRamBytes: report.totalRamBytes,
     freeRamBytes: report.freeRamBytes,
     tools: offeredJobTypes(report).map((t) => ({ name: t, version: report.tools[t].version as string, verified: true, selfTest: "passed" as const })),
-    runningJobs: queue?.runningOnAgent(row.id) ?? 0,
-    runningCostMs: 0,
-    queuedCostMs: 0,
+    runningJobs: load.runningJobs,
+    runningCostMs: load.runningCostMs,
+    queuedCostMs: load.queuedCostMs,
     linkRttMs: null,
     leaseLossRate: queue?.leaseLossRate(row.id) ?? 0,
     minFreeBytes: CONFIG.memory.minFreeBytes,
@@ -134,6 +137,7 @@ export function agentView(row: AgentRow, queue: SQLiteQueue | null, now = Date.n
     totalRamBytes: report?.totalRamBytes ?? null,
     tools: report?.tools ?? null,
     foldxSource: report?.foldxSource ?? null,
+    recent: queue?.agentRecentWork(row.id, 30, now) ?? null,
   };
 }
 

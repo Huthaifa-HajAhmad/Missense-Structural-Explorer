@@ -11,9 +11,11 @@ import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute
 import { runInJobMeter } from "./job-meter.ts";
 import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
-import { AdmissionError, ceilingRefusal, decide, logShadow, routingMode, type AdmissionInput } from "./admission.ts";
+import { AdmissionError, ceilingRefusal, decide, logShadow, placementOf, routingMode, type AdmissionInput } from "./admission.ts";
 import { probeServerHost, serverHostFacts, serverProvenance, serverToolVersion, SERVER_HOST_ID } from "./host-probe.ts";
-import { foldxRepairApplies, hostClassOf, type CostModels, type JobType, type PlacementPref } from "../../../src/shared/computeRouting.ts";
+import { foldxRepairApplies, hostClassOf, type CostModels, type Decision, type HostFeatures, type JobType, type PlacementPref } from "../../../src/shared/computeRouting.ts";
+import { parseRoutingRecord, runsOnFor, serverRecordAfter, type JobRunsOn, type RoutingRecord } from "../../../src/shared/jobPlacement.ts";
+import type { AgentRecentWork } from "../../../src/shared/agentProtocol.ts";
 
 export interface QueueJob {
   id: string;
@@ -32,6 +34,10 @@ export interface QueueJob {
   /** `agent:<id>` while (or after) a paired computer ran it; null when the server did. */
   claimedBy?: string | null;
   residues?: number | null;
+  /** `agent:<id>` while a job waits for that computer (live routing); `server` after a hand-back; else null. */
+  placement?: string | null;
+  /** Where the placement engine put it and why (WP-G2); null when routing did not decide it. */
+  routing?: RoutingRecord | null;
 }
 
 /**
@@ -54,6 +60,13 @@ const SERVER_CLAIMABLE = "(placement IS NULL OR placement NOT LIKE 'agent:%')";
  * 15 min), never a heartbeat lease (`AGENT_LEASE_SEC` is capped at 600 s).
  */
 const FINISHING_LEASE_FLOOR_MS = 10 * 60 * 1000;
+
+/**
+ * A job placed on an idle computer that has not claimed it after this long goes to the server. A computer
+ * long-polls `/agent/claim` and re-checks every second, so an idle one claims a placed job within seconds;
+ * one that does not is refusing it (for example a size its class has since learned it cannot hold).
+ */
+export const PLACEMENT_IDLE_PATIENCE_MS = 2 * 60 * 1000;
 
 /** A computer's job is handed back after this long even if it keeps renewing its lease: the job cap plus slack. */
 function agentHardCapMs(type: string): number {
@@ -96,8 +109,10 @@ export interface EnqueueOptions {
   residues?: number;
   /** FoldX skips RepairPDB on AlphaFold models; needed to predict and to record what ran. */
   isAlphaFoldModel?: boolean;
-  /** The submitter's placement preference (accounts); the engine reads it once agents exist. */
+  /** The submitter's placement preference (accounts); the engine weighs it against the owner's computers. */
   placementPref?: PlacementPref;
+  /** Set by live routing (WP-G2): the decision behind `placement`, shown to the owner. */
+  routing?: RoutingRecord | null;
 }
 
 export interface JobSummary {
@@ -131,6 +146,8 @@ export interface JobSummary {
    * A count, not a list: another person's identity is not the caller's business.
    */
   watchers: number;
+  /** Where it runs (or ran), for this viewer; null when nothing beyond "the server, as always" is known. */
+  runsOn: JobRunsOn | null;
 }
 
 export type CancelOutcome =
@@ -216,6 +233,8 @@ export class SQLiteQueue {
     // server is busy, so on hand-back the server usually still is, and the original clock may be spent.
     add("requeued_at", "INTEGER");
     add("repaired", "INTEGER");
+    // Live routing (WP-G2): the placement decision, as a `RoutingRecord` JSON, shown to the job's owner.
+    add("routing", "TEXT");
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_status ON biophysical_jobs(owner_id, status, created_at);
       CREATE INDEX IF NOT EXISTS idx_jobs_owner_started ON biophysical_jobs(owner_id, started_at);
@@ -270,7 +289,7 @@ export class SQLiteQueue {
     try {
       for (const row of this.db.prepare(`SELECT id, claimed_by FROM biophysical_jobs WHERE ${interrupted} AND claimed_by LIKE 'agent:%'`).all() as any[]) {
         this.endClaim(row.id, String(row.claimed_by).slice("agent:".length), "lease_lost", now);
-        this.db.prepare("UPDATE biophysical_jobs SET placement = 'server', requeued_at = ? WHERE id = ?").run(now, row.id);
+        this.db.prepare("UPDATE biophysical_jobs SET placement = 'server', requeued_at = ?, routing = ? WHERE id = ?").run(now, JSON.stringify(serverRecordAfter("handed_back", now)), row.id);
       }
     } catch (err: any) {
       console.warn("[Queue] Failed to hand expired agent jobs to the server on startup:", err.message);
@@ -310,14 +329,15 @@ export class SQLiteQueue {
     const now = Date.now();
     const owner = opts.ownerId || LEGACY_OWNER;
     this.db.prepare(`
-      INSERT INTO biophysical_jobs (id, type, data, status, created_at, owner_id, priority, cost_estimate_ms, placement, residues, repaired)
-      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO biophysical_jobs (id, type, data, status, created_at, owner_id, priority, cost_estimate_ms, placement, residues, repaired, routing)
+      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, type, JSON.stringify(data), now, owner,
       opts.priority ?? (owner === SYSTEM_OWNER ? SYSTEM_PRIORITY : 0),
       opts.costEstimateMs ?? null, opts.placement ?? null,
       opts.residues && opts.residues > 0 ? opts.residues : null,
       type === "foldx" && opts.residues && opts.residues > 0 ? (foldxRepairApplies(opts.residues, Boolean(opts.isAlphaFoldModel)) ? 1 : 0) : null,
+      opts.routing ? JSON.stringify(opts.routing) : null,
     );
     // The submitter is the first watcher: cancelling "my watch" then means the same thing for the
     // person who started a job and for someone who later joins it.
@@ -360,7 +380,7 @@ export class SQLiteQueue {
   othersWaiting(ownerId: string): number {
     const row = this.db.prepare(`
       SELECT count(DISTINCT owner_id) AS c FROM biophysical_jobs
-      WHERE status = 'queued' AND owner_id != ? AND owner_id != ?
+      WHERE status = 'queued' AND owner_id != ? AND owner_id != ? AND ${SERVER_CLAIMABLE}
     `).get(ownerId, SYSTEM_OWNER) as any;
     return row?.c ?? 0;
   }
@@ -374,7 +394,7 @@ export class SQLiteQueue {
     let ms = 0;
     for (const r of this.db.prepare(`
       SELECT status, cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs
-      WHERE owner_id = ? AND status IN ('queued', 'running') AND cost_estimate_ms IS NOT NULL AND ${ON_SERVER}
+      WHERE owner_id = ? AND status IN ('queued', 'running') AND cost_estimate_ms IS NOT NULL AND ${ON_SERVER} AND ${SERVER_CLAIMABLE}
     `).all(ownerId) as any[]) {
       ms += r.status === "queued" ? r.c : Math.max(0, r.c - (now - (r.s ?? now)));
     }
@@ -404,8 +424,9 @@ export class SQLiteQueue {
       const row = this.db.prepare("SELECT count(*) as count FROM biophysical_jobs WHERE status = ?").get(status) as any;
       return row ? row.count : 0;
     }
-    // The host backstop: jobs running on a paired computer hold no server slot and do not count.
-    const row = this.db.prepare(`SELECT count(*) as count FROM biophysical_jobs WHERE status IN ('queued', 'running') AND ${ON_SERVER}`).get() as any;
+    // The host backstop: jobs running on, or placed on and waiting for, a paired computer hold no server
+    // slot and do not count (a person alone may place many jobs on their own computer).
+    const row = this.db.prepare(`SELECT count(*) as count FROM biophysical_jobs WHERE status IN ('queued', 'running') AND ${ON_SERVER} AND ${SERVER_CLAIMABLE}`).get() as any;
     return row ? row.count : 0;
   }
 
@@ -426,6 +447,8 @@ export class SQLiteQueue {
       costEstimateMs: row.cost_estimate_ms ?? null,
       claimedBy: row.claimed_by ?? null,
       residues: row.residues ?? null,
+      placement: row.placement ?? null,
+      routing: parseRoutingRecord(row.routing),
     };
   }
 
@@ -520,8 +543,11 @@ export class SQLiteQueue {
    */
   getQueuePosition(id: string): number | null {
     try {
-      const row = this.db.prepare("SELECT created_at, rowid, status FROM biophysical_jobs WHERE id = ?").get(id) as any;
+      const row = this.db.prepare("SELECT created_at, rowid, status, placement FROM biophysical_jobs WHERE id = ?").get(id) as any;
       if (!row) return null;
+      if (row.status === "queued" && typeof row.placement === "string" && row.placement.startsWith("agent:")) {
+        return this.agentQueueAhead(row.placement, id).ahead;
+      }
       if (row.status === "queued") {
         const running = (this.db.prepare(`SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).get() as any).c as number;
         const idx = this.queuedInStartOrder().findIndex(j => j.id === id);
@@ -530,7 +556,7 @@ export class SQLiteQueue {
       const ahead = this.db.prepare(`
         SELECT count(*) AS count FROM biophysical_jobs
         WHERE status IN ('queued', 'running')
-          AND (created_at < ? OR (created_at = ? AND rowid <= ?)) AND ${ON_SERVER}
+          AND (created_at < ? OR (created_at = ? AND rowid <= ?)) AND ${ON_SERVER} AND ${SERVER_CLAIMABLE}
       `).get(row.created_at, row.created_at, row.rowid) as any;
       return ahead ? Math.max(0, ahead.count - 1) : 0;
     } catch {
@@ -555,8 +581,13 @@ export class SQLiteQueue {
    */
   getEta(id: string): { waitMs: number | null; runMs: number | null } | null {
     try {
-      const row = this.db.prepare("SELECT status, type, cost_estimate_ms FROM biophysical_jobs WHERE id = ?").get(id) as any;
+      const row = this.db.prepare("SELECT status, type, cost_estimate_ms, placement, routing FROM biophysical_jobs WHERE id = ?").get(id) as any;
       if (!row) return null;
+      if (typeof row.placement === "string" && row.placement.startsWith("agent:")) {
+        // Waiting for the owner's computer: what is ahead of it THERE, priced by the engine's own predictions.
+        const runMs = parseRoutingRecord(row.routing)?.expectedMs?.p50 ?? null;
+        return { waitMs: row.status === "queued" ? this.agentQueueAhead(row.placement, id).waitMs : 0, runMs };
+      }
       const runMs = row.cost_estimate_ms ?? null;
       if (row.status !== "queued") return { waitMs: 0, runMs };
       const isFoldx = row.type === "foldx";
@@ -680,13 +711,90 @@ export class SQLiteQueue {
         // Another person's internal id is not the caller's business; "mine: false" says what matters.
         ownerId: r.owner_id === userId ? userId : null,
         mine: r.owner_id === userId,
-        queuedAhead: idx < 0 ? null : running + idx,
+        // A job waiting for the owner's computer stands in THAT computer's line, not the server's.
+        queuedAhead: r.status === "queued" && typeof r.placement === "string" && r.placement.startsWith("agent:")
+          ? this.agentQueueAhead(r.placement, r.id).ahead
+          : idx < 0 ? null : running + idx,
         etaMs: r.status === "queued" ? (this.getEta(r.id)?.waitMs ?? null) : null,
         elapsedMs: r.status === "running" && r.started_at ? Math.max(0, Date.now() - r.started_at) : null,
         label,
         watchers: watcherCounts.get(r.id) ?? 0,
+        runsOn: runsOnFor({
+          status: r.status,
+          claimedBy: r.claimed_by ?? null,
+          placement: r.placement ?? null,
+          record: parseRoutingRecord(r.routing),
+          viewerIsOwner: r.owner_id === userId,
+        }),
       };
     });
+  }
+
+  /** Where this job runs, for `viewerId` (null = no account: never the owner). */
+  runsOn(jobId: string, viewerId: string | null): JobRunsOn | null {
+    const r = this.db.prepare("SELECT status, owner_id, claimed_by, placement, routing FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+    if (!r) return null;
+    return runsOnFor({
+      status: r.status,
+      claimedBy: r.claimed_by ?? null,
+      placement: r.placement ?? null,
+      record: parseRoutingRecord(r.routing),
+      viewerIsOwner: viewerId != null && r.owner_id === viewerId,
+    });
+  }
+
+  private setRouting(jobId: string, record: RoutingRecord): void {
+    this.db.prepare("UPDATE biophysical_jobs SET routing = ? WHERE id = ?").run(JSON.stringify(record), jobId);
+  }
+
+  /**
+   * Jobs ahead of `jobId` on the computer it is placed on (`placement` = "agent:<id>"), and the predicted
+   * wait: what the computer is running now plus the jobs placed on it before this one. `waitMs` is null
+   * when any of them has no prediction, as `getEta` does for the server.
+   */
+  private agentQueueAhead(placement: string, jobId: string, now = Date.now()): { ahead: number; waitMs: number | null } {
+    let ahead = 0;
+    let total = 0;
+    let known = true;
+    for (const r of this.db.prepare("SELECT started_at AS s, routing FROM biophysical_jobs WHERE status = 'running' AND claimed_by = ?").all(placement) as any[]) {
+      ahead++;
+      const p50 = parseRoutingRecord(r.routing)?.expectedMs?.p50;
+      if (p50 == null) known = false;
+      else total += Math.max(0, p50 - (now - (r.s ?? now)));
+    }
+    // The computer claims its placed jobs first, in this order (`claimForAgent`), then its owner's backlog.
+    for (const r of this.db.prepare(`
+      SELECT id, routing FROM biophysical_jobs WHERE status = 'queued' AND placement = ?
+      ORDER BY priority DESC, created_at ASC, rowid ASC
+    `).all(placement) as any[]) {
+      if (r.id === jobId) break;
+      ahead++;
+      const p50 = parseRoutingRecord(r.routing)?.expectedMs?.p50;
+      if (p50 == null) known = false;
+      else total += p50;
+    }
+    return { ahead, waitMs: known ? Math.round(total) : null };
+  }
+
+  /**
+   * What a paired computer already has to do, for the engine (`HostFeatures` running/queued cost): its
+   * running job's remaining predicted time and the predictions of the jobs placed on it. Predictions are
+   * the engine's own for that computer, stored with each placement; a job without one adds nothing.
+   */
+  agentLoad(agentId: string, now = Date.now()): { runningJobs: number; runningCostMs: number; queuedCostMs: number } {
+    const claimant = `agent:${agentId}`;
+    let runningJobs = 0;
+    let runningCostMs = 0;
+    for (const r of this.db.prepare("SELECT started_at AS s, routing FROM biophysical_jobs WHERE status = 'running' AND claimed_by = ?").all(claimant) as any[]) {
+      runningJobs++;
+      const p50 = parseRoutingRecord(r.routing)?.expectedMs?.p50;
+      if (p50 != null) runningCostMs += Math.max(0, p50 - (now - (r.s ?? now)));
+    }
+    let queuedCostMs = 0;
+    for (const r of this.db.prepare("SELECT routing FROM biophysical_jobs WHERE status = 'queued' AND placement = ?").all(claimant) as any[]) {
+      queuedCostMs += parseRoutingRecord(r.routing)?.expectedMs?.p50 ?? 0;
+    }
+    return { runningJobs, runningCostMs, queuedCostMs };
   }
 
   abortJob(id: string) {
@@ -710,7 +818,7 @@ export class SQLiteQueue {
     for (const r of this.db.prepare(`SELECT cost_estimate_ms AS c, started_at AS s FROM biophysical_jobs WHERE status = 'running' AND ${ON_SERVER}`).all() as any[]) {
       if (r.c != null) runningCostMs += Math.max(0, r.c - (now - (r.s ?? now)));
     }
-    const queued = this.db.prepare("SELECT coalesce(sum(cost_estimate_ms), 0) AS c FROM biophysical_jobs WHERE status = 'queued'").get() as any;
+    const queued = this.db.prepare(`SELECT coalesce(sum(cost_estimate_ms), 0) AS c FROM biophysical_jobs WHERE status = 'queued' AND ${SERVER_CLAIMABLE}`).get() as any;
     return { runningJobs: this.activeJobs.size, runningCostMs, queuedCostMs: queued?.c ?? 0 };
   }
 
@@ -774,7 +882,7 @@ export class SQLiteQueue {
    * this computer) allows, or null. Atomic: two computers racing for one job get it once.
    */
   claimForAgent(
-    agent: { agentId: string; userId: string },
+    agent: { agentId: string; userId: string; name?: string | null },
     types: readonly ("foldx" | "p2rank")[],
     accept: (row: { id: string; type: "foldx" | "p2rank"; residues: number | null; repaired: boolean | null; othersWatching: boolean }) => boolean,
     leaseMs: number,
@@ -783,12 +891,12 @@ export class SQLiteQueue {
     if (this.isShutdown || this.processingPaused || types.length === 0) return null;
     const claimant = `agent:${agent.agentId}`;
     const candidates = this.db.prepare(`
-      SELECT id, type, data, owner_id, residues, repaired FROM biophysical_jobs
+      SELECT id, type, data, owner_id, residues, repaired, placement, routing FROM biophysical_jobs
       WHERE status = 'queued' AND owner_id = ? AND type IN (${types.map(() => "?").join(", ")})
         AND (placement IS NULL OR placement = ?)
-      ORDER BY priority DESC, created_at ASC, rowid ASC
+      ORDER BY (placement IS ?) DESC, priority DESC, created_at ASC, rowid ASC
       LIMIT 25
-    `).all(agent.userId, ...types, claimant) as any[];
+    `).all(agent.userId, ...types, claimant, claimant) as any[];
     for (const row of candidates) {
       const repaired = row.repaired == null ? null : row.repaired === 1;
       const othersWatching = Boolean(this.db.prepare("SELECT 1 FROM job_watchers WHERE job_id = ? AND user_id != ? LIMIT 1").get(row.id, agent.userId));
@@ -800,6 +908,16 @@ export class SQLiteQueue {
       `).run(now, claimant, leaseExpiresAt, row.id);
       if (Number(won.changes ?? 0) === 0) continue; // the server or another computer took it first
       this.db.prepare("INSERT OR REPLACE INTO agent_claims (job_id, agent_id, claimed_at) VALUES (?, ?, ?)").run(row.id, agent.agentId, now);
+      // A job placed here keeps the engine's decision; one taken from the backlog says so. Read again after
+      // the claim, so a placement released meanwhile (another process sharing the database) is not trusted.
+      const current = this.db.prepare("SELECT placement, routing FROM biophysical_jobs WHERE id = ?").get(row.id) as any;
+      const placedHere = current?.placement === claimant && parseRoutingRecord(current?.routing)?.host === claimant;
+      if (!placedHere) {
+        this.setRouting(row.id, {
+          host: claimant, computerName: agent.name ?? null, expectedMs: null, basis: null, samples: null,
+          reasons: [], decidedAt: now, note: "taken_from_backlog",
+        });
+      }
       let data: any = {};
       try { data = JSON.parse(row.data); } catch { /* the payload builder reports what is missing */ }
       return { id: row.id, type: row.type, data, ownerId: row.owner_id, residues: row.residues ?? null, repaired, leaseExpiresAt };
@@ -826,8 +944,10 @@ export class SQLiteQueue {
    * was owner-blind, so joining would have handed a private agent result to someone else.
    */
   mayJoin(jobId: string, requesterId: string | null, ownerShares: (ownerId: string) => boolean): boolean {
-    const row = this.db.prepare("SELECT owner_id, claimed_by FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
-    if (!row || !(typeof row.claimed_by === "string" && row.claimed_by.startsWith("agent:"))) return true;
+    const row = this.db.prepare("SELECT owner_id, claimed_by, placement, status FROM biophysical_jobs WHERE id = ?").get(jobId) as any;
+    // Running on a computer, or waiting for one (live routing): the result will be that computer's.
+    const onAgent = (v: unknown) => typeof v === "string" && v.startsWith("agent:");
+    if (!row || !(onAgent(row.claimed_by) || (row.status === "queued" && onAgent(row.placement)))) return true;
     if (requesterId && requesterId === row.owner_id) return true;
     return ownerShares(row.owner_id);
   }
@@ -877,6 +997,7 @@ export class SQLiteQueue {
     `).run(now, jobId, `agent:${agentId}`);
     if (Number(r.changes ?? 0) === 0) return false;
     this.clearPhase(jobId);
+    this.setRouting(jobId, serverRecordAfter("handed_back", now));
     this.endClaim(jobId, agentId, ending.outcome, now);
     this.scheduleNext();
     return true;
@@ -889,23 +1010,79 @@ export class SQLiteQueue {
     return rows.filter(r => r.outcome === "lease_lost").length / rows.length;
   }
 
+  /**
+   * What this computer did in the last `days` days, from its own telemetry and claims (WP-G2): jobs
+   * finished, jobs it gave back, and the median run per tool. Null when it has done nothing yet.
+   */
+  agentRecentWork(agentId: string, days = 30, now = Date.now()): AgentRecentWork | null {
+    const since = now - days * 86_400_000;
+    const host = `agent:${agentId}`;
+    const rows = this.db.prepare(`
+      SELECT type, wall_ms AS w, residues AS r FROM job_telemetry
+      WHERE host_id = ? AND outcome = 'completed' AND created_at >= ? AND wall_ms IS NOT NULL
+    `).all(host, since) as any[];
+    const handedBack = (this.db.prepare(`
+      SELECT count(*) AS c FROM agent_claims
+      WHERE agent_id = ? AND claimed_at >= ? AND outcome IN ('failed', 'requeued', 'lease_lost', 'over_cap', 'invalid_result')
+    `).get(agentId, since) as any).c as number;
+    if (rows.length === 0 && handedBack === 0) return null;
+    const median = (xs: number[]) => {
+      const s = xs.filter((x) => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+      if (s.length === 0) return null;
+      const m = Math.floor(s.length / 2);
+      return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+    };
+    const speed = (type: string) => {
+      const of = rows.filter((r) => r.type === type);
+      const medianMs = median(of.map((r) => r.w));
+      return medianMs == null ? null : { jobs: of.length, medianMs, medianResidues: median(of.map((r) => r.r)) };
+    };
+    return { days, completed: rows.length, handedBack, foldx: speed("foldx"), p2rank: speed("p2rank") };
+  }
+
   /** Jobs this computer is running now (normally 0 or 1: an agent runs one heavy job at a time). */
   runningOnAgent(agentId: string): number {
     return (this.db.prepare("SELECT count(*) AS c FROM biophysical_jobs WHERE status = 'running' AND claimed_by = ?").get(`agent:${agentId}`) as any).c as number;
   }
 
   /**
-   * Placements on a computer that is gone (disconnected, or silent past `offlineAfterMs`) are cleared, so
-   * the server takes those jobs. `isOnline` is the registry's view. Returns how many were released.
+   * Jobs placed on a computer that cannot take them go to the server: the computer is gone (disconnected,
+   * or silent past the online window), paused, or no longer offers that tool (`canTake` is the registry's
+   * view), or it has sat idle with the job placed on it for longer than `idlePatienceMs` (a computer
+   * long-polls every few seconds, so an idle one that has not claimed its job is not going to). The server
+   * then runs it. Returns how many were released.
    */
-  releasePlacementsOf(isOnline: (agentId: string) => boolean): number {
-    const rows = this.db.prepare("SELECT DISTINCT placement FROM biophysical_jobs WHERE status = 'queued' AND placement LIKE 'agent:%'").all() as any[];
+  releasePlacementsOf(
+    canTake: (agentId: string, type: "foldx" | "p2rank") => boolean,
+    idlePatienceMs = PLACEMENT_IDLE_PATIENCE_MS,
+    now = Date.now(),
+  ): number {
+    const rows = this.db.prepare("SELECT id, type, placement, routing, created_at FROM biophysical_jobs WHERE status = 'queued' AND placement LIKE 'agent:%'").all() as any[];
     let released = 0;
-    for (const { placement } of rows) {
-      if (isOnline(String(placement).slice("agent:".length))) continue;
-      released += Number(this.db.prepare("UPDATE biophysical_jobs SET placement = NULL WHERE status = 'queued' AND placement = ?").run(placement).changes ?? 0);
+    const idle = new Map<string, boolean>();
+    const lastClaim = this.db.prepare("SELECT max(claimed_at, coalesce(ended_at, 0)) AS t FROM agent_claims WHERE agent_id = ? ORDER BY claimed_at DESC LIMIT 1");
+    for (const row of rows) {
+      const agentId = String(row.placement).slice("agent:".length);
+      let release = !canTake(agentId, row.type);
+      if (!release) {
+        // Idle = running nothing, and nothing started or ended there for the whole patience: a computer that
+        // has just finished a long job is about to claim the next one, not refusing it.
+        if (!idle.has(agentId)) {
+          const last = lastClaim.get(agentId) as any;
+          idle.set(agentId, this.runningOnAgent(agentId) === 0 && now - (last?.t ?? 0) > idlePatienceMs);
+        }
+        const placedAt = parseRoutingRecord(row.routing)?.decidedAt || row.created_at;
+        release = idle.get(agentId)! && now - placedAt > idlePatienceMs;
+      }
+      if (!release) continue;
+      const r = this.db.prepare("UPDATE biophysical_jobs SET placement = NULL, routing = ? WHERE id = ? AND status = 'queued' AND placement = ?")
+        .run(JSON.stringify(serverRecordAfter("released", now)), row.id, row.placement);
+      released += Number(r.changes ?? 0);
     }
-    if (released > 0) this.scheduleNext();
+    if (released > 0) {
+      console.log(`[Queue] ${released} job${released === 1 ? "" : "s"} placed on a computer that cannot take ${released === 1 ? "it" : "them"} went to the server.`);
+      this.scheduleNext();
+    }
     return released;
   }
 
@@ -935,6 +1112,7 @@ export class SQLiteQueue {
       if (Number(r.changes ?? 0) === 0) continue;
       console.warn(`[Queue Reaper] ${row.claimed_by} ${leaseLost ? "lost its lease on" : "held past the job cap"} ${row.id}; handing it to the server.`);
       this.clearPhase(row.id);
+      this.setRouting(row.id, serverRecordAfter("handed_back", now));
       // Only a lease that ran out counts against the computer's reliability; a deliberate disconnect or a
       // job held past its cap is recorded as what it was.
       const outcome: AgentClaimOutcome = disconnectedAgentId != null ? "disconnected" : leaseLost ? "lease_lost" : "over_cap";
@@ -1496,8 +1674,10 @@ export class BiophysicalJobQueue {
         }
       }
     }
-    // The placement engine: off, logged only (shadow), or allowed to refuse (on). Skipped when the
-    // structure's size is unknown, because every rule it applies is about size or tools.
+    // The placement engine: off, logged only (shadow), or allowed to refuse and to place (on). Skipped when
+    // the structure's size is unknown, because every rule it applies is about size or tools.
+    let placement = opts.placement ?? null;
+    let routing = opts.routing ?? null;
     if (this.sqliteQueue && opts.residues && opts.residues > 0) {
       const mode = routingMode();
       if (mode !== "off") {
@@ -1508,16 +1688,23 @@ export class BiophysicalJobQueue {
           ownerId: owner,
           placementPref: opts.placementPref,
         };
-        let decision;
+        let decision: Decision | undefined;
+        let hosts: HostFeatures[] = [];
         try {
-          decision = decide(input, await probeServerHost(this.sqliteQueue.loadSnapshot()), this.sqliteQueue.getCostModels());
+          hosts = [await probeServerHost(this.sqliteQueue.loadSnapshot()), ...this.agentHostsFor(owner)];
+          decision = decide(input, hosts, this.sqliteQueue.getCostModels());
         } catch (err: any) {
           // The engine must never be the reason a job cannot be submitted.
           console.warn("[routing] Admission check failed; submitting without it:", err?.message ?? err);
         }
         if (decision) {
-          if (mode === "shadow") logShadow(input, decision, "server");
-          else if (decision.placement.kind === "reject") throw new AdmissionError(decision.reasons);
+          const placed = decision.placement.kind === "reject" ? null : placementOf(decision, hosts);
+          logShadow(input, decision, mode === "on" && placed?.placement ? placed.placement : "server", mode, hosts);
+          if (mode === "on") {
+            if (decision.placement.kind === "reject") throw new AdmissionError(decision.reasons);
+            // A person without a computer sees nothing new: the record is kept only when there was a choice.
+            if (placed && hosts.some((h) => h.kind === "agent")) ({ placement, routing } = placed);
+          }
         }
       }
     }
@@ -1531,7 +1718,7 @@ export class BiophysicalJobQueue {
     if (this.bullQueue) {
       await this.bullQueue.add(type, data, { jobId });
     } else if (this.sqliteQueue) {
-      await this.sqliteQueue.addJob(jobId, type, data, opts);
+      await this.sqliteQueue.addJob(jobId, type, data, { ...opts, placement, routing });
     }
 
     return jobId;
@@ -1543,6 +1730,32 @@ export class BiophysicalJobQueue {
    */
   agentQueue(): SQLiteQueue | null {
     return this.sqliteQueue;
+  }
+
+  /**
+   * The owner's paired computers as placement-engine hosts. Registered by the agent routes, which own the
+   * registry (accounts database); a server without them, or a person without a computer, gets none.
+   */
+  private static agentHostsProvider: ((ownerId: string, queue: SQLiteQueue) => HostFeatures[]) | null = null;
+
+  static setAgentHostsProvider(provider: ((ownerId: string, queue: SQLiteQueue) => HostFeatures[]) | null): void {
+    BiophysicalJobQueue.agentHostsProvider = provider;
+  }
+
+  private agentHostsFor(ownerId: string): HostFeatures[] {
+    const provider = BiophysicalJobQueue.agentHostsProvider;
+    if (!provider || !this.sqliteQueue || ownerId === LEGACY_OWNER || ownerId === SYSTEM_OWNER) return [];
+    try {
+      return provider(ownerId, this.sqliteQueue);
+    } catch (err: any) {
+      console.warn("[routing] Could not list the submitter's computers; deciding without them:", err?.message ?? err);
+      return [];
+    }
+  }
+
+  /** Where a job runs, for one viewer (WP-G2); null on Redis or when nothing beyond the server is known. */
+  runsOn(jobId: string, viewerId: string | null): JobRunsOn | null {
+    return this.sqliteQueue?.runsOn(jobId, viewerId) ?? null;
   }
 
   /** The person (or `legacy`/`system`) a job belongs to; `null` when unknown or on Redis. */
@@ -1574,6 +1787,22 @@ export class BiophysicalJobQueue {
   /** Admin action: forget learned out-of-memory ceilings (e.g. after a misclassified failure or more RAM). */
   forgetOomCeilings(): number {
     return this.sqliteQueue ? this.sqliteQueue.forgetOomCeilings() : 0;
+  }
+
+  /**
+   * The out-of-memory size limits learned so far, for the admin page: per job type and host class, the
+   * smallest structure size that ran out of memory there. `onServer` marks this server's own class.
+   */
+  learnedCeilings(): { type: JobType; hostClass: string; residues: number; onServer: boolean }[] {
+    if (!this.sqliteQueue) return [];
+    const serverClass = hostClassOf(serverHostFacts());
+    return Object.entries(this.sqliteQueue.getCostModels())
+      .filter(([, m]) => m.oomCeilingResidues != null)
+      .map(([key, m]) => {
+        const [type, hostClass] = key.split("|") as [JobType, string];
+        return { type, hostClass, residues: m.oomCeilingResidues as number, onServer: hostClass === serverClass };
+      })
+      .sort((a, b) => Number(b.onServer) - Number(a.onServer) || a.type.localeCompare(b.type) || a.hostClass.localeCompare(b.hostClass));
   }
 
   /** A disabled account stops costing the host anything: its waiting and running work is cancelled. */
