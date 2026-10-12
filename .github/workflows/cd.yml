@@ -34,16 +34,19 @@ jobs:
     # Pinned to match ci.yml: `ubuntu-latest` migrates to 26.04 over 2026-10-19..11-19, and a production
     # deploy should not be the first thing to meet a new image. Move both together (see ci.yml).
     runs-on: ubuntu-24.04
-    # Hard ceiling on the whole job. Cutting the confirmation window (see DEPLOY_CONFIRM_SECONDS
-    # below) leaves roughly 20 s of real work, but the cost that actually hurt sat OUTSIDE that
+    # Hard ceiling on the whole job. The cost that actually hurt sat OUTSIDE the confirmation
     # window: in run 36710716430 the SSH step spent 40 min 31 s between drone-ssh printing its
     # version banner (11:47:45) and the first line of the remote script (12:28:16) — the VM was too
     # busy to finish an SSH session — and the step still reported success 43 min later. The action's
     # `timeout` input only bounds the initial dial, not the handshake after it, so nothing here
-    # stopped it. 6 min leaves room for a slow-but-alive VM (a 180 s workflow_dispatch window plus
-    # setup is ~4 min) while refusing to bill an hour for a VM that is not answering. A red run at
-    # this limit means "the deploy was never dispatched", which is what the runs list should show.
-    timeout-minutes: 6
+    # stopped it. A red run at this limit still means "the deploy was never dispatched".
+    #
+    # Raised 2026-10-12 from 6 min, because the job now also polls the public revision endpoint
+    # (see the last step): dispatch + its 30 s window is ~2 min, and DEPLOY_VERDICT_SECONDS is 600.
+    # 15 min is that sum plus slack for a slow SSH. The old 6-min ceiling could not have held a
+    # verdict wait at all — it would have killed the run mid-poll and reported a red for a deploy
+    # that was landing fine.
+    timeout-minutes: 15
     if: >-
       github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -72,6 +75,18 @@ jobs:
       # So a push deploy waits 30 s, while a manual workflow_dispatch keeps the long window: there a
       # human pressed the button and asked for the verdict. Tune here, not in the step.
       DEPLOY_CONFIRM_SECONDS: ${{ github.event_name == 'workflow_dispatch' && '180' || '30' }}
+      # How long the runner waits for production to actually serve DEPLOY_SHA, measured by
+      # polling the same public /api/v1/version that rollout.py itself trusts and that the
+      # drift watch reads — not by holding an SSH session open. 600 s covers a warm build plus
+      # its handover with margin (a warm-cache deploy is ~110 s after dispatch), and exits the
+      # moment the commit is live, so the bill is time-to-verdict rather than the ceiling.
+      # Longer than that belongs to the detached rollout and the drift watch: a cold build and
+      # its ~20 min drain legitimately outlive any affordable runner wait, and failing here for
+      # one would mean red runs for healthy deploys.
+      DEPLOY_VERDICT_SECONDS: "600"
+      # The public revision endpoint: the one true "is it deployed" signal, reachable from
+      # runners, machines, and the VM alike (rollout.py reads exactly this in public_version()).
+      LIVE_URL: https://missense-resolve.duckdns.org/api/v1/version
     steps:
       - name: Require deploy credentials
         # A skipped deploy is indistinguishable from a successful one in the runs list, which is
@@ -320,3 +335,59 @@ jobs:
             echo "[CD] Authoritative phase and final verdict: deploy/runtime/rollout.json."
             echo "[CD] Full log: $LOG"
             exit 0
+
+      # THE VERDICT, NOT THE DISPATCH. The SSH step above catches instant failures and ships the
+      # detached worker; it does not promise the revision is live. This step is that promise. It
+      # polls the public /api/v1/version — the reader-visible signal, already trusted by
+      # rollout.py's own pre-handover check and by the drift watch — until production reports
+      # DEPLOY_SHA or the window lapses. Early exit means the cost is time-to-serve, not the
+      # ceiling; holding an SSH session open for the same poll would have reintroduced the
+      # run-36710716430 stall that `timeout-minutes` exists to bound.
+      #
+      # On lapse the step still exits 0. A red here would cry failure over a legitimate slow
+      # rollout (cold builds hold the host lock for ~20 min by design) — the drift watch owns
+      # that verdict with its 45-minute grace. So the run stays green but carries a `::warning::`
+      # annotation naming the stale commit, which is loud where the old code was silent.
+      - name: Wait for the rollout verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date -u +%s) + DEPLOY_VERDICT_SECONDS ))
+          live=""
+          while [ "$(date -u +%s)" -lt "$deadline" ]; do
+            live="$(curl -fsS --max-time 15 "$LIVE_URL" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit","") or "")' 2>/dev/null \
+              || true)"
+            if [ "$live" = "$DEPLOY_SHA" ]; then
+              echo "[CD] verdict: production serves $DEPLOY_SHA"
+              exit 0
+            fi
+            sleep 15
+          done
+
+          # The window lapsed. Before warning, check the one legitimate reason to be stale: this
+          # revision was superseded by a newer one that is already serving. The dispatch step
+          # skips those itself, but it can only see a tip that had landed before it ran.
+          if [ -n "$live" ]; then
+            main_tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha 2>/dev/null || true)"
+            if [ -n "$main_tip" ] && [ "$live" = "$main_tip" ] && [ "$live" != "$DEPLOY_SHA" ]; then
+              echo "[CD] verdict: superseded — main reached $main_tip and production already serves it."
+              exit 0
+            fi
+          fi
+
+          echo "::warning::No verdict after ${DEPLOY_VERDICT_SECONDS}s: production still serves ${live:-<unreachable>} for $DEPLOY_SHA. The rollout may still be in flight — the detached worker owns it and skips itself if main moved on."
+          {
+            echo "## Deployment verdict"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| production serves | \`$live\` |"
+            echo "| this run deployed | \`$DEPLOY_SHA\` |"
+            echo ""
+            echo "The rollout is unconfirmed, not disproved: a cold build and its drain outlive this"
+            echo "window by design. \`deploy/runtime/rollout.json\` on the host is authoritative, and"
+            echo "the drift watch fails loudly once its grace window passes."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
