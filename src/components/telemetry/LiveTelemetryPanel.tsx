@@ -987,8 +987,17 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                         {svc.statusText}
                       </span>
                       {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
-                          only cue was its aria-label, and the settings rows had no cue at all. */}
-                      {rowAction && (
+                          only cue was its aria-label, and the settings rows had no cue at all.
+
+                          But a collapsed `ChevronDown` rotated a quarter turn points right — the
+                          same glyph `ChevronRight` draws. Drawing both on a row that opens AND
+                          carries an action put two identical chevrons side by side, which reads as
+                          a rendering glitch rather than two affordances. The disclosure chevron
+                          below sits inside this row, so it already satisfies "a clickable row has a
+                          visible cue"; this default one therefore only draws when no disclosure
+                          chevron will. An explicit `actionIcon` still always shows — the re-check
+                          refresh says something a chevron does not. */}
+                      {rowAction && (svc.actionIcon || !isExpandable) && (
                         <span
                           className="text-cs-text-muted group-hover:text-cs-text-primary transition-colors duration-150"
                           aria-hidden="true"

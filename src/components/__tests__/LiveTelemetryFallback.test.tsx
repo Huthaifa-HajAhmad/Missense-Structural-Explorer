@@ -273,6 +273,22 @@ describe("LiveTelemetryPanel — summary tone", () => {
       expect(row.querySelector("svg"), `${row.getAttribute("data-service-id")} needs a visible cue`).not.toBeNull();
     }
   });
+  it("draws one chevron per row, not a matched pair", () => {
+    // A collapsed `ChevronDown` rotated a quarter turn points right — the exact glyph
+    // `ChevronRight` draws. A row that both opens and carries an action used to render both, so
+    // the same chevron appeared twice, side by side, which reads as a rendering glitch rather
+    // than as two separate affordances.
+    setDiagnostics(svc());
+    renderPanel();
+
+    for (const row of Array.from(document.querySelectorAll("[data-service-id]"))) {
+      const chevrons = row.querySelectorAll(".lucide-chevron-right, .lucide-chevron-down");
+      expect(
+        chevrons.length,
+        `${row.getAttribute("data-service-id")} renders ${chevrons.length} chevrons`
+      ).toBeLessThanOrEqual(1);
+    }
+  });
 });
 
 describe("LiveTelemetryPanel — Gemini session honesty", () => {
