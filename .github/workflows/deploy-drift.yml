@@ -94,15 +94,28 @@ jobs:
           # moment production was mid-rollout — exactly the branch that handles a mismatch — so the
           # watch red-Xed on the case it exists to tolerate and never reached its grace logic. The
           # explicit guard keeps any future gh failure legible instead of an opaque abort.
+          #
+          # `skipped` RUNS ARE EXCLUDED. `cd.yml` listens for every completed CI run, including the
+          # one `cancel-in-progress` kills when a second merge lands seconds after the first, and
+          # GitHub stamps a `workflow_run` run with the default branch tip, not the triggering run's
+          # sha. So on 2026-10-12 (run 38303853595) a CD run skipped on behalf of the cancelled CI
+          # of f9b02fb was attributed to the NEW tip 4bfd594 and read here as "CD concluded
+          # 'skipped'" — a red X while CI for 4bfd594 was still running and its real deploy had not
+          # started. A skipped run never deployed anything, so it says nothing about drift.
           run_json=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=cd.yml --branch main --limit 30 \
             --json headSha,status,conclusion,createdAt,updatedAt,url \
-            --jq "[.[] | select(.headSha == \"$main\")] | sort_by(.createdAt) | last // empty") || {
+            --jq "[.[] | select(.headSha == \"$main\" and .conclusion != \"skipped\")] | sort_by(.createdAt) | last // empty") || {
             echo "::error::Could not list CD runs (gh run list failed); cannot tell a slow detached rollout from real drift. main=$main, production=${live:-<unreachable>}."
             exit 1
           }
 
           if [ -z "$run_json" ]; then
-            echo "::warning::main ($main) has no CD run yet; production is on $live. Not failing the watch."
+            # Either CD has not started, or every CD run for this sha was skipped (see above). Name
+            # CI's state so a red CI on main is not mistaken for "still coming".
+            ci=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=ci.yml --branch main --limit 30 \
+              --json headSha,status,conclusion,createdAt \
+              --jq "[.[] | select(.headSha == \"$main\")] | sort_by(.createdAt) | last | (.status + \"/\" + (.conclusion // \"-\"))" || true)
+            echo "::warning::main ($main) has no deploying CD run yet (CI: ${ci:-unknown}); production is on $live. Not failing the watch."
             exit 0
           fi
 
