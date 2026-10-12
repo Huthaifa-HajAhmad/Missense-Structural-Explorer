@@ -43,3 +43,9 @@ The Synara browser became available and was used against this repository's Vite 
 No application corrections were needed after the rendered checks. Live provider retrieval/authentication and animation replay at 10% speed were not exercised. The preview's mocked states are not clinical evidence.
 
 Code, component and rendered layout checks: **Approve**.
+
+## Query revision after user feedback, 2026-10-12
+
+The initial Query presentation was not fully accepted. Removed the full-width Protein reference disclosure and placed a compact optional UniProt control beneath genomic coordinates. Opening it reveals the accession field inline. A collapsed populated override remains explicitly labelled with its accession. Tightened the coordinate explanation and removed the full-width divider row while preserving the equal-height outer columns.
+
+Verified the actual component in the integrated browser at 1500px and 390px: the reference stays inside the coordinate route, the narrow expanded field fits without horizontal overflow, Tab enters the field, collapse preserves the accession, and clearing keeps the input visible and focused. All 52 Query tests and lint passed.

@@ -1374,48 +1374,52 @@ function VariantSearchPanel({
                     </div>
                     <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                   </div>
-                    <p className="query-route__hint">The gene and protein change are resolved from your coordinate notation.</p>
+                    <p className="query-route__hint">Coordinates resolve the gene and protein change.</p>
+                    <div className="query-reference">
+                      <button type="button" className="query-reference__toggle" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={() => setReferenceOpen(open => !open)}>
+                        <span aria-hidden="true">{referenceOpen ? '−' : '+'}</span>
+                        {referenceOpen ? 'Hide UniProt accession' : 'Set UniProt accession'}
+                      </button>
+                      {!referenceOpen && <span className="query-reference__note">{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically unless specified.'}</span>}
+                      <div id="query-uniprot-option" className="query-reference__field" hidden={!referenceOpen}>
+                        <div className="flex flex-col gap-1.5">
+                          <FieldLabel
+                            htmlFor="input-uniprot-acc"
+                            badge={
+                              <FieldBadge
+                                tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
+                                title={
+                                  uniprotLooksValid
+                                    ? "Optional: the accession is auto-resolved from the gene when omitted."
+                                    : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                                }
+                              >
+                                {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                              </FieldBadge>
+                            }
+                          >
+                            UniProt accession
+                          </FieldLabel>
+                          <div className="relative">
+                            <input
+                              id="input-uniprot-acc"
+                              type="text"
+                              placeholder="e.g. Q9H8M5"
+                              autoComplete="off"
+                              spellCheck={false}
+                              value={customUniprot}
+                              onChange={(e) => setCustomUniprot(e.target.value)}
+                              aria-invalid={!uniprotLooksValid || undefined}
+                              className={inputBase + " font-mono uppercase"}
+                            />
+                            <PasteBtn setter={setCustomUniprot} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </fieldset>
               </div>
-              <details className="query-reference" open={referenceOpen} onToggle={e => setReferenceOpen(e.currentTarget.open)}>
-                <summary>Protein reference <span>{customUniprot.trim() || 'UniProt is resolved automatically'}</span></summary>
-                <div className="query-reference__field">
-                  <div className="flex flex-col gap-1.5">
-                    <FieldLabel
-                      htmlFor="input-uniprot-acc"
-                      badge={
-                        <FieldBadge
-                          tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
-                          title={
-                            uniprotLooksValid
-                              ? "Optional: the accession is auto-resolved from the gene when omitted."
-                              : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
-                          }
-                        >
-                          {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                        </FieldBadge>
-                      }
-                    >
-                      UniProt accession
-                    </FieldLabel>
-                    <div className="relative">
-                      <input
-                        id="input-uniprot-acc"
-                        type="text"
-                        placeholder="e.g. Q9H8M5"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={customUniprot}
-                        onChange={(e) => setCustomUniprot(e.target.value)}
-                        aria-invalid={!uniprotLooksValid || undefined}
-                        className={inputBase + " font-mono uppercase"}
-                      />
-                      <PasteBtn setter={setCustomUniprot} />
-                    </div>
-                  </div>
-                </div>
-              </details>
 
               {/* AI focus (optional) — an open field, not a disclosure.
                   The workspace form flexes to share one bottom line with the rail, so a collapsed

@@ -592,6 +592,19 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(useVariantAnalysisStore.getState().customGenomic).toBe("");
     });
 
+    it("preserves a specified accession when its inline option is collapsed", () => {
+      renderPanel();
+      const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
+      expect(reference).not.toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "Set UniProt accession" }));
+      expect(reference).toBeVisible();
+      fireEvent.change(reference, { target: { value: "Q9H8M5" } });
+      fireEvent.click(screen.getByRole("button", { name: "Hide UniProt accession" }));
+      expect(reference).not.toBeVisible();
+      expect(useVariantAnalysisStore.getState().customUniprot).toBe("Q9H8M5");
+      expect(screen.getByText("Using Q9H8M5")).toBeVisible();
+    });
+
     it("keeps a populated protein reference visible when returning to the form", () => {
       act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
       renderPanel();
