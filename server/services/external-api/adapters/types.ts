@@ -43,6 +43,16 @@ export interface HealthStatus {
   message?: string;
   timestamp: string;
   fallback?: FallbackHealthStatus;
+  /**
+   * Separates "the process is up" from "it can do work", for a service that answers health checks
+   * before it can serve. `healthy: false` together with `state: "warming_up"` is a cold start, not
+   * an outage, and the two must never render alike — a status rail that shows a green dot over an
+   * engine that would refuse the next request is worse than one that shows nothing.
+   *
+   * Absent means the producer draws no such distinction, which callers must read as "unknown",
+   * never as "warming".
+   */
+  state?: "ready" | "warming_up";
 }
 
 export interface ExternalServiceAdapter<TInput = any, TOutput = any> {
