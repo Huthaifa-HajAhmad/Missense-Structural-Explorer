@@ -13,6 +13,7 @@ import { normalizeGeneSymbol, normalizeVariantTo3Letter } from '../external.ts';
 import { parseGenomicCoordinateString } from '../../../src/shared/contracts.ts';
 import { getCachedOrFetch, clearAllCaches } from '../infra/cache.ts';
 import { buildGenosKey } from '../infra/cache-keys.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 let cachedCookie: string | null = null;
 let lastLoginTime = 0;
@@ -49,7 +50,7 @@ async function genosFetch(url: string, init: RequestInit): Promise<Response> {
     if (waitMs > 0) {
       await new Promise(resolve => setTimeout(resolve, waitMs));
     }
-    const res = await fetch(url, init);
+    const res = await governedFetch(url, init);
     genosLastCallAt = Date.now();
     return res;
   };

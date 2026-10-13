@@ -37,6 +37,7 @@ import {
 } from "../../../src/shared/raspIndex.ts";
 import { CONFIG } from "../../config.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
+import { governedFetch } from "../infra/http-client.ts";
 
 // ---------------------------------------------------------------------------
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
@@ -378,7 +379,7 @@ async function downloadRaspDatabase(csvPath: string): Promise<void> {
   }
 
   console.log("[RaSP] Querying Zenodo for human proteome database links...");
-  const metadataRes = await fetch("https://zenodo.org/api/records/6835877");
+  const metadataRes = await governedFetch("https://zenodo.org/api/records/6835877");
   if (!metadataRes.ok) {
     throw new Error(`Failed to query Zenodo metadata: ${metadataRes.statusText}`);
   }
@@ -391,7 +392,7 @@ async function downloadRaspDatabase(csvPath: string): Promise<void> {
   const downloadUrl = fileInfo.links.self || fileInfo.links.download;
   console.log(`[RaSP] Downloading human proteome database from Zenodo (size: ${(fileInfo.size / 1024 / 1024).toFixed(1)} MB)...`);
   
-  const response = await fetch(downloadUrl);
+  const response = await governedFetch(downloadUrl);
   if (!response.ok) {
     throw new Error(`Failed to download database: ${response.statusText}`);
   }
@@ -542,7 +543,7 @@ export async function testTamarindConnection(apiKey?: string): Promise<{ valid: 
     return { valid: false, message: "No Tamarind Bio API Key provided." };
   }
   try {
-    const res = await fetch("https://app.tamarind.bio/api/tools", {
+    const res = await governedFetch("https://app.tamarind.bio/api/tools", {
       headers: {
         "x-api-key": keyToUse
       },
@@ -594,7 +595,7 @@ export async function submitThermoMpnnJob(
         ? anySignal([signal, AbortSignal.timeout(15000)])
         : AbortSignal.timeout(15000);
 
-      const localRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/thermompnn`, {
+      const localRes = await governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/thermompnn`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -647,7 +648,7 @@ export async function submitThermoMpnnJob(
       ? anySignal([signal, AbortSignal.timeout(15000)])
       : AbortSignal.timeout(15000);
 
-    const response = await fetch("https://app.tamarind.bio/api/submit-job", {
+    const response = await governedFetch("https://app.tamarind.bio/api/submit-job", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -723,7 +724,7 @@ export async function pollThermoMpnnJob(
   }
 
   try {
-    const response = await fetch(`https://app.tamarind.bio/api/jobs?jobName=${encodeURIComponent(jobId)}`, {
+    const response = await governedFetch(`https://app.tamarind.bio/api/jobs?jobName=${encodeURIComponent(jobId)}`, {
       headers: {
         "x-api-key": keyToUse
       },

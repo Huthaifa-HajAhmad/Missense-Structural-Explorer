@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { contextProvenanceSchema, mechanismContextSchema, type ContextProvenance } from '../../../src/shared/diseaseFrame.ts';
 import { mechanismRecordSchema, type MechanismRecord } from '../../../src/shared/mechanismContext.ts';
 import { parseCsv } from './gencc.ts';
+import { governedFetch } from "../infra/http-client.ts";
 export const G2P_DOWNLOAD_URL = 'https://www.ebi.ac.uk/gene2phenotype/api/panel/all/download/';
 export const g2pSnapshotSchema = z.object({ schemaVersion: z.literal(1), provenance: contextProvenanceSchema,
   rowCount: z.number().int().positive(), genes: z.record(z.string(), z.array(mechanismRecordSchema)) }).superRefine((snapshot, ctx) => {
@@ -37,7 +38,7 @@ export function buildG2pSnapshot(csv: string, provenance: ContextProvenance) {
   return g2pSnapshotSchema.parse({ schemaVersion: 1, rowCount: rows.length, genes, provenance });
 }
 export async function downloadG2pSnapshot() {
-  const response = await fetch(G2P_DOWNLOAD_URL, { signal: AbortSignal.timeout(60000) });
+  const response = await governedFetch(G2P_DOWNLOAD_URL, { signal: AbortSignal.timeout(60000) });
   if (!response.ok) throw new Error(`G2P HTTP ${response.status}`);
   return g2pSnapshotFromPayload(await response.text(), 'download');
 }

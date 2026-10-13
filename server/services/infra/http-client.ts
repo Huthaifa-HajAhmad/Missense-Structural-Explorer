@@ -4,6 +4,8 @@
  * Contains:
  *   - Circuit breaker setup (per-hostname)
  *   - The team-wide 429 pause gate (`provider-pause.ts`, WP-I3)
+ *   - The fair-share egress governor (`egress-governor.ts`, WP-I1), and `governedFetch` for callers
+ *     that keep their own timeouts and retries
  *   - fetchWithRetry (retry + jitter + Retry-After header support)
  *   - normalizeGeneSymbol
  *   - normalizeVariantTo3Letter
@@ -21,6 +23,7 @@ import {
   rateLimitedErrorFor,
   recordRateLimit,
 } from "./provider-pause.ts";
+import { governed, isEgressRefusal, isLocalHost, maxConcurrentFor, noteEgressAnswer } from "./egress-governor.ts";
 
 /**
  * Upper bound on a server-supplied `Retry-After`.
@@ -140,8 +143,11 @@ export function isHostAvailable(url: string): boolean {
 }
 
 function getHostSemaphore(hostname: string): Semaphore {
-  let sem = hostSemaphores.get(hostname);  if (!sem) {
-    sem = new Semaphore(5); // max 5 concurrent requests per host (A3)
+  let sem = hostSemaphores.get(hostname);
+  if (!sem) {
+    // Max 5 concurrent requests per host (A3), or more when an operator raised the governor's limit
+    // for it (EGRESS_PROVIDER_LIMITS_JSON): a backstop must not silently undercut the configured value.
+    sem = new Semaphore(Math.max(5, maxConcurrentFor(hostname)));
     hostSemaphores.set(hostname, sem);
   }
   return sem;
@@ -167,8 +173,36 @@ export async function withHostLock<T>(
   fn: () => Promise<T>,
   signal?: AbortSignal
 ): Promise<T> {
-  // No deadline here, so under `EGRESS_GOVERNOR=on` a paused host refuses at once rather than waiting.
+  // The pause first, so a call refused by it does not take a governor turn.
   await awaitProviderPause(hostname, { signal });
+  return governed(hostname, () => withHostLockInner(hostname, fn, signal), { signal });
+}
+
+/**
+ * For callers outside `fetch` (node:https under {@link withHostLock}): report the HTTP status they got,
+ * so a 429 adapts the governor's rate and pauses the provider for everyone, as it would through
+ * `fetchWithRetry` or `governedFetch`.
+ */
+export function reportEgressAnswer(hostname: string, status: number, retryAfter: string | null = null): void {
+  noteEgressAnswer(hostname, status, retryAfter);
+  if (isRateLimitAnswer(status, retryAfter)) recordRateLimit(hostname, status, retryAfter);
+}
+
+/** The URL without its query string: query parameters can carry API keys (NCBI's `api_key`). */
+export function redactUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return url.split("?")[0];
+  }
+}
+
+async function withHostLockInner<T>(
+  hostname: string,
+  fn: () => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
   const sem = getHostSemaphore(hostname);
   await sem.acquire(120000, signal);
   const breaker = getHostBreaker(hostname);
@@ -226,6 +260,16 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
   try {
     hostname = new URL(url).hostname;
   } catch (_) {}
+  return fetchWithRetryInner(url, hostname, options, retries, delay);
+}
+
+async function fetchWithRetryInner(
+  url: string,
+  hostname: string,
+  options: FetchWithRetryOptions,
+  retries: number,
+  delay: number
+): Promise<Response> {
 
   // Never forward our own flag to fetch().
   const { probe = false, ...init } = options;
@@ -238,8 +282,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
   let rateLimited = false;
 
   const sem = getHostSemaphore(hostname);
-  await sem.acquire(120000, options.signal ?? undefined); // Wait up to 120s to acquire hostname lock, respecting signal
-  try {
+  {
     const breaker = getHostBreaker(hostname);
     // A probe skips the gate as well as the accounting: it must still be able to report that
     // the provider has recovered while the breaker is open.
@@ -271,31 +314,55 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         throw lastError ?? new Error("No time left for another attempt within the caller's deadline.");
       }
       const attemptTimeoutMs = Math.min(timeoutMs, Math.max(500, Math.floor(timeLeft)));
-      const attemptStartedAt = Date.now();
       attemptsMade++;
       try {
-        const controller = new AbortController();
-        // Aborted with an explicit TimeoutError reason: undici rejects an aborted fetch with
-        // `signal.reason`, so without one it is an anonymous `AbortError` that no caller can tell
-        // apart from a transport failure. The `cappedByCaller` exemption below depends on this
-        // distinction and was INERT until it was set (verified against a real hanging socket).
-        const id = setTimeout(
-          () => controller.abort(new DOMException("attempt timeout", "TimeoutError")),
-          attemptTimeoutMs
-        );
-
-        const signal = options.signal
-          ? anySignal([options.signal, controller.signal])
-          : controller.signal;
-
-        const res = await fetch(url, {
-          ...init,
-          // Identify ourselves unless the caller set one explicitly: see UPSTREAM_USER_AGENT.
-          headers: { "User-Agent": UPSTREAM_USER_AGENT, ...(init.headers as Record<string, string> | undefined) },
-          signal
-        });
-        clearTimeout(id);
-        lastAttemptMs = Date.now() - attemptStartedAt;
+        /**
+         * One attempt: a governor turn (WP-I1), then a per-host semaphore slot, then the request.
+         *
+         * Taken per ATTEMPT, not around the whole loop: each attempt is a request the provider counts,
+         * and the backoff between attempts must not hold a slot other people are waiting for. The
+         * attempt's own timeout starts when the request is sent, not while it waits for its turn. A
+         * probe is not governed, for the same reason it skips the breaker and the pause.
+         */
+        const sendAttempt = async (): Promise<{ res: Response; startedAt: number }> => {
+          await sem.acquire(120000, options.signal ?? undefined);
+          const startedAt = Date.now();
+          const controller = new AbortController();
+          // Aborted with an explicit TimeoutError reason: undici rejects an aborted fetch with
+          // `signal.reason`, so without one it is an anonymous `AbortError` that no caller can tell
+          // apart from a transport failure. The `cappedByCaller` exemption below depends on this
+          // distinction and was INERT until it was set (verified against a real hanging socket).
+          const id = setTimeout(
+            () => controller.abort(new DOMException("attempt timeout", "TimeoutError")),
+            attemptTimeoutMs
+          );
+          const signal = options.signal
+            ? anySignal([options.signal, controller.signal])
+            : controller.signal;
+          try {
+            const res = await fetch(url, {
+              ...init,
+              // Identify ourselves unless the caller set one explicitly: see UPSTREAM_USER_AGENT.
+              headers: { "User-Agent": UPSTREAM_USER_AGENT, ...(init.headers as Record<string, string> | undefined) },
+              signal
+            });
+            return { res, startedAt };
+          } finally {
+            clearTimeout(id);
+            sem.release();
+          }
+        };
+        const sent = probe
+          ? await sendAttempt()
+          : await governed(hostname, sendAttempt, {
+              // A caller without a deadline waits for its turn no longer than it would wait for the
+              // provider's answer.
+              deadlineAt: options.deadlineAt ?? Date.now() + attemptTimeoutMs + 1_500,
+              signal: options.signal,
+            });
+        const res = sent.res;
+        lastAttemptMs = Date.now() - sent.startedAt;
+        if (!probe) noteEgressAnswer(hostname, res.status, res.headers?.get?.("Retry-After") ?? null);
 
         if (res.status === 429 || res.status >= 500) {
           lastStatus = res.status;
@@ -361,7 +428,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
           // Never sleep after the final attempt: there is no next try to prepare for, and
           // the sleep would be pure added latency before the throw.
           if (i < retries - 1) {
-            console.warn(`[Upstream Fetch ${res.status}] error/limit on ${url}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
+            console.warn(`[Upstream Fetch ${res.status}] error/limit on ${redactUrl(url)}. Retrying after ${backoff}ms (attempt ${i + 1}/${retries})...`);
             await abortableSleep(backoff, options.signal);
           }
           continue;
@@ -370,6 +437,9 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         if (!probe) breaker.recordSuccess();
         return res;
       } catch (err: any) {
+        // The server held the attempt back (fair-share wait or team pause): nothing was sent, so it
+        // is neither retried nor counted against the provider.
+        if (isEgressRefusal(err)) throw err;
         lastError = err;
         // A thrown attempt is not a rate-limit answer, whatever an earlier attempt returned.
         rateLimited = false;
@@ -396,7 +466,7 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         }
         const jitter = 0.5 + Math.random() * 0.5;
         const backoff = Math.round(delay * (2 ** i) * jitter);
-        console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
+        console.warn(`[Upstream Fetch Error] Failed to fetch ${redactUrl(url)} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
         await abortableSleep(backoff, options.signal);
       }
     }
@@ -410,15 +480,51 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
     // message claiming "after 3 attempts" would send a reader looking for retry behaviour that the
     // policy deliberately declined to perform.
     const errObj = new Error(
-      `Failed to fetch ${url} after ${attemptsMade} attempt${attemptsMade === 1 ? "" : "s"}${
+      `Failed to fetch ${redactUrl(url)} after ${attemptsMade} attempt${attemptsMade === 1 ? "" : "s"}${
         lastStatus !== 200 ? ` (last status ${lastStatus})` : ""
       }.`
     );
     (errObj as any).statusCode = lastStatus;
     throw errObj;
-  } finally {
-    sem.release();
   }
+}
+
+/**
+ * `fetch`, governed: the fair-share turn (`egress-governor.ts`) and the team-wide 429 pause
+ * (`provider-pause.ts`), and nothing else.
+ *
+ * For the call sites that keep their own timeouts, retries and error handling (long folding calls,
+ * job submissions, streaming bodies): moving them to `fetchWithRetry` would also change its 15 s
+ * default timeout and retry policy under them. This changes only WHEN the request is sent, and lets
+ * a 429 it receives pause the provider for everyone. With `EGRESS_GOVERNOR=off` it is plain `fetch`.
+ * Loopback and private hosts (the model sidecar) pass straight through.
+ *
+ * `deadlineAt` (epoch ms) is the caller's deadline, used to decide whether waiting for a turn or a
+ * pause is worth it; it is not sent.
+ */
+export async function governedFetch(
+  input: string | URL | Request,
+  init: RequestInit & { deadlineAt?: number; lane?: string } = {}
+): Promise<Response> {
+  const { deadlineAt, lane, ...rest } = init;
+  let hostname = "";
+  try {
+    hostname = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url).hostname;
+  } catch (_) {}
+  if (!hostname || isLocalHost(hostname)) return fetch(input, rest);
+  // The pause first, so a call it refuses does not take a governor turn.
+  await awaitProviderPause(hostname, { deadlineAt, signal: rest.signal });
+  return governed(
+    hostname,
+    async () => {
+      const res = await fetch(input, rest);
+      const retryAfter = res.headers?.get?.("Retry-After") ?? null;
+      noteEgressAnswer(hostname, res.status, retryAfter, Date.now(), lane);
+      if (isRateLimitAnswer(res.status, retryAfter)) recordRateLimit(hostname, res.status, retryAfter);
+      return res;
+    },
+    { deadlineAt, signal: rest.signal, lane }
+  );
 }
 
 export function normalizeVariantTo3Letter(variant: string): string {

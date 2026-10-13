@@ -21,6 +21,8 @@ import { execSync } from "child_process";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
 import { providerHealth } from "../services/infra/provider-pause.ts";
+import { governorHealth, limitBasisFor } from "../services/infra/egress-governor.ts";
+import { isKnownProviderHost } from "../../src/shared/providerLimits.ts";
 
 export interface EngineCapability {
   id: string;
@@ -47,6 +49,64 @@ function getBox64Status(): { hasBox64: boolean; box64Version: string | null } {
   }
   cachedBox64 = { hasBox64, box64Version };
   return cachedBox64;
+}
+
+/**
+ * The 429 pauses (WP-I3) and the fair-share governor (WP-I1): which provider is the constraint, its
+ * rate and where that rate came from, and how many calls waited or would have. No tokens.
+ */
+function egressHealth() {
+  const pause = providerHealth();
+  // This route is public. A host that is not one of the deployment's own providers was chosen by a
+  // person (their own AlphaGenome or GPN server), so it is not named here.
+  const named = pause.providers.filter(p => isKnownProviderHost(p.hostname));
+  const hidden = pause.providers.length - named.length;
+  return {
+    mode: pause.mode,
+    providers: named.map(p => ({ ...p, limitBasis: limitBasisFor(p.hostname) })),
+    ...(hidden ? { otherPausedOrRateLimitedHosts: hidden } : {}),
+    governor: governorHealth({ publicView: true }),
+  };
+}
+
+/**
+ * JapanFold reachability, checked at most once a minute and once at a time.
+ *
+ * `/capabilities` is public. Probing on every request let any visitor make the server call JapanFold
+ * (a provider the whole team shares) as often as the API rate limit allows, outside the egress
+ * governor and the 429 pause.
+ */
+const JAPANFOLD_PROBE_TTL_MS = 60_000;
+let japanFoldProbe: { at: number; value: Promise<boolean> } | null = null;
+function japanFoldReachability(): Promise<boolean> {
+  if (japanFoldProbe && Date.now() - japanFoldProbe.at < JAPANFOLD_PROBE_TTL_MS) return japanFoldProbe.value;
+  const value = (async () => {
+    try {
+      const jfUrl = process.env.JAPANFOLD_API_URL || "https://api.japanfold.aiand.com/v1/predictions";
+      const jfHeaders = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0" };
+      const jfRes = await fetch(jfUrl, {
+        method: "OPTIONS",
+        headers: jfHeaders,
+        signal: AbortSignal.timeout(2000)
+      }).catch(async () => {
+        return await fetch(jfUrl, {
+          method: "GET",
+          headers: jfHeaders,
+          signal: AbortSignal.timeout(2000)
+        });
+      });
+      return jfRes.status < 500 && jfRes.status !== 403;
+    } catch (_) {
+      return false;
+    }
+  })();
+  japanFoldProbe = { at: Date.now(), value };
+  return value;
+}
+
+/** Test hook: the probe result is cached module-wide. */
+export function resetJapanFoldProbeForTests(): void {
+  japanFoldProbe = null;
 }
 
 export function registerCapabilitiesRoutes(apiRouter: Router): void {
@@ -152,25 +212,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     }
 
     // 8. JapanFold Sovereign Cloud Connectivity Check (Structure Prediction)
-    let japanFoldReachable = false;
-    try {
-      const jfUrl = process.env.JAPANFOLD_API_URL || "https://api.japanfold.aiand.com/v1/predictions";
-      const jfHeaders = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Missense-Structural-Explorer/1.0" };
-      const jfRes = await fetch(jfUrl, {
-        method: "OPTIONS",
-        headers: jfHeaders,
-        signal: AbortSignal.timeout(2000)
-      }).catch(async () => {
-        return await fetch(jfUrl, {
-          method: "GET",
-          headers: jfHeaders,
-          signal: AbortSignal.timeout(2000)
-        });
-      });
-      japanFoldReachable = jfRes.status < 500 && jfRes.status !== 403;
-    } catch (_) {
-      japanFoldReachable = false;
-    }
+    const japanFoldReachable = await japanFoldReachability();
 
     const tamarindConfigured = Boolean(process.env.TAMARIND_API_KEY && process.env.TAMARIND_API_KEY.length > 5);
     const hfConfigured = Boolean(process.env.HF_TOKEN && process.env.HF_TOKEN.length > 5);
@@ -323,7 +365,7 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
       engines,
       // Which remote provider is the constraint right now (WP-I3): hosts paused after a 429, or that
       // rate-limited us in the last 15 minutes. Hostnames and counts only; never a token.
-      egress: providerHealth()
+      egress: egressHealth()
     });
   });
 }

@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import path from "path";
 import fs from "fs";
 import { getGeminiClient } from "./gemini.ts";
+import { governedFetch } from "../infra/http-client.ts";
+import { isEgressRefusal } from "../infra/egress-governor.ts";
 
 /**
  * Bring a pre-existing table up to the current schema.
@@ -602,7 +604,7 @@ export async function fetchLiteraturePage(gene: string, query: string | undefine
   try {
     checkPmcCircuit();
     const params = new URLSearchParams({ query: formatQueryForEuropePmc(query, gene), format: "json", resultType: "core", pageSize: String(EUROPE_PMC_PAGE_SIZE), cursorMark: cursor });
-    const res = await fetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`, { signal: combined, headers: { Accept: "application/json" } });
+    const res = await governedFetch(`https://www.ebi.ac.uk/europepmc/webservices/rest/search?${params}`, { signal: combined, headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`Europe PMC API request failed: ${res.status}`);
     const data = await res.json();
     const records = data.resultList?.result ?? [];
@@ -610,7 +612,7 @@ export async function fetchLiteraturePage(gene: string, query: string | undefine
     recordPmcSuccess();
     return { citations, hitCount: typeof data.hitCount === "number" ? data.hitCount : null,
       nextCursor: records.length >= EUROPE_PMC_PAGE_SIZE && typeof data.nextCursorMark === "string" && data.nextCursorMark !== cursor ? data.nextCursorMark : null };
-  } catch (err) { if (!signal?.aborted) recordPmcFailure(); throw err; }
+  } catch (err) { if (!signal?.aborted && !isEgressRefusal(err)) recordPmcFailure(); throw err; }
   finally { clearTimeout(timer); }
 }
 
@@ -624,7 +626,7 @@ export async function fetchCitationsByPmids(pmids: readonly string[], signal?: A
   checkPmcCircuit();
   const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(query)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
   try {
-    const response = await fetch(url, { headers: { Accept: "application/json" }, signal: boundedSignal });
+    const response = await governedFetch(url, { headers: { Accept: "application/json" }, signal: boundedSignal });
     if (!response.ok) throw new Error(`Europe PMC API request failed: ${response.status}`);
     const data = await response.json();
     if (boundedSignal.aborted) throw boundedSignal.reason;
@@ -635,7 +637,7 @@ export async function fetchCitationsByPmids(pmids: readonly string[], signal?: A
     recordPmcSuccess();
     return exact;
   } catch (error) {
-    if (!signal?.aborted) recordPmcFailure();
+    if (!signal?.aborted && !isEgressRefusal(error)) recordPmcFailure();
     throw error;
   }
 }
@@ -691,7 +693,7 @@ export async function syncLiteratureForGene(
 
       let res: Response;
       try {
-        res = await fetch(url, { 
+        res = await governedFetch(url, { 
           headers: { "Accept": "application/json" },
           signal: fetchController.signal
         });
@@ -1069,7 +1071,7 @@ export async function searchGeneLiterature(
     checkPmcCircuit();
 
     const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${encodeURIComponent(formattedQuery)}&format=json&resultType=core&pageSize=${EUROPE_PMC_PAGE_SIZE}`;
-    const res = await fetch(url, {
+    const res = await governedFetch(url, {
       headers: { "Accept": "application/json" }, signal: liveController.signal
     });
 

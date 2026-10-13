@@ -1,10 +1,9 @@
 import https from "node:https";
-import { fetchWithRetry, withHostLock } from "../infra/http-client.ts";
+import { fetchWithRetry, reportEgressAnswer, withHostLock } from "../infra/http-client.ts";
 import {
   egressGovernorMode,
   isProviderRateLimited,
   rateLimitedErrorFor,
-  recordRateLimit,
 } from "../infra/provider-pause.ts";
 
 export type BioSigTool = "dynamut2" | "ddmut";
@@ -307,6 +306,9 @@ export async function pollBioSigJob(
       statusCode = res.status;
       rawText = res.text;
       retryAfter = res.retryAfter;
+      // node:https bypasses fetchWithRetry, so report the answer: a 429 pauses BioSig for the team
+      // and halves the governor's rate; successes let it recover.
+      reportEgressAnswer(urlObj.hostname, statusCode, retryAfter ?? null);
     } else {
       const pollUrl = `${url}?job_id=${encodeURIComponent(jobId)}`;
       const pollRes = await fetchWithRetry(pollUrl, {
@@ -324,7 +326,6 @@ export async function pollBioSigJob(
         // The DDMut poll goes through node:https, not fetchWithRetry, so it reports its own 429 to the
         // team-wide pause (WP-I3) and, under `EGRESS_GOVERNOR=on`, refuses with the same typed error.
         const hostname = new URL(url).hostname;
-        recordRateLimit(hostname, 429, retryAfter);
         if (egressGovernorMode() === "on") throw rateLimitedErrorFor(hostname, toolName);
         const rateLimitErr = new Error(`${toolName} upstream rate limit reached`);
         (rateLimitErr as any).statusCode = 429;

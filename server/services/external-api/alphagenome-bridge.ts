@@ -67,6 +67,8 @@ import {
   queryAlphaGenomeVariantGrpc,
   queryAlphaGenomeRegionGrpc
 } from "./alphagenome-client.ts";
+import { governedFetch } from "../infra/http-client.ts";
+import { isEgressRefusal } from "../infra/egress-governor.ts";
 
 export { calculateAlphaGenomeAcmgStrength };
 
@@ -282,7 +284,7 @@ export async function fetchAlphaGenome(
     }
 
     try {
-      const res = await fetch(endpoint, {
+      const res = await governedFetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -363,7 +365,9 @@ export async function fetchAlphaGenome(
       atlasUrl: urls.trackPredictionsUrl,
       message: err.message || "AlphaGenome query timed out / unavailable"
     };
-    remember(cacheKey, errorResult, { ttl: 300_000 });
+    // A call the server held back (fair-share wait, team-wide 429 pause) says nothing about
+    // AlphaGenome: caching it would show "unavailable" for five minutes after a 10 s pause.
+    if (!isEgressRefusal(err)) remember(cacheKey, errorResult, { ttl: 300_000 });
     return errorResult;
   }
   });
@@ -533,7 +537,7 @@ export async function fetchAlphaGenomeRegionSaturation(
 
     try {
       const url = `${baseEndpoint.replace(/\/+$/, "")}/region-saturation`;
-      const res = await fetch(url, {
+      const res = await governedFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -666,7 +670,9 @@ export async function fetchAlphaGenomeRegionSaturation(
         atlasLocusUrl: locusUrl,
         message: err.message || "AlphaGenome region query timed out / unavailable"
       };
-      remember(cacheKey, errorResult, { ttl: 300_000 });
+      // A call the server held back (fair-share wait, team-wide 429 pause) says nothing about
+    // AlphaGenome: caching it would show "unavailable" for five minutes after a 10 s pause.
+    if (!isEgressRefusal(err)) remember(cacheKey, errorResult, { ttl: 300_000 });
       return errorResult;
     }
   });

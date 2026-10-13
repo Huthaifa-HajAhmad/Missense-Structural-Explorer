@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { hpaResponseSchema, parseHpaMeasures, type HpaResponse } from '../../../src/shared/hpa.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 const HGNC_URL = 'https://rest.genenames.org/fetch/symbol/';
 const hgncSchema = z.object({ response: z.object({ docs: z.array(z.object({ symbol: z.string(), status: z.string(), ensembl_gene_id: z.string().regex(/^ENSG\d{11}$/).optional() })) }) });
@@ -22,13 +23,13 @@ export async function loadHpa(gene: string): Promise<HpaResponse> {
   const running = flights.get(gene); if (running) return running;
   const task = (async (): Promise<HpaResponse> => {
     try {
-      const hgnc = await fetch(HGNC_URL + encodeURIComponent(gene), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+      const hgnc = await governedFetch(HGNC_URL + encodeURIComponent(gene), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
       if (!hgnc.ok) throw new Error(`HGNC HTTP ${hgnc.status}`);
       // Exact approved symbol only; the Ensembl id then keys HPA, so a synonym can never select a different gene.
       const doc = hgncSchema.parse(await hgnc.json()).response.docs.find(d => d.symbol === gene && d.status === 'Approved');
       if (!doc?.ensembl_gene_id) return empty(gene, 'not-found', 'No approved HGNC gene with an Ensembl identifier for this exact symbol.');
       const url = `https://www.proteinatlas.org/${doc.ensembl_gene_id}.json`;
-      const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
+      const response = await governedFetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
       if (response.status === 404) return empty(gene, 'not-found', 'The Human Protein Atlas has no entry for this gene.');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.text(); const j = hpaSchema.parse(JSON.parse(raw));

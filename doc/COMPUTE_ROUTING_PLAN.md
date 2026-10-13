@@ -60,6 +60,7 @@ one agent can take it without the others.
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
 | WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** (#118) (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
+| WP-I1 fair-share egress governor: per-provider turns between people (`system` last), published rates only (Ensembl, NCBI) with sources, AIMD and learned rates, deadline-aware waits, `governedFetch` for the 41 raw remote `fetch` sites, a ratchet test, request and job attribution, governor health on `/capabilities` | **done** on `feat/wp-i1-governor`, under the same `EGRESS_GOVERNOR` (15 governor + 1 ratchet + 23 review-fix + 2 `/capabilities` route tests; Review 4 below) | `server/services/infra/egress-governor.ts`, `egress-context.ts`, `http-client.ts` (`governedFetch`), `egress-ratchet.test.ts`, `auth/egress-owner.ts`, `biophysical-queue.ts`, `routes/capabilities.ts` |
 | WP-I3 team-wide 429 pause: per-host pause for everyone, typed `PROVIDER_RATE_LIMITED`, 429 out of the breaker, DynaMut2/DDMut polls keep listening, provider health on `/capabilities` | **done** on `feat/wp-i3-429-pause`, ships `EGRESS_GOVERNOR=off` (14 pause + 3 copy + 1 route tests) | `server/services/infra/provider-pause.ts`, `http-client.ts`, `src/shared/providerLimits.ts`, `stability/dynamut.ts`, `routes/biophysics/polling.ts`, `routes/capabilities.ts` |
 | WP-G2 live routing: placement on the owner's computers, `runsOn` (where, why, prediction) on every job surface, fallback to the server, each computer's own speed, learned memory limits on the admin page | **done** on `feat/wp-g2-routing` (17 live-routing + 11 copy + 1 jobs-panel + 3 Energetics + 4 screen tests); placement is live only with `COMPUTE_ROUTING=on` | `admission.ts` (`placementOf`), `biophysical-queue.ts` (`routing` column, `agentLoad`, `releasePlacementsOf`), `routes/agent.ts` (`ownerAgentHosts`, `releaseStrandedPlacements`), `src/shared/jobPlacement.ts`, `ComputeLimits.tsx` |
 | everything else | not started | |
@@ -274,10 +275,78 @@ wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-
   rate-limited SUBMIT still returns `null` like any other failed submit: its four callers take `string | null`.
 - **`/capabilities` gains `egress: { mode, providers[] }`**: hosts paused now or rate-limiting in the last
   15 minutes, with `state`, `pausedUntil`, `retryAfterSec`, `recentRateLimits`, `wouldHold` and
-  `limitBasis: "unmeasured"` (I1 fills it). Hostnames and counts only.
+  `limitBasis` (filled from the governor since I1). Hostnames and counts only.
 - **Not in I3:** serving stale cache while paused belongs to I2 (expired rows are filtered at read, so it needs a
-  new read path and a `stale` flag on the returned value), and callers that use raw `fetch` (I1's migration list)
-  are not gated yet.
+  new read path and a `stale` flag on the returned value). The raw `fetch` callers are gated since I1.
+
+**Where WP-I1 differs from section 7** (the code is the source of truth):
+- **No `provider` option and no per-call `userId`.** The governor keys providers by hostname (registry entries
+  rate them), so the 27 files already on `fetchWithRetry` are governed without edits. Who a call is for comes
+  from an AsyncLocalStorage owner (`egress-context.ts`): the API router sets it after `authCheck`
+  (`attributeEgressOwner`: the signed-in person, else `legacy`), and the queue sets it for each job from
+  `owner_id`, so prewarm jobs run as `system`. A call outside both is `unattributed`, served like a person.
+  **Fair share between people therefore needs `AUTH_MODE=accounts`**: in `legacy` every request is the one
+  `legacy` owner, and the governor only orders people's calls against prewarm. `credentialId` is I4.
+- **Raw `fetch` sites moved to `governedFetch`, not `fetchWithRetry`.** `fetchWithRetry` would also impose its
+  15 s default timeout and retry policy on long folding calls and job submissions; `governedFetch` only decides
+  WHEN the request goes (the 429 pause, then a turn) and records the answer, leaving each site's own timeouts
+  and retries. 41 calls moved: the 39 listed in `EGRESS_AUDIT.md` section 5, plus two loopback sidecar calls in
+  the same files (`energy-models.ts` ThermoMPNN, `esmfold.ts`), which pass straight through.
+  `egress-ratchet.test.ts` lists the 18 raw calls left (the implementations, loopback sidecar and health
+  probes, the JapanFold probe, the AlphaGenome connection test) with exact counts: a new raw call (including
+  `globalThis.fetch(` and `fetch (`) fails it, and so does a removed one until its count is lowered. Its scope
+  is `server/services` and `server/routes`; `server/agent` runs on a person's own computer.
+- **One turn per ATTEMPT.** Inside `fetchWithRetry` each attempt takes its own turn (and per-host semaphore
+  slot) and gives it back before the backoff sleep, so a retrying call neither holds a slot others wait for nor
+  sends three requests on one token. A refusal by the governor or the pause is thrown at once: not retried,
+  not counted toward the breaker. A call without `deadlineAt` waits for its turn no longer than its own
+  attempt timeout. The per-host semaphore is sized up when an override raises `maxConcurrent` above 5.
+- **Rates.** Only two are published: Ensembl, 55,000/hour, 15/s average (900/min, burst 15), and NCBI E-utilities,
+  3/s per IP or 10/s with `NCBI_API_KEY` (which `clinvar.ts` sends when set). Each carries its source URL.
+  Every other provider is `unmeasured`: 5 concurrent calls, the per-host semaphore's own number, so `on`
+  changes ORDER rather than throughput. A rate-limit answer (429, or 503 with `Retry-After`) halves a rate
+  once per 5 s (refusals to calls already in flight are one episode, not several), never below a tenth of a
+  published rate or 5/min; 20 successes raise it by 5% (at least 1/min), never above a published or configured
+  rate. An unmeasured provider learns a rate (half its last minute's calls, `observed`) only from a 429 after
+  at least 10 calls in that minute, and forgets it after an hour without another: a lone 429 in light traffic
+  says nothing about our pace (the first version taught DynaMut2 "1 call a minute" from a single refusal).
+- **Overrides** (`EGRESS_PROVIDER_LIMITS_JSON`) are keyed by registry id or hostname. A key naming a registry
+  entry (by id or any of its hostnames) is merged into it: a published rate keeps its source and stays the
+  ceiling (a higher override is held to it). A hostname with no entry gets the operator's values
+  (`configured`, also a ceiling). Each entry is validated on its own (rates of at least 5/min); a bad entry is
+  logged and skipped.
+- **Waiting.** A call waits for its turn until 1.5 s before its `deadlineAt` (a fixed margin), else at most
+  120 s, then fails with `EgressWaitExceededError` (`EGRESS_WAIT_EXCEEDED`, 503, "X is busy with other requests
+  from the team; try again in a moment."). An aborted waiter leaves the queue. A `system` call that has waited
+  30 s is served in turn with the people, so prewarm is delayed, never refused for being last.
+- **Callers do not read a refusal as an outage** (`isEgressRefusal`): AlphaGenome does not cache it as
+  "unavailable" for 5 minutes, the Europe PMC circuit and the Alliance release cache ignore it, and the
+  coordinate resolver reports it as `rate_limited` ("... or the server is pacing the team's calls ..."). Many
+  other sites still swallow errors into their own "unavailable" state, so the busy sentence often never
+  reaches a reader; that is the I2/I4 follow-up, not a new failure mode.
+- **Lanes.** A JapanFold fold or submit holds its request open until the model answers. Those calls run in a
+  `compute` lane with their own 5 slots, so a 3.5 s ESM-C or SaProt call to the same host does not wait behind
+  them. A lane is refused for a provider with a published rate (it would double the rate).
+- **DDMut and DDMut-PPI** (node:https under `withHostLock`) report their HTTP status (`reportEgressAnswer`), so
+  their 429s pause BioSig and adapt its rate like any other call.
+- **Modes.** `off` is plain pass-through. `shadow` lets every call through, counts the ones it would have held
+  (`wouldHold`, a `[egress:shadow]` line at most once a minute per provider; the I3 pause's lines are now
+  throttled the same way) and still adapts rates; its token bucket never goes into debt, so switching to `on`
+  does not open with a backlog. `on` holds. Health probes are never governed. Loopback, private and link-local
+  addresses (IPv4 and IPv6) and `.local`/`.lan`/`.internal` and dotless names never are.
+- **State is per process.** During a blue/green hand-over the old and new process each keep their own counts,
+  so for that window the shared IP can see up to twice a published rate.
+- **Hosts met at run time are bounded**: past 200, idle ones are forgotten. Request-chosen endpoints (a person's
+  own AlphaGenome or GPN server) reach the governor too.
+- **`/capabilities` `egress`** (public): `governor` lists, per provider seen since start-up, its concurrency,
+  in-flight and waiting calls, rate, basis and source, and the counts `calls`, `held`, `wouldHold`, `refused`,
+  `rateLimits`. Hosts that are neither registered nor one of the deployment's own providers
+  (`isKnownProviderHost`) are summed into one unnamed `other` line, and the pause lines are filtered the same way
+  (`otherPausedOrRateLimitedHosts`). The JapanFold reachability check is cached for 60 s, so the public page
+  cannot make the server call JapanFold on every read. Log and error messages from `fetchWithRetry` drop the
+  query string (NCBI's `api_key`).
+- **Not in I1:** pre-warm skipping keys already cached (I2), per-credential buckets (I4), and a dedicated
+  reader-facing state for "busy" in the callers that swallow errors.
 
 **Audit facts the next packages must start from** (verified against the code, 2026-10-09):
 - **WP-I3 (resolved under `EGRESS_GOVERNOR=on` by WP-I3; `off` keeps it):** a fast 429 does **not** stay out of the circuit breaker today. The fast-refusal path `break`s
@@ -290,6 +359,20 @@ wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-
   `routes/variant/alphagenome.ts` `verify-connection`). **Fixed on branch `fix/alphagenome-key-scope`**
   (`resolveAlphaGenomeAccess` in the bridge): a request-supplied URL gets only a request-supplied key, and
   its answers stay out of the shared cache.
+
+**Review 4 (WP-I1), 2026-10-13.** Four read-only reviewers (governor core, the raw-`fetch` migration,
+security and operations, tests and docs). Fixed: a burst of 429s halving a published rate once per refusal
+(now once per 5 s, floored at a tenth); a hostname-keyed override replacing a published limit (reproduced at
+4,224/min against 900); retries holding a slot through their backoff and spending one token on several
+requests; prewarm refused after 120 s under steady load (now promoted after 30 s); `/capabilities` naming
+request-chosen hosts and probing JapanFold on every public read; unbounded per-host state; the NCBI key in retry
+log lines; AlphaGenome negative-caching, the Europe PMC circuit and the coordinate resolver treating the server's
+own refusals as provider failures; DDMut/DDMut-PPI 429s not reaching the governor; long JapanFold folds holding
+the slots short calls need; shadow token debt; a prefix-matching `isLocalHost`; an unthrottled pause log; and
+the missing tests (attribution, route payload, learning boundaries, overrides). Rejected: "only 39 calls were
+migrated" (41 were; the two the reviewer counted as left are separate health probes). Not changed: Boltz still
+reports a refusal as a `network` failure with the busy sentence as its detail, and the `legacy` owner is one
+bucket for every anonymous caller (accounts mode is the fix).
 
 **Review 3 (routing line), 2026-10-11 (WP-G1, WP-H, and the fixes from Review 2).** Four read-only reviewers
 (queue correctness, security, client UX, contracts/docs) on everything after Review 2 — `6573035`, `673eb16`,
@@ -403,7 +486,7 @@ per-package notes above.
 | The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
 | macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
 | De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
-| No fair share for remote calls (I1), no stale-on-rate-limit (I2), no per-user credential buckets (I4); the I3 pause is built but ships `off` | the team shares one IP | WP-I; owner action: `EGRESS_GOVERNOR=shadow`, then `on` |
+| No stale-on-rate-limit (I2), no per-user credential buckets (I4); the I3 pause and I1 governor ship `off` (production runs `shadow`) | the team shares one IP | WP-I; owner action: `EGRESS_GOVERNOR=shadow`, then `on` |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 | A placement is decided once, at submit: a job placed on a busy computer is not moved when the server frees up (only when the computer cannot take it, or sits idle 2 min without claiming it) | the engine already prices the computer's queue, so a second job overflows to the server when that is quicker; re-deciding waiting jobs is an optimisation | later, if the logs show long waits on a computer |
 | No preview before submit: the decision is shown from the moment the job is queued (submit response, poll, My jobs), not before the button is pressed | the job is queued or placed within the same request, so a preview would show the same thing a moment earlier | later, if wanted |
@@ -418,9 +501,9 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
 1. **WP-F — agents** — done (#118).
 2. **WP-G2 — live routing** — done on `feat/wp-g2-routing` (see WP-G). Then the owner action above:
    `COMPUTE_ROUTING=on` after reading the shadow log.
-3. **WP-I — outbound governor**: I3 (team-wide 429 pause) done on `feat/wp-i3-429-pause`; next I1 (fair-share
-   limiter and the raw-`fetch` migration), then the I2 fixes (stale-on-rate-limit needs a read path for expired
-   rows), then I4.
+3. **WP-I — outbound governor**: I3 (team-wide 429 pause) done (#127, production in `shadow` since 2026-10-13);
+   I1 (fair-share governor and the raw-`fetch` migration) done on `feat/wp-i1-governor`; next the I2 fixes
+   (stale-on-rate-limit needs a read path for expired rows; prewarm skips cached keys), then I4.
 
 Shipped since the previous revision of this list, so nobody rebuilds them: **WP-G1** (`/my-jobs`, cancel and the
 wait estimate reached the interface; #106) and **WP-H** (runbook, Cloudflare corrections, OpenAPI and

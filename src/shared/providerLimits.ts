@@ -43,7 +43,29 @@ const HOST_LABELS: Readonly<Record<string, string>> = {
   "router.huggingface.co": "Hugging Face",
   "forge.evolutionaryscale.ai": "Biohub Forge",
   "api.japanfold.aiand.com": "JapanFold",
+  "myvariant.info": "MyVariant.info",
+  "app.tamarind.bio": "Tamarind Bio",
+  "query.genos.us": "Genos",
+  "zenodo.org": "Zenodo",
+  "gpn.hf.space": "GPN (Hugging Face Space)",
+  "www.alliancegenome.org": "Alliance of Genome Resources",
+  "rest.genenames.org": "HGNC",
+  "api.genome.ucsc.edu": "UCSC Genome Browser",
+  "search.clinicalgenome.org": "ClinGen",
+  "ontology.jax.org": "HPO (JAX)",
+  "www.proteinatlas.org": "Human Protein Atlas",
+  "huggingface.co": "Hugging Face",
+  "biohub.ai": "Biohub",
 };
+
+/**
+ * True for a provider this deployment calls on its own account. Anything else reached the server as a
+ * request-chosen endpoint (a person's own AlphaGenome or GPN server), and its name is that person's
+ * business: public health pages fold it into an anonymous count instead of naming it.
+ */
+export function isKnownProviderHost(hostname: string): boolean {
+  return Object.prototype.hasOwnProperty.call(HOST_LABELS, hostname.toLowerCase());
+}
 
 /** The name a reader knows a host by; the bare hostname when it is not in the table. */
 export function providerLabelForHost(hostname: string): string {
@@ -63,4 +85,17 @@ export function retryAfterSeconds(ms: number): number {
 export function rateLimitedSentence(provider: string, retryAfterSec: number): string {
   const seconds = Math.max(1, Math.ceil(retryAfterSec));
   return `${provider} is limiting requests; retrying in ${seconds} s.`;
+}
+
+/** Error code when a call waited for its turn at a provider past its caller's deadline (WP-I1). */
+export const EGRESS_WAIT_EXCEEDED = "EGRESS_WAIT_EXCEEDED";
+
+/**
+ * "Ensembl is busy with other requests from the team; try again in a moment."
+ *
+ * The provider is not down and has not refused us: the server held this call back so the team's
+ * calls to it stay within what it allows, and the caller's time ran out first.
+ */
+export function egressBusySentence(provider: string): string {
+  return `${provider} is busy with other requests from the team; try again in a moment.`;
 }

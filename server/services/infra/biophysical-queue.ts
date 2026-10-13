@@ -9,6 +9,7 @@ import { initialDeploymentPaused } from "../../deployment-role.ts";
 import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLimitError, type SubmitterLimits } from "./queue-owners.ts";
 import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute-telemetry.ts";
 import { runInJobMeter } from "./job-meter.ts";
+import { runWithEgressOwner } from "./egress-context.ts";
 import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, placementOf, routingMode, type AdmissionInput } from "./admission.ts";
@@ -1257,7 +1258,11 @@ export class SQLiteQueue {
             }, timeoutMs);
           });
 
-          const jobPromise = runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId));
+          // Outbound calls the job makes are attributed to its owner, so the egress governor shares
+          // providers fairly between people and serves `system` (prewarm) jobs last (WP-I1).
+          const jobPromise = runWithEgressOwner(row.owner_id || LEGACY_OWNER, () =>
+            runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId))
+          );
           const resData = await Promise.race([jobPromise, timeoutPromise]);
 
           if (timeoutId) clearTimeout(timeoutId);

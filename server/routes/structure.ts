@@ -33,6 +33,7 @@ import { applyMutation } from "../utils/mutation.ts";
 import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure } from "../services/multimer.ts";
 import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
+import { governedFetch } from "../services/infra/http-client.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -478,7 +479,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
           "User-Agent": "MissenseResolve/1.0"
         };
 
-        let testRes = await fetch("https://forge.evolutionaryscale.ai/api/v1/encode", {
+        let testRes = await governedFetch("https://forge.evolutionaryscale.ai/api/v1/encode", {
           method: "POST",
           headers: probeHeaders,
           body: probeBody,
@@ -486,7 +487,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         }).catch(() => null);
 
         if (!testRes || testRes.status === 451) {
-          const fallbackRes = await fetch("https://biohub.ai/api/v1/encode", {
+          const fallbackRes = await governedFetch("https://biohub.ai/api/v1/encode", {
             method: "POST",
             headers: probeHeaders,
             body: probeBody,

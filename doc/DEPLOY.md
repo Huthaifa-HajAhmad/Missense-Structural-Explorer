@@ -131,6 +131,21 @@ Follow [`ACCOUNTS.md`](./ACCOUNTS.md): create the first admin at `/setup`, invit
 starts, so apply a change with `pm2 restart missense-fold`. To roll back, set `AUTH_MODE=legacy` and
 restart again.
 
+### Step 7: Pace Calls to Remote Providers (`EGRESS_GOVERNOR`)
+The team shares this server's IP, so providers count everyone as one client. `EGRESS_GOVERNOR` (default
+`off`) controls the team-wide 429 pause and the fair-share governor (`doc/COMPUTE_ROUTING_PLAN.md`, WP-I3
+and WP-I1):
+1. Set `EGRESS_GOVERNOR=shadow` and restart. Nothing is held; each call that would have waited, and each
+   pause that would have applied, is logged as `[egress:shadow]` (at most once a minute per provider) and
+   counted under `egress` on `GET /api/v1/capabilities`.
+2. After a few days, read those lines and the `wouldHold` / `rateLimits` counts. Fair share between people
+   needs Step 6 (`AUTH_MODE=accounts`); under `legacy` everyone is one owner.
+3. Set `EGRESS_GOVERNOR=on` and restart. To roll back, set it to `off`.
+
+Optional: `EGRESS_PROVIDER_LIMITS_JSON` overrides a provider's `maxConcurrent`, `ratePerMin` or `burst`
+(`.env.example`); a published rate cannot be raised by it. State is per process, so during a blue/green
+hand-over the two processes count separately.
+
 ---
 
 ## Maintenance & Operations

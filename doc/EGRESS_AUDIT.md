@@ -334,7 +334,7 @@ These calls are raw `fetch` with no host semaphore, no breaker and no retry. Eac
 
 ## 5. Raw `fetch` call sites to migrate (ratchet baseline for I1)
 
-These are the remote raw `fetch` calls in `server/`, excluding sidecar, health and deployment-control calls. Plus the Genos wrapper. Each is listed with file:line. Migration means calling `fetchWithRetry` with a `provider` option once I1 adds it.
+These are the remote raw `fetch` calls in `server/`, excluding sidecar, health and deployment-control calls. Plus the Genos wrapper. Each is listed with file:line. I1 migrated them to `governedFetch` (`http-client.ts`), not `fetchWithRetry`: the governor keys providers by hostname, so no `provider` option exists. The file:line references below are as audited, before the migration.
 
 1. `server/routes/biophysics/stability.ts:77`
 2. `server/routes/structure.ts:481`
@@ -375,6 +375,8 @@ These are the remote raw `fetch` calls in `server/`, excluding sidecar, health a
 37. `server/services/stability/energy-models.ts:650`
 38. `server/services/stability/energy-models.ts:726`
 39. `server/services/structure/esmfold.ts:117`
+
+**Migrated by WP-I1:** all 39 now call `governedFetch` (`http-client.ts`). The remaining raw calls and their reasons are the allowed list in `server/services/infra/egress-ratchet.test.ts`.
 
 Count: 39. The Genos call sites (`genos_web.ts:106`, `:185`, `:225`, `:400`, `:409`, `:437`) go through `genosFetch` and are counted under the Genos wrapper (item 29). They must move as well.
 

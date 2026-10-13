@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { anySignal } from "../../utils.ts";
+import { governedFetch } from "../infra/http-client.ts";
 
 export type JapanFoldModel = "esmfold2-fast" | "esmfold2" | "boltz2" | "openfold3";
 
@@ -49,7 +50,8 @@ export async function runJapanFoldInference(
       ? signal
       : AbortSignal.timeout(30000);
 
-    const submitRes = await fetch(JAPANFOLD_BASE_URL, {
+    const submitRes = await governedFetch(JAPANFOLD_BASE_URL, {
+      lane: "compute", // the submit can hold its request open until the model answers
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -80,7 +82,7 @@ export async function runJapanFoldInference(
         if (signal?.aborted) break;
 
         const pollSignal = signal ? anySignal([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000);
-        const pollRes = await fetch(`${JAPANFOLD_BASE_URL}/${resJson.id}`, { headers, signal: pollSignal });
+        const pollRes = await governedFetch(`${JAPANFOLD_BASE_URL}/${resJson.id}`, { headers, signal: pollSignal });
         if (pollRes.ok) {
           const pollData = await pollRes.json() as JapanFoldPredictionResponse;
           if (pollData.status === "completed" && pollData.output) {

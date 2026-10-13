@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { loadAllianceRelease } from './allianceRelease.ts';
 import { modelOrganismResponseSchema, speciesLabel, type ImpcScreen, type ModelOrganismResponse, type Ortholog } from '../../../src/shared/modelOrganisms.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 const HGNC_URL = 'https://rest.genenames.org/fetch/symbol/';
 const ALLIANCE_URL = 'https://www.alliancegenome.org/api/gene/';
@@ -31,7 +32,7 @@ const impcSchema = z.object({ response: z.object({ numFound: z.number().int(), d
 const cache = new LRUCache<string, ModelOrganismResponse>({ max: 500, ttl: 24 * 60 * 60 * 1000 });
 const flights = new Map<string, Promise<ModelOrganismResponse>>();
 async function read(url: string, accept = 'application/json') {
-  const response = await fetch(url, { headers: { Accept: accept }, signal: AbortSignal.timeout(20000) });
+  const response = await governedFetch(url, { headers: { Accept: accept }, signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const raw = await response.text(); return { raw, data: JSON.parse(raw) as unknown, url };
 }

@@ -8,6 +8,7 @@ import {
   deNovoFoldingLimitExceededMessage,
   esmAtlasFallbackExceededMessage,
 } from "../../../src/shared/foldingLimits.ts";
+import { governedFetch } from "../infra/http-client.ts";
 
 /**
  * Which engine answered. The three tiers are three different models — ESMFold2-Fast (JapanFold),
@@ -81,7 +82,7 @@ async function foldSequenceInternal(
   if (biohubToken) {
     try {
       const sidecarSecret = process.env.SIDECAR_SECRET || "";
-      const response = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esmfold`, {
+      const response = await governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/esmfold`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -114,7 +115,7 @@ async function foldSequenceInternal(
   }
 
   try {
-    const atlasRes = await fetch("https://api.esmatlas.com/foldSequence/v1/pdb/", {
+    const atlasRes = await governedFetch("https://api.esmatlas.com/foldSequence/v1/pdb/", {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       body: sequence,

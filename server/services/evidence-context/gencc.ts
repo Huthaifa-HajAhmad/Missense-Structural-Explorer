@@ -1,6 +1,7 @@
 import { geneDiseaseResponseSchema, diseaseFrameKey, type DiseaseFrame, type ContextProvenance } from '../../../src/shared/diseaseFrame.ts';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
+import { governedFetch } from "../infra/http-client.ts";
 
 export const GENCC_DOWNLOAD_URL = 'https://thegencc.org/download/action/submissions-export-csv';
 export const genccSnapshotSchema = z.object({
@@ -26,7 +27,7 @@ export const genccSnapshotSchema = z.object({
  * (GenCC regenerates it weekly), so the tab can say which export it read rather than "not reported".
  */
 export async function downloadGenccSnapshot() {
-  const response = await fetch(GENCC_DOWNLOAD_URL, { signal: AbortSignal.timeout(90000), headers: { Accept: 'text/csv' } });
+  const response = await governedFetch(GENCC_DOWNLOAD_URL, { signal: AbortSignal.timeout(90000), headers: { Accept: 'text/csv' } });
   if (!response.ok) throw new Error(`GenCC HTTP ${response.status}`);
   if (!(response.headers.get('content-type') ?? '').includes('text/csv')) throw new Error('GenCC did not return CSV');
   const modified = Date.parse(response.headers.get('last-modified') ?? '');

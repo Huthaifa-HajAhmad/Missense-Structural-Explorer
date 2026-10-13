@@ -4,6 +4,7 @@ import { LRUCache } from 'lru-cache';
 import { buildUphenoIndex, modelPhenotypesResponseSchema, type ModelPhenotypesResponse, type SpeciesPhenotypes } from '../../../src/shared/modelPhenotypes.ts';
 import { loadModelOrganisms } from './modelOrganisms.ts';
 import { loadAllianceRelease } from './allianceRelease.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 const ALLIANCE = 'https://www.alliancegenome.org/api/gene/';
 const UPHENO_URL = 'https://raw.githubusercontent.com/obophenotype/upheno/master/mappings/upheno-species-independent.sssom.tsv';
@@ -23,7 +24,7 @@ let uphenoFlight: Promise<Upheno> | null = null;
 async function uphenoIndex() {
   if (uphenoCache && uphenoCache.expires > Date.now()) return uphenoCache;
   uphenoFlight ??= (async () => {
-    const response = await fetch(UPHENO_URL, { signal: AbortSignal.timeout(45000) });
+    const response = await governedFetch(UPHENO_URL, { signal: AbortSignal.timeout(45000) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const raw = await response.text(); const index = buildUphenoIndex(raw);
     if (!raw.includes('crossSpeciesExactMatch')) throw new Error('Unexpected uPheno table');
@@ -49,7 +50,7 @@ export async function loadModelPhenotypes(gene: string): Promise<ModelPhenotypes
       species.push(...await Promise.all(targets.slice(i, i + 4).map(async (o): Promise<SpeciesPhenotypes> => {
         const base = { taxonId: o.taxonId, species: o.species, orthologId: o.id, symbol: o.symbol };
         try {
-          const response = await fetch(`${ALLIANCE}${encodeURIComponent(o.id)}/phenotypes?limit=2000`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
+          const response = await governedFetch(`${ALLIANCE}${encodeURIComponent(o.id)}/phenotypes?limit=2000`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const raw = await response.text(); rawAll += raw;
           const body = page.parse(JSON.parse(raw));
