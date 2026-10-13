@@ -3,7 +3,8 @@ import {
   RefreshCw,
   Settings,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  ArrowRight
 } from "lucide-react";
 import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
@@ -989,20 +990,24 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
                           only cue was its aria-label, and the settings rows had no cue at all.
 
-                          But a collapsed `ChevronDown` rotated a quarter turn points right — the
-                          same glyph `ChevronRight` draws. Drawing both on a row that opens AND
-                          carries an action put two identical chevrons side by side, which reads as
-                          a rendering glitch rather than two affordances. The disclosure chevron
-                          below sits inside this row, so it already satisfies "a clickable row has a
-                          visible cue"; this default one therefore only draws when no disclosure
-                          chevron will. An explicit `actionIcon` still always shows — the re-check
-                          refresh says something a chevron does not. */}
-                      {rowAction && (svc.actionIcon || !isExpandable) && (
+                          The disclosure chevron below says "this row opens", not "clicking this row
+                          does something": on an action row the row click fires the action while only
+                          the chevron button toggles the panel. So an action row always draws its own
+                          cue. A collapsed `ChevronDown` rotated a quarter turn points right — the
+                          same glyph `ChevronRight` draws — so a row that also opens uses `ArrowRight`
+                          instead, which cannot be read as a duplicated chevron. An explicit
+                          `actionIcon` wins either way (the re-check refresh says more than an arrow). */}
+                      {rowAction && (
                         <span
                           className="text-cs-text-muted group-hover:text-cs-text-primary transition-colors duration-150"
                           aria-hidden="true"
                         >
-                          {svc.actionIcon ?? <ChevronRight className="w-3.5 h-3.5" />}
+                          {svc.actionIcon ??
+                            (isExpandable ? (
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            ))}
                         </span>
                       )}
                       {/* The disclosure affordance, only on a row that opens. A chevron that rotates

@@ -273,6 +273,17 @@ describe("LiveTelemetryPanel — summary tone", () => {
       expect(row.querySelector("svg"), `${row.getAttribute("data-service-id")} needs a visible cue`).not.toBeNull();
     }
   });
+  it("keeps the action cue outside the disclosure button on action rows", () => {
+    // The disclosure chevron says "this row opens"; the row click fires the action. The cue for
+    // the action must therefore be its own glyph, not the toggle's.
+    setDiagnostics(svc());
+    renderPanel();
+
+    for (const row of Array.from(document.querySelectorAll('[data-service-id][role="button"]'))) {
+      const cues = Array.from(row.querySelectorAll("svg")).filter(icon => !icon.closest("button"));
+      expect(cues.length, `${row.getAttribute("data-service-id")} lost its action cue`).toBeGreaterThan(0);
+    }
+  });
   it("draws one chevron per row, not a matched pair", () => {
     // A collapsed `ChevronDown` rotated a quarter turn points right — the exact glyph
     // `ChevronRight` draws. A row that both opens and carries an action used to render both, so
