@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { YourComputers } from "../YourComputers";
 import { TeamFoldx } from "../TeamFoldx";
+import { ComputeLimits, describeHostClass } from "../ComputeLimits";
 
 /**
  * The two WP-F screens: "Your computers" (Settings → Account) and "FoldX for the team" (Settings → Team).
@@ -63,6 +64,63 @@ describe("Your computers", () => {
     render(<YourComputers />);
     expect(await screen.findByText("No computer connected yet.")).toBeTruthy();
     expect(screen.getByText(/has not made the agent available here yet/)).toBeTruthy();
+  });
+});
+
+describe("a computer's own speed", () => {
+  it("is shown once it has done some work", async () => {
+    const recent = { days: 30, completed: 4, handedBack: 0, foldx: { jobs: 4, medianMs: 9_400, medianResidues: 305 }, p2rank: null };
+    mockFetch((url) => {
+      if (url.endsWith("/me/agents")) return { status: 200, body: { agents: [{ ...AGENT, recent }] } };
+      if (url.endsWith("/me/agent-downloads")) return { status: 200, body: { platforms: [] } };
+      return { status: 404 };
+    });
+    render(<YourComputers />);
+    expect(await screen.findByText("In the last 30 days it finished 4 of your jobs. FoldX took about 9 s (structures around 305 residues).")).toBeTruthy();
+  });
+});
+
+describe("Learned memory limits", () => {
+  it("lists what was learned, says when it is not applied yet, and forgets on confirmation", async () => {
+    let ceilings = [
+      { type: "foldx", hostClass: "arm64-emulated-2c-12g", residues: 1085, onServer: true },
+      { type: "p2rank", hostClass: "agent/x64-native-8c-16g", residues: 3000, onServer: false },
+    ];
+    const fetchFn = mockFetch((url, init) => {
+      if (url.endsWith("/admin/compute/ceilings") && init?.method === "DELETE") {
+        ceilings = [];
+        return { status: 200, body: { removed: 2 } };
+      }
+      if (url.endsWith("/admin/compute/ceilings")) return { status: 200, body: { enforced: false, ceilings } };
+      return { status: 404 };
+    });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    render(<ComputeLimits />);
+    expect(await screen.findByText(/on the shared server: a structure of 1,085 residues ran out of memory, so that size and larger would be refused there/)).toBeTruthy();
+    expect(screen.getByText(/members' computers with 8 cores and 16 GB of memory/)).toBeTruthy();
+    expect(screen.getByText(/recorded but not applied yet/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Forget these limits" }));
+    const outcome = await screen.findByText("The learned limits were forgotten.");
+    await waitFor(() => expect(outcome.closest("[tabindex='-1']")).toBe(document.activeElement)); // focus is not lost
+    expect(await screen.findByText(/None learned/)).toBeTruthy();
+    expect(fetchFn.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "DELETE")).toBe(true);
+  });
+});
+
+describe("Learned memory limits, edge cases", () => {
+  it("says it could not load, rather than that nothing was learned", async () => {
+    mockFetch(() => ({ status: 500, body: { error: { code: "X", message: "The server answered 500." } } }));
+    render(<ComputeLimits />);
+    expect(await screen.findByText(/The server answered 500/)).toBeTruthy();
+    expect(screen.queryByText(/None learned/)).toBeNull();
+  });
+
+  it("describes a host class in plain words", () => {
+    expect(describeHostClass({ hostClass: "arm64-emulated-2c-12g", onServer: true })).toBe("the shared server");
+    expect(describeHostClass({ hostClass: "agent/x64-native-8c-16g", onServer: false })).toBe("members' computers with 8 cores and 16 GB of memory");
+    expect(describeHostClass({ hostClass: "arm64-emulated-4c-24g", onServer: false })).toBe("servers with 4 cores and 24 GB of memory (running FoldX under emulation)");
+    expect(describeHostClass({ hostClass: "agent/odd", onServer: false })).toBe("members' computers of class agent/odd");
   });
 });
 

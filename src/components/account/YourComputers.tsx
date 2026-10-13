@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Download, Laptop, Loader2 } from "lucide-react";
 import { accountApi, AccountError, type AgentDownload } from "../../api/accountApi";
-import { describeAgent, type AgentView } from "../../shared/agentProtocol";
+import { describeAgent, describeAgentRecent, type AgentView } from "../../shared/agentProtocol";
 import { SettingsBlock, SettingsRow } from "../settings/ui/Section";
 import { FormAlert, formatCountdown, useCountdown } from "./fields";
 import { relativeTime } from "./accountUi";
@@ -116,6 +116,7 @@ export function YourComputers() {
                     </div>
                     <p className="acct-note">{s.detail}</p>
                     {!a.online && a.lastSeenAt ? <p className="acct-note">Last seen {relativeTime(a.lastSeenAt)}.</p> : null}
+                    {describeAgentRecent(a.recent) ? <p className="acct-note">{describeAgentRecent(a.recent)}</p> : null}
                   </div>
                   <button type="button" className="cs-btn-ghost" onClick={() => void disconnect(a)} aria-label={`Disconnect ${a.name}`}>
                     Disconnect

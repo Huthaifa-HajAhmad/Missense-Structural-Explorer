@@ -14,24 +14,27 @@ import { describeLimits, describeUsage } from "../../../shared/jobsCopy";
 import type { MeInfo } from "../../../api/accountApi";
 import { YourComputers } from "../../account/YourComputers";
 
-const PLACEMENT_COPY: Record<PlacementPref, string> = {
-  auto: "Your connected computer takes your jobs that are waiting for the shared server.",
-  my_machine: "Your connected computer takes your jobs that are waiting for the shared server. Choosing where each job starts comes with live routing.",
-  server_only: "Your jobs always run on the shared server, even when your computer is connected.",
-};
+/**
+ * What each preference does. With live routing on (`COMPUTE_ROUTING=on`, reported by `/auth/me`) a job is
+ * sent where it should finish first; before that, a computer only takes jobs waiting for a busy server.
+ */
+function placementCopy(pref: PlacementPref, liveRouting: boolean): string {
+  if (pref === "server_only") return "Your jobs always run on the shared server, even when your computer is connected.";
+  if (!liveRouting) {
+    return pref === "my_machine"
+      ? "Your connected computer takes your jobs that are waiting for the shared server. Once your workspace switches on live routing, a job that would take about as long on either goes to your computer."
+      : "Your connected computer takes your jobs that are waiting for the shared server.";
+  }
+  return pref === "my_machine"
+    ? "Each job goes where it should finish first, your connected computer or the shared server; when both would take about as long, your computer."
+    : "Each job goes where it should finish first, your connected computer or the shared server; when both would take about as long, the server.";
+}
 
 /**
  * Server time this person's jobs used, and the limits that apply to them. Informational: there is no
  * daily cap unless an admin set one (plan 4.4). Loaded once when the section opens.
  */
-function UsageSummary() {
-  const [me, setMe] = useState<MeInfo | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    accountApi.me().then((info) => live && setMe(info)).catch(() => live && setFailed(true));
-    return () => { live = false; };
-  }, []);
+function UsageSummary({ me, failed }: { me: MeInfo | null; failed: boolean }) {
   if (failed) return null; // usage is a convenience; its absence must not look like an error
   const usage = describeUsage(me?.usage);
   const limits = describeLimits(me?.quota);
@@ -162,6 +165,21 @@ export function AccountSection() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const savedTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(savedTimer.current), []);
+  // Limits, usage and whether live routing is on: one request, when a person is signed in.
+  const [me, setMe] = useState<MeInfo | null>(null);
+  const [meFailed, setMeFailed] = useState(false);
+  const userId = account?.user?.id ?? null;
+  useEffect(() => {
+    if (!userId) {
+      // Signed out with the section open: another person's limits must not linger for the next one.
+      setMe(null);
+      setMeFailed(false);
+      return;
+    }
+    let live = true;
+    accountApi.me().then((info) => live && setMe(info)).catch(() => live && setMeFailed(true));
+    return () => { live = false; };
+  }, [userId]);
 
   if (!account?.user) {
     return (
@@ -244,7 +262,7 @@ export function AccountSection() {
             <FormAlert tone="danger">{saveError}</FormAlert>
           </SettingsBlock>
         )}
-        <SettingsRow label="Where your jobs run" description={PLACEMENT_COPY[user.placementPref]} stacked>
+        <SettingsRow label="Where your jobs run" description={placementCopy(user.placementPref, me?.liveRouting === true)} stacked>
           <SegmentedControl<PlacementPref>
             ariaLabel="Where your jobs run"
             value={user.placementPref}
@@ -264,7 +282,7 @@ export function AccountSection() {
           onChange={(shareResults) => void save({ shareResults })}
         />
         <YourComputers />
-        <UsageSummary />
+        <UsageSummary me={me} failed={meFailed} />
       </SettingsSection>
 
       <SettingsSection title="Security">

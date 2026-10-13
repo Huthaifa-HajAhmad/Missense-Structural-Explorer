@@ -1447,6 +1447,17 @@ export type ConservationData = z.infer<typeof conservationDataSchema>;
 // ============================================================================
 // 11. Generate Mutant & Full Pipeline Analysis Response Schemas
 // ============================================================================
+/** `JobRunsOn` (`jobPlacement.ts`) on the wire. */
+export const jobRunsOnSchema = z.object({
+  where: z.enum(["server", "your_computer", "teammate_computer"]),
+  computerName: z.string().nullable(),
+  started: z.boolean(),
+  expectedMs: z.object({ p50: z.number().finite(), p90: z.number().finite() }).nullable(),
+  basis: z.enum(["measured", "prior"]).nullable(),
+  samples: z.number().finite().nullable(),
+  reasons: z.array(z.string()),
+});
+
 export const generateMutantResponseSchema = z.object({
   pdb: z.string().nullable().optional(),
   /**
@@ -1480,6 +1491,8 @@ export const generateMutantResponseSchema = z.object({
   queuedAhead: nullableFiniteNumber.optional(),
   /** Estimated wait before the job starts, in ms; null when the server has no estimate for what is ahead. */
   queuedEtaMs: nullableFiniteNumber.optional(),
+  /** Where the job runs and why (live routing); null when it is simply the server's. `jobPlacement.ts`. */
+  runsOn: jobRunsOnSchema.nullable().optional(),
   energetics: energeticsDataSchema.optional(),
   dynamut2JobId: z.string().nullable().optional(),
   dynamut2Status: z.string().nullable().optional(),

@@ -51,6 +51,7 @@ export function ensureTelemetryTable(db: DatabaseSync): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_telemetry_class ON job_telemetry(type, host_class, outcome);
+    CREATE INDEX IF NOT EXISTS idx_telemetry_host ON job_telemetry(host_id, outcome, created_at);
   `);
 }
 

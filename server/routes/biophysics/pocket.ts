@@ -313,6 +313,7 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         res.json({
           status: "queued",
           pocketJobId: queueJobId,
+          runsOn: BiophysicalJobQueue.getInstance().runsOn(queueJobId, requester ?? null),
           // Which bytes this job was queued on. The result itself comes back through the job route,
           // so this echo is the only place the queued call can state its structure provenance.
           structureResolution
@@ -356,7 +357,9 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         result: withProvenanceFor(jobInfo.result, submitterId(req)),
         error: jobInfo.error,
         // Where it stands while it waits, in the order the scheduler will really start jobs.
-        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null
+        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null,
+        // Where it runs and why (live routing, WP-G2); null when it is simply the server's, as always.
+        runsOn: queue.runsOn(jobId, submitterId(req) ?? null),
       });
     } catch (err: any) {
       console.error("Pocket job polling route failure:", err);
@@ -381,7 +384,9 @@ export function registerPocketRoutes(apiRouter: Router, jsonParserPdb: any): voi
         result: withProvenanceFor(jobInfo.result, submitterId(req)),
         error: jobInfo.error,
         // Where it stands while it waits, in the order the scheduler will really start jobs.
-        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null
+        queuedAhead: jobInfo.status === "queued" ? await queue.getQueuePosition(jobId) : null,
+        // Where it runs and why (live routing, WP-G2); null when it is simply the server's, as always.
+        runsOn: queue.runsOn(jobId, submitterId(req) ?? null),
       });
     } catch (err: any) {
       console.error("Pocket job polling route failure:", err);

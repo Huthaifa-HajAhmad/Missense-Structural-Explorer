@@ -397,6 +397,44 @@ describe("EnergeticsView — FoldX progress banner", () => {
     expect(text).not.toContain("Elapsed:");
   });
 
+  it("names the person's own computer, and why, when live routing placed the job there", () => {
+    const reason = "It runs on Lab PC, which is expected to finish first.";
+    const runsOn = { where: "your_computer" as const, computerName: "Lab PC", started: false, expectedMs: { p50: 9000, p90: 18000 }, basis: "prior" as const, samples: 0, reasons: [reason] };
+    const { container, getByTestId } = renderView({
+      isFolding: true,
+      foldingStatus: null,
+      foldingProgress: { phase: "queued", elapsedMs: null, queuePosition: 0, receivedAt: Date.now(), runsOn },
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Waiting for your computer (Lab PC) to pick it up.");
+    expect(text).not.toContain("compute worker");
+    expect(getByTestId("energetics-runs-on").textContent).toBe(reason); // the queue line already names the computer
+  });
+
+  it("says where a running job runs", () => {
+    const runsOn = { where: "your_computer" as const, computerName: "Lab PC", started: true, expectedMs: null, basis: null, samples: null, reasons: [] };
+    const { getByTestId, container } = renderView({
+      isFolding: true,
+      foldingStatus: null,
+      foldingProgress: { phase: null, elapsedMs: 2_000, queuePosition: null, receivedAt: Date.now(), runsOn },
+    });
+    expect(getByTestId("energetics-runs-on").textContent).toBe("Running on your computer (Lab PC).");
+    expect(container.textContent).toContain("Your computer (Lab PC) has not reported a stage yet.");
+    // Screen readers hear it too, not only sighted readers.
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("Running on your computer (Lab PC).");
+  });
+
+  it("does not repeat the wait for a job queued on the shared server", () => {
+    const runsOn = { where: "server" as const, computerName: null, started: false, expectedMs: null, basis: null, samples: null, reasons: [] };
+    const { container, queryByTestId } = renderView({
+      isFolding: true,
+      foldingStatus: null,
+      foldingProgress: { phase: "queued", elapsedMs: null, queuePosition: 1, receivedAt: Date.now(), runsOn },
+    });
+    expect(queryByTestId("energetics-runs-on")).toBeNull();
+    expect(container.textContent).not.toContain("Waiting for the shared server");
+  });
+
   it("says the stage is unreported rather than guessing one", () => {
     const { container } = renderView({
       isFolding: true,

@@ -77,7 +77,7 @@ import {
 import { routingPolicyFromEnv } from "../services/infra/admission.ts";
 import { checkFoldxArchive, isFoldxPlatform, MAX_ARCHIVE_BYTES, PLATFORM_LABEL } from "../services/infra/foldx-archive.ts";
 import { foldxBundleFor, foldxBundlePath, listFoldxBundles, newUploadTempPath, revokeFoldxBundles, storeFoldxBundle } from "../services/infra/tool-bundles.ts";
-import { decidePlacement, foldxRepairApplies, type JobFeatures } from "../../src/shared/computeRouting.ts";
+import { decidePlacement, foldxRepairApplies, type HostFeatures, type JobFeatures } from "../../src/shared/computeRouting.ts";
 import { AGENT_PROTOCOL_VERSION, formatPairingCode, normalisePairingCode, PAIRING_CODE_TTL_MS, type AgentHostReport } from "../../src/shared/agentProtocol.ts";
 import { isFoldxPhase } from "../../src/shared/foldxPhase.ts";
 
@@ -164,6 +164,34 @@ function bundleVersionFor(report: AgentHostReport | null): string | null {
   return report ? (foldxBundleFor(report.os)?.version ?? null) : null;
 }
 
+/**
+ * The job kinds this computer may be given now: self-tested tools, not paused, and never FoldX from a team
+ * copy that no longer matches the workspace's bundle (revoked or replaced): the computer erases or updates
+ * it first, and FoldX jobs never run on a revoked copy.
+ */
+function jobTypesFor(report: AgentHostReport): ("foldx" | "p2rank")[] {
+  const teamFoldxStale = report.foldxSource === "team" && report.foldxBundleVersion !== bundleVersionFor(report);
+  return offeredJobTypes(report).filter((t) => !(t === "foldx" && teamFoldxStale));
+}
+
+/**
+ * The owner's online computers as placement-engine hosts (WP-G2), for the queue's submit path. Only
+ * what a computer could claim right now is offered, so a placement never waits on a tool it lacks.
+ */
+function ownerAgentHosts(ownerId: string, sqlite: SQLiteQueue): HostFeatures[] {
+  const owner = getUserById(ownerId);
+  if (!owner || owner.status !== "active") return [];
+  const now = Date.now();
+  return listAgentsFor(ownerId).flatMap((row) => {
+    const report = storedReport(row);
+    if (!report || !isAgentOnline(row, now)) return [];
+    const host = agentHostFeatures(row, report, sqlite, now);
+    const types = jobTypesFor(report);
+    host.tools = host.tools.filter((t) => (types as string[]).includes(t.name));
+    return [host];
+  });
+}
+
 /** The engine's hard filters, applied to this computer for one job. */
 function claimFilter(
   report: AgentHostReport,
@@ -215,26 +243,40 @@ function agentBundleFile(platform: string): string {
   return path.join(dir, `MissenseAgent-${platform}.zip`);
 }
 
+/**
+ * Jobs placed on a computer that cannot take them go to the server (live routing, WP-G2): it is offline
+ * (silent past the online window, or disconnected), paused, no longer offers that tool (including a team
+ * FoldX copy that is out of date), or it has sat idle without claiming them. Returns how many moved.
+ */
+export function releaseStrandedPlacements(now = Date.now()): number {
+  const queue = queueOrNull();
+  if (!queue || queue.getDeploymentState().paused) return 0;
+  const offers = new Map<string, ("foldx" | "p2rank")[]>();
+  for (const a of listActiveAgents()) {
+    const report = storedReport(a);
+    if (report && isAgentOnline(a, now)) offers.set(a.id, jobTypesFor(report));
+  }
+  return queue.agentQueue()?.releasePlacementsOf((id, type) => offers.get(id)?.includes(type) ?? false, undefined, now) ?? 0;
+}
+
 let housekeeping: NodeJS.Timeout | null = null;
 
 /**
- * Once a minute: release jobs placed on a computer that went away, and drop dead pairing codes. Skipped on
+ * Every 15 s: release jobs placed on a computer that cannot take them (so a person whose computer went
+ * away waits at most the online window plus this), and once a minute drop dead pairing codes. Skipped on
  * a paused standby, like every other queue reaper.
  */
 function startHousekeeping(): void {
   if (housekeeping) return;
+  let ticks = 0;
   housekeeping = setInterval(() => {
     try {
-      const queue = queueOrNull();
-      if (queue && !queue.getDeploymentState().paused) {
-        const online = new Set(listActiveAgents().filter((a) => isAgentOnline(a)).map((a) => a.id));
-        queue.agentQueue()?.releasePlacementsOf((id) => online.has(id));
-      }
-      deleteExpiredPairingCodes(Date.now());
+      releaseStrandedPlacements();
+      if (ticks++ % 4 === 0) deleteExpiredPairingCodes(Date.now());
     } catch (err: any) {
       console.warn("[agent] Housekeeping failed:", err?.message ?? err);
     }
-  }, 60_000);
+  }, 15_000);
   housekeeping.unref();
 }
 
@@ -261,6 +303,7 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     req.principal?.kind === "agent" ? agentAddressLimiter(req, res, () => agentLimiter(req, res, next)) : next(),
   );
   startHousekeeping();
+  BiophysicalJobQueue.setAgentHostsProvider(ownerAgentHosts);
 
   // ── Pairing ─────────────────────────────────────────────────────────────────────────────────────
   apiRouter.post("/agent/pair", jsonParserRegular, requireUser, (req, res) => {
@@ -369,10 +412,8 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
     let gone = false;
     res.on("close", () => { gone = true; });
     const deadline = Date.now() + waitSec * 1000;
-    // A team FoldX copy that no longer matches the workspace's bundle (revoked or replaced) is not offered:
-    // the computer erases or updates it first, and FoldX jobs never run on a revoked copy.
-    const teamFoldxStale = report.foldxSource === "team" && report.foldxBundleVersion !== bundleVersionFor(report);
-    const types = offeredJobTypes(report).filter((t) => !(t === "foldx" && teamFoldxStale));
+    const types = jobTypesFor(report);
+    const named = { ...agent, name: getAgent(agent.agentId)?.name ?? null };
     for (;;) {
       const queue = queueOrNull();
       if (!queue || queue.getDeploymentState().paused) {
@@ -380,7 +421,7 @@ export function registerAgentRoutes(apiRouter: Router, jsonParserRegular: any): 
         return;
       }
       sqlite = queue.agentQueue()!;
-      const claimed = types.length > 0 ? sqlite.claimForAgent(agent, types, claimFilter(report, agent, sqlite), t.leaseMs) : null;
+      const claimed = types.length > 0 ? sqlite.claimForAgent(named, types, claimFilter(report, agent, sqlite), t.leaseMs) : null;
       if (claimed) {
         if (gone) {
           // Nobody to hand it to: give it straight back rather than wait for the lease to run out.

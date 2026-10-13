@@ -4,6 +4,7 @@
  * session cookie identifies the person, and a failure's `message` is the server's own sentence.
  */
 import { AccountError } from "./accountApi";
+import type { JobRunsOn } from "../shared/jobPlacement";
 
 export type JobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -34,6 +35,11 @@ export interface JobSummary {
    * for the same result, so cancelling only removes this person's interest and the work continues.
    */
   watchers: number;
+  /**
+   * Where it runs (or ran) and why, once live routing has had a say; null when it is simply the shared
+   * server's. Optional: a server from before live routing does not send it.
+   */
+  runsOn?: JobRunsOn | null;
 }
 
 export interface CancelResult {

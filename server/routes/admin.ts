@@ -38,6 +38,7 @@ import {
 } from "../auth/store.ts";
 import { publicUser } from "./auth.ts";
 import { BiophysicalJobQueue } from "../services/infra/biophysical-queue.ts";
+import { routingMode } from "../services/infra/admission.ts";
 
 export const INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 export const RESET_TTL_MS = 24 * 60 * 60 * 1000;
@@ -142,6 +143,17 @@ export function registerAdminRoutes(apiRouter: Router, jsonParserRegular: any): 
    * misclassified failure, or the host got more memory. Jobs of any size are admitted again until two
    * new out-of-memory deaths teach a limit afresh.
    */
+  /** What `DELETE` would forget, and whether it is enforced at all (only with `COMPUTE_ROUTING=on`). */
+  apiRouter.get("/admin/compute/ceilings", (_req, res) => {
+    let ceilings: ReturnType<BiophysicalJobQueue["learnedCeilings"]> = [];
+    try {
+      ceilings = BiophysicalJobQueue.getInstance().learnedCeilings();
+    } catch {
+      // No queue in this process: nothing learned.
+    }
+    res.json({ enforced: routingMode() === "on", ceilings });
+  });
+
   apiRouter.delete("/admin/compute/ceilings", (req, res) => {
     let removed = 0;
     try {

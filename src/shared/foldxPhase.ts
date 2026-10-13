@@ -26,9 +26,10 @@
  * `repairing` is therefore ~98% of a FoldX run — the phase worth reporting, and the one that
  * looked like a hang.
  *
- * Pure by construction (imports nothing), so both processes can share it — enforced by
+ * Pure by construction (imports only `src/shared` types), so both processes can share it — enforced by
  * `scripts/check-boundaries.ts`.
  */
+import { hostPhrase, type JobRunsOn } from "./jobPlacement.ts";
 
 /**
  * The four states a FoldX job actually passes through, in order.
@@ -87,8 +88,12 @@ const PHASE_VIEWS: Record<FoldxPhase, FoldxPhaseView> = {
  * module's existence: an unknown phase must render as unknown, never as the next stage in a
  * guessed sequence. Callers that need a stepper position use `view?.stage ?? 0`.
  */
-export function describeFoldxPhase(phase: FoldxPhase | null | undefined): FoldxPhaseView | null {
+export function describeFoldxPhase(phase: FoldxPhase | null | undefined, runsOn?: JobRunsOn | null): FoldxPhaseView | null {
   if (!phase || !isFoldxPhase(phase)) return null;
+  // A job waiting for the person's own computer is not waiting for a server worker (live routing, WP-G2).
+  if (phase === "queued" && runsOn && runsOn.where !== "server") {
+    return { ...PHASE_VIEWS.queued, detail: `Waiting for ${hostPhrase(runsOn)} to pick it up.` };
+  }
   return PHASE_VIEWS[phase];
 }
 
@@ -121,4 +126,9 @@ export interface FoldxProgress {
   queueEtaMs?: number | null;
   /** Local clock at the moment this snapshot was RECEIVED — the client's own baseline. */
   receivedAt: number;
+  /**
+   * Where the job runs and why (live routing, `jobPlacement.ts`), or null when it is simply the shared
+   * server's. Optional for the same reason as `queueEtaMs`.
+   */
+  runsOn?: JobRunsOn | null;
 }

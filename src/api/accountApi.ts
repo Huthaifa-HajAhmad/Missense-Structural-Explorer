@@ -40,6 +40,8 @@ export interface MeInfo {
   quota: { queuedPerUser: number; serverSecondsPerDay: number | null; queuedPerUserExplicit: boolean };
   /** null when the server's queue is not running in this process. */
   usage: { todaySeconds: number; weekSeconds: number } | null;
+  /** Live routing is on (`COMPUTE_ROUTING=on`): jobs go where they should finish first. Absent on older servers. */
+  liveRouting?: boolean;
 }
 
 export interface PendingInvite {
@@ -60,6 +62,15 @@ export class AccountError extends Error {
     super(message);
     this.name = "AccountError";
   }
+}
+
+/** An out-of-memory size limit the queue has learned for one job type on one kind of computer (WP-D). */
+export interface LearnedCeiling {
+  type: "foldx" | "p2rank";
+  hostClass: string;
+  /** The smallest size that ran out of memory there; that size and larger are refused. */
+  residues: number;
+  onServer: boolean;
 }
 
 const BASE = "/api/v1";
@@ -115,6 +126,8 @@ export const accountApi = {
   withdrawInvite: (id: string) => request<void>("DELETE", `/admin/invites/${encodeURIComponent(id)}`),
   createResetLink: (id: string) => request<{ resetUrl: string; expiresAt: number }>("POST", `/admin/users/${encodeURIComponent(id)}/reset-link`, {}),
   signOutEverywhere: (id: string) => request<void>("POST", `/admin/users/${encodeURIComponent(id)}/sign-out`, {}),
+  learnedCeilings: () => request<{ enforced: boolean; ceilings: LearnedCeiling[] }>("GET", "/admin/compute/ceilings"),
+  forgetCeilings: () => request<{ removed: number }>("DELETE", "/admin/compute/ceilings"),
 
   // Paired computers (WP-F)
   createPairingCode: () => request<{ code: string; expiresAt: number }>("POST", "/agent/pair", {}),

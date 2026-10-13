@@ -14,12 +14,13 @@
  * something is active (so the badge stays honest), and never while the tab is hidden.
  */
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Cpu, Loader2, RefreshCw, Users, X } from "lucide-react";
+import { Cpu, Loader2, Monitor, RefreshCw, Server, Users, X } from "lucide-react";
 import { useOptionalAccount } from "../../context/AccountContext";
 import { useSettings } from "../../context/SettingsContext";
 import { CHROME_ICON_BUTTON } from "../ui/chrome";
 import { activeJobs, jobsApi, JOBS_CHANGED_EVENT, type JobSummary } from "../../api/jobsApi";
 import { AccountError } from "../../api/accountApi";
+import { describeRunsOn } from "../../shared/jobPlacement";
 import {
   cancelActionLabel,
   describeCancelOutcome,
@@ -284,6 +285,9 @@ function JobRow({
   const status = describeJobStatus(job.status, job.error);
   const activeJob = job.status === "queued" || job.status === "running";
   const failedDetail = status.tone === "failed" ? describeJobError(job.error) : null;
+  // Where it runs, once routing has had a say (live routing); the reasons only while it is still active.
+  const runsOnLine = describeRunsOn(job.runsOn, job.status);
+  const runsOnWhy = activeJob && job.runsOn ? job.runsOn.reasons.join(" ") : "";
   return (
     <li className="jobs-row" data-tone={status.tone}>
       <div className="jobs-row-main">
@@ -296,6 +300,15 @@ function JobRow({
         {isSharedJob(job.watchers) && (
           <div className="jobs-row-shared" title={SHARED_JOB_NOTE}>
             <Users className="w-3 h-3" aria-hidden /> Shared with someone who asked for the same result
+          </div>
+        )}
+        {runsOnLine && (
+          <div className="jobs-row-host" data-where={job.runsOn!.where}>
+            {job.runsOn!.where === "server" ? <Server className="w-3 h-3" aria-hidden /> : <Monitor className="w-3 h-3" aria-hidden />}
+            <span>
+              {runsOnLine}
+              {runsOnWhy && <span className="jobs-row-host-why">{` · ${runsOnWhy}`}</span>}
+            </span>
           </div>
         )}
         {failedDetail && <div className="jobs-row-error" title={job.error ?? undefined}>{failedDetail}</div>}
