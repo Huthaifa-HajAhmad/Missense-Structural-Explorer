@@ -31,6 +31,8 @@ import { submitterId } from "../../auth/principal.ts";
 import { withProvenanceFor } from "../../../src/shared/computeProvenance.ts";
 import { LEGACY_OWNER, SYSTEM_OWNER } from "../../services/infra/queue-owners.ts";
 import { AMINO_ACID_3_TO_1 } from "../../../src/shared/aminoAcids.ts";
+import { PROVIDER_RATE_LIMITED } from "../../../src/shared/providerLimits.ts";
+import { isProviderRateLimited } from "../../services/infra/provider-pause.ts";
 
 /** FoldX and independent engine values that are safe to publish before the overall job settles. */
 function engineUpdatesFromJob(jobData: any, remoteJobs: any): Record<string, unknown> | undefined {
@@ -424,15 +426,21 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
     jobId: string,
     tool: "dynamut2" | "ddmut",
     error: string,
-    isStale = false
+    isStale = false,
+    rateLimit?: { retryAfterSec: number }
   ) => {
+    // A rate-limited poll (WP-I3) is still a live job: the client keeps listening instead of failing it,
+    // and the reader is told the provider is limiting requests, not that it is down. A stale job is past
+    // its window either way, so staleness wins.
+    const rateLimited = Boolean(rateLimit) && !isStale;
     const payload = {
       jobId,
       status: "UNAVAILABLE",
       prediction: null,
       error: isStale ? `${tool === "dynamut2" ? "DynaMut2" : "DDMut"} remained unfinished after the 5-minute polling window.` : error,
-      reason: isStale ? "stale" : "transient",
-      retryable: !isStale
+      reason: isStale ? "stale" : rateLimited ? "rate_limited" : "transient",
+      retryable: !isStale,
+      ...(rateLimited ? { code: PROVIDER_RATE_LIMITED, retryAfterSec: rateLimit!.retryAfterSec } : {})
     };
     broadcastJobUpdate({ ...payload, tool });
     return res.json(payload);
@@ -537,6 +545,10 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       });
     } catch (err: any) {
       console.warn(`[Route Warning] DynaMut2 job polling failed for ${jobId}:`, err.message);
+      if (isProviderRateLimited(err)) {
+        await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "RATE_LIMITED" });
+        return finishBioSigUnavailable(res, jobId, "dynamut2", err.message, isStale, { retryAfterSec: err.retryAfterSec });
+      }
       await AuditLogger.log("DYNAMUT2_POLL", { reqId, jobId, status: "UNAVAILABLE" });
       return finishBioSigUnavailable(res, jobId, "dynamut2", `DynaMut2 upstream unavailable: ${err.message}`, isStale);
     }
@@ -581,6 +593,10 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       });
     } catch (err: any) {
       console.warn(`[Route Warning] DDMut job polling failed for ${jobId}:`, err.message);
+      if (isProviderRateLimited(err)) {
+        await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE", reason: "RATE_LIMITED" });
+        return finishBioSigUnavailable(res, jobId, "ddmut", err.message, isStale, { retryAfterSec: err.retryAfterSec });
+      }
       await AuditLogger.log("DDMUT_POLL", { reqId, jobId, status: "UNAVAILABLE" });
       return finishBioSigUnavailable(res, jobId, "ddmut", `DDMut upstream unavailable: ${err.message}`, isStale);
     }

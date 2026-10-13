@@ -1,5 +1,11 @@
 import https from "node:https";
 import { fetchWithRetry, withHostLock } from "../infra/http-client.ts";
+import {
+  egressGovernorMode,
+  isProviderRateLimited,
+  rateLimitedErrorFor,
+  recordRateLimit,
+} from "../infra/provider-pause.ts";
 
 export type BioSigTool = "dynamut2" | "ddmut";
 
@@ -20,7 +26,7 @@ export function httpGetWithBody(
   body: string,
   headers: Record<string, string>,
   timeoutMs = 15000
-): Promise<{ status: number; text: string }> {
+): Promise<{ status: number; text: string; retryAfter?: string }> {
   return new Promise((resolve, reject) => {
     let isSettled = false;
     const url = new URL(urlStr);
@@ -33,7 +39,7 @@ export function httpGetWithBody(
       reject(err);
     };
 
-    const safeResolve = (val: { status: number; text: string }) => {
+    const safeResolve = (val: { status: number; text: string; retryAfter?: string }) => {
       if (isSettled) return;
       isSettled = true;
       clearTimeout(deadlineTimer);
@@ -72,7 +78,12 @@ export function httpGetWithBody(
         });
 
         res.on("end", () => {
-          safeResolve({ status: res.statusCode || 200, text: data });
+          const retryAfter = res.headers?.["retry-after"];
+          safeResolve({
+            status: res.statusCode || 200,
+            text: data,
+            ...(typeof retryAfter === "string" ? { retryAfter } : {})
+          });
         });
       }
     );
@@ -277,6 +288,7 @@ export async function pollBioSigJob(
   try {
     let statusCode = 200;
     let rawText = "";
+    let retryAfter: string | undefined;
 
     if (tool === "ddmut") {
       // BioSig DDMut Flask route strictly inspects request.form['job_id'].
@@ -294,6 +306,7 @@ export async function pollBioSigJob(
       );
       statusCode = res.status;
       rawText = res.text;
+      retryAfter = res.retryAfter;
     } else {
       const pollUrl = `${url}?job_id=${encodeURIComponent(jobId)}`;
       const pollRes = await fetchWithRetry(pollUrl, {
@@ -308,6 +321,11 @@ export async function pollBioSigJob(
     if (statusCode < 200 || statusCode >= 300) {
       console.warn(`[${toolName} API] Polling request failed for job ${jobId} (status: ${statusCode})`);
       if (statusCode === 429) {
+        // The DDMut poll goes through node:https, not fetchWithRetry, so it reports its own 429 to the
+        // team-wide pause (WP-I3) and, under `EGRESS_GOVERNOR=on`, refuses with the same typed error.
+        const hostname = new URL(url).hostname;
+        recordRateLimit(hostname, 429, retryAfter);
+        if (egressGovernorMode() === "on") throw rateLimitedErrorFor(hostname, toolName);
         const rateLimitErr = new Error(`${toolName} upstream rate limit reached`);
         (rateLimitErr as any).statusCode = 429;
         throw rateLimitErr;
@@ -358,6 +376,8 @@ export async function pollBioSigJob(
     return { status: "ERROR", prediction: null };
   } catch (err: any) {
     console.warn(`[${toolName} API] Warning polling job ${jobId}:`, err.message);
+    // Reworded with the tool's own name: the host serves both DynaMut2 and DDMut.
+    if (isProviderRateLimited(err)) throw rateLimitedErrorFor(err.hostname, toolName, err.statusCode);
     if (err.statusCode === 429) {
       throw err;
     }
