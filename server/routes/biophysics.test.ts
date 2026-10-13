@@ -837,6 +837,43 @@ ATOM      4  CA  LEU A   4     10.000  10.000  10.000  1.00  0.00           C
   });
 
   describe("BioSig Polling Cache Backfill", () => {
+    it("answers a rate-limited poll as a live, retryable job with the provider's own wording (WP-I3)", async () => {
+      const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
+      if (!route || !route.route) throw new Error("Route /dynamut2-job/:jobId not found");
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+
+      const { ProviderRateLimitedError } = await import("../services/infra/provider-pause.ts");
+      const externalServices = await import("../services/external.ts");
+      const pollSpy = vi
+        .spyOn(externalServices, "pollDynaMut2Job")
+        .mockRejectedValue(new ProviderRateLimitedError("biosig.lab.uq.edu.au", "DynaMut2", 8));
+
+      let jsonVal: any = null;
+      const req: any = { params: { jobId: "178940469999" }, headers: {}, query: {} };
+      const res: any = {
+        status() {
+          return this;
+        },
+        json(body: any) {
+          jsonVal = body;
+          return this;
+        }
+      };
+      await handler(req, res, () => {});
+
+      expect(jsonVal).toMatchObject({
+        status: "UNAVAILABLE",
+        reason: "rate_limited",
+        retryable: true,
+        code: "PROVIDER_RATE_LIMITED",
+        retryAfterSec: 8,
+        error: "DynaMut2 is limiting requests; retrying in 8 s."
+      });
+      // Never the outage wording.
+      expect(jsonVal.error).not.toMatch(/unavailable|down/i);
+      pollSpy.mockRestore();
+    });
+
     it("should backfill completed DynaMut2 prediction into FoldX cache upon DONE status", async () => {
       const route = apiRouter.stack.find(s => s.route && s.route.path === "/dynamut2-job/:jobId");
       expect(route).toBeDefined();

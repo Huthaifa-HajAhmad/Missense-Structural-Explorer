@@ -20,6 +20,7 @@ import { inspectRaspIndexFile, hasLoaderVerifiedRaspIndex, RASP_SQLITE_PATH } fr
 import { execSync } from "child_process";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
+import { providerHealth } from "../services/infra/provider-pause.ts";
 
 export interface EngineCapability {
   id: string;
@@ -319,7 +320,10 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         sidecarReachable,
         sidecarLatencyMs
       },
-      engines
+      engines,
+      // Which remote provider is the constraint right now (WP-I3): hosts paused after a 429, or that
+      // rate-limited us in the last 15 minutes. Hostnames and counts only; never a token.
+      egress: providerHealth()
     });
   });
 }

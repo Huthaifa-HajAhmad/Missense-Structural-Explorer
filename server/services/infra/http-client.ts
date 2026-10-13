@@ -3,6 +3,7 @@
  *
  * Contains:
  *   - Circuit breaker setup (per-hostname)
+ *   - The team-wide 429 pause gate (`provider-pause.ts`, WP-I3)
  *   - fetchWithRetry (retry + jitter + Retry-After header support)
  *   - normalizeGeneSymbol
  *   - normalizeVariantTo3Letter
@@ -12,6 +13,14 @@
  */
 import { CircuitBreaker, Semaphore, anySignal } from "../../utils.ts";
 import { AMINO_ACID_1_TO_3_TITLE } from "../../../src/shared/aminoAcids.ts";
+import {
+  awaitProviderPause,
+  egressGovernorMode,
+  isRateLimitAnswer,
+  pauseRemainingMs,
+  rateLimitedErrorFor,
+  recordRateLimit,
+} from "./provider-pause.ts";
 
 /**
  * Upper bound on a server-supplied `Retry-After`.
@@ -158,6 +167,8 @@ export async function withHostLock<T>(
   fn: () => Promise<T>,
   signal?: AbortSignal
 ): Promise<T> {
+  // No deadline here, so under `EGRESS_GOVERNOR=on` a paused host refuses at once rather than waiting.
+  await awaitProviderPause(hostname, { signal });
   const sem = getHostSemaphore(hostname);
   await sem.acquire(120000, signal);
   const breaker = getHostBreaker(hostname);
@@ -218,6 +229,13 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
 
   // Never forward our own flag to fetch().
   const { probe = false, ...init } = options;
+
+  // The team-wide 429 pause (WP-I3). A probe is exempt for the same reason it skips the breaker: a
+  // monitor must still be able to observe the provider. Its own 429 is still recorded below.
+  if (!probe) await awaitProviderPause(hostname, { deadlineAt: options.deadlineAt, signal: options.signal });
+  const governorOn = egressGovernorMode() === "on";
+  /** The call ended on a rate-limit answer (429, or 503 with Retry-After). */
+  let rateLimited = false;
 
   const sem = getHostSemaphore(hostname);
   await sem.acquire(120000, options.signal ?? undefined); // Wait up to 120s to acquire hostname lock, respecting signal
@@ -310,6 +328,14 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
             backoff = Math.round(backoff * jitter);
           }
 
+          rateLimited = isRateLimitAnswer(res.status, retryAfterHeader);
+          if (rateLimited) {
+            recordRateLimit(hostname, res.status, retryAfterHeader);
+            // Under `on` our own retry honours the team pause too: retrying sooner than everyone else
+            // is allowed to would be the burst the pause exists to stop.
+            if (governorOn) backoff = Math.max(backoff, pauseRemainingMs(hostname));
+          }
+
           /**
            * A FAST refusal is not transient load: do not retry it.
            *
@@ -345,6 +371,8 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         return res;
       } catch (err: any) {
         lastError = err;
+        // A thrown attempt is not a rate-limit answer, whatever an earlier attempt returned.
+        rateLimited = false;
         // A CALLER-INITIATED abort (the resolution ladder's window or deadline, or a client
         // disconnect) is not an upstream failure: our own timer closed the request. Booking it
         // as a failure ejected a healthy-but-slow provider on the shared per-host breaker for
@@ -371,6 +399,11 @@ export async function fetchWithRetry(url: string, options: FetchWithRetryOptions
         console.warn(`[Upstream Fetch Error] Failed to fetch ${url} (attempt ${i + 1}/${retries}): ${err.message}. Retrying in ${backoff}ms...`);
         await abortableSleep(backoff, options.signal);
       }
+    }
+    if (governorOn && rateLimited) {
+      // A 429 is the provider's policy answer, not a failure: the pause handles it, so it does not
+      // count toward the breaker (under `off` and `shadow` it still does, which is today's behaviour).
+      throw rateLimitedErrorFor(hostname, undefined, lastStatus);
     }
     if (!probe) breaker.recordFailure();
     // The attempt count is reported honestly: a fast refusal breaks out after ONE attempt, and a

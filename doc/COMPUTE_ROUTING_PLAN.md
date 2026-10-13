@@ -60,6 +60,7 @@ one agent can take it without the others.
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
 | WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** (#118) (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
+| WP-I3 team-wide 429 pause: per-host pause for everyone, typed `PROVIDER_RATE_LIMITED`, 429 out of the breaker, DynaMut2/DDMut polls keep listening, provider health on `/capabilities` | **done** on `feat/wp-i3-429-pause`, ships `EGRESS_GOVERNOR=off` (14 pause + 3 copy + 1 route tests) | `server/services/infra/provider-pause.ts`, `http-client.ts`, `src/shared/providerLimits.ts`, `stability/dynamut.ts`, `routes/biophysics/polling.ts`, `routes/capabilities.ts` |
 | WP-G2 live routing: placement on the owner's computers, `runsOn` (where, why, prediction) on every job surface, fallback to the server, each computer's own speed, learned memory limits on the admin page | **done** on `feat/wp-g2-routing` (17 live-routing + 11 copy + 1 jobs-panel + 3 Energetics + 4 screen tests); placement is live only with `COMPUTE_ROUTING=on` | `admission.ts` (`placementOf`), `biophysical-queue.ts` (`routing` column, `agentLoad`, `releasePlacementsOf`), `routes/agent.ts` (`ownerAgentHosts`, `releaseStrandedPlacements`), `src/shared/jobPlacement.ts`, `ComputeLimits.tsx` |
 | everything else | not started | |
 
@@ -251,8 +252,35 @@ unpublished (production publishes only Caddy's 80/443; keep it that way); the CO
 wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-Origin write check.
 **This branch must land with or after PR #92**, which carries the AlphaGenome key fix.
 
+**Where WP-I3 differs from section 7** (the code is the source of truth):
+- **The pause is per hostname**, because that is what a provider counts; one host can serve several tools
+  (UQ BioSig serves DynaMut2 and DDMut, so a 429 on one pauses both). I1 adds the provider registry on top.
+- **The flag has three states, and `off` is exactly today's behaviour**, including the 429 counting toward the
+  breaker: with no pause in force, the breaker is the only thing that stops a burst against a provider that is
+  refusing us. `shadow` records pauses, shows them on `/capabilities` and logs each call it would have held
+  (`[egress:shadow]`), with responses and breaker accounting unchanged. Only `on` holds calls and takes the 429
+  out of the breaker.
+- **Length.** `Retry-After` (seconds or an HTTP date), capped at 10 s, the bound `fetchWithRetry` already uses;
+  5 s when it is absent, unparseable, 0 or in the past. A later answer can lengthen a pause, never shorten it.
+  A 503 pauses only when it carries `Retry-After`.
+- **Who waits.** A caller with a `deadlineAt` that leaves room for the pause plus 1.5 s waits; any other caller is
+  refused at once with `ProviderRateLimitedError` (`code: PROVIDER_RATE_LIMITED`, `retryAfterSec`, and the
+  provider's own status as `statusCode`, so existing `=== 429` checks still work). `fetchWithRetry`'s own
+  retry after a 429 waits for the team pause too. Health probes are exempt from the gate (a monitor must still
+  observe the provider) but their 429s are recorded. `withHostLock` (node:https callers) honours the gate.
+- **DynaMut2 / DDMut.** The DDMut poll (node:https) records its own 429. A rate-limited poll answers
+  `UNAVAILABLE` with `reason: "rate_limited"`, `retryable: true`, `code` and `retryAfterSec`, so the client keeps
+  listening (the job is delayed, not failed) and says "DynaMut2 is limiting requests; retrying in N s." A
+  rate-limited SUBMIT still returns `null` like any other failed submit: its four callers take `string | null`.
+- **`/capabilities` gains `egress: { mode, providers[] }`**: hosts paused now or rate-limiting in the last
+  15 minutes, with `state`, `pausedUntil`, `retryAfterSec`, `recentRateLimits`, `wouldHold` and
+  `limitBasis: "unmeasured"` (I1 fills it). Hostnames and counts only.
+- **Not in I3:** serving stale cache while paused belongs to I2 (expired rows are filtered at read, so it needs a
+  new read path and a `stale` flag on the returned value), and callers that use raw `fetch` (I1's migration list)
+  are not gated yet.
+
 **Audit facts the next packages must start from** (verified against the code, 2026-10-09):
-- **WP-I3:** a fast 429 does **not** stay out of the circuit breaker today. The fast-refusal path `break`s
+- **WP-I3 (resolved under `EGRESS_GOVERNOR=on` by WP-I3; `off` keeps it):** a fast 429 does **not** stay out of the circuit breaker today. The fast-refusal path `break`s
   out of the retry loop and reaches the unconditional `breaker.recordFailure()` after it
   (`server/services/infra/http-client.ts`, ~line 375), so the "429 does not count" premise in I3 is a change
   to make, not existing behaviour.
@@ -375,7 +403,7 @@ per-package notes above.
 | The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
 | macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
 | De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
-| 429 from a provider still trips the circuit breaker; no fair share for remote calls | the team shares one IP | WP-I (I3 first, no accounts needed) |
+| No fair share for remote calls (I1), no stale-on-rate-limit (I2), no per-user credential buckets (I4); the I3 pause is built but ships `off` | the team shares one IP | WP-I; owner action: `EGRESS_GOVERNOR=shadow`, then `on` |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 | A placement is decided once, at submit: a job placed on a busy computer is not moved when the server frees up (only when the computer cannot take it, or sits idle 2 min without claiming it) | the engine already prices the computer's queue, so a second job overflows to the server when that is quicker; re-deciding waiting jobs is an optimisation | later, if the logs show long waits on a computer |
 | No preview before submit: the decision is shown from the moment the job is queued (submit response, poll, My jobs), not before the button is pressed | the job is queued or placed within the same request, so a preview would show the same thing a moment earlier | later, if wanted |
@@ -390,7 +418,9 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
 1. **WP-F — agents** — done (#118).
 2. **WP-G2 — live routing** — done on `feat/wp-g2-routing` (see WP-G). Then the owner action above:
    `COMPUTE_ROUTING=on` after reading the shadow log.
-3. **WP-I — outbound governor**, I3 (team-wide 429 pause) first.
+3. **WP-I — outbound governor**: I3 (team-wide 429 pause) done on `feat/wp-i3-429-pause`; next I1 (fair-share
+   limiter and the raw-`fetch` migration), then the I2 fixes (stale-on-rate-limit needs a read path for expired
+   rows), then I4.
 
 Shipped since the previous revision of this list, so nobody rebuilds them: **WP-G1** (`/my-jobs`, cancel and the
 wait estimate reached the interface; #106) and **WP-H** (runbook, Cloudflare corrections, OpenAPI and

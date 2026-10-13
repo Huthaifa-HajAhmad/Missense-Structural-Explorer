@@ -104,7 +104,7 @@ export function useJobPoller<TData = any>({
      * end the job: it may still be running upstream. Keep the stream open and poll slowly until the
      * server calls it stale or the listening window closes. Returns true when it ended the poll instead.
      */
-    const enterListening = (reason: string): boolean => {
+    const enterListening = (reason: string, notice?: string): boolean => {
       if (stopped) return true;
       if (listening) return false;
       const remaining = Math.min(maxElapsedMs, listenWindowMs) - (Date.now() - pollStart);
@@ -118,7 +118,7 @@ export function useJobPoller<TData = any>({
       deadlineId = setTimeout(() => finish("unavailable", `${toolName} did not recover within the listening window: ${reason}`), remaining);
       onListeningRef.current?.(reason);
       notifyOnceRef.current?.(`${toolName}_${jobId}_listening`, "info",
-        `${toolName} did not answer in time — still listening; the value will appear if it arrives.`);
+        notice ?? `${toolName} did not answer in time — still listening; the value will appear if it arrives.`);
       return false;
     };
     const consume = (data: any): boolean => {
@@ -133,7 +133,12 @@ export function useJobPoller<TData = any>({
         return true;
       }
       if (normStatus === "UNAVAILABLE" && data.retryable === true && data.reason !== "stale") {
-        return enterListening(data.error || `${toolName} provider did not answer.`);
+        // A rate limit (WP-I3) is the provider asking the team to wait, not a silence: say so.
+        const rateLimited = data.reason === "rate_limited" && typeof data.error === "string";
+        return enterListening(
+          data.error || `${toolName} provider did not answer.`,
+          rateLimited ? `${data.error} Still listening; the value will appear when it arrives.` : undefined
+        );
       }
       if (["ERROR", "FAILED", "UNAVAILABLE"].includes(normStatus)) {
         finish(normStatus === "UNAVAILABLE" ? "unavailable" : "error",
