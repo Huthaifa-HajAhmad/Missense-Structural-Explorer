@@ -25,6 +25,7 @@ import {
 import {
   testTamarindConnection,
 } from "../../services/biophysics.ts";
+import { governedFetch } from "../../services/infra/http-client.ts";
 
 const testTamarindConnectionSchema = z.object({
   tamarindApiKey: z.string().optional()
@@ -74,7 +75,7 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       if (!hfToken) {
         return res.json({ valid: false, message: "No Hugging Face token provided." });
       }
-      const response = await fetch("https://huggingface.co/api/whoami-v2", {
+      const response = await governedFetch("https://huggingface.co/api/whoami-v2", {
         headers: {
           "Authorization": `Bearer ${hfToken}`
         },

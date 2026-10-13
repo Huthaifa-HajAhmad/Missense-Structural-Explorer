@@ -61,6 +61,8 @@ interface HostState {
   rateLimits: number[];
   /** Calls a `shadow` pause would have held; reported, never acted on. */
   wouldHold: number;
+  /** Last `[egress:shadow]` hold line, so a busy pause logs once a minute, not once per call. */
+  lastHoldLog: number;
 }
 
 const hosts = new Map<string, HostState>();
@@ -68,7 +70,7 @@ const hosts = new Map<string, HostState>();
 function stateOf(hostname: string): HostState {
   let s = hosts.get(hostname);
   if (!s) {
-    s = { pausedUntil: 0, lastStatus: 0, rateLimits: [], wouldHold: 0 };
+    s = { pausedUntil: 0, lastStatus: 0, rateLimits: [], wouldHold: 0, lastHoldLog: 0 };
     hosts.set(hostname, s);
   }
   return s;
@@ -139,11 +141,13 @@ export function recordRateLimit(
   if (mode === "off") return 0;
   const pauseMs = pauseMsFromRetryAfter(retryAfterHeader, now);
   const s = stateOf(hostname);
+  // Logged when a pause starts, not for every refusal of calls already in flight during it.
+  const starts = s.pausedUntil <= now;
   s.pausedUntil = Math.max(s.pausedUntil, now + pauseMs);
   s.lastStatus = status;
   s.rateLimits.push(now);
   prune(s, now);
-  console.warn(
+  if (starts) console.warn(
     `[egress:${mode}] ${providerLabelForHost(hostname)} (${hostname}) answered ${status}; ` +
       `${mode === "on" ? "pausing" : "would pause"} it for everyone for ${retryAfterSeconds(pauseMs)} s.`
   );
@@ -199,10 +203,16 @@ export async function awaitProviderPause(
   let remaining = pauseRemainingMs(hostname);
   if (remaining <= 0) return;
   if (mode === "shadow") {
-    stateOf(hostname).wouldHold++;
-    console.warn(
-      `[egress:shadow] a call to ${hostname} would have been held ${retryAfterSeconds(remaining)} s (sent anyway).`
-    );
+    const s = stateOf(hostname);
+    s.wouldHold++;
+    const now = Date.now();
+    if (now - s.lastHoldLog > 60_000) {
+      s.lastHoldLog = now;
+      console.warn(
+        `[egress:shadow] a call to ${hostname} would have been held ${retryAfterSeconds(remaining)} s ` +
+          `(sent anyway; ${s.wouldHold} so far).`
+      );
+    }
     return;
   }
   while (remaining > 0) {
@@ -228,8 +238,11 @@ export interface ProviderHealth {
   recentRateLimits: number;
   /** Calls a `shadow` pause would have held since start-up. */
   wouldHold: number;
-  /** I1 fills published or learned rates; until then every host is counted by concurrency only. */
-  limitBasis: "unmeasured";
+  /**
+   * Always "unmeasured" here: this module cannot see the governor's rates without an import cycle.
+   * `/capabilities` replaces it with the governor's basis (`egress-governor.ts` `limitBasisFor`).
+   */
+  limitBasis: "documented" | "observed" | "unmeasured";
 }
 
 /** Every host that has rate-limited us in the last 15 minutes, or is paused now. */

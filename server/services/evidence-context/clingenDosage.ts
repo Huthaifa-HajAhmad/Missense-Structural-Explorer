@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { DOSAGE_SOURCE_URL, dosageResponseSchema, parseDosageScore, type DosageResponse } from '../../../src/shared/dosageSensitivity.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 /**
  * The ClinGen dosage API ignores `search` and returns every gene (~2,200 rows, ~2 MB), so the table
@@ -22,7 +23,7 @@ let flight: Promise<Table> | null = null;
 async function loadTable(): Promise<Table> {
   const hit = cache.get('table'); if (hit) return hit;
   flight ??= (async () => {
-    const response = await fetch(DOSAGE_SOURCE_URL, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
+    const response = await governedFetch(DOSAGE_SOURCE_URL, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new Error(`ClinGen dosage HTTP ${response.status}`);
     const raw = await response.text(); const table = tableSchema.parse(JSON.parse(raw));
     if (!table.rows.length || table.rows.length !== table.total) throw new Error('Incomplete ClinGen dosage table');

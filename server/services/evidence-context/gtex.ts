@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { adultExpressionResponseSchema, type AdultExpressionResponse } from '../../../src/shared/expressionModels.ts';
+import { governedFetch } from "../infra/http-client.ts";
 const BASE = 'https://gtexportal.org/api/v2';
 const DATASET = 'gtex_v10';
 const paging = z.object({ totalNumberOfItems: z.number().int(), numberOfPages: z.number().int() });
@@ -18,7 +19,7 @@ const tissueSchema = z.object({ data: z.array(z.object({
 const cache = new LRUCache<string, AdultExpressionResponse>({ max: 500, ttl: 24 * 60 * 60 * 1000 });
 const flights = new Map<string, Promise<AdultExpressionResponse>>();
 async function read(url: URL) {
-  const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+  const response = await governedFetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
   if (!response.ok) throw new Error(`GTEx HTTP ${response.status}`);
   const raw = await response.text(); return { raw, data: JSON.parse(raw) as unknown };
 }

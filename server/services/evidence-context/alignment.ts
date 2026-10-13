@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { alignmentResponseSchema, type AlignmentResponse } from '../../../src/shared/residueAlignment.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 const URL_BASE = 'https://rest.ensembl.org/homology/symbol/human/';
 const TAXA: Record<string, string> = { mus_musculus: 'NCBITaxon:10090', rattus_norvegicus: 'NCBITaxon:10116', danio_rerio: 'NCBITaxon:7955',
@@ -19,7 +20,7 @@ export async function loadAlignment(gene: string): Promise<AlignmentResponse> {
     try {
       const species = Object.keys(TAXA).map(s => `target_species=${s}`).join(';');
       const url = `${URL_BASE}${encodeURIComponent(gene)}?type=orthologues;sequence=protein;aligned=1;${species};compara=vertebrates`;
-      const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(45000) });
+      const response = await governedFetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(45000) });
       if (response.status === 400 || response.status === 404) return { gene, status: 'not-found', sourceProteinId: null, homologies: [], provenance: null, message: 'Ensembl Compara has no human gene with this symbol.' };
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.text(); const body = schema.parse(JSON.parse(raw));

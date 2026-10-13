@@ -3,6 +3,7 @@ import { TabixIndexedFile } from "@gmod/tabix";
 import { getCachedOrFetch } from "../infra/cache.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 import { sanitizeErrorMessage } from "../../utils/security.ts";
+import { governedFetch } from "../infra/http-client.ts";
 
 export interface ModelInferenceResult {
   score: number | null;
@@ -87,7 +88,7 @@ export async function fetchGpnStarByCoordinate(
         ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
         : AbortSignal.timeout(15000);
 
-      const res = await fetch(sidecarUrl, {
+      const res = await governedFetch(sidecarUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chrom, pos, ref, alt }),
@@ -267,7 +268,7 @@ export async function fetchGpnStarScore(
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch(sidecarUrl, {
+      const res = await governedFetch(sidecarUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({ sequence, pos, wt: wt.toUpperCase(), mut: mut.toUpperCase() }),

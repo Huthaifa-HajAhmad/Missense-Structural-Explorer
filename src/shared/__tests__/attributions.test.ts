@@ -183,6 +183,8 @@ describe("attribution registry", () => {
       "uniprot.org": "curated variant record links; the API is rest.uniprot.org",
       "ncbi.nlm.nih.gov": "article links; the API is eutils.ncbi.nlm.nih.gov",
       "pubmed.ncbi.nlm.nih.gov": "article links only",
+      // Cited in the egress governor's registry as where NCBI publishes its E-utilities rate limit.
+      "support.nlm.nih.gov": "source citation for NCBI's published rate limit; the server never requests it",
       // A documentation link in a code comment (the Gemini deprecations table). The server never
       // requests it; the Gemini calls go to generativelanguage.googleapis.com.
       "ai.google.dev": "documentation link in a code comment; the server never requests it",

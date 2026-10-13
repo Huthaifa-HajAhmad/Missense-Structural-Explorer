@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { pextResponseSchema, type PextResponse } from '../../../src/shared/pext.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 const URL = 'https://gnomad.broadinstitute.org/api';
 const QUERY = 'query($s:String!){ gene(gene_symbol:$s, reference_genome:GRCh38){ gene_id symbol chrom pext { flags regions { start stop mean tissues { tissue value } } } } }';
@@ -16,7 +17,7 @@ export async function loadPext(gene: string): Promise<PextResponse> {
   const running = flights.get(gene); if (running) return running;
   const task = (async (): Promise<PextResponse> => {
     try {
-      const response = await fetch(URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ query: QUERY, variables: { s: gene } }), signal: AbortSignal.timeout(30000) });
+      const response = await governedFetch(URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ query: QUERY, variables: { s: gene } }), signal: AbortSignal.timeout(30000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const raw = await response.text(); const body = schema.parse(JSON.parse(raw));
       if (body.errors) {

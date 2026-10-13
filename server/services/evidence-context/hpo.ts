@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { LRUCache } from 'lru-cache';
 import { HPO_DISEASE_ID, hpoResponseSchema, type HpoResponse } from '../../../src/shared/hpoAnnotation.ts';
+import { governedFetch } from "../infra/http-client.ts";
 
 const BASE = 'https://ontology.jax.org/api/network/annotation/';
 const termSchema = z.object({ id: z.string(), name: z.string(), category: z.string().optional(),
@@ -25,7 +26,7 @@ export async function loadHpoAnnotation(gene: string, query: unknown): Promise<H
     try {
       for (const id of ids) {
         const url = BASE + id;
-        const response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+        const response = await governedFetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
         if (response.status === 404) continue;
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const raw = await response.text(); const body = schema.parse(JSON.parse(raw));

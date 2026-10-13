@@ -53,6 +53,7 @@ import {
 } from "../external-api/uniprot.ts";
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { fetchVariantValidatorConsequence } from "./variant-validator.ts";
+import { isEgressRefusal } from "../infra/egress-governor.ts";
 import {
   normalizeIsoformIds,
   reconcileIsoformNumbering,
@@ -492,8 +493,10 @@ export async function fetchEnsemblVepConsequence(
      * production message telling the user every provider was down while VariantValidator was
      * answering 429 (rate-limiting us) and Ensembl 500-for-everything.
      */
+    // A call the server itself held back (fair-share wait, team-wide 429 pause; WP-I) is about OUR
+    // request rate too, never an outage: it was not even sent.
     const kind: ProviderAttempt["failureKind"] =
-      err?.statusCode === 429 ? "rate_limited" : "upstream_unavailable";
+      err?.statusCode === 429 || isEgressRefusal(err) ? "rate_limited" : "upstream_unavailable";
     throw new CoordinateResolutionError(kind, `Ensembl VEP: ${err?.message || "network error"}`, [
       attempt(false, err?.message || "network error", kind),
     ]);
@@ -797,8 +800,9 @@ export function buildResolutionUnavailableMessage(
   }
   if (kind === "rate_limited") {
     return (
-      "The reference services are rate-limiting this deployment right now (HTTP 429), so coordinate " +
-      "translation is paused rather than retried immediately. Wait a minute and try again, or enter " +
+      "The reference services are rate-limiting this deployment right now, or the server is pacing " +
+      "the team's calls to them, so coordinate translation is paused rather than retried immediately. " +
+      "Wait a minute and try again, or enter " +
       "the protein-level substitution directly (for example p.Glu433Lys) to run the analysis without " +
       "coordinate translation."
     );

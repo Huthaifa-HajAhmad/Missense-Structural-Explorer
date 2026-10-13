@@ -12,6 +12,7 @@ import crypto from "crypto";
 import { LRUCache } from "lru-cache";
 import { CONFIG } from "../../config.ts";
 import { anySignal } from "../../utils/signals.ts";
+import { governedFetch } from "../infra/http-client.ts";
 
 export interface JapanFoldZeroShotResult {
   status: "success" | "failed";
@@ -85,7 +86,7 @@ export async function queryEsmc(
 
   try {
     const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-    const response = await fetch(url, {
+    const response = await governedFetch(url, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -146,7 +147,9 @@ export async function queryEsmfold2(
 
   try {
     const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-    const response = await fetch(url, {
+    const response = await governedFetch(url, {
+      // A fold holds its request open until the model answers; its own lane keeps short calls moving.
+      lane: "compute",
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -180,7 +183,7 @@ export async function queryEsmfold2(
           if (effectiveSignal?.aborted) break;
 
           try {
-            const pollRes = await fetch(resultsUrl, {
+            const pollRes = await governedFetch(resultsUrl, {
               headers: getAuthHeaders(),
               signal: effectiveSignal
             });
@@ -241,7 +244,7 @@ export async function querySaProt(
 
   try {
     const url = `${CONFIG.services.japanfoldBaseUrl}/v1/predictions`;
-    const response = await fetch(url, {
+    const response = await governedFetch(url, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -387,7 +390,8 @@ async function submitBoltz2(
 ): Promise<BoltzSubmit> {
   let response: Response;
   try {
-    response = await fetch(`${CONFIG.services.japanfoldBaseUrl}/v1/predictions`, {
+    response = await governedFetch(`${CONFIG.services.japanfoldBaseUrl}/v1/predictions`, {
+      lane: "compute", // the submit can hold its request open until the model answers
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ model: "boltz-2", chains }),
@@ -463,7 +467,7 @@ export async function runBoltz2Multimer(
   while (!outOfTime()) {
     if (signal?.aborted) return { status: "running", jobId: job.jobId };
     try {
-      const res = await fetch(job.resultsUrl, { headers: getAuthHeaders(), signal: anySignal([signal, AbortSignal.timeout(15000)]) });
+      const res = await governedFetch(job.resultsUrl, { headers: getAuthHeaders(), signal: anySignal([signal, AbortSignal.timeout(15000)]) });
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as any;
         const finished = data?.ready || data?.status === "completed" || data?.status === "succeeded" || data?.status === "success";

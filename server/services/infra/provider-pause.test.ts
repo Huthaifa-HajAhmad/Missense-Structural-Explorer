@@ -16,6 +16,7 @@ import {
   recordRateLimit,
   resetProviderPausesForTests,
 } from "./provider-pause.ts";
+import { resetEgressGovernorForTests } from "./egress-governor.ts";
 
 /**
  * WP-I3: the team-wide 429 pause (doc/COMPUTE_ROUTING_PLAN.md).
@@ -43,6 +44,9 @@ const savedMode = process.env.EGRESS_GOVERNOR;
 beforeEach(() => {
   resetHostStateForTests();
   resetProviderPausesForTests();
+  // The governor (WP-I1) keeps per-provider history too; without a reset, calls from earlier tests
+  // accumulate until a 429 teaches it a rate, and later tests wait on tokens instead of the pause.
+  resetEgressGovernorForTests();
   setBackoffScaleForTests(0);
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });

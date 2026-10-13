@@ -11,7 +11,7 @@
 
 import crypto from "node:crypto";
 import { LRUCache } from "lru-cache";
-import { fetchWithRetry, withHostLock } from "../infra/http-client.ts";
+import { fetchWithRetry, reportEgressAnswer, withHostLock } from "../infra/http-client.ts";
 import { httpGetWithBody } from "./dynamut.ts";
 
 /**
@@ -165,6 +165,8 @@ export async function pollDdmutPpiJob(
         timeoutMs
       )
     );
+
+    reportEgressAnswer(urlObj.hostname, res.status, res.retryAfter ?? null);
 
     if (res.status < 200 || res.status >= 300) {
       console.warn(`[DDMut-PPI API] Polling failed for job ${jobId} (status: ${res.status})`);
