@@ -42,11 +42,11 @@ jobs:
     # stopped it. A red run at this limit still means "the deploy was never dispatched".
     #
     # Raised 2026-10-12 from 6 min, because the job now also polls the public revision endpoint
-    # (see the last step): dispatch + its 30 s window is ~2 min, and DEPLOY_VERDICT_SECONDS is 600.
-    # 15 min is that sum plus slack for a slow SSH. The old 6-min ceiling could not have held a
-    # verdict wait at all — it would have killed the run mid-poll and reported a red for a deploy
-    # that was landing fine.
-    timeout-minutes: 15
+    # (see the last step): dispatch + its window is ~2 min (push) or ~4 min (manual), plus
+    # DEPLOY_VERDICT_SECONDS of 300 / 600 — ~14 min worst case. 20 min is that sum plus slack for
+    # a slow SSH handshake. The old 6-min ceiling could not have held a verdict wait at all — it
+    # would have killed the run mid-poll and reported a red for a deploy that was landing fine.
+    timeout-minutes: 20
     if: >-
       github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -77,13 +77,15 @@ jobs:
       DEPLOY_CONFIRM_SECONDS: ${{ github.event_name == 'workflow_dispatch' && '180' || '30' }}
       # How long the runner waits for production to actually serve DEPLOY_SHA, measured by
       # polling the same public /api/v1/version that rollout.py itself trusts and that the
-      # drift watch reads — not by holding an SSH session open. 600 s covers a warm build plus
-      # its handover with margin (a warm-cache deploy is ~110 s after dispatch), and exits the
+      # drift watch reads — not by holding an SSH session open. A push deploy waits 300 s: a
+      # warm-cache deploy is ~110 s after dispatch, so that is ~2.5x margin, and a cold build
+      # (~20 min) outlives ANY affordable window, so a longer push wait would only bill idle
+      # minutes before the same warning — the cost the 30 s confirm window above was cut to avoid.
+      # A manual workflow_dispatch keeps 600 s: a human asked for the verdict. The wait exits the
       # moment the commit is live, so the bill is time-to-verdict rather than the ceiling.
-      # Longer than that belongs to the detached rollout and the drift watch: a cold build and
-      # its ~20 min drain legitimately outlive any affordable runner wait, and failing here for
+      # Longer than that belongs to the detached rollout and the drift watch, and failing here for
       # one would mean red runs for healthy deploys.
-      DEPLOY_VERDICT_SECONDS: "600"
+      DEPLOY_VERDICT_SECONDS: ${{ github.event_name == 'workflow_dispatch' && '600' || '300' }}
       # The public revision endpoint: the one true "is it deployed" signal, reachable from
       # runners, machines, and the VM alike (rollout.py reads exactly this in public_version()).
       LIVE_URL: https://missense-resolve.duckdns.org/api/v1/version
@@ -354,8 +356,24 @@ jobs:
         run: |
           set -euo pipefail
           deadline=$(( $(date -u +%s) + DEPLOY_VERDICT_SECONDS ))
+
+          # SUPERSEDED REVISIONS DO NOT WAIT. The dispatch step above exits 0 when main has already
+          # moved past DEPLOY_SHA, and nothing was dispatched for it — so production will never
+          # serve DEPLOY_SHA, and polling for it would burn the whole window (and hold the
+          # production-deployment lock) for a warning that is wrong. The newer commit's own CD run
+          # owns the verdict. The same check repeats about once a minute because a merge can land
+          # mid-poll. A failed API read leaves the tip unknown, which keeps waiting.
+          main_tip=""
           live=""
+          tick=0
           while [ "$(date -u +%s)" -lt "$deadline" ]; do
+            if [ $(( tick % 4 )) -eq 0 ]; then
+              main_tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha 2>/dev/null || true)"
+              if [ -n "$main_tip" ] && [ "$main_tip" != "$DEPLOY_SHA" ]; then
+                echo "[CD] verdict: superseded — main moved to $main_tip; that revision's own run reports its deploy."
+                exit 0
+              fi
+            fi
             live="$(curl -fsS --max-time 15 "$LIVE_URL" \
               | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit","") or "")' 2>/dev/null \
               || true)"
@@ -363,19 +381,9 @@ jobs:
               echo "[CD] verdict: production serves $DEPLOY_SHA"
               exit 0
             fi
+            tick=$(( tick + 1 ))
             sleep 15
           done
-
-          # The window lapsed. Before warning, check the one legitimate reason to be stale: this
-          # revision was superseded by a newer one that is already serving. The dispatch step
-          # skips those itself, but it can only see a tip that had landed before it ran.
-          if [ -n "$live" ]; then
-            main_tip="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha 2>/dev/null || true)"
-            if [ -n "$main_tip" ] && [ "$live" = "$main_tip" ] && [ "$live" != "$DEPLOY_SHA" ]; then
-              echo "[CD] verdict: superseded — main reached $main_tip and production already serves it."
-              exit 0
-            fi
-          fi
 
           echo "::warning::No verdict after ${DEPLOY_VERDICT_SECONDS}s: production still serves ${live:-<unreachable>} for $DEPLOY_SHA. The rollout may still be in flight — the detached worker owns it and skips itself if main moved on."
           {
