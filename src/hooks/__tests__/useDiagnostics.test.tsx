@@ -141,4 +141,43 @@ describe("useDiagnostics — degraded coverage follow-up", () => {
     // A leaked timer would issue requests from a dead component.
     expect(diagCalls).toBe(1);
   });
+
+  it("resets follow-up attempts when manually refreshed", async () => {
+    const { result } = renderHook(() => useDiagnostics());
+
+    await act(async () => {});
+    // Exhaust all 4 follow-ups (5 calls total)
+    await advance(200_000);
+    expect(diagCalls).toBe(5);
+
+    // Manual refresh should trigger call 6 and allow follow-ups again
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(diagCalls).toBe(6);
+
+    // Advance to schedule follow-up
+    await advance(1500);
+    expect(diagCalls).toBe(7);
+  });
+
+  it("safely combines signals when AbortSignal.any is not supported", async () => {
+    const originalAny = AbortSignal.any;
+    try {
+      // Simulate environment without AbortSignal.any
+      delete (AbortSignal as any).any;
+
+      const { result } = renderHook(() => useDiagnostics());
+      await act(async () => {});
+      expect(diagCalls).toBe(1);
+
+      const ext = new AbortController();
+      await act(async () => {
+        await result.current.refresh(ext.signal);
+      });
+      expect(diagCalls).toBe(2);
+    } finally {
+      AbortSignal.any = originalAny;
+    }
+  });
 });

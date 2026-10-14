@@ -210,69 +210,71 @@ def start_background_warmup():
 
 def load_vesm():
     global vesm_tokenizer, vesm_model, model_status
-    if vesm_model is not None:
-        model_status["vesm"] = "ready"
-        return
-    model_status["vesm"] = "downloading"
-    model_name = "VESM_150M"
-    base_model_name = "facebook/esm2_t30_150M_UR50D"
-    base_revision = HF_MODEL_REVISIONS.get(base_model_name)
-    
-    hf_home = os.environ.get("HF_HOME")
-    if hf_home and os.path.exists(hf_home):
-        default_dir = os.path.join(hf_home, "vesm")
-    else:
-        default_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vesm")
-    local_dir = os.environ.get("VESM_CACHE_DIR", default_dir)
-    os.makedirs(local_dir, exist_ok=True)
+    with _model_lock:
+        if vesm_model is not None:
+            model_status["vesm"] = "ready"
+            return
+        model_status["vesm"] = "downloading"
+        model_name = "VESM_150M"
+        base_model_name = "facebook/esm2_t30_150M_UR50D"
+        base_revision = HF_MODEL_REVISIONS.get(base_model_name)
+        
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home and os.path.exists(hf_home):
+            default_dir = os.path.join(hf_home, "vesm")
+        else:
+            default_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vesm")
+        local_dir = os.environ.get("VESM_CACHE_DIR", default_dir)
+        os.makedirs(local_dir, exist_ok=True)
 
-    try:
-        weights_path = download_weights(repo_id="ntranoslab/vesm", filename=f"{model_name}.pth", local_dir=local_dir)
-        print(f"[Model Server] Loading VESM tokenizer from {base_model_name}...")
-        model_status["vesm"] = "loading"
-        vesm_tokenizer = _safe_load_tokenizer(base_model_name, revision=base_revision)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.float32
-        vesm_model = _safe_load_esm_model(base_model_name, dtype=dtype, revision=base_revision)
-        
-        state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
-        
-        model_keys = set(vesm_model.state_dict().keys())
-        ckpt_keys = set(state_dict.keys())
-        
-        missing_keys = model_keys - ckpt_keys
-        unexpected_keys = ckpt_keys - model_keys
-        
-        if missing_keys:
-            print(f"[Model Server] Warning: Missing keys in state dict: {missing_keys}", file=sys.stderr)
-        if unexpected_keys:
-            print(f"[Model Server] Warning: Unexpected keys in state dict: {unexpected_keys}", file=sys.stderr)
+        try:
+            weights_path = download_weights(repo_id="ntranoslab/vesm", filename=f"{model_name}.pth", local_dir=local_dir)
+            print(f"[Model Server] Loading VESM tokenizer from {base_model_name}...")
+            model_status["vesm"] = "loading"
+            vesm_tokenizer = _safe_load_tokenizer(base_model_name, revision=base_revision)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = torch.float32
+            vesm_model = _safe_load_esm_model(base_model_name, dtype=dtype, revision=base_revision)
             
-        non_buffer_missing = {k for k in missing_keys if "inv_freq" not in k}
-        if non_buffer_missing:
-            raise RuntimeError(f"Failed to load VESM model: critical weight keys are missing: {non_buffer_missing}")
+            state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
             
-        for k in list(state_dict.keys()):
-            if k in unexpected_keys:
-                del state_dict[k]
+            model_keys = set(vesm_model.state_dict().keys())
+            ckpt_keys = set(state_dict.keys())
+            
+            missing_keys = model_keys - ckpt_keys
+            unexpected_keys = ckpt_keys - model_keys
+            
+            if missing_keys:
+                print(f"[Model Server] Warning: Missing keys in state dict: {missing_keys}", file=sys.stderr)
+            if unexpected_keys:
+                print(f"[Model Server] Warning: Unexpected keys in state dict: {unexpected_keys}", file=sys.stderr)
                 
-        for k in missing_keys:
-            if k not in state_dict:
-                state_dict[k] = vesm_model.state_dict()[k]
+            non_buffer_missing = {k for k in missing_keys if "inv_freq" not in k}
+            if non_buffer_missing:
+                raise RuntimeError(f"Failed to load VESM model: critical weight keys are missing: {non_buffer_missing}")
                 
-        vesm_model.load_state_dict(state_dict, strict=True)
-        vesm_model.eval()
-        
-        emb_weight = vesm_model.esm.embeddings.word_embeddings.weight
-        model_status["vesm"] = "ready"
-        print(f"[Model Server] VESM_150M model loaded successfully with strict=True.")
-        print(f"[Model Server] Validation - word embeddings stats: mean={emb_weight.mean().item():.6f}, std={emb_weight.std().item():.6f}")
-    except Exception as e:
-        model_status["vesm"] = "failed"
-        raise e
+            for k in list(state_dict.keys()):
+                if k in unexpected_keys:
+                    del state_dict[k]
+                    
+            for k in missing_keys:
+                if k not in state_dict:
+                    state_dict[k] = vesm_model.state_dict()[k]
+                    
+            vesm_model.load_state_dict(state_dict, strict=True)
+            vesm_model.eval()
+            
+            emb_weight = vesm_model.esm.embeddings.word_embeddings.weight
+            model_status["vesm"] = "ready"
+            print(f"[Model Server] VESM_150M model loaded successfully with strict=True.")
+            print(f"[Model Server] Validation - word embeddings stats: mean={emb_weight.mean().item():.6f}, std={emb_weight.std().item():.6f}")
+        except Exception as e:
+            model_status["vesm"] = "failed"
+            raise e
 
 def clear_vesm():
     global vesm_tokenizer, vesm_model, model_status
-    vesm_tokenizer = None
-    vesm_model = None
-    model_status["vesm"] = "standby"
+    with _model_lock:
+        vesm_tokenizer = None
+        vesm_model = None
+        model_status["vesm"] = "standby"

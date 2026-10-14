@@ -5,6 +5,7 @@ import { DGTEX_COHORTS } from '../../shared/developmentalExpression';
 import { AlignmentStrip } from './ContextCharts';
 import { AssertionMatrix } from './ContextFigures';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
+import { validityPosition } from '../../shared/diseaseFrame';
 const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
 
 /** Page size for source records and the expression chart alike; one number, three captions. */
@@ -35,7 +36,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
   const page = useMemo(() => contextPage(rows, { group, query: w.query, cohort: group === 'developmental' ? w.cohort : 'all',
     relevantOnly: w.relevantOnly, limit: all ? Number.MAX_SAFE_INTEGER : CX_PAGE_LIMIT }), [rows, group, w.query, w.cohort, w.relevantOnly, all]);
   const selected = rows.find(r => r.key === w.selected);
-  const levels = useMemo(() => [...new Set(rows.filter(r => r.group === 'validity').map(r => r.valueText))], [rows]);
+  const levels = useMemo(() => [...new Set(rows.filter(r => r.group === 'validity').map(r => r.valueText))].sort((a, b) => (validityPosition(b) ?? -1) - (validityPosition(a) ?? -1)), [rows]);
   const chart = useMemo(() => {
     const maximum = page.max || 1;
     const ticks = [0, maximum / 4, maximum / 2, maximum * .75, maximum];
