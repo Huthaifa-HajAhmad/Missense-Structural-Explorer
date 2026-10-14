@@ -68,3 +68,15 @@ Repeatable fixture entry point: `tools/evidence-preview/`. API calls are disable
 are explicitly labelled. These checks verify presentation and interaction, not current provider
 uptime, new scientific evidence or human reader comprehension. The broader Landscape, Insights,
 Literature, 3D and report rollout is outside this five-tab batch.
+
+## Independent PR split
+
+The visualization work was extracted from mixed PR #130 onto current `main` (`ffce816`) in a
+separate branch, `feat/scientific-visualization-system`. It carries the two original visualization
+commits plus only the assertion/species hunks recovered from the explanation commit. Drawer code,
+telemetry, health checks, interface work and tooling remain with #130. The drawer-only Energetics
+integration regression moved to that PR; the visualization regressions remain here.
+
+Conflict resolution retains the newer splicing preview and fixtures already on main. This branch
+uses the existing explanation modal and has no dependency on the new drawer components. The two
+branches also pass a `git merge-tree` conflict check together; no PR has been merged.
