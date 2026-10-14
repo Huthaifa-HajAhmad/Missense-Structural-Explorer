@@ -164,6 +164,15 @@ computers**); the admin can share the licensed FoldX with those computers (**Set
 team**), and remove it again at any time. Everything about it, including how to make the agent downloadable,
 is in `doc/AGENT.md`.
 
+## Provider tokens
+
+Biohub, Hugging Face and Tamarind count calls against the token that makes them. With their own token, a
+person's requests use their own allowance and do not slow the team; without one, the server may lend its team
+token (`SHARED_TOKEN_FALLBACK`, see below), and after each result the app says which one it ran on. A signed-in
+person can save their tokens to their account (Settings → Connections → Save to my account): they are stored
+encrypted in `accounts.sqlite` and used from any browser they sign in on. The encryption key comes from
+`APP_SESSION_SECRET`; changing it makes saved tokens unreadable, and Settings asks for them again.
+
 ## Backups
 
 `deploy/backup-sqlite.sh` copies `data/analyses.sqlite` and `data/accounts.sqlite` safely while the
@@ -193,6 +202,8 @@ All optional unless marked. `.env.example` has the same list with comments.
 | `TOOL_BUNDLES_DIR` | `data/tool-bundles` | The team FoldX bundle (doc/AGENT.md). |
 | `AGENT_BUNDLE_DIR` | `data/agent-bundles` | Agent zips offered for download in Settings → Account. |
 | `AGENT_ACCEPTED_FOLDX_VERSIONS`, `AGENT_ACCEPTED_P2RANK_VERSIONS` | none | Comma-separated; refuse computers' results from other versions. |
+| `SHARED_TOKEN_FALLBACK` | `limited` | `on`, `limited`, `off`: lending the team's Biohub, Hugging Face and Tamarind tokens to people without their own. |
+| `SHARED_TOKEN_SHARE_PER_HOUR` | 60 | Under `limited`: team-token calls per signed-in person, per provider, per hour. |
 
 The startup check refuses to start on an unknown `AUTH_MODE`, a short `ADMIN_SETUP_SECRET` or an
 invalid `PUBLIC_BASE_URL`, and says which one.

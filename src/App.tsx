@@ -19,6 +19,7 @@ import { useDevConsole } from "./context/DevConsoleContext";
 import { useAppEffects } from "./hooks/useAppEffects";
 import { useVariantUrlSync } from "./hooks/useVariantUrlSync";
 import { useStaleDataNotice } from "./hooks/useStaleDataNotice";
+import { useCredentialUseNotice } from "./hooks/useCredentialUseNotice";
 import { invalidateCachedVariant } from "./services/pipeline/variantCache";
 
 export default function App() {
@@ -210,6 +211,8 @@ export default function App() {
 
   // A result that used saved data because a provider is limiting requests says so (WP-I2).
   useStaleDataNotice();
+  // After a remote model result: whose token it ran on, or why it did not run (WP-I4).
+  useCredentialUseNotice();
 
   // Keep the Console's session snapshot current so every captured entry says what was on screen.
   useEffect(() => {

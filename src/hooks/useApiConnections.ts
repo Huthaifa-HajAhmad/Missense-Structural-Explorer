@@ -67,7 +67,11 @@ export function useApiConnections() {
   };
 
   const runTest = useCallback(
-    async (id: TestId) => {
+    /**
+     * `useSaved`: no token is typed in this browser, but one is saved to the account (WP-I4b). The request
+     * then carries none and the server tests the saved one (never the team's).
+     */
+    async (id: TestId, opts: { useSaved?: boolean } = {}) => {
       const spec = ENDPOINTS[id];
       const token =
         id === "biohub"
@@ -78,7 +82,7 @@ export function useApiConnections() {
               ? settings.tamarindApiKey
               : settings.alphagenomeApiKey;
 
-      if (!token && !(id === "alphagenome" && settings.alphagenomeApiUrl)) {
+      if (!token && !opts.useSaved && !(id === "alphagenome" && settings.alphagenomeApiUrl)) {
         patchTest(id, { status: { valid: false, message: spec.emptyMessage } });
         return;
       }
@@ -92,10 +96,13 @@ export function useApiConnections() {
         const payloadBody =
           id === "alphagenome"
             ? { apiKey: token || undefined, apiUrl: settings.alphagenomeApiUrl || undefined }
-            : spec.payload(token || "");
+            : token
+              ? spec.payload(token)
+              : {};
 
         const res = await fetch(spec.endpoint, {
           method: "POST",
+          credentials: "same-origin",
           headers,
           body: JSON.stringify(payloadBody)
         });

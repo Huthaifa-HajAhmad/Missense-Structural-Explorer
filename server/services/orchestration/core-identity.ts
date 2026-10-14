@@ -47,6 +47,7 @@
  * a different evidence source.
  */
 import crypto from "crypto";
+import { credentialSourceTag } from "../infra/credentials.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
 /** Which identity a payload is being judged against. Structural runs add model choices. */
@@ -248,14 +249,17 @@ function modelChoice(context: ParsedVariantContext): CoreModelChoice {
 /**
  * Provider credentials, reduced to process-local fingerprints.
  *
- * Two different personal tokens must not share a run, and a token must never be persistable — so the
- * fingerprint exists only inside the in-memory flight key (`credentialFingerprint`, a plain digest;
- * fine there, because nothing that computes it is ever written down).
+ * Hugging Face and Biohub enter by SOURCE, never by token (WP-I4): everyone on the team token shares one
+ * run, which makes one upstream call; a person's own token (sent or saved) is spent only on that person's
+ * requests, so their runs are scoped to them (`own:<owner>`). Two of one person's tokens share. The
+ * AlphaGenome key keeps its fingerprint: it is not one of the credentials WP-I4 governs. A fingerprint
+ * exists only inside the in-memory flight key (`credentialFingerprint`, a plain digest; nothing that
+ * computes it is written down).
  */
 function providerFingerprints(context: ParsedVariantContext): Record<string, string | null> {
   return {
-    hfToken: credentialFingerprint(context.hfToken),
-    biohubToken: credentialFingerprint(context.biohubToken),
+    hfSource: credentialSourceTag("huggingface", context.hfToken),
+    biohubSource: credentialSourceTag("biohub", context.biohubToken),
     alphagenomeKey: credentialFingerprint(context.alphagenomeApiKey),
     gpnEndpoint: credentialFingerprint(context.gpnApiUrl),
     alphagenomeEndpoint: credentialFingerprint(context.alphagenomeApiUrl)

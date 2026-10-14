@@ -14,6 +14,7 @@
  * copies its notes (a rate limit, a stale serve) into theirs when it settles (`joinShared`).
  */
 import { joinShared, startShared, type SharedRun } from "./cache-scope.ts";
+import { mergeCredentialUses, startWithOwnCredentialRecord, type CredentialRecord } from "./credentials.ts";
 
 export interface SharedFlightOptions<T> {
   /** This caller's signal: aborting it rejects this caller's wait only. */
@@ -49,8 +50,11 @@ function untilAborted<T>(flight: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+/** A shared call: its cache scope, and (WP-I4) the record of whose tokens it used. */
+export type SharedFlight<T> = SharedRun<T> & { credentials: CredentialRecord };
+
 /** The calls in flight for one kind of request, by key. */
-export type SharedFlights<T> = Map<string, SharedRun<T>>;
+export type SharedFlights<T> = Map<string, SharedFlight<T>>;
 
 export function sharedFlight<T>(
   flights: SharedFlights<T>,
@@ -62,7 +66,13 @@ export function sharedFlight<T>(
   if (options.signal?.aborted) return Promise.reject(abortReason(options.signal));
   let flight = flights.get(key);
   if (!flight) {
-    const started = startShared(run);
+    let credentials!: CredentialRecord;
+    const shared = startShared(() => {
+      const c = startWithOwnCredentialRecord(run);
+      credentials = c.record;
+      return c.promise;
+    });
+    const started: SharedFlight<T> = { ...shared, credentials };
     flight = started;
     flights.set(key, started);
     const forget = () => {
@@ -78,6 +88,16 @@ export function sharedFlight<T>(
       forget
     );
   }
-  const result = joinShared(flight);
+  const own = flight;
+  const result = joinShared(own).then(
+    value => {
+      mergeCredentialUses(own.credentials);
+      return value;
+    },
+    error => {
+      mergeCredentialUses(own.credentials);
+      throw error;
+    }
+  );
   return options.signal ? untilAborted(result, options.signal) : result;
 }

@@ -4,7 +4,8 @@ import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { extractErrorMessage, useApiClient } from "./apiClient";
 import { SettingsProvider } from "./context/SettingsContext";
-import { clearInvalidApiKey, getAuthLapse, subscribeAuthLapse, subscribeStaleData, type AuthLapse } from "./api/authSession";
+import { clearInvalidApiKey, getAuthLapse, subscribeAuthLapse, subscribeCredentialUse, subscribeStaleData, type AuthLapse } from "./api/authSession";
+import { CREDENTIALS_HEADER, encodeCredentialUse } from "./shared/credentials";
 import { STALE_DATA_HEADER, encodeStaleData } from "./shared/providerLimits";
 
 describe("extractErrorMessage Unit Tests", () => {
@@ -597,6 +598,21 @@ describe("fetchWithAuth: X-MSE-Stale (WP-I2)", () => {
     } finally {
       off();
       offThrowing();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("publishes X-MSE-Credentials from a same-origin response (WP-I4)", async () => {
+    const value = encodeCredentialUse([{ kind: "biohub", source: "team" }]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 200, headers: { [CREDENTIALS_HEADER]: value } }))));
+    const seen: unknown[] = [];
+    const off = subscribeCredentialUse(r => seen.push(r.uses));
+    try {
+      const { result } = renderHook(() => useApiClient(), { wrapper });
+      await result.current.fetchWithAuth("/api/v1/gene-context");
+      expect(seen).toContainEqual([{ kind: "biohub", source: "team" }]);
+    } finally {
+      off();
       vi.unstubAllGlobals();
     }
   });

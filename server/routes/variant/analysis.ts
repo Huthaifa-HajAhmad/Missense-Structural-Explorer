@@ -3,6 +3,7 @@ import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import { fetchLandscape } from "../../services/external.ts";
 import { currentStaleNotes } from "../../services/infra/stale-response.ts";
+import { currentCredentialUses } from "../../services/infra/credential-response.ts";
 import { fetchLandscapeContext } from "../../services/prediction/landscape-context.ts";
 import { validateAndParseVariantRequest } from "./variant-parser.ts";
 import {
@@ -146,6 +147,9 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
         // The headers went out before the data was fetched, so `X-MSE-Stale` cannot carry this (WP-I2).
         const staleNotes = currentStaleNotes();
         if (staleNotes.length > 0) res.write(JSON.stringify({ type: "stale", notes: staleNotes }) + "\n");
+        // Likewise whose tokens its remote model calls used (WP-I4).
+        const credentialUses = currentCredentialUses();
+        if (credentialUses.length > 0) res.write(JSON.stringify({ type: "credentials", uses: credentialUses }) + "\n");
         res.end();
       }
     } catch (error: any) {
@@ -232,8 +236,9 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
       requestId: (req.headers["x-request-id"] as string) || undefined,
     });
 
-    const biohubToken = (req.headers["x-biohub-token"] as string) || process.env.BIOHUB_API_TOKEN || null;
-    const hfToken = (req.headers["x-hf-token"] as string) || process.env.HF_TOKEN || null;
+    // Only what the request brought; each model resolves saved and team tokens when it calls (WP-I4).
+    const biohubToken = (req.headers["x-biohub-token"] as string) || null;
+    const hfToken = (req.headers["x-hf-token"] as string) || null;
 
     try {
       const result = await runStructuralAnalysis(context, biohubToken, hfToken);

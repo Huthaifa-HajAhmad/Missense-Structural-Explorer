@@ -63,6 +63,7 @@ one agent can take it without the others.
 | WP-I1 fair-share egress governor: per-provider turns between people (`system` last), published rates only (Ensembl, NCBI) with sources, AIMD and learned rates, deadline-aware waits, `governedFetch` for the 41 raw remote `fetch` sites, a ratchet test, request and job attribution, governor health on `/capabilities` | **done** (#128), under the same `EGRESS_GOVERNOR` (15 governor + 1 ratchet + 23 review-fix + 2 `/capabilities` route tests; Review 4 below) | `server/services/infra/egress-governor.ts`, `egress-context.ts`, `http-client.ts` (`governedFetch`), `egress-ratchet.test.ts`, `auth/egress-owner.ts`, `biophysical-queue.ts`, `routes/capabilities.ts` |
 | WP-I3 team-wide 429 pause: per-host pause for everyone, typed `PROVIDER_RATE_LIMITED`, 429 out of the breaker, DynaMut2/DDMut polls keep listening, provider health on `/capabilities` | **done** (#127), ships `EGRESS_GOVERNOR=off`; production runs `shadow` since 2026-10-13 (14 pause + 3 copy + 1 route tests) | `server/services/infra/provider-pause.ts`, `http-client.ts`, `src/shared/providerLimits.ts`, `stability/dynamut.ts`, `routes/biophysics/polling.ts`, `routes/capabilities.ts` |
 | WP-I2 shared cache fixes: stale on rate limit (expired rows kept 30 days, `X-MSE-Stale`, the client's notice), nothing built from stale data cached, negative caching only for a definitive not-found, no credential in Gemini keys, one upstream call for concurrent SpliceAI / JapanFold / DynaMut2 / DDMut requests, prewarm as `system` and skipping cached runs | **done** on `feat/wp-i2-cache`, under the same `EGRESS_GOVERNOR` (28 stale + 20 hygiene + 2 client notice + 2 fetchWithAuth + 1 stream-frame + 2 prewarm tests, plus gate tests in the landscape, structure-resolver, Genos, core-singleflight, analysis-route and governor suites; Review 5 below) | `server/services/infra/{cache-registry,cache-scope,stale-response,shared-flight}.ts`, `analysis-db-core.ts`, `prewarm-manager.ts`, `src/hooks/useStaleDataNotice.ts`, `doc/EGRESS_AUDIT.md` section 8 |
+| WP-I4 per-user credentials: own-token buckets in the governor, `SHARED_TOKEN_FALLBACK` (`limited` by default, an hourly team-token share per signed-in person), "your token" / "the team token" after each remote result (`X-MSE-Credentials`), no token in any key; WP-I4b tokens saved encrypted to the account | **done** on `feat/wp-i4-credentials` (16 credential + 6 HTTP + 3 ESM-2 + 2 Tamarind + 5 client-notice + 1 stream-frame + 6 Settings tests) | `server/services/infra/credentials.ts`, `credential-response.ts`, `egress-governor.ts` (own-token buckets), `server/auth/user-secrets.ts`, `routes/auth.ts` (`/me/secrets`), `src/shared/credentials.ts`, `TokenOwnership.tsx` |
 | WP-G2 live routing: placement on the owner's computers, `runsOn` (where, why, prediction) on every job surface, fallback to the server, each computer's own speed, learned memory limits on the admin page | **done** on `feat/wp-g2-routing` (17 live-routing + 11 copy + 1 jobs-panel + 3 Energetics + 4 screen tests); placement is live only with `COMPUTE_ROUTING=on` | `admission.ts` (`placementOf`), `biophysical-queue.ts` (`routing` column, `agentLoad`, `releasePlacementsOf`), `routes/agent.ts` (`ownerAgentHosts`, `releaseStrandedPlacements`), `src/shared/jobPlacement.ts`, `ComputeLimits.tsx` |
 | everything else | not started | |
 
@@ -398,6 +399,43 @@ each audit finding's status):
   for any error; the module-level caches stay in-process; a registry fetcher that captures its first caller's
   `AbortSignal` still fails the callers that joined it; the SSE job stream has no stale frame.
 
+**Where WP-I4 differs from section 7** (the code is the source of truth):
+- **Which credentials.** Biohub (EvolutionaryScale Forge: ESM3, ESM-C, ESMFold), Hugging Face (ESM-2, SaProt,
+  GPN-Star) and Tamarind. AlphaGenome and Gemini keep their own handling (`resolveAlphaGenomeAccess`, the
+  Gemini session), and JapanFold has only a server key.
+- **One resolver** (`credentials.ts` `resolveCredential`): the token the request brought, else the one the
+  signed-in person saved to their account (I4b), else the team token under `SHARED_TOKEN_FALLBACK`. Routes pass
+  on only what the request brought; services resolve. A token handed down is classified by VALUE (equal to the
+  team token means the team's), as `resolveAlphaGenomeAccess` does, so passing it along cannot make the team
+  token look like a person's. A person with their own token never reaches the team step.
+- **`limited`, made concrete.** Each signed-in person may make `SHARED_TOKEN_SHARE_PER_HOUR` (default 60)
+  team-token calls per provider per hour; past that the call runs without a token (the sidecar stays local, or
+  the model is skipped) and the reader is told to add their own. Calls are counted when they are SENT, so a
+  cache hit costs nothing; a status poll or a connection test is never refused and never counted. Without
+  accounts (`legacy`) nobody is told apart, so `limited` behaves like `on`. These are policy numbers, not
+  provider limits.
+- **Buckets.** A person's own token gets its own governor bucket (`host#own:<id>`) and its own 429 pause:
+  the provider counts that token, not the team's. The id is random, kept in a process-local map; never the
+  token or its hash. `/capabilities` folds these buckets into one `… (people's own tokens)` line per provider.
+  Calls that leave through the Python sidecar (which goes remote only when given a token) are governed as the
+  provider they reach (`governedForCredential`).
+- **"After each remote model result".** Each response says whose token its calls used (`X-MSE-Credentials`; a
+  final `{type: "credentials"}` frame on the streamed analysis); the app shows "Biohub ran on your token." or
+  "... on the team token. Add your own ..." at most once per provider and source per 30 minutes, a refusal once
+  per 5 minutes, and Settings → Connections shows the last use under each token. A result served from a cache
+  made no call, so it says nothing.
+- **Sharing.** The core-analysis flight key no longer separates two different Hugging Face or Biohub tokens
+  (whether one was available still separates runs). A Tamarind submission is shared between callers on the
+  same token, with the job id joinable for 60 s, never across tokens: a pending job can only be polled with
+  the key that submitted it.
+- **I4b.** `user_secrets` in `accounts.sqlite`: AES-256-GCM, key from HKDF-SHA256 over `APP_SESSION_SECRET`
+  (its own label), the person and the kind bound as additional data. `GET`/`PUT`/`DELETE /me/secrets[/:kind]`
+  return the kind, the last four characters and the date, never the token. Rotating `APP_SESSION_SECRET`
+  leaves saved tokens unreadable; Settings asks for them again. "Test connection" tests the person's own token
+  only, never the team's.
+- **Not in I4:** queue jobs resolve with the job owner's saved token or the team's, not a token the browser
+  sent with the submit (it is not stored with the job); the AlphaGenome key keeps its flight-key fingerprint.
+
 **Review 5 (WP-I2), 2026-10-14.** Four read-only reviewers (stale-serve core, the negative-caching fixes,
 single-flight and prewarm, client/tests/docs). Fixed: analyses built from stale data were saved to
 `variant_analyses` and later restored with no flag; the shared core-analysis run, the registry's `singleFlight`
@@ -541,7 +579,7 @@ per-package notes above.
 | The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
 | macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
 | De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
-| No per-user credential buckets (I4); the I3 pause, the I1 governor and I2's stale serving ship `off` (production runs `shadow`) | the team shares one IP | WP-I4; owner action: read the shadow lines, then `EGRESS_GOVERNOR=on` |
+| The I3 pause, the I1 governor and I2's stale serving ship `off` (production runs `shadow`); I4's team-token share applies only with accounts | the team shares one IP | owner actions: read the shadow lines, then `EGRESS_GOVERNOR=on`; `AUTH_MODE=accounts` |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 | A placement is decided once, at submit: a job placed on a busy computer is not moved when the server frees up (only when the computer cannot take it, or sits idle 2 min without claiming it) | the engine already prices the computer's queue, so a second job overflows to the server when that is quicker; re-deciding waiting jobs is an optimisation | later, if the logs show long waits on a computer |
 | No preview before submit: the decision is shown from the moment the job is queued (submit response, poll, My jobs), not before the button is pressed | the job is queued or placed within the same request, so a preview would show the same thing a moment earlier | later, if wanted |
@@ -558,7 +596,8 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
    `COMPUTE_ROUTING=on` after reading the shadow log.
 3. **WP-I — outbound governor**: I3 (team-wide 429 pause) done (#127, production in `shadow` since 2026-10-13);
    I1 (fair-share governor and the raw-`fetch` migration) done (#128); I2 (stale on rate limit, cache hygiene,
-   cross-user single-flight, prewarm) done on `feat/wp-i2-cache`; next I4 (per-user credentials). Owner action
+   cross-user single-flight, prewarm) done (#129); I4 (per-user credentials, with I4b saved tokens) done on
+   `feat/wp-i4-credentials`. WP-I is complete. Owner action
    after a few days of `shadow`: read the `[egress:shadow]` lines and `/capabilities` `egress`, then
    `EGRESS_GOVERNOR=on` (`doc/DEPLOY.md` Step 7).
 

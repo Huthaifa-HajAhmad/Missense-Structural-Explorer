@@ -7,8 +7,14 @@ import {
   type LandscapeResidueItem
 } from "../shared/contracts";
 import { CLIENT_STREAM_IDLE_BUDGET_MS } from "../shared/timeouts";
-import { extractApiError, extractErrorMessage, FetchWithAuth, noteStaleDataHeader } from "./authSession";
+import { extractApiError, extractErrorMessage, FetchWithAuth, noteCredentialHeader, noteStaleDataHeader } from "./authSession";
 import { encodeStaleData, parseStaleData } from "../shared/providerLimits";
+import { encodeCredentialUse, parseCredentialUse } from "../shared/credentials";
+
+/** A `{type: "credentials"}` frame's uses, validated exactly like the header's (WP-I4). */
+function noteCredentialFrame(uses: unknown): void {
+  noteCredentialHeader(encodeCredentialUse(parseCredentialUse(JSON.stringify(uses ?? null))));
+}
 
 /** A `{type: "stale"}` frame's notes, validated exactly like the header's. */
 function noteStaleDataFrame(notes: unknown): void {
@@ -179,6 +185,10 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
               noteStaleDataFrame(parsed.notes);
               continue;
             }
+            if (parsed.type === "credentials") {
+              noteCredentialFrame(parsed.uses);
+              continue;
+            }
             if (parsed.isFinal || parsed.type === "full") {
               finalPayload = parsed.data || parsed.payload;
             }
@@ -211,6 +221,8 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
           // Same liveness rule as the in-loop parse: a trailing heartbeat is not a payload.
           if (parsed.type === "stale") {
             noteStaleDataFrame(parsed.notes);
+          } else if (parsed.type === "credentials") {
+            noteCredentialFrame(parsed.uses);
           } else if (parsed.type !== "heartbeat") {
             if (parsed.isFinal || parsed.type === "full") {
               finalPayload = parsed.data || parsed.payload;

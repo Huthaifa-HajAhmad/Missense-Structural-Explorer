@@ -29,6 +29,7 @@ import { STREAM_HEARTBEAT_MS } from "../../../src/shared/timeouts.ts";
 import { isIntrinsicallyAmbiguousProteinChange } from "../../../src/shared/proteinAlleleIdentity.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
 import { CONFIG } from "../../config.ts";
+import { credentialAvailable } from "../infra/credentials.ts";
 
 export type { ServiceFetchStatus, ServiceStatusMap, CoreAnalysisData, StructuralAnalysisData };
 export {
@@ -115,13 +116,13 @@ export function isStaleCachedPayload(payload: any, context?: ParsedVariantContex
       return true;
     }
     // Invalidate stale cache if Hugging Face token is provided but cached payload lacks GPN-Star
-    const hasGpnToken = Boolean(context?.hfToken || process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY);
+    const hasGpnToken = credentialAvailable("huggingface", context?.hfToken);
     if (hasGpnToken) {
       const gpnMissing = cons.gpnStar === null && (cons.gpnStarStatus === "token_required" || cons.gpnStarStatus === "unavailable" || !cons.gpnStarStatus);
       if (gpnMissing) return true;
     }
     // Invalidate stale cache if Biohub token is provided but cached payload lacks ESM3
-    const hasBiohubToken = Boolean(context?.biohubToken || process.env.BIOHUB_API_TOKEN);
+    const hasBiohubToken = credentialAvailable("biohub", context?.biohubToken);
     if (hasBiohubToken && payload.structuralModels) {
       const esm3Missing = payload.structuralModels.esm3?.score === null && (payload.structuralModels.esm3?.status === "token_required" || !payload.structuralModels.esm3?.status);
       if (esm3Missing) return true;

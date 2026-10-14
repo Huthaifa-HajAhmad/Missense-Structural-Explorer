@@ -71,10 +71,19 @@ const hosts = new Map<string, HostState>();
 function stateOf(hostname: string): HostState {
   let s = hosts.get(hostname);
   if (!s) {
+    if (hosts.size > 500) sweepOwnKeys(Date.now());
     s = { pausedUntil: 0, lastStatus: 0, rateLimits: [], wouldHold: 0, lastHoldLog: 0 };
     hosts.set(hostname, s);
   }
   return s;
+}
+
+/** People's own-token keys (WP-I4) come and go; one whose pause and recent 429s are over is dropped. */
+function sweepOwnKeys(now: number): void {
+  for (const [key, s] of hosts) {
+    if (!key.includes("#own:") || s.pausedUntil > now) continue;
+    if (s.rateLimits.every(t => now - t > RECENT_WINDOW_MS)) hosts.delete(key);
+  }
 }
 
 /** True for the answers that pause a provider: 429 always, 503 only when it says when to come back. */
@@ -151,7 +160,7 @@ export function recordRateLimit(
   prune(s, now);
   if (starts) console.warn(
     `[egress:${mode}] ${providerLabelForHost(hostname)} (${hostname}) answered ${status}; ` +
-      `${mode === "on" ? "pausing" : "would pause"} it for everyone for ${retryAfterSeconds(pauseMs)} s.`
+      `${mode === "on" ? "pausing" : "would pause"} ${hostname.includes("#own:") ? "this person's token" : "it for everyone"} for ${retryAfterSeconds(pauseMs)} s.`
   );
   return pauseMs;
 }

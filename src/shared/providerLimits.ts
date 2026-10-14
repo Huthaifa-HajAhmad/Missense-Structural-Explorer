@@ -69,7 +69,9 @@ export function isKnownProviderHost(hostname: string): boolean {
 
 /** The name a reader knows a host by; the bare hostname when it is not in the table. */
 export function providerLabelForHost(hostname: string): string {
-  return HOST_LABELS[hostname.toLowerCase()] ?? hostname;
+  // A person's own token at a provider is paused under `<host>#own:<id>` (WP-I4); it is that provider.
+  const host = hostname.split("#")[0];
+  return HOST_LABELS[host.toLowerCase()] ?? host;
 }
 
 /** Whole seconds, never below 1: "retrying in 0 s" reads as a bug. */

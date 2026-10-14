@@ -26,6 +26,7 @@ export interface EsmcEvalResult {
 
 import { CONFIG } from "../../config.ts";
 import { queryEsmc } from "./japanfold-client.ts";
+import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -88,8 +89,10 @@ export async function runEsmcAnalysis(
   // 2. Fallback to Local Sidecar (VESM-150M on CPU / Biohub remote)
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/vesm`;
+  // With a token the sidecar asks Biohub's ESM-C, so the call is governed and counted as Biohub (WP-I4).
+  const token = resolveCredential("biohub", biohubToken).token;
   try {
-    const sidecarRes = await fetch(sidecarUrl, {
+    const sidecarRes = await governedForCredential("biohub", token, () => fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -100,10 +103,10 @@ export async function runEsmcAnalysis(
         position: pos,
         wt: wtRes,
         mut: mutRes,
-        biohubToken: biohubToken || null
+        biohubToken: token
       }),
       signal: AbortSignal.timeout(60000) // VESM-150M needs up to 60s for first-run model load
-    });
+    }), { deadlineAt: Date.now() + 60000 });
 
     if (!sidecarRes.ok) {
       return { error: `VESM sidecar returned HTTP ${sidecarRes.status}`, status: sidecarRes.status === 401 ? "error" : "offline" };

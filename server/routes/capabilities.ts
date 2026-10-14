@@ -23,6 +23,7 @@ import { checkP2RankCapability } from "../services/pocket.ts";
 import { providerHealth } from "../services/infra/provider-pause.ts";
 import { governorHealth, limitBasisFor } from "../services/infra/egress-governor.ts";
 import { defaultCacheRegistry } from "../services/infra/cache-registry.ts";
+import { credentialPolicyHealth, teamToken } from "../services/infra/credentials.ts";
 import { isKnownProviderHost } from "../../src/shared/providerLimits.ts";
 
 export interface EngineCapability {
@@ -60,8 +61,10 @@ function egressHealth() {
   const pause = providerHealth();
   // This route is public. A host that is not one of the deployment's own providers was chosen by a
   // person (their own AlphaGenome or GPN server), so it is not named here.
-  const named = pause.providers.filter(p => isKnownProviderHost(p.hostname));
-  const hidden = pause.providers.length - named.length;
+  // A person's own token paused at a provider is that person's business (WP-I4): not listed, not counted.
+  const teamPauses = pause.providers.filter(p => !p.hostname.includes("#own:"));
+  const named = teamPauses.filter(p => isKnownProviderHost(p.hostname));
+  const hidden = teamPauses.length - named.length;
   return {
     mode: pause.mode,
     providers: named.map(p => ({ ...p, limitBasis: limitBasisFor(p.hostname) })),
@@ -70,6 +73,9 @@ function egressHealth() {
     // Expired cache entries served (`on`) or that would have been (`shadow`) while a provider limited
     // requests, by cache source (WP-I2). Source labels and counts only.
     staleServes: defaultCacheRegistry.staleServeCounts(),
+    // How the team's Biohub, Hugging Face and Tamarind tokens are lent (WP-I4): the policy, the hourly
+    // share, and which team tokens exist. No tokens, hashes or per-person counts.
+    credentials: credentialPolicyHealth(),
   };
 }
 
@@ -218,8 +224,9 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     // 8. JapanFold Sovereign Cloud Connectivity Check (Structure Prediction)
     const japanFoldReachable = await japanFoldReachability();
 
-    const tamarindConfigured = Boolean(process.env.TAMARIND_API_KEY && process.env.TAMARIND_API_KEY.length > 5);
-    const hfConfigured = Boolean(process.env.HF_TOKEN && process.env.HF_TOKEN.length > 5);
+    // The same lookup the resolver uses (WP-I4), aliases included.
+    const tamarindConfigured = Boolean(teamToken("tamarind"));
+    const hfConfigured = Boolean(teamToken("huggingface"));
 
     const engines: EngineCapability[] = [
       {

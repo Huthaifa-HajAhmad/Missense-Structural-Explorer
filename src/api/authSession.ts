@@ -3,6 +3,7 @@ import { useSettings } from "../context/SettingsContext";
 import { fetchWithRetry } from "../shared/fetch-retry";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
 import { STALE_DATA_HEADER, parseStaleData, type StaleDataNote } from "../shared/providerLimits";
+import { CREDENTIALS_HEADER, parseCredentialUse, type CredentialKind, type CredentialUse } from "../shared/credentials";
 
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
 const invalidApiKeys = new Set<string>();
@@ -83,7 +84,9 @@ export function getStaleData(): StaleDataReport | null {
 
 export function subscribeStaleData(listener: (report: StaleDataReport) => void): () => void {
   staleDataListeners.add(listener);
-  return () => staleDataListeners.delete(listener);
+  return () => {
+    staleDataListeners.delete(listener);
+  };
 }
 
 /** Exported for tests; `fetchWithAuth` calls it for every same-origin response. */
@@ -98,6 +101,47 @@ export function noteStaleDataHeader(value: string | null): void {
       l(report);
     } catch (err) {
       console.warn("[Stale data] A listener failed:", err);
+    }
+  });
+}
+
+// ── Credential-use signal (WP-I4) ───────────────────────────────────────────────────────────────
+// Which token a response's Biohub, Hugging Face or Tamarind calls used ("your token" / "the team token"),
+// or why none was used. Read here for the same reason as the stale-data header; surfaces subscribe.
+
+export interface CredentialUseReport {
+  at: number;
+  uses: CredentialUse[];
+}
+
+let lastCredentialUse: Partial<Record<CredentialKind, { at: number; use: CredentialUse }>> = {};
+const credentialUseListeners = new Set<(report: CredentialUseReport) => void>();
+
+/** The latest use reported for each kind (Settings → Connections shows it). */
+export function getLastCredentialUse(): Partial<Record<CredentialKind, { at: number; use: CredentialUse }>> {
+  return lastCredentialUse;
+}
+
+export function subscribeCredentialUse(listener: (report: CredentialUseReport) => void): () => void {
+  credentialUseListeners.add(listener);
+  return () => {
+    credentialUseListeners.delete(listener);
+  };
+}
+
+/** Exported for tests and the streamed analysis's `{type: "credentials"}` frame. */
+export function noteCredentialHeader(value: string | null): void {
+  const uses = parseCredentialUse(value);
+  if (uses.length === 0) return;
+  const report: CredentialUseReport = { at: Date.now(), uses };
+  const next = { ...lastCredentialUse };
+  for (const use of uses) next[use.kind] = { at: report.at, use };
+  lastCredentialUse = next;
+  credentialUseListeners.forEach(l => {
+    try {
+      l(report);
+    } catch (err) {
+      console.warn("[Credential use] A listener failed:", err);
     }
   });
 }
@@ -610,6 +654,7 @@ export function useAuthSession() {
           clearAuthLapse();
         }
         noteStaleDataHeader(response.headers?.get?.(STALE_DATA_HEADER) ?? null);
+        noteCredentialHeader(response.headers?.get?.(CREDENTIALS_HEADER) ?? null);
       }
 
       // `timeout` must bound the BODY read too — a header-then-stall upstream otherwise keeps

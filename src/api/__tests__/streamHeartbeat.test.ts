@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createBiophysicsApi } from "../biophysicsApi";
 import { CLIENT_STREAM_IDLE_BUDGET_MS, STREAM_HEARTBEAT_MS } from "../../shared/timeouts";
-import { subscribeStaleData } from "../authSession";
+import { subscribeCredentialUse, subscribeStaleData } from "../authSession";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +139,30 @@ describe("streamBiophysicalAnalysis: the stale frame (WP-I2)", () => {
       expect(result.metadata.gene).toBe("PAH");
       expect(chunks.every(c => c.type !== "stale" && !("notes" in c))).toBe(true);
       expect(seen).toEqual([[{ data: "ClinVar", provider: "NCBI", ageSec: 3600 }]]);
+    } finally {
+      off();
+    }
+  });
+});
+
+describe("streamBiophysicalAnalysis: the credentials frame (WP-I4)", () => {
+  it("is announced like the X-MSE-Credentials header and never reaches the chunk handler", async () => {
+    const { fetchWithAuth, pushLine, close } = makeStream();
+    const api = createBiophysicsApi(fetchWithAuth as any);
+    const chunks: any[] = [];
+    const seen: unknown[] = [];
+    const off = subscribeCredentialUse(r => seen.push(r.uses));
+    try {
+      const run = api.streamBiophysicalAnalysis(
+        { gene: "PAH", uniprotId: "P00439", variant: "p.Arg408Trp" },
+        chunk => chunks.push(chunk)
+      );
+      pushLine(JSON.stringify({ chunkIndex: 9, isFinal: true, data: finalPayload }));
+      pushLine(JSON.stringify({ type: "credentials", uses: [{ kind: "biohub", source: "team" }, { kind: "x", source: "own" }] }));
+      close();
+      await run;
+      expect(chunks.every(c => c.type !== "credentials" && !("uses" in c))).toBe(true);
+      expect(seen).toEqual([[{ kind: "biohub", source: "team" }]]);
     } finally {
       off();
     }

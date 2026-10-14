@@ -394,7 +394,8 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
       return;
     }
     try {
-      const apiKey = (req.headers["x-tamarind-api-key"] as string) || (req.query?.tamarindApiKey as string) || (req.query?.apiKey as string) || process.env.TAMARIND_API_KEY;
+      // Only what the request brought; the poll resolves saved and team keys itself (WP-I4).
+      const apiKey = (req.headers["x-tamarind-api-key"] as string) || (req.query?.tamarindApiKey as string) || (req.query?.apiKey as string) || undefined;
       const result = await pollThermoMpnnJob(jobId, apiKey);
       if (result.status === "done" || result.status === "error") {
         broadcastJobUpdate({ jobId, tool: "thermompnn", status: result.status, prediction: result.prediction });
@@ -720,7 +721,7 @@ export function registerPollingRoutes(apiRouter: Router, jsonParserPdb: any): vo
         return;
       }
 
-      const apiKey = (req.headers["x-tamarind-api-key"] as string) || process.env.TAMARIND_API_KEY;
+      const apiKey = (req.headers["x-tamarind-api-key"] as string) || undefined;
       const thermoRes = await submitThermoMpnnJob(wtPdb, mutation, apiKey);
 
       if (thermoRes.jobId) {

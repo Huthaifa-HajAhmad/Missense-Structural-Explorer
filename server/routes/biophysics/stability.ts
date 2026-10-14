@@ -26,6 +26,7 @@ import {
   testTamarindConnection,
 } from "../../services/biophysics.ts";
 import { governedFetch } from "../../services/infra/http-client.ts";
+import { credentialForCall, ownCredential } from "../../services/infra/credentials.ts";
 
 const testTamarindConnectionSchema = z.object({
   tamarindApiKey: z.string().optional()
@@ -56,7 +57,9 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     try {
-      const apiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || process.env.TAMARIND_API_KEY;
+      // Tests the person's own key (typed or saved), never the team's (WP-I4).
+      const apiKey = ownCredential("tamarind", (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey);
+      if (!apiKey) return res.json({ valid: false, message: "No Tamarind Bio API Key provided." });
       const result = await testTamarindConnection(apiKey);
       return res.json(result);
     } catch (err: any) {
@@ -71,7 +74,8 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     try {
-      const hfToken = (req.headers["x-hf-token"] as string) || req.body?.hfToken || process.env.HF_TOKEN;
+      // Tests the person's own token (typed or saved), never the team's (WP-I4).
+      const hfToken = ownCredential("huggingface", (req.headers["x-hf-token"] as string) || req.body?.hfToken);
       if (!hfToken) {
         return res.json({ valid: false, message: "No Hugging Face token provided." });
       }
@@ -79,7 +83,8 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
         headers: {
           "Authorization": `Bearer ${hfToken}`
         },
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
+        credential: credentialForCall("huggingface", hfToken, { charge: false })
       });
       if (response.ok) {
         const data = await response.json() as any;
@@ -164,8 +169,10 @@ export function registerStabilityRoutes(apiRouter: Router, jsonParserRegular: an
       const combinedSignal = anySignal([clientAbortController.signal, timeoutSignal]);
 
       const mutationCode = `${wt}${chain}${position}${mt}`;
-      const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || process.env.TAMARIND_API_KEY;
-      const biohubToken = (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN;
+      // Only what the request brought: each engine resolves its own token (saved, or the team's under the
+      // lending policy) when it actually calls the provider (WP-I4).
+      const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || undefined;
+      const biohubToken = (req.headers["x-biohub-token"] as string) || req.body?.biohubToken || undefined;
 
       const context: FoldingContext = {
         wtPdb: resolvedWtPdb,

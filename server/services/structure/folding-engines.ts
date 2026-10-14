@@ -1,6 +1,7 @@
 import { foldSequence } from "./esmfold.ts";
 import { generateMutantPdb } from "../stability/foldx.ts";
 import { CONFIG } from "../../config.ts";
+import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
 import {
   STABILITY_ESMFOLD_ENGINE_MAX_AA,
   stabilityEsmFoldEngineLimitMessage,
@@ -85,10 +86,10 @@ export class ESM3Engine implements FoldingEngine {
       const posMatch = context.mutationCode.match(/\d+/);
       const pos = posMatch ? parseInt(posMatch[0], 10) : 1;
 
-      const tokenToUse = context.biohubToken || process.env.BIOHUB_API_TOKEN || null;
+      const tokenToUse = resolveCredential("biohub", context.biohubToken).token;
       const sidecarSecret = process.env.SIDECAR_SECRET || "";
 
-      const response = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
+      const response = await governedForCredential("biohub", tokenToUse, () => fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -104,7 +105,7 @@ export class ESM3Engine implements FoldingEngine {
           wtPdb: context.wtPdb
         }),
         signal: AbortSignal.timeout(30000)
-      });
+      }), { lane: "compute", deadlineAt: Date.now() + 30000 });
 
       if (response.ok) {
         const data = await response.json() as any;
