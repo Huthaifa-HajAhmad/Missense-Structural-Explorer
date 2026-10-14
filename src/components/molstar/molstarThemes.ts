@@ -172,7 +172,7 @@ export function esm3ShiftColor(score: number | null | undefined): Color {
 
 export function Esm3ShiftColorTheme(ctx: any, props: any) {
   const scores: number[] = props?.perturbationScores || [];
-  return atomTheme(ctx, props, Esm3ShiftColorTheme, "ESM3 embedding shift (engine bands)", (_unit, _element, location) => {
+  return atomTheme(ctx, props, Esm3ShiftColorTheme, "Sequence embedding shift (app-defined bands)", (_unit, _element, location) => {
     // Scores are indexed by UniProt position; the model only offers this theme on UniProt-numbered structures.
     const seq = StructureProperties.residue.auth_seq_id(location);
     return esm3ShiftColor(seq > 0 && seq <= scores.length ? scores[seq - 1] : null);
@@ -181,7 +181,7 @@ export function Esm3ShiftColorTheme(ctx: any, props: any) {
 
 export const Esm3ShiftColorThemeProvider: ColorTheme.Provider<any, any> = {
   name: "esm3-shift",
-  label: "ESM3 embedding shift",
+  label: "Sequence embedding shift",
   category: ColorThemeCategory.Validation,
   factory: Esm3ShiftColorTheme,
   getParams: () => Esm3ShiftThemeParams,

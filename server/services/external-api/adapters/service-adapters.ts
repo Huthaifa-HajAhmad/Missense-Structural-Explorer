@@ -198,13 +198,14 @@ export class SidecarAdapter implements ExternalServiceAdapter<any, any> {
          * "ML Sidecar Model Loading" arm below unreachable.
          */
         const warming = data.state === "warming_up";
+        const healthy = data.status === "healthy";
         return {
-          healthy: !warming && data.status === "healthy",
-          state: warming ? "warming_up" : "ready",
+          healthy: !warming && healthy,
+          state: healthy ? (warming ? "warming_up" : "ready") : undefined,
           latencyMs,
           message: warming
-            ? "Loading model weights — ML features unavailable until ready"
-            : "ML Model Server Healthy",
+            ? "Loading model weights — check individual model availability"
+            : healthy ? "ML Model Server Healthy" : "ML Model Server reported an unhealthy status",
           timestamp: new Date().toISOString()
         };
       }

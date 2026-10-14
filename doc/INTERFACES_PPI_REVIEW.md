@@ -132,3 +132,10 @@ mouse and yeast proteins named, 77 human partners plus 6 from other species, 34 
 - IntAct PSICQUIC MITAB 2.5 for P00441 (taxid columns 10–11). Del Toro N, et al. Nucleic Acids Res 2022;50:D648. doi:10.1093/nar/gkab1006
 - Haenig C, et al. Interactome mapping provides a network of neurodegenerative disease proteins and uncovers widespread protein aggregation in affected brains. Cell Rep 2020;32:108050 (PubMed 32814053).
 - Szklarczyk D, et al. The STRING database in 2023. Nucleic Acids Res 2023;51:D638. doi:10.1093/nar/gkac1000
+
+## 11 October 2026 workspace follow-up
+
+The interface atlas, bounded support comparison, Partners view and shared reading inspector are
+documented in [MECHANISM_WORKSPACES_REVIEW.md](MECHANISM_WORKSPACES_REVIEW.md). The UI now
+shows recorded numbering remaps or an explicit unverified-mapping disclosure. Full isoform
+sequence-identity checking (S15) and interface-to-3D linkage remain open.

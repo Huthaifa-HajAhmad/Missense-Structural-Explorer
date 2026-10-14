@@ -89,6 +89,19 @@ describe("coordinate load recovery", () => {
 });
 
 describe("3D rail — NAE1 p.Asp116Gly", () => {
+  it.each([
+    ['known AlphaFold', {}, 'Explain this structure confidence measure', 'pLDDT'],
+    ['missing coordinates', { pdbText: null }, 'Why structure confidence is not interpreted', 'Uninterpreted structure confidence'],
+    ['unknown provenance', { pdbText: CRYSTAL, pdbTextProvenance: null }, 'Why structure confidence is not interpreted', 'Uninterpreted structure confidence'],
+  ])('opens confidence guidance appropriate to %s', (_label, overrides, trigger, title) => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+    seed(overrides);
+    const view = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    fireEvent.click(view.getByRole('button', { name: trigger }));
+    expect(view.getByRole('dialog').getAttribute('aria-labelledby')).toBeTruthy();
+    expect(within(view.getByRole('dialog')).getByRole('heading', { level: 2 }).textContent).toContain(title);
+  });
   it("names the AlphaFold model as the wild type and never calls 1YOV's B-factor pLDDT", () => {
     const { container } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
     const text = container.textContent ?? "";

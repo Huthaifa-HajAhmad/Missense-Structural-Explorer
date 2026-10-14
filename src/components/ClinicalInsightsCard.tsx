@@ -1,3 +1,4 @@
+import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { memo, useCallback, useMemo } from "react";
 import { generateProvenanceManifest } from "../shared/provenance";
 import { deriveConsensus } from "../lib/insightsConsensus";
@@ -377,6 +378,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
             <h3 className={`ins-shell__title ${classCardTitle}`}>
               Insights
             </h3>
+            <ResearchGuideButton topic="insights" label="How this interpretation is assembled" />
             {analysisState.result && analysisState.result.isDemoData && isPresetData && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border cs-badge cs-badge-clay">
                 Preset Profile

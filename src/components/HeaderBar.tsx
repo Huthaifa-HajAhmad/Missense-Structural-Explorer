@@ -143,6 +143,7 @@ export function HeaderBar({
   useEffect(() => {
     if (!isSearchExpanded) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector('dialog[open]')) return;
       if (e.key === "Escape") {
         setIsSearchExpanded(false);
         searchBtnRef.current?.focus();

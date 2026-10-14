@@ -24,7 +24,7 @@ export function functionReadings(ev: FunctionEvidence): (EvidenceChartRow & { re
 }
 
 export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] {
-  const properties: EvidenceChartRow[] = (ev.properties ?? []).map(r => ({ key: r.key, name: r.label, value: null,
+  const properties: EvidenceChartRow[] = (ev.properties ?? []).map(r => ({ key: r.key, name: r.label, value: null, knowledgeKey: 'residue_properties',
     valueText: `${r.wildTypeNative ?? r.wildTypeValue} → ${r.mutantNative ?? r.mutantValue}${r.unit ? ` ${r.unit}` : ''}`,
     description: r.interpretation, group: 'Residue properties', tone: 'neutral',
     facts: [{ label: ev.pair.wildType, value: `${r.wildTypeNative ?? r.wildTypeValue} ${r.unit}`.trim() },
@@ -32,11 +32,11 @@ export function residueReadings(ev: ResidueContextEvidence): EvidenceChartRow[] 
       { label: 'Change', value: r.plainChange }, { label: 'Source', value: RESIDUE_SCALE_SOURCES[r.key].citation }],
     notes: [r.source, 'Each row has its own published scale. Position describes a residue property, not a measured change in this protein or a probability of disease.'] }));
   const rsa = ev.burial?.indicators.rsa;
-  return [...properties, { key: 'burial', name: 'Solvent accessibility', value: null, valueText: rsa?.valueLabel ?? 'No result',
+  return [...properties, { knowledgeKey: 'burial_status', key: 'burial', name: 'Solvent accessibility', value: null, valueText: rsa?.valueLabel ?? 'No result',
     description: ev.burial?.label ?? 'No accessibility reading returned.', group: 'Structural context', tone: 'neutral',
     facts: [{ label: 'Accessibility', value: rsa?.valueLabel ?? 'No result' }, { label: 'Structure', value: ev.burial?.structure ?? 'Not reported' }],
     notes: [ev.burial?.reason, 'The burial cut-points are app-defined. Cα neighbour counts alone do not determine burial.'].filter((n): n is string => Boolean(n)) },
-    { key: 'pocket', name: 'Predicted pocket', value: null, valueText: ev.pocket.proximity.distance === null ? ev.pocket.headline : `${ev.pocket.proximity.distance} Å`,
+    { knowledgeKey: 'p2rank', key: 'pocket', name: 'Predicted pocket', value: null, valueText: ev.pocket.proximity.distance === null ? ev.pocket.headline : `${ev.pocket.proximity.distance} Å`,
       description: ev.pocket.plainLanguage ?? ev.pocket.headline, group: 'Structural context', tone: 'neutral',
       facts: [{ label: 'Distance', value: ev.pocket.proximity.distance === null ? 'No result' : `${ev.pocket.proximity.distance} Å` }, { label: 'Reference', value: ev.pocket.proximity.reference },
         { label: 'Profile', value: ev.pocket.ranking.profile ?? 'Not reported' }],
@@ -47,6 +47,7 @@ export function perturbationReadings(ev: PerturbationEvidence): EvidenceChartRow
   return ev.lms.flatMap(l => {
     const model: EvidenceChartRow = { key: l.id, name: l.family, value: l.llr, valueText: l.llr === null ? l.availability.label : l.llr.toFixed(2),
       description: l.description, group: 'Language model', tone: 'neutral',
+      knowledgeKey: /vesm/i.test(l.servedBy ?? '') ? 'vesm' : l.id,
       facts: [{ label: 'Served model', value: l.servedBy ?? 'Not reported' }, { label: 'Status', value: l.availability.label },
         { label: 'ΔLLR', value: l.llr === null ? 'No result' : String(l.llr) },
         { label: 'Reference / variant rank', value: `${l.nativeRank ?? '—'} / ${l.rank ?? '—'}` }],

@@ -9,6 +9,7 @@ import {
   stripCommentsForScan,
 } from "../../shared/engineStatus.ts";
 import { METRIC_EXPLANATIONS } from "../evidence/MetricExplanations.ts";
+import { RESEARCH_GUIDES } from "../../shared/researchGuides";
 
 /**
  * Guardrail for the migrated Energetics surfaces.
@@ -280,14 +281,17 @@ describe("Method documentation states the sign convention the code actually appl
   it.each(ENERGY_ENGINES.map(e => [e.id, e.nativeSign] as const))(
     "documents %s consistently with its %s convention",
     (engineId, nativeSign) => {
-      const entry = (METRIC_EXPLANATIONS as Record<string, { interpretation?: string } | undefined>)[engineId];
-      if (!entry?.interpretation) return; // not every engine is described in this module
-      const forbidden = OPPOSITE_CONVENTION[nativeSign];
+      const entry = RESEARCH_GUIDES[engineId];
+      expect(entry, `Missing rendered guide for ${engineId}`).toBeDefined();
+      // Drawers explain the normalized display sign; provider-native signs remain in source records.
+      const forbidden = OPPOSITE_CONVENTION['positive-destabilizing'];
       expect(
-        forbidden.test(entry.interpretation),
+        forbidden.test(entry.reading),
         `${engineId} is documented with the opposite sign convention to its own cut-points:\n` +
-          `  "${entry.interpretation}"`
+          `  "${entry.reading}" (provider native: ${nativeSign})`
       ).toBe(false);
+      const signReading = engineId === 'foldx' ? RESEARCH_GUIDES.ddg.reading : entry.reading;
+      expect(signReading).toMatch(/positive[^.]*destabili/i);
     }
   );
 

@@ -80,7 +80,7 @@ class ClearCacheResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
-    is_warming = models.model_status.get("vesm") in ("downloading", "loading")
+    is_warming = any(state in ("downloading", "loading") for state in models.model_status.values())
     return {
         "status": "healthy",
         "state": "warming_up" if is_warming else "ready",

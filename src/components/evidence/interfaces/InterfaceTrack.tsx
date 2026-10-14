@@ -75,22 +75,26 @@ interface LinkProps {
   onLit?: (key: string | null) => void;
   /** Bring the lane's table row into view. */
   onOpen?: (key: string) => void;
+  /** Workspace records exist for every lane; legacy tables link only lanes with a row key. */
+  inspectAllLanes?: boolean;
 }
 
-function Lane({ lane, pct, lit, onLit, onOpen }: { lane: TrackLane; pct: (v: number) => number } & LinkProps) {
-  const linked = lane.rowKey && onOpen;
+function Lane({ lane, pct, lit, onLit, onOpen, inspectAllLanes }: { lane: TrackLane; pct: (v: number) => number } & LinkProps) {
+  const readingKey = lane.rowKey ?? `track:${lane.key}`;
+  const linked = Boolean(onOpen && (lane.rowKey || inspectAllLanes));
   return (
     <div
       className="ifc-track__row"
+      data-reading-key={readingKey}
       data-kind={lane.kind}
       data-fibril={lane.key.endsWith(":fibril") || undefined}
-      data-lit={(lane.rowKey && lit === lane.rowKey) || undefined}
-      onMouseEnter={lane.rowKey ? () => onLit?.(lane.rowKey) : undefined}
+      data-lit={lit === readingKey || undefined}
+      onMouseEnter={lane.rowKey ? () => onLit?.(readingKey) : undefined}
       onMouseLeave={lane.rowKey ? () => onLit?.(null) : undefined}
     >
       <div className="ifc-track__label">
         {linked ? (
-          <button type="button" className="ifc-track__name ifc-track__open" title={`${lane.label}: show its row`} onClick={() => onOpen!(lane.rowKey!)} onFocus={() => onLit?.(lane.rowKey)} onBlur={() => onLit?.(null)}>
+          <button type="button" className="ifc-track__name ifc-track__open" title={`${lane.label}: inspect evidence`} aria-pressed={lit === readingKey} onClick={() => onOpen!(readingKey)} onFocus={() => onLit?.(readingKey)} onBlur={() => onLit?.(null)}>
             {lane.label}
           </button>
         ) : (
@@ -133,16 +137,17 @@ function Lane({ lane, pct, lit, onLit, onOpen }: { lane: TrackLane; pct: (v: num
   );
 }
 
-export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvidence } & LinkProps) {
+export function InterfaceTrack({ ev, bounds, lit, onLit, onOpen, inspectAllLanes }: { ev: InterfacesEvidence; bounds?: { start: number; end: number } } & LinkProps) {
   const maxSeen = Math.max(
     ev.position ?? 0,
     10,
     ...ev.track.flatMap(l => [...l.ranges.map(r => r.end), ...l.marks.map(m => m.residue)])
   );
-  const length = Math.max(ev.sequenceLength ?? 0, maxSeen);
-  const pct = (v: number) => ((v - 1) / Math.max(1, length - 1)) * 100;
+  const length = bounds?.end ?? Math.max(ev.sequenceLength ?? 0, maxSeen);
+  const start = bounds?.start ?? 1;
+  const pct = (v: number) => Math.max(0, Math.min(100, ((v - start) / Math.max(1, length - start)) * 100));
   const variantPct = ev.position ? pct(ev.position) : null;
-  const ticks = trackTicks(length, ev.position ?? null);
+  const ticks = trackTicks(length - start + 1, ev.position === null ? null : ev.position - start + 1).map(t => t + start - 1);
   const solvedHidden = ev.observed.partners.length - ev.track.filter(l => l.kind === "solved" && !l.key.endsWith(":fibril")).length;
 
   return (
@@ -150,7 +155,7 @@ export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvide
       <div className="ifc-track__row ifc-track__row--axis" aria-hidden="true">
         <div className="ifc-track__label" />
         <div className="ifc-track__axis">
-          <span data-edge="start">1</span>
+          <span data-edge="start">{start}</span>
           {ticks.map(t => (
             <span key={t} style={{ left: `${pct(t)}%` }}>{t}</span>
           ))}
@@ -169,7 +174,7 @@ export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvide
           </div>
         )}
         {ev.track.length ? (
-          ev.track.map(l => <Lane key={l.key} lane={l} pct={pct} lit={lit} onLit={onLit} onOpen={onOpen} />)
+          ev.track.map(l => <Lane key={l.key} lane={l} pct={pct} lit={lit} onLit={onLit} onOpen={onOpen} inspectAllLanes={inspectAllLanes} />)
         ) : (
           <div className="ifc-track__row" data-kind="empty">
             <div className="ifc-track__label">
@@ -183,7 +188,7 @@ export function InterfaceTrack({ ev, lit, onLit, onOpen }: { ev: InterfacesEvide
           </div>
         )}
       </div>
-      {solvedHidden > 0 && <p className="ifc-track__more">{solvedHidden} more solved partner{solvedHidden === 1 ? "" : "s"} in the partner list below.</p>}
+      {solvedHidden > 0 && <p className="ifc-track__more">{solvedHidden} more solved partner{solvedHidden === 1 ? "" : "s"} available in Source records.</p>}
     </div>
   );
 }

@@ -367,12 +367,13 @@
 
 .nrg-info {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 6px; border: 0; background: transparent;
+  inline-size: 44px; block-size: 44px; flex: none; border-radius: 6px; border: 0; background: transparent;
   color: var(--cs-text-muted); cursor: pointer;
 }
 @media (hover: hover) and (pointer: fine) {
   .nrg-info:hover { color: var(--cs-text-primary); background: color-mix(in srgb, var(--cs-text-secondary) 10%, transparent); }
 }
+.nrg-info:active { background: color-mix(in oklch, var(--cs-text-primary) 10%, transparent); }
 .nrg-info:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 1px; }
 
 .nrg-caveats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }

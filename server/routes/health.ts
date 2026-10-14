@@ -234,9 +234,10 @@ export function registerHealthRoutes(apiRouter: Router): void {
       const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/health`, { signal: AbortSignal.timeout(1000) });
       if (sidecarRes.ok) {
         const data = await sidecarRes.json() as any;
-        if (data.state === "warming_up") {
+        const healthy = data.status === "ok" || data.status === "healthy";
+        if (healthy && data.state === "warming_up") {
           modelServerState = "warming_up";
-        } else if (data.status === "ok" || data.status === "healthy" || data.state === "ready") {
+        } else if (healthy) {
           modelServerState = "ready";
           modelServerReady = true;
         }

@@ -5,6 +5,7 @@ import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { describeDeNovoCapacityNotice, readProteinLength, resolveDeNovoFoldingCapacity } from "../../shared/foldingLimits";
 import type { CoordinateIdentity, ModelFamily, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
+import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
 
 function Step({ step }: { step: TraceStep }) {
   return (
@@ -50,7 +51,7 @@ function SiteSection({ site, isWildType }: { site: Structure3dEvidence["site"]; 
           </dd>
         </div>
         <div className="s3d-kv__row">
-          <dt>{site.confidence.kind === "b-factor" ? "B-factor" : "Confidence"}</dt>
+          <dt>{site.confidence.kind === "b-factor" ? "B-factor" : "Confidence"}<ResearchGuideButton topic={site.confidence.kind === 'b-factor' ? 'bfactor' : site.confidence.kind === 'plddt' ? 'plddt' : 'structure_confidence'} context={site.confidence.note} label={site.confidence.kind === 'none' ? 'Why structure confidence is not interpreted' : 'Explain this structure confidence measure'} iconOnly /></dt>
           <dd><span className="s3d-mono">{site.confidence.text}</span><span className="s3d-kv__note">{site.confidence.note}</span></dd>
         </div>
         {site.burial && (
@@ -188,7 +189,7 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, 
         )}
         {canvas.relationshipNote && <p className="s3d-relationship">{canvas.relationshipNote}</p>}
         {model.representation === "esm3" && (
-          <p className="s3d-relationship">ESM3 colours are a variant-conditioned sequence overlay projected onto the predicted wild type. They do not measure a change in this structure.</p>
+          <p className="s3d-relationship">Embedding colours are a variant-conditioned sequence overlay projected onto the predicted wild type. They do not measure a change in this structure.</p>
         )}
         {model.notices.map(notice => (
           <p key={notice.key} className="s3d-notice" data-tone={notice.tone}><strong>{notice.title}</strong>{notice.body}</p>

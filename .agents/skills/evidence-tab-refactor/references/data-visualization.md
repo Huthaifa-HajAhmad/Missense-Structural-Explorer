@@ -30,3 +30,7 @@ interpret without adding biological certainty that the payload does not carry.
 Prefer the host's collaborative preview tools when available. Use a fixture harness with current
 styles and the real evidence wrapper; check light/dark themes and an approximately 800 px main
 column. Remove temporary harness files after review.
+
+For assembly composition, interface support denominators and persistent map controls, also
+read [second-pass-design.md](second-pass-design.md). Preserve reusable preview harnesses under
+`tools/`; only disposable screenshots, logs and browser profiles belong in scratch space.

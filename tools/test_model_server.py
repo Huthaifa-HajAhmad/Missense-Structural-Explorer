@@ -23,6 +23,28 @@ import torch
 import numpy as np
 from model_server import crop_sequence_around_mutation, compute_scientific_metrics, clear_model_cache
 
+class TestModelServerHealth(unittest.TestCase):
+    def test_warming_includes_each_model_without_overwriting_ready_models(self):
+        from unittest.mock import patch
+        from model_server import health_check, models
+        for name in ('vesm', 'thermompnn', 'stabilityoracle', 'esm2', 'saprot'):
+            for state in ('downloading', 'loading'):
+                statuses = {key: 'ready' for key in models.model_status}
+                statuses[name] = state
+                with self.subTest(name=name, state=state), patch.dict(models.model_status, statuses, clear=True):
+                    health = health_check()
+                    self.assertEqual(health['state'], 'warming_up')
+                    self.assertEqual(health['model_status'], statuses)
+
+    def test_finished_and_failed_models_are_not_reported_as_loading(self):
+        from unittest.mock import patch
+        from model_server import health_check, models
+        with patch.dict(models.model_status, {'vesm': 'failed', 'esm2': 'ready'}, clear=True):
+            health = health_check()
+            self.assertEqual(health['state'], 'ready')
+            self.assertEqual(health['model_status']['vesm'], 'failed')
+
+
 class TestModelServerHelpers(unittest.TestCase):
     def test_crop_sequence_short(self):
         # Short sequence should not change

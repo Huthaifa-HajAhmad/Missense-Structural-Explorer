@@ -1,18 +1,26 @@
 ---
 name: evidence-tab-refactor
-description: Audit and redesign one Evidence tab of Missense & Fold (scientific integrity first, then UI/UX and typography) to the standard set by the Population Data and Predictors tabs. Use when asked to audit, refactor, redesign or polish any evidence tab, its inspector rail, or the thresholds that feed it.
+description: Audit and redesign an Evidence tab or a coherent batch of Evidence workspaces in Missense & Fold (scientific integrity first, then UI/UX and typography) to the standard set by the Population Data and Predictors tabs. Use when asked to audit, refactor, redesign or polish any evidence tab, its inspector rail, or the thresholds that feed it.
 ---
 
 # Evidence tab refactor
 
-Population Data (`ClinicalTab.tsx` + `PopulationRail.tsx`) and Predictors (`PredictorsTab.tsx` +
-`PredictorsRail.tsx`) are the reference implementations. Open both, with their shared-model modules
-(`src/shared/frequencyEvidence.ts`, `src/shared/predictorEvidence.ts`) and `src/styles/population.css`
-/ `predictors.css`, before touching another tab. The goal is that every tab reads as the same product
-and never claims more than its data and its sources support.
+Apply `doc/TRANSLATIONAL_PHILOSOPHY.md` to every changed reading and explanation. Update
+`doc/TRANSLATIONAL_COVERAGE.md` when adding a model, metric, method or contextual entry point.
+Individual explanation drawers must teach their subject; there is no global topic browser.
+
+Population Data and Predictors establish the scientific reading and trace contracts. The current
+workspace references are `doc/EVIDENCE_WORKSPACE_REVIEW.md`, `doc/CONTEXT_WORKSPACES_REVIEW.md`,
+`doc/MOLECULAR_WORKSPACES_REVIEW.md` and `doc/MECHANISM_WORKSPACES_REVIEW.md`. Read the relevant
+review and its tab/shared-model/inspector implementation before changing that family. The goal is
+one recognisable product that never claims more than its data supports.
 
 Order of priorities, never reversed: **true → traceable → legible → beautiful.** A polished screen
 that asserts an unsourced cut-point is worse than the ugly one it replaced.
+
+Reviewing here is read-only; bug hunting may edit, but only inside the reviewed surface and the copies a
+fix must reach. The feasibility matrix and stop rules live in `.agents/rules/review-posture.md` — read
+them before turning step 2's findings into edits.
 
 ## The workflow
 
@@ -34,20 +42,23 @@ that asserts an unsourced cut-point is worse than the ugly one it replaced.
    swapped bars, drifted copies — just fix.
 4. **Build one pure model** in `src/shared/<tab>Evidence.ts` that both the tab and the rail render
    from (see "Architecture"). Unit-test it with the variant on the user's screenshots.
-5. **Rebuild the tab** in the three-tier shape, then **the rail** as a trace. **Own your CSS:**
+5. **Rebuild the tab** around its scientific question and workspace views, then **the rail** as a trace. **Own your CSS:**
    every class the tab and rail use lives in `src/styles/<tab>.css` under a short prefix
    (`prd-`, `ag-`…), `@import`ed in `src/styles/components.css`. Copy the house VALUES from the
    latest reference tab (see `references/design-system.md`); never reference another tab's
    `pop-*` / `rail-*` classes. The Predictors tab first reused them, and when Population Data was
    polished (fact strip removed, rail cut-points re-gridded to a 44px code column) Predictors lost
    its fact strip and group-row styling and its rail codes overprinted their thresholds.
+   Shared workspace components may own a shared prefixed stylesheet; scope tab-specific overrides
+   to their workspace roots, and keep the print stylesheet last in the import order.
 6. **Propagate fixes to every copy.** grep for the old literal numbers and labels across `src/` and
    `server/` (strength-ladder rows in `shared/ladderEvidence.ts`, heatmaps, knowledge modal,
    attributions, engine reason strings). A fix in one surface that leaves a second copy is a new bug.
 7. **Verify** (see "Verification"): tsc + `npm run lint`, full vitest, and look at the rendered page
    in light, dark and a narrow column.
 8. **Write `doc/<TAB>_REVIEW.md`** (findings table, decision taken, effect on the reference variant,
-   follow-ups not done, sources with DOIs) and **commit only your files** on a branch.
+   follow-ups not done, sources with DOIs). If committing is in scope, **commit only your files**;
+   preserve the current shared branch during concurrent review.
 
 ## Scientific integrity — the rules
 
@@ -101,15 +112,22 @@ listing its INVARIANTS and the defects it replaced — the codebase's convention
 
 ## Screen shape
 
-**Tab (three tiers, top to bottom)**
-1. *The finding* — `pop-card pop-hero`: eyebrow naming the ACMG question, verdict chip (engine's code),
-   one headline figure (`figure-headline`, mono), one finding sentence (`detail-prose`, bold
-   headline + predicate), the key visual (scale, vote strip), any disagreement/withheld callout, and a
-   4-cell fact strip (`pop-facts`) ending in "Engine record".
-2. *Readings* — ONE table (`pop-table`) replacing card grids and sub-tabs: every source a row,
-   grouped with `pop-group` rows, numbers right-aligned mono, a status/call column, absent rows
-   spanning their reason across the numeric columns, a legend foot.
-3. *Secondary panel* only if it is a different kind of evidence (ClinVar assertion on Population).
+**Tab (current workspace pattern)**
+1. *Finding*: retain the engine's actual record, one clear headline and the qualifications needed
+   to read it. Repeated metadata may live in a disclosure when it would displace the primary figure.
+2. *Figure*: lead with the map or comparison that answers this tab's question. Use the existing
+   `EvidenceWorkspace`/`EvidenceViewTabs`/`EvidencePanel` contracts for navigation and state.
+3. *Source records*: exact readings in a named view, using the same stable keys as figure and rail.
+   Add a separate view such as Partners only when it serves a different exploration task.
+
+A figure selection pins a reading above the existing rail trace. View switches retain the pin and
+never move keyboard focus implicitly; an explicit reveal action may unfold, scroll and focus its
+record. Explain hidden selections. Persist display choices across tab navigation and reset for a
+new analysed allele; transcript-specific geometry controls also reset for a different transcript.
+
+For a second design pass or a batch of tabs, read `references/second-pass-design.md`. Shared
+interaction does not require identical biological figures. The older single-table shape remains
+useful for a genuinely small evidence set; it is not the required layout for every workspace.
 
 **Cards and rows** — one tint per card, on its head and foot bars only; rows flat with hairline
 dividers on the card's 16px edge; no dashed boxes for empty states (dashed means "unconfirmed");
@@ -147,19 +165,22 @@ For positional maps, score axes, display filters and comparison plots, also appl
 
 ## Commit hygiene
 
-Other agents often work in the same folder at the same time. `git status` before committing; stage
-your files by path, never `git add -A`; leave others' modified files alone. Branch
-`<tab>-redesign`. Commit message: what changed in engine vs tab vs rail, the verification numbers,
-and the repo's attribution lines. Delete temporary files you created (ask for delete permission if
-the environment requires it).
+Other agents often work in the same folder at the same time. Record the initial working tree and
+preserve unrelated changes. During concurrent review, make narrow edits and re-read shared files
+before editing; do not switch the shared branch. If committing is requested, stage owned paths or
+hunks rather than `git add -A`. Keep reusable fixture harnesses under `tools/`; temporary browser
+profiles and screenshots belong in ignored scratch space.
 
 ## Tab status
 
-| Tab | State |
+| Tab | Current reference |
 |---|---|
-| Population data | Done (reference) |
-| In-silico predictors | Done (reference); `doc/PREDICTORS_TAB_REVIEW.md`. Also owns the strength ladder (`predictors/StrengthLadder.tsx`, `shared/ladderEvidence.ts`); the Score thresholds tab was merged into it and its ids redirect via `normalizeEvidenceTab` |
-| AlphaGenome | Rail in progress elsewhere; still shows `acmgStrength` PP3/BP4 tiers derived from an uncalibrated rank — must become the percentile |
-| 3D structure (viewer + inspector) | Done; `doc/STRUCTURE_3D_REVIEW.md`. Model `shared/structure3dEvidence.ts`, `s3d-` CSS |
-| RNA splicing | Reviewed; `doc/SPLICING_TAB_REVIEW.md`. Visualization follow-up: `doc/CHARTING_AND_VISUALIZATION_PLAN.md`; engine does not apply splicing criteria |
-| Residue shifts & pockets, Structural perturbation, Multimer assembly, Functional domains, Protein interactions | Consult the corresponding current review document before assuming audit status |
+| Population data, In-silico predictors, AlphaGenome | Workspace pass complete: `doc/EVIDENCE_WORKSPACE_REVIEW.md`. Earlier scientific reviews still apply. Predictors owns the merged strength ladder. |
+| Gene-disease, Expression, Species & models | `doc/CONTEXT_WORKSPACES_REVIEW.md`, including subsequent review corrections. |
+| Residue shifts & pockets, Structural perturbation, Functional domains | `doc/MOLECULAR_WORKSPACES_REVIEW.md`. |
+| RNA splicing, Interfaces & PPI | Second presentation pass: `doc/MECHANISM_WORKSPACES_REVIEW.md`. Prior scientific audits remain authoritative; full isoform identity checking and interface-to-3D linkage remain open. |
+| 3D structure (viewer + inspector) | `doc/STRUCTURE_3D_REVIEW.md`; `shared/structure3dEvidence.ts`, `s3d-` CSS. |
+
+Confirm these references against the current working tree; a status table is navigation, not proof
+that a later change has been validated. Multimer assembly and Protein interactions are now part
+of Interfaces & PPI rather than separate redesign targets.

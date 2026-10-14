@@ -437,6 +437,15 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Route**: `GET /api/v1/diagnostics`
 * **Auth**: None
 * **Description**: Provides runtime statistics, sidecar availability checks, FoldX local build state, and process memory configurations.
+* **Sidecar cold start**: `modelServerReady` means the ML sidecar **can serve** — it is `false` while the sidecar is still loading weights, even though the sidecar's own `/health` reports `status: "healthy"` from the moment it binds. `modelServerState` carries the three-way distinction the status rail needs:
+
+  | `modelServerState` | meaning |
+  | --- | --- |
+  | `"ready"` | weights loaded; ML-backed features available |
+  | `"warming_up"` | process bound, weights still loading (~180 s window) — **not** an outage |
+  | `"offline"` | not reachable, or a server that predates this field |
+
+  Each `serviceHealth.sidecar` entry carries the same distinction as `state` (`"ready"` / `"warming_up"`, absent when unknown). Consumers must never render `"warming_up"` as readiness, and must never render an *absent* `state` as warming: a cold start and an outage call for different reactions.
 
 * **Sidecar cold start**: `modelServerReady` means the ML sidecar **can serve** — it is `false` while the sidecar is still loading weights, even though the sidecar's own `/health` reports `status: "healthy"` from the moment it binds. `modelServerState` carries the three-way distinction the status rail needs:
 

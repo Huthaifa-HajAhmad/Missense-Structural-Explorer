@@ -1,3 +1,4 @@
+import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { Dna, AlertTriangle } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
@@ -375,6 +376,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         </div>
         <div>
           <h3 className="text-sm font-semibold text-cs-text-primary">Residue landscape</h3>
+          <ResearchGuideButton topic="landscape" label="How to compare residue readings" />
           <p className="text-xs mt-0.5 text-cs-text-muted">
             {targetPos > 0
               ? `Predictors, conservation, population and nucleotide ranks on one residue axis around ${mutation.wt}${targetPos}${mutation.mut}`

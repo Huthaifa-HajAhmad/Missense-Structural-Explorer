@@ -22,6 +22,9 @@ import { MarkRuler, RankRuler } from "./perturbation/Rulers";
 import { ResidueDetail } from "./perturbation/ResidueDetail";
 import { Prose } from "../ui/Prose";
 import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
+
+import { PHYSICAL_EXPLANATIONS } from '../../shared/researchGuides';
 
 /**
  * Structural perturbation.
@@ -253,6 +256,7 @@ function LmRow({
       <th scope="row" className="ptb-subject">
         <span className="ptb-subject__line">
           <span className="ptb-subject__name">{lm.family}</span>
+          <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.family}`} iconOnly />
           {ok && (
             <button type="button" className="ptb-select" aria-pressed={selected} onClick={() => onSelect(lm.id)}>
               {selected ? "Shown below" : "Show detail"}
@@ -314,7 +318,7 @@ function PhysicalRow({ r }: { r: PhysicalReading }) {
   return (
     <tr data-testid={`ptb-phys-${r.key}`}>
       <th scope="row" className="ptb-subject">
-        <span className="ptb-subject__line"><span className="ptb-subject__name">{r.name}</span></span>
+        <span className="ptb-subject__line"><span className="ptb-subject__name">{r.name}</span><ResearchGuideButton topic={PHYSICAL_EXPLANATIONS[r.key]} label={`Explain ${r.name}`} iconOnly /></span>
         <span className="ptb-subject__note">{r.description}</span>
         {r.note && ok && <span className="ptb-subject__note ptb-subject__fact">{r.note}</span>}
       </th>
@@ -368,7 +372,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
     return (
       <tr data-testid="ptb-esm3">
         <th scope="row" className="ptb-subject">
-          <span className="ptb-subject__line"><span className="ptb-subject__name">ESM3 embedding drift</span></span>
+          <span className="ptb-subject__line"><span className="ptb-subject__name">{e.label}</span><ResearchGuideButton topic={e.knowledgeKey} label={e.fallback ? "About the VESM fallback" : "About this embedding analysis"} iconOnly /></span>
         </th>
         <td className="ptb-reason" colSpan={2}>{e.availability.reason}</td>
         <td className="ptb-status"><StatusChip a={e.availability} /></td>
@@ -382,9 +386,9 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
     <>
       <tr data-testid="ptb-esm3">
         <th scope="row" className="ptb-subject">
-          <span className="ptb-subject__line"><span className="ptb-subject__name">ESM3 embedding drift</span></span>
+          <span className="ptb-subject__line"><span className="ptb-subject__name">{e.label}</span><ResearchGuideButton topic={e.knowledgeKey} label={e.fallback ? "About the VESM fallback" : "About this embedding analysis"} iconOnly /></span>
           <span className="ptb-subject__note">
-            How much ESM3&apos;s internal description of each residue changes when the variant is introduced (cosine
+            How much the model&apos;s internal description of each residue changes when the variant is introduced (cosine
             distance between wild-type and mutant sequence embeddings). A representation change — not a structure
             prediction.
           </span>
@@ -403,7 +407,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
             <span className="ptb-caveats">
               {e.fallback && <span className="ev-tier" data-tone="warning" title="ESM3 was unavailable, so VESM-150M produced these numbers.">Fallback model</span>}
               {peakAway && (
-                <span className="ev-tier" data-tone="warning" title="A single substitution normally changes its own residue's embedding most. A peak far from the variant suggests the change is near zero everywhere and the peak is noise.">
+                <span className="ev-tier" data-tone="warning" title="A distant peak does not establish a remote biological effect. Compare its magnitude with the variant-site reading and inspect coverage.">
                   Peak away from the variant
                 </span>
               )}
@@ -422,7 +426,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
               { value: d.minor, label: `${d.minor} minor/moderate` },
               { value: d.moderate, label: `${d.moderate} moderate/major` }
             ]}
-            label="ESM3 embedding drift"
+            label={e.label}
             format={n => n.toFixed(2)}
           />
           <span className="ptb-scale__source">Local marks {d.none} · {d.minor} · {d.moderate}, unsourced</span>
@@ -433,7 +437,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
         <th scope="row" className="ptb-subject">
           <span className="ptb-subject__line"><span className="ptb-subject__name">Site context</span></span>
           <span className="ptb-subject__note">
-            How confident the input structure is at this residue (pLDDT for an AlphaFold model) — not ESM3&apos;s
+            How confident the input structure is at this residue (pLDDT for an AlphaFold model) — not the embedding model&apos;s
             confidence in anything it predicted.
           </span>
         </th>
@@ -754,7 +758,7 @@ export function PerturbationTab({
                 <tr className="ptb-group">
                   <th colSpan={4} scope="rowgroup">
                     <span className="ptb-group__inner">
-                      <span className="ptb-group__title">ESM3 · exploratory</span>
+                      <span className="ptb-group__title">Sequence embeddings · exploratory</span>
                       <span className="ptb-group__meta">Hypothesis-generating; not validated against any outcome</span>
                     </span>
                   </th>

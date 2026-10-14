@@ -1,3 +1,4 @@
+import { useSidebarShortcut } from "./hooks/useSidebarShortcut";
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { MotionConfig } from "motion/react";
 import { ShieldAlert } from "lucide-react";
@@ -192,18 +193,7 @@ export default function App() {
     });
   }, [isNarrowViewport]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "b") return;
-      /* A text field's caret owns the keyboard (Ctrl+B is bold in rich-text contexts). */
-      const t = e.target as HTMLElement | null;
-      if (t && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-      e.preventDefault();
-      toggleSidebar();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [toggleSidebar]);
+  useSidebarShortcut(toggleSidebar);
 
   // Address bar mirrors the active variant, so the URL is always a working share link.
   useVariantUrlSync();

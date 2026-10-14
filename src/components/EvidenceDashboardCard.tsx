@@ -16,6 +16,8 @@ import { InterfacesTab } from "./evidence/InterfacesTab";
 import { FunctionTab } from "./evidence/FunctionInteractionsTabs";
 import { AlphaGenomeTab } from "./evidence/AlphaGenomeTab";
 import { MetricExplanationModal } from "./evidence/MetricExplanationModal";
+import { ResearchGuideButton } from './knowledge/ResearchGuideButton';
+import { EVIDENCE_GUIDES, RESEARCH_GUIDES } from '../shared/researchGuides';
 
 /**
  * Delegates to the canonical ΔΔG formatter.
@@ -65,7 +67,8 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
   } = props;
 
   const [localActiveTab, setLocalActiveTab] = useState<TabType>("clinical");
-  const activeTab = (activeTabProp ? normalizeEvidenceTab(activeTabProp) : localActiveTab) as TabType;
+  const requestedTab = activeTabProp ? normalizeEvidenceTab(activeTabProp) : localActiveTab;
+  const activeTab = (Object.hasOwn(EVIDENCE_GUIDES, requestedTab) ? requestedTab : 'clinical') as TabType;
   const setActiveTab = useCallback((tab: string) => {
     if (onTabChange) {
       onTabChange(tab);
@@ -251,6 +254,7 @@ function EvidenceDashboardCard(props: EvidenceDashboardCardProps) {
 
 
       <div className="p-5 flex-1 font-mono text-xs overflow-y-auto">
+        <div className="rgd-context-action"><ResearchGuideButton topic={EVIDENCE_GUIDES[activeTab]} label={`About ${RESEARCH_GUIDES[EVIDENCE_GUIDES[activeTab]].title}`} /></div>
         {!result.isDemoData && <EvidenceContextPrefetch result={result} />}
         {activeTab === "clinical" && <ClinicalTab {...tabProps} />}
         {activeTab === 'gene-disease' && <GeneDiseaseTab {...tabProps} />}

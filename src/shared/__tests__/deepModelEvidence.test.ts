@@ -160,7 +160,7 @@ describe("deepModelEvidence — sign, provenance and status per model", () => {
     const esm3 = observation(evidence, "esm3");
     // A categorical drift band is not turned into a number.
     expect(esm3.value).toBeNull();
-    expect(esm3.call).toBe("Moderate structural change");
+    expect(esm3.call).toBe("Moderate embedding shift (app-defined)");
     expect(esm3.note).toContain("confidence high");
     expect(esm3.note).toContain("pLDDT 82.1");
   });
@@ -292,16 +292,16 @@ describe("deepModelEvidence — bounded and validated", () => {
     expect(canonicalDeepModelEvidence(parsed as any)).toBe(canonicalDeepModelEvidence(evidence));
 
     const row = evidence.observations[0];
-    expect(deepModelEvidenceSchema.safeParse({ version: 1, observations: [{ ...row, id: "rosetta" }] }).success).toBe(false);
-    expect(deepModelEvidenceSchema.safeParse({ version: 1, observations: [{ ...row, state: "probably-fine" }] }).success).toBe(false);
-    expect(deepModelEvidenceSchema.safeParse({ version: 1, observations: [{ ...row, value: 1e5 }] }).success).toBe(false);
-    expect(deepModelEvidenceSchema.safeParse({ version: 1, observations: [{ ...row, note: "x".repeat(400) }] }).success).toBe(false);
+    expect(deepModelEvidenceSchema.safeParse({ version: DEEP_MODEL_EVIDENCE_VERSION, observations: [{ ...row, id: "rosetta" }] }).success).toBe(false);
+    expect(deepModelEvidenceSchema.safeParse({ version: DEEP_MODEL_EVIDENCE_VERSION, observations: [{ ...row, state: "probably-fine" }] }).success).toBe(false);
+    expect(deepModelEvidenceSchema.safeParse({ version: DEEP_MODEL_EVIDENCE_VERSION, observations: [{ ...row, value: 1e5 }] }).success).toBe(false);
+    expect(deepModelEvidenceSchema.safeParse({ version: DEEP_MODEL_EVIDENCE_VERSION, observations: [{ ...row, note: "x".repeat(400) }] }).success).toBe(false);
     // A projection version the server has not learned is refused rather than paraphrased.
     expect(deepModelEvidenceSchema.safeParse({ version: 99, observations: [] }).success).toBe(false);
     // More rows than there are models: not a payload this app can produce.
     expect(
       deepModelEvidenceSchema.safeParse({
-        version: 1,
+        version: DEEP_MODEL_EVIDENCE_VERSION,
         observations: Array.from({ length: DEEP_EVIDENCE_MODEL_IDS.length + 1 }, () => row),
       }).success
     ).toBe(false);

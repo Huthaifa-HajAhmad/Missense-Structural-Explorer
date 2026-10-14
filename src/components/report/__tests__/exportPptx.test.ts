@@ -41,7 +41,10 @@ describe("buildReportPptx", () => {
     const { blob, slides, all } = await open(d);
     expect(blob.type).toContain("presentationml");
     expect(slides.length).toBeGreaterThanOrEqual(5);
-    expect(slides.length).toBeLessThanOrEqual(10);
+    // Keep the original summary-size bound; required visible qualifications paginate separately.
+    const qualifications = slides.filter(slide => slide.includes('Reading limits &amp; provenance'));
+    expect(qualifications.length).toBeGreaterThan(0);
+    expect(slides.length - qualifications.length).toBeLessThanOrEqual(10);
     expect(all).toContain("NAE1 p.Asp116Gly evidence report");
     expect(all).toContain("Variant of Uncertain Significance (VUS)");
     expect(all).toContain("PS3");
@@ -52,6 +55,24 @@ describe("buildReportPptx", () => {
   it("keeps the full block text in the speaker notes", async () => {
     const { notes } = await open(doc());
     expect(notes.join("\n")).toContain("Not enough evidence either way yet.");
+  });
+
+  it('keeps every included warning and provenance caption visible, even when a warning needs continuation', async () => {
+    const d = doc();
+    const summary = d.blocks.find(b => b.key === 'summary')!;
+    summary.warnings.push('Coverage is incomplete. '.repeat(45) + 'Do not treat missing evidence as benign.');
+    const { all } = await open(d);
+    const visible = all.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ');
+    expect(visible).toContain('Reading limits & provenance');
+    expect(visible).toContain('Do not treat missing evidence as benign.');
+    expect(visible).toContain('Not verified against the evidence above.');
+    expect(visible).toContain('Configured datasets are app settings, not verified per-run releases.');
+    for (const block of d.blocks.filter(b => b.included)) {
+      for (const warning of block.warnings) {
+        // Check sentences individually: pagination may insert a labelled continuation.
+        for (const sentence of warning.split(/(?<=\.)\s+/)) expect(visible).toContain(sentence.replace(/\s+/g, ' '));
+      }
+    }
   });
 
   it("leaves out blocks the author left out and names them", async () => {

@@ -1,3 +1,4 @@
+import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { FileText } from "lucide-react";
 import { AnalysisState } from "../types";
@@ -55,6 +56,7 @@ function ReportHeading({ title, subtitle, draft = true }: { title: string; subti
         <p className="rpt-heading__kicker">Variant evidence report</p>
         <h1 className="rpt-heading__title">{title}</h1>
         <p className="rpt-heading__sub">{subtitle}</p>
+        <ResearchGuideButton topic="report" label="Reading and reviewing this report" />
       </div>
       {draft ? (
         <span className="rpt-heading__chips">

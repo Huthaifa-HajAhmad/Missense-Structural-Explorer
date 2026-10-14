@@ -26,6 +26,20 @@ vi.mock("./literature-summary.ts", () => {
 });
 
 describe("Gemini API Fallback Cascade and Error Mapping", () => {
+  it('grounds both narrative routes in supplied evidence without presupposing structural damage', async () => {
+    const service = await import('./gemini.ts');
+    mockGenerateContent.mockResolvedValue({ text: JSON.stringify({ analysis: 'Conditional hypothesis.', biochemicalShift: 'Charge change.', structuralImpact: 'Unassessed.', acmgCriteria: [] }) });
+    await service.performGeminiAnalysis('PAH', 'p.Arg408Trp', 'P00439', '408', 'R', 'W', undefined, null, 'standard', 'dummy-key', AbortSignal.timeout(5000));
+    await service.performGeminiBiophysicalAnalysis('PAH', 'p.Arg408Trp', 'P00439', '408', 'R', 'W', 'dummy-key', AbortSignal.timeout(5000));
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    for (const [request] of mockGenerateContent.mock.calls) {
+      const prompt = JSON.stringify(request.contents);
+      expect(prompt).toContain('TRANSLATIONAL CLARITY RULE');
+      expect(prompt).toContain('Missing, failed and unsupported results are unassessed');
+      expect(prompt).toContain('model that actually supplied a result');
+      expect(prompt).not.toMatch(/Explain how this substitution disrupts|Disrupts salt bridge at interface|55|predicted delta-delta G destabilization/);
+    }
+  });
   beforeEach(async () => {
     mockGenerateContent.mockReset();
     mockSelectSummaryCitations.mockReset();

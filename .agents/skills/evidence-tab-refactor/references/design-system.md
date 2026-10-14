@@ -97,3 +97,10 @@ The names below are Population's and Predictors' own classes; read them as templ
   (`npm run lint` checks suppressions). Hit targets ≥ 24px. `aria-label` on rulers
   (`role="img"`) describing value, axis and band; `sr-only` text for colour-only meaning.
 - Print: `print-color-adjust: exact` on tinted marks; hide buttons.
+
+## Second-pass workspace hierarchy
+
+Use the current figure/records/inspector pattern described in
+[second-pass-design.md](second-pass-design.md) for already-audited tabs. The card and table
+values above remain useful, but do not require all records below the figure or a permanent
+four-cell fact strip. Let the main scientific figure lead; disclosures hold repeated detail.

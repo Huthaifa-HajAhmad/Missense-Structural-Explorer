@@ -7,8 +7,10 @@ import { CAVEAT_TEXT, type PredictorEvidence } from './predictorEvidence';
 import type { LadderEvidence } from './ladderEvidence';
 import { formatEvidenceCode } from './thresholds';
 
-export type EvidenceWorkspaceTab = 'clinical' | 'predictors' | 'alphagenome' | 'gene-disease' | 'expression-models' | 'species-models' | 'structure' | 'perturbation' | 'function' | 'splicing';
+export type EvidenceWorkspaceTab = 'clinical' | 'predictors' | 'alphagenome' | 'gene-disease' | 'expression-models' | 'species-models' | 'structure' | 'perturbation' | 'function' | 'splicing' | 'interfaces';
 export interface EvidenceChartRow {
+  /** Educational topic only; never changes a reading or the engine's recorded interpretation. */
+  knowledgeKey?: string;
   key: string; name: string; value: number | null; valueText: string; description: string;
   group: string; tone: 'accent' | 'neutral' | 'danger' | 'good';
   facts: { label: string; value: string }[]; notes: string[];
@@ -34,7 +36,7 @@ export function formatFrequencyPercent(af: number): string {
 
 export function buildPopulationComparison(evidence: FrequencyEvidence): EvidenceChartModel {
   const rows: EvidenceChartRow[] = evidence.observations.map(o => ({
-    key: o.key, name: frequencyObservationName(o),
+    knowledgeKey: 'allele_frequency', key: o.key, name: frequencyObservationName(o),
     value: o.availability.state === 'available' && o.af !== null && o.af > 0 ? Math.log10(o.af) : null,
     valueText: o.af !== null ? formatFrequencyPercent(o.af) : o.availability.label ?? 'No frequency',
     description: o.af === null ? observationAbsence(o) : o.af === 0 ? 'A reported frequency of zero. Zero has no position on a logarithmic axis.' : 'Reported allele frequency in this source.',
@@ -46,7 +48,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
   }));
   const c = evidence.criterion;
   if (c.af !== null) rows.push({
-    key: 'frequency-rule-input', name: 'Engine frequency input',
+    knowledgeKey: 'population', key: 'frequency-rule-input', name: 'Engine frequency input',
     value: !c.absent && c.af > 0 ? Math.log10(c.af) : null,
     valueText: c.absent ? 'Not observed' : formatFrequencyPercent(c.af),
     description: c.absent ? 'Confirmed absence was read by the engine. This is not a measured frequency of zero.' : populationReading(evidence).ruleSource,
@@ -73,7 +75,7 @@ export function buildPredictorComparison(evidence: PredictorEvidence, ladder: La
     const calibrated = ladder.ladder.find(l => l.key === r.key);
     const at = calibrated?.at == null || r.cutpoints.bands.length === 0 ? -1 : ladder.columns.findIndex(c => c.id === calibrated.at);
     return { key: r.key, name: r.name, value: at < 0 ? null : at, valueText: r.scoreText,
-      description: r.description, group: r.cutpoints.kind, counted: r.votes,
+      description: r.description, group: r.cutpoints.kind, counted: r.votes, knowledgeKey: r.knowledgeKey ?? undefined,
       tone: r.callTone === 'muted' ? 'neutral' : r.callTone,
       facts: [{ label: 'Raw score', value: `${r.scoreText}${r.unit ? ` ${r.unit}` : ''}` },
         { label: 'Reading', value: formatEvidenceCode(r.callLabel) }, { label: 'Engine use', value: r.votes ? 'Included in the voting rule' : 'Informational · not counted' },
@@ -107,7 +109,7 @@ export function buildAttributionComparison(evidence: AlphaGenomeEvidence, filter
   const bound = max > 0 ? max * 1.15 : 1;
   const rows: EvidenceChartRow[] = all.filter(r => filter === 'all' || r.group === filter)
     .sort((a, b) => (b.shap === null ? -1 : Math.abs(b.shap)) - (a.shap === null ? -1 : Math.abs(a.shap)))
-    .map(r => ({ key: r.id, name: r.name, value: r.shap, valueText: r.shap === null ? 'Not attributed' : formatAttributionValue(r.shap),
+    .map(r => ({ knowledgeKey: 'shap', key: r.id, name: r.name, value: r.shap, valueText: r.shap === null ? 'Not attributed' : formatAttributionValue(r.shap),
       description: r.description, group: r.group, tone: r.group === 'molecular' ? 'accent' : 'neutral',
       facts: [{ label: 'Feature family', value: AVI_GROUP_LABEL[r.group] },
         { label: 'Signed contribution', value: r.shap === null ? 'Not attributed' : String(r.shap) },

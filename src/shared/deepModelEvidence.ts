@@ -55,7 +55,7 @@ import { RASP_SOURCE_LABEL, type RaspSource } from "./raspIndex.ts";
  * payload the prompt schema validates, so a change invalidates narratives written under the previous
  * projection instead of leaving them describing a contract that no longer exists.
  */
-export const DEEP_MODEL_EVIDENCE_VERSION = 1;
+export const DEEP_MODEL_EVIDENCE_VERSION = 2;
 
 /** One entry per model, in prompt order. The ids are also the schema's enum. */
 export const DEEP_EVIDENCE_MODEL_IDS = [
@@ -88,7 +88,7 @@ export const DEEP_EVIDENCE_SOURCE_LABELS: Record<DeepEvidenceModelId, string> = 
   saprot: "SaProt variant-effect ΔLLR",
   esm2: "ESM-2 variant-effect ΔLLR",
   esmc: "ESM-C variant-effect ΔLLR",
-  esm3: "ESM3 structural perturbation",
+  esm3: "Sequence embedding analysis (ESM3 service)",
 };
 
 /** The bounded payload. Validated by `deepModelEvidenceSchema` before it reaches the prompt. */
@@ -354,8 +354,9 @@ function lmObservation(id: PerturbationModelId | "esm3", data: any, roster?: {
     const confidence = typeof data?.confidence?.level === "string" ? data.confidence.level : null;
     const plddt = boundedValue(data?.confidence?.plddt);
     const details = [
-      confidence ? `confidence ${confidence}` : null,
-      plddt !== null ? `pLDDT ${plddt.toFixed(1)}` : null,
+      "App-defined embedding band; not structural motion or clinical evidence",
+      confidence ? `input structure confidence ${confidence}` : null,
+      plddt !== null ? `input pLDDT ${plddt.toFixed(1)}` : null,
     ].filter(Boolean);
     return {
       id,
@@ -364,7 +365,7 @@ function lmObservation(id: PerturbationModelId | "esm3", data: any, roster?: {
       // ESM3 reports a categorical structural-drift band, not a ΔΔG: no number is invented for it.
       value: null,
       unit: null,
-      call: level ? boundText(`${level[0].toUpperCase()}${level.slice(1)} structural change`, DEEP_EVIDENCE_BOUNDS.maxCallChars) : null,
+      call: level ? boundText(`${level[0].toUpperCase()}${level.slice(1)} embedding shift (app-defined)`, DEEP_EVIDENCE_BOUNDS.maxCallChars) : null,
       provenance: boundText(typeof data?.provenance === "string" ? data.provenance : null, DEEP_EVIDENCE_BOUNDS.maxProvenanceChars),
       note: boundText(details.length ? details.join(" · ") : null, DEEP_EVIDENCE_BOUNDS.maxNoteChars),
     };

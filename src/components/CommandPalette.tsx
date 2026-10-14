@@ -203,6 +203,7 @@ export default function CommandPalette({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return;
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return;
       /* AltGr reports as ctrl+alt, and Shift is a different chord; neither is this hotkey. */
       if (e.altKey || e.shiftKey) return;
@@ -217,6 +218,7 @@ export default function CommandPalette({
           target.tagName === "TEXTAREA" ||
           target.tagName === "SELECT");
       if (typingInField && !target.closest("[cmdk-root]")) return;
+      if (e.defaultPrevented && !target?.closest('[cmdk-root]')) return;
 
       e.preventDefault();
       onOpenChange(!openRef.current);
@@ -258,6 +260,7 @@ export default function CommandPalette({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return;
       if (e.key === "Escape") {
         e.preventDefault();
         /* Capture phase + stopPropagation: one Escape closes one layer, not the palette AND

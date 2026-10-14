@@ -503,7 +503,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       note: null,
       availability: avail(esm1b),
       source: dbSource,
-      knowledgeKey: null,
+      knowledgeKey: "esm1b",
       link: null,
     });
   }
@@ -548,7 +548,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
     description: "Protein language model LLR — ESMC when the remote tier answers, VESM when the local sidecar does.",
     note: esmcProvenance ? `Served by ${esmcProvenance}` : null,
     source: esmcProvenance ?? "ESMC (remote) or VESM (local sidecar)",
-    knowledgeKey: "vesm",
+    knowledgeKey: esmcProvenance && /vesm/i.test(esmcProvenance) ? "vesm" : "esmc",
   });
   uncalibratedLm("saprot", "SaProt", saprot, {
     description: "Structure-aware protein language model over Foldseek 3Di tokens from the predicted structure.",
@@ -713,7 +713,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       note: null,
       availability: avail(score),
       source: dbSource,
-      knowledgeKey: null,
+      knowledgeKey: key,
       link: null,
     });
   };
@@ -741,7 +741,7 @@ export function buildPredictorEvidence({ result, isLoading = false, isModelLoadi
       ? present
       : absent("ConSurf-DB returned no grade for this protein.", "No grade"),
     source: "ConSurf-DB",
-    knowledgeKey: null,
+    knowledgeKey: "consurf",
     link: null,
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { METRIC_EXPLANATIONS } from "../MetricExplanations";
+import { RESEARCH_GUIDES } from "../../../shared/researchGuides";
 import { BURIAL_RSA_BANDS, PACKING_NEIGHBOUR_BANDS } from "../../../shared/burialEvidence";
 
 /**
@@ -17,7 +17,7 @@ import { BURIAL_RSA_BANDS, PACKING_NEIGHBOUR_BANDS } from "../../../shared/buria
  */
 describe("metric explanations agree with the shared burial bands", () => {
   it("states the same RSA cutoffs, in the same direction, as the classifier", () => {
-    const interpretation = METRIC_EXPLANATIONS.burial_status.interpretation;
+    const interpretation = RESEARCH_GUIDES.burial_status.reading;
 
     // Core is the LOW side: at or below the core cutoff.
     expect(interpretation).toMatch(new RegExp(`core[^.]*?\\u2264\\s*${BURIAL_RSA_BANDS.coreMax * 100}%`, "i"));
@@ -30,13 +30,13 @@ describe("metric explanations agree with the shared burial bands", () => {
 
   it("does not give the Cα count cut-points of its own", () => {
     // The count is a reading only; the registry must not re-introduce the retired bands.
-    const interpretation = METRIC_EXPLANATIONS.contact_density.interpretation;
+    const interpretation = RESEARCH_GUIDES.contact_density.reading;
     expect(interpretation).toMatch(/reading only/i);
     expect(interpretation).not.toMatch(/core residues have/i);
   });
 
   it("names the residue-packing radius the server counts within", () => {
-    expect(METRIC_EXPLANATIONS.contact_density.description).toContain(
+    expect(RESEARCH_GUIDES.contact_density.answer).toContain(
       `${PACKING_NEIGHBOUR_BANDS.radiusAngstrom}\u00c5`
     );
   });

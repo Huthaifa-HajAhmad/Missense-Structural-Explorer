@@ -5,6 +5,7 @@ import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
 import { oddsText } from "../../../shared/perturbationEvidence";
 import { residueProbabilityComparison } from '../../../shared/molecularWorkspace';
 import { useEvidenceWorkspace, InspectReadingButton } from '../EvidenceWorkspace';
+import { ResearchGuideButton } from '../../knowledge/ResearchGuideButton';
 const EvidenceComparison = lazy(() => import('../EvidenceComparison'));
 
 /**
@@ -47,7 +48,7 @@ function Preferences({ lm, wtCode, mutCode, wtLabel, mutLabel }: { lm: LmReading
   return (
     <>
       <p className="ptb-detail__label">
-        <span>Residue distribution at the site</span>
+        <span>Residue distribution at the site <ResearchGuideButton topic="mutant_rank" label="Explain residue probabilities and rank" iconOnly /></span>
         <span>
           {wtCode && <span className="ptb-key"><i />Native {wtLabel}</span>}{" "}
           {mutCode && <span className="ptb-key" data-role="variant"><i />Variant {mutLabel}</span>}
@@ -96,7 +97,7 @@ function ShiftTrace({ lm, position }: { lm: LmReading; position: number | null }
   return (
     <>
       <p className="ptb-detail__label">
-        <span>Embedding shift, ±10 residues</span>
+        <span>Embedding shift, ±10 residues <ResearchGuideButton topic="embedding_shift" label="Explain embedding shift" iconOnly /></span>
         <span className="ptb-mono">
           at site {lm.embedding.atSite !== null ? lm.embedding.atSite.toFixed(2) : "—"} · mean {mean.toFixed(2)}
         </span>
@@ -204,7 +205,7 @@ export function ResidueDetail({
                 </dd>
               </div>
               <div>
-                <dt>Positional entropy</dt>
+                <dt>Positional entropy <ResearchGuideButton topic="entropy" label="Explain positional entropy" iconOnly /></dt>
                 <dd>
                   {selected.entropy !== null ? `${selected.entropy.toFixed(2)} bits` : "—"}
                   <small>

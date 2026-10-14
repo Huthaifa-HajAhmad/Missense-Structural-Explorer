@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, ExternalLink, Info, ListChecks, Scale } from "
 import { AnalysisState, EnergeticsData } from "../types";
 import { useSettings } from "../context/SettingsContext";
 import { ModelKnowledgeModal } from "./modals/ModelKnowledgeModal";
+import { ResearchGuideButton } from './knowledge/ResearchGuideButton';
 import { ENGINE_STATE_LABELS, type EnergyUnit } from "../shared/engineStatus";
 import {
   AGREEMENT_CHIP,
@@ -395,6 +396,7 @@ function ReadingRow({
           <button
             type="button"
             className="nrg-info"
+              data-explanation-topic={reading.knowledgeKey}
             onClick={() => onKnowledge(reading.knowledgeKey)}
             aria-label={`About ${reading.name}`}
             title="Method details and citation"
@@ -546,6 +548,7 @@ const EnergeticsView = memo(function EnergeticsView({
         </header>
         <div className="nrg-navigation">
           <WorkspaceTabs id="energetics" label="Energetics views" tabs={ENERGY_TABS} value={tab} onChange={setTab} />
+          <ResearchGuideButton topic="energetics" label="How to read stability estimates" />
           {selected && <button type="button" className="nrg-inspect-button" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.stabilityMethod)}>Inspect {evidence.readings.find(r => r.key === selected)?.name} →</button>}
         </div>
 

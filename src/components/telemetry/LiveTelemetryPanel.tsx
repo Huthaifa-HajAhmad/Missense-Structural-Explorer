@@ -396,7 +396,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     ? "JapanFold Sovereign"
     : "Standby / Cloud";
   const sidecarDescription = sidecarWarming
-    ? "Starting up — predictions available shortly"
+    ? "Some models are loading; check individual availability"
     : "ThermoMPNN, SaProt & StabilityOracle";
   /**
    * What the row means when opened, in words that assume no knowledge of what a sidecar is.
@@ -416,24 +416,24 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     ? {
         heading: "Not broken — just starting up",
         body:
-          "The prediction models are loading into memory. This happens once, shortly after the app " +
-          "is opened, and takes a few minutes. Everything else on this panel is unaffected. You " +
+          "Some prediction models are loading into memory. This can happen when the service " +
+          "starts; the service has not reported how long remains. You " +
           "can keep reading evidence and results now; stability and structure predictions will " +
-          "start working on their own as each model finishes, and this line will turn green."
+          "become available as each model finishes loading successfully."
       }
     : sidecarReady
     ? {
         heading: "Ready",
         body:
-          "The prediction models are loaded and available. Stability and structure predictions run " +
+          "The prediction service is responding. Check the model-specific status below for availability. Predictions run " +
           "on demand — the first one after startup may take a little longer than the rest."
       }
     : {
         heading: "Not running",
         body:
-          "The local prediction models are not running, so stability and structure predictions are " +
-          "unavailable. This is not something a search or a retry will fix. Everything on this " +
-          "panel that shows green is unaffected and fully usable."
+          "The local prediction service could not be reached on the last check. Local predictions " +
+          "may be unavailable; cloud availability is listed below. Re-check the service status, " +
+          "and check the connection settings if it remains unavailable."
       };
   /**
    * Per-model breakdown, taken only from what the server actually reported.
@@ -533,7 +533,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
           "Translates the genomic position you searched for into the matching transcript and " +
           "protein change, and checks the coordinates against the genome build. " +
           (ensemblDegraded
-            ? "The main service did not answer, so this was handled by a backup service instead. Results are complete — they just came from a different source."
+            ? "The main service did not answer. A backup service responded to the health check; coverage for your specific variant still depends on that source."
             : ensemblUncovered
             ? "Searches that need this translation will not complete until it responds again. Anything already on screen is unaffected."
             : ensemblCoverageUnknown
@@ -593,9 +593,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       explain: {
         heading: clinvarReady ? "Working normally" : "Not answering",
         body: clinvarReady
-          ? "Provides laboratory classifications of whether a change is known to be disease-causing. " +
-            "This is the strongest evidence in the app, and it is labelled as a clinical " +
-            "classification rather than a prediction."
+          ? "Aggregates submitted clinical classifications of a variant. Submissions can disagree " +
+            "or become outdated; review the condition, review status, dates and conflicts before " +
+            "interpreting a classification. A ClinVar record does not by itself establish causality."
           : "Laboratory classifications are unavailable, so the Evidence view will not show how " +
             "this change has been classified elsewhere. Everything else still works."
       }
@@ -661,8 +661,8 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             heading: "Working normally",
             body:
               "Writes the plain-language interpretation that summarises the evidence you have " +
-              "gathered. This is a summary of that evidence, never a source of it — every claim " +
-              "it makes is traceable to a reading above it."
+              "gathered. Generated summaries can contain errors, and proposed mechanisms are " +
+              "hypotheses. Check each claim against the cited evidence."
           }
     },
     {
@@ -678,8 +678,8 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
         ? {
             heading: "Working normally",
             body:
-              "Estimates how much a change destabilises the protein using a physical model of " +
-              "atomic forces. It runs locally, so results do not depend on any outside service."
+              "Estimates a change in protein stability using an empirical energy function and " +
+              "a structural model. This is a prediction, not a measured folding energy."
           }
         : {
             heading: "Not installed in this setup",
@@ -895,7 +895,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                 const slow = typeof svc.latency === "string" && parseInt(svc.latency, 10) >= 1000;
                 /**
                  * A row may carry an action (re-check, open Settings), an explanation, or both.
-                 * See the note on `rowRole` below for how the two are kept from colliding.
+                 * Native action and disclosure buttons are siblings with distinct names.
                  */
                 const rowAction = svc.onAction;
                 /**
@@ -907,38 +907,25 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                  * a button gives a keyboard user two tab stops for one thing, and nesting the two is
                  * invalid HTML.
                  *
-                 * `role="button"` on the row therefore belongs to a row that carries an *action*
-                 * (re-check, open Settings), exactly as before. A row with no action keeps no role
+                 * A native action button stretches over the row beside the disclosure button.
+                 * A row with no action keeps no role
                  * even though it opens: `LiveTelemetryFallback.test.tsx` pins this for a healthy
                  * Ensembl row, and it is right — a row with nothing to do must not look like a control.
                  */
                 const rowLabel = rowAction
                   ? (svc.actionLabel ?? `Configure ${svc.name} settings`)
                   : svc.name;
-                const rowRole = rowAction ? "button" : undefined;
                 return (
                   <div key={svc.id} className="flex flex-col">
                   <div
                     data-service-id={svc.id}
                     data-expanded={isExpandable ? (isOpen ? "true" : "false") : undefined}
                     onClick={
-                      rowAction
-                        ? rowAction
-                        : isExpandable
+                      !rowAction && isExpandable
                         ? () => toggleExpanded(svc.id)
                         : undefined
                     }
-                    role={rowRole}
-                    tabIndex={rowAction ? 0 : undefined}
-                    aria-label={rowLabel}
-                    onKeyDown={e => {
-                      if (!rowAction) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        rowAction();
-                      }
-                    }}
-                    className={`group flex items-center gap-2.5 px-3 py-1 min-h-[42px] select-none transition-colors duration-150 ${
+                    className={`group relative flex items-center gap-2.5 px-3 py-1 min-h-[42px] select-none transition-colors duration-150 ${
                       svc.isDown
                         ? "bg-[var(--cs-bg-danger)]"
                         : svc.isDegraded || svc.isWarming
@@ -950,6 +937,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                         : ""
                     }`}
                   >
+                    {rowAction && <button type="button" aria-label={rowLabel}
+                      onClick={rowAction}
+                      className="absolute inset-0 rounded-[inherit] cursor-pointer active:bg-cs-surface-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cs-accent-clay)]" />}
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDotClass(svc)}`} aria-hidden="true" />
 
                     <div className="flex flex-col min-w-0 flex-1">
@@ -988,26 +978,13 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                         {svc.statusText}
                       </span>
                       {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
-                          only cue was its aria-label, and the settings rows had no cue at all.
-
-                          The disclosure chevron below says "this row opens", not "clicking this row
-                          does something": on an action row the row click fires the action while only
-                          the chevron button toggles the panel. So an action row always draws its own
-                          cue. A collapsed `ChevronDown` rotated a quarter turn points right — the
-                          same glyph `ChevronRight` draws — so a row that also opens uses `ArrowRight`
-                          instead, which cannot be read as a duplicated chevron. An explicit
-                          `actionIcon` wins either way (the re-check refresh says more than an arrow). */}
+                          only cue was its aria-label, and the settings rows had no cue at all. */}
                       {rowAction && (
                         <span
                           className="text-cs-text-muted group-hover:text-cs-text-primary transition-colors duration-150"
                           aria-hidden="true"
                         >
-                          {svc.actionIcon ??
-                            (isExpandable ? (
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            ) : (
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            ))}
+                          {svc.actionIcon ?? (isExpandable ? <ArrowRight className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />)}
                         </span>
                       )}
                       {/* The disclosure affordance, only on a row that opens. A chevron that rotates
@@ -1029,7 +1006,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                           }}
                           aria-label={`${isOpen ? "Hide" : "Show"} details for ${svc.name}`}
                           aria-expanded={isOpen}
-                          className="relative cs-tap-44 w-7 h-7 -mr-1 inline-flex items-center justify-center rounded-[var(--cs-radius-input)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--cs-accent-clay)]"
+                          className="relative z-10 cs-tap-44 w-7 h-7 -mr-1 inline-flex items-center justify-center rounded-[var(--cs-radius-input)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle active:bg-cs-surface-2 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cs-accent-clay)]"
                         >
                           <ChevronDown
                             className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}

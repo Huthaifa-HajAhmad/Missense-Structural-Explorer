@@ -33,6 +33,7 @@
  *  - "Allosteric heatmap" for an embedding distance, banded at 0.05/0.15/0.35 while the engine used
  *    0.08/0.22/0.38; "±15 residue" for a ±5 window; χ1 "0.0°" for a glycine.
  */
+import { embeddingSource } from "./embeddingSource";
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
 import {
@@ -216,7 +217,7 @@ export interface Structure3dInput {
   };
   alignmentScope: AlignmentScope;
   metrics: StructuralMetricsLike | null;
-  esm3: { scoreCount: number | null; error: string | null } | null;
+  esm3: { scoreCount: number | null; error: string | null; provenance?: string | null } | null;
   region: string | null;
   burial: { rsa: number | null; label: string | null; structure: string | null } | null;
   homologs: HomologLike[];
@@ -375,6 +376,7 @@ export const STRUCTURE_SOURCES = {
   schymkowitz2005: { citation: "Schymkowitz et al. 2005, Nucleic Acids Res — the FoldX force field", doi: "10.1093/nar/gki387" },
   lin2023: { citation: "Lin et al. 2023, Science — ESM-2 and ESMFold (v1)", doi: "10.1126/science.ade2574" },
   candido2026: { citation: "Candido et al. 2026, bioRxiv — ESMC and ESMFold2", doi: "10.64898/2026.06.03.729735" },
+  dinh2026: { citation: "Dinh et al. 2026, Nature Methods - VESM", doi: "10.1038/s41592-026-03050-9" },
   hayes2025: { citation: "Hayes et al. 2025, Science — ESM3", doi: "10.1126/science.ads0018" },
   kabsch1976: { citation: "Kabsch 1976, Acta Cryst A — least-squares superposition", doi: "10.1107/S0567739476001873" },
   sun2019: { citation: "Sun et al. 2019, Chem Rev — interpreting and normalising B-factors", doi: "10.1021/acs.chemrev.8b00290" },
@@ -389,7 +391,7 @@ const REPRESENTATION_LABELS: Record<RepresentationId, string> = {
   plain: "Plain cartoon",
   pair: "Wild type and variant",
   displacement: "Cα displacement",
-  esm3: "ESM3 sequence shift",
+  esm3: "Sequence embedding shift",
 };
 
 /** Neutral reference and clay variant for the superposition pair. Clay is `--cs-accent-clay`. */
@@ -812,17 +814,17 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       ? [
           {
             id: "esm3" as const,
-            label: REPRESENTATION_LABELS.esm3,
+            label: embeddingSource(input.esm3?.provenance).label,
             available: Boolean(input.esm3?.scoreCount) && esm3ProjectionReady,
             reason: !input.esm3
-              ? "ESM3 was not run for this variant."
+              ? "Embedding analysis was not run for this variant."
               : input.esm3.error
-                ? `ESM3 did not return scores: ${input.esm3.error}`
+                ? `Embedding analysis did not return scores: ${input.esm3.error}`
                 : !input.esm3.scoreCount
-                  ? "ESM3 returned no per-residue scores."
+                  ? "Embedding analysis returned no per-residue scores."
                   : esm3ProjectionReady
                     ? null
-                    : "ESM3 sequence scores are projected only onto a numbered predicted wild-type model.",
+                    : "Sequence embedding scores are projected only onto a numbered predicted wild-type model.",
           },
         ] : []),
   ];
@@ -916,7 +918,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
     const d = THRESHOLDS.esm3Drift;
     colour = { primary: { theme: "esm3" }, secondary: null, secondaryCartoon: false };
     legend = {
-      title: "ESM3 sequence shift on wild type",
+      title: `${embeddingSource(input.esm3?.provenance).label} on wild type`,
       provenance: "app-defined",
       provenanceNote: "Wild-type versus variant sequence embeddings, projected by residue onto the predicted wild-type coordinates. App-defined bands; not structural movement or allostery.",
       entries: [
@@ -1382,8 +1384,10 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   );
   addSource("kabsch1976");
   if (representation === "esm3") {
-    notes.push("ESM3 embedding shift is the cosine distance between wild-type and variant ESM3 representations per residue. It is a language-model signal with this app's own bands; it does not measure allostery or motion.");
-    addSource("hayes2025");
+    notes.push(`${embeddingSource(input.esm3?.provenance).label} is the cosine distance between wild-type and variant representations per residue. It is a language-model signal with this app's own bands; it does not measure allostery or motion. Served model: ${input.esm3?.provenance || "not recorded"}.`);
+    const source = embeddingSource(input.esm3?.provenance);
+    if (source.fallback) addSource("dinh2026");
+    else if (source.topic === "esm3") addSource("hayes2025");
   }
   addSource("sehnal2021");
 
