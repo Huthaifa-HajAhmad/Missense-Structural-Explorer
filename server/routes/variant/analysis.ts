@@ -2,6 +2,7 @@ import { type Router } from "express";
 import { AuditLogger, sendError, onClientDisconnect } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
 import { fetchLandscape } from "../../services/external.ts";
+import { currentStaleNotes } from "../../services/infra/stale-response.ts";
 import { fetchLandscapeContext } from "../../services/prediction/landscape-context.ts";
 import { validateAndParseVariantRequest } from "./variant-parser.ts";
 import {
@@ -142,6 +143,9 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
         }
       }, abortController.signal);
       if (!res.writableEnded) {
+        // The headers went out before the data was fetched, so `X-MSE-Stale` cannot carry this (WP-I2).
+        const staleNotes = currentStaleNotes();
+        if (staleNotes.length > 0) res.write(JSON.stringify({ type: "stale", notes: staleNotes }) + "\n");
         res.end();
       }
     } catch (error: any) {

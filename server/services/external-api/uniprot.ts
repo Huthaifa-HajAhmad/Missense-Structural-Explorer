@@ -631,6 +631,11 @@ export async function fetchDisplayedIsoformId(
         throw new Error(`UniProt entry lookup failed with status ${response.status}`);
       }
       const data = (await response.json()) as any;
+      // A 200 that is not an entry (UniProt answers some unknown accessions with an empty body) says
+      // nothing about the protein; throwing keeps it out of the 30-day cache.
+      if (typeof data?.primaryAccession !== "string") {
+        throw new Error(`UniProt returned no entry for ${key}`);
+      }
       const comment = (data?.comments ?? []).find(
         (c: any) => c?.commentType === "ALTERNATIVE PRODUCTS"
       );
@@ -657,6 +662,10 @@ export async function fetchUniprotSequence(uniprotId: string, options?: UniprotC
     l1Cache: cache,
     ttlSeconds: 30 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
+    // An empty sequence is not a fact about the protein (UniProt can answer 200 with an empty body,
+    // see `fetchUniprotIsoforms`); it must not be cached for 30 days, nor served if it was.
+    shouldCache: (seq) => typeof seq === "string" && seq.length > 0,
+    isUsable: (seq) => typeof seq === "string" && seq.length > 0,
     fetcher: async () => {
       const url = `https://rest.uniprot.org/uniprotkb/${key}.fasta`;
       const response = await fetchWithRetry(url, { timeout: 15000 });

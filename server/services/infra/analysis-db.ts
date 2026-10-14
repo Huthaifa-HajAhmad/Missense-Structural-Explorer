@@ -14,7 +14,8 @@ import {
   executePurgeStaleVariantAnalyses,
   type StoredVariantAnalysis,
   type StoredVariantAnalysisSummary,
-  type AnalysisCacheOptions
+  type AnalysisCacheOptions,
+  type ExternalCacheRow
 } from "./analysis-db-core.ts";
 import {
   runSaveVariantAnalysisInWorker,
@@ -184,8 +185,8 @@ export class AnalysisDatabase {
     executeSaveExternalCache(this.db, cacheKey, data, source, ttlSeconds, etag, schemaVersion);
   }
 
-  public getExternalCache<T = any>(cacheKey: string): { data: T; source: string; fetchedAt: string; etag: string | null } | null {
-    return executeGetExternalCache<T>(this.db, cacheKey);
+  public getExternalCache<T = any>(cacheKey: string, includeExpired = false): ExternalCacheRow<T> | null {
+    return executeGetExternalCache<T>(this.db, cacheKey, includeExpired);
   }
 
   /**
@@ -215,16 +216,16 @@ export class AnalysisDatabase {
   /**
    * Asynchronous non-blocking companion to getExternalCache that dispatches to worker pool.
    */
-  public async getExternalCacheAsync<T = any>(cacheKey: string): Promise<{ data: T; source: string; fetchedAt: string; etag: string | null } | null> {
+  public async getExternalCacheAsync<T = any>(cacheKey: string, includeExpired = false): Promise<ExternalCacheRow<T> | null> {
     if (this.targetPath === ":memory:") {
       await new Promise<void>(resolve => setImmediate(resolve));
-      return this.getExternalCache<T>(cacheKey);
+      return this.getExternalCache<T>(cacheKey, includeExpired);
     }
     try {
-      return await runGetExternalCacheInWorker({ dbPath: this.targetPath, cacheKey });
+      return await runGetExternalCacheInWorker({ dbPath: this.targetPath, cacheKey, includeExpired });
     } catch (err) {
       console.warn("[AnalysisDatabase] Worker dispatch fallback to sync getExternalCache:", err);
-      return this.getExternalCache<T>(cacheKey);
+      return this.getExternalCache<T>(cacheKey, includeExpired);
     }
   }
 

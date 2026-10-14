@@ -37,6 +37,7 @@
 import { z } from "zod";
 import { LRUCache } from "lru-cache";
 import { fetchWithRetry } from "../infra/http-client.ts";
+import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
 import { SPLICEAI_DISTANCE_RANGE, type ConservationData } from "../../../src/shared/contracts.ts";
 
 /** Cloud Run services, one per genome build. Selected by `-comprehensive` suffix upstream. */
@@ -96,6 +97,9 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30;
  */
 export type SpliceAiFailure = NonNullable<ConservationData["spliceaiFailure"]>;
 export type SpliceAiFailureKind = SpliceAiFailure["kind"];
+
+/** Misses that are a fact about the variant, not about the service at that moment. */
+const DEFINITIVE_MISSES: ReadonlySet<SpliceAiFailureKind> = new Set(["coordinate-rejected", "no-transcript"]);
 
 export interface SpliceAiOutcome {
   record: SpliceAiScoreRecord | null;
@@ -297,11 +301,36 @@ export async function fetchSpliceAiBroadOutcome(
     if (cached !== undefined) return { record: cached, failure: null };
   }
 
+  // One request per variant for every concurrent caller (WP-I2). It is bounded by its own timeout, not
+  // by this caller's signal: an abort ends this caller's wait and the request carries on for the others.
+  return sharedFlight(
+    spliceAiFlights,
+    cacheKey,
+    () => requestSpliceAi(cacheKey, baseUrl, chrom, pos, ref, alt, assembly, distance, mask),
+    { signal: options.signal }
+  );
+}
+
+/** SpliceAI requests in flight, by cache key. */
+const spliceAiFlights: SharedFlights<SpliceAiOutcome> = new Map();
+
+async function requestSpliceAi(
+  cacheKey: string,
+  baseUrl: string,
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  assembly: keyof typeof SPLICEAI_BASE_URLS,
+  distance: number,
+  mask: number
+): Promise<SpliceAiOutcome> {
   const hg = assembly === "GRCh38" ? 38 : 37;
   // Alleles are upper-cased: the service documents and returns `chr-pos-REF-ALT` in upper
   // case, and the cache key is upper-cased too, so a lower-case caller must not produce a
   // differently-spelled request for the same variant.
-  const contig = String(chrom).replace(/^chr/i, "");
+  // Upper-cased like the cache key, so `chrx` and `chrX` (one key, one shared request) send one spelling.
+  const contig = String(chrom).replace(/^chr/i, "").toUpperCase();
   const variant = `chr${contig}-${pos}-${ref.toUpperCase()}-${alt.toUpperCase()}`;
   const url =
     `${baseUrl}/spliceai/?variant=${encodeURIComponent(variant)}` +
@@ -310,14 +339,17 @@ export async function fetchSpliceAiBroadOutcome(
   try {
     const response = await fetchWithRetry(
       url,
-      { headers: { Accept: "application/json", "User-Agent": "Missense-Structural-Explorer/1.0" }, timeout: REQUEST_TIMEOUT_MS, signal: options.signal },
+      { headers: { Accept: "application/json", "User-Agent": "Missense-Structural-Explorer/1.0" }, timeout: REQUEST_TIMEOUT_MS },
       // A single attempt: this is an interactive service behind a per-user rate limit, so
       // retrying aggressively would work against it. A miss degrades to the fallback path.
       1
     );
 
     const miss = (failure: SpliceAiFailure): SpliceAiOutcome => {
-      spliceAiCache.set(cacheKey, noScore(failure), { ttl: 60_000 });
+      // Remembered for a minute only when the service gave a definitive answer about this variant.
+      // A 429, a 5xx or an unreadable body is asked again next time (WP-I2: no negative caching of
+      // errors); a 429 already pauses the host for the whole team (WP-I3), so this does not hammer it.
+      if (DEFINITIVE_MISSES.has(failure.kind)) spliceAiCache.set(cacheKey, noScore(failure), { ttl: 60_000 });
       return { record: null, failure };
     };
 
@@ -380,7 +412,6 @@ export async function fetchSpliceAiBroadOutcome(
     spliceAiCache.set(cacheKey, record, { ttl: CACHE_TTL_MS });
     return { record, failure: null };
   } catch (err: any) {
-    if (options.signal?.aborted) throw err;
     console.warn(`[SpliceAI Broad] ${variant} lookup failed: ${err?.message ?? "unknown error"}; falling back.`);
     const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError" || /time(d)? ?out/i.test(String(err?.message ?? ""));
     // The shared client throws (with the last status) on 429 and 5xx, so those arrive here, not above.
@@ -391,7 +422,7 @@ export async function fetchSpliceAiBroadOutcome(
         : status !== null && status >= 500
         ? { kind: "upstream-error", httpStatus: status, detail: null }
         : { kind: timedOut ? "timeout" : "network", httpStatus: null, detail: briefDetail(err?.message) };
-    spliceAiCache.set(cacheKey, noScore(failure), { ttl: 60_000 });
+    // Not remembered: none of these says anything about the variant.
     return { record: null, failure };
   }
 }
@@ -399,6 +430,7 @@ export async function fetchSpliceAiBroadOutcome(
 /** Test seam: clears the module cache. */
 export function clearSpliceAiCache(): void {
   spliceAiCache.clear();
+  spliceAiFlights.clear();
 }
 
 /**

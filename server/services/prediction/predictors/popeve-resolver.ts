@@ -77,7 +77,9 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
 
     const res = await fetchWithRetry(url, { timeout: 10000 });
     if (!res.ok) {
-      refseqCache.set(proteinOrGene, null);
+      // Only a definitive "no such entry" is remembered; a 429, a 5xx or another refusal is asked
+      // again next time (WP-I2: no negative caching of errors).
+      if (res.status === 404) refseqCache.set(cleanInput, null);
       return null;
     }
     const data = await res.json() as any;
@@ -91,11 +93,11 @@ export async function getRefSeqForProtein(proteinOrGene: string): Promise<string
     const refseqXrefs = dbXrefs.filter((x: any) => x.database === "RefSeq");
     const refseqId = refseqXrefs.find((x: any) => typeof x.id === "string" && x.id.startsWith("NP_"))?.id || refseqXrefs[0]?.id || null;
 
-    refseqCache.set(proteinOrGene, refseqId);
+    refseqCache.set(cleanInput, refseqId);
     return refseqId;
   } catch (err: any) {
+    // Not remembered: a timeout or network error says nothing about the protein.
     console.warn(`[popEVE Online] RefSeq lookup warning for ${proteinOrGene}: ${err.message}`);
-    refseqCache.set(proteinOrGene, null);
     return null;
   }
 }
@@ -108,14 +110,21 @@ export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: str
   try {
     const refseqId = await getRefSeqForProtein(proteinOrGene);
     if (!refseqId) {
-      popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+      // Remembered only when the RefSeq answer itself was definitive (it is then in `refseqCache`).
+      if (refseqCache.has(proteinOrGene.trim())) popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
       return null;
     }
 
     const csvUrl = `https://data.evemodel.org/popeve/v1.1/mutations/${refseqId}.csv`;
     const res = await fetchWithRetry(csvUrl, { timeout: 3000 }, 1);
     if (!res.ok) {
-      popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+      // popEVE has no file for this RefSeq: definitive. Its files sit in an S3 bucket that answers a
+      // missing key with 403 `AccessDenied`, not 404 (checked live 2026-10-14), so that exact answer
+      // counts too. Anything else is asked again next time.
+      const absent =
+        res.status === 404 ||
+        (res.status === 403 && /<Code>AccessDenied<\/Code>/.test(await res.text().catch(() => "")));
+      if (absent) popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
       return null;
     }
     const csvText = await res.text();
@@ -147,9 +156,12 @@ export async function fetchPopEVEScoreOnline(proteinOrGene: string, variant: str
       }
     }
   } catch (err: any) {
+    // A timeout or network error is not remembered: popEVE is asked again next time.
     console.warn(`[popEVE Online Error] ${err.message}`);
+    return null;
   }
 
+  // The file was read and holds no score for this substitution.
   popEveOnlineCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
   return null;
 }

@@ -13,6 +13,7 @@ import { sendError } from "./utils.ts";
 import { createSpaShellHandler, setStaticShellHeaders } from "./spa-shell-cache.ts";
 import { CONFIG, validateStartupEnvironment } from "./config.ts";
 import { installDeploymentControl } from "./deployment-control.ts";
+import { STALE_DATA_HEADER } from "../src/shared/providerLimits.ts";
 
 export { validateStartupEnvironment };
 
@@ -126,7 +127,9 @@ export async function createExpressApp(): Promise<express.Express> {
     // a sandboxed iframe or a `file://` page met exactly that. A cookie write from a foreign origin is
     // refused in its own right, with 403 CROSS_SITE_REQUEST (see `crossSiteWrite`).
     if (!decision.allowed) return callback(null, { origin: false });
-    callback(null, { origin: true, credentials: decision.credentials });
+    // `X-MSE-Stale` says a response used saved data past its expiry (WP-I2); a browser only lets an
+    // allowed cross-origin page read it when it is exposed.
+    callback(null, { origin: true, credentials: decision.credentials, exposedHeaders: [STALE_DATA_HEADER] });
   }));
 
   // Mount versioned API router

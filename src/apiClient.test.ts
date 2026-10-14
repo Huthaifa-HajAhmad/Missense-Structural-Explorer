@@ -4,7 +4,8 @@ import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { extractErrorMessage, useApiClient } from "./apiClient";
 import { SettingsProvider } from "./context/SettingsContext";
-import { clearInvalidApiKey, getAuthLapse, subscribeAuthLapse, type AuthLapse } from "./api/authSession";
+import { clearInvalidApiKey, getAuthLapse, subscribeAuthLapse, subscribeStaleData, type AuthLapse } from "./api/authSession";
+import { STALE_DATA_HEADER, encodeStaleData } from "./shared/providerLimits";
 
 describe("extractErrorMessage Unit Tests", () => {
   it("extracts nested error.message from standardized backend JSON error", async () => {
@@ -566,6 +567,51 @@ describe("useApiClient Domain Methods & Delegation", () => {
       expect(events[1]).toBeNull();
     } finally {
       unsubscribe();
+    }
+  });
+});
+
+describe("fetchWithAuth: X-MSE-Stale (WP-I2)", () => {
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(SettingsProvider, null, children);
+  const header = encodeStaleData([{ data: "UniProt FASTA", provider: "UniProt", ageSec: 7200 }]);
+
+  it("publishes the notes of a same-origin response, success or refusal, and survives a throwing listener", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn((url: string) => {
+      const status = String(url).includes("gene-context") && ++calls > 1 ? 404 : 200;
+      return Promise.resolve(new Response("{}", { status, headers: { [STALE_DATA_HEADER]: header } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const seen: unknown[] = [];
+    const offThrowing = subscribeStaleData(() => {
+      throw new Error("listener bug");
+    });
+    const off = subscribeStaleData(r => seen.push(r.notes));
+    try {
+      const { result } = renderHook(() => useApiClient(), { wrapper });
+      expect((await result.current.fetchWithAuth("/api/v1/gene-context")).status).toBe(200);
+      expect((await result.current.fetchWithAuth("/api/v1/gene-context")).status).toBe(404);
+      expect(seen.length).toBeGreaterThanOrEqual(2);
+      expect(seen[0]).toEqual([{ data: "UniProt FASTA", provider: "UniProt", ageSec: 7200 }]);
+    } finally {
+      off();
+      offThrowing();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("ignores the header on a third-party URL", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 200, headers: { [STALE_DATA_HEADER]: header } }))));
+    const seen: unknown[] = [];
+    const off = subscribeStaleData(r => seen.push(r.notes));
+    try {
+      const { result } = renderHook(() => useApiClient(), { wrapper });
+      await result.current.fetchWithAuth("https://example.org/data");
+      expect(seen).toEqual([]);
+    } finally {
+      off();
+      vi.unstubAllGlobals();
     }
   });
 });

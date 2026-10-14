@@ -16,6 +16,7 @@ import {
   onClientDisconnect,
 } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
+import { geminiCredentialSegment } from "../../services/infra/cache-keys.ts";
 import { resolveGeneToUniprot } from "../../services/external.ts";
 // Shared with the Population Frequencies screen, so the report and the UI cannot state different
 // frequencies or different absence causes for one variant.
@@ -220,8 +221,6 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
         : undefined;
 
       const effectiveKey = customApiKey || envKey;
-      const activeApiKey = effectiveKey || "no_key";
-      const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
       const model = getConfiguredGeminiModels()[0];
       const clientAbortController = new AbortController();
       onClientDisconnect(res, () => clientAbortController.abort());
@@ -249,7 +248,7 @@ export function registerNarrativeRoutes(apiRouter: Router, jsonParserRegular: an
        * prompt wrote — for the cache's full 24h TTL. See `NARRATIVE_PROMPT_SCHEMA_VERSION` for why
        * that mattered here specifically.
        */
-      const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}_${evidenceHash}_literature:${citationDigest}_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`;
+      const cacheKey = `clinical_${uniprotId}_${variant}_${acmgWeighting}_${userDirections || ""}_${evidenceHash}_literature:${citationDigest}_${geminiCredentialSegment(effectiveKey)}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`;
       const cached = getFromCache(cacheKey);
 
       if (cached) {

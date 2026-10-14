@@ -140,7 +140,11 @@ and WP-I1):
    counted under `egress` on `GET /api/v1/capabilities`.
 2. After a few days, read those lines and the `wouldHold` / `rateLimits` counts. Fair share between people
    needs Step 6 (`AUTH_MODE=accounts`); under `legacy` everyone is one owner.
-3. Set `EGRESS_GOVERNOR=on` and restart. To roll back, set it to `off`.
+3. Set `EGRESS_GOVERNOR=on` and restart. To roll back, set it to `off`. Under `on`, a lookup that fails
+   because a provider is limiting requests is answered from the saved copy when one exists, even past its
+   expiry, and the reader is told how old it is (WP-I2). `staleServes` on `/capabilities` counts these
+   (`wouldServe` under `shadow`). Expired cache rows are kept 30 days for this, so `data/analyses.sqlite`
+   holds somewhat more than before.
 
 Optional: `EGRESS_PROVIDER_LIMITS_JSON` overrides a provider's `maxConcurrent`, `ratePerMin` or `burst`
 (`.env.example`); a published rate cannot be raised by it. State is per process, so during a blue/green

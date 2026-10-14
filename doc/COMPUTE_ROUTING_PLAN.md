@@ -50,7 +50,7 @@ one agent can take it without the others.
 | Package | State | Where |
 |---|---|---|
 | WP-C engine and cost models | **done** (25 engine + 7 cost-model tests) | `src/shared/computeRouting.ts`, `server/services/infra/cost-models.ts` |
-| WP-I2 cache audit (read-only part) | **done**; the fixes it lists are not | `doc/EGRESS_AUDIT.md` |
+| WP-I2 cache audit (read-only part) | **done** | `doc/EGRESS_AUDIT.md` |
 | WP-A accounts, **server side** | **done** (33 integration tests) | `server/auth/*`, `server/routes/{auth,admin}.ts`, `scripts/user-admin.ts` |
 | WP-A accounts, client | **done** (16 component tests; walked end to end in a browser) | `src/context/AccountContext.tsx`, `src/components/account/*`, Settings → Account / Team |
 | WP-B queue ownership, fair claim, limits, cancel, my-jobs, usage | **done** (17 queue + 7 HTTP + 4 estimate tests); no client screen yet (that is WP-G) | `server/services/infra/biophysical-queue.ts`, `queue-owners.ts`, `server/routes/biophysics/polling.ts` |
@@ -60,8 +60,9 @@ one agent can take it without the others.
 | WP-E shared cache and de-duplication | **done** (8 + 3 route tests); the agent half (validation) waits for WP-F | `src/shared/computeProvenance.ts`, `foldx-job-registry.ts` (`JobRegistry`), `routes/biophysics/pocket.ts` |
 | WP-G1 jobs panel, cancelled state, wait estimate, usage | **done** (7 copy + 4 panel + 1 usage tests; walked in a browser) | `src/components/jobs/JobsMenu.tsx`, `src/shared/jobsCopy.ts`, Settings → Account → Compute |
 | WP-F agents: pairing, claim/lease protocol, result validation, team FoldX bundle, the agent runtime and its double-click bundle, "Your computers" and "FoldX for the team" screens | **done** (#118) (12 protocol + 9 agent + 11 validator + 4 copy tests; a real end-to-end run on Windows of both tools, see WP-F) | `server/routes/agent.ts`, `server/services/infra/agent-*.ts`, `foldx-archive.ts`, `tool-bundles.ts`, `server/agent/*`, `src/shared/agentProtocol.ts`, `doc/AGENT.md` |
-| WP-I1 fair-share egress governor: per-provider turns between people (`system` last), published rates only (Ensembl, NCBI) with sources, AIMD and learned rates, deadline-aware waits, `governedFetch` for the 41 raw remote `fetch` sites, a ratchet test, request and job attribution, governor health on `/capabilities` | **done** on `feat/wp-i1-governor`, under the same `EGRESS_GOVERNOR` (15 governor + 1 ratchet + 23 review-fix + 2 `/capabilities` route tests; Review 4 below) | `server/services/infra/egress-governor.ts`, `egress-context.ts`, `http-client.ts` (`governedFetch`), `egress-ratchet.test.ts`, `auth/egress-owner.ts`, `biophysical-queue.ts`, `routes/capabilities.ts` |
-| WP-I3 team-wide 429 pause: per-host pause for everyone, typed `PROVIDER_RATE_LIMITED`, 429 out of the breaker, DynaMut2/DDMut polls keep listening, provider health on `/capabilities` | **done** on `feat/wp-i3-429-pause`, ships `EGRESS_GOVERNOR=off` (14 pause + 3 copy + 1 route tests) | `server/services/infra/provider-pause.ts`, `http-client.ts`, `src/shared/providerLimits.ts`, `stability/dynamut.ts`, `routes/biophysics/polling.ts`, `routes/capabilities.ts` |
+| WP-I1 fair-share egress governor: per-provider turns between people (`system` last), published rates only (Ensembl, NCBI) with sources, AIMD and learned rates, deadline-aware waits, `governedFetch` for the 41 raw remote `fetch` sites, a ratchet test, request and job attribution, governor health on `/capabilities` | **done** (#128), under the same `EGRESS_GOVERNOR` (15 governor + 1 ratchet + 23 review-fix + 2 `/capabilities` route tests; Review 4 below) | `server/services/infra/egress-governor.ts`, `egress-context.ts`, `http-client.ts` (`governedFetch`), `egress-ratchet.test.ts`, `auth/egress-owner.ts`, `biophysical-queue.ts`, `routes/capabilities.ts` |
+| WP-I3 team-wide 429 pause: per-host pause for everyone, typed `PROVIDER_RATE_LIMITED`, 429 out of the breaker, DynaMut2/DDMut polls keep listening, provider health on `/capabilities` | **done** (#127), ships `EGRESS_GOVERNOR=off`; production runs `shadow` since 2026-10-13 (14 pause + 3 copy + 1 route tests) | `server/services/infra/provider-pause.ts`, `http-client.ts`, `src/shared/providerLimits.ts`, `stability/dynamut.ts`, `routes/biophysics/polling.ts`, `routes/capabilities.ts` |
+| WP-I2 shared cache fixes: stale on rate limit (expired rows kept 30 days, `X-MSE-Stale`, the client's notice), nothing built from stale data cached, negative caching only for a definitive not-found, no credential in Gemini keys, one upstream call for concurrent SpliceAI / JapanFold / DynaMut2 / DDMut requests, prewarm as `system` and skipping cached runs | **done** on `feat/wp-i2-cache`, under the same `EGRESS_GOVERNOR` (28 stale + 20 hygiene + 2 client notice + 2 fetchWithAuth + 1 stream-frame + 2 prewarm tests, plus gate tests in the landscape, structure-resolver, Genos, core-singleflight, analysis-route and governor suites; Review 5 below) | `server/services/infra/{cache-registry,cache-scope,stale-response,shared-flight}.ts`, `analysis-db-core.ts`, `prewarm-manager.ts`, `src/hooks/useStaleDataNotice.ts`, `doc/EGRESS_AUDIT.md` section 8 |
 | WP-G2 live routing: placement on the owner's computers, `runsOn` (where, why, prediction) on every job surface, fallback to the server, each computer's own speed, learned memory limits on the admin page | **done** on `feat/wp-g2-routing` (17 live-routing + 11 copy + 1 jobs-panel + 3 Energetics + 4 screen tests); placement is live only with `COMPUTE_ROUTING=on` | `admission.ts` (`placementOf`), `biophysical-queue.ts` (`routing` column, `agentLoad`, `releasePlacementsOf`), `routes/agent.ts` (`ownerAgentHosts`, `releaseStrandedPlacements`), `src/shared/jobPlacement.ts`, `ComputeLimits.tsx` |
 | everything else | not started | |
 
@@ -276,8 +277,8 @@ wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-
 - **`/capabilities` gains `egress: { mode, providers[] }`**: hosts paused now or rate-limiting in the last
   15 minutes, with `state`, `pausedUntil`, `retryAfterSec`, `recentRateLimits`, `wouldHold` and
   `limitBasis` (filled from the governor since I1). Hostnames and counts only.
-- **Not in I3:** serving stale cache while paused belongs to I2 (expired rows are filtered at read, so it needs a
-  new read path and a `stale` flag on the returned value). The raw `fetch` callers are gated since I1.
+- **Not in I3:** serving stale cache while paused belongs to I2 (done there: expired rows are kept and read on
+  request, and the flag travels on the response, see "Where WP-I2 differs"). The raw `fetch` callers are gated since I1.
 
 **Where WP-I1 differs from section 7** (the code is the source of truth):
 - **No `provider` option and no per-call `userId`.** The governor keys providers by hostname (registry entries
@@ -359,6 +360,60 @@ wildcard predates this branch and is contained by `SameSite=Lax` plus the exact-
   `routes/variant/alphagenome.ts` `verify-connection`). **Fixed on branch `fix/alphagenome-key-scope`**
   (`resolveAlphaGenomeAccess` in the bridge): a request-supplied URL gets only a request-supplied key, and
   its answers stay out of the shared cache.
+
+**Where WP-I2 differs from section 7** (the code is the source of truth; `doc/EGRESS_AUDIT.md` section 8 lists
+each audit finding's status):
+- **The stale flag is on the response, not on the value.** A cached value can be a string, an array or a map
+  keyed by residue, so adding `stale: true` to it would corrupt some of them, and an outer cache would store the
+  flag with the value. Instead every request runs in a cache scope (`cache-scope.ts`, AsyncLocalStorage, the way
+  `egress-context.ts` carries the owner): a stale serve is noted there, and `markStaleResponses` adds
+  `X-MSE-Stale: [{data, provider, ageSec, busy?}]` (exposed to allowed cross-origin pages). The streamed analysis
+  has sent its headers before it fetches anything, so it ends with a `{type: "stale", notes}` frame instead. The
+  client shows "Showing UniProt FASTA data saved 3 h ago; UniProt is limiting requests." once per data label per
+  5 minutes.
+- **What counts is what the fetch saw, not what it threw.** Many fetchers catch errors and return null. A 429 (or
+  503 with `Retry-After`) recorded by `recordRateLimit` and a team-pause refusal are noted as "limited"; a
+  governor wait that ran out is noted as "busy" (the provider refused nothing; the notice says it "is busy with
+  other requests from the team"). Either lets `getCachedOrFetch` serve the expired entry whether the fetcher
+  threw or returned an empty answer. Without a note an error stands, even with an expired entry available. Like
+  I1 and I3 it acts only under `on`; `shadow` counts `wouldServe`.
+- **A result built from stale data is returned but not stored**, at every level: a registry fill whose scope saw
+  a stale serve skips its own write; an analysis is not saved to `variant_analyses`; the landscape, the structure
+  tier memo and a Genos window are not cached when their calls were refused, held back or answered stale (or,
+  for the landscape, when the reference sequence did not arrive).
+- **Shared work runs in a scope of its own** (`startShared` / `joinShared`): registry fills and `singleFlight`,
+  the shared core-analysis run, and `shared-flight.ts`. Every caller, leader or joiner, copies the notes into its
+  own scope when the work settles, so a joiner's response is flagged and its writes are gated too. A caller that
+  passes `serveStale: false` does not join a fill that may serve stale data.
+- **Expired L2 rows are kept 30 days** (`EXPIRED_CACHE_RETENTION_MS`); the purge (at start-up, as before) removes
+  only rows expired longer ago. Ordinary reads still ignore them.
+- **Single-flight outside the registry** is a small helper (`shared-flight.ts`), not a second cache: the shared
+  call runs without any caller's signal (it has its own timeout); a caller's abort ends only its own wait, and a
+  caller that has already aborted starts nothing. The shared call runs under the first caller's egress owner, so
+  a joiner's call is ordered as the first caller's. Tamarind submits are not shared: a pending job belongs to the
+  submitting account's key, which is I4's credential question.
+- **Prewarm** runs as `system` for its own fetches as well as its queue job, and skips a run whose FoldX result is
+  already cached and shareable with anyone (`getMutantFromCache` without a requester).
+- **Not in I2:** queue job results (FoldX and the remote engines) carry no stale flag; gnomAD still returns `null`
+  for any error; the module-level caches stay in-process; a registry fetcher that captures its first caller's
+  `AbortSignal` still fails the callers that joined it; the SSE job stream has no stale frame.
+
+**Review 5 (WP-I2), 2026-10-14.** Four read-only reviewers (stale-serve core, the negative-caching fixes,
+single-flight and prewarm, client/tests/docs). Fixed: analyses built from stale data were saved to
+`variant_analyses` and later restored with no flag; the shared core-analysis run, the registry's `singleFlight`
+and `sharedFlight` ran in the first caller's scope, so joiners were never told and could cache what they built;
+the streamed analysis lost the header (now a final frame); an expired L1 entry reported its age as 0 s
+(`lru-cache`'s `info` gives the time left, not the time stored); the notice named a sibling call's provider as
+the stale data (it now names the data and the provider separately) and called a governor timeout "limiting
+requests"; the landscape, the structure tier memo and Genos windows cached results built while a provider was
+refusing or from an empty reference; the SaProt key omitted the structure it sends (two structures shared one
+answer for 14 days); popEVE's missing files answer 403 `AccessDenied` from S3, not 404, so "no file" was never
+remembered (verified live); a biophysical "details unavailable" placeholder was cacheable, now in a key all keyed
+users share; the biophysical route counted a placeholder `GEMINI_API_KEY` as a key; `sharedFlight` started a
+call for an already-aborted caller; SpliceAI sent the contig unnormalised under a normalised key; single-flight
+cleanup could delete a newer entry after `clearAll`; a throwing stale-data listener failed the request; the
+header was not exposed to cross-origin pages. Not changed: a BioSig job id lingers 60 s (a stuck DDMut job is
+then shared for that minute), and the route keeps its own 60 s linger beside it.
 
 **Review 4 (WP-I1), 2026-10-13.** Four read-only reviewers (governor core, the raw-`fetch` migration,
 security and operations, tests and docs). Fixed: a burst of 429s halving a published rate once per refusal
@@ -486,7 +541,7 @@ per-package notes above.
 | The agent bundles are not built or published by CD; the admin builds them (`doc/AGENT.md`) | a team member cannot download the agent until the admin does | WP-H2 (CD step) |
 | macOS and Linux agent bundles not run for real; unsigned bundles meet SmartScreen / Gatekeeper warnings | first start needs "More info → Run anyway" / right-click Open | test pass; code signing if the team grows |
 | De-duplication is process-local (two replicas can run the same job); and a job that JOINS an in-flight FoldX run created in another job's AsyncLocalStorage context records no peak for that run (after the creating job's meter stops, later children in the shared run are untracked) | the first only matters with replicas; in one process `foldx-job-registry` single-flights per cache key, so a queue job cannot join another queue job's run | later; shared-store reservation + a per-run sampler |
-| No stale-on-rate-limit (I2), no per-user credential buckets (I4); the I3 pause and I1 governor ship `off` (production runs `shadow`) | the team shares one IP | WP-I; owner action: `EGRESS_GOVERNOR=shadow`, then `on` |
+| No per-user credential buckets (I4); the I3 pause, the I1 governor and I2's stale serving ship `off` (production runs `shadow`) | the team shares one IP | WP-I4; owner action: read the shadow lines, then `EGRESS_GOVERNOR=on` |
 | Redis backend ignores owners, limits, cancel-by-person | documented; production uses SQLite | none planned |
 | A placement is decided once, at submit: a job placed on a busy computer is not moved when the server frees up (only when the computer cannot take it, or sits idle 2 min without claiming it) | the engine already prices the computer's queue, so a second job overflows to the server when that is quicker; re-deciding waiting jobs is an optimisation | later, if the logs show long waits on a computer |
 | No preview before submit: the decision is shown from the moment the job is queued (submit response, poll, My jobs), not before the button is pressed | the job is queued or placed within the same request, so a preview would show the same thing a moment earlier | later, if wanted |
@@ -502,8 +557,10 @@ the anonymous compute surface the security review flagged (in `legacy` mode anyo
 2. **WP-G2 — live routing** — done on `feat/wp-g2-routing` (see WP-G). Then the owner action above:
    `COMPUTE_ROUTING=on` after reading the shadow log.
 3. **WP-I — outbound governor**: I3 (team-wide 429 pause) done (#127, production in `shadow` since 2026-10-13);
-   I1 (fair-share governor and the raw-`fetch` migration) done on `feat/wp-i1-governor`; next the I2 fixes
-   (stale-on-rate-limit needs a read path for expired rows; prewarm skips cached keys), then I4.
+   I1 (fair-share governor and the raw-`fetch` migration) done (#128); I2 (stale on rate limit, cache hygiene,
+   cross-user single-flight, prewarm) done on `feat/wp-i2-cache`; next I4 (per-user credentials). Owner action
+   after a few days of `shadow`: read the `[egress:shadow]` lines and `/capabilities` `egress`, then
+   `EGRESS_GOVERNOR=on` (`doc/DEPLOY.md` Step 7).
 
 Shipped since the previous revision of this list, so nobody rebuilds them: **WP-G1** (`/my-jobs`, cancel and the
 wait estimate reached the interface; #106) and **WP-H** (runbook, Cloudflare corrections, OpenAPI and

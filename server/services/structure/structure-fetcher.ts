@@ -169,7 +169,9 @@ export async function fetchBestPdbStructure(
     });
     if (!response.ok) {
       console.warn(`[PDB Prioritizer] Failed to query PDBe best structures (status: ${response.status})`);
-      bestPdbCache.set(cacheKey, null, { ttl: 5 * 60 * 1000 });
+      // PDBe answers 404 for an accession with no experimental structure: definitive. A 429 or 5xx
+      // is asked again next time (WP-I2: no negative caching of errors).
+      if (response.status === 404) bestPdbCache.set(cacheKey, null, { ttl: 60 * 60 * 1000 });
       return null;
     }
     const data = await response.json() as any;

@@ -14,6 +14,8 @@ vi.mock("../external-api/uniprot.ts", () => ({
 }));
 
 import { fetchLandscape } from "./landscape.ts";
+import { fetchUniprotSequence } from "../external-api/uniprot.ts";
+import { noteRateLimited } from "../infra/cache-scope.ts";
 import {
   aggregateLandscape,
   candidateFromMyVariantHit,
@@ -62,6 +64,49 @@ describe("fetchLandscape", () => {
     // "gerp++" must survive the query string: unencoded, '+' decodes to a space.
     expect(String(fetchSpy.mock.calls[0][0])).toContain("dbnsfp.gerp%2B%2B");
     fetchSpy.mockRestore();
+  });
+});
+
+describe("fetchLandscape: what is cached (WP-I2)", () => {
+  const oneHit = () =>
+    jsonResponse({ hits: [hit("chr1:100A>G", { aa: { ref: "D", alt: "G", pos: 5 }, revel: { score: 0.2 }, alphamissense: { score: 0.1 } })] });
+  const twoCalls = async (gene: string) => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (url: any) =>
+      String(url).includes("metadata") ? jsonResponse({ src: { dbnsfp: { version: "4.4a" } } }) : oneHit()
+    );
+    const first = await fetchLandscape(gene, 5, 5);
+    const second = await fetchLandscape(gene, 5, 5);
+    fetchSpy.mockRestore();
+    return [first, second];
+  };
+
+  it("caches a complete landscape", async () => {
+    const [first, second] = await twoCalls(`GATEOK${Date.now()}`);
+    expect(first.meta.cached).toBe(false);
+    expect(second.meta.cached).toBe(true);
+  });
+
+  it("does not cache one built while a provider was limiting requests", async () => {
+    vi.mocked(fetchUniprotSequence).mockImplementation(async () => {
+      noteRateLimited("rest.uniprot.org");
+      return "MKVLDVGLGNCGVFSLLDKN";
+    });
+    try {
+      const [, second] = await twoCalls(`GATELIM${Date.now()}`);
+      expect(second.meta.cached).toBe(false);
+    } finally {
+      vi.mocked(fetchUniprotSequence).mockImplementation(async () => "MKVLDVGLGNCGVFSLLDKN");
+    }
+  });
+
+  it("does not cache one whose reference sequence came back empty", async () => {
+    vi.mocked(fetchUniprotSequence).mockImplementation(async () => "");
+    try {
+      const [, second] = await twoCalls(`GATEEMPTY${Date.now()}`);
+      expect(second.meta.cached).toBe(false);
+    } finally {
+      vi.mocked(fetchUniprotSequence).mockImplementation(async () => "MKVLDVGLGNCGVFSLLDKN");
+    }
   });
 });
 

@@ -50,6 +50,7 @@ import {
   type CorePrefetchOptions
 } from "../external-api/core-data-fetcher.ts";
 import { coreIdentityOf } from "./core-identity.ts";
+import { type CacheScope, joinShared, newCacheScope, runInCacheScope } from "../infra/cache-scope.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
 
 export interface SharedCoreFetchOptions {
@@ -76,6 +77,11 @@ interface SharedCoreRun {
   startedAt: number;
   /** Callers that attached to a run somebody else started. */
   joiners: number;
+  /**
+   * The cache scope the run's fetches note into (rate limits, stale serves). The run serves several
+   * requests, so it has its own; each caller copies it into theirs when the run settles (WP-I2).
+   */
+  scope: CacheScope;
 }
 
 /** What a route can learn about a core fetch that is running RIGHT NOW for its identity. */
@@ -117,7 +123,7 @@ export function runSharedCoreFetch(
     stats.joined += 1;
     existing.joiners += 1;
     if (options.onPartial) existing.listeners.add(options.onPartial);
-    return existing.promise;
+    return joinShared(existing);
   }
 
   /**
@@ -134,7 +140,8 @@ export function runSharedCoreFetch(
     listeners,
     fastTriage: null,
     startedAt: Date.now(),
-    joiners: 0
+    joiners: 0,
+    scope: newCacheScope()
   };
 
   const dispatch = (partial: CoreAnalysisPartial): void => {
@@ -155,7 +162,7 @@ export function runSharedCoreFetch(
   stats.started += 1;
   runs.set(key, run);
 
-  run.promise = fetchCoreVariantData(
+  run.promise = runInCacheScope(run.scope, () => fetchCoreVariantData(
     context,
     options.timeoutMs ?? CONFIG.timeouts.coreAnalysisMs,
     options.prefetched,
@@ -167,7 +174,7 @@ export function runSharedCoreFetch(
     triage => {
       run.fastTriage = triage;
     }
-  ).then(
+  )).then(
     result => {
       stats.completed += 1;
       return result;
@@ -186,7 +193,7 @@ export function runSharedCoreFetch(
     run.listeners.clear();
   });
 
-  return run.promise;
+  return joinShared(run);
 }
 
 /**
@@ -200,7 +207,7 @@ export function runSharedCoreFetch(
 export function findRunningCoreFetch(context: ParsedVariantContext): RunningCoreFetch | null {
   const run = runs.get(coreSingleflightKey(context));
   if (!run) return null;
-  return { promise: run.promise, fastTriage: run.fastTriage };
+  return { promise: joinShared(run), fastTriage: run.fastTriage };
 }
 
 /** Whether a core fetch for this context is running right now. Diagnostics and tests. */

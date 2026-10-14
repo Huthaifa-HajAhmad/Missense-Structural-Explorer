@@ -47,7 +47,7 @@ const LIFT_TTL_SECONDS = 315_360_000;
 
 const liftCache = new LRUCache<string, LiftedCoordinate>({
   max: 2000,
-  ttl: LIFT_TTL_SECONDS / 1000
+  ttl: LIFT_TTL_SECONDS * 1000
 });
 defaultCacheRegistry.registerCache("coordinateLiftCache", liftCache, {
   ttlDesc: "10y (immutable reference mapping; failures not cached)"

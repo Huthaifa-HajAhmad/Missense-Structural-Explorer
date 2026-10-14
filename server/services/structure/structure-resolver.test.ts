@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveStructure } from "./structure-resolver.ts";
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
+import { noteRateLimited } from "../infra/cache-scope.ts";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +69,22 @@ describe("resolveStructure tier determinism", () => {
       fetchers.fetchBestPdbStructure,
       "the memoised tier must be reused, not re-chosen"
     ).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not remember a fallback tier chosen while PDBe was limiting requests (WP-I2)", async () => {
+    // PDBe's 429 is swallowed by the fetcher (null), so the ladder falls to AlphaFold. That choice says
+    // nothing about the protein and must not be kept for six hours.
+    vi.mocked(fetchers.fetchBestPdbStructure).mockImplementationOnce(async () => {
+      noteRateLimited("www.ebi.ac.uk");
+      return null;
+    });
+    const first = await resolveStructure("TIERLIMIT1", 489);
+    expect(first?.provenance.source).toBe("alphafold");
+
+    vi.mocked(fetchers.fetchBestPdbStructure).mockResolvedValue(tierOneMapping as any);
+    const second = await resolveStructure("TIERLIMIT1", 489);
+    expect(second?.pdbText).toBe("EXPERIMENTAL_PDB");
+    expect(fetchers.fetchBestPdbStructure).toHaveBeenCalledTimes(2);
   });
 
   it("memoises per position as well as per accession", async () => {

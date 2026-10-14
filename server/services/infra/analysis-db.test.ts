@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { AnalysisDatabase } from "./analysis-db.ts";
+import { EXPIRED_CACHE_RETENTION_MS } from "./analysis-db-core.ts";
 
 describe("AnalysisDatabase (Persistent SQLite Store)", () => {
   let db: AnalysisDatabase;
@@ -126,16 +127,20 @@ describe("AnalysisDatabase (Persistent SQLite Store)", () => {
     expect(entry?.fetchedAt).toBeDefined();
   });
 
-  it("actively purges expired external cache entries", () => {
-    // Add expired entry (-100s TTL)
+  it("purges entries expired past the retention window, and keeps recent ones for the stale-on-rate-limit read", () => {
+    // Expired 100 s ago: kept (WP-I2), but invisible to an ordinary read.
     db.saveExternalCache("expired_key", { test: true }, "Test", -100);
+    // Expired longer ago than the retention window: purged.
+    db.saveExternalCache("ancient_key", { test: true }, "Test", -(EXPIRED_CACHE_RETENTION_MS / 1000 + 100));
     // Add active entry (+3600s TTL)
     db.saveExternalCache("active_key", { test: true }, "Test", 3600);
 
     const purgedCount = db.purgeExpiredExternalCache();
     expect(purgedCount).toBe(1);
 
+    expect(db.getExternalCache("ancient_key", true)).toBeNull();
     expect(db.getExternalCache("expired_key")).toBeNull();
+    expect(db.getExternalCache("expired_key", true)?.data).toEqual({ test: true });
     expect(db.getExternalCache("active_key")).toBeDefined();
   });
 

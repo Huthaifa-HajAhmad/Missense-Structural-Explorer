@@ -10,6 +10,7 @@ import { LEGACY_OWNER, NEWCOMER_RESERVE, SYSTEM_OWNER, SYSTEM_PRIORITY, QueueLim
 import { CostModelCache, ensureTelemetryTable, recordTelemetry } from "./compute-telemetry.ts";
 import { runInJobMeter } from "./job-meter.ts";
 import { runWithEgressOwner } from "./egress-context.ts";
+import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
 import { ProcessTreeSampler } from "./process-sampler.ts";
 import { classifyJobFailure, DID_NOT_FIT_IN_MEMORY } from "./failure-class.ts";
 import { AdmissionError, ceilingRefusal, decide, logShadow, placementOf, routingMode, type AdmissionInput } from "./admission.ts";
@@ -1259,9 +1260,13 @@ export class SQLiteQueue {
           });
 
           // Outbound calls the job makes are attributed to its owner, so the egress governor shares
-          // providers fairly between people and serves `system` (prewarm) jobs last (WP-I1).
+          // providers fairly between people and serves `system` (prewarm) jobs last (WP-I1). The job
+          // gets a cache scope of its own: it may start inside the submitting request, and what its
+          // fetches see (rate limits, stale entries) is not that request's (WP-I2).
           const jobPromise = runWithEgressOwner(row.owner_id || LEGACY_OWNER, () =>
-            runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId))
+            runInCacheScope(newCacheScope(), () =>
+              runInJobMeter(meter, () => this.processCallback(type, data, abortController.signal, jobId))
+            )
           );
           const resData = await Promise.race([jobPromise, timeoutPromise]);
 

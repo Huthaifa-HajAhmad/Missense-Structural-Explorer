@@ -395,6 +395,7 @@ export async function queryGenosLandscape(
       return isNaN(num) ? null : num;
     };
 
+    let failedBatches = 0;
     for (let ci = 0; ci < requests.length; ci++) {
       const { pos: chunkPos, variants: chunk } = requests[ci];
       try {
@@ -508,6 +509,7 @@ export async function queryGenosLandscape(
           }
         }
       } catch (chunkErr: any) {
+        failedBatches++;
         console.warn(`[Genos Landscape] Batch ${ci + 1}/${requests.length} failed:`, chunkErr.message);
       }
     }
@@ -515,7 +517,8 @@ export async function queryGenosLandscape(
     // Drop entries with no amino-acid position (cannot be mapped to landscape window).
     const finalResult = Array.from(combinedMap.values()).filter(r => typeof r.pos === 'number' && !isNaN(r.pos));
     console.log(`[Genos Landscape] ${normGene} window ${s}-${e} -> ${finalResult.length} scored substitutions across ${new Set(finalResult.map(r => r.pos)).size} residue positions`);
-    genosResultCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL, data: finalResult });
+    // A window with a failed batch (a 429, a timeout) is partial: answered now, not remembered (WP-I2).
+    if (failedBatches === 0) genosResultCache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL, data: finalResult });
     return finalResult;
   } catch (err: any) {
     console.warn(`[Genos Landscape Query Error] Failed to execute query:`, err.message);

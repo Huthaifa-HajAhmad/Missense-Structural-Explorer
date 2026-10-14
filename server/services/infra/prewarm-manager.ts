@@ -8,6 +8,9 @@ import { SYSTEM_OWNER } from "./queue-owners.ts";
 import { countResidues, foldxQueueCostEstimateMs, isAlphaFoldModel } from "../stability/foldx/estimate.ts";
 import { buildFoldxCacheKey, releaseActiveFoldxJob, submitOrJoinFoldxJob } from "./foldx-job-registry.ts";
 import { activeBackgroundTasks, inFlightPrewarms } from "../../routes/state.ts";
+import { getMutantFromCache } from "../stability/foldx/cache.ts";
+import { EGRESS_SYSTEM_OWNER, runWithEgressOwner } from "./egress-context.ts";
+import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -72,8 +75,8 @@ export interface FoldxConditions {
 /**
  * FoldX's own defaults, mirrored from `getFoldxCacheKey` (`services/stability/foldx/cache.ts`).
  *
- * Mirrored rather than imported because that module builds and registers LRU caches at import time,
- * which a background task manager has no business doing. The mirror is guarded against drift by
+ * Mirrored rather than imported because `cache.ts` keeps its defaults implicit (`options?.pH ?? 7.0`)
+ * and exports no constant to import. The mirror is guarded against drift by
  * `prewarm-manager.test.ts`, which asserts that these values and FoldX's implicit defaults produce
  * the SAME cache key — so if `cache.ts` changes its defaults this fails instead of silently warming
  * a key no request will ever read.
@@ -290,7 +293,13 @@ export class PrewarmManager {
     /** The conditions this prewarm warms for, pinned explicitly rather than left to the worker's fallback. */
     const foldxConditions = { ...DEFAULT_FOLDX_CONDITIONS, ...(params.conditions?.foldxOptions ?? {}) };
 
-    const prewarmPromise = (async () => {
+    /**
+     * The whole pre-warm, including the structure fetch below, runs as `system`: the egress governor
+     * serves its calls after every person's (WP-I1/I2). It is triggered from inside a reader's request,
+     * so without this its fetches would be counted as that reader's. Its own cache scope keeps what
+     * those fetches see out of the reader's response.
+     */
+    const prewarmPromise = runWithEgressOwner(EGRESS_SYSTEM_OWNER, () => runInCacheScope(newCacheScope(), async () => {
       try {
         if (pdbMapping && pdbMapping.pdbId) {
           const wtPdbText = await fetchPdbFromRcsb(
@@ -310,6 +319,12 @@ export class PrewarmManager {
 
             const queue = BiophysicalJobQueue.getInstance();
             const foldxCacheKey = buildFoldxCacheKey(wtPdbText, mutation, foldxConditions);
+
+            // Already computed (and shareable with anyone): nothing to warm.
+            if (await getMutantFromCache(foldxCacheKey)) {
+              console.log(`[Pre-warm Cache] Skipped: ${gene} ${variant} is already cached`);
+              return;
+            }
 
             /**
              * Submitted through the SAME single-flight the interactive path uses, under the SAME key
@@ -384,7 +399,7 @@ export class PrewarmManager {
         const idx = activeBackgroundTasks.findIndex(t => t.id === prewarmTaskId);
         if (idx !== -1) activeBackgroundTasks.splice(idx, 1);
       }
-    })();
+    }));
 
     activeBackgroundTasks.push({ id: prewarmTaskId, controller: prewarmController, promise: prewarmPromise });
   }

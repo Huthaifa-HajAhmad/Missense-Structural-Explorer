@@ -441,3 +441,43 @@ The sidecar makes its own outbound calls to Biohub, Hugging Face and similar ser
 - **Log exposure**: whether callers log errors that contain a URL with `api_key` beyond `http-client.ts`.
 - **Production configuration**: whether `NCBI_API_KEY`, `ALPHAGENOME_API_URL`, `GPN_API_URL`, `JAPANFOLD_API_KEY` and `TAMARIND_API_KEY` are set in production, and whether `GPN_API_URL` points at loopback or a remote host.
 - **Prewarm**: `prewarm-manager.ts` was not traced separately. Its outbound calls are whatever the functions in sections 4 and 5 make.
+
+## 8. Fix status (after WP-I3, WP-I1 and WP-I2)
+
+Added 2026-10-14. The sections above describe the code as it stood on 2026-10-09; this section records what has
+changed since. Line numbers above are not updated.
+
+| Finding | Status |
+| --- | --- |
+| 1. AlphaGenome server key sent to a request-chosen URL | Fixed before I2 (`resolveAlphaGenomeAccess`, `alphagenome-bridge.ts`): a request-supplied URL gets only a request-supplied key, and its answers stay out of the shared cache. |
+| 2. Credentials in cache keys | Fixed in I2 for Gemini: the key segment is `key:any` or `key:none` (`geminiCredentialSegment`, `cache-keys.ts`), so a narrative written with one teammate's key serves the others, and a no-key fallback never reaches a caller with a key. The conservation half no longer applies: the cached payload uses only the public GPN-Star tabix path (no token, no endpoint); the token path (`fetchConservationDataProgressive`) is not cached. |
+| 3. Failures cached as "absent" for 7 days | Fixed in I2: `transcript-resolver.ts` and `popeve-resolver.ts` remember only a 404. Their writes also use the trimmed key the reads use. |
+| 4. Empty 200 cached for 30 days | Fixed in I2: `fetchUniprotSequence` neither caches nor serves an empty sequence; `fetchDisplayedIsoformId` throws (not cached) when the 200 is not an entry. |
+| 5. Expensive calls not shared between users | I2: SpliceAI, JapanFold ESMC, ESMFold-2 and SaProt, and the DynaMut2/DDMut submits make one upstream call for concurrent callers (`shared-flight.ts`); a caller's abort ends only its own wait. A BioSig job id stays joinable for 60 s. Not changed: Tamarind (a pending job belongs to the submitting account's key; credential buckets are I4). Boltz already had `pendingBoltzJobs`. |
+| 6. Transports bypassing the semaphore and breaker; 429 counted by the breaker | I1 (`governedFetch` for the 39 raw remote sites, ratchet test) and I3 (a 429 does not count toward the breaker under `on`). gRPC, `node:https` (DDMut polls report to the governor) and Tabix are unchanged. |
+| 7. NCBI key in logs | I1 (`redactUrl`). |
+| 8. Public endpoints fire outbound calls | I1: the JapanFold probe on `/capabilities` is cached 60 s and single-flighted. |
+| 9. Smaller defects | I2: lift L1 TTL (`* 1000`, was `/ 1000`); exon single-flight keyed with `requireCds`; the landscape is not cached when its UniProt reference lookup threw. **Open:** `gnomad.ts` still returns `null` for any error. |
+| 10. In-process caches | Open. |
+
+Row-level negative caching fixed in I2: PDBe `best_structures` remembers only a 404 (1 h); STRING no longer writes
+a failure to L1; SpliceAI remembers only `coordinate-rejected` and `no-transcript` (1 min); popEVE remembers a 404,
+or the 403 `AccessDenied` its S3 bucket answers for a missing file (verified live 2026-10-14), for 5 min. The
+SaProt key now includes the structure it sends.
+
+Caches that hold results built from several calls (the landscape, the structure tier memo, Genos windows, saved
+analyses) are not written when any of those calls was refused, held back or answered from stale data.
+
+Section 3.2:
+
+- **Stale serve** now exists. `getCachedOrFetch` serves an expired entry (L2 first, then L1) when the fetch failed,
+  or returned nothing cacheable, while a provider limited requests (a 429 or 503 with `Retry-After`, a team-pause
+  refusal, or a governor wait that ran out). Expired L2 rows are kept 30 days for this. A result built from a stale
+  entry is returned but not cached, and the response carries `X-MSE-Stale`. Acts under `EGRESS_GOVERNOR=on` only.
+- **Single-flight** in `getCachedOrFetch`, `singleFlight`, the shared core-analysis run and `shared-flight.ts` is
+  cross-user, and each runs in a cache scope of its own whose notes reach every caller. A registry fetcher that
+  captures its first caller's `AbortSignal` (several UniProt fetchers do) still fails every follower when that
+  caller cancels; the `shared-flight.ts` sites run signal-free. **Open.**
+
+Section 7, prewarm: the whole pre-warm (including its structure fetch) runs as the `system` owner, served after
+every person, and it skips a run whose FoldX result is already cached.

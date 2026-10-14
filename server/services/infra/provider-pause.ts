@@ -16,7 +16,7 @@
  *   on      calls to a paused host wait for the pause when the caller's deadline allows it, otherwise
  *           fail at once with {@link ProviderRateLimitedError}; the 429 does not count toward the breaker.
  *
- * This module has no dependencies on other server modules, so `http-client.ts` can import it.
+ * Its only server dependency is `cache-scope.ts` (itself dependency-free), so `http-client.ts` can import it.
  */
 import {
   PROVIDER_RATE_LIMITED,
@@ -24,6 +24,7 @@ import {
   retryAfterSeconds,
   rateLimitedSentence,
 } from "../../../src/shared/providerLimits.ts";
+import { noteRateLimited } from "./cache-scope.ts";
 
 export type EgressMode = "off" | "shadow" | "on";
 
@@ -139,6 +140,7 @@ export function recordRateLimit(
 ): number {
   const mode = egressGovernorMode();
   if (mode === "off") return 0;
+  noteRateLimited(hostname);
   const pauseMs = pauseMsFromRetryAfter(retryAfterHeader, now);
   const s = stateOf(hostname);
   // Logged when a pause starts, not for every refusal of calls already in flight during it.
@@ -163,6 +165,7 @@ export function pauseRemainingMs(hostname: string, now = Date.now()): number {
 /** The typed refusal for `hostname`, worded with `provider` when the caller knows the tool's name. */
 export function rateLimitedErrorFor(hostname: string, provider?: string, status = 429): ProviderRateLimitedError {
   const remaining = pauseRemainingMs(hostname) || DEFAULT_PAUSE_MS;
+  noteRateLimited(hostname);
   return new ProviderRateLimitedError(
     hostname,
     provider ?? providerLabelForHost(hostname),

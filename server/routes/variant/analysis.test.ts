@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { currentCacheScope, newCacheScope, runInCacheScope } from "../../services/infra/cache-scope.ts";
 import { apiRouter } from "../../routes.ts";
 import * as externalServices from "../../services/external.ts";
 import * as orchestrator from "../../services/analysis-orchestrator.ts";
@@ -273,6 +274,39 @@ describe("Variant Analysis Route Handlers", () => {
      * itself: the newline the client splits on, a heartbeat frame surviving the pass-through, or the
      * final frame arriving last. The assertions below use a mock that emits all three.
      */
+    it("ends with a stale frame when the analysis used saved data past its expiry (WP-I2)", async () => {
+      const route: any = apiRouter.stack.find(
+        (layer: any) => layer.route && layer.route.path === "/analyze-variant/stream"
+      );
+      const handler = route.route.stack[route.route.stack.length - 1].handle;
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR");
+      vi.spyOn(orchestrator, "streamCoreAnalysis").mockImplementation(async (_ctx, onChunk) => {
+        // Headers are already out; the stale serve happens while the data is fetched.
+        currentCacheScope()!.stale.push({ source: "ClinVar", hosts: ["eutils.ncbi.nlm.nih.gov"], busy: false, ageSec: 3600 });
+        onChunk({ chunkIndex: 0, isFinal: true, data: { metadata: { gene: "PAH" }, ruleBasedInsights: {} } });
+        return { metadata: { gene: "PAH" } };
+      });
+      const writtenChunks: string[] = [];
+      const req: any = { body: { gene: "PAH", variant: "p.Met1Val" }, headers: {}, on: vi.fn() };
+      const res: any = {
+        setHeader() {},
+        flushHeaders() {},
+        writableEnded: false,
+        write(chunk: string) {
+          writtenChunks.push(chunk);
+          return true;
+        },
+        end() {}
+      };
+      await runInCacheScope(newCacheScope(), () => handler(req, res, () => {}));
+      const frames = writtenChunks.map(c => JSON.parse(c));
+      expect(frames[frames.length - 1]).toEqual({
+        type: "stale",
+        notes: [{ data: "ClinVar", provider: "NCBI", ageSec: 3600 }],
+      });
+    });
+
     it("writes newline-delimited frames, passes heartbeats through, and ends on the final frame", async () => {
       const route: any = apiRouter.stack.find(
         (layer: any) => layer.route && layer.route.path === "/analyze-variant/stream"

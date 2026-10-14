@@ -225,8 +225,10 @@ export async function fetchTranscriptExons(
   const cached = exonCache.get(cleanId);
   if (cached && (!options.requireCds || hasCds(cached))) return cached;
 
-  // Single-flight in-flight promise deduplication
-  const existing = inFlightExonFetches.get(cleanId);
+  // Single-flight in-flight promise deduplication. Keyed with `requireCds`: a fetch that may settle
+  // for UCSC's CDS-less exons must not answer a caller that needs CDS bounds.
+  const flightKey = `${cleanId}|${options.requireCds ? "cds" : "any"}`;
+  const existing = inFlightExonFetches.get(flightKey);
   if (existing) return existing;
 
   const fetchPromise = (async () => {
@@ -319,10 +321,10 @@ export async function fetchTranscriptExons(
 
     return null;
   })().finally(() => {
-    inFlightExonFetches.delete(cleanId);
+    inFlightExonFetches.delete(flightKey);
   });
 
-  inFlightExonFetches.set(cleanId, fetchPromise);
+  inFlightExonFetches.set(flightKey, fetchPromise);
   return fetchPromise;
 }
 

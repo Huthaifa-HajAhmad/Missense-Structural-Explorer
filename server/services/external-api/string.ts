@@ -57,8 +57,9 @@ export async function fetchStringInteractionsWithStatus(
     l1Cache,
     ttlSeconds: 14 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
-    // Only a real, non-empty answer earns the 14-day TTL. An empty answer and a
-    // failure are both written to L1 alone by the fetcher below, for 5 minutes.
+    // Only a real, non-empty answer earns the 14-day TTL. An empty answer is written to L1 alone by
+    // the fetcher below, for 5 minutes. A failure is not written anywhere: it may be a 429, and the
+    // next caller asks again (or is served the expired entry while STRING limits requests, WP-I2).
     shouldCache: (result) =>
       !Array.isArray(result) && result.status === "ok" && result.partners.length > 0,
     fetcher: async () => {
@@ -100,7 +101,6 @@ export async function fetchStringInteractionsWithStatus(
       }
 
       // Unreachable is not the same as empty: this answer carries the failure.
-      l1Cache.set(cacheKey, { partners: [], status: "failed" }, { ttl: NEGATIVE_TTL_MS });
       return { partners: [], status: "failed" } as StringInteractionsResult;
     }
   });

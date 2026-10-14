@@ -10,7 +10,8 @@ import {
   executePurgeStaleVariantAnalyses,
   type StoredVariantAnalysis,
   type StoredVariantAnalysisSummary,
-  type AnalysisCacheOptions
+  type AnalysisCacheOptions,
+  type ExternalCacheRow
 } from "../services/analysis-db-core.ts";
 
 /**
@@ -105,13 +106,15 @@ export async function workerSaveExternalCache({
  */
 export async function workerGetExternalCache({
   dbPath,
-  cacheKey
+  cacheKey,
+  includeExpired = false
 }: {
   dbPath?: string;
   cacheKey: string;
-}): Promise<{ data: any; source: string; fetchedAt: string; etag: string | null } | null> {
+  includeExpired?: boolean;
+}): Promise<ExternalCacheRow | null> {
   const db = getOrCreateSqliteDb(dbPath);
-  return executeGetExternalCache(db, cacheKey);
+  return executeGetExternalCache(db, cacheKey, includeExpired);
 }
 
 /**

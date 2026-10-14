@@ -86,8 +86,8 @@ function makeReq(body: Record<string, unknown>) {
  * The key the route must have built for this body, from the shared contract and nothing else.
  *
  * Computed AFTER the handler has run, and mirroring the route's key derivation including its effective
- * credential: the workspace `.env` carries a real `GEMINI_API_KEY`, so the key hash is that key's hash
- * and not the `no_key` sentinel. (No credential is asserted on here — only that the evidence segment
+ * credential: the workspace `.env` carries a real `GEMINI_API_KEY`, so the segment is `key:any`
+ * and not `key:none`. (No credential is asserted on here — only that the evidence segment
  * matches the shared contract.)
  */
 function expectedCacheKey(body: Record<string, unknown>): string {
@@ -95,7 +95,6 @@ function expectedCacheKey(body: Record<string, unknown>): string {
     process.env.GEMINI_API_KEY && !geminiService.isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
       ? process.env.GEMINI_API_KEY
       : undefined;
-  const keyHash = crypto.createHash("sha256").update(envKey || "no_key").digest("hex");
   const evidenceHash = crypto
     .createHash("sha256")
     .update(canonicalNarrativeEvidence(buildNarrativeEvidenceContract(body as any)))
@@ -103,7 +102,7 @@ function expectedCacheKey(body: Record<string, unknown>): string {
   const model = geminiService.getConfiguredGeminiModels()[0];
   return (
     `clinical_${CLIENTSIDE_UNIPROT}_p.Arg408Trp_standard__${evidenceHash}` +
-    `_literature:${literatureSummaryDigest(buildLiteratureSummary("PAH", "p.Arg408Trp", []))}_key:${keyHash}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`
+    `_literature:${literatureSummaryDigest(buildLiteratureSummary("PAH", "p.Arg408Trp", []))}_${envKey ? "key:any" : "key:none"}_model:${model}_schema:v${NARRATIVE_PROMPT_SCHEMA_VERSION}`
   );
 }
 

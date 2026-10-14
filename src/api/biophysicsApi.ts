@@ -7,7 +7,13 @@ import {
   type LandscapeResidueItem
 } from "../shared/contracts";
 import { CLIENT_STREAM_IDLE_BUDGET_MS } from "../shared/timeouts";
-import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
+import { extractApiError, extractErrorMessage, FetchWithAuth, noteStaleDataHeader } from "./authSession";
+import { encodeStaleData, parseStaleData } from "../shared/providerLimits";
+
+/** A `{type: "stale"}` frame's notes, validated exactly like the header's. */
+function noteStaleDataFrame(notes: unknown): void {
+  noteStaleDataHeader(encodeStaleData(parseStaleData(JSON.stringify(notes ?? null))));
+}
 
 export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
   return {
@@ -168,6 +174,11 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
             if (parsed.type === "heartbeat") {
               continue;
             }
+            // Saved data past its expiry was used (WP-I2); same notice as the `X-MSE-Stale` header.
+            if (parsed.type === "stale") {
+              noteStaleDataFrame(parsed.notes);
+              continue;
+            }
             if (parsed.isFinal || parsed.type === "full") {
               finalPayload = parsed.data || parsed.payload;
             }
@@ -198,7 +209,9 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
             throw new Error(parsed.error || "Stream error");
           }
           // Same liveness rule as the in-loop parse: a trailing heartbeat is not a payload.
-          if (parsed.type !== "heartbeat") {
+          if (parsed.type === "stale") {
+            noteStaleDataFrame(parsed.notes);
+          } else if (parsed.type !== "heartbeat") {
             if (parsed.isFinal || parsed.type === "full") {
               finalPayload = parsed.data || parsed.payload;
             }
