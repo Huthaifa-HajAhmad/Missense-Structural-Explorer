@@ -1,14 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { buildEnergeticsEvidence } from '../energeticsEvidence';
-import { buildEnergeticsComparison, energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates } from '../energeticsComparison';
+import { buildEnergeticsComparison, energeticsComparisonHeadline, energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates } from '../energeticsComparison';
 import { KJ_PER_KCAL } from '../engineStatus';
 
 const evidence = (extra = {}) => buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2.62, foldxMean: 2.62, dynamut2: 0.36, ddmut: 0, thermompnn: 1.2, ...extra }, foldingStatus: 'success' });
 describe('Energetics comparison scientific display contract', () => {
+  it('qualifies sparse and excluded evidence in the prominent headline before showing a direction', () => {
+    expect(energeticsComparisonHeadline(buildEnergeticsEvidence({}))).toBe('No usable estimate');
+    expect(energeticsComparisonHeadline(buildEnergeticsEvidence({ foldingEnergetics: { foldx: 2, foldxRepairFailed: true }, foldingStatus: 'success' }))).toBe('No usable estimate');
+    expect(energeticsComparisonHeadline(buildEnergeticsEvidence({ foldingDdG: 0, foldingStatus: 'success' }))).toBe('One usable estimate');
+    expect(energeticsComparisonHeadline(buildEnergeticsEvidence({ foldingDdG: 2, foldingStatus: 'success', foldingEnergetics: { ddmut: -2 } }))).toBe('2 usable estimates');
+    expect(energeticsComparisonHeadline(evidence())).toBe('Engines disagree');
+  });
   it('uses canonical signs, keeps a true zero and never plots a missing estimate', () => {
     const model = buildEnergeticsComparison(evidence(), 'kcal/mol');
     expect(model.points.find(p => p.key === 'dynamut2')?.value).toBe(-0.36);
     expect(model.points.find(p => p.key === 'ddmut')?.value).toBe(0);
+    expect(model.points.find(p => p.key === 'ddmut')?.valueText).toBe('0.00');
+    expect(model.points.find(p => p.key === 'dynamut2')?.valueText).toBe('−0.36');
     expect(model.points.some(p => p.key === 'rasp')).toBe(false);
     expect(model.missing.some(p => p.key === 'rasp')).toBe(true);
   });
@@ -41,6 +50,7 @@ describe('Energetics comparison scientific display contract', () => {
     expect(kj.points[0].guide).toBeCloseTo(kcal.points[0].guide * KJ_PER_KCAL);
     expect(kj.domain[0]).toBeCloseTo(kcal.domain[0] * KJ_PER_KCAL);
     expect(kj.points[0].label).toContain('kJ/mol');
+    expect(kj.points[0].valueText).toBe('+10.96');
   });
   it('separates the guide value from the prediction readout', () => {
     const p = buildEnergeticsComparison(evidence(), 'kcal/mol').points[0];

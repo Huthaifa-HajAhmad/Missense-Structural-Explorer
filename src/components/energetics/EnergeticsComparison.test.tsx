@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import EnergeticsComparison from './EnergeticsComparison';
 import { buildEnergeticsEvidence } from '../../shared/energeticsEvidence';
@@ -26,6 +26,20 @@ function PinnedFoldxFixture({ showCountedOnly = false }: { showCountedOnly?: boo
 }
 
 describe('TanStack stability comparison', () => {
+  it('labels every returned estimate before interaction, including true zero, without extra selection targets', async () => {
+    render(<Fixture />);
+    const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 8000 });
+    for (const value of ['+2.00', '−0.50', '0.00']) expect(within(chart).getByText(value)).toBeInTheDocument();
+    expect(within(chart).queryByText('NaN')).not.toBeInTheDocument();
+    fireEvent.focus(chart);
+    fireEvent.keyDown(chart, { key: 'Home' });
+    fireEvent.keyDown(chart, { key: 'Enter' });
+    expect(screen.getByLabelText('Pinned method')).toHaveTextContent('dynamut2');
+    fireEvent.keyDown(chart, { key: 'ArrowRight' });
+    fireEvent.keyDown(chart, { key: 'Enter' });
+    // Neither the stem midpoint, direct label nor pin ring is another focus stop.
+    await waitFor(() => expect(screen.getByLabelText('Pinned method')).toHaveTextContent('ddmut'));
+  });
   it('renders the real library and pins a canonical negative estimate by keyboard', async () => {
     render(<Fixture />);
     // The comparison chart is a lazy chunk; the 1s default expires under full-suite CPU load.

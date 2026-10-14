@@ -121,6 +121,13 @@ p.ag-card__foot > span { display: inline; }
 .ag-prose { margin: 0; max-width: none; color: var(--cs-text-secondary); text-wrap: pretty; }
 .ag-prose strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
+.ag-screen[data-comparison] .ag-hero__body { display: grid; grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); align-items: center; gap: 24px; padding: 18px 20px; }
+.ag-screen[data-comparison] .ag-figure { flex-direction: column; align-items: start; gap: 5px; }
+.ag-screen[data-comparison] .ag-figure__value { font-size: 30px; letter-spacing: -.025em; }
+@container (max-width: 650px) {
+  .ag-screen[data-comparison] .ag-hero__body { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}
+
 .ag-note {
   display: flex;
   align-items: flex-start;

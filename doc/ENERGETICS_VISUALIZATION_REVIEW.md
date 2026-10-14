@@ -80,3 +80,49 @@ the matching FoldX inspector using the illustrative fixture.
 
 All drawn decision guides come from the existing engine descriptors. No published clinical
 calibration or per-variant confidence interval is asserted.
+
+## 14 October 2026 — visual storytelling reference pass
+
+The prior implementation delivered a working comparison, but its header and finding pushed the lower
+methods below the first desktop viewport. Values required interaction. This pass implements the first
+reference improvement from `VISUAL_STORYTELLING_REVIEW.md`, retaining the existing shared evidence,
+canonical signs, units, local guides, inclusion rules and inspector.
+
+| Presentation finding | Change | Validation |
+| --- | --- | --- |
+| Finding furniture displaced the explanatory comparison | Compact two-column finding at wide widths; stacked on narrow widths; help beside the workspace title | Before/after browser inspection of real AppViews at 1440 × 900; all six points and the axis now visible together |
+| Individual values were hidden behind hover/pinning | Persistent text labels from `signedDdg`, with units on the shared axis; subdued zero-to-value stems | `energeticsComparison.test.ts` verifies zero, sign and conversion; `EnergeticsComparison.test.tsx` verifies visible labels before interaction |
+| New geometry could create duplicate keyboard positions | Decorative labels, stems and pin rings; value dots remain selection targets | Real-renderer Home/Enter/ArrowRight test reaches the next estimate, not the same estimate's annotation |
+| Promoting a direction chip could overstate sparse evidence | Shared presentation headline qualifies zero, one and two usable estimates before giving direction | Model test includes returned-but-excluded FoldX and true zero; single/missing browser fixtures |
+
+No new scientific model, metric, threshold or rule was added. The existing ΔΔG explanation remains
+reachable beside the header, and all values still refer to the queried substitution. Cross-method
+spread is not drawn as an error bar. The large heading for insufficient evidence is presentation-only;
+it does not modify the existing engine agreement or source-record call.
+
+Validation:
+
+- `npm run lint`: passed, including TypeScript, boundaries, focus indicators and verification parity.
+- Full `npx vitest run --maxWorkers=4`: 362 files passed, 2 skipped; 4,636 tests passed, 5 skipped.
+  The final sparse-headline refinement followed that run; the four relevant suites were then rerun:
+  53 tests passed. Logs: ignored `scratch/visual-story-vitest.log`.
+- `npm run build:client`: passed; existing large-chunk warnings remain. Log:
+  ignored `scratch/visual-story-build.log`.
+- Fresh shared-browser preview at `/tools/energetics-preview/index.html`: light/dark, desktop 1440 × 900,
+  800 px and 390 px viewport widths; disagreement, single, missing, excluded and extreme fixtures;
+  kcal/mol and kJ/mol; keyboard pinning, source-record round trip, inspector parity and retained filtering.
+- At 390 px, DOM geometry checks found no overlapping SVG text, no labels outside the SVG and no
+  document-width overflow for the extreme fixture. The full chart follows the finding on a phone;
+  it is not all visible in the first phone viewport.
+
+Screenshot artifacts inspected during this pass:
+
+- Before: `C:/Users/HSA19/.synara-beta/codex-home-overlay/generated_images/browser-proof/c758914d9c6237f5e854db00/2287aea2-3a5c-49f9-aba1-1dd7ac37f421.png`.
+- After, FoldX selected: `C:/Users/HSA19/.synara-beta/codex-home-overlay/generated_images/browser-proof/c758914d9c6237f5e854db00/6f1ec694-6fea-46d4-954d-91d6d82e5709.png`.
+- 800 px dark: `C:/Users/HSA19/.synara-beta/codex-home-overlay/generated_images/browser-proof/c758914d9c6237f5e854db00/c9c8ab1a-fd00-4189-8d2b-ba4aa098e4d3.png`.
+- 390 px dark: `C:/Users/HSA19/.synara-beta/codex-home-overlay/generated_images/browser-proof/c758914d9c6237f5e854db00/7c0e1017-0433-4396-b8f9-c1e5407bb6ef.png`.
+
+Limitations: fixtures are explicitly illustrative and provider calls remain blocked. This harness
+renders production AppViews, styles and inspector, but not the global search/navigation shell. Human
+reader comprehension has not been tested. The wider workspace rollout and any full-shell layout
+acceptance remain open; this pass does not claim parity with the reference video across the app.

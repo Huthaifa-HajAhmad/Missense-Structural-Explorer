@@ -442,7 +442,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
   };
 
   return (
-    <div className="prd-screen @container">
+    <div className="prd-screen @container" data-comparison={workspace.comparison || undefined}>
       {knowledgeKey && (
         <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />
       )}
@@ -481,8 +481,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
 
         {!workspace.comparison && <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />}
 
-        <VoteRow evidence={evidence} />
-        <ReferenceRow evidence={evidence} />
+        {!workspace.comparison && <><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></>}
 
         {evidence.pending && (
           <div className="prd-hero__foot">
@@ -495,7 +494,8 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       </section>
 
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
-      {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare each tool’s published evidence-strength band. These are individual readings, not criteria to add together." /></React.Suspense>}
+      {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." /></React.Suspense>}
+      {workspace.comparison && <section className="prd-card" aria-label="How the engine used these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
       {!workspace.comparison && <>
       <InformationalCard evidence={evidence} />
 

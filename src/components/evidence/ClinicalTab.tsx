@@ -316,7 +316,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
 
   const populationModel = useMemo(() => buildPopulationComparison(evidence), [evidence]);
   return (
-    <div className="pop-screen @container">
+    <div className="pop-screen @container" data-comparison={workspace.comparison || undefined}>
       <header>
         <h1 className="screen-title">Population Data</h1>
         <p className="screen-tab-description">

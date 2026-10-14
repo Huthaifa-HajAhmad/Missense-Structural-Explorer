@@ -3,6 +3,16 @@
 .evidence-workspace #evidence-dashboard-card > .overflow-y-auto { padding: 24px; scrollbar-gutter: stable; }
 .evidence-workspace .screen-title { font-size: 20px; letter-spacing: -.025em; }
 .evw-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+/* Share the title row with its existing guide control, without absolute positioning. */
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace)) > .rgd-context-action { grid-area: 1 / 2; z-index: 1; align-self: start; margin: 0; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace) { grid-area: 1 / 1 / auto / -1; min-width: 0; }
+.evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace) > header { padding-inline-end: 260px; }
+@media (max-width: 650px) {
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace)) > .rgd-context-action { grid-area: 1 / 1 / auto / -1; margin-bottom: 12px; }
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace) { grid-row: 2; }
+  .evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace) > header { padding-inline-end: 0; }
+}
 .evw-navigation { display: flex; align-items: start; flex-wrap: wrap; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--cs-border-subtle); }
 .evw-navigation .workspace-tabs { flex: 1; padding-bottom: 0; border-bottom: 0; }
 .evw-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
@@ -11,6 +21,28 @@
 .evw-chart-scroll { overflow-x: auto; scrollbar-width: thin; }
 .evw-chart-canvas { min-width: 480px; }
 .evw-chart-canvas[data-wide] { min-width: 720px; }
+/* Each question keeps its own geometry. Values are aligned outside the quantitative field. */
+.evw-comparison { min-width: 0; }
+.evw-comparison[data-tab="clinical"] .evw-chart-canvas { min-width: 650px; }
+.evw-comparison[data-tab="predictors"] .evw-chart-canvas { min-width: 900px; }
+.evw-comparison[data-story] .viz-frame__head { padding: 18px 22px 12px; }
+.evw-comparison[data-story] .viz-frame__head > :first-child { flex: 1 1 340px; min-width: 0; }
+.evw-comparison[data-story] .viz-frame__head h2 { font-size: 17px; }
+.evw-comparison[data-story] .viz-frame__head p { font-size: 13px; }
+.evw-comparison .evw-axis-guide { padding: 8px var(--evw-plot-right) 8px var(--evw-plot-left); }
+.evw-figure-scope { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 0 22px 8px; font-size: 12px; color: var(--cs-text-secondary); }
+.evw-plot { position: relative; }
+.evw-band-head, .evw-band-grid { display: grid; grid-template-columns: repeat(var(--evw-band-count), minmax(0, 1fr)); }
+.evw-band-head { margin: 8px var(--evw-plot-right) 0 var(--evw-plot-left); }
+.evw-band-head > span { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1px; min-height: 46px; padding: 5px 2px; text-align: center; font-size: 12px; }
+.evw-band-head b { font-weight: 600; }
+.evw-band-head small { font-size: 11px; }
+.evw-band-grid { position: absolute; inset: 0 var(--evw-plot-right) 12px var(--evw-plot-left); pointer-events: none; }
+.evw-band-head > span, .evw-band-grid > span { border-inline-end: 1px solid var(--cs-border-subtle); }
+.evw-band-head > [data-direction="benign"], .evw-band-grid > [data-direction="benign"] { background: color-mix(in srgb, var(--cs-text-success) 5%, transparent); }
+.evw-band-head > [data-direction="pathogenic"], .evw-band-grid > [data-direction="pathogenic"] { background: color-mix(in srgb, var(--cs-text-danger) 5%, transparent); }
+.evw-band-head > [data-direction="neither"], .evw-band-grid > [data-direction="neither"] { background: var(--cs-surface-2); }
+.evw-plot > :last-child { position: relative; }
 /* The left offset follows the chart's own margin (set inline as --evw-guide-left by the component),
    so the guide and the axis can no longer drift apart when the chart margins change. */
 .evw-axis-guide { display: flex; justify-content: space-between; gap: 12px; padding: 8px 24px 0 var(--evw-guide-left, 135px); color: var(--cs-text-secondary); font-size: 12px; }

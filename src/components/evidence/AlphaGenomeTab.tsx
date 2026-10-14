@@ -381,7 +381,7 @@ function AlphaGenomeTabBody({
   const lm = ev.largestMolecular;
 
   return (
-    <div className="ag-screen @container" data-testid="alphagenome-screen">
+    <div className="ag-screen @container" data-testid="alphagenome-screen" data-comparison={workspace.comparison || undefined}>
       <header>
         <h1 className="screen-title">AlphaGenome</h1>
         <p className="screen-tab-description">
@@ -427,7 +427,7 @@ function AlphaGenomeTabBody({
               </p>
             )}
 
-            <RankRuler phred={ev.phred as number} topPercent={ev.topPercent} />
+            {!workspace.comparison && <RankRuler phred={ev.phred as number} topPercent={ev.topPercent} />}
             {!workspace.comparison && <OriginSplit ev={ev} />}
           </div>
         ) : (
@@ -513,8 +513,8 @@ function AlphaGenomeTabBody({
 
       {/* ── 2. What the score is made of ───────────────────────────────────────────────────── */}
       {workspace.comparison && <>
-        <AlphaGenomeGuide evidence={ev} />
         <React.Suspense fallback={<p>Loading feature contributions…</p>}><EvidenceComparison tab="alphagenome" model={attributionModel} title="What contributes to this score?" description="Each mark is one input’s contribution to the raw AVI score. Molecular predictions are clay; other inputs are grey. Select a feature to understand it." /></React.Suspense>
+        <AlphaGenomeGuide evidence={ev} />
       </>}
       {!workspace.comparison && ev.assessed && <Contributions ev={ev} />}
 

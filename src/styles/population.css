@@ -118,6 +118,16 @@
 .pop-hero__finding { margin: 0; color: var(--cs-text-secondary); max-width: none; }
 .pop-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
+/* The comparison opens with a compact finding; the plot carries the quantitative detail. */
+.pop-screen[data-comparison] .pop-hero__body { padding: 16px 20px; display: grid; grid-template-columns: minmax(240px, .85fr) minmax(0, 1.15fr); gap: 12px 24px; align-items: center; }
+.pop-screen[data-comparison] .pop-hero__top, .pop-screen[data-comparison] .pop-callout { grid-column: 1 / -1; }
+.pop-screen[data-comparison] .pop-hero__figure { flex-direction: column; align-items: start; }
+.pop-screen[data-comparison] .pop-figure { font-size: 25px; letter-spacing: -.025em; }
+@container (max-width: 650px) {
+  .pop-screen[data-comparison] .pop-hero__body { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .pop-screen[data-comparison] .pop-hero__top { flex-wrap: wrap; }
+}
+
 .pop-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
 .pop-hero__scale { padding: 18px 20px 18px; }
