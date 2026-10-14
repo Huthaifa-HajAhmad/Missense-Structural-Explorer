@@ -23,7 +23,7 @@ import {
   rateLimitedErrorFor,
   recordRateLimit,
 } from "./provider-pause.ts";
-import { governed, isEgressRefusal, isLocalHost, maxConcurrentFor, noteEgressAnswer } from "./egress-governor.ts";
+import { governed, isEgressRefusal, isLocalHost, maxConcurrentFor, noteEgressAnswer, pauseKeyFor, type GovernedCredential } from "./egress-governor.ts";
 
 /**
  * Upper bound on a server-supplied `Retry-After`.
@@ -504,26 +504,31 @@ async function fetchWithRetryInner(
  */
 export async function governedFetch(
   input: string | URL | Request,
-  init: RequestInit & { deadlineAt?: number; lane?: string } = {}
+  init: RequestInit & { deadlineAt?: number; lane?: string; credential?: GovernedCredential } = {}
 ): Promise<Response> {
-  const { deadlineAt, lane, ...rest } = init;
+  const { deadlineAt, lane, credential, ...rest } = init;
   let hostname = "";
   try {
     hostname = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url).hostname;
   } catch (_) {}
-  if (!hostname || isLocalHost(hostname)) return fetch(input, rest);
+  if (!hostname || isLocalHost(hostname)) {
+    credential?.onSend?.();
+    return fetch(input, rest);
+  }
+  // A person's own token is paused and counted on its own (WP-I4).
+  const pauseKey = pauseKeyFor(hostname, credential?.bucket);
   // The pause first, so a call it refuses does not take a governor turn.
-  await awaitProviderPause(hostname, { deadlineAt, signal: rest.signal });
+  await awaitProviderPause(pauseKey, { deadlineAt, signal: rest.signal });
   return governed(
     hostname,
     async () => {
       const res = await fetch(input, rest);
       const retryAfter = res.headers?.get?.("Retry-After") ?? null;
-      noteEgressAnswer(hostname, res.status, retryAfter, Date.now(), lane);
-      if (isRateLimitAnswer(res.status, retryAfter)) recordRateLimit(hostname, res.status, retryAfter);
+      noteEgressAnswer(hostname, res.status, retryAfter, Date.now(), lane, credential?.bucket);
+      if (isRateLimitAnswer(res.status, retryAfter)) recordRateLimit(pauseKey, res.status, retryAfter);
       return res;
     },
-    { deadlineAt, signal: rest.signal, lane }
+    { deadlineAt, signal: rest.signal, lane, credential }
   );
 }
 

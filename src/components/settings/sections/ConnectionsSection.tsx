@@ -6,6 +6,7 @@ import { SecretInput } from "../ui/SecretInput";
 import { SettingsBlock, SettingsSection } from "../ui/Section";
 import { ChevronRight } from "lucide-react";
 import { clearInvalidApiKey } from "../../../api/authSession";
+import { AccountTokenControls, LastCredentialUse, TokenOwnershipIntro, useSavedSecrets } from "./TokenOwnership";
 
 function ServicePill({ name, ready, detail }: { name: string; ready: boolean | undefined; detail?: string }) {
   const state = ready === undefined ? "Checking…" : ready ? "Online" : "Offline";
@@ -46,6 +47,7 @@ export function ConnectionsSection() {
   const { tests, runTest, linking, linkError, linkGeminiKey, clearLinkError } = useApiConnections();
   const { diagnostics, loading } = useDiagnostics();
   const [, tick] = useReducer((x: number) => x + 1, 0);
+  const secrets = useSavedSecrets();
 
   // Refresh the session countdown about twice a minute.
   useEffect(() => {
@@ -156,7 +158,13 @@ export function ConnectionsSection() {
         </SettingsBlock>
       </SettingsSection>
 
-      <SettingsSection title="Credentials" hint="Held only for this browser tab and cleared on reset.">
+      <SettingsSection
+        title="Credentials"
+        hint={secrets.signedIn
+          ? "Held for this browser tab unless you save a token to your account."
+          : "Held only for this browser tab and cleared on reset."}
+      >
+        <TokenOwnershipIntro />
         <SecretInput
           label="Application / Lab API token"
           placeholder="Enter APP_API_TOKEN…"
@@ -177,11 +185,14 @@ export function ConnectionsSection() {
             label: "Test connection",
             busyLabel: "Testing…",
             busy: tests.biohub.testing,
-            disabled: !settings.biohubApiToken?.trim(),
-            run: () => runTest("biohub")
+            // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
+            disabled: !settings.biohubApiToken?.trim() && !secrets.saved?.biohub?.readable,
+            run: () => runTest("biohub", { useSaved: !settings.biohubApiToken?.trim() })
           }}
           status={tests.biohub.status}
         />
+        <AccountTokenControls kind="biohub" label="Biohub" browserToken={settings.biohubApiToken || ""} clearBrowserToken={() => updateSetting("biohubApiToken", "")} secrets={secrets} />
+        <LastCredentialUse kind="biohub" />
         <SecretInput
           label="Hugging Face access token"
           placeholder="Enter HF_TOKEN…"
@@ -192,11 +203,14 @@ export function ConnectionsSection() {
             label: "Test connection",
             busyLabel: "Testing…",
             busy: tests.hf.testing,
-            disabled: !settings.hfToken?.trim(),
-            run: () => runTest("hf")
+            // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
+            disabled: !settings.hfToken?.trim() && !secrets.saved?.huggingface?.readable,
+            run: () => runTest("hf", { useSaved: !settings.hfToken?.trim() })
           }}
           status={tests.hf.status}
         />
+        <AccountTokenControls kind="huggingface" label="Hugging Face" browserToken={settings.hfToken || ""} clearBrowserToken={() => updateSetting("hfToken", "")} secrets={secrets} />
+        <LastCredentialUse kind="huggingface" />
         <SecretInput
           label="AlphaGenome Atlas API key"
           placeholder="Enter ALPHAGENOME_API_KEY…"
@@ -222,11 +236,14 @@ export function ConnectionsSection() {
             label: "Test connection",
             busyLabel: "Testing…",
             busy: tests.tamarind.testing,
-            disabled: !settings.tamarindApiKey?.trim(),
-            run: () => runTest("tamarind")
+            // A token saved to the account can be tested too (WP-I4b): the server tests the saved one.
+            disabled: !settings.tamarindApiKey?.trim() && !secrets.saved?.tamarind?.readable,
+            run: () => runTest("tamarind", { useSaved: !settings.tamarindApiKey?.trim() })
           }}
           status={tests.tamarind.status}
         />
+        <AccountTokenControls kind="tamarind" label="Tamarind" browserToken={settings.tamarindApiKey || ""} clearBrowserToken={() => updateSetting("tamarindApiKey", "")} secrets={secrets} />
+        <LastCredentialUse kind="tamarind" />
         <SettingsBlock className="!py-3">
           <HowTo title="How to get a Tamarind Bio API key">
             Visit{" "}

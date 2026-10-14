@@ -38,6 +38,9 @@ import {
 import { CONFIG } from "../../config.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 import { governedFetch } from "../infra/http-client.ts";
+import { credentialForCall, noteRefusal, resolveCredential } from "../infra/credentials.ts";
+import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
+import type { GovernedCredential } from "../infra/egress-governor.ts";
 
 // ---------------------------------------------------------------------------
 // RaSP (Rapid Stability Prediction — precomputed human proteome lookup)
@@ -538,7 +541,7 @@ export function clearEnergyModelCaches(): void {
 }
 
 export async function testTamarindConnection(apiKey?: string): Promise<{ valid: boolean; message: string }> {
-  const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
+  const keyToUse = resolveCredential("tamarind", apiKey, { statusOnly: true }).token;
   if (!keyToUse) {
     return { valid: false, message: "No Tamarind Bio API Key provided." };
   }
@@ -547,7 +550,8 @@ export async function testTamarindConnection(apiKey?: string): Promise<{ valid: 
       headers: {
         "x-api-key": keyToUse
       },
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(10000),
+      credential: credentialForCall("tamarind", keyToUse, { charge: false })
     });
     if (res.ok) {
       return { valid: true, message: "Connection to Tamarind Bio API verified successfully." };
@@ -585,7 +589,8 @@ export async function submitThermoMpnnJob(
   }
 
   const provider = (process.env.THERMOMPNN_PROVIDER || "local").toLowerCase();
-  const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
+  // The caller's key, else this person's saved one, else the team's under the lending policy (WP-I4).
+  const keyToUse = resolveCredential("tamarind", apiKey).token;
 
   // 1. Local Python Sidecar Evaluation (Sovereign 100% Pre-Trained Kuhlman-Lab Engine)
   if (provider === "local" || !keyToUse) {
@@ -623,6 +628,7 @@ export async function submitThermoMpnnJob(
           return { jobId: "local_warming", prediction: null, status: "pending", error: `ThermoMPNN engine is warming up: ${detail}` };
         }
         if (!keyToUse) {
+          noteRefusal("tamarind");
           return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN in standby: ${detail}` };
         }
         console.log(`[ThermoMPNN] Local sidecar in standby (${detail}). Attempting remote Tamarind Bio cloud fallback...`);
@@ -630,6 +636,7 @@ export async function submitThermoMpnnJob(
     } catch (localErr: any) {
       console.warn("[ThermoMPNN] Local sidecar evaluation unavailable:", localErr.message);
       if (!keyToUse) {
+        noteRefusal("tamarind");
         return { jobId: null, prediction: null, status: "unavailable", error: `Local ThermoMPNN sidecar in standby: ${localErr.message}` };
       }
       console.log(`[ThermoMPNN] Local sidecar unavailable (${localErr.message}). Attempting remote Tamarind Bio cloud fallback...`);
@@ -638,17 +645,67 @@ export async function submitThermoMpnnJob(
 
   // 2. Remote Tamarind Bio API (Fallback when key is configured)
   if (!keyToUse) {
+    noteRefusal("tamarind");
     return { jobId: null, prediction: null, status: "unavailable", error: "Local ThermoMPNN sidecar in standby. Start sidecar or enter Tamarind API key." };
   }
 
+  /**
+   * One submission for every concurrent caller using the same token (WP-I4): the team's, or one person's
+   * own. A pending Tamarind job can only be polled with the key that submitted it, so callers on
+   * different tokens get their own jobs. The job id stays joinable for a minute after it arrives.
+   */
+  const credential = credentialForCall("tamarind", keyToUse);
+  const flightKey = `${cacheKey}|${credential.bucket ?? "team"}`;
+  try {
+    return await sharedFlight(
+      tamarindSubmissions,
+      flightKey,
+      () => sendTamarindSubmission(pdbContent, mutation, chain, keyToUse, cacheKey, credential),
+      { signal, lingerMs: 60_000, lingerIf: r => r.jobId !== null }
+    );
+  } catch (err: any) {
+    // This caller gave up (its signal aborted); the shared submission carries on for any others.
+    return { jobId: null, prediction: null, status: "error", error: err?.message ?? "Cancelled" };
+  }
+}
+
+type ThermoMpnnSubmission = { jobId: string | null; prediction: number | null; status: "pending" | "done" | "error" | "unavailable"; error?: string };
+
+/**
+ * The key each Tamarind job was submitted with, by job id, for 6 hours: a pending job can only be read with
+ * that key. In memory only (tokens are held in memory for the call anyway), never logged, never persisted.
+ */
+const submittingKeys = new LRUCache<string, string>({ max: 1000, ttl: 6 * 60 * 60 * 1000 });
+
+function submittingKeyFor(jobId: string): string | null {
+  return submittingKeys.get(jobId) ?? null;
+}
+
+/** Tamarind submissions in flight (or settled less than a minute ago), by run and token bucket. */
+const tamarindSubmissions: SharedFlights<ThermoMpnnSubmission> = new Map();
+
+/** Test seam. */
+export function resetTamarindSubmissionsForTests(): void {
+  tamarindSubmissions.clear();
+  submittingKeys.clear();
+}
+
+async function sendTamarindSubmission(
+  pdbContent: string,
+  mutation: string,
+  chain: string,
+  keyToUse: string,
+  cacheKey: string,
+  credential: GovernedCredential
+): Promise<ThermoMpnnSubmission> {
   const generatedJobName = `thermompnn_${mutation.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}`;
 
   try {
-    const fetchSignal = signal
-      ? anySignal([signal, AbortSignal.timeout(15000)])
-      : AbortSignal.timeout(15000);
+    // Bounded by its own timeout, not by a caller's signal: the submission is shared (see above).
+    const fetchSignal = AbortSignal.timeout(15000);
 
     const response = await governedFetch("https://app.tamarind.bio/api/submit-job", {
+      credential,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -698,12 +755,14 @@ export async function submitThermoMpnnJob(
       }
       if (jobId) {
         thermompnnCache.set(cacheKey, { prediction: null, jobId, status: "pending" });
-        return { jobId, prediction: null, status: "pending" };
+        submittingKeys.set(jobId, keyToUse);
+      return { jobId, prediction: null, status: "pending" };
       }
     } else {
       // Plain text response "myJobName submitted to queue."
       const jobId = generatedJobName;
       thermompnnCache.set(cacheKey, { prediction: null, jobId, status: "pending" });
+      submittingKeys.set(jobId, keyToUse);
       return { jobId, prediction: null, status: "pending" };
     }
 
@@ -718,7 +777,10 @@ export async function pollThermoMpnnJob(
   jobId: string,
   apiKey?: string
 ): Promise<{ status: "pending" | "running" | "done" | "error"; prediction: number | null; error?: string }> {
-  const keyToUse = apiKey || process.env.TAMARIND_API_KEY;
+  // A job is only visible to the key that submitted it, so a poll uses that key when this process
+  // submitted the job (a caller who joined someone else's run may hold a different one). Otherwise the
+  // caller's own key, saved key or the team's; a poll must keep working whatever the hourly share says.
+  const keyToUse = submittingKeyFor(jobId) ?? resolveCredential("tamarind", apiKey, { statusOnly: true }).token;
   if (!keyToUse) {
     return { status: "error", prediction: null, error: "Tamarind Bio API key not configured" };
   }
@@ -728,7 +790,8 @@ export async function pollThermoMpnnJob(
       headers: {
         "x-api-key": keyToUse
       },
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(10000),
+      credential: credentialForCall("tamarind", keyToUse, { charge: false })
     });
 
     if (!response.ok) {

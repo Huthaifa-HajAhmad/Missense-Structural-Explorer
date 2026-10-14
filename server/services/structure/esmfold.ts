@@ -9,6 +9,7 @@ import {
   esmAtlasFallbackExceededMessage,
 } from "../../../src/shared/foldingLimits.ts";
 import { governedFetch } from "../infra/http-client.ts";
+import { governedForCredential, noteRefusal, resolveCredential } from "../infra/credentials.ts";
 
 /**
  * Which engine answered. The three tiers are three different models — ESMFold2-Fast (JapanFold),
@@ -78,11 +79,14 @@ async function foldSequenceInternal(
     console.warn(`[ESMFold] Tier-1 JapanFold call failed: ${jfErr.message}. Proceeding to local sidecar fallback...`);
   }
 
-  // 2. Fallback: If Biohub token is available, query official Biohub ESMFold2 via Python sidecar
-  if (biohubToken) {
+  // 2. Fallback: If a Biohub token is available (the caller's, this person's saved one, or the team's
+  // under the lending policy), query official Biohub ESMFold2 via Python sidecar (WP-I4).
+  const token = resolveCredential("biohub", biohubToken).token;
+  if (!token) noteRefusal("biohub");
+  if (token) {
     try {
       const sidecarSecret = process.env.SIDECAR_SECRET || "";
-      const response = await governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/esmfold`, {
+      const response = await governedForCredential("biohub", token, () => governedFetch(`${CONFIG.services.sidecarBaseUrl}/predict/esmfold`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -90,10 +94,10 @@ async function foldSequenceInternal(
         },
         body: JSON.stringify({
           sequence: sequence,
-          biohubToken: biohubToken
+          biohubToken: token
         }),
         signal: AbortSignal.timeout(CONFIG.timeouts.esmfoldSidecarMs) // Folding is computationally heavy; give it the configured sidecar budget
-      });
+      }), { lane: "compute", deadlineAt: Date.now() + CONFIG.timeouts.esmfoldSidecarMs });
 
       if (response.ok) {
         const data = await response.json() as any;

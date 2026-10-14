@@ -99,6 +99,16 @@ CREATE TABLE IF NOT EXISTS agent_pairing_codes (
   expires_at INTEGER NOT NULL,
   used_at    INTEGER
 );
+-- A person's own provider tokens (WP-I4b), AES-256-GCM encrypted (auth/user-secrets.ts). hint is the
+-- token's last four characters, shown so the person recognises which token is saved.
+CREATE TABLE IF NOT EXISTS user_secrets (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL,
+  ciphertext TEXT NOT NULL,
+  hint       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind)
+);
 CREATE TABLE IF NOT EXISTS login_attempts (
   key TEXT PRIMARY KEY,
   count INTEGER NOT NULL,

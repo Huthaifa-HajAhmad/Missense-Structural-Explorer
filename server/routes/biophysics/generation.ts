@@ -327,7 +327,8 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         let raspReason: string | undefined = undefined;
         let stabilityoracleVal: number | null = null;
 
-        const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || process.env.TAMARIND_API_KEY;
+        // Only what the request brought; ThermoMPNN resolves saved and team keys when it submits (WP-I4).
+        const tamarindApiKey = (req.headers["x-tamarind-api-key"] as string) || req.body?.tamarindApiKey || undefined;
 
       const pHVal = req.body.pH !== undefined ? parseFloat(String(req.body.pH)) : undefined;
       const tempVal = req.body.temperature !== undefined ? parseFloat(String(req.body.temperature)) : undefined;

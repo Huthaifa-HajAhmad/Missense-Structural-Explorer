@@ -33,6 +33,7 @@ export interface SaprotEvalResult {
 
 import { CONFIG } from "../../config.ts";
 import { querySaProt } from "./japanfold-client.ts";
+import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -100,8 +101,11 @@ export async function runSaprotAnalysis(
   // 2. Fallback to Local Sidecar (runs on CPU on OCI 2 OCPU / 8GB RAM with SaProt_35M_AF2)
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/saprot`;
+  const token = resolveCredential("huggingface", hfToken).token;
+  const preferRemote = saprotEngine === "remote-hf" || (Boolean(token) && saprotEngine !== "saprot-35m");
+  // Only a remote run reaches Hugging Face; a local SaProt run spends no one's allowance (WP-I4).
   try {
-    const sidecarRes = await fetch(sidecarUrl, {
+    const sidecarRes = await governedForCredential("huggingface", preferRemote ? token : null, () => fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -113,13 +117,14 @@ export async function runSaprotAnalysis(
         wt: wtRes,
         mut: mutRes,
         wtPdb: wtPdb || null,
-        hfToken: hfToken || null,
+        // A local run downloads public weights: it gets no token, so it spends no one's allowance.
+        hfToken: preferRemote ? token : null,
         modelName: modelName,
-        preferRemote: saprotEngine === "remote-hf" || (Boolean(hfToken) && saprotEngine !== "saprot-35m"),
+        preferRemote,
         engine: saprotEngine || null
       }),
       signal: AbortSignal.timeout(120000) // CPU inference + model load can take 1-2 min
-    });
+    }), { deadlineAt: Date.now() + 120000, noteRefusal: saprotEngine !== "saprot-35m" });
 
     if (sidecarRes.ok) {
       const data = await sidecarRes.json() as any;

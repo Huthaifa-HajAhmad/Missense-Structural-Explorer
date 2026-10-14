@@ -24,6 +24,7 @@ import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
 import { resolveGpnAccess } from "../../services/external-api/gpn.ts";
+import { resolveCredential } from "../../services/infra/credentials.ts";
 
 export const analyzeVariantSchema = z.object({
   gene: z.string().min(1).max(100),
@@ -555,7 +556,9 @@ export async function validateAndParseVariantRequest(
     pos,
     wt1Letter,
     mut1Letter,
-    biohubToken: sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken) || sanitizeToken(process.env.BIOHUB_API_TOKEN),
+    // The request's token, else this person's saved one, else the team's under the lending policy (WP-I4).
+    // Resolved once here, so the run's capability and every model it calls agree.
+    biohubToken: sanitizeToken(resolveCredential("biohub", sanitizeToken(req.headers["x-biohub-token"]) || sanitizeToken(req.body?.biohubToken)).token),
     hfToken: gpnAccess.token,
     gpnApiUrl: gpnAccess.endpoint,
     // The server's key never accompanies a URL the request chose (see resolveAlphaGenomeAccess).

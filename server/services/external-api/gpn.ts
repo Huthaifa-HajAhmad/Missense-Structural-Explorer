@@ -4,6 +4,7 @@ import { getCachedOrFetch } from "../infra/cache.ts";
 import { defaultCacheRegistry } from "../infra/cache-registry.ts";
 import { sanitizeErrorMessage } from "../../utils/security.ts";
 import { governedFetch } from "../infra/http-client.ts";
+import { credentialForCall, resolveCredential, teamToken } from "../infra/credentials.ts";
 
 export interface ModelInferenceResult {
   score: number | null;
@@ -226,13 +227,15 @@ function normaliseGpnEndpoint(url: string): string {
  * `customEndpoint` also keeps that proxy's answers out of the shared cache, for the same reason.
  */
 export function resolveGpnAccess(callerToken?: string | null, callerUrl?: string | null): GpnAccess {
-  const serverKey = process.env.HF_TOKEN || null;
+  const serverKey = teamToken("huggingface");
   const serverEndpoint = process.env.GPN_API_URL || null;
   const endpoint = callerUrl || serverEndpoint;
   const customEndpoint =
     Boolean(callerUrl) &&
     (!serverEndpoint || normaliseGpnEndpoint(callerUrl as string) !== normaliseGpnEndpoint(serverEndpoint));
-  let token = callerToken || serverKey;
+  // The caller's token, else (for the server's own endpoint) this person's saved one or the team's under
+  // the lending policy (WP-I4). A request-chosen endpoint never gets a token the request did not bring.
+  let token = callerToken || (customEndpoint ? null : resolveCredential("huggingface").token);
   if (customEndpoint && serverKey && token === serverKey) token = null;
   return { token, endpoint, customEndpoint };
 }
@@ -272,7 +275,8 @@ export async function fetchGpnStarScore(
         method: "POST",
         headers,
         body: JSON.stringify({ sequence, pos, wt: wt.toUpperCase(), mut: mut.toUpperCase() }),
-        signal: combinedSignal
+        signal: combinedSignal,
+        ...(token ? { credential: credentialForCall("huggingface", token) } : {})
       });
 
       if (res.ok) {

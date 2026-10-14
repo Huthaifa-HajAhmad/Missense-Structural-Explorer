@@ -64,6 +64,8 @@ export interface ProviderSpec {
   source?: string;
   /** In the registry or an override (as opposed to a host first met at run time). */
   registered?: boolean;
+  /** One person's own token at this provider (WP-I4): its own allowance, so its own bucket. */
+  ownToken?: boolean;
 }
 
 /**
@@ -404,10 +406,12 @@ export function maxConcurrentFor(hostname: string): number {
 /** Forget idle hosts met at run time once there are more than {@link MAX_RUNTIME_HOSTS}. */
 function evictIdleRuntimeHosts(): void {
   let runtime = 0;
-  for (const s of states.values()) if (!s.spec.registered) runtime++;
+  // Own-token buckets count as runtime state: one appears for each person's token.
+  const isRuntime = (st: ProviderState) => !st.spec.registered || Boolean(st.spec.ownToken);
+  for (const s of states.values()) if (isRuntime(s)) runtime++;
   if (runtime <= MAX_RUNTIME_HOSTS) return;
   const idle = [...states.entries()]
-    .filter(([, s]) => !s.spec.registered && s.idle())
+    .filter(([, s]) => isRuntime(s) && s.idle())
     .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
   for (const [key] of idle) {
     if (runtime <= MAX_RUNTIME_HOSTS) break;
@@ -416,7 +420,7 @@ function evictIdleRuntimeHosts(): void {
   }
 }
 
-function stateFor(hostname: string, now = Date.now(), lane?: string): ProviderState | null {
+function stateFor(hostname: string, now = Date.now(), lane?: string, ownBucket?: string | null): ProviderState | null {
   const base = specFor(hostname);
   if (!base) return null;
   let spec = base;
@@ -428,6 +432,9 @@ function stateFor(hostname: string, now = Date.now(), lane?: string): ProviderSt
       spec = { ...base, id: `${base.id}#${lane}` };
     }
   }
+  // A person's own token has its own allowance at the provider, so it gets its own slots and rate, apart
+  // from the team token's (WP-I4). The bucket id is opaque (`credentials.ts`), never the token or its hash.
+  if (ownBucket) spec = { ...spec, id: `${spec.id}#own:${ownBucket}`, ownToken: true };
   let s = states.get(spec.id);
   if (!s) {
     s = new ProviderState(spec, now);
@@ -526,6 +533,24 @@ export interface GovernedOptions {
   owner?: string;
   /** A separate set of slots for long calls to the same host (see the module comment). */
   lane?: string;
+  /** Which token the call carries (WP-I4); built by `credentialForCall` in `credentials.ts`. */
+  credential?: GovernedCredential;
+}
+
+/**
+ * The key the team-wide 429 pause (`provider-pause.ts`) uses for a call. A person's own token is paused on
+ * its own: the provider limited that token, not the team's (WP-I4).
+ */
+export function pauseKeyFor(hostname: string, ownBucket?: string | null): string {
+  return ownBucket ? `${hostname}#own:${ownBucket}` : hostname;
+}
+
+/** The credential side of a call: its bucket, and what to do when it is actually sent. */
+export interface GovernedCredential {
+  /** Opaque id of a person's own token; null for the team token (the provider's shared bucket). */
+  bucket: string | null;
+  /** Called once, when the call is sent (in every mode): records the use and charges a team share. */
+  onSend?: () => void;
 }
 
 /**
@@ -534,11 +559,19 @@ export interface GovernedOptions {
  * A call that would get its turn too late to finish fails with {@link EgressWaitExceededError}.
  */
 export async function governed<T>(hostname: string, fn: () => Promise<T>, opts: GovernedOptions = {}): Promise<T> {
+  // The use is recorded (and a team share charged) only for a call that really goes out: a caller that
+  // gave up while waiting for its turn is not charged.
+  const send = opts.credential?.onSend
+    ? () => {
+        if (!opts.signal?.aborted) opts.credential!.onSend!();
+        return fn();
+      }
+    : fn;
   const mode = egressGovernorMode();
-  if (mode === "off") return fn();
+  if (mode === "off") return send();
   const now = Date.now();
-  const s = stateFor(hostname, now, opts.lane);
-  if (!s) return fn();
+  const s = stateFor(hostname, now, opts.lane, opts.credential?.bucket);
+  if (!s) return send();
   const owner = opts.owner ?? currentEgressOwner();
 
   if (mode === "shadow") {
@@ -557,7 +590,7 @@ export async function governed<T>(hostname: string, fn: () => Promise<T>, opts: 
     }
     takeSlot(s, owner, now, true);
     try {
-      return await fn();
+      return await send();
     } finally {
       // `release` dispatches too, in case the mode changed while `on` waiters were queued.
       release(s);
@@ -620,7 +653,7 @@ export async function governed<T>(hostname: string, fn: () => Promise<T>, opts: 
     }));
   }
   try {
-    return await fn();
+    return await send();
   } finally {
     release(s);
   }
@@ -638,10 +671,11 @@ export function noteEgressAnswer(
   status: number,
   retryAfter: string | null = null,
   now = Date.now(),
-  lane?: string
+  lane?: string,
+  ownBucket?: string | null
 ): void {
   if (egressGovernorMode() === "off") return;
-  const s = stateFor(hostname, now, lane);
+  const s = stateFor(hostname, now, lane, ownBucket);
   if (!s) return;
   if (isRateLimitAnswer(status, retryAfter)) {
     s.rateLimits++;
@@ -683,6 +717,8 @@ export function limitBasisFor(hostname: string): LimitBasis {
 
 export interface GovernorProviderHealth {
   id: string;
+  /** For the line that sums people's own tokens at one provider: how many tokens it sums. */
+  ownTokens?: number;
   provider: string;
   hostnames: string[];
   credentialKind: ProviderSpec["credentialKind"];
@@ -729,9 +765,23 @@ function healthOf(s: ProviderState): GovernorProviderHealth {
 export function governorHealth(opts: { publicView?: boolean } = {}): GovernorProviderHealth[] {
   const named: GovernorProviderHealth[] = [];
   let other: GovernorProviderHealth | null = null;
+  // People's own tokens are summed per provider, never listed one by one (WP-I4).
+  const ownLines = new Map<string, GovernorProviderHealth>();
   for (const s of states.values()) {
     const h = healthOf(s);
     const host = s.spec.hostnames[0] ?? "";
+    if (s.spec.ownToken) {
+      // How many people's tokens are in use is not for the public page (WP-I4).
+      const baseId = s.spec.id.slice(0, s.spec.id.indexOf("#own:"));
+      let line = ownLines.get(baseId);
+      if (!line) {
+        line = { ...h, id: `${baseId}#own-tokens`, provider: `${s.label} (people's own tokens)`, ownTokens: 0, maxConcurrent: s.spec.maxConcurrent, inFlight: 0, waiting: 0, calls: 0, held: 0, wouldHold: 0, refused: 0, rateLimits: 0 };
+        ownLines.set(baseId, line);
+      }
+      line.ownTokens = (line.ownTokens ?? 0) + 1;
+      for (const k of ["inFlight", "waiting", "calls", "held", "wouldHold", "refused", "rateLimits"] as const) line[k] += h[k];
+      continue;
+    }
     if (!opts.publicView || s.spec.registered || isKnownProviderHost(host)) {
       named.push(h);
       continue;
@@ -757,6 +807,7 @@ export function governorHealth(opts: { publicView?: boolean } = {}): GovernorPro
       other[k] += h[k];
     }
   }
+  named.push(...[...ownLines.values()].map(l => (opts.publicView ? { ...l, ownTokens: undefined } : l)));
   named.sort((a, b) => a.id.localeCompare(b.id));
   return other ? [...named, other] : named;
 }

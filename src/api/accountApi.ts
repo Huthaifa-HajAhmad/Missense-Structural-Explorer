@@ -8,6 +8,17 @@
  */
 
 import type { AgentView } from "../shared/agentProtocol";
+import type { CredentialKind } from "../shared/credentials";
+
+/** A provider token saved to the account (`GET /me/secrets`). */
+export interface SavedSecret {
+  kind: CredentialKind;
+  /** The token's last four characters. */
+  hint: string;
+  updatedAt: number;
+  /** False when the server can no longer decrypt it (its secret changed): enter it again. */
+  readable: boolean;
+}
 
 export type AuthMode = "legacy" | "hybrid" | "accounts";
 export type Role = "admin" | "member";
@@ -116,6 +127,11 @@ export const accountApi = {
   changePassword: (current: string, next: string) => request<void>("POST", "/auth/change-password", { current, next }),
   updatePreferences: (patch: Partial<Pick<AccountUser, "shareResults" | "placementPref">>) =>
     request<Pick<AccountUser, "shareResults" | "placementPref">>("PUT", "/me/preferences", patch),
+  /** Provider tokens saved to this account (WP-I4b): kind, last four characters, when; never the token. */
+  savedSecrets: () => request<{ available: boolean; secrets: SavedSecret[] }>("GET", "/me/secrets"),
+  saveSecret: (kind: CredentialKind, token: string) =>
+    request<SavedSecret>("PUT", `/me/secrets/${encodeURIComponent(kind)}`, { token }),
+  removeSecret: (kind: CredentialKind) => request<void>("DELETE", `/me/secrets/${encodeURIComponent(kind)}`),
 
   // Admin
   listUsers: () => request<{ users: AccountUser[] }>("GET", "/admin/users"),

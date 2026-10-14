@@ -29,6 +29,7 @@ export interface EsmcEvalResult {
 }
 
 import { CONFIG } from "../../config.ts";
+import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
 
 export type ModelEvalError = {
   error: string;
@@ -64,8 +65,10 @@ export async function runEsm2Analysis(
 
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   const sidecarUrl = `${CONFIG.services.sidecarBaseUrl}/predict/esm2_3b`;
+  // With a token the sidecar uses Hugging Face inference, so the call is governed and counted as such (WP-I4).
+  const token = resolveCredential("huggingface", hfToken).token;
   try {
-    const sidecarRes = await fetch(sidecarUrl, {
+    const sidecarRes = await governedForCredential("huggingface", token, () => fetch(sidecarUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -76,11 +79,11 @@ export async function runEsm2Analysis(
         position: pos,
         wt: wtRes,
         mut: mutRes,
-        hfToken: hfToken || null,
+        hfToken: token,
         modelName: modelName
       }),
       signal: AbortSignal.timeout(120000) // CPU inference + model load can take 1-2 min
-    });
+    }), { deadlineAt: Date.now() + 120000 });
 
     if (sidecarRes.ok) {
       const data = await sidecarRes.json() as any;

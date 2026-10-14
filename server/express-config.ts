@@ -14,6 +14,7 @@ import { createSpaShellHandler, setStaticShellHeaders } from "./spa-shell-cache.
 import { CONFIG, validateStartupEnvironment } from "./config.ts";
 import { installDeploymentControl } from "./deployment-control.ts";
 import { STALE_DATA_HEADER } from "../src/shared/providerLimits.ts";
+import { CREDENTIALS_HEADER } from "../src/shared/credentials.ts";
 
 export { validateStartupEnvironment };
 
@@ -44,6 +45,27 @@ export function corsDecision(origin: string | undefined, env: NodeJS.ProcessEnv 
     if (host.endsWith(".trycloudflare.com") || host.endsWith(".duckdns.org")) return { allowed: true, credentials: false };
   } catch (_) {}
   return { allowed: false, credentials: false };
+}
+
+/** Global Express JSON error handler. Never logs or echoes the raw request body. */
+export function jsonErrorHandler(err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) {
+  /*
+   * Never log or echo the request body. body-parser attaches the raw body to a parse error (`err.body`)
+   * and Node's JSON error message can quote part of it, so a malformed request that carried a token
+   * (a saved provider token, `hfToken`, `tamarindApiKey`, ...) would otherwise land in the logs and in
+   * the reply. Only the error's kind, status and stack are logged; a parse failure gets a fixed sentence.
+   */
+  const parseFailure = err?.type === "entity.parse.failed";
+  const status = err.status || err.statusCode || 500;
+  console.error("[Global Error Handler]:", {
+    type: err?.type,
+    status,
+    message: parseFailure ? "Request body is not valid JSON." : err?.message,
+    stack: parseFailure ? undefined : err?.stack,
+  });
+  const code = parseFailure ? "BAD_REQUEST" : err.code || "INTERNAL_SERVER_ERROR";
+  const message = parseFailure ? "Request body is not valid JSON." : err.message || "An internal server error occurred.";
+  sendError(res, status, code, message);
 }
 
 export async function createExpressApp(): Promise<express.Express> {
@@ -129,7 +151,7 @@ export async function createExpressApp(): Promise<express.Express> {
     if (!decision.allowed) return callback(null, { origin: false });
     // `X-MSE-Stale` says a response used saved data past its expiry (WP-I2); a browser only lets an
     // allowed cross-origin page read it when it is exposed.
-    callback(null, { origin: true, credentials: decision.credentials, exposedHeaders: [STALE_DATA_HEADER] });
+    callback(null, { origin: true, credentials: decision.credentials, exposedHeaders: [STALE_DATA_HEADER, CREDENTIALS_HEADER] });
   }));
 
   // Mount versioned API router
@@ -166,13 +188,7 @@ export async function createExpressApp(): Promise<express.Express> {
   }
 
   // Global Express JSON error handler
-  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error("[Global Error Handler]:", err);
-    const status = err.status || err.statusCode || 500;
-    const code = err.code || "INTERNAL_SERVER_ERROR";
-    const message = err.message || "An internal server error occurred.";
-    sendError(res, status, code, message);
-  });
+  app.use(jsonErrorHandler);
 
   return app;
 }

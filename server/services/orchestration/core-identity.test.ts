@@ -123,11 +123,13 @@ describe("coreIdentityOf", () => {
       .not.toBe(payloadIdentityRecordOf({ ...base, gpnApiUrl: "https://gpn.example.org/scores?tenant=B" }).capabilityHash);
   });
 
-  it("separates two DIFFERENT credentials of the same kind, and never embeds either", () => {
+  it("shares one run between two DIFFERENT credentials of the same kind (WP-I4), and never embeds either", () => {
     const withA = coreIdentityOf({ ...base, hfToken: "hf_token_alpha" });
     const withB = coreIdentityOf({ ...base, hfToken: "hf_token_beta" });
 
-    expect(withA.flightKey).not.toBe(withB.flightKey);
+    // Whose token asked does not change the answer, so it does not change the key.
+    expect(withA.flightKey).toBe(withB.flightKey);
+    expect(coreIdentityOf({ ...base, biohubToken: "bh_a" }).flightKey).toBe(coreIdentityOf({ ...base, biohubToken: "bh_b" }).flightKey);
     for (const key of [withA.flightKey, withB.flightKey, JSON.stringify(withA.capability)]) {
       expect(key).not.toContain("hf_token_alpha");
       expect(key).not.toContain("hf_token_beta");

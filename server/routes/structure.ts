@@ -34,6 +34,7 @@ import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure } from "../services/multimer.ts";
 import { analyzePpiBinding, analyzeBindingShift } from "../services/ppi.ts";
 import { governedFetch } from "../services/infra/http-client.ts";
+import { credentialAvailable, credentialForCall, ownCredential, resolveCredential } from "../services/infra/credentials.ts";
 
 export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: any, jsonParserPdb: any): void {
 
@@ -353,7 +354,8 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     try {
       let { sequence, uniprotId, variant, wtSeq, mutSeq } = parseResult.data;
       const headerVal = req.headers["x-biohub-token"];
-      const token = (Array.isArray(headerVal) ? headerVal[0] : headerVal) || process.env.BIOHUB_API_TOKEN || process.env.ESM3_FORGE_API_KEY;
+      // The request's token, else this person's saved one, else the team's under the lending policy (WP-I4).
+      const token = resolveCredential("biohub", Array.isArray(headerVal) ? headerVal[0] : headerVal).token;
 
       if (!sequence && !wtSeq) {
         if (!uniprotId) {
@@ -442,7 +444,7 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
           }
         } catch (healthErr: any) {
           if (healthErr.code === "ECONNREFUSED" || healthErr.message?.includes("fetch failed") || healthErr.message?.includes("connect")) {
-            if (req.headers["x-biohub-token"] || process.env.ESM3_FORGE_API_KEY) {
+            if (credentialAvailable("biohub", req.headers["x-biohub-token"] as string | undefined)) {
               statusCode = 503;
               customMessage = "Model Server sidecar is currently offline or starting up. If you just started the app, please wait a minute for the background service to bind.";
             }
@@ -461,7 +463,9 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
       return;
     }
     try {
-      const token = parseResult.data.token || (Array.isArray(req.headers["x-biohub-token"]) ? req.headers["x-biohub-token"][0] : req.headers["x-biohub-token"]);
+      // The person's own token (typed, else saved to their account), never the team's (WP-I4).
+      const supplied = parseResult.data.token || (Array.isArray(req.headers["x-biohub-token"]) ? req.headers["x-biohub-token"][0] : req.headers["x-biohub-token"]);
+      const token = ownCredential("biohub", typeof supplied === "string" ? supplied : null);
       if (!token || typeof token !== "string" || token.trim().length < 8) {
         res.json({ valid: false, message: "Token format invalid (must be at least 8 characters)." });
         return;
@@ -479,11 +483,13 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
           "User-Agent": "MissenseResolve/1.0"
         };
 
+        const probeCredential = credentialForCall("biohub", token.trim(), { charge: false });
         let testRes = await governedFetch("https://forge.evolutionaryscale.ai/api/v1/encode", {
           method: "POST",
           headers: probeHeaders,
           body: probeBody,
-          signal: AbortSignal.timeout(6000)
+          signal: AbortSignal.timeout(6000),
+          credential: probeCredential
         }).catch(() => null);
 
         if (!testRes || testRes.status === 451) {
@@ -491,7 +497,8 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
             method: "POST",
             headers: probeHeaders,
             body: probeBody,
-            signal: AbortSignal.timeout(6000)
+            signal: AbortSignal.timeout(6000),
+            credential: probeCredential
           }).catch(() => null);
           if (fallbackRes) {
             testRes = fallbackRes;
@@ -537,7 +544,8 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
         return;
       }
       const headerBiohub = req.headers["x-biohub-token"];
-      const biohubToken = (Array.isArray(headerBiohub) ? headerBiohub[0] : headerBiohub) || req.body?.biohubToken || process.env.BIOHUB_API_TOKEN || null;
+      // Only what the request brought; the ESM3 service resolves saved and team tokens (WP-I4).
+      const biohubToken = (Array.isArray(headerBiohub) ? headerBiohub[0] : headerBiohub) || req.body?.biohubToken || null;
       const evalResult = await fetchEsm3StructureEval(uniprotId, posVal, wtResidue, mutResidue, wtPdbText, biohubToken);
 
       let expectedSeqLen = 0;

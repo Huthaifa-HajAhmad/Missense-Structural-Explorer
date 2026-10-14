@@ -18,7 +18,7 @@
  *   POST /auth/change-password  {current,next}                            -> 204
  *   GET|PUT /me/preferences     {shareResults?,placementPref?}
  */
-import { type Router } from "express";
+import express, { type Router } from "express";
 import { z } from "zod";
 import { AuditLogger, safeCompare, sendError } from "../utils.ts";
 import { authSettings } from "../auth/config.ts";
@@ -26,6 +26,14 @@ import { isValidEmail } from "../../src/shared/accountPolicy.ts";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.ts";
 import { endSession, startSession } from "../auth/sessions.ts";
 import { noStore, requireUser } from "../auth/middleware.ts";
+import {
+  UserSecretsUnavailableError,
+  cleanToken,
+  deleteUserSecret,
+  isCredentialKind,
+  listUserSecrets,
+  saveUserSecret,
+} from "../auth/user-secrets.ts";
 import { signInWithPassword } from "../auth/providers/password.ts";
 import { lockedFor, recordFailure, recordSuccess, throttleKeys } from "../auth/throttle.ts";
 import { BiophysicalJobQueue } from "../services/infra/biophysical-queue.ts";
@@ -304,5 +312,39 @@ export function registerAuthRoutes(apiRouter: Router, jsonParserRegular: any): v
     if (!parsed.success) return badRequest(res, parsed.error);
     const user = updateUser(req.principal.userId, parsed.data);
     res.json({ shareResults: user?.shareResults, placementPref: user?.placementPref });
+  });
+
+  // ── My saved provider tokens (WP-I4b) ───────────────────────────────────────────────────────────
+  // Saved encrypted so they follow the person across browsers. A token is never returned: only its kind,
+  // last four characters and when it was saved. Nothing about a token is logged.
+  apiRouter.get("/me/secrets", (req, res) => {
+    if (req.principal?.kind !== "user") return;
+    res.json({ available: Boolean(process.env.APP_SESSION_SECRET?.trim()), secrets: listUserSecrets(req.principal.userId) });
+  });
+
+  // A token is at most 512 characters: this route does not need the 5 MB parser.
+  apiRouter.put("/me/secrets/:kind", express.json({ limit: "4kb" }), (req, res) => {
+    if (req.principal?.kind !== "user") return;
+    const kind = req.params.kind;
+    if (!isCredentialKind(kind)) return sendError(res, 400, "BAD_REQUEST", "Unknown token kind.");
+    const token = cleanToken(req.body?.token);
+    if (!token) return sendError(res, 400, "BAD_REQUEST", "Enter the whole token (8 to 512 characters, no spaces).");
+    try {
+      const saved = saveUserSecret(req.principal.userId, kind, token);
+      void AuditLogger.log("account.secret_saved", { userId: req.principal.userId, kind });
+      res.json(saved);
+    } catch (err) {
+      if (err instanceof UserSecretsUnavailableError) return sendError(res, 503, err.code, err.message);
+      throw err;
+    }
+  });
+
+  apiRouter.delete("/me/secrets/:kind", (req, res) => {
+    if (req.principal?.kind !== "user") return;
+    const kind = req.params.kind;
+    if (!isCredentialKind(kind)) return sendError(res, 400, "BAD_REQUEST", "Unknown token kind.");
+    if (!deleteUserSecret(req.principal.userId, kind)) return sendError(res, 404, "NOT_FOUND", "No token of that kind is saved.");
+    void AuditLogger.log("account.secret_removed", { userId: req.principal.userId, kind });
+    res.status(204).end();
   });
 }

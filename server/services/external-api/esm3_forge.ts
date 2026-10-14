@@ -7,6 +7,7 @@ import { extractSequenceFromPdb } from "../structure/pdb-parser.ts";
 import { fetchUniprotSequence } from "./uniprot.ts";
 import { CONFIG } from "../../config.ts";
 import { executeSasaEval } from "../structure/sasa-runner.ts";
+import { governedForCredential, resolveCredential } from "../infra/credentials.ts";
 
 export async function runSasaEval(
   pdbText: string,
@@ -116,13 +117,15 @@ export async function fetchEsm3StructureEval(
     sequence = "M" + "A".repeat(Math.max(10, position + 20));
   }
 
-  const tokenToUse = biohubToken || process.env.BIOHUB_API_TOKEN || null;
+  // The caller's token, else this person's saved one, else the team's under the lending policy (WP-I4).
+  const tokenToUse = resolveCredential("biohub", biohubToken).token;
   const sidecarSecret = process.env.SIDECAR_SECRET || "";
   let provenance = "ESM3-Medium (Remote)";
   const sidecarBudgetMs = ESM3_SIDECAR_BUDGET_MS(sequence.length);
 
   try {
-    const sidecarRes = await fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
+    // With a token the sidecar calls Biohub, so the call is governed (and counted) as Biohub (WP-I4).
+    const sidecarRes = await governedForCredential("biohub", tokenToUse, () => fetch(`${CONFIG.services.sidecarBaseUrl}/predict/esm3`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -137,7 +140,7 @@ export async function fetchEsm3StructureEval(
         refine: false
       }),
       signal: AbortSignal.timeout(sidecarBudgetMs)
-    });
+    }), { lane: "compute", deadlineAt: Date.now() + sidecarBudgetMs });
 
     if (sidecarRes.ok) {
       const sidecarData = await sidecarRes.json() as any;
