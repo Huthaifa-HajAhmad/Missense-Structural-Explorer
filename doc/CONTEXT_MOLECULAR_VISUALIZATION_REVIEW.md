@@ -80,3 +80,6 @@ integration regression moved to that PR; the visualization regressions remain he
 Conflict resolution retains the newer splicing preview and fixtures already on main. This branch
 uses the existing explanation modal and has no dependency on the new drawer components. The two
 branches also pass a `git merge-tree` conflict check together; no PR has been merged.
+
+Post-split standalone verification: lint/type checks and client build passed; full Vitest passed
+390 files with 4,970 tests (2 files and 5 tests skipped). Visualization PR: #131; explanation PR: #130.
