@@ -11,7 +11,7 @@ The previous phases below are retained as history. **They are not the active exe
 The old Recharts decision, library-first pilot and wrapper-only kickoff are superseded here.
 Existing scientific contracts and verified fixes remain authoritative.
 
-Status, 14 October: Energetics plus a four-tab presentation batch (Population Data, Predictors, AlphaGenome, Expression) are implemented and visually checked in the production-component preview. The batch adds source-specific count labels, a predictor band matrix, bounded contribution exploration and directly labelled tissue measurements. See [the batch review](POPULATION_VISUALIZATION_BATCH_REVIEW.md). Remaining workspace families and human reader-comprehension validation are still pending.
+Status, 14 October: Energetics plus nine Evidence tabs are implemented and visually checked in the production-component preview. The [first four-tab batch](POPULATION_VISUALIZATION_BATCH_REVIEW.md) covers Population Data, Predictors, AlphaGenome and Expression. The [next five-tab batch](CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md) covers Gene–disease, Species & models and the three molecular workspaces. RNA splicing and Interfaces & PPI retain their [separate second pass](MECHANISM_WORKSPACES_REVIEW.md). The reusable contracts are documented in [the visualization system](VISUALIZATION_SYSTEM.md). Broader workspace families and human reader-comprehension validation are still pending.
 Scope assumption: the whole analysis workspace, delivered through one finished reference screen and then coherent families.
 
 ### Why the delivery process changes

@@ -26,6 +26,8 @@ The reference is a complete result screen, not a chart library demo. Choose the 
 - AlphaGenome: signed raw-score contributions, ordered by magnitude, with explicit attribution coverage. A bounded overview may expand to all contributions; shares and domains still use the complete supplied vector.
 - Expression: measured medians compared within a single source and unit. Adult and pediatric sources have separate views and fixed source domains. Sampling age is not disease onset.
 - Assertions: categorical source-by-assertion matrices. Counts describe returned records, not consensus or evidence strength.
+- Model preferences: keep one model's 0–100% probability axis. The overview includes its six highest probabilities plus the reference and variant, with access to every returned residue. Do not renormalise the displayed subset. Print probabilities beside the marks, including very small values.
+- Protein annotations: retain residue coordinates and separate overlapping source tracks. State the question above the map and preserve the existing PM1 finding and annotation provenance.
 - Species and biological structures: aligned site maps, orthology relationships, residue tracks and contact geometry where supplied. Whole-protein identity, site conservation and phenotype observations remain distinct.
 
 ## Interaction and visual contracts
@@ -46,4 +48,6 @@ Run repository lint/type checks and appropriate scientific/interaction regressio
 
 ## Implementation status
 
-Energetics and the Population Data / Predictors / AlphaGenome / Expression batch are implemented and browser reviewed. See [the active rollout](CHARTING_AND_VISUALIZATION_PLAN.md), [reference analysis](VISUAL_STORYTELLING_REVIEW.md), and [four-tab review](POPULATION_VISUALIZATION_BATCH_REVIEW.md). Remaining tabs follow the same contracts with their own scientific geometry. Existing scientific reviews remain authoritative.
+Energetics and the Population Data / Predictors / AlphaGenome / Expression batch are implemented and browser reviewed. The next five tabs—Gene–disease, Species & models, Residue shifts & pockets, Structural perturbation and Functional domains—are covered by the [context and molecular batch review](CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md). RNA splicing and Interfaces & PPI retain their separate [mechanism workspace pass](MECHANISM_WORKSPACES_REVIEW.md).
+
+See [the active rollout](CHARTING_AND_VISUALIZATION_PLAN.md), [reference analysis](VISUAL_STORYTELLING_REVIEW.md), and [four-tab review](POPULATION_VISUALIZATION_BATCH_REVIEW.md). Broader Landscape, Insights, Literature, 3D and report refinement remains a separate rollout step. Existing scientific reviews remain authoritative; human reader-comprehension validation is still pending.

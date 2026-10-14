@@ -4,14 +4,14 @@
 .evidence-workspace .screen-title { font-size: 20px; letter-spacing: -.025em; }
 .evw-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 /* Share the title row with its existing guide control, without absolute positioning. */
-.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; }
-.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace)) > .rgd-context-action { grid-area: 1 / 2; z-index: 1; align-self: start; margin: 0; }
-.evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace) { grid-area: 1 / 1 / auto / -1; min-width: 0; }
-.evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace) > header { padding-inline-end: 260px; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen)) > .rgd-context-action { grid-area: 1 / 2; z-index: 1; align-self: start; margin: 0; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen) { grid-area: 1 / 1 / auto / -1; min-width: 0; }
+.evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen) > header { padding-inline-end: 260px; }
 @media (max-width: 650px) {
-  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace)) > .rgd-context-action { grid-area: 1 / 1 / auto / -1; margin-bottom: 12px; }
-  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace) { grid-row: 2; }
-  .evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace) > header { padding-inline-end: 0; }
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen)) > .rgd-context-action { grid-area: 1 / 1 / auto / -1; margin-bottom: 12px; }
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen) { grid-row: 2; }
+  .evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen) > header { padding-inline-end: 0; }
 }
 .evw-navigation { display: flex; align-items: start; flex-wrap: wrap; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--cs-border-subtle); }
 .evw-navigation .workspace-tabs { flex: 1; padding-bottom: 0; border-bottom: 0; }

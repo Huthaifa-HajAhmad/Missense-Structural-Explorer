@@ -25,6 +25,19 @@ function Harness({ result }: { result: AnalysisResult }) {
 beforeEach(() => { fetchWithAuth.mockReset(); sessionStorage.clear(); const f = contextWorkspaceFixture(); store.setState({ ...f.state, gene: 'SOD1', variant: f.result.metadata!.variant }); });
 
 describe('production context tabs and linked inspectors', () => {
+  it('drills from a species coverage count into that source without collapsing one-to-many records', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Zebrafish: 2 Alliance orthologs' }));
+    expect(screen.getByRole('searchbox')).toHaveValue('NCBITaxon:7955');
+    expect(within(screen.getByTestId('context-records')).getAllByRole('button')).toHaveLength(2);
+    fireEvent.click(within(screen.getByTestId('context-records')).getAllByRole('button')[0]);
+    const pinned = screen.getByRole('region', { name: 'Selected evidence reading' }).textContent;
+    fireEvent.click(screen.getByRole('button', { name: 'Mouse: 1 Ensembl alignments' }));
+    expect(screen.getByRole('tab', { name: 'Variant site' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/pinned record is outside this view/)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Selected evidence reading' }).textContent).toBe(pinned);
+  });
   it('pins an adult tissue with the real chart keyboard interaction and preserves its exact zero in records', async () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));

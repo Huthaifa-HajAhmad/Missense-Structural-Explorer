@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { functionReadings, perturbationReadings, residueReadings, residueProbabilityComparison } from '../molecularWorkspace';
+import { functionReadings, perturbationReadings, probabilityOverview, residueReadings, residueProbabilityComparison } from '../molecularWorkspace';
 import { buildFunctionEvidence } from '../functionEvidence';
 import { functionEvidenceInputFrom } from '../functionEvidenceInput';
 import { buildPerturbationEvidence } from '../perturbationEvidence';
@@ -57,6 +57,22 @@ describe('functionReadings', () => {
 
 describe('perturbationReadings', () => {
   const ev = buildPerturbationEvidence({ result: NAE1_RESULT, residues: NAE1_RESIDUES, foldingEnergetics: NAE1_ENERGETICS, structuralDiff: null, metrics: null, saprotEngine: 'remote-hf' });
+
+  it('keeps a low-probability variant beside the highest preferences without renormalising or changing its source key', () => {
+    const model = residueProbabilityComparison(ev, 'saprot');
+    const overview = probabilityOverview(model, false);
+    expect(model.rows).toHaveLength(20);
+    expect(overview.rows.length).toBeLessThanOrEqual(8);
+    const variant = model.rows.find(r => r.name.endsWith(' · variant'))!;
+    const reference = model.rows.find(r => r.name.endsWith(' · reference'))!;
+    expect(overview.rows).toContain(variant);
+    expect(overview.rows).toContain(reference);
+    expect(overview.domain).toEqual([0, 1]);
+    expect(overview.ticks).toBe(model.ticks);
+    expect(overview.rows.reduce((sum, r) => sum + (r.value ?? 0), 0)).toBeLessThan(model.rows.reduce((sum, r) => sum + (r.value ?? 0), 0));
+    for (const r of overview.rows) expect(r).toBe(model.rows.find(original => original.key === r.key));
+    expect(probabilityOverview(model, true)).toBe(model);
+  });
 
   it('keys preference rows under their model, so the records and the probability chart agree', () => {
     const readings = perturbationReadings(ev);

@@ -374,7 +374,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       : null;
 
   return (
-    <div className="fnd-screen @container">
+    <div className="fnd-screen @container" data-comparison={workspace.comparison || undefined}>
       <header className="fnd-header">
         <h1 className="screen-title">Functional domains</h1>
         <p className="screen-tab-description">
@@ -406,6 +406,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
 
         {ok && (!workspace.enabled || workspace.comparison) && (
           <figure className="fnd-figure-block">
+            <figcaption className="mol-map-title"><h2>Which annotations cover this position?</h2><p>Read along the protein sequence. Separate tracks retain overlapping source annotations; they are not independent evidence.</p></figcaption>
             <div className="fnd-figure-block__bar">
               <Legend ev={ev} win={win} hidden={hidden} onToggle={toggleLayer} />
               <div className="fnd-seg" role="group" aria-label="Zoom the schematic">

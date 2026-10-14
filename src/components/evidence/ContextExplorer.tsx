@@ -50,7 +50,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
     {groups.length > 1 && <WorkspaceTabs id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
     <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
       <div className="cx-controls">
-        <label>Search records<input type="search" value={w.query} placeholder={tab === 'expression-models' ? 'Tissue or cohort' : 'Species, source or term'} onChange={e => w.setOptions({ query: e.target.value })} /></label>
+        <label>Search records<input type="search" value={w.query} placeholder={tab === 'expression-models' ? 'Tissue or cohort' : tab === 'gene-disease' ? 'Submitter or assertion' : 'Species, taxon or term'} onChange={e => w.setOptions({ query: e.target.value })} /></label>
         {group === 'developmental' && <label>Sampled age cohort<select value={w.cohort} onChange={e => w.setOptions({ cohort: e.target.value })}><option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {(tab === 'expression-models' || group === 'phenotypes') && <label className="cx-check"><input type="checkbox" checked={w.relevantOnly} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />{relevantLabel}</label>}
       </div>

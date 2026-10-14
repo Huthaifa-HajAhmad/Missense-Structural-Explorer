@@ -20,7 +20,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
   const expanded = w.expanded.includes('all-attributions');
   const limit = tab === 'alphagenome' && !expanded ? 8 : Infinity;
   const returned = model.rows.filter(r => r.value !== null).length;
-  const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models'].includes(tab);
+  const labelled = ['clinical', 'predictors', 'alphagenome', 'expression-models', 'perturbation'].includes(tab);
   const margin = { top: labelled ? 12 : 20, right: tab === 'clinical' ? 190 : labelled ? 90 : 24, bottom: tab === 'predictors' ? 12 : labelled ? 48 : 65,
     left: tab === 'expression-models' ? 245 : tab === 'clinical' ? 175 : labelled ? 150 : 135 };
   const plotted = useMemo(() => model.rows.filter(r => r.value !== null).slice(0, limit).map((r, row) => ({ ...r, value: r.value as number, row })), [model, limit]);

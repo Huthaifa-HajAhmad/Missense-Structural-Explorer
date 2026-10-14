@@ -17,6 +17,12 @@
 .sm-finding { margin: 0; padding: 16px 20px; border-inline-start: 3px solid var(--cs-accent-clay); background: var(--cs-surface-2); line-height: 1.6; }
 .sm-finding strong { color: var(--cs-text-primary); }
 .sm-workspace[data-comparison], .gd-screen[data-comparison] { gap: 16px; }
+.sm-workspace[data-comparison] .cx-explorer, .gd-screen[data-comparison] .cx-explorer { gap: 8px; }
+.sm-workspace[data-comparison] .cx-controls, .gd-screen[data-comparison] .cx-controls { margin-block: 0 8px; }
+.sm-workspace[data-comparison] .cx-controls label, .gd-screen[data-comparison] .cx-controls label { flex-direction: row; align-items: center; gap: 12px; }
+.sm-workspace[data-comparison] .cx-records, .gd-screen[data-comparison] .cx-records { border: 0; margin-block: 8px; }
+.sm-workspace[data-comparison] .workspace-tabs, .gd-screen[data-comparison] .workspace-tabs { padding-block-end: 8px; }
+.cx-coverage-table button:active, .cx-assertion:active { background: var(--cs-border-subtle); }
 .gd-screen[data-comparison] .gd-hero__body { display: grid; grid-template-columns: minmax(180px, .65fr) minmax(0, 1.35fr); align-items: center; gap: 12px 24px; }
 .gd-screen[data-comparison] .gd-hero__top { grid-column: 1 / -1; }
 .gd-screen[data-comparison] .gd-hero__figure { flex-direction: column; align-items: start; margin: 0; }
