@@ -120,10 +120,12 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
     const i = items.indexOf(document.activeElement as HTMLElement);
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      items[(i + 1) % items.length]?.focus();
+      const target = i < 0 || i === items.length - 1 ? 0 : i + 1;
+      items[target]?.focus();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      items[(i - 1 + items.length) % items.length]?.focus();
+      const target = i <= 0 ? items.length - 1 : i - 1;
+      items[target]?.focus();
     } else if (e.key === "Home") {
       e.preventDefault();
       items[0]?.focus();
@@ -151,10 +153,14 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
   const signOut = async () => {
     close(false);
     const mode = account.mode;
-    await account.signOut();
-    // When the workspace requires accounts, a clean reload leaves nothing of the previous reader's
-    // session on screen — this may be a shared lab computer.
-    if (mode === "accounts") window.location.assign("/");
+    try {
+      await account.signOut();
+      // When the workspace requires accounts, a clean reload leaves nothing of the previous reader's
+      // session on screen — this may be a shared lab computer.
+      if (mode === "accounts") window.location.assign("/");
+    } catch (err) {
+      console.error("[AccountMenu] Sign-out failed:", err);
+    }
   };
 
   return (

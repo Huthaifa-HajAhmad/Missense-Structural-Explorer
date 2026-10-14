@@ -140,6 +140,30 @@ describe('Evidence workspace interactions', () => {
     expect(within(inspector).getByRole('heading', { name: /^Splicing$/ })).toBeInTheDocument();
     expect(inspector).toHaveTextContent('lowers the raw AVI score');
   });
+
+  it('provides a stable setOptions reference across renders', () => {
+    let setOptionsRef1: unknown;
+    let setOptionsRef2: unknown;
+    function Consumer({ count }: { count: number }) {
+      const w = useEvidenceWorkspace('alphagenome');
+      if (count === 1) setOptionsRef1 = w.setOptions;
+      if (count === 2) setOptionsRef2 = w.setOptions;
+      return <div>count: {count}</div>;
+    }
+    const result = evidenceWorkspaceFixture();
+    const { rerender } = render(
+      <EvidenceWorkspaceProvider result={result}>
+        <Consumer count={1} />
+      </EvidenceWorkspaceProvider>
+    );
+    rerender(
+      <EvidenceWorkspaceProvider result={result}>
+        <Consumer count={2} />
+      </EvidenceWorkspaceProvider>
+    );
+    expect(setOptionsRef1).toBeDefined();
+    expect(setOptionsRef1).toBe(setOptionsRef2);
+  });
 });
 
 function FoldHarness() {

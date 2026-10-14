@@ -55,6 +55,9 @@ describe('production context tabs and linked inspectors', () => {
   });
   it('pins an assertion from the matrix and source records, and restores it across navigation', () => {
     const f = contextWorkspaceFixture(); render(<Harness result={f.result} />);
+    const matrix = screen.getByRole('region', { name: 'Submitted validity assertion matrix' });
+    const columnHeaders = within(matrix).getAllByRole('columnheader').map(h => h.textContent);
+    expect(columnHeaders).toEqual(['Submitter', 'Strong', 'Limited', 'Disputed Evidence', 'Evaluated']);
     fireEvent.click(screen.getByRole('button', { name: 'Panel C: Disputed Evidence' }));
     const inspector = () => within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector().getByRole('heading', { name: 'Panel C' })).toBeInTheDocument();

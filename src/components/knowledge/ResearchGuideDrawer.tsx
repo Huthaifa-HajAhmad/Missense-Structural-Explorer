@@ -94,17 +94,23 @@ function OpenGuide({ topic, onClose, context }: Props) {
         <section className="rgd-lead" aria-label="In plain language"><p>{guide.answer}</p></section>
         {figure && <Teaching figure={figure} />}
         <section className="rgd-section"><h3>How to read it here</h3><p>{guide.reading}</p></section>
-        {calibrated && <details className="rgd-section rgd-calibration"><summary>Published evidence bands</summary>
+        {calibrated && calibrationSource && <details className="rgd-section rgd-calibration"><summary>Published evidence bands</summary>
           <p>These bands describe the published calibration. The inspector shows whether this run actually counted the tool. The strongest threshold passed determines the calibrated strength.</p>
-          <table><caption>{guide.title} · {calibrationSource!.short}</caption><thead><tr><th scope="col">Direction</th><th scope="col">Strength</th><th scope="col">Score</th></tr></thead><tbody>
+          <table><caption>{guide.title} · {calibrationSource.short}</caption><thead><tr><th scope="col">Direction</th><th scope="col">Strength</th><th scope="col">Score</th></tr></thead><tbody>
             {calibrationBands(calibrationKey).map(band => <tr key={band.code}><td>{band.direction === 'PP3' ? 'Pathogenic evidence' : 'Benign evidence'}</td><td>{band.strength.replace('VeryStrong', 'Very strong')}</td><td>{(band.direction === 'PP3') === (calibrated.orientation === 'higher') ? '≥' : '≤'} {band.threshold}</td></tr>)}
           </tbody></table>
-          <a href={`https://doi.org/${calibrationSource!.doi}`} target="_blank" rel="noreferrer">{calibrationSource!.short} · calibration source (opens in a new tab)</a>
+          <a href={`https://doi.org/${calibrationSource.doi}`} target="_blank" rel="noreferrer">{calibrationSource.short} · calibration source (opens in a new tab)</a>
         </details>}
         <section className="rgd-section rgd-limit"><h3>What this cannot tell you</h3><p>{guide.limit}</p></section>
         <section className="rgd-section"><h3>What to check next</h3><p>{guide.next}</p></section>
-        {guide.related.length > 0 && <section className="rgd-section"><h3>Related concepts</h3><div className="rgd-related">{guide.related.map(related =>
-          <button type="button" key={related} className="rgd-link" onClick={() => openTopic(related)}>{RESEARCH_GUIDES[related].title}<ArrowRight size={14} aria-hidden="true" /></button>)}</div></section>}
+        {guide.related.length > 0 && (() => {
+          const validRelated = guide.related
+            .map(key => ({ key, target: resolveResearchGuide(key) }))
+            .filter((item): item is { key: string; target: NonNullable<ReturnType<typeof resolveResearchGuide>> } => Boolean(item.target));
+          if (validRelated.length === 0) return null;
+          return <section className="rgd-section"><h3>Related concepts</h3><div className="rgd-related">{validRelated.map(({ key, target }) =>
+            <button type="button" key={key} className="rgd-link" onClick={() => openTopic(key)}>{target.title}<ArrowRight size={14} aria-hidden="true" /></button>)}</div></section>;
+        })()}
         <section className="rgd-section rgd-source"><h3>Method & sources</h3>
           <p className="rgd-source-note">This guide explains the method. Your selected source record identifies the model, input and version that supplied this analysis.</p>
           {reference ? <><a href={reference.url} target="_blank" rel="noreferrer">{reference.label}<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>

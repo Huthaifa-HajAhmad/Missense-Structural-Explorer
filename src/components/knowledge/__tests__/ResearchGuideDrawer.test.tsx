@@ -57,6 +57,16 @@ describe('individual explanation drawers', () => {
     expect(await screen.findByText(/Could not copy/)).toBeTruthy();
     expect(screen.queryByText('Reference copied.')).toBeNull();
   });
+  it('handles aliased and unmapped related topics safely without throwing', () => {
+    // Render a guide that has related concepts with aliases or missing entries
+    render(<ResearchGuideDrawer isOpen topic="revel" onClose={() => {}} />);
+    expect(screen.getByRole('dialog', { name: 'REVEL' })).toBeTruthy();
+    expect(screen.getByText('Related concepts')).toBeTruthy();
+  });
+  it('guards calibration block and handles alias topic resolution', () => {
+    render(<ResearchGuideDrawer isOpen topic="alphaMissense" onClose={() => {}} />);
+    expect(screen.getByRole('dialog', { name: 'AlphaMissense' })).toBeTruthy();
+  });
   it('shows an honest unavailable state for an unknown topic', () => {
     render(<ResearchGuideDrawer isOpen topic="unknown-provider" onClose={() => {}} />);
     expect(screen.getByRole('dialog', { name: 'Explanation unavailable' })).toBeTruthy();

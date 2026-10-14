@@ -119,7 +119,7 @@ export function useDiagnostics() {
   const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** How many follow-ups this episode has spent; reset whenever coverage is actually answered. */
   const followUpAttemptsRef = useRef(0);
-  const refreshRef = useRef<(() => void) | null>(null);
+  const refreshRef = useRef<((externalSignal?: AbortSignal, options?: { isFollowUp?: boolean }) => Promise<void>) | null>(null);
 
   const clearFollowUp = useCallback(() => {
     if (followUpTimerRef.current) {
@@ -128,17 +128,35 @@ export function useDiagnostics() {
     }
   }, []);
 
-  const refresh = useCallback(async (externalSignal?: AbortSignal) => {
+  const refresh = useCallback(async (externalSignal?: AbortSignal, options?: { isFollowUp?: boolean }) => {
     if (activeControllerRef.current) {
       activeControllerRef.current.abort();
     }
     clearFollowUp();
+    if (!options?.isFollowUp) {
+      followUpAttemptsRef.current = 0;
+    }
     const controller = new AbortController();
     activeControllerRef.current = controller;
 
-    const signal = externalSignal
-      ? AbortSignal.any([externalSignal, controller.signal])
-      : controller.signal;
+    let signal: AbortSignal;
+    if (externalSignal) {
+      if (typeof AbortSignal !== "undefined" && typeof (AbortSignal as any).any === "function") {
+        signal = (AbortSignal as any).any([externalSignal, controller.signal]);
+      } else {
+        const combined = new AbortController();
+        const onAbort = () => combined.abort();
+        if (externalSignal.aborted || controller.signal.aborted) {
+          combined.abort();
+        } else {
+          externalSignal.addEventListener("abort", onAbort, { once: true });
+          controller.signal.addEventListener("abort", onAbort, { once: true });
+        }
+        signal = combined.signal;
+      }
+    } else {
+      signal = controller.signal;
+    }
 
     setLoading(true);
     setError(null);
@@ -177,7 +195,7 @@ export function useDiagnostics() {
             followUpAttemptsRef.current = attempt + 1;
             followUpTimerRef.current = setTimeout(() => {
               followUpTimerRef.current = null;
-              refreshRef.current?.();
+              refreshRef.current?.(undefined, { isFollowUp: true });
             }, FALLBACK_FOLLOW_UP_DELAYS_MS[attempt]);
           }
         } else {

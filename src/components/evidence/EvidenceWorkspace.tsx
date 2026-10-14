@@ -26,9 +26,10 @@ export function useEvidenceWorkspace(tab: EvidenceWorkspaceTab) {
   const setFilter = useCallback((filter: AttributionFilter) => context?.update(tab, { filter }), [context, tab]);
   const select = useCallback((selected: string | null) => context?.update(tab, { selected }), [context, tab]);
   const toggleGroup = useCallback((group: string) => context?.update(tab, { expanded: state.expanded.includes(group) ? state.expanded.filter(g => g !== group) : [...state.expanded, group] }), [context, tab, state.expanded]);
+  const setOptions = useCallback((patch: Partial<Pick<TabState, 'section' | 'query' | 'cohort' | 'relevantOnly' | 'window' | 'hidden' | 'spliceView' | 'smallSignals' | 'initialized' | 'spliceMap'>>) => context?.update(tab, patch), [context, tab]);
   return { ...state, enabled: context !== null,
     comparison: context !== null && state.view === 'comparison',
-    setOptions: (patch: Partial<Pick<TabState, 'section' | 'query' | 'cohort' | 'relevantOnly' | 'window' | 'hidden' | 'spliceView' | 'smallSignals' | 'initialized' | 'spliceMap'>>) => context?.update(tab, patch),
+    setOptions,
     setView, setFilter, select, toggleGroup };
 }
 export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab: EvidenceWorkspaceTab; comparisonLabel?: string }) {
