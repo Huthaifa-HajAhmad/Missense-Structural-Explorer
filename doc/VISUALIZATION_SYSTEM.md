@@ -48,6 +48,6 @@ Run repository lint/type checks and appropriate scientific/interaction regressio
 
 ## Implementation status
 
-Energetics and the Population Data / Predictors / AlphaGenome / Expression batch are implemented and browser reviewed. The next five tabs—Gene–disease, Species & models, Residue shifts & pockets, Structural perturbation and Functional domains—are covered by the [context and molecular batch review](CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md). RNA splicing and Interfaces & PPI retain their separate [mechanism workspace pass](MECHANISM_WORKSPACES_REVIEW.md).
+Energetics and the Population Data / Predictors / AlphaGenome / Expression batch are implemented and browser reviewed. The next five tabs—Gene–disease, Species & models, Residue shifts & pockets, Structural perturbation and Functional domains—are covered by the [context and molecular batch review](CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md). RNA splicing retains the [workspace pass on main](SPLICING_WORKSPACE_REVIEW.md). Interfaces & PPI and the explanation drawers are proposed separately in [PR #130](https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer/pull/130).
 
 See [the active rollout](CHARTING_AND_VISUALIZATION_PLAN.md), [reference analysis](VISUAL_STORYTELLING_REVIEW.md), and [four-tab review](POPULATION_VISUALIZATION_BATCH_REVIEW.md). Broader Landscape, Insights, Literature, 3D and report refinement remains a separate rollout step. Existing scientific reviews remain authoritative; human reader-comprehension validation is still pending.

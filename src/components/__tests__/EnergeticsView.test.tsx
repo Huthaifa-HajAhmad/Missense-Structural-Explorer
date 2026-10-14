@@ -86,18 +86,6 @@ function renderView(overrides: Record<string, unknown> = {}) {
 }
 
 describe("EnergeticsView — the observed single-engine run", () => {
-  it('opens the actual explanation from each of the six engine records, including absent results', () => {
-    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
-    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
-    renderView();
-    for (const name of ['FoldX', 'DynaMut2', 'DDMut', 'RaSP', 'ThermoMPNN', 'StabilityOracle']) {
-      fireEvent.click(screen.getByRole('button', { name: `About ${name}` }));
-      const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByRole('heading', { level: 2 }).textContent).toContain(name);
-      expect(dialog.textContent).not.toContain('Explanation unavailable');
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Close explanation' }));
-    }
-  });
   it("renders without crashing", () => {
     const { container } = renderView();
     expect(container.textContent ?? "").not.toBe("");

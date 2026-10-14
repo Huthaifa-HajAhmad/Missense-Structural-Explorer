@@ -20,8 +20,9 @@ the molecular presentation changes.
 | Structural perturbation | Compact model finding, directly labelled probabilities, bounded overview with full-distribution expansion. Secondary ranks and model details follow the figure. | The overview contains the six highest returned probabilities plus reference and variant. The 0–100% axis and original probabilities never change or renormalise. |
 | Functional domains | Concise finding next to its residue identifier; explicit scientific question above the existing protein map. | Residue coordinates, overlap tracks, source identities, zoom, annotation pins and PM1 remain unchanged. |
 
-RNA splicing and Interfaces & PPI already have the independent second presentation pass recorded
-in `MECHANISM_WORKSPACES_REVIEW.md`; this batch does not claim to reimplement those maps.
+RNA splicing uses the newer workspace already merged to main (`SPLICING_WORKSPACE_REVIEW.md`).
+Interfaces & PPI and explanation drawers remain in separate PR #130. This batch does not
+reimplement those maps or depend on the explanation drawer implementation.
 
 ## Interaction and integrity checks
 
