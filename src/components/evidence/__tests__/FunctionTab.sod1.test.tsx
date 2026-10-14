@@ -150,7 +150,11 @@ describe("FunctionTab - text and controls around the drawing", () => {
     expect(bar).toBeGreaterThanOrEqual(0);
     expect(bar).toBeLessThan(drawing);
     expect(figure.querySelector(".fnd-seg")?.closest(".fnd-figure-block__bar")).not.toBeNull();
-    expect(figure.querySelector("figcaption")).toBeNull();
+    // The question labels the map above its controls; reading guidance stays in a disclosure below.
+    const caption = kids.findIndex(k => k.tagName === 'FIGCAPTION');
+    expect(caption).toBeGreaterThanOrEqual(0);
+    expect(caption).toBeLessThan(bar);
+    expect(figure.querySelector('figcaption h2')).toHaveTextContent('Which annotations cover this position?');
     expect(figure.querySelector(".fnd-hint")).toBeNull();
     expect(figure.querySelector("svg .fnd-arch__hint")?.textContent).toMatch(/Drag along the axis to zoom/);
   });

@@ -80,3 +80,5 @@ The fixture's illustrative values are not clinical evidence or a validated provi
   supports decorative geometry without duplicate interaction targets.
 
 Gene–disease, Expression & Models and the remaining Evidence tabs are outside this batch.
+
+Subsequent presentation pass, 14 October: Population Data, Predictors and AlphaGenome were revisited together with Expression. See [the population-led batch review](POPULATION_VISUALIZATION_BATCH_REVIEW.md) for direct labels, categorical bands, bounded contribution exploration and current verification. The scientific contracts above still apply.

@@ -60,6 +60,16 @@ export function perturbationReadings(ev: PerturbationEvidence): EvidenceChartRow
   });
 }
 
+/** Bound the overview without dropping the reference/variant, renormalising, or changing the axis.
+ * Return original row objects so the overview and full distribution have identical source keys. */
+export function probabilityOverview(model: EvidenceChartModel, expanded: boolean): EvidenceChartModel {
+  if (expanded || model.rows.length <= 8) return model;
+  const ranked = [...model.rows].sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
+  const keep = new Set(ranked.slice(0, 6).map(r => r.key));
+  for (const row of model.rows) if (row.name.endsWith(' · reference') || row.name.endsWith(' · variant')) keep.add(row.key);
+  return { ...model, rows: ranked.filter(r => keep.has(r.key)) };
+}
+
 export function residueProbabilityComparison(ev: PerturbationEvidence, modelId: string): EvidenceChartModel {
   const prefix = `${modelId}:`;
   const rows = perturbationReadings(ev).filter(r => r.key.startsWith(prefix)).map(r => {

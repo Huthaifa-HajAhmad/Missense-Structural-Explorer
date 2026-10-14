@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { contextWorkspaceFixture } from './contextWorkspaceFixture';
-import { contextPage, expressionReadings, speciesReadings, geneDiseaseReadings } from '../shared/contextWorkspace';
+import { contextPage, expressionReadings, speciesReadings, speciesCoverage, geneDiseaseReadings } from '../shared/contextWorkspace';
 import { buildGeneDiseaseModel } from '../shared/geneDiseaseEvidence';
 import { buildExpressionFinding } from '../shared/expressionTabEvidence';
 
 describe('context workspace scientific and presentation contracts', () => {
+  it('counts source coverage without merging provider identifiers or one-to-many orthologs', () => {
+    const f = contextWorkspaceFixture();
+    const rows = speciesReadings({ models: f.models, alignment: f.alignment, phenotypes: f.phenotypes, sequence: 'MACDEFGHIK', position: 3, wildType: 'C', mutant: 'Q', diseaseTerms: null, diseaseKey: 'A' });
+    const fish = speciesCoverage(rows).find(s => s.taxon === 'NCBITaxon:7955')!;
+    expect(fish.counts.orthologs).toBe(2);
+    const filtered = contextPage(rows, { group: 'orthologs', query: fish.taxon });
+    expect(filtered.rows).toHaveLength(2);
+    expect(new Set(filtered.rows.map(r => r.key)).size).toBe(2);
+    const unknown = { ...rows.find(r => r.group === 'orthologs')!, key: 'unknown', taxon: 'NCBITaxon:9999999', name: 'An unnamed ortholog' };
+    expect(speciesCoverage([unknown])[0]).toMatchObject({ label: 'Taxon NCBITaxon:9999999', counts: { orthologs: 1, alignment: 0, phenotypes: 0 } });
+    expect(contextPage([unknown], { group: 'orthologs', query: unknown.taxon }).rows[0]).toBe(unknown);
+    expect(speciesCoverage([])).toEqual([]);
+  });
   it('keeps missing, zero and no sampled tissue distinct, including in the hero', () => {
     const f = contextWorkspaceFixture();
     const rows = expressionReadings(f.adult, f.developmental, ['cardiovascular', 'hearing']);

@@ -3,6 +3,7 @@ import { contextPage, type ContextReading, type ContextTab } from '../../shared/
 import { useEvidenceWorkspace, InspectReadingButton } from './EvidenceWorkspace';
 import { DGTEX_COHORTS } from '../../shared/developmentalExpression';
 import { AlignmentStrip } from './ContextCharts';
+import { AssertionMatrix } from './ContextFigures';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 const EvidenceComparison = React.lazy(() => import('./EvidenceComparison'));
 
@@ -49,7 +50,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
     {groups.length > 1 && <WorkspaceTabs id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
     <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
       <div className="cx-controls">
-        <label>Search records<input type="search" value={w.query} placeholder={tab === 'expression-models' ? 'Tissue or cohort' : 'Species, source or term'} onChange={e => w.setOptions({ query: e.target.value })} /></label>
+        <label>Search records<input type="search" value={w.query} placeholder={tab === 'expression-models' ? 'Tissue or cohort' : tab === 'gene-disease' ? 'Submitter or assertion' : 'Species, taxon or term'} onChange={e => w.setOptions({ query: e.target.value })} /></label>
         {group === 'developmental' && <label>Sampled age cohort<select value={w.cohort} onChange={e => w.setOptions({ cohort: e.target.value })}><option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {(tab === 'expression-models' || group === 'phenotypes') && <label className="cx-check"><input type="checkbox" checked={w.relevantOnly} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />{relevantLabel}</label>}
       </div>
@@ -59,7 +60,7 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       {!page.rows.length ? <div className="cx-empty">{page.sourceCount ? 'No records match these display filters. Clear the search or filters to see the source readings.' : empty ?? 'No returned readings in this source view. Check the source status below.'}</div>
         : <div className="cx-records" data-testid="context-records">
           {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." />{page.rows.length > CX_PAGE_LIMIT && <p className="cx-caption">The chart shows the first {CX_PAGE_LIMIT} matching readings. Source records contain all matches.</p>}</React.Suspense>
-          : w.comparison && tab === 'gene-disease' && group === 'validity' ? <div className="cx-table-scroll" role="region" aria-label="Submitted validity assertion matrix" tabIndex={0}><table className="cx-table cx-matrix"><caption>One row per assertion. Columns are submitted categories, not a numeric scale.</caption><thead><tr><th>Submitter</th>{levels.map(level => <th key={level}>{level}</th>)}<th>Evaluated</th></tr></thead><tbody>{page.rows.map(r => <tr key={r.key}><th scope="row">{r.name}</th>{levels.map(level => <td key={level}>{r.valueText === level ? <button type="button" className="cx-assertion" aria-label={`${r.name}: ${level}`} aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}><span aria-hidden="true">●</span><span className="sr-only">{level}</span></button> : <><span aria-hidden="true">—</span><span className="sr-only">No assertion in this category</span></>}</td>)}<td>{r.facts.find(f => f.label === 'Evaluated')?.value}</td></tr>)}</tbody></table></div>
+          : w.comparison && tab === 'gene-disease' && group === 'validity' ? <AssertionMatrix rows={page.rows} levels={levels} selected={w.selected} onSelect={key => w.select(key === w.selected ? null : key)} />
           : w.comparison ? page.rows.map(r => <button key={r.key} type="button" className="cx-reading" aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}>
             <span className="cx-reading__name">{r.name}<small>{r.group === 'developmental' || tab === 'species-models' ? r.description : r.source}</small></span>
             <span className="cx-reading__visual">{r.mapping?.window ? <AlignmentStrip mapping={r.mapping} /> : tab === 'expression-models' && r.value !== null ? <span className="cx-meter" aria-hidden="true"><span style={{ width: `${page.max > 0 ? r.value / page.max * 100 : 0}%` }} /><i style={{ left: `${page.max > 0 ? r.value / page.max * 100 : 0}%` }} /></span> : <span className="cx-category">{r.group}</span>}</span>

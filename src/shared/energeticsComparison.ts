@@ -1,5 +1,5 @@
 import { KJ_PER_KCAL, MIN_ENGINES_FOR_CONSENSUS, type EnergyUnit } from './engineStatus';
-import { absenceText, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
+import { AGREEMENT_CHIP, absenceText, signedDdg, markText, type EnergeticsEvidence, type EnergeticsReading } from './energeticsEvidence';
 
 /** Display geometry only. Canonical signs, calls and inclusion come from the evidence model.
  * Missing values never become points; filtering never changes agreement or the full-data axis.
@@ -8,6 +8,14 @@ import { absenceText, signedDdg, markText, type EnergeticsEvidence, type Energet
 export type EnergySort = 'method' | 'value';
 export interface EnergeticsChartOptions { sort: EnergySort; countedOnly: boolean; showMarks: boolean }
 export const returnedEnergyEstimates = (evidence: EnergeticsEvidence) => evidence.readings.filter(r => r.ddg !== null).length;
+/** A prominent finding must qualify sparse evidence before presenting its direction. */
+export function energeticsComparisonHeadline(evidence: EnergeticsEvidence): string {
+  const count = evidence.agreement.nCounted;
+  if (count === 0) return 'No usable estimate';
+  if (count === 1) return 'One usable estimate';
+  if (count < MIN_ENGINES_FOR_CONSENSUS) return `${count} usable estimates`;
+  return AGREEMENT_CHIP[evidence.agreement.direction].label;
+}
 export function energeticsComparisonCautions(evidence: EnergeticsEvidence): string[] {
   const notes: string[] = [];
   if (evidence.lowPlddt !== null) notes.push(`Low confidence in the AlphaFold template here (pLDDT ${evidence.lowPlddt.toFixed(1)}); inspect the structure basis.`);
@@ -24,6 +32,8 @@ export interface EnergyPoint {
   row: number;
   guide: number;
   counted: boolean;
+  /** Canonical, unit-converted label. Units are printed once on the shared axis. */
+  valueText: string;
   label: string;
   guideLabel: string;
 }
@@ -35,6 +45,7 @@ export function buildEnergeticsComparison(evidence: EnergeticsEvidence, unit: En
   const points: EnergyPoint[] = readings.flatMap((r, row) => r.ddg === null ? [] : [{
     key: r.key, name: r.name, value: r.ddg === 0 ? 0 : r.ddg * factor, row, guide: r.strongMark * factor,
     counted: r.counted,
+    valueText: signedDdg(r.ddg, unit).replace(/ (kcal|kJ)\/mol$/, ''),
     guideLabel: `Local destabilising guide for ${r.name}: ${markText(r.strongMark, unit)} ${unit}. App-defined, not a clinical cut-point.`,
     label: `${r.name}: ${signedDdg(r.ddg, unit)}. ${r.callLabel ?? 'Estimate'}${r.counted ? '' : '; not counted in agreement'}.`,
   }]);

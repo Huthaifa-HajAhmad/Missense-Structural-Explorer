@@ -77,6 +77,12 @@ describe('molecular workspace interaction contracts', () => {
     const chart = await screen.findByRole('img', { name: /SaProt: amino-acid preferences/ }, { timeout: 10_000 });
     fireEvent.focus(chart); fireEvent.keyDown(chart, { key: 'Home' }); fireEvent.keyDown(chart, { key: 'Enter' });
     await waitFor(() => expect(inspector().getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
+    const pinned = inspector().getByRole('heading', { level: 3 }).textContent;
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 20 residues' }));
+    expect(screen.getByText(/20 of 20 returned residues/)).toBeInTheDocument();
+    expect(inspector().getByRole('heading', { level: 3 }).textContent).toBe(pinned);
+    fireEvent.click(screen.getByRole('button', { name: 'Show overview' }));
+    expect(screen.getByText(/7 of 20 returned residues/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
     fireEvent.click(screen.getByRole('button', { name: '20. G' }));
     expect(inspector().getByRole('heading', { name: 'SaProt · G' })).toBeInTheDocument();

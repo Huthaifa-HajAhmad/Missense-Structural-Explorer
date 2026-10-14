@@ -63,7 +63,7 @@ function ValueTrack({
   );
 }
 
-function Finding({ model }: { model: ResidueContextEvidence }) {
+function Finding({ model, compact = false }: { model: ResidueContextEvidence; compact?: boolean }) {
   const { pair } = model;
   return (
     <section className="rsx-card" aria-labelledby="rsx-finding-title" data-testid="residue-finding">
@@ -108,6 +108,8 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
           </div>
         )}
       </div>
+      <details className="mol-finding-details" open={compact ? undefined : true}>
+      <summary>Structure and pocket context</summary>
       <dl className="rsx-facts">
         {model.facts.map(fact => (
           <div className="rsx-fact" key={fact.label}>
@@ -119,6 +121,7 @@ function Finding({ model }: { model: ResidueContextEvidence }) {
           </div>
         ))}
       </dl>
+      </details>
     </section>
   );
 }
@@ -476,16 +479,16 @@ export function StructureTab({
     : undefined;
 
   return (
-    <div className="rsx-screen" data-testid="residue-shifts-tab">
-      <div>
+    <div className="rsx-screen" data-comparison={workspace.comparison || undefined} data-testid="residue-shifts-tab">
+      <header>
         <h1 className="screen-title">Residue shifts and pockets</h1>
         <p className="screen-tab-description">
           What the substitution changes in the side chain, where the residue sits in the structure, and how close it is to a predicted ligand pocket.
         </p>
-      </div>
+      </header>
       <EvidenceViewTabs tab="structure" comparisonLabel="Residue comparison" />
       <EvidencePanel tab="structure">
-      <Finding model={model} />
+      <Finding model={model} compact={workspace.comparison} />
       {workspace.comparison ? <ResiduePropertyComparison model={model} /> : <Properties model={model} />}
       <Environment
         model={model}

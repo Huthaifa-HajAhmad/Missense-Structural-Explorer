@@ -30,13 +30,14 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
   const facts = buildSourceFacts({ adult: finding, developmental: context.developmentalLoad, hpa: context.hpaLoad,
     pext: { load: context.pextLoad?.status ?? null, status: context.pextLoad?.data?.status ?? null, locationNote: pextLocation.state === 'no-locus' ? 'No verified GRCh38 position' : pextLocation.state === 'no-region' ? 'Outside the coding regions' : pextLocation.state === 'other-chromosome' ? 'Different chromosome from the gene record' : null,
       region: pextLocation.region ? { mean: pextLocation.region.mean, tissues: pextLocation.region.tissues.length } : null } });
-  return <div className="ctx-screen cx-screen" data-testid="expression-models-screen">
+  const reviewFrame = <ReviewFrame compact={workspace.enabled} gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />;
+  return <div className="ctx-screen cx-screen xp-workspace" data-testid="expression-models-screen" data-comparison={workspace.comparison || undefined}>
     <header className="ctx-heading"><div><h1 className="screen-title">Expression</h1><p className="screen-tab-description">Where the gene is measured, and which biological context remains uncovered.</p></div>
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
-    <ReviewFrame compact={workspace.enabled} gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
-    <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} />
     <EvidenceViewTabs tab="expression-models" comparisonLabel="Tissue explorer" />
+    {workspace.enabled ? <details className="xp-review-settings"><summary>Review context · {chosen ? `${chosen.label} · ${chosen.inheritance.label}` : 'No disease selected'}<span>Your choices, not patient findings</span></summary>{reviewFrame}</details> : reviewFrame}
+    <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} />
     <EvidencePanel tab="expression-models">
       <ContextExplorer tab="expression-models" rows={rows} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}
         empty={<ContextSourceState name={workspace.section === 'developmental' ? 'dGTEx' : 'GTEx'} load={workspace.section === 'developmental' ? context.developmentalLoad : context.expressionLoad} onRetry={workspace.section === 'developmental' ? context.retryDevelopment : context.retryExpression} />} />

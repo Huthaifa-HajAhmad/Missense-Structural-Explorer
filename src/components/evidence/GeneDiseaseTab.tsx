@@ -23,8 +23,9 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   const ts = dosage.readings.find(r => r.key === 'triplosensitivity');
   const code = (r: typeof hi) => r ? (r.code !== null ? String(r.code) : r.call) : '—';
   const genccAge = model.sources.gencc.age;
-  return <div className="gd-screen cx-screen" data-testid="gene-disease-screen">
+  return <div className="gd-screen cx-screen" data-testid="gene-disease-screen" data-comparison={workspace.comparison || undefined}>
     <header><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Causal relationship, disease mechanism and variant context.</p></header>
+    <EvidenceViewTabs tab="gene-disease" comparisonLabel="Assertion comparison" />
     {context.identityChanged && <p className="gd-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />
 
@@ -51,7 +52,6 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
       </details>
     </section>
 
-    <EvidenceViewTabs tab="gene-disease" comparisonLabel="Assertion comparison" />
     <EvidencePanel tab="gene-disease">
     {workspace.comparison ? <ContextExplorer tab="gene-disease" rows={rows} groups={[{ id: 'validity', label: 'Validity assertions' }, { id: 'dosage', label: 'Gene dosage' }]} empty={workspace.section === 'dosage' ? <ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage} /> : model.sentence} /> : <section className="gd-section" aria-labelledby="gd-readings-title">
       <h2 className="eyebrow" id="gd-readings-title">Source readings</h2>

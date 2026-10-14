@@ -26,7 +26,7 @@ import { describeFoldxPhase, FOLDX_PHASES, type FoldxProgress } from "../shared/
 import { describeRunsOn, hostPhrase } from "../shared/jobPlacement";
 import { WorkspaceTabs } from './ui/WorkspaceTabs';
 import type { EnergyEngineId } from '../shared/engineStatus';
-import { energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates, type EnergeticsChartOptions } from '../shared/energeticsComparison';
+import { energeticsComparisonHeadline, energeticsComparisonFinding, energeticsComparisonCautions, returnedEnergyEstimates, type EnergeticsChartOptions } from '../shared/energeticsComparison';
 import { requestInspectorFocus, INSPECTOR_SECTIONS } from '../lib/inspectorFocus';
 
 const EnergeticsComparison = lazy(() => import('./energetics/EnergeticsComparison'));
@@ -538,13 +538,15 @@ const EnergeticsView = memo(function EnergeticsView({
       aria-label="Energetics: predicted folding stability"
     >
       {knowledgeKey && <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />}
-      <div className="nrg-screen">
+      <div className="nrg-screen" data-view={tab}>
         <header className="nrg-header">
+          <div className="nrg-header__row">
           <h1 className="screen-title">Energetics</h1>
-          <p className="screen-tab-description">
+          </div>
+          {tab === 'records' && <p className="screen-tab-description">
             How might this substitution change protein stability?
-          </p>
-          <p className="nrg-query"><strong>{result.metadata?.gene} {result.metadata?.variant}</strong><span>Estimates refer to this queried substitution.</span></p>
+          </p>}
+          <p className="nrg-query"><strong>{result.metadata?.gene} {result.metadata?.variant}</strong><span>Predicted change in folding stability</span></p>
         </header>
         <div className="nrg-navigation">
           <WorkspaceTabs id="energetics" label="Energetics views" tabs={ENERGY_TABS} value={tab} onChange={setTab} />
@@ -569,9 +571,9 @@ const EnergeticsView = memo(function EnergeticsView({
               <Activity className="w-3.5 h-3.5" aria-hidden="true" />
               Folding stability · ΔΔG
             </span>
-            <span className="ev-tier nrg-verdict" data-tone={chip.tone} data-testid="energetics-verdict">
+            {tab === 'comparison' ? <h2 className="nrg-finding-heading" data-testid="energetics-verdict">{energeticsComparisonHeadline(evidence)}</h2> : <span className="ev-tier nrg-verdict" data-tone={chip.tone} data-testid="energetics-verdict">
               {chip.label}
-            </span>
+            </span>}
           </div>
 
           {tab === 'records' && <div className="nrg-hero__figure">
@@ -596,7 +598,7 @@ const EnergeticsView = memo(function EnergeticsView({
             )}
             <span>
               {tab === 'records' ? <><strong>{summary.lead}</strong>{summary.rest.map(sentence => ` ${sentence}`).join("")}</>
-                : <><strong>{energeticsComparisonFinding(evidence)}</strong> {returnedEnergyEstimates(evidence)} of {evidence.coverage.intended} methods returned a value; {agreement.nCounted} counted.</>}
+                : <><strong>{energeticsComparisonFinding(evidence)}</strong><span className="nrg-summary__coverage">{returnedEnergyEstimates(evidence)} of {evidence.coverage.intended} methods returned a value; {agreement.nCounted} counted.</span></>}
             </span>
           </p>
 

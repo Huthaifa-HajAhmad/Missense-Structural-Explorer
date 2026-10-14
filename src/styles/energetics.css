@@ -105,6 +105,37 @@
 .nrg-header .screen-title { margin: 0; }
 .nrg-header .screen-tab-description { margin: 0; max-width: none; }
 
+/* The comparison must be readable before hovering: compact context above a dominant figure.
+   Scope this composition to Energetics; source records keep their detailed reading layout. */
+.nrg-header__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; }
+.nrg-header__row .screen-title { font-size: clamp(1.25rem, 1.1rem + .4cqi, 1.5rem); letter-spacing: -.025em; }
+.nrg-hero[data-compact="true"] { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 2.5fr); gap: 10px 24px; border: 0; border-radius: 0; overflow: visible; }
+.nrg-hero[data-compact="true"] .nrg-hero__head { flex-direction: column; align-items: start; justify-content: start; gap: 6px; padding: 0; min-block-size: 28px; background: transparent; border: 0; }
+.nrg-finding-heading { margin: 0; color: var(--cs-text-primary); font-size: clamp(1.25rem, 1rem + .65cqi, 1.6rem); font-weight: 600; line-height: 1.2; letter-spacing: -.025em; text-wrap: balance; }
+.nrg-hero[data-compact="true"] .nrg-summary { padding: 0; border: 0; align-items: start; }
+.nrg-hero[data-compact="true"] .nrg-summary__dot,
+.nrg-hero[data-compact="true"] .nrg-summary__icon { display: none; }
+.nrg-hero[data-compact="true"] .nrg-summary strong { display: block; max-inline-size: 80ch; font-size: 14px; font-weight: 500; line-height: 1.5; text-wrap: pretty; }
+.nrg-summary__coverage { display: block; margin-block-start: 7px; font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
+.nrg-hero[data-compact="true"] .nrg-principle { grid-column: 1 / -1; padding: 0; border: 0; background: transparent; }
+.nrg-hero[data-compact="true"] .nrg-comparison-caution { grid-column: 1 / -1; margin-block: 0; padding: 10px 12px; border: 0; border-inline-start: 2px solid var(--cs-text-warning); }
+.nrg-comparison-figure { min-inline-size: 0; }
+.nrg-comparison-figure .viz-frame__head { padding: 18px 20px 8px; gap: 8px 18px; }
+.nrg-comparison-figure .viz-frame__head p { font-size: 13px; line-height: 1.5; max-inline-size: 80ch; }
+.nrg-comparison-figure .nrg-chart-controls { inline-size: auto; padding-block-start: 0; gap: 8px 16px; }
+.nrg-comparison-figure .nrg-axis-guide { padding-block-start: 8px; padding-inline-end: 72px; }
+.nrg-comparison-figure .nrg-chart-readout { min-block-size: 44px; padding: 10px 20px; }
+.nrg-comparison-figure .nrg-chart-help { padding: 8px 20px; }
+.nrg-comparison-figure .viz-frame__foot { padding: 10px 20px; }
+.nrg-comparison-figure :is(button, select, summary):active { background: var(--cs-surface-2); }
+.nrg-comparison-figure svg text { font-variant-numeric: tabular-nums; }
+
+@container (max-width: 560px) {
+  .nrg-hero[data-compact="true"] { grid-template-columns: minmax(0, 1fr); }
+  .nrg-comparison-figure .viz-frame__head { padding: 16px 12px 8px; }
+  .nrg-comparison-figure .nrg-axis-guide { padding-inline: 12px; font-size: 11px; }
+}
+
 .nrg-card {
   background: var(--cs-surface);
   border: 1px solid var(--cs-border);

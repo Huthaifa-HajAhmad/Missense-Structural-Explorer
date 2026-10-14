@@ -13,6 +13,9 @@ describe('Evidence comparison contracts', () => {
     const rule = model.rows.find(r => r.key === 'frequency-rule-input')!;
     expect(rule.value).toBeCloseTo(Math.log10(.00008));
     expect(rule.facts.some(f => f.label.includes('Allele count'))).toBe(false);
+    expect(rule.contextText).toBe('Rule input · not a cohort');
+    expect(model.rows.find(r => r.name === 'gnomAD exomes')?.contextText).toBe('AC 8 · AN 1,459,156');
+    expect(model.rows.find(r => r.name === 'gnomAD genomes')?.contextText).toBe('AC 2 · AN 500,000');
     for (const r of model.rows) if (r.value !== null) {
       expect(r.value).toBeGreaterThanOrEqual(model.domain[0]);
       expect(r.value).toBeLessThanOrEqual(model.domain[1]);

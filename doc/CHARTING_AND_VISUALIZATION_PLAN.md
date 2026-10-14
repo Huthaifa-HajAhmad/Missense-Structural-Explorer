@@ -1,5 +1,100 @@
 # Charting and visualisation plan
 
+## Active direction — 13 October 2026
+
+**Objective:** make each workspace explain its finding through an appropriate figure, with a clear
+route to the records behind it. The quality reference is
+[Nizam's dashboard walkthrough](https://x.com/nizamdesign/status/2109728308237631619).
+Read [the reference analysis and screen specifications](VISUAL_STORYTELLING_REVIEW.md) before implementation.
+
+The previous phases below are retained as history. **They are not the active execution sequence.**
+The old Recharts decision, library-first pilot and wrapper-only kickoff are superseded here.
+Existing scientific contracts and verified fixes remain authoritative.
+
+Status, 14 October: Energetics plus nine Evidence tabs are implemented and visually checked in the production-component preview. The [first four-tab batch](POPULATION_VISUALIZATION_BATCH_REVIEW.md) covers Population Data, Predictors, AlphaGenome and Expression. The [next five-tab batch](CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md) covers Gene–disease, Species & models and the three molecular workspaces. RNA splicing retains its [workspace pass on main](SPLICING_WORKSPACE_REVIEW.md); Interfaces & PPI and the explanation drawers remain in [separate PR #130](https://github.com/Huthaifa-HajAhmad/Missense-Structural-Explorer/pull/130). The reusable contracts are documented in [the visualization system](VISUALIZATION_SYSTEM.md). Broader workspace families and human reader-comprehension validation are still pending.
+Scope assumption: the whole analysis workspace, delivered through one finished reference screen and then coherent families.
+
+### Why the delivery process changes
+
+The original plan primarily optimised chart infrastructure and implementation checks. It did not
+specify a compelling complete screen or a test of whether the reader could understand its finding.
+Current components provide useful models, interactions and biological maps, but adding a chart beneath
+an existing stack of summaries does not by itself deliver the reference's clarity.
+
+Design and verify the reading sequence: **finding → visual explanation → supporting records → next inspection**.
+Share figure furniture and selection behaviour; choose the figure's geometry for its scientific question.
+
+### Stack and scope
+
+- Keep React, the existing CSS tokens and typefaces, TanStack Charts already used in production, and
+  custom SVG for biological/positional geometry. No new chart dependency is required for this rollout.
+- Keep pure shared evidence models and current rule-engine records. Add presentation derivations only
+  where needed, with explicit units, contributors, missingness and source identity.
+- Preserve existing pins, source-record views, inspector navigation, contextual explanations and
+  variant/transcript reset contracts. No wholesale framework rewrite or global cosmetic restyle.
+- The visual standard does not authorise new clinical criteria, synthetic probabilities, invented
+  uncertainty, pooled raw predictor scores, or unsupported model outputs.
+
+### Milestones and concrete deliverables
+
+| Order | Deliverable | Completion evidence |
+| --- | --- | --- |
+| 1 | Capture current real-shell screens and assemble representative fixtures: dense, sparse, missing, disagreement, exclusions | Named fixture/data sources, baseline screenshots, current limitations; illustrative fixtures visibly labelled |
+| 2 | Finish **Energetics** as the reference screen: compact finding, dominant direct-labelled estimate comparison, visible exceptions and a purposeful drilldown | Production component, model/interaction checks, before/after screenshots, light/dark/narrow review and recorded comprehension assessment |
+| 3 | Finish **Predictors**: categorical band comparison first, compact engine finding, voting/reference context and native-score inspection | No summing unlike scores; existing engine parity, selection and source-record tests retained; complete screen visibly reviewed |
+| 4 | Carry the pattern into **Population and AlphaGenome** using frequency/coverage comparisons and diverging contributions respectively | Separate figures suited to each question; zero/missing/partial coverage and source identity verified |
+| 5 | Refine **molecular and mechanism workspaces**: residue profiles, domains, splicing and interfaces | Geometry and mapping contracts preserved; dense cases aggregated; selected feature/record/inspector linkage checked |
+| 6 | Refine **context, Landscape, Insights, Literature, 3D and reports** around their own reading tasks | Cross-view context retained; no invented aggregate certainty; exported figures keep relevant identity, units, sources and caveats |
+| 7 | Consolidate only the patterns that succeeded on the finished screens | Updated design references and per-family reviews; every claimed completion links to actual validation evidence |
+
+Milestones are implementation boundaries, not automatic permission prompts. Carry out the authorised
+scope, preserve unrelated working-tree changes, and use scientific owner decisions only where an
+actual classification rule would change. A visual failure calls for another design iteration, not a
+new library by default.
+
+### Acceptance gate for every screen
+
+At a 1440 × 900 viewport in the real shell, the finding and primary figure should be visible together.
+The figure must explain the main comparison, label important values and expose the material exception
+without requiring hover. On a narrow screen, the figure follows the compact finding and supporting
+details follow it. These are local design targets, not scientific thresholds.
+
+Before marking a screen complete, answer and verify:
+
+1. Can the reader state what was found, compared with what, and with which important limitation?
+2. Does the figure show that relationship more clearly than the previous screen?
+3. Are exact values, missingness, exclusions and source records accessible through working controls?
+4. Do pointer/keyboard selection, inspector linkage, navigation persistence and new-variant resets work?
+5. Have the actual production wrapper and styles been inspected in both themes, at desktop,
+   approximately 800 px main-column width, and 390 px viewport width?
+6. Have appropriate automated checks passed, with unrelated failures identified rather than concealed?
+
+Record **scientific correctness**, **interaction verification**, **visual review**, and **reader comprehension**
+separately. Automated tests alone cannot mark the last two complete. If the browser cannot render,
+record that limitation and leave visual acceptance pending.
+
+### Current-pass record
+
+The video was inspected through one-second snapshots across its 23-second duration. Current source
+and saved October 11 screenshots were reviewed; a fresh integrated-browser render timed out and
+remained blank. This pass updates the plan and adds `VISUAL_STORYTELLING_REVIEW.md`; it does not claim
+production UI changes, a fresh visual pass, or a completed workspace rollout.
+
+**14 October continuation:** the saved operations above were verified rather than repeated. A fresh
+Vite preview restored browser access. Energetics now has a compact finding, directly labelled
+estimates and stems showing distance from zero; sparse results have qualified headlines. See
+[the implementation and verification record](ENERGETICS_VISUALIZATION_REVIEW.md#14-october-2026--visual-storytelling-reference-pass).
+This is a first production example of the revised direction, not completion of the whole rollout.
+
+---
+
+## Historical plan and implementation notes — not the active rollout
+
+**11 October 2026 update:** RNA splicing and Interfaces & PPI now use figure/records workspaces,
+persistent reading inspectors and purpose-built biological maps. Interfaces adds separate support
+comparisons by structural context. No charting dependency was added. See
+[the second-pass design and verification record](MECHANISM_WORKSPACES_REVIEW.md).
+
 **9 October 2026 update:** Energetics now uses TanStack Charts 1.1.0 in production, with a shared
 figure shell, CSS-token theme and pure evidence-to-chart model. See
 [the implementation and verification record](ENERGETICS_VISUALIZATION_REVIEW.md).

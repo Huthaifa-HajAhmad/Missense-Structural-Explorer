@@ -15,6 +15,8 @@ export interface EvidenceChartRow {
   group: string; tone: 'accent' | 'neutral' | 'danger' | 'good';
   facts: { label: string; value: string }[]; notes: string[];
   counted?: boolean;
+  /** Optional second line beside a plotted value; never inferred from a different source. */
+  contextText?: string;
 }
 export interface EvidenceChartModel {
   rows: EvidenceChartRow[]; domain: [number, number]; ticks: number[];
@@ -41,6 +43,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
     valueText: o.af !== null ? formatFrequencyPercent(o.af) : o.availability.label ?? 'No frequency',
     description: o.af === null ? observationAbsence(o) : o.af === 0 ? 'A reported frequency of zero. Zero has no position on a logarithmic axis.' : 'Reported allele frequency in this source.',
     group: o.id, tone: 'neutral',
+    contextText: `AC ${formatCount(o.ac)} · AN ${formatCount(o.an)}`,
     facts: [{ label: 'Allele count (AC)', value: formatCount(o.ac) }, { label: 'Alleles assessed (AN)', value: formatCount(o.an) },
       { label: 'Frequency (AF)', value: o.af === null ? 'Not reported' : `${formatFrequencyPercent(o.af)} (${o.af} as a fraction)` },
       { label: 'Dataset', value: o.dataset }, { label: 'Homozygotes', value: formatCount(o.homozygotes) }],
@@ -53,6 +56,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
     valueText: c.absent ? 'Not observed' : formatFrequencyPercent(c.af),
     description: c.absent ? 'Confirmed absence was read by the engine. This is not a measured frequency of zero.' : populationReading(evidence).ruleSource,
     group: 'rule', tone: 'accent',
+    contextText: 'Rule input · not a cohort',
     facts: [{ label: 'Input source', value: c.absent ? 'Confirmed gnomAD absence' : populationReading(evidence).ruleSource },
       { label: 'Engine record', value: evidence.applied.known ? evidence.applied.code ?? 'No frequency criterion' : 'Not recorded' }],
     notes: [c.statement, 'This is the input used by the rule, not an additional cohort. A grouped maximum need not equal a dataset-wide frequency.'],

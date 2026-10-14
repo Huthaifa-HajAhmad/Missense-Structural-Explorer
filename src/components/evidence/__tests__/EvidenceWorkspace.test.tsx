@@ -27,6 +27,31 @@ function Fixture({ result = evidenceWorkspaceFixture('Partial') }: { result?: An
 }
 
 describe('Evidence workspace interactions', () => {
+  it('bounds the attribution overview without losing a pin, changing values or renormalising the axis', async () => {
+    const result = evidenceWorkspaceFixture();
+    const model = buildAttributionComparison(buildAlphaGenomeEvidence({ result }));
+    const pin = model.rows[12];
+    function Overview() {
+      const w = useEvidenceWorkspace('alphagenome');
+      return <><button onClick={() => w.select(pin.key)}>Pin smaller feature</button><EvidenceComparison tab="alphagenome" model={model} title="Bounded contributions" description="Fixture" /></>;
+    }
+    const { container } = render(<EvidenceWorkspaceProvider result={result}><Overview /></EvidenceWorkspaceProvider>);
+    await screen.findByRole('img', { name: /^Bounded contributions/ });
+    expect(screen.getByText(/8 of 18 returned contributions/)).toBeInTheDocument();
+    // Visible rows, not a rebuilt scientific model; expansion leaves the original inputs untouched.
+    const before = JSON.stringify(model);
+    fireEvent.click(screen.getByRole('button', { name: 'Pin smaller feature' }));
+    expect(screen.getByText(/pinned feature is outside the largest 8/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 18' }));
+    expect(screen.getByText(/18 of 18 returned contributions/)).toBeInTheDocument();
+    expect(screen.queryByText(/pinned feature is outside the largest 8/)).not.toBeInTheDocument();
+    expect(screen.getByText(`Pinned: ${pin.name} · ${pin.valueText}`)).toBeInTheDocument();
+    expect(JSON.stringify(model)).toBe(before);
+    // The real renderer exposes every mark's value; source values are never re-scaled to shares.
+    expect(container.querySelector('svg')?.textContent).toContain(pin.valueText);
+    fireEvent.click(screen.getByRole('button', { name: 'Show largest 8' }));
+    expect(screen.getByText(/pinned feature is outside the largest 8/)).toBeInTheDocument();
+  });
   it('pins signed contributions with the real TanStack keyboard renderer and retains the pin across filters and record views', async () => {
     render(<Fixture />);
     // The comparison chart is a lazy chunk; the 1s default expires under full-suite CPU load.

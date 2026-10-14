@@ -18,6 +18,29 @@
 .xp-hero__finding { color: var(--cs-text-secondary); }
 .xp-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
 
+.xp-review-settings { border-block: 1px solid var(--cs-border-subtle); }
+.xp-review-settings > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-height: 44px; padding-block: 8px; cursor: pointer; font-size: 13px; color: var(--cs-text-primary); }
+.xp-review-settings > summary::before { content: '+'; font-size: 16px; }
+.xp-review-settings[open] > summary::before { content: '−'; }
+.xp-review-settings > summary > span { margin-inline-start: auto; font-size: 12px; color: var(--cs-text-secondary); }
+.xp-review-settings > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.xp-review-settings > .xp-frame { margin-bottom: 16px; }
+.xp-workspace[data-comparison] { container-type: inline-size; gap: 16px; }
+.xp-workspace[data-comparison] .xp-hero__body { display: grid; grid-template-columns: minmax(200px, .7fr) minmax(0, 1.3fr); gap: 10px 24px; align-items: center; }
+.xp-workspace[data-comparison] :is(.xp-hero__top, .cx-finding-details, .xp-callout) { grid-column: 1 / -1; }
+.xp-workspace[data-comparison] .xp-hero__figure { flex-direction: column; align-items: start; }
+.xp-workspace[data-comparison] .xp-figure { font-size: 28px; }
+.xp-workspace[data-comparison] .cx-finding-details { margin-top: 0; }
+.xp-workspace[data-comparison] .cx-finding-details > summary { padding-block: 6px; }
+.xp-workspace[data-comparison] .cx-explorer { gap: 8px; }
+.xp-workspace[data-comparison] .cx-explorer .workspace-tabs { padding-bottom: 12px; }
+.xp-workspace[data-comparison] .cx-controls { margin-block: 8px; }
+.xp-workspace[data-comparison] .cx-records { margin-block: 10px; border: 0; }
+@container (max-width: 650px) {
+  .xp-workspace[data-comparison] .xp-hero__body { grid-template-columns: minmax(0, 1fr); }
+  .xp-review-settings > summary > span { margin-inline-start: 0; }
+}
+
 /* One cell per review system: measured (top tissue and median) or not sampled by GTEx. */
 .xp-coverage { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .xp-coverage__cell { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-surface); min-width: 0; }

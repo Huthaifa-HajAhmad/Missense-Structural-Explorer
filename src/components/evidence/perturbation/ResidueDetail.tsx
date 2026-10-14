@@ -3,7 +3,7 @@ import type { LmReading, PerturbationEvidence } from "../../../shared/perturbati
 import type { PerturbationModelId } from "../../../shared/perturbationModels";
 import { ENTROPY_MARKS } from "../../../shared/modelCalibration";
 import { oddsText } from "../../../shared/perturbationEvidence";
-import { residueProbabilityComparison } from '../../../shared/molecularWorkspace';
+import { probabilityOverview, residueProbabilityComparison } from '../../../shared/molecularWorkspace';
 import { useEvidenceWorkspace, InspectReadingButton } from '../EvidenceWorkspace';
 import { ResearchGuideButton } from '../../knowledge/ResearchGuideButton';
 const EvidenceComparison = lazy(() => import('../EvidenceComparison'));
@@ -149,6 +149,8 @@ export function ResidueDetail({
   const { wtCode, mutCode, wtLabel, mutLabel, position } = evidence.residues;
   const workspace = useEvidenceWorkspace('perturbation');
   const comparison = useMemo(() => residueProbabilityComparison(evidence, selected?.id ?? ''), [evidence, selected?.id]);
+  const expanded = workspace.expanded.includes('all-probabilities');
+  const overview = useMemo(() => probabilityOverview(comparison, expanded), [comparison, expanded]);
   return (
     <section className="ptb-section" aria-labelledby="ptb-detail-title">
       <div className="ptb-card">
@@ -179,6 +181,22 @@ export function ResidueDetail({
           </p>
         ) : (
           <>
+            <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
+              <div>
+                {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distribution…</p>}>
+                  {comparison.rows.length > 8 && <div className="evw-figure-scope"><span>{overview.rows.length} of {comparison.rows.length} returned residues · {expanded ? 'full distribution' : 'six highest probabilities plus reference and variant'}</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => workspace.toggleGroup('all-probabilities')}>{expanded ? 'Show overview' : `Show all ${comparison.rows.length} residues`}</button></div>}
+                  <EvidenceComparison tab="perturbation" model={overview} title={`${selected.family}: amino-acid preferences`}
+                    description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} />
+                </Suspense> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
+              </div>
+              {selected.embedding.window.length > 0 && (
+                <div>
+                  <ShiftTrace lm={selected} position={position} />
+                </div>
+              )}
+            </div>
+            <details className="mol-finding-details" open={workspace.comparison ? undefined : true}>
+            <summary>Exact probabilities, ranks and model context</summary>
             <dl className="ptb-facts">
               <div>
                 <dt>P(native {wtLabel || "residue"})</dt>
@@ -234,19 +252,7 @@ export function ResidueDetail({
                 <strong>Embedding shift not returned.</strong> {selected.embedding.absentReason}
               </p>
             )}
-            <div className="ptb-detail__grid" data-single={selected.embedding.window.length === 0 || undefined}>
-              <div>
-                {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distribution…</p>}>
-                  <EvidenceComparison tab="perturbation" model={comparison} title={`${selected.family}: amino-acid preferences`}
-                    description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} />
-                </Suspense> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}
-              </div>
-              {selected.embedding.window.length > 0 && (
-                <div>
-                  <ShiftTrace lm={selected} position={position} />
-                </div>
-              )}
-            </div>
+            </details>
             {selected.rankSentence && <p className="ptb-detail__sentence">{selected.rankSentence}</p>}
           </>
         )}

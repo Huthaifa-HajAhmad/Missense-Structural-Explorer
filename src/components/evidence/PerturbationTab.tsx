@@ -600,7 +600,7 @@ export function PerturbationTab({
   ) : "Energetics";
 
   return (
-    <div className="ptb-screen">
+    <div className="ptb-screen" data-comparison={workspace.comparison || undefined}>
       <header className="ptb-header">
         <h1 className="screen-title">Structural perturbation</h1>
         <p className="screen-tab-description">
@@ -611,9 +611,6 @@ export function PerturbationTab({
       </header>
       <EvidenceViewTabs tab="perturbation" comparisonLabel="Model comparison" />
       <EvidencePanel tab="perturbation">
-      {workspace.comparison && <div className="mol-guide"><strong>What do the models prefer at this position?</strong>
-        <p>Start with each model’s direction, then inspect its amino-acid probabilities. The clay marker identifies the variant; the reference is labelled alongside it.</p>
-        <span>Model preference is not an observed structural change. Compare direction across models; read score magnitudes within one model.</span></div>}
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="ptb-card ptb-hero" aria-labelledby="ptb-finding-title" data-testid="perturbation-finding">
@@ -648,6 +645,8 @@ export function PerturbationTab({
 
           <ModelCaveatCallouts evidence={evidence} />
 
+          <details className="mol-finding-details" open={workspace.comparison ? undefined : true}>
+          <summary>Model coverage, FoldX and engine record</summary>
           <dl className="ptb-hero__meta">
             <div>
               <dt>Models read</dt>
@@ -673,6 +672,7 @@ export function PerturbationTab({
               </dd>
             </div>
           </dl>
+          </details>
         </div>
 
         {evidence.pending && (

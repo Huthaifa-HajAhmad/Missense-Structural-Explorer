@@ -26,6 +26,19 @@ const provenanceFacts = (p: ContextProvenance | null | undefined) => [
 const row = (r: Omit<ContextReading, 'tone'> & { tone?: ContextReading['tone'] }): ContextReading => ({ tone: 'neutral', ...r });
 export const assertionKey = (frame: string | null | undefined, id: string) => JSON.stringify(['assertion', frame, id]);
 
+/** Source coverage only. Never equate Alliance and Ensembl genes, even within one taxon. */
+export function speciesCoverage(rows: ContextReading[]) {
+  const taxa = [...new Set(rows.flatMap(r => r.taxon ? [r.taxon] : []))];
+  return taxa.sort((a, b) => speciesOrder(a) - speciesOrder(b) || a.localeCompare(b)).map(taxon => ({
+    taxon, label: speciesLabel(taxon, `Taxon ${taxon}`),
+    counts: {
+      orthologs: rows.filter(r => r.taxon === taxon && r.group === 'orthologs').length,
+      alignment: rows.filter(r => r.taxon === taxon && r.group === 'alignment').length,
+      phenotypes: rows.filter(r => r.taxon === taxon && r.group === 'phenotypes').length,
+    },
+  }));
+}
+
 export function geneDiseaseReadings(model: GeneDiseaseModel): ContextReading[] {
   const frame = model.selected;
   return [
@@ -106,7 +119,7 @@ export function speciesReadings(input: { models: ModelOrganismResponse | null; a
 export function contextPage(rows: ContextReading[], options: { group: string; query: string; cohort?: string; relevantOnly?: boolean; limit?: number }) {
   const group = rows.filter(r => r.group === options.group);
   const query = options.query.trim().toLocaleLowerCase();
-  const filtered = group.filter(r => (!query || `${r.name} ${r.description} ${r.valueText}`.toLocaleLowerCase().includes(query)) &&
+  const filtered = group.filter(r => (!query || `${r.name} ${r.description} ${r.valueText} ${r.source} ${r.taxon ?? ''}`.toLocaleLowerCase().includes(query)) &&
     (!options.relevantOnly || r.relevant) && (!options.cohort || options.cohort === 'all' || r.cohort === options.cohort));
   filtered.sort((a, b) => Number(!!b.relevant) - Number(!!a.relevant) || (b.value ?? -1) - (a.value ?? -1) || a.name.localeCompare(b.name));
   return { rows: filtered.slice(0, options.limit ?? 20), total: filtered.length, max: group.reduce((m, r) => Math.max(m, r.value ?? 0), 0), sourceCount: group.length };
