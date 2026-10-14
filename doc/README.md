@@ -2,6 +2,8 @@
 
 Welcome to the comprehensive documentation repository for **MissenseResolve®**. This folder serves as a centralized hub of knowledge detailing the product designs, tech stack, and biological computing pipelines.
 
+[Translational philosophy](./TRANSLATIONAL_PHILOSOPHY.md) is the active standard for unfamiliar-researcher clarity, interpretation and scientific honesty. See [contextual explanation coverage](./TRANSLATIONAL_COVERAGE.md) for implemented entry points and validation.
+
 ---
 
 ## 📂 Navigation Index
@@ -55,3 +57,10 @@ Welcome to the comprehensive documentation repository for **MissenseResolve®**.
 * **Graphics**: HTML5 Canvas with WebGL (Molstar API)
 * **AI Orchestration**: Gemini 3.6 Flash with a fallback ladder (`@google/genai` model client)
 * **Biological APIs**: EMBL-EBI AlphaFold Database & Mutational Side-Chain Modeling Engine
+
+## Evidence workspace redesigns
+
+- [Population, Predictors and AlphaGenome](EVIDENCE_WORKSPACE_REVIEW.md)
+- [Gene-disease, Expression and Species & models](CONTEXT_WORKSPACES_REVIEW.md)
+- [Residue shifts, Perturbation and Functional domains](MOLECULAR_WORKSPACES_REVIEW.md)
+- [RNA splicing and Interfaces & PPI: second presentation pass](MECHANISM_WORKSPACES_REVIEW.md)

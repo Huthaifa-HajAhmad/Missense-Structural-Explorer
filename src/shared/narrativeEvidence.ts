@@ -76,7 +76,8 @@ import {
  */
 // v4 separates the client biological evidence revision from the server's literature snapshot.
 // The route adds the snapshot digest to its cache key, never to a client-provided revision.
-export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 4;
+// v5 applies translational grounding to both narrative routes and corrects embedding-band claims.
+export const NARRATIVE_EVIDENCE_CONTRACT_VERSION = 5;
 
 /**
  * The evidence the narrative synthesis is given, in the order the request states it.

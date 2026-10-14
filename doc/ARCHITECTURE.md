@@ -1,5 +1,8 @@
 # Technical Architecture Design — MissenseResolve®
 
+Scientific presentation follows [the translational philosophy](./TRANSLATIONAL_PHILOSOPHY.md). Contextual explanations use shared accessible drawer mechanics with subject-specific content; interpretation and clinical thresholds remain in the shared evidence models. [Coverage and implementation](./TRANSLATIONAL_COVERAGE.md).
+
+
 ## 1. System Topology Overview
 The **MissenseResolve®** is designed as a modular, full-stack React and Express application running on Node.js. It implements a **Server-Side API Proxy Architecture** to securely handle API keys, perform computation-heavy sequence mutations, and bypass sandbox/CORS constraints on external bioinformatics services.
 

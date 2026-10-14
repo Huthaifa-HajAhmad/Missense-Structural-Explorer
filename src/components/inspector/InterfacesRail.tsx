@@ -1,4 +1,6 @@
 import React from "react";
+import { interfaceWorkspaceReadings } from "../../shared/mechanismWorkspace";
+import { EvidenceReadingInspector } from "./EvidenceReadingInspector";
 import { BookOpen, Database, GitBranch, Ruler } from "lucide-react";
 import type { AnalysisResult } from "../../types";
 import type { MultimerData, PpiBindingData, PpiBindingShift } from "../../shared/contracts";
@@ -84,6 +86,7 @@ export function InterfacesRail({ analysisResult }: { analysisResult: AnalysisRes
 
   return (
     <div className="ifc-rail" data-testid="interfaces-rail">
+      <EvidenceReadingInspector tab="interfaces" rows={interfaceWorkspaceReadings(ev)} />
       <section className="ifc-rsec" aria-labelledby="ifc-rail-trace">
         <h3 className="eyebrow" id="ifc-rail-trace">
           <GitBranch className="w-3.5 h-3.5" />

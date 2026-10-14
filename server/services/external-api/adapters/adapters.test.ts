@@ -174,6 +174,14 @@ describe("SidecarAdapter health probe — cold start vs readiness", () => {
     expect(status.message).toMatch(/model weights/i);
   });
 
+  it.each(['unhealthy', 'failed', undefined])("does not claim ready for status %s", async status => {
+    vi.stubGlobal("fetch", vi.fn(async () => sidecarHealth({ status, state: 'ready' })));
+    const result = await adapterRegistry.get('sidecar')!.healthCheck();
+    expect(result.healthy).toBe(false);
+    expect(result.state).toBeUndefined();
+    expect(result.message).not.toContain('Healthy');
+  });
+
   it("reports an unreachable sidecar as unhealthy with no state claimed", async () => {
     vi.stubGlobal(
       "fetch",

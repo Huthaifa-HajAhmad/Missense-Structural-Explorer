@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { METRIC_EXPLANATIONS } from "../evidence/MetricExplanations";
+import { RESEARCH_GUIDES } from "../../shared/researchGuides";
 
 /**
  * The method citations must be correct, and there must be only one of them.
@@ -162,11 +163,11 @@ describe("method citations", () => {
   });
 
   it("describes the neighbour side-chain RMSD as the app measures it, with no unsourced band", () => {
-    const rmsd = METRIC_EXPLANATIONS.rmsd;
+    const rmsd = RESEARCH_GUIDES.rmsd;
     // It was "the mutated sidechain" with "RMSD > 1.5 Å indicates substantial repacking", credited to
     // Guerois 2002, which defines neither the measure nor the threshold.
-    expect(rmsd.description).toMatch(/within ±5 of the site/);
-    expect(rmsd.description).toMatch(/paired wild type/);
-    expect(`${rmsd.description} ${rmsd.interpretation}`).not.toMatch(/1\.5 Å/);
+    expect(rmsd.answer).toMatch(/within ±5 of the site/);
+    expect(rmsd.answer).toMatch(/paired wild type/);
+    expect(`${rmsd.answer} ${rmsd.reading}`).not.toMatch(/1\.5 Å/);
   });
 });

@@ -225,7 +225,7 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     // The three questions a non-specialist has, in order: is it broken, what is happening, what do I do.
     expect(within(detail).getByText("Not broken — just starting up")).toBeInTheDocument();
     expect(within(detail).getByText(/loading into memory/)).toBeInTheDocument();
-    expect(within(detail).getByText(/Everything else on this panel is unaffected/)).toBeInTheDocument();
+    expect(within(detail).getByText(/can keep reading evidence and results now/)).toBeInTheDocument();
   });
 
   it("never explains the state using the vocabulary it is explaining", () => {
@@ -386,6 +386,26 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     expect(document.querySelector('[data-service-detail="clinvar"]')).toBeNull();
   });
 
+  it.each(['alphagenome', 'gemini', 'foldx', 'p2rank'])(
+    '%s disclosure leaves Enter and Space to the native button without configuring the service', id => {
+      h.diag.current = allReadyExcept({});
+      const configure = vi.fn();
+      render(<SettingsProvider><LiveTelemetryPanel onConfigureClick={configure} /></SettingsProvider>);
+      const row = document.querySelector(`[data-service-id="${id}"]`) as HTMLElement;
+      const disclosure = within(row).getByRole('button', { name: /Show details for/ });
+      for (const key of ['Enter', ' ']) {
+        expect(fireEvent.keyDown(disclosure, { key })).toBe(true);
+        expect(configure).not.toHaveBeenCalled();
+      }
+      fireEvent.click(disclosure);
+      expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+      expect(configure).not.toHaveBeenCalled();
+      expect(disclosure.closest('[role="button"]')).toBeNull();
+      fireEvent.click(within(row).getByRole('button', { name: /Configure/ }));
+      expect(configure).toHaveBeenCalledOnce();
+    }
+  );
+
   it("gives every service an explanation, so no status word is left unexplained", () => {
     h.diag.current = allReadyExcept({ modelServerState: "warming_up" });
     renderPanel();
@@ -409,10 +429,10 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
 
     const detail = within(detailPanel() as HTMLElement);
     expect(detail.getByText("Ready")).toBeInTheDocument();
-    expect(detail.getByText(/loaded and available/)).toBeInTheDocument();
+    expect(detail.getByText(/service is responding/)).toBeInTheDocument();
   });
 
-  it("tells a reader an offline sidecar is not something a retry will fix", () => {
+  it("does not infer a permanent outage from a failed service check", () => {
     // The distinction that matters most in plain terms: broken-by-design vs broken-temporarily.
     h.diag.current = allReadyExcept({});
     renderPanel();
@@ -420,7 +440,8 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
 
     const detail = within(detailPanel() as HTMLElement);
     expect(detail.getByText("Not running")).toBeInTheDocument();
-    expect(detail.getByText(/not something a search or a retry will fix/)).toBeInTheDocument();
+    expect(detail.getByText(/could not be reached on the last check/)).toBeInTheDocument();
+    expect(detail.getByText(/Re-check the service status/)).toBeInTheDocument();
   });
 
   it("shows how current the explanation is, since a cold start resolves itself", () => {

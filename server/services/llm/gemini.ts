@@ -909,6 +909,8 @@ unavailable — do not supply a plausible value from memory, and do not soften a
 finding. "No record in a database" and "the database classified this variant as uncertain" are
 different claims and only the first is available to you when no record was returned.
 
+${TRANSLATIONAL_NARRATIVE_RULES}
+
 Please perform both a detailed clinical and biophysical narrative analysis and generate a highly compact structured report.
 
 For the narrative analysis (returned in the "analysis" field), write a highly detailed clinical and biophysical analysis of this mutation under these exact headers (using markdown formatting):
@@ -917,9 +919,9 @@ For the narrative analysis (returned in the "analysis" field), write a highly de
 Describe the wild-type residue (${wildType || "original"}) vs. the mutant residue (${mutant || "target"}). Contrast their chemical classes (e.g., aliphatic, aromatic, charged, polar, hydrophobic), molecular volumes, charge states, and side-chain conformations.
 
 ### 🧱 Structural Context & Disruptive Potential
-Explain how this substitution disrupts the structural integrity of the protein:
-1. Does it clash sterically (especially if mutating to a bulkier residue like Trp, Phe)?
-2. Does it break crucial hydrogen-bonding networks, salt bridges (e.g., loss of Arg/Lys positive charge), or hydrophobic packaging?
+Discuss possible structural consequences without assuming that disruption occurred:
+1. Could a size change affect packing? State this as a hypothesis unless a supplied measurement supports it.
+2. Could a chemistry change affect hydrogen bonding, electrostatics or hydrophobic packing? Do not invent a specific contact or broken bond.
 3. How might it affect local secondary structure (e.g., Proline/Glycine mutations disrupting alpha-helices)?
 Provide biochemical hypotheses based on the substitution's chemistry, its residue position, and the conservation and predictor scores given above. You are not given 3D coordinates, distances or B-factors, so do not state or infer any.
 
@@ -934,7 +936,7 @@ Suggest 2-3 specific features for the clinical investigator to look for in the 3
 - Is it near a known active site, interface, or lipid-membrane anchoring boundary?
 For the structured report fields, provide compact, precise, and expert descriptions.
 In the "biochemicalShift" JSON field, provide a compact biophysical summary of the chemical property changes (e.g., 'Charge swap: Positive (Arg) to Neutral (Trp). Size increase. Hydrophobic mismatch.').
-In the "structuralImpact" JSON field, provide a compact biophysical summary of the structural impact (e.g., 'Disrupts salt bridge at interface, likely causing tertiary fold destabilization.').
+In the "structuralImpact" JSON field, provide a compact biophysical summary of the structural impact (e.g., 'Loss of positive charge may affect local interactions; no contact geometry was supplied to test this hypothesis.').
 
 [ACMG CRITERIA SELECTION RULE]:
 Only select valid ACMG/AMP criteria codes from the following whitelist: PVS1, PS1, PS2, PS3, PS4, PM1, PM2, PM3, PM4, PM5, PM6, PP1, PP2, PP3, PP4, BA1, BS1, BS2, BS3, BS4, BP1, BP2, BP3, BP4, BP5, BP7.
@@ -1083,7 +1085,7 @@ Never derive a criterion from the deep-model observations above: a predicted Δ�
                   },
                   structuralImpact: {
                     type: Type.STRING,
-                    description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Disrupts salt bridge at interface, likely causing tertiary fold destabilization.')"
+                    description: "Compact biophysical report on the structural impact of the mutation (e.g., 'Loss of positive charge may affect local interactions; no contact geometry was supplied to test this hypothesis.')"
                   },
                   plausibility: {
                     type: Type.STRING,
@@ -1357,6 +1359,19 @@ Never derive a criterion from the deep-model observations above: a predicted Δ�
   } as AnalysisResult;
 }
 
+const TRANSLATIONAL_NARRATIVE_RULES = `
+[TRANSLATIONAL CLARITY RULE - applies to every narrative and structured field]:
+Write for a researcher unfamiliar with the method; define abbreviations on first use.
+Distinguish returned observations, model predictions and biochemical hypotheses explicitly.
+Name the model that actually supplied a result, including fallbacks; a requested service name is not provenance.
+Missing, failed and unsupported results are unassessed, not zero or evidence of no effect.
+Preserve units, direction, reference, coverage and material limitations whenever summarising a supplied score.
+Embedding distances are not coordinate displacements; model entropy is not measured substitution tolerance.
+Do not invent structural contacts, distances, energies, confidence, numerical precision or biological outcomes.
+Where only residue chemistry is supplied, structural consequences remain hypotheses requiring measurement.
+Disagreement between models is not resolved by voting, and a narrative does not establish a clinical classification.
+`;
+
 export async function performGeminiBiophysicalAnalysis(
   gene: string,
   variant: string,
@@ -1374,9 +1389,11 @@ Analyze the following missense variant from a biophysical and biochemical perspe
 - UniProt Accession ID: ${uniprotId}
 ${residueIndex ? `- Position of Mutation: Residue #${residueIndex} (Wild-Type: ${wildType}, Mutant: ${mutant})` : ""}
 
+${TRANSLATIONAL_NARRATIVE_RULES}
+
 Generate a JSON object with:
-- biochemicalShift: "Compact description of chemical shift (e.g., 'Substitution of positive hydrophilic Arg with a neutral bulky hydrophobic Trp (+55 Å³ expansion)')"
-- structuralImpact: "Short analysis of structural or free-energy impact (e.g., 'Steric packing clashes within helix backbone, predicted delta-delta G destabilization')"
+- biochemicalShift: "Describe the residue chemistry in plain language. Do not invent a numerical volume change or charge state without its scale and conditions."
+- structuralImpact: "Give a conditional biochemical hypothesis. No coordinates or energy calculation are supplied: specific clashes, bonds, burial, secondary structure and stability changes are unassessed."
 `;
 
   const modelsToTry = getConfiguredGeminiModels();

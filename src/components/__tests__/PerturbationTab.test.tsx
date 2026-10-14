@@ -31,6 +31,24 @@ function renderTab(result: any = NAE1_RESULT, extra: Record<string, unknown> = {
 }
 
 describe("PerturbationTab", () => {
+  it.each([
+    ['VESM-150M fallback', 'VESM embedding drift', 'VESM embedding analysis'],
+    ['ESM3-Medium (Remote)', 'ESM3 embedding drift', 'ESM3 representation analysis'],
+    [undefined, 'Sequence embedding drift', 'Embedding drift'],
+  ])('uses the served model and operation for %s', (provenance, label, title) => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+    renderTab({ ...NAE1_RESULT, esm3Eval: { ...NAE1_RESULT.esm3Eval, provenance } });
+    const row = screen.getByTestId('ptb-esm3');
+    expect(row.textContent).toContain(label);
+    fireEvent.click(within(row).getByRole('button'));
+    const dialog = screen.getByRole('dialog', { name: title });
+    expect(dialog.textContent).toMatch(/embedding/i);
+    if (provenance?.includes('VESM')) {
+      expect(dialog.textContent).toContain('cosine distance');
+      expect(dialog.textContent).toContain('not a log-likelihood ratio');
+    }
+  });
   it("leads with each model's direction, not a composite score", () => {
     renderTab();
     const hero = screen.getByTestId("perturbation-finding");

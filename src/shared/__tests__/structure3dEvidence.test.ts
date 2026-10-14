@@ -473,10 +473,20 @@ describe("structure3dEvidence — ESMFold view", () => {
 });
 
 describe("ESM3 sequence shift overlay", () => {
+  it.each([
+    ['VESM-150M fallback', 'VESM embedding drift', '10.1038/s41592-026-03050-9'],
+    ['ESM3-Medium', 'ESM3 embedding drift', '10.1126/science.ads0018'],
+  ])('keeps overlay labels and citations tied to %s', (provenance, label, doi) => {
+    const model = buildStructure3dEvidence(baseInput({ esm3: { scoreCount: 534, error: null, provenance }, representation: 'esm3' }));
+    expect(model.legend?.title).toBe(`${label} on wild type`);
+    expect(model.representations.find(r => r.id === 'esm3')?.label).toBe(label);
+    expect(JSON.stringify(model)).toContain(doi);
+    if (provenance.includes('VESM')) expect(JSON.stringify(model)).not.toContain('10.1126/science.ads0018');
+  });
   it("projects variant-conditioned scores only onto the predicted wild type and uses app-defined bands", () => {
     const m = buildStructure3dEvidence(baseInput({ esm3: { scoreCount: 534, error: null }, representation: "esm3" }));
     expect(m.representation).toBe("esm3");
-    expect(m.legend?.title).toBe("ESM3 sequence shift on wild type");
+    expect(m.legend?.title).toBe("Sequence embedding drift on wild type");
     expect(m.legend?.provenanceNote).toMatch(/Wild-type versus variant sequence embeddings, projected/);
     const d = THRESHOLDS.esm3Drift;
     expect(m.legend?.entries.map(e => e.label).slice(0, 4)).toEqual([`< ${d.none}`, `${d.none}–${d.minor}`, `${d.minor}–${d.moderate}`, `≥ ${d.moderate}`]);

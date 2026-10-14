@@ -344,9 +344,9 @@ export function describeWithinModelRank(
   const entropyNote =
     positionalEntropy !== null && positionalEntropy !== undefined && !Number.isNaN(positionalEntropy)
       ? positionalEntropy >= ENTROPY_MARKS.tolerant
-        ? " High positional entropy means this site tolerates substitution broadly, so a low rank here is weaker evidence than the same rank at a rigid site."
+        ? " High positional entropy means the model spreads its preferences across many residues. Rank separates similarly preferred alternatives here; it does not establish biological tolerance."
         : positionalEntropy <= ENTROPY_MARKS.constrained
-          ? " Low positional entropy means this site is strongly constrained, so a low rank here is stronger evidence."
+          ? " Low positional entropy means the model concentrates its preference on fewer residues. This is a model prediction of sequence constraint, not a measurement of function or clinical evidence strength."
           : ""
       : "";
 

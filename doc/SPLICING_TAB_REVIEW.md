@@ -209,3 +209,9 @@ the focused option is disabled and the unpositioned 0.9 score remains in accessi
 - Jaganathan K, et al. Predicting splicing from primary sequence with deep learning. *Cell* 2019;176:535–548. doi:10.1016/j.cell.2018.12.015 — operating points from the Illumina SpliceAI README: https://github.com/Illumina/SpliceAI
 - Jian X, Boerwinkle E, Liu X. In silico prediction of splice-altering single nucleotide variants in the human genome. *Nucleic Acids Res* 2014;42:13534–13544. doi:10.1093/nar/gku1206
 - Abou Tayoun AN, et al. Recommendations for interpreting the loss of function PVS1 ACMG/AMP variant criterion. *Hum Mutat* 2018;39:1517–1524. doi:10.1002/humu.23626
+
+## 11 October 2026 workspace follow-up
+
+The map/records workspace, persistent selections, keyboard interaction and second-pass design
+are documented in [MECHANISM_WORKSPACES_REVIEW.md](MECHANISM_WORKSPACES_REVIEW.md). This
+presentation update retains the scientific contracts above and the existing splice map.

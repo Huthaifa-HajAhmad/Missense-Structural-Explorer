@@ -28,11 +28,11 @@ This document outlines planned future work, alternative model integrations, and 
 
 ## 2. Evidence Dashboard Tab Upgrades
 
-To maintain consistency with our [UX Upgrade Translation Philosophy](../.gemini/antigravity/brain/0dd1b596-5bc1-4b98-a506-95113575d63a/design_philosophy.md), future tab refactorings will translate raw numeric data to qualitative structural insights:
+Follow the active [Translational philosophy](./TRANSLATIONAL_PHILOSOPHY.md): make each result interpretable to an unfamiliar researcher while preserving its scope, provenance and uncertainty. Current explanation coverage is recorded in [the coverage review](./TRANSLATIONAL_COVERAGE.md).
 
-* **Clinical Tab**: Translate raw ClinVar submissions and ACMG rules into clear verdict categories with descriptive confidence labels.
-* **Predictors Tab**: Group computational pathogenicity predictors (REVEL, CADD, AlphaMissense, popEVE) into a unified predictive consensus index.
-* **Interactions Tab**: Map protein-protein and protein-ligand structural contact changes into binding affinity shift interpretations.
+* **Clinical evidence**: Separate source assertions, recorded clinical criteria and rule-engine conclusions. Name missing evidence and conflicting assertions explicitly.
+* **Predictors**: Show individual readings, published calibration where applicable, and descriptive agreement with its contributors. The retired unvalidated consensus index is not a roadmap requirement.
+* **Interactions**: Describe observed or computed contacts and their structural context. Binding-affinity claims require a suitable measured or validated energy estimate; geometry alone does not supply one.
 
 ---
 

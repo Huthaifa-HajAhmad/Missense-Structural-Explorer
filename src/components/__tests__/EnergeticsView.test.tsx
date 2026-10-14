@@ -525,6 +525,20 @@ describe("EnergeticsView — FoldX progress banner", () => {
     expect(screen.getByTestId("energetics-summary")).toHaveTextContent("pLDDT 60.0");
     expect(container.textContent ?? "").toContain("unrepaired template");
   });
+  it('opens the actual explanation from each of the six engine records, including absent results', () => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+    renderView();
+    const records = screen.queryByRole('tab', { name: 'Engine records' });
+    if (records) fireEvent.click(records);
+    for (const name of ['FoldX', 'DynaMut2', 'DDMut', 'RaSP', 'ThermoMPNN', 'StabilityOracle']) {
+      fireEvent.click(screen.getByRole('button', { name: `About ${name}` }));
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('heading', { level: 2 }).textContent).toContain(name);
+      expect(dialog.textContent).not.toContain('Explanation unavailable');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close explanation' }));
+    }
+  });
 });
 
 

@@ -1,3 +1,4 @@
+import { ResearchGuideButton } from "../knowledge/ResearchGuideButton";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Boxes, Download, ExternalLink, Handshake, MapPin, RefreshCw, Search, Waypoints, X, Zap } from "lucide-react";
 import { TabComponentProps } from "./types";
@@ -18,11 +19,15 @@ import {
   type StringCell,
 } from "../../shared/interfacesEvidence";
 import { useInterfacesData } from "./interfaces/useInterfacesData";
-import { InterfaceTrack } from "./interfaces/InterfaceTrack";
+import { InterfaceMapWorkspace } from "./interfaces/InterfaceMapWorkspace";
 import { AssemblyDiagram } from "./interfaces/AssemblyDiagram";
 import { PartnerTiers } from "./interfaces/PartnerTiers";
 import { BindingRuler, IptmRuler } from "./interfaces/Rulers";
 import { PPI_QUERY_PARAM, PPI_TIER_PARAM, parsePpiQuery, parsePpiTier, withPpiParams } from "./interfaces/viewUrlState";
+import { EvidenceViewTabs, EvidencePanel, InspectReadingButton, useEvidenceWorkspace } from "./EvidenceWorkspace";
+import { MechanismSelection } from "./MechanismSelection";
+import { interfaceWorkspaceReadings, interfaceMapView, interfaceNumberingNote } from "../../shared/mechanismWorkspace";
+import { InterfaceOverview } from "./interfaces/InterfaceOverview";
 import { Prose } from "../ui/Prose";
 
 /**
@@ -132,13 +137,15 @@ function PartnerName({ p, ev }: { p: PartnerRow; ev: InterfacesEvidence }) {
 }
 
 function PartnerRowView({ p, ev }: { p: PartnerRow; ev: InterfacesEvidence }) {
+  const workspace = useEvidenceWorkspace('interfaces');
   const hit = p.variantInSite || p.variantAtObservedInterface;
   const self = !p.family && p.accession && ev.uniprotId && p.accession.toUpperCase() === ev.uniprotId.toUpperCase();
   return (
-    <tr data-hit={hit || undefined} data-family={p.family || undefined}>
+    <tr data-reading-key={`partner:${p.key}`} data-hit={hit || undefined} data-family={p.family || undefined}>
       <th scope="row" className="ifc-subject">
         <span className="ifc-subject__name">
-          <PartnerName p={p} ev={ev} />
+          {workspace.enabled ? <><InspectReadingButton tab="interfaces" readingKey={`partner:${p.key}`}>{self ? `${p.gene} (other chain)` : p.gene}</InspectReadingButton>
+            {!p.family && !self && !p.organism && <a className="ifc-link ifc-partner-source" href={stringNetworkUrl(ev.gene, p.gene)} target="_blank" rel="noopener noreferrer" aria-label={`Open ${p.gene} in STRING (new tab)`}>STRING <ExternalLink className="w-3 h-3" aria-hidden="true" /></a>}</> : <PartnerName p={p} ev={ev} />}
           {p.organism && <span className="ev-tier ifc-species" data-tone="muted">{p.organism}</span>}
         </span>
         {/* Only an accession the row actually has: a STRING-only partner has none, and the query's own is never shown on a partner. */}
@@ -202,9 +209,9 @@ function FoldedRows({ g, ev, colCount, open, onToggle }: { g: PartnerGroupView; 
               {g.folded.rows.map(r => {
                 const score = scoreOf(r);
                 return (
-                  <li key={r.key} className="ifc-chip">
+                  <li key={r.key} className="ifc-chip" data-reading-key={`partner:${r.key}`}>
                     {r.organism ? (
-                      <span className="ifc-chip__name">{r.gene}</span>
+                      <span className="ifc-chip__name"><InspectReadingButton tab="interfaces" readingKey={`partner:${r.key}`}>{r.gene}</InspectReadingButton></span>
                     ) : (
                       <a className="ifc-chip__name ifc-partner-link" href={stringNetworkUrl(ev.gene, r.gene)} target="_blank" rel="noopener noreferrer" title={`Open ${ev.gene} and ${r.gene} on STRING (new tab)`}>
                         {r.gene}
@@ -248,30 +255,46 @@ function ArtefactRow({ p }: { p: ObservedView }) {
 export function InterfacesTab({ analysisState }: TabComponentProps) {
   const result = analysisState.result;
   const data = useInterfacesData(result);
+  const workspace = useEvidenceWorkspace('interfaces');
 
   // ── View state: linked highlight, partner tier and query (the last two in the URL) ──
   const [lit, setLit] = useState<string | null>(null);
-  const [tier, setTier] = useState<PartnerGroup | null>(() => (typeof window === "undefined" ? null : parsePpiTier(new URLSearchParams(window.location.search).get(PPI_TIER_PARAM))));
-  const [query, setQuery] = useState<string>(() => (typeof window === "undefined" ? "" : parsePpiQuery(new URLSearchParams(window.location.search).get(PPI_QUERY_PARAM))));
-  const [openFolds, setOpenFolds] = useState<ReadonlySet<PartnerGroup>>(new Set());
+  const [localTier, setLocalTier] = useState<PartnerGroup | null>(() => (typeof window === "undefined" ? null : parsePpiTier(new URLSearchParams(window.location.search).get(PPI_TIER_PARAM))));
+  const [localQuery, setLocalQuery] = useState<string>(() => (typeof window === "undefined" ? "" : parsePpiQuery(new URLSearchParams(window.location.search).get(PPI_QUERY_PARAM))));
+  const [localFolds, setLocalFolds] = useState<ReadonlySet<PartnerGroup>>(new Set());
+  const tier = workspace.enabled ? parsePpiTier(workspace.section) : localTier;
+  const query = workspace.enabled ? workspace.query : localQuery;
+  const openFolds = workspace.enabled ? new Set(workspace.expanded) : localFolds;
+  const setTier = (value: PartnerGroup | null | ((old: PartnerGroup | null) => PartnerGroup | null)) => {
+    const next = typeof value === 'function' ? value(tier) : value;
+    if (workspace.enabled) workspace.setOptions({ section: next ?? '' }); else setLocalTier(next);
+  };
+  const setQuery = (value: string) => workspace.enabled ? workspace.setOptions({ query: value }) : setLocalQuery(value);
   const [setAsideOpen, setSetAsideOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const variantKey = `${result?.metadata?.gene ?? ""}|${result?.metadata?.variant ?? ""}`;
   const firstVariant = useRef(variantKey);
+  const urlSeeded = useRef(false);
   useEffect(() => {
     // A new variant starts unfiltered: a query for one protein's partners means nothing for the next.
     if (firstVariant.current === variantKey) return;
     firstVariant.current = variantKey;
     setTier(null);
     setQuery("");
-    setOpenFolds(new Set());
+    setLocalFolds(new Set());
     setSetAsideOpen(false);
   }, [variantKey]);
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (workspace.enabled && !workspace.initialized) {
+      workspace.setOptions({ initialized: true, section: urlSeeded.current ? '' : localTier ?? '', query: urlSeeded.current ? '' : localQuery });
+      urlSeeded.current = true;
+    }
+  }, [workspace.enabled, workspace.initialized]);
+  useEffect(() => {
+    if (typeof window === "undefined" || (workspace.enabled && !workspace.initialized)) return;
     const next = withPpiParams(window.location.href, tier, query);
     if (next !== window.location.href) window.history.replaceState(window.history.state, "", next);
-  }, [tier, query]);
+  }, [tier, query, workspace.initialized, workspace.enabled]);
   useEffect(
     () => () => {
       if (typeof window === "undefined") return;
@@ -281,12 +304,13 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
     []
   );
   const openRow = useCallback((key: string) => {
+    if (workspace.enabled) { workspace.select(key); return; }
     const row = document.getElementById(`ifc-row-${key}`);
     if (!row) return;
     const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     row.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     setLit(key);
-  }, []);
+  }, [workspace.enabled, workspace.select]);
 
   if (!result) return null;
 
@@ -320,13 +344,15 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
     ev.position !== null &&
     !ev.track.some(l => l.kind === "solved" || l.kind === "predicted") &&
     (ev.observed.availability.state === "empty" || ev.observed.availability.state === "ok");
-  const toggleFold = (id: PartnerGroup) =>
-    setOpenFolds(prev => {
+  const toggleFold = (id: PartnerGroup) => {
+    if (workspace.enabled) { workspace.toggleGroup(id); return; }
+    setLocalFolds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
 
   const modelAction = model.canRequest ? (
     <ActionButton onClick={data.requestModel} icon={<Boxes className="w-3.5 h-3.5" aria-hidden="true" />}>
@@ -335,7 +361,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
   ) : null;
 
   return (
-    <div className="ifc-screen @container">
+    <div data-mechanism="interfaces" className={`ifc-screen @container${workspace.enabled ? " ifc-workspace" : ""}`}>
       <div role="status" aria-live="polite" className="sr-only">
         {iface.verdict === "pending" ? "" : `${ev.finding.headline}`}
       </div>
@@ -376,12 +402,15 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
             {ev.finding.context && <Prose className="ifc-hero__context">{ev.finding.context}</Prose>}
           </div>
           <figure className="ifc-hero__diagram">
-            <AssemblyDiagram ev={ev} />
-            <figcaption>
+            <details className="mx-composition-disclosure" open={!workspace.enabled || undefined}>
+              <summary><span className="mx-kicker">Assembly</span><strong>{ev.assembly.label}</strong><span>View composition and qualifications</span></summary>
+              <AssemblyDiagram ev={ev} />
+            <p className="mx-composition-caption">
               {ev.assembly.label}
               {ev.assembly.qualifier ? ` (${ev.assembly.qualifier.toLowerCase()})` : ""} ·{" "}
               {model.state === "built" ? "modelled" : ev.observed.partners.length ? "solved" : ev.chains.length > 1 ? "as stated" : "single chain"}
-            </figcaption>
+            </p>
+            </details>
           </figure>
         </div>
 
@@ -406,6 +435,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
           </div>
         )}
 
+        <details className="mx-finding-details" open={!workspace.enabled || undefined}><summary>Source summary and engine record</summary>
         <dl className="ifc-facts">
           {ev.facts.map(f => (
             <div key={f.label} className="ifc-fact">
@@ -418,16 +448,21 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
         <div className="ifc-foot">
           <span>Engine record: none. No ACMG criterion reads this tab.</span>
         </div>
+        </details>
       </section>
 
       {/* ── 2. Where on the sequence ──────────────────────────────────────────── */}
+      <EvidenceViewTabs tab="interfaces" comparisonLabel="Interface map" />
+      <MechanismSelection tab="interfaces" rows={interfaceWorkspaceReadings(ev)} visibleKeys={workspace.view === 'partners' ? visibleGroups.flatMap(g => [...g.rows, ...(openFolds.has(g.id) ? g.folded?.rows ?? [] : [])].map(p => `partner:${p.key}`)) : workspace.comparison ? interfaceMapView(ev, workspace.window === 'near', workspace.hidden).visibleKeys : [...solvedRows.map(p => p.key), 'complex-model', 'binding-change']} />
+      <EvidencePanel tab="interfaces">
+      {(!workspace.enabled || workspace.comparison) && <>
       <section className="ifc-section" aria-labelledby="ifc-track-title">
         <h2 className="eyebrow" id="ifc-track-title">
           <MapPin className="w-3.5 h-3.5" />
           Where on the sequence
         </h2>
         <div className="ifc-card">
-          <InterfaceTrack ev={ev} lit={lit} onLit={setLit} onOpen={openRow} />
+          <InterfaceMapWorkspace ev={ev} lit={workspace.selected ?? lit} onLit={setLit} onOpen={openRow} numbering={interfaceNumberingNote(result)} />
           {noInterfaceChart && (
             <p className="ifc-track__note" data-testid="interface-track-note">
               <span>
@@ -462,6 +497,9 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
       </section>
 
       {/* ── 3. Assembly ──────────────────────────────────────────────────────── */}
+      {workspace.enabled && <InterfaceOverview ev={ev} />}
+      </>}
+      {(!workspace.enabled || workspace.view === 'records') && <>
       <section className="ifc-section" aria-labelledby="ifc-assembly-title">
         <h2 className="eyebrow" id="ifc-assembly-title">
           <Boxes className="w-3.5 h-3.5" />
@@ -533,13 +571,14 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                     <tr
                       key={p.key}
                       id={`ifc-row-${p.key}`}
+                      data-reading-key={p.key}
                       data-rule-input={(!fibril && !crystal && p.variantAtInterface) || undefined}
                       data-lit={lit === p.key || undefined}
                       onMouseEnter={() => setLit(p.key)}
                       onMouseLeave={() => setLit(null)}
                     >
                       <th scope="row" className="ifc-subject">
-                        <span className="ifc-subject__name">{p.label}</span>
+                        <span className="ifc-subject__name"><InspectReadingButton tab="interfaces" readingKey={p.key}>{p.label}</InspectReadingButton></span>
                         <span className="ifc-subject__note ifc-mono">
                           {p.accession}
                           {p.homomeric ? " · same protein" : ""}
@@ -631,6 +670,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                 <th colSpan={4} scope="rowgroup">
                   <span className="ifc-group__inner">
                     <span className="ifc-group__title">Predicted complex</span>
+                    <ResearchGuideButton topic="boltz2" label="About this complex prediction" iconOnly />
                     <span className="ifc-group__meta">
                       Boltz-2 via JapanFold, on request
                       {ev.chains.length > 1 && model.state !== "not-applicable" && model.state !== "not-modelled" ? ` · chains ${ev.chains.map(c => `${c.id} ${c.label}`).join(", ")} · variant on A` : ""}
@@ -642,8 +682,9 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
                 <>
                   <tr>
                     <th scope="row" className="ifc-subject">
-                      <span className="ifc-subject__name">Interface confidence</span>
+                      <span className="ifc-subject__name" data-reading-key="complex-model"><InspectReadingButton tab="interfaces" readingKey="complex-model">Interface confidence</InspectReadingButton></span>
                       <span className="ifc-subject__note">ipTM, all interfaces together</span>
+                      <ResearchGuideButton topic="iptm" label="Explain interface confidence" iconOnly />
                     </th>
                     <td className="ifc-scale">{model.iptm !== null && <IptmRuler value={model.iptm} band={model.band} />}</td>
                     <td className="ifc-num">{model.iptm !== null ? model.iptm.toFixed(2) : "—"}</td>
@@ -672,7 +713,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
               ) : (
                 <tr>
                   <th scope="row" className="ifc-subject">
-                    <span className="ifc-subject__name">Complex model</span>
+                    <span className="ifc-subject__name" data-reading-key="complex-model"><InspectReadingButton tab="interfaces" readingKey="complex-model">Complex model</InspectReadingButton></span>
                     <span className="ifc-subject__note">ipTM, pTM and contacts</span>
                   </th>
                   <StateCells label={model.stateLabel} reason={model.reason} action={modelAction} />
@@ -698,6 +739,8 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
       </section>
 
       {/* ── 4. Partners ──────────────────────────────────────────────────────── */}
+      </>}
+      {(!workspace.enabled || workspace.view === 'partners') && <>
       <section className="ifc-section" aria-labelledby="ifc-partners-title" aria-busy={ev.status.lookups === "loading" || undefined}>
         <h2 className="eyebrow" id="ifc-partners-title">
           <Handshake className="w-3.5 h-3.5" />
@@ -816,13 +859,16 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
       </section>
 
       {/* ── 5. Binding energy change ─────────────────────────────────────────── */}
+      </>}
+      </EvidencePanel>
       <section className="ifc-section" aria-labelledby="ifc-bind-title">
-        <h2 className="eyebrow" id="ifc-bind-title">
+        <h2 className="eyebrow" id="ifc-bind-title" data-reading-key="binding-change">
           <Zap className="w-3.5 h-3.5" />
-          Binding energy change
+          <InspectReadingButton tab="interfaces" readingKey="binding-change">Binding energy change</InspectReadingButton>
         </h2>
         <div className="ifc-card" data-testid="binding-card">
           <div className="ifc-bind__head">
+            <ResearchGuideButton topic="ddmut_ppi" label="How to read binding change" />
             <span className="ifc-hero__figure-label">
               ΔΔG_bind · DDMut-PPI on a wild-type complex
               {b.wildType ? ` · ${b.wildType.source === "experimental" ? b.wildType.provenance : `${b.wildType.provenance}${b.wildType.ipTm != null ? `, ipTM ${b.wildType.ipTm.toFixed(2)}` : ""}`}` : ""}
@@ -861,6 +907,7 @@ export function InterfacesTab({ analysisState }: TabComponentProps) {
           )}
         </div>
       </section>
+      {workspace.enabled && <details className="mx-guide"><summary>How to read this workspace</summary><p>The sequence map uses UniProt residue numbering. Interface support is counted within each partner and structural context; it is not an effect size or a count of independent experiments. Select a lane or partner to pin its exact evidence.</p><p>Assembly composition is a schematic, not molecular geometry. Fibril and outside-assembly contacts remain separate from native interfaces. Predictions and STRING associations do not establish a measured binding effect.</p></details>}
     </div>
   );
 }

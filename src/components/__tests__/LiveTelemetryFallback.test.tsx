@@ -214,7 +214,8 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     renderPanel();
 
     const recheck = screen.getByRole("button", { name: /Re-check Ensembl VEP and its fallback/i });
-    expect(recheck).toBe(ensemblRow());
+    expect(recheck.tagName).toBe('BUTTON');
+    expect(ensemblRow()).toContainElement(recheck);
 
     fireEvent.click(recheck);
     expect(h.refresh).toHaveBeenCalledTimes(1);
@@ -269,7 +270,9 @@ describe("LiveTelemetryPanel — summary tone", () => {
     setDiagnostics(svc());
     renderPanel();
 
-    for (const row of Array.from(document.querySelectorAll('[data-service-id][role="button"]'))) {
+    const actionRows = Array.from(document.querySelectorAll('[data-service-id]')).filter(row => row.querySelector('button:not([aria-expanded])'));
+    expect(actionRows.length).toBeGreaterThan(0);
+    for (const row of actionRows) {
       expect(row.querySelector("svg"), `${row.getAttribute("data-service-id")} needs a visible cue`).not.toBeNull();
     }
   });
@@ -371,12 +374,12 @@ describe("LiveTelemetryPanel — Gemini session honesty", () => {
     // The warning tint, not the nominal quiet text: a lapsed session needs the reader's eye.
     expect(pill.className).toMatch(/cs-bg-warning/);
     // The row must say what clicking does.
-    expect(row.getAttribute("aria-label")).toBe("Relink the stored Gemini key now");
+    expect(within(row).getByRole('button', { name: 'Relink the stored Gemini key now' }).tagName).toBe('BUTTON');
     // Ready count reflects it: the summary no longer claims a service that lapses is online.
     expect(screen.getByTitle(/services online/i).textContent).toMatch(/9\/10/);
 
     // The row is the action: one click re-runs the same handshake Settings does.
-    fireEvent.click(row);
+    fireEvent.click(within(row).getByRole('button', { name: 'Relink the stored Gemini key now' }));
     await screen.findByText(/^Session Active ·/);
 
     const linkCall = fetchMock.mock.calls.find((call: any[]) => call[0] === "/api/v1/session/keys");

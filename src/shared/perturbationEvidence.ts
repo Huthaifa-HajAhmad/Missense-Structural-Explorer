@@ -54,6 +54,7 @@
  *   • ESM3 "drift at sequence index 4" for a variant at residue 867: the peak was printed with no
  *     distance to the variant and no value AT the variant.
  */
+import { embeddingSource } from "./embeddingSource";
 
 import { ENGINE_STATE_LABELS } from "./engineStatus";
 import { THRESHOLDS, LOCAL_STRUCTURAL_WINDOW, STRUCTURE_COLOUR_BANDS } from "./thresholds/constants";
@@ -204,6 +205,8 @@ export interface PhysicalReading {
 export interface Esm3Reading {
   availability: ReadingAvailability;
   servedBy: string | null;
+  label: string;
+  knowledgeKey: string;
   fallback: boolean;
   drift: number | null;
   driftBand: "none" | "minor" | "moderate" | "major" | null;
@@ -640,10 +643,12 @@ function plddtBand(v: number | null): string | null {
 
 function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   if (!e) return null;
+  const source = embeddingSource(e.provenance);
+  const identity = { servedBy: source.recorded, label: source.label, knowledgeKey: source.topic, fallback: source.fallback };
   if (e.error) {
     return {
       availability: { state: "failed", label: ENGINE_STATE_LABELS["upstream-error"], reason: String(e.error), action: "settings" },
-      servedBy: null, fallback: false, drift: null, driftBand: null, driftResidue: null,
+      ...identity, drift: null, driftBand: null, driftResidue: null,
       siteDrift: null, peakDistance: null, confidenceBand: null,
       templateConfidence: null, burial: null, secondaryStructure: null
     };
@@ -661,11 +666,9 @@ function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   const envs: string[] = Array.isArray(e.microenvironments) ? e.microenvironments : [];
   const ss = envs.find(x => /helix|sheet|loop/i.test(x)) ?? null;
   const burialRaw = envs.find(x => !/helix|sheet|loop/i.test(x)) ?? null;
-  const provenance = typeof e.provenance === "string" ? e.provenance : null;
   return {
-    availability: drift !== null ? computed() : absent("ESM3 returned no per-residue scores."),
-    servedBy: provenance,
-    fallback: Boolean(provenance && /vesm/i.test(provenance)),
+    availability: drift !== null ? computed() : absent(`${source.label}: no per-residue scores were returned.`),
+    ...identity,
     drift,
     driftBand,
     driftResidue,

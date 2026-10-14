@@ -116,6 +116,14 @@ describe("Model calibration registry", () => {
     expect(describeWithinModelRank(1)).toContain("0 of the other 19 canonical substitutions rank above it");
   });
 
+  it('describes entropy as model preference without asserting tolerance or clinical strength', () => {
+    const high = describeWithinModelRank(15, 4.1);
+    const low = describeWithinModelRank(15, 0.5);
+    expect(high).toContain('does not establish biological tolerance');
+    expect(low).toContain('not a measurement of function or clinical evidence strength');
+    expect(high + low).not.toMatch(/tolerates substitution|stronger evidence|weaker evidence/);
+  });
+
   it("records the embedding widths the architectures actually have", () => {
     expect(MODEL_CALIBRATIONS.saprot35m.embeddingDim).toBe(480); // SaProt_35M_AF2 config.json hidden_size
     expect(MODEL_CALIBRATIONS.vesm150m.embeddingDim).toBe(640); // built on esm2_t30_150M_UR50D

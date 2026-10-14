@@ -163,6 +163,7 @@ def verify_local_checkpoints():
     """
     global model_status, model_errors
     # 1. StabilityOracle validation
+    model_status["stabilityoracle"] = "loading"
     try:
         from tools.model_server_app.routers.stabilityoracle import get_stability_oracle_model
         get_stability_oracle_model()
@@ -174,6 +175,7 @@ def verify_local_checkpoints():
         print(f"[Model Server Guard] CRITICAL: StabilityOracle failed startup self-test: {e}", file=sys.stderr)
 
     # 2. ThermoMPNN validation
+    model_status["thermompnn"] = "loading"
     try:
         from tools.model_server_app.routers.thermompnn import get_official_model
         m = get_official_model()
@@ -190,6 +192,10 @@ def verify_local_checkpoints():
 def start_background_warmup():
     """Starts background warmup of local models so uvicorn binds port 8000 immediately."""
     import threading
+    # Publish pending startup work before the thread runs, so health cannot report ready
+    # between checkpoint validation and VESM loading.
+    for name in ("stabilityoracle", "thermompnn", "vesm"):
+        model_status[name] = "loading"
     def _warmup():
         try:
             verify_local_checkpoints()

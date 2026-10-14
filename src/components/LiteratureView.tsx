@@ -1,3 +1,4 @@
+import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import { AlertTriangle, BookOpen, Library, Search } from "lucide-react";
 import { useApiClient } from "../apiClient";
@@ -449,6 +450,7 @@ export default function LiteratureView({
       <div className="lit-screen @container">
         <header>
           <h1 className="screen-title">Literature</h1>
+          <ResearchGuideButton topic="literature" label="How to assess a paper’s relevance" />
           <p className="screen-tab-description">
             What Europe PMC holds on {gene || "this gene"}{forms ? ` and ${forms.label}` : ""}, how the list was obtained, and which papers name the variant.
           </p>

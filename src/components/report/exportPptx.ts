@@ -118,7 +118,7 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     });
     const paras = proseToPlain(cls.text).split(/\n{2,}/).slice(0, 2).map(p => p.replace(/\n/g, " ")).join("\n\n");
     s.addText(paras, { x: 0.6, y: 3.4, w: 12.1, h: 3.3, fontFace: FONT, fontSize: 16, color: SEC, valign: "top" });
-    s.addText("Summary slide: full criteria, limitations and any continued text are in speaker notes.", { x: 0.6, y: 6.8, w: 12.1, h: 0.25, fontFace: FONT, fontSize: 10, color: MUTED });
+    s.addText("Read with the limits & provenance slides. Full records and continued text are in speaker notes.", { x: 0.6, y: 6.8, w: 12.1, h: 0.25, fontFace: FONT, fontSize: 10, color: MUTED });
     s.addNotes(reportBlockText(cls));
     if (cls.table) {
       chunk(cls.table.rows, CRITERIA_PER_SLIDE).forEach((rows, i, all) => {
@@ -132,7 +132,7 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
   // 4. Evidence readings, one line per block
   const readings = READING_KEYS.map(k => byKey.get(k)).filter((b): b is ReportBlock => Boolean(b));
   chunk(readings, ROWS_PER_SLIDE).forEach((rows, i, all) => {
-    const s = base(all.length > 1 ? `Evidence readings (${i + 1} of ${all.length})` : "Evidence readings", "Summary readings. Full text, scores, caveats and sources are in speaker notes.");
+    const s = base(all.length > 1 ? `Evidence readings (${i + 1} of ${all.length})` : "Evidence readings", "Read with the limits & provenance slides. Full scores and source records are in speaker notes.");
     s.addTable(
       [
         ["EVIDENCE AREA", "READING", "STATUS"].map(h => ({ text: h, options: { bold: true, color: MUTED, fill: { color: WASH }, fontSize: 10 } })),
@@ -152,7 +152,7 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     const b = byKey.get(key);
     if (!b) continue;
     const s = base(b.title, chipLine(b));
-    if (b.warnings.length) s.addText("Review required: see full warnings in speaker notes", { x: 0.6, y: 1.15, w: 12.1, h: 0.2, fontFace: FONT, fontSize: 10, color: PATH });
+    if (b.warnings.length) s.addText("Review required: read the limits & provenance slides", { x: 0.6, y: 1.15, w: 12.1, h: 0.2, fontFace: FONT, fontSize: 10, color: PATH });
     if (b.table) {
       s.addTable(tableRows(b.table) as any, { x: 0.6, y: 1.6, w: 12.1, colW: [3.6, 8.5], fontFace: FONT, border: { type: "solid", color: LINE, pt: 0.5 }, valign: "middle" });
     } else {
@@ -166,11 +166,37 @@ export async function buildReportPptx(doc: ReportDocument): Promise<Blob> {
     const b = byKey.get(key);
     if (!b) continue;
     const s = base(b.title, chipLine(b));
-    if (b.warnings.length) s.addText("Review required: see full warnings in speaker notes", { x: 0.6, y: 1.15, w: 12.1, h: 0.2, fontFace: FONT, fontSize: 10, color: PATH });
+    if (b.warnings.length) s.addText("Review required: read the limits & provenance slides", { x: 0.6, y: 1.15, w: 12.1, h: 0.2, fontFace: FONT, fontSize: 10, color: PATH });
     s.addText(`${proseToPlain(b.text).slice(0, 1500)}${proseToPlain(b.text).length > 1500 ? "... (continued in speaker notes)" : ""}`, { x: 0.6, y: 1.6, w: 12.1, h: 4.6, fontFace: FONT, fontSize: 15, color: SEC, valign: "top" });
     if (b.caption) s.addText(b.caption, { x: 0.6, y: 6.3, w: 12.1, h: 0.6, fontFace: FONT, fontSize: 10, color: MUTED, valign: "top" });
     s.addNotes(reportBlockText(b));
   }
+
+  // Qualifications must survive a presentation without access to speaker notes. Paginate all
+  // warnings and captions; never truncate away a missing-data, freshness or authorship qualifier.
+  const qualificationPages: string[] = [];
+  for (const block of blocks) {
+    const entries = [...block.warnings, ...(block.caption ? [block.caption] : [])];
+    for (const entry of entries) {
+      const words = proseToPlain(entry).split(/\s+/);
+      let part = `${block.title}:`;
+      for (const word of words) {
+        if (part.length + word.length > 650) {
+          qualificationPages.push(part);
+          part = `${block.title} (continued):`;
+        }
+        part += ` ${word}`;
+      }
+      if (qualificationPages.length && qualificationPages[qualificationPages.length - 1].length + part.length < 1100) {
+        qualificationPages[qualificationPages.length - 1] += `\n\n${part}`;
+      } else qualificationPages.push(part);
+    }
+  }
+  qualificationPages.forEach((text, i) => {
+    const s = base(`Reading limits & provenance (${i + 1} of ${qualificationPages.length})`, "Qualifications for the included evidence and written summary");
+    s.addText(text, { x: 0.6, y: 1.6, w: 12.1, h: 5.1, fontFace: FONT, fontSize: 16, color: SEC, valign: "top", breakLine: false });
+    s.addNotes(text);
+  });
 
   // Closing: limitations and the footer
   {

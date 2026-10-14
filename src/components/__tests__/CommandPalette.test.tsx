@@ -58,6 +58,7 @@ vi.mock("../../context/SettingsContext", () => ({
 }));
 
 import CommandPalette, { armSyntheticSubmit } from "../CommandPalette";
+import { ResearchGuideButton } from '../knowledge/ResearchGuideButton';
 
 type Props = React.ComponentProps<typeof CommandPalette>;
 
@@ -92,6 +93,25 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("CommandPalette — mount and hotkey", () => {
+  it.each([false, true])('leaves the keyboard with a native explanation drawer (palette open: %s)', open => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+    const props = setup({ open });
+    render(<><CommandPalette {...props} /><ResearchGuideButton topic="foldx" label="About FoldX" /></>);
+    fireEvent.click(screen.getByRole('button', { name: 'About FoldX' }));
+    const title = screen.getByRole('heading', { name: 'FoldX' });
+    fireEvent.keyDown(title, { key: 'k', ctrlKey: true });
+    expect(props.onOpenChange).not.toHaveBeenCalled();
+    for (const key of ['Tab', 'Escape']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      title.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(props.onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Close explanation' }));
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(props.onOpenChange).toHaveBeenCalledWith(!open);
+  });
   it("renders nothing while closed", () => {
     render(<CommandPalette {...setup({ open: false })} />);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

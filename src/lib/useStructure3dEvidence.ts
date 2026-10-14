@@ -103,8 +103,8 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
       metadata?.pdbSource === PDB_SOURCE_RCSB && metadata?.pdbId ? `PDB ${metadata.pdbId}` : "the AlphaFold model";
     const esm3 = esm3Eval
       ? "error" in (esm3Eval as any)
-        ? { scoreCount: null, error: String((esm3Eval as any).error ?? "ESM3 failed") }
-        : { scoreCount: Array.isArray((esm3Eval as any).perturbationScores) ? (esm3Eval as any).perturbationScores.length : null, error: null }
+        ? { provenance: (esm3Eval as any).provenance, scoreCount: null, error: String((esm3Eval as any).error ?? "ESM3 failed") }
+        : { provenance: (esm3Eval as any).provenance, scoreCount: Array.isArray((esm3Eval as any).perturbationScores) ? (esm3Eval as any).perturbationScores.length : null, error: null }
       : null;
 
     const input: Structure3dInput = {

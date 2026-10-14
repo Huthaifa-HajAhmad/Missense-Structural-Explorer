@@ -1,3 +1,4 @@
+import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Trash2,
@@ -1027,6 +1028,7 @@ function VariantSearchPanel({
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
+          <ResearchGuideButton topic="variant_identity" label="Which variant will be analysed?" />
           <p className="mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
             Start with a gene and protein change, or use genomic coordinates.
             Evidence, structure and stability arrive independently; AI synthesis is optional.

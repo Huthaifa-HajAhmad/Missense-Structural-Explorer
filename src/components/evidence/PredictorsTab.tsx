@@ -277,6 +277,7 @@ function ReadingRow({
             <button
               type="button"
               className="prd-info"
+              data-explanation-topic={reading.knowledgeKey}
               onClick={() => onKnowledge(reading.knowledgeKey as string)}
               aria-label={`About ${reading.name}`}
               title="Model details and citation"
