@@ -7,6 +7,7 @@ import { ContextSourceState } from './ContextSourceState';
 import { ModelOrganismsCard } from './ModelOrganismsCard';
 import { ModelPhenotypesCard } from './ModelPhenotypesCard';
 import { ResidueAlignmentCard } from './ResidueAlignmentCard';
+import { SpeciesCoverage } from './ContextFigures';
 
 export function SpeciesModelsTab({ analysisState }: TabComponentProps) {
   return analysisState.result ? <SpeciesContent result={analysisState.result} /> : null;
@@ -21,14 +22,14 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
   const phenotypes = c.phenotypesLoad?.data;
   const incomplete = phenotypes?.species.filter(s => s.status === 'error') ?? [];
   const omitted = phenotypes?.species.reduce((n, s) => n + (s.status === 'ready' ? Math.max(0, s.total - s.phenotypes.length) : 0), 0) ?? 0;
-  return <div className="ctx-screen cx-screen" data-testid="species-models-screen">
+  return <div className="ctx-screen cx-screen sm-workspace" data-testid="species-models-screen" data-comparison={w.comparison || undefined}>
     <header><h1 className="screen-title">Species &amp; models</h1><p className="screen-tab-description">Explore orthologs, the aligned variant site, and curated animal phenotypes.</p></header>
-    {c.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices remain with their original transcript, isoform and assembly.</p>}
-    <ReviewFrame compact={w.enabled} gene={c.gene} load={c.diseaseLoad} selection={c.selection} onChange={c.setSelection} onRetry={c.retryDisease} />
-    <dl className="cx-overview"><div><dt>Species with returned records</dt><dd>{speciesCount}</dd></div><div><dt>Alliance orthologs</dt><dd>{rows.filter(r => r.group === 'orthologs').length}</dd></div><div><dt>Ensembl alignments</dt><dd>{rows.filter(r => r.group === 'alignment').length}</dd></div></dl>
-    <p>These sources describe different aspects of a model. A matching residue or phenotype does not show that a human variant is tolerated or disease-causing.</p>
     <EvidenceViewTabs tab="species-models" comparisonLabel="Species explorer" />
-    <EvidencePanel tab="species-models"><ContextExplorer tab="species-models" rows={rows}
+    {c.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices remain with their original transcript, isoform and assembly.</p>}
+    <details className="sm-review" open={!w.enabled || undefined}><summary>Review context · {model.selected ? `${model.selected.label} · ${model.selected.inheritance.label}` : 'No disease selected'}</summary><ReviewFrame compact={w.enabled} gene={c.gene} load={c.diseaseLoad} selection={c.selection} onChange={c.setSelection} onRetry={c.retryDisease} /></details>
+    <p className="sm-finding"><strong>{speciesCount} species with returned records.</strong> {rows.filter(r => r.group === 'orthologs').length} Alliance orthologs and {rows.filter(r => r.group === 'alignment').length} Ensembl alignments retain their own identifiers.</p>
+    <p>These sources describe different aspects of a model. A matching residue or phenotype does not show that a human variant is tolerated or disease-causing.</p>
+    <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}<ContextExplorer tab="species-models" rows={rows}
       groups={[{ id: 'orthologs', label: 'Orthologs' }, { id: 'alignment', label: 'Variant site' }, { id: 'phenotypes', label: 'Phenotypes' }]}
       empty={<ContextSourceState {...source} />} relevantLabel="Selected disease term overlap only" />
     </EvidencePanel>
