@@ -40,6 +40,12 @@ import {
   getResolvedAlphafoldVersion,
 } from "./structure-fetcher.ts";
 import { defaultCacheRegistry, getCachedOrFetch } from "../infra/cache.ts";
+import { type CacheScope, currentCacheScope, newCacheScope, runInCacheScope } from "../infra/cache-scope.ts";
+
+/** Whether calls in `scope` were refused, held back, or answered from stale data (WP-I2). */
+function scopeWasHeldBack(scope: CacheScope | null): boolean {
+  return Boolean(scope && (scope.rateLimitedHosts.size > 0 || scope.busyHosts.size > 0 || scope.stale.length > 0));
+}
 import { AnalysisDatabase } from "../infra/analysis-db.ts";
 import type { StructureProvenance } from "../../../src/shared/contracts.ts";
 
@@ -290,6 +296,9 @@ export async function resolveStructure(
    */
   let freshlyProbed: ProbedStructure | null = null;
 
+  /** Set when the probe's calls were refused or held back: its choice may be a fallback tier (WP-I2). */
+  let probeDegraded = false;
+
   let chosen: ChosenStructure | null = null;
   try {
     chosen = await getCachedOrFetch<ChosenStructure | null>({
@@ -299,12 +308,15 @@ export async function resolveStructure(
       ttlSeconds: STRUCTURE_RESOLUTION_TTL_S,
       fetcher: async () => {
         const probed = await probeStructure(uniprotId, pos);
+        probeDegraded = scopeWasHeldBack(currentCacheScope());
         if (!probed) return null;
         freshlyProbed = probed;
         return probed.choice;
       },
-      // A total failure is not a decision: it must be retried, not remembered for six hours.
-      shouldCache: (result) => result !== null
+      // A total failure is not a decision: it must be retried, not remembered for six hours. Nor is a
+      // choice made while a provider refused or held back calls: PDBe answering 429 makes the probe
+      // fall to a lower tier, which must not be remembered as this protein's structure.
+      shouldCache: (result) => result !== null && !probeDegraded
     });
   } catch (err: any) {
     console.warn("[resolveStructure] Tier memoisation failed, resolving directly:", err.message);
@@ -338,8 +350,10 @@ export async function resolveStructure(
   try {
     structureResolutionCache.delete(memoKey);
   } catch {}
-  const reProbed = await probeStructure(uniprotId, pos);
+  const probeScope = newCacheScope(currentCacheScope());
+  const reProbed = await runInCacheScope(probeScope, () => probeStructure(uniprotId, pos));
   if (!reProbed) return null;
+  if (scopeWasHeldBack(probeScope)) return { pdbText: reProbed.pdbText, provenance: reProbed.provenance };
   try {
     structureResolutionCache.set(memoKey, reProbed.choice);
     await AnalysisDatabase.getInstance()

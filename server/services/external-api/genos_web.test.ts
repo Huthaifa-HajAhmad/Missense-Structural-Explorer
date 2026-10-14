@@ -243,6 +243,31 @@ describe("Genos Web Service (P0-2)", () => {
     expect(row.phylop).toBeCloseTo(1.2);
   });
 
+  it("does not remember a window in which a batch failed (WP-I2)", async () => {
+    vi.resetModules();
+    const { queryGenosLandscape: freshQuery, __resetGenosPipelineForTests, __setGenosMinDelayMsForTests } = await import("./genos_web.ts");
+    __resetGenosPipelineForTests();
+    __setGenosMinDelayMsForTests(1);
+    let queries = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("/api/login")) {
+        return new Response(null, { status: 200, headers: { "set-cookie": "genos_session=abc; Path=/" } });
+      }
+      if (u.endsWith("/api/query")) {
+        queries++;
+        throw new TypeError("fetch failed");
+      }
+      throw new Error(`Unexpected fetch to ${u}`);
+    }));
+    const seq = "M".repeat(585) + "D";
+    await freshQuery("GZF1", 586, 586, seq);
+    const afterFirst = queries;
+    expect(afterFirst).toBeGreaterThan(0);
+    await freshQuery("GZF1", 586, 586, seq);
+    expect(queries).toBeGreaterThan(afterFirst);
+  });
+
   it("recovers aapos from chunkPos when Genos response rows omit aapos/aapos(1-based)", async () => {
     vi.resetModules();
     const { queryGenosLandscape: freshQuery, __resetGenosPipelineForTests, __setGenosMinDelayMsForTests } = await import("./genos_web.ts");

@@ -1,7 +1,7 @@
 import fs from "fs";
 import Piscina from "piscina";
 import path from "path";
-import type { StoredVariantAnalysis, StoredVariantAnalysisSummary, AnalysisCacheOptions } from "./analysis-db-core.ts";
+import type { StoredVariantAnalysis, StoredVariantAnalysisSummary, AnalysisCacheOptions, ExternalCacheRow } from "./analysis-db-core.ts";
 
 let dbPiscinaInstance: Piscina | null = null;
 
@@ -94,7 +94,8 @@ export async function runSaveExternalCacheInWorker(params: {
 export async function runGetExternalCacheInWorker(params: {
   dbPath?: string;
   cacheKey: string;
-}): Promise<{ data: any; source: string; fetchedAt: string; etag: string | null } | null> {
+  includeExpired?: boolean;
+}): Promise<ExternalCacheRow | null> {
   return getAnalysisDbPool().run(params, { name: "workerGetExternalCache" });
 }
 

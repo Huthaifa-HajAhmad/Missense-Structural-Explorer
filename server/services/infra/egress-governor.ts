@@ -46,6 +46,7 @@ import {
 } from "../../../src/shared/providerLimits.ts";
 import { EGRESS_SYSTEM_OWNER, currentEgressOwner } from "./egress-context.ts";
 import { egressGovernorMode, isProviderRateLimited, isRateLimitAnswer } from "./provider-pause.ts";
+import { noteBusy } from "./cache-scope.ts";
 
 export type LimitBasis = "documented" | "configured" | "observed" | "unmeasured";
 
@@ -502,6 +503,21 @@ function release(s: ProviderState): void {
   dispatch(s);
 }
 
+/**
+ * Awaits a turn. A turn that never came in time is noted in the caller's cache scope as "busy" (noted
+ * here, in the caller's own async context, rather than in the timer that refused it), so the cache may
+ * answer from an expired entry instead (WP-I2). The provider did not refuse anything, so it is not
+ * reported as limiting requests.
+ */
+async function waitForTurn(hostname: string, turn: Promise<void>): Promise<void> {
+  try {
+    await turn;
+  } catch (err) {
+    if (isEgressWaitExceeded(err)) noteBusy(hostname);
+    throw err;
+  }
+}
+
 export interface GovernedOptions {
   /** The caller's own deadline (epoch ms). */
   deadlineAt?: number;
@@ -555,7 +571,7 @@ export async function governed<T>(hostname: string, fn: () => Promise<T>, opts: 
     takeSlot(s, owner, now);
   } else {
     s.held++;
-    await new Promise<void>((resolve, reject) => {
+    await waitForTurn(hostname, new Promise<void>((resolve, reject) => {
       const limitAt = Math.min(
         opts.deadlineAt !== undefined ? opts.deadlineAt - DEADLINE_MARGIN_MS : Number.POSITIVE_INFINITY,
         now + MAX_WAIT_MS
@@ -601,7 +617,7 @@ export async function governed<T>(hostname: string, fn: () => Promise<T>, opts: 
       }, Math.max(0, limitAt - now));
       timer.unref?.();
       dispatch(s);
-    });
+    }));
   }
   try {
     return await fn();

@@ -367,18 +367,36 @@ export function executeSaveExternalCache(
   stmt.run(cacheKey, dataJson, etag || null, source, fetchedAt, expiresAt, schemaVersion);
 }
 
+/**
+ * How long an expired `external_cache` row is kept after it expires. Reads ignore it unless they ask
+ * for expired rows: the only such reader is the stale-on-rate-limit path (`cache-registry.ts`, WP-I2),
+ * which serves it, flagged with its age, when the provider is limiting requests and nothing fresher
+ * exists.
+ */
+export const EXPIRED_CACHE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface ExternalCacheRow<T = any> {
+  data: T;
+  source: string;
+  fetchedAt: string;
+  etag: string | null;
+  /** ISO instant the row stops being fresh; null when it never expires. */
+  expiresAt: string | null;
+}
+
 export function executeGetExternalCache<T = any>(
   db: DatabaseSync,
-  cacheKey: string
-): { data: T; source: string; fetchedAt: string; etag: string | null } | null {
+  cacheKey: string,
+  includeExpired = false
+): ExternalCacheRow<T> | null {
   const now = new Date().toISOString();
   const stmt = db.prepare(`
     SELECT data_json, etag, source, fetched_at, expires_at
     FROM external_cache
-    WHERE cache_key = ? AND (expires_at IS NULL OR expires_at > ?);
+    WHERE cache_key = ? AND (? OR expires_at IS NULL OR expires_at > ?);
   `);
 
-  const row = stmt.get(cacheKey, now) as any;
+  const row = stmt.get(cacheKey, includeExpired ? 1 : 0, now) as any;
   if (!row) return null;
 
   try {
@@ -386,16 +404,18 @@ export function executeGetExternalCache<T = any>(
       data: JSON.parse(row.data_json),
       source: row.source,
       fetchedAt: row.fetched_at,
-      etag: row.etag || null
+      etag: row.etag || null,
+      expiresAt: row.expires_at ?? null
     };
   } catch {
     return null;
   }
 }
 
-export function executePurgeExpiredExternalCache(db: DatabaseSync): number {
-  const now = new Date().toISOString();
-  const info = db.prepare("DELETE FROM external_cache WHERE expires_at IS NOT NULL AND expires_at < ?;").run(now);
+export function executePurgeExpiredExternalCache(db: DatabaseSync, now = Date.now()): number {
+  // Rows expired less than EXPIRED_CACHE_RETENTION_MS ago are kept for the stale-on-rate-limit read.
+  const cutoff = new Date(now - EXPIRED_CACHE_RETENTION_MS).toISOString();
+  const info = db.prepare("DELETE FROM external_cache WHERE expires_at IS NOT NULL AND expires_at < ?;").run(cutoff);
   return Number(info?.changes ?? 0);
 }
 

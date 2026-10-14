@@ -7,6 +7,7 @@ import {
   runSharedCoreFetch
 } from "./core-singleflight.ts";
 import type { ParsedVariantContext } from "../../routes/variant/variant-parser.ts";
+import { newCacheScope, noteRateLimited, runInCacheScope } from "../infra/cache-scope.ts";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +57,24 @@ describe("core singleflight", () => {
     const promise = new Promise<T>(resolve => { release = resolve; });
     return { promise, release };
   };
+
+  it("tells every caller of a shared run what its fetches met (WP-I2)", async () => {
+    const gate = deferred<any>();
+    const mocked = await fetchCore();
+    mocked.mockImplementationOnce(async () => {
+      const value = await gate.promise;
+      noteRateLimited("eutils.ncbi.nlm.nih.gov");
+      return value;
+    });
+    const a = newCacheScope();
+    const b = newCacheScope();
+    const first = runInCacheScope(a, () => runSharedCoreFetch(baseContext));
+    const second = runInCacheScope(b, () => runSharedCoreFetch(baseContext));
+    gate.release({ clinvar: { classification: "Pathogenic" } });
+    await Promise.all([first, second]);
+    expect([...a.rateLimitedHosts]).toEqual(["eutils.ncbi.nlm.nih.gov"]);
+    expect([...b.rateLimitedHosts]).toEqual(["eutils.ncbi.nlm.nih.gov"]);
+  });
 
   it("starts ONE fetch for two concurrent callers with the same identity", async () => {
     const gate = deferred<any>();

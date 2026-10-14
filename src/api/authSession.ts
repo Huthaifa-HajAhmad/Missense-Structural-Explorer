@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useSettings } from "../context/SettingsContext";
 import { fetchWithRetry } from "../shared/fetch-retry";
 import { purgeFallbackNarratives } from "../services/pipeline/variantCache";
+import { STALE_DATA_HEADER, parseStaleData, type StaleDataNote } from "../shared/providerLimits";
 
 // Circuit-breaker set to prevent repetitive 403 authentication spam loops when an API key is invalid
 const invalidApiKeys = new Set<string>();
@@ -59,6 +60,46 @@ function clearAuthLapse(): void {
   if (!authLapse) return;
   authLapse = null;
   authLapseListeners.forEach(l => l(null));
+}
+
+// ── Stale-data signal (WP-I2) ───────────────────────────────────────────────────────────────────
+// When a provider limits requests, the server answers from its saved copy instead of failing and
+// says so in `X-MSE-Stale`. This choke-point is the one place that sees every response header, so
+// it publishes the notes; a surface that can tell the reader (`useStaleDataNotice`) subscribes.
+
+export interface StaleDataReport {
+  /** When the response carrying the header arrived. */
+  at: number;
+  notes: StaleDataNote[];
+}
+
+let staleData: StaleDataReport | null = null;
+const staleDataListeners = new Set<(report: StaleDataReport) => void>();
+
+/** The most recent response that used saved data past its expiry, or null. */
+export function getStaleData(): StaleDataReport | null {
+  return staleData;
+}
+
+export function subscribeStaleData(listener: (report: StaleDataReport) => void): () => void {
+  staleDataListeners.add(listener);
+  return () => staleDataListeners.delete(listener);
+}
+
+/** Exported for tests; `fetchWithAuth` calls it for every same-origin response. */
+export function noteStaleDataHeader(value: string | null): void {
+  const notes = parseStaleData(value);
+  if (notes.length === 0) return;
+  const report: StaleDataReport = { at: Date.now(), notes };
+  staleData = report;
+  // A listener's failure must never fail the request that carried the header.
+  staleDataListeners.forEach(l => {
+    try {
+      l(report);
+    } catch (err) {
+      console.warn("[Stale data] A listener failed:", err);
+    }
+  });
 }
 
 export function clearInvalidApiKey(key?: string): void {
@@ -568,6 +609,7 @@ export function useAuthSession() {
         } else if (response.ok) {
           clearAuthLapse();
         }
+        noteStaleDataHeader(response.headers?.get?.(STALE_DATA_HEADER) ?? null);
       }
 
       // `timeout` must bound the BODY read too — a header-then-stall upstream otherwise keeps

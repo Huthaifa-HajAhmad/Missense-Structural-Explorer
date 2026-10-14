@@ -39,7 +39,9 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
     const res = await fetchWithRetry(url, { timeout: 10000 });
     if (!res.ok) {
       const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
-      transcriptMappingCache.set(proteinOrGene, fallback);
+      // Only a definitive "no such entry" is remembered. A 429, a 5xx or any other refusal is
+      // answered empty this once and asked again next time (WP-I2: no negative caching of errors).
+      if (res.status === 404) transcriptMappingCache.set(cleanInput, fallback);
       return fallback;
     }
     const data = await res.json() as any;
@@ -78,7 +80,7 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
       const refseqProp = maneXref.properties?.find((p: any) => p.key === "RefSeqNucleotideId");
       const refseqId = refseqProp && typeof refseqProp.value === "string" ? refseqProp.value : null;
       const result: TranscriptMapping = { refseqId, ensemblId, canonicalEnsemblId, isManeSelect: true };
-      transcriptMappingCache.set(proteinOrGene, result);
+      transcriptMappingCache.set(cleanInput, result);
       return result;
     }
 
@@ -99,12 +101,11 @@ export async function getTranscriptsForProtein(proteinOrGene: string): Promise<T
     }
 
     const result: TranscriptMapping = { refseqId, ensemblId: canonicalEnsemblId, canonicalEnsemblId, isManeSelect: false };
-    transcriptMappingCache.set(proteinOrGene, result);
+    transcriptMappingCache.set(cleanInput, result);
     return result;
   } catch (err: any) {
     console.warn(`[VEP Transcript Resolver] Warning resolving transcripts for ${proteinOrGene}: ${err.message}`);
-    const fallback: TranscriptMapping = { refseqId: null, ensemblId: null };
-    transcriptMappingCache.set(proteinOrGene, fallback);
-    return fallback;
+    // Not remembered: a timeout or network error says nothing about the protein.
+    return { refseqId: null, ensemblId: null };
   }
 }

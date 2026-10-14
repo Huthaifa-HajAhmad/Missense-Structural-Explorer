@@ -451,7 +451,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 ### 16a. Engine Capabilities and Remote Providers
 * **Route**: `GET /api/v1/capabilities`
 * **Auth**: None
-* **Description**: Readiness of each engine (FoldX, Box64, RaSP, ThermoMPNN, StabilityOracle, SaProt, JapanFold, P2Rank), plus `egress`, which tells the owner which remote provider is the constraint (WP-I1 and WP-I3, `doc/COMPUTE_ROUTING_PLAN.md`):
+* **Description**: Readiness of each engine (FoldX, Box64, RaSP, ThermoMPNN, StabilityOracle, SaProt, JapanFold, P2Rank), plus `egress`, which tells the owner which remote provider is the constraint (WP-I1, WP-I2 and WP-I3, `doc/COMPUTE_ROUTING_PLAN.md`):
 
   | `egress` field | meaning |
   | --- | --- |
@@ -459,8 +459,11 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
   | `providers[]` | hosts paused after a 429 (or 503 with `Retry-After`) or rate-limiting us in the last 15 minutes: `state`, `pausedUntil`, `retryAfterSec`, `recentRateLimits`, `wouldHold`, `limitBasis` |
   | `otherPausedOrRateLimitedHosts` | how many such hosts are not named (request-chosen endpoints); absent when 0 |
   | `governor[]` | per provider seen since start-up: `maxConcurrent`, `inFlight`, `waiting`, `ratePerMin` (null = concurrency only), `limitBasis` (`documented`, `configured`, `observed`, `unmeasured`), `source`, and counts `calls`, `held`, `wouldHold`, `refused`, `rateLimits`; request-chosen hosts are summed into one `other` entry |
+  | `staleServes` | by cache source (for example `UniProt FASTA`): `served` (under `on`) and `wouldServe` (under `shadow`), the expired cache entries returned instead of an error while a provider limited requests |
 
-  Hostnames and counts only: no tokens, query strings or user ids. The JapanFold reachability check behind `engines[].japanfold.reachable` is cached for 60 s.
+  Hostnames, cache source labels and counts only: no tokens, query strings or user ids. The JapanFold reachability check behind `engines[].japanfold.reachable` is cached for 60 s.
+
+* **`X-MSE-Stale` (any `/api/v1` response)**: under `EGRESS_GOVERNOR=on`, when a provider limits requests (or the team's calls to it waited past their deadline) and the server answers from a saved copy past its expiry instead of failing, the response carries `X-MSE-Stale: [{"data":"UniProt FASTA","provider":"UniProt","ageSec":10800}]`: one entry per data label and provider, the oldest age, at most five; `"busy": true` when the provider refused nothing and the calls only waited too long; a request-chosen endpoint is named `A remote provider`. The header is exposed to allowed cross-origin pages. `POST /analyze-variant/stream` sends its headers first, so it ends with a `{"type":"stale","notes":[...]}` frame instead. The client shows "Showing UniProt FASTA data saved 3 h ago; UniProt is limiting requests." (`staleDataSentence`, `src/shared/providerLimits.ts`). A response built from such data is not saved (analyses) or cached.
 
 ### 17. Accounts
 All under `/api/v1`, `Cache-Control: no-store`. Request and response schemas are in the OpenAPI spec (tag *Accounts*).

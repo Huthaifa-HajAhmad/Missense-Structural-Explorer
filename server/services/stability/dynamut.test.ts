@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { pollBioSigJob, httpGetWithBody, submitDdmutJob, submitDynaMut2Job } from "./dynamut.ts";
+import { pollBioSigJob, httpGetWithBody, resetBioSigSubmissionsForTests, submitDdmutJob, submitDynaMut2Job } from "./dynamut.ts";
 import https from "node:https";
 import { EventEmitter } from "node:events";
 
 describe("BioSig Polling and Submission Engine (server/services/dynamut.ts)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetBioSigSubmissionsForTests();
   });
 
   describe("submitBioSigJob", () => {

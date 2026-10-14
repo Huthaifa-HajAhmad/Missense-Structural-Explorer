@@ -22,12 +22,21 @@ import {
   registerActiveFoldxJob,
   resetActiveFoldxJobs,
 } from "./foldx-job-registry.ts";
+import { EGRESS_SYSTEM_OWNER, currentEgressOwner, runWithEgressOwner } from "./egress-context.ts";
 
 const mockFetchPdbFromRcsb = vi.fn();
 const mockPushJob = vi.fn();
 const mockGetJobStatus = vi.fn();
 const mockGetJobData = vi.fn();
 const mockAbortJob = vi.fn();
+const mockGetMutantFromCache = vi.fn();
+const egressOwnerAtFetch: string[] = [];
+
+vi.mock("../stability/foldx/cache.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../stability/foldx/cache.ts")>()),
+  // The real lookup reads files; under fake timers that I/O races the clock the tests advance.
+  getMutantFromCache: (...args: any[]) => mockGetMutantFromCache(...args),
+}));
 
 vi.mock("../structure/index.ts", () => ({
   fetchPdbFromRcsb: (...args: any[]) => mockFetchPdbFromRcsb(...args)
@@ -89,6 +98,8 @@ describe("PrewarmManager", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockGetMutantFromCache.mockResolvedValue(null);
+    egressOwnerAtFetch.length = 0;
     await inFlightPrewarms.delete(KEY);
     await inFlightPrewarms.delete("BRAF_V600E");
     activeBackgroundTasks.length = 0;
@@ -332,6 +343,36 @@ describe("PrewarmManager", () => {
       );
       expect(activeBackgroundTasks.length).toBe(0);
       expect(await inFlightPrewarms.has(KEY)).toBe(false);
+    });
+
+    it("skips a run whose FoldX result is already cached (WP-I2)", async () => {
+      optIn();
+      mockFetchPdbFromRcsb.mockResolvedValue("ATOM 1 N VAL A 600 ... END");
+      mockGetMutantFromCache.mockResolvedValue({ ddG: 1.2 });
+
+      await PrewarmManager.getInstance().triggerPrewarm(dummyParams);
+      await activeBackgroundTasks[0].promise;
+
+      expect(mockGetMutantFromCache).toHaveBeenCalledWith(
+        buildFoldxCacheKey("ATOM 1 N VAL A 600 ... END", "VA600E", DEFAULT_FOLDX_CONDITIONS)
+      );
+      expect(mockPushJob).not.toHaveBeenCalled();
+      expect(await inFlightPrewarms.has(KEY)).toBe(false);
+    });
+
+    it("makes its outbound calls as the system owner, not as the reader whose request triggered it", async () => {
+      optIn();
+      mockFetchPdbFromRcsb.mockImplementation(async () => {
+        egressOwnerAtFetch.push(currentEgressOwner());
+        return "ATOM 1 N VAL A 600 ... END";
+      });
+      mockPushJob.mockResolvedValue("job-123");
+      mockGetJobStatus.mockResolvedValue({ status: "completed" });
+
+      await runWithEgressOwner("reader-1", () => PrewarmManager.getInstance().triggerPrewarm(dummyParams));
+      await activeBackgroundTasks[0].promise;
+
+      expect(egressOwnerAtFetch).toEqual([EGRESS_SYSTEM_OWNER]);
     });
 
     it("pins the FoldX conditions into the queued job instead of relying on the worker's fallback", async () => {

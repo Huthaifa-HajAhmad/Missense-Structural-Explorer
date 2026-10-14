@@ -22,6 +22,7 @@ import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
 import { providerHealth } from "../services/infra/provider-pause.ts";
 import { governorHealth, limitBasisFor } from "../services/infra/egress-governor.ts";
+import { defaultCacheRegistry } from "../services/infra/cache-registry.ts";
 import { isKnownProviderHost } from "../../src/shared/providerLimits.ts";
 
 export interface EngineCapability {
@@ -66,6 +67,9 @@ function egressHealth() {
     providers: named.map(p => ({ ...p, limitBasis: limitBasisFor(p.hostname) })),
     ...(hidden ? { otherPausedOrRateLimitedHosts: hidden } : {}),
     governor: governorHealth({ publicView: true }),
+    // Expired cache entries served (`on`) or that would have been (`shadow`) while a provider limited
+    // requests, by cache source (WP-I2). Source labels and counts only.
+    staleServes: defaultCacheRegistry.staleServeCounts(),
   };
 }
 

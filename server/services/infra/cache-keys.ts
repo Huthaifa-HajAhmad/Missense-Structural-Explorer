@@ -74,15 +74,16 @@ export function buildPdbKey(pdbId: string, chainId = "A", unpStart = 0, structSt
   return `pdb_rcsb_${pId}_chain_${cId}_unp_${unpStart}_struct_${structStart}_pos_${pos}_schema:${CACHE_SCHEMA_VERSION}`;
 }
 
-export function buildBiophysicalKey(
-  uniprotId: string,
-  variant: string,
-  keyHash: string,
-  model: string
-): string {
-  const uId = uniprotId.trim().toUpperCase();
-  const vStr = normalizeVariantTo3Letter(variant);
-  return `biophysical_${uId}_${vStr}_key:${keyHash}_model:${model}_schema:${CACHE_SCHEMA_VERSION}`;
+/**
+ * The credential segment of a Gemini result's cache key: whether a key was used, never which.
+ *
+ * The answer does not depend on whose key asked (the model is its own segment), so a narrative written
+ * with one teammate's key serves the others (doc/COMPUTE_ROUTING_PLAN.md WP-I2). Whether there was a key
+ * at all does matter: without one the route may answer with a fallback, which must not reach a caller
+ * who has a key.
+ */
+export function geminiCredentialSegment(effectiveKey: string | null | undefined): string {
+  return effectiveKey ? "key:any" : "key:none";
 }
 
 export function buildGnomadConstraintKey(gene: string): string {

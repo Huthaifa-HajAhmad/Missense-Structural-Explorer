@@ -17,6 +17,7 @@ import {
   onClientDisconnect,
 } from "../../utils.ts";
 import { analyzeVariantLimiter } from "../../middleware.ts";
+import { geminiCredentialSegment } from "../../services/infra/cache-keys.ts";
 import {
   generateMutantPdb,
   getMutantFromCache,
@@ -37,6 +38,7 @@ import { BiophysicalJobQueue } from "../../services/biophysical-queue.ts";
 import {
   performGeminiBiophysicalAnalysis,
   getConfiguredGeminiModels,
+  isGeminiApiKeyPlaceholder,
 } from "../../services/gemini.ts";
 import {
   submitDynaMut2Job,
@@ -44,6 +46,7 @@ import {
   fetchAlphafoldPdb,
 } from "../../services/external.ts";
 import { resolveStructure, type ResolvedStructure } from "../../services/structure-resolver.ts";
+import { resetBioSigSubmissionsForTests } from "../../services/stability/dynamut.ts";
 import { type FoldXResult } from "../state.ts";
 // (the consensus is computed once, in `enrichBiophysicalResult`, and is no longer recomputed here)
 import { getFromCache, writeToCache, recordJobInRegistry, enrichBiophysicalResult } from "../shared.ts";
@@ -80,6 +83,7 @@ export const inFlightRemoteSubmissions = new Map<string, InFlightSubmissions>();
 
 export function clearInFlightRemoteSubmissions(): void {
   inFlightRemoteSubmissions.clear();
+  resetBioSigSubmissionsForTests();
   activeFoldxJobs.clear();
   pendingRemoteSubmissions.clear();
 }
@@ -170,10 +174,13 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
         }
       }
 
-      const activeApiKey = customApiKey || process.env.GEMINI_API_KEY || "no_key";
-      const keyHash = crypto.createHash("sha256").update(activeApiKey).digest("hex");
       const model = getConfiguredGeminiModels()[0];
-      const cacheKey = `biophysical_${uniprotId}_${variant}_key:${keyHash}_model:${model}_schema:v2`;
+      // Same effective key as the narrative route: a placeholder env value is no key.
+      const envKey = process.env.GEMINI_API_KEY && !isGeminiApiKeyPlaceholder(process.env.GEMINI_API_KEY)
+        ? process.env.GEMINI_API_KEY
+        : undefined;
+      const credential = geminiCredentialSegment(customApiKey || envKey);
+      const cacheKey = `biophysical_${uniprotId}_${variant}_${credential}_model:${model}_schema:v3`;
       const cached = getFromCache(cacheKey);
       if (cached) {
         console.log(`[Cache Hit] Serving cached biophysical Gemini insights for ${cacheKey}`);
@@ -210,7 +217,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
               customApiKey,
               combinedSignal as AbortSignal
             );
-            writeToCache(cacheKey, result);
+            // A placeholder ("details unavailable …", returned when no model produced anything) is
+            // answered but not cached: the key is shared by every keyed user for 24 h (WP-I2).
+            if (!/details unavailable/i.test(String(result?.biochemicalShift ?? ""))) writeToCache(cacheKey, result);
           } catch (err: any) {
             console.warn("[Graceful Fallback] Biophysical Gemini narrative execution failed:", err.message);
             result = {

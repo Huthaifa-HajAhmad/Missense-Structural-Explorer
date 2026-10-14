@@ -3,6 +3,17 @@ import type { GnomadVariantFrequency, GnomadGeneConstraint } from "../external-a
 import type { UniprotFeaturesResult } from "../external-api/uniprot.ts";
 import type { LandscapeResult } from "../prediction/landscape.ts";
 import { AnalysisDatabase } from "./analysis-db.ts";
+import {
+  type CacheScope,
+  type SharedRun,
+  type StaleServe,
+  joinShared,
+  mergeIntoCurrentScope,
+  newCacheScope,
+  runInCacheScope,
+  startShared,
+} from "./cache-scope.ts";
+import { egressGovernorMode } from "./provider-pause.ts";
 
 export interface CachedFetchOptions<T> {
   key: string;
@@ -23,7 +34,26 @@ export interface CachedFetchOptions<T> {
    * would evict every other source's warm cache to fix one.
    */
   isUsable?: (cached: T) => boolean;
+  /**
+   * Serve the expired entry when the fetch fails, or returns nothing cacheable, while a provider is
+   * limiting requests (WP-I2). Default true; `false` for an answer that must never be served out of
+   * date. Acts under `EGRESS_GOVERNOR=on` only; `shadow` counts what it would have served.
+   */
+  serveStale?: boolean;
 }
+
+/** What one shared cache fill produced, with what its fetcher saw (copied into each caller's scope). */
+type FillOutcome<T> =
+  | { ok: true; value: T; scope: CacheScope }
+  | { ok: false; error: unknown; scope: CacheScope };
+
+/** Stale serves since start, by cache source. `wouldServe` is the `shadow` count. */
+export interface StaleServeCounts {
+  served: number;
+  wouldServe: number;
+}
+
+const STALE_LOG_INTERVAL_MS = 60_000;
 
 export interface CacheDescriptor {
   size: number;
@@ -64,7 +94,11 @@ export class CacheRegistry {
   public readonly landscapeCache: LRUCache<string, LandscapeResult>;
   public readonly narrativeCache: LRUCache<string, any>;
 
-  private readonly inFlightPromises = new Map<string, Promise<any>>();
+  private readonly inFlightPromises = new Map<string, SharedRun<any>>();
+  /** Cache fills in flight, by key; separate from `inFlightPromises` because they resolve to an outcome. */
+  private readonly inFlightFills = new Map<string, Promise<FillOutcome<any>>>();
+  private readonly staleCounts = new Map<string, StaleServeCounts>();
+  private readonly staleLoggedAt = new Map<string, number>();
   private readonly customCaches = new Map<string, CustomCacheMetadata>();
   private readonly clearHooks: Array<() => void> = [];
 
@@ -173,25 +207,33 @@ export class CacheRegistry {
    * scoped to this registry instance.
    */
   public async singleFlight<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
-    const existing = this.inFlightPromises.get(key);
+    const existing = this.inFlightPromises.get(key) as SharedRun<T> | undefined;
     if (existing) {
-      return existing as Promise<T>;
+      return joinShared(existing);
     }
-    const promise = fetcher().finally(() => {
-      this.inFlightPromises.delete(key);
-    });
-    this.inFlightPromises.set(key, promise);
-    return promise;
+    // In a scope of its own, so every caller (not only the first) learns of a rate limit or a stale
+    // serve inside it (WP-I2).
+    const run = startShared(fetcher);
+    this.inFlightPromises.set(key, run);
+    const forget = () => {
+      if (this.inFlightPromises.get(key) === run) this.inFlightPromises.delete(key);
+    };
+    run.promise.then(forget, forget);
+    return joinShared(run);
   }
 
   /**
    * 2-Tier Caching Helper:
    * 1. Checks in-memory L1 LRUCache.
    * 2. Checks persistent L2 SQLite external_cache table.
-   * 3. On miss, runs singleFlight(key, fetcher) and writes result to both L1 and L2 upon resolution.
+   * 3. On miss, runs the fetcher once for all concurrent callers of the key and writes a cacheable
+   *    result to both L1 and L2.
+   *
+   * When the fetch fails or comes back empty because a provider is limiting requests, an expired
+   * entry is served instead (`serveStale`), and a result built from such an entry is not cached.
    */
   public async getCachedOrFetch<T>(options: CachedFetchOptions<T>): Promise<T> {
-    const { key, source, l1Cache, ttlSeconds, fetcher, bypassSqlite, shouldCache, isUsable } = options;
+    const { key, l1Cache, bypassSqlite, isUsable } = options;
 
     // 1. Check L1 Memory Cache
     if (l1Cache && l1Cache.has(key)) {
@@ -219,27 +261,130 @@ export class CacheRegistry {
       }
     }
 
-    // 3. Execute Fetcher with Instance-Scoped Single-Flight Promise Deduplication
-    return this.singleFlight(key, async () => {
-      const result = await fetcher();
+    // 3. One fill per key for every concurrent caller (any user). Each caller takes the fill's
+    // notes (rate limits seen, stale entries served) into its own scope, so a joiner's response
+    // is marked stale exactly like the leader's.
+    // A caller that refuses stale data does not join a fill that may serve it.
+    const flightKey = options.serveStale === false ? `${key}\u0000fresh-only` : key;
+    let fill = this.inFlightFills.get(flightKey) as Promise<FillOutcome<T>> | undefined;
+    if (!fill) {
+      const started = this.fill(options);
+      fill = started;
+      this.inFlightFills.set(flightKey, started);
+      // Only this fill's own entry: `clearAll` may have let a newer fill take the key meanwhile.
+      const forget = () => {
+        if (this.inFlightFills.get(flightKey) === started) this.inFlightFills.delete(flightKey);
+      };
+      started.then(forget, forget);
+    }
+    const outcome = await fill;
+    mergeIntoCurrentScope(outcome.scope);
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
+  }
 
-      // Check if result is cacheable
-      const isCacheable = shouldCache ? shouldCache(result) : result !== null && result !== undefined;
-      if (isCacheable) {
-        if (l1Cache) {
-          l1Cache.set(key, result);
-        }
-        if (!bypassSqlite) {
-          try {
-            const db = AnalysisDatabase.getInstance();
-            await db.saveExternalCacheAsync(key, result, source, ttlSeconds);
-          } catch (dbErr: any) {
-            console.warn(`[L2 Cache Write Warning] Failed saving external_cache for ${key}:`, dbErr.message);
-          }
-        }
+  private async fill<T>(options: CachedFetchOptions<T>): Promise<FillOutcome<T>> {
+    const { key, source, l1Cache, ttlSeconds, fetcher, bypassSqlite, shouldCache } = options;
+    const scope = newCacheScope();
+    let result: T | undefined;
+    try {
+      result = await runInCacheScope(scope, fetcher);
+    } catch (error) {
+      const stale = await this.staleInstead(options, scope);
+      return stale !== undefined ? { ok: true, value: stale, scope } : { ok: false, error, scope };
+    }
+
+    const isCacheable = shouldCache ? shouldCache(result as T) : result !== null && result !== undefined;
+    if (!isCacheable) {
+      const stale = await this.staleInstead(options, scope);
+      return { ok: true, value: stale !== undefined ? stale : (result as T), scope };
+    }
+    // Built from an expired entry somewhere below: correct to return, wrong to store as fresh.
+    if (scope.stale.length > 0) return { ok: true, value: result as T, scope };
+
+    if (l1Cache) {
+      l1Cache.set(key, result);
+    }
+    if (!bypassSqlite) {
+      try {
+        const db = AnalysisDatabase.getInstance();
+        await db.saveExternalCacheAsync(key, result, source, ttlSeconds);
+      } catch (dbErr: any) {
+        console.warn(`[L2 Cache Write Warning] Failed saving external_cache for ${key}:`, dbErr.message);
       }
-      return result;
-    });
+    }
+    return { ok: true, value: result as T, scope };
+  }
+
+  /**
+   * The expired entry to serve because a provider limited this fill's calls, or undefined. Under
+   * `shadow` it is only counted. Recorded in `scope` so the caller's response says it is stale.
+   */
+  private async staleInstead<T>(options: CachedFetchOptions<T>, scope: CacheScope): Promise<T | undefined> {
+    if (options.serveStale === false) return undefined;
+    // Provider refusals first; a turn that did not come in time at a busy provider also counts.
+    const limited = [...scope.rateLimitedHosts];
+    const hosts = limited.length > 0 ? limited : [...scope.busyHosts];
+    if (hosts.length === 0) return undefined;
+    const mode = egressGovernorMode();
+    if (mode === "off") return undefined;
+    const found = await this.readExpired(options);
+    if (!found) return undefined;
+
+    const serve: StaleServe = {
+      source: options.source,
+      hosts,
+      busy: limited.length === 0,
+      ageSec: Math.max(0, Math.round((Date.now() - found.fetchedAtMs) / 1000)),
+    };
+    const counts = this.staleCounts.get(serve.source) ?? { served: 0, wouldServe: 0 };
+    this.staleCounts.set(serve.source, counts);
+    if (mode === "on") counts.served++;
+    else counts.wouldServe++;
+
+    const now = Date.now();
+    if (now - (this.staleLoggedAt.get(serve.source) ?? 0) > STALE_LOG_INTERVAL_MS) {
+      this.staleLoggedAt.set(serve.source, now);
+      console.warn(
+        `[egress:${mode}] ${serve.hosts.join(", ")} ${serve.busy ? "busy" : "limiting requests"}; ` +
+          `${mode === "on" ? "serving" : "would serve"} a ${serve.ageSec} s old ${serve.source} entry ` +
+          `(${mode === "on" ? counts.served : counts.wouldServe} so far).`
+      );
+    }
+    if (mode !== "on") return undefined;
+    scope.stale.push(serve);
+    return found.value;
+  }
+
+  /** The newest expired entry for the key, L2 first (it records when it was fetched), then L1. */
+  private async readExpired<T>(options: CachedFetchOptions<T>): Promise<{ value: T; fetchedAtMs: number } | null> {
+    const { key, l1Cache, bypassSqlite, isUsable } = options;
+    const usable = (v: T | undefined | null): v is T => v !== undefined && v !== null && (!isUsable || isUsable(v));
+    if (!bypassSqlite) {
+      try {
+        const row = await AnalysisDatabase.getInstance().getExternalCacheAsync<T>(key, true);
+        const fetchedAtMs = row ? Date.parse(row.fetchedAt) : NaN;
+        if (row && usable(row.data) && Number.isFinite(fetchedAtMs)) return { value: row.data, fetchedAtMs };
+      } catch (dbErr: any) {
+        console.warn(`[L2 Cache Read Warning] Failed reading an expired entry for ${key}:`, dbErr.message);
+      }
+    }
+    // An expired L1 entry stays readable through `info` until it is evicted or overwritten. `info`
+    // reports `start` as now and `ttl` as the time left (negative once expired), so the entry expired
+    // at `start + ttl`; it was stored the cache's TTL before that. An entry stored with its own TTL
+    // reads as younger than it is, never older.
+    const entry = l1Cache?.info(key);
+    if (entry && usable(entry.value) && typeof entry.start === "number" && typeof entry.ttl === "number") {
+      const expiredAtMs = entry.start + entry.ttl;
+      const cacheTtl = typeof l1Cache?.ttl === "number" ? l1Cache.ttl : 0;
+      return { value: entry.value, fetchedAtMs: expiredAtMs - cacheTtl };
+    }
+    return null;
+  }
+
+  /** Stale serves by cache source since start (`/capabilities`). */
+  public staleServeCounts(): Record<string, StaleServeCounts> {
+    return Object.fromEntries([...this.staleCounts].map(([source, c]) => [source, { ...c }]));
   }
 
   /**
@@ -344,6 +489,9 @@ export class CacheRegistry {
     this.landscapeCache.clear();
     this.narrativeCache.clear();
     this.inFlightPromises.clear();
+    this.inFlightFills.clear();
+    this.staleCounts.clear();
+    this.staleLoggedAt.clear();
 
     for (const { cache } of this.customCaches.values()) {
       cache.clear();

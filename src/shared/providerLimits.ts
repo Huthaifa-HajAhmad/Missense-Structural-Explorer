@@ -99,3 +99,86 @@ export const EGRESS_WAIT_EXCEEDED = "EGRESS_WAIT_EXCEEDED";
 export function egressBusySentence(provider: string): string {
   return `${provider} is busy with other requests from the team; try again in a moment.`;
 }
+
+/**
+ * Response header naming the saved answers a response used past their expiry because a provider was
+ * limiting requests (WP-I2). The server serves the newest saved copy instead of failing; this header is
+ * how the reader learns the data is not fresh. Value: {@link encodeStaleData}.
+ */
+export const STALE_DATA_HEADER = "X-MSE-Stale";
+
+/**
+ * One saved answer served out of date: which data (the cache's label, for example `UniProt FASTA`),
+ * the provider behind the hold-up, how old the answer is, and whether that provider refused requests
+ * (`busy` false) or the team's calls only waited too long for their turn (`busy` true).
+ */
+export interface StaleDataNote {
+  data: string;
+  provider: string;
+  ageSec: number;
+  busy?: boolean;
+}
+
+const MAX_STALE_NOTES = 5;
+
+/** One note per data/provider pair (the oldest age wins), at most five, as JSON. */
+export function encodeStaleData(notes: readonly StaleDataNote[]): string {
+  const merged = new Map<string, StaleDataNote>();
+  for (const n of notes) {
+    const key = `${n.data}\u0000${n.provider}\u0000${n.busy ? 1 : 0}`;
+    const ageSec = Math.max(0, Math.round(n.ageSec));
+    const prev = merged.get(key);
+    if (!prev || ageSec > prev.ageSec) {
+      merged.set(key, { data: n.data, provider: n.provider, ageSec, ...(n.busy ? { busy: true } : {}) });
+    }
+  }
+  return JSON.stringify([...merged.values()].slice(0, MAX_STALE_NOTES));
+}
+
+const isLabel = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 200;
+
+/** The notes in a {@link STALE_DATA_HEADER} value; empty for a missing or malformed value. */
+export function parseStaleData(value: string | null | undefined): StaleDataNote[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((n): n is StaleDataNote =>
+        Boolean(n) && isLabel(n.data) && isLabel(n.provider) && Number.isFinite(n.ageSec) && n.ageSec >= 0)
+      .slice(0, MAX_STALE_NOTES)
+      .map(n => ({ data: n.data, provider: n.provider, ageSec: n.ageSec, ...(n.busy === true ? { busy: true } : {}) }));
+  } catch {
+    return [];
+  }
+}
+
+/** "under a minute", "12 min", "3 h", "2 d": the largest whole unit. */
+export function formatDataAge(ageSec: number): string {
+  const s = Math.max(0, Math.round(ageSec));
+  if (s < 60) return "under a minute";
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  if (s < 86_400) return `${Math.floor(s / 3600)} h`;
+  return `${Math.floor(s / 86_400)} d`;
+}
+
+function holdUp(n: StaleDataNote): string {
+  return n.busy ? `${n.provider} is busy with other requests from the team` : `${n.provider} is limiting requests`;
+}
+
+/**
+ * "Showing UniProt FASTA data saved 3 h ago; UniProt is limiting requests."
+ *
+ * The data is real and was correct when saved; the sentence says which data it is, how old, and why
+ * nothing newer came back, so the reader can decide whether to try again later.
+ */
+export function staleDataSentence(notes: readonly StaleDataNote[]): string {
+  if (notes.length === 0) return "";
+  if (notes.length === 1) {
+    const [n] = notes;
+    return `Showing ${n.data} data saved ${formatDataAge(n.ageSec)} ago; ${holdUp(n)}.`;
+  }
+  const parts = notes.map(n => `${n.data} (${formatDataAge(n.ageSec)} old)`);
+  const holdUps = [...new Set(notes.map(holdUp))];
+  return `Showing saved data: ${parts.join(", ")}; ${holdUps.join("; ")}.`;
+}

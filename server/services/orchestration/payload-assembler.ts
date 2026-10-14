@@ -8,6 +8,7 @@ import type { DisruptionPrediction } from "../stability/biophysics.ts";
 import type { RuleBasedInsights } from "../prediction/acmg.ts";
 import { payloadIdentityRecordOf } from "./core-identity.ts";
 import { LOCUS_POLICY_VERSION } from "../../../src/shared/locusResolution.ts";
+import { currentCacheScope } from "../infra/cache-scope.ts";
 
 /**
  * The outcome of one external fetch.
@@ -329,6 +330,15 @@ export function persistVariantAnalysisPayload(
   payload: any,
   acmgVerdict?: string | null
 ): Promise<void> {
+  /**
+   * Built (in part) from saved data served past its expiry because a provider was limiting requests
+   * (WP-I2): correct to show, with the response saying so, but not to store as this variant's answer.
+   * The stored row would come back later with no sign that it is out of date.
+   */
+  if ((currentCacheScope()?.stale.length ?? 0) > 0) {
+    console.warn(`[Analysis DB] Not saving ${context.gene} ${context.variant}: it used saved data a provider could not refresh.`);
+    return Promise.resolve();
+  }
   const db = AnalysisDatabase.getInstance();
   return db.saveVariantAnalysisAsync({
     gene: context.gene,

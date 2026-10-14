@@ -11,6 +11,7 @@ import {
   resetEgressGovernorForTests,
 } from "./egress-governor.ts";
 import { isProviderRateLimited, pauseRemainingMs, resetProviderPausesForTests } from "./provider-pause.ts";
+import { newCacheScope, runInCacheScope } from "./cache-scope.ts";
 
 /**
  * WP-I1: the fair-share egress governor (doc/COMPUTE_ROUTING_PLAN.md).
@@ -136,10 +137,15 @@ describe("waiting against a deadline", () => {
     const blocker = governedFetch(URL_("blocker"));
     await vi.advanceTimersByTimeAsync(0);
 
-    const late = governedFetch(URL_("late"), { deadlineAt: Date.now() + 3_000 }).catch(e => e);
+    const scope = newCacheScope();
+    const late = runInCacheScope(scope, () => governedFetch(URL_("late"), { deadlineAt: Date.now() + 3_000 })).catch(e => e);
     await vi.advanceTimersByTimeAsync(1_600);
     const err = await late;
     expect(isEgressWaitExceeded(err)).toBe(true);
+    // Noted for the cache, which may answer from an expired entry instead (WP-I2). The provider refused
+    // nothing, so it is "busy", not rate limited.
+    expect([...scope.busyHosts]).toEqual([HOST]);
+    expect(scope.rateLimitedHosts.size).toBe(0);
     expect(err.message).toBe(`${HOST} is busy with other requests from the team; try again in a moment.`);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(governorHealth()[0]).toMatchObject({ refused: 1, held: 1, waiting: 0 });

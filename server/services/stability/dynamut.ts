@@ -1,4 +1,6 @@
 import https from "node:https";
+import crypto from "node:crypto";
+import { sharedFlight, type SharedFlights } from "../infra/shared-flight.ts";
 import { fetchWithRetry, reportEgressAnswer, withHostLock } from "../infra/http-client.ts";
 import {
   egressGovernorMode,
@@ -193,6 +195,42 @@ export async function submitBioSigJob(
     }
   }
 
+  // Two people (or two paths) asking for the same run share one submission and its job id; the job id
+  // stays joinable for a minute after it arrives. Keyed by what the job computes, never by who asked.
+  const pdbHash = crypto.createHash("sha256").update(effectivePdb).digest("hex");
+  const flightKey = `${tool}:${pdbHash}:${chain || "A"}:${mutationCode}`;
+  try {
+    return await sharedFlight(
+      bioSigSubmissions,
+      flightKey,
+      () => sendBioSigSubmission(tool, toolName, url, effectivePdb, chain, mutationCode),
+      { signal, lingerMs: SUBMISSION_LINGER_MS, lingerIf: jobId => jobId !== null }
+    );
+  } catch (err: any) {
+    // This caller gave up (its signal aborted); the shared submission carries on for any others.
+    console.warn(`[${toolName} API] Submission wait cancelled:`, err?.message ?? err);
+    return null;
+  }
+}
+
+/** BioSig submissions in flight (or settled less than a minute ago), by what they compute. */
+const bioSigSubmissions: SharedFlights<string | null> = new Map();
+const SUBMISSION_LINGER_MS = 60_000;
+
+/** Test seam: forget shared submissions. */
+export function resetBioSigSubmissionsForTests(): void {
+  bioSigSubmissions.clear();
+}
+
+/** One submission to BioSig; bounded by its own 30 s timeout, not by any caller's signal. */
+async function sendBioSigSubmission(
+  tool: BioSigTool,
+  toolName: string,
+  url: string,
+  effectivePdb: string,
+  chain: string,
+  mutationCode: string
+): Promise<string | null> {
   console.log(`[${toolName} API] Preparing to submit single mutation job for ${mutationCode} on chain ${chain}...`);
 
   try {
@@ -211,8 +249,7 @@ export async function submitBioSigJob(
       method: "POST",
       body: formData,
       headers: BIOSIG_HEADERS,
-      timeout: 30000,
-      signal
+      timeout: 30000
     });
 
     if (!response.ok && response.status !== 301 && response.status !== 302) {

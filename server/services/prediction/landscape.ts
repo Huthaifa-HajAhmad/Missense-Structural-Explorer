@@ -5,6 +5,7 @@ import { normalizeGeneSymbol, fetchWithRetry } from "../infra/http-client.ts";
 import { isLocalDbnsfpAvailable, queryLocalDbnsfpLandscapeRows, readLocalDbnsfpVersion } from "./dbnsfp_local.ts";
 import { landscapeCache } from "../infra/cache.ts";
 import { resolveGeneToUniprot, fetchUniprotSequence } from "../external-api/uniprot.ts";
+import { type CacheScope, currentCacheScope, newCacheScope, runInCacheScope } from "../infra/cache-scope.ts";
 import {
   aggregateLandscape,
   candidateFromMyVariantHit,
@@ -171,14 +172,21 @@ export async function fetchMyVariantWindowHits(gene: string, start: number, end:
   return [...byId.values()];
 }
 
-async function loadReferenceSequence(gene: string, requested?: string | null): Promise<{ accession: string | null; sequence: string | null }> {
+/**
+ * The UniProt sequence the landscape is checked against. `failed` is set when a lookup threw (a 429,
+ * a timeout): the landscape is still answered, but not cached for 30 days without its reference.
+ */
+async function loadReferenceSequence(
+  gene: string,
+  requested?: string | null
+): Promise<{ accession: string | null; sequence: string | null; failed: boolean }> {
   try {
     const accession = requested || (await resolveGeneToUniprot(gene));
-    if (!accession) return { accession: null, sequence: null };
+    if (!accession) return { accession: null, sequence: null, failed: false };
     const sequence = await fetchUniprotSequence(accession);
-    return { accession, sequence: sequence || null };
+    return { accession, sequence: sequence || null, failed: false };
   } catch {
-    return { accession: null, sequence: null };
+    return { accession: null, sequence: null, failed: true };
   }
 }
 
@@ -196,6 +204,19 @@ export async function fetchLandscape(
    */
   uniprotId?: string | null
 ): Promise<LandscapeResult> {
+  // Its own scope (under the caller's), so the cache write below can see whether anything this
+  // landscape was built from was rate limited or served out of date (WP-I2).
+  const scope = newCacheScope(currentCacheScope());
+  return runInCacheScope(scope, () => computeLandscape(gene, startPos, endPos, uniprotId, scope));
+}
+
+async function computeLandscape(
+  gene: string,
+  startPos: number | undefined,
+  endPos: number | undefined,
+  uniprotId: string | null | undefined,
+  scope: CacheScope
+): Promise<LandscapeResult> {
   const normGene = normalizeGeneSymbol(gene);
   const windowed = startPos !== undefined && endPos !== undefined;
   const accessionKey = uniprotId ? uniprotId.trim().toUpperCase() : "auto";
@@ -204,7 +225,21 @@ export async function fetchLandscape(
   const cached = readCache(cacheKey);
   if (cached) return { ...cached, meta: { ...cached.meta, cached: true } };
 
-  const { accession, sequence } = await loadReferenceSequence(normGene, uniprotId);
+  const { accession, sequence, failed: referenceFailed } = await loadReferenceSequence(normGene, uniprotId);
+  /**
+   * Cached for 30 days only when complete: the reference sequence arrived (an empty one, or a lookup
+   * that threw, is not an answer), and nothing it was built from was refused, held back or served
+   * stale. Otherwise it is answered now and asked for again next time.
+   */
+  const store = (result: LandscapeResult) => {
+    const degraded =
+      referenceFailed ||
+      (accession !== null && sequence === null) ||
+      scope.rateLimitedHosts.size > 0 ||
+      scope.busyHosts.size > 0 ||
+      scope.stale.length > 0;
+    if (!degraded) writeCache(cacheKey, result);
+  };
   const start = startPos ?? 1;
   const retrievedAt = new Date().toISOString();
 
@@ -236,7 +271,7 @@ export async function fetchLandscape(
             retrievedAt
           }
         };
-        writeCache(cacheKey, result);
+        store(result);
         return result;
       }
     }
@@ -276,7 +311,7 @@ export async function fetchLandscape(
       (qualityFlags.length ? `; flags ${qualityFlags.join(", ")}` : "")
   );
   const result = { positions, meta };
-  writeCache(cacheKey, result);
+  store(result);
   return result;
 }
 
