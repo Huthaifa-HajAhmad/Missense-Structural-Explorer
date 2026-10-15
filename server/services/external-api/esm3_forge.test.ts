@@ -37,13 +37,15 @@ function stubSidecarSuccess() {
 }
 
 describe("fetchEsm3StructureEval sidecar budget", () => {
+  // 40 s = the sidecar's 15 s remote tier + the local fallback; 100 s = its 30 s remote tier + a longer fallback,
+  // held 10 s under the outer 120 s structural budget. The old 20/60 s covered the local pass alone.
   it("uses the default budget for ordinary-length sequences", async () => {
     stubSidecarSuccess();
     const timeouts = captureTimeouts();
 
     await fetchEsm3StructureEval("TEST_SHORT", 1, "A", "V", null, null, "A".repeat(120));
 
-    expect(timeouts).toEqual([20000]);
+    expect(timeouts).toEqual([40000]);
   });
 
   it("scales the budget for sequences longer than 500 residues", async () => {
@@ -52,7 +54,7 @@ describe("fetchEsm3StructureEval sidecar budget", () => {
 
     await fetchEsm3StructureEval("TEST_LONG", 1, "A", "V", null, null, "A".repeat(674));
 
-    expect(timeouts).toEqual([60000]);
+    expect(timeouts).toEqual([100000]);
   });
 });
 

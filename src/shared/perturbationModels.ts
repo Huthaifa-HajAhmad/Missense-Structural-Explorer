@@ -137,7 +137,7 @@ export function resolveServedModel(
   saprotEngine?: string | null
 ): ServedModel {
   const p = (provenance ?? "").toLowerCase();
-  const engine: ServedModel["engine"] = /remote|cloud|serverless|japanfold/.test(p)
+  const engine: ServedModel["engine"] = /remote|cloud|serverless|japanfold|forge/.test(p)
     ? "remote"
     : /local|cpu|sidecar/.test(p)
       ? "local"
