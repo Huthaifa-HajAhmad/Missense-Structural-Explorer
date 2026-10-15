@@ -49,7 +49,8 @@
     "search": "node tools/agent-tooling/cli.cjs zg query",
     "search:index": "node tools/agent-tooling/cli.cjs zg index --embedding local/potion-code-16m-v2",
     "search:status": "node tools/agent-tooling/cli.cjs zg status",
-    "test:geometry:review": "node tools/review-preview/check.mjs"
+    "test:geometry:review": "node tools/review-preview/check.mjs",
+    "test:e2e": "e2e run"
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
@@ -94,6 +95,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@e2e-dev/web": "^0.15.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
@@ -105,6 +107,7 @@
     "@types/react-dom": "^19.0.3",
     "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.4.21",
+    "e2e": "^0.21.1",
     "esbuild": "^0.25.0",
     "jsdom": "^30.0.1",
     "sass": "^1.101.0",

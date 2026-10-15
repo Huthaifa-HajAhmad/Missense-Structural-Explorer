@@ -50,7 +50,7 @@ export default defineConfig(() => {
        * Appending to vitest's own defaults rather than replacing them keeps every legitimate pattern
        * (including deliberately-failing fixtures under `src/test/`) intact.
        */
-      exclude: [...configDefaults.exclude, 'scratch/**'],
+      exclude: [...configDefaults.exclude, 'scratch/**', '.e2e/**', '**/*.e2e.ts'],
       globals: true,
       /**
        * Use every core on CI. Vitest's default is `cores - 1`, which on the 2-vCPU runner a private
