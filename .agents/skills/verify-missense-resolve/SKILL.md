@@ -80,6 +80,13 @@ its pid on the port (`netstat -ano | findstr :3917`), never by process name. Kee
 `.e2e/results/`, `.e2e/proof/`, `.e2e/report.json`, `.e2e/logs/`; they are the evidence
 and are gitignored.
 
+## CI
+
+`.github/workflows/e2e.yml` runs the offline-safe tags on demand (`workflow_dispatch`,
+input `tags`, add `live` for the network test) and uploads `.e2e/` as an artifact. It is
+deliberately not part of `ci.yml`, which gates deploys; it has not been measured on a
+runner yet (the dev server's sidecar and 700 MB RaSP index may need data or a stub there).
+
 ## Gotchas
 
 - **429s are the app's own limiter.** `apiLimiter` in `server/middleware.ts` allows 120
@@ -93,6 +100,6 @@ and are gitignored.
   recurs, `.e2e/logs/app.log` ends with the stack of whatever rejected.
 - **Live tests need the network.** `tests/analysis.e2e.ts` (tag `live`) analyses PAH
   p.Arg408Trp against Ensembl, ClinVar, UniProt, and others. Skip it offline with
-  `--tag smoke,navigation,search,shell`.
+  `--tag smoke,navigation,search,shell` (17 tests).
 - Textbox names change after a fill (`Protein or cDNA notation` becomes `... Protein
   HGVS`), so locate them with a `^` regex.

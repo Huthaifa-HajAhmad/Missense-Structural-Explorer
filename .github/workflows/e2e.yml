@@ -1,0 +1,73 @@
+name: E2E UI suite
+
+# WHY THIS IS A SEPARATE, MANUAL WORKFLOW
+# `ci.yml` is the deployment gate: `cd.yml` waits on its conclusion. This suite drives the real
+# dev server in a real browser (tests/*.e2e.ts, built on the `e2e` runner). It has not yet been
+# measured on a runner: the dev server's cold start also launches the ML sidecar and checks the
+# 700 MB RaSP index, which a clean checkout does not carry, so a first run may need data or a
+# stub before it is green. Until a run proves it, it must not be able to block a deploy.
+#
+# To promote it: dispatch it a few times, then fold the job into `ci.yml` (and add the script to
+# `npm run verify` or allow-list it in `scripts/check-verify-parity.ts`).
+#
+# WHAT IT RUNS. Only the offline-safe tags. The `live` analysis test depends on Ensembl, ClinVar,
+# UniProt and others answering, so it is opt-in through the `tags` input.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Comma-separated e2e tags to run (add `live` to include the network analysis test)"
+        default: "smoke,navigation,search,shell"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # e2e needs Node ^22.22.3 or >=24.8.0; '22' resolves to the newest 22.x.
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Install the browser
+        run: npx @e2e-dev/web install chromium --with-deps
+
+      # `npm run test:e2e` would be a CI script that `scripts/check-verify-parity.ts` expects in
+      # `verify`; calling the runner directly keeps this experiment out of that contract.
+      - name: Run the UI suite
+        run: npx e2e run --tag "${{ inputs.tags }}" --reporter list,junit
+        env:
+          # AUTH_MODE=legacy needs no sign-in; the runner starts the server itself (e2e.config.ts).
+          NODE_ENV: development
+
+      - name: Upload e2e evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-evidence
+          path: |
+            .e2e/report.json
+            .e2e/junit.xml
+            .e2e/summary.md
+            .e2e/results/
+            .e2e/logs/
+          retention-days: 7
+          if-no-files-found: ignore
