@@ -142,6 +142,11 @@ export async function analyzeMultimerStructure(
       if (err?.name === "AbortError") throw err;
       return { status: "error", reason: "PDBe did not answer.", partners: [] };
     });
+    // The task is awaited only after the UniProt reads below. If one of those throws first (a caller
+    // abort lands on all of them at once), the task's own AbortError rejection would have no handler
+    // and Node would exit on an unhandled rejection. This marks it handled; the later `await` still
+    // sees the rejection.
+    experimentalTask.catch(() => undefined);
 
     const [features, sequence] = await Promise.all([
       fetchUniprotFeatures(uniprotId),
