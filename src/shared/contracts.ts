@@ -1798,12 +1798,14 @@ export const analyzeVariantResponseSchema = z.object({
         sequenceCoverage: z.number().nullable().optional()
       }).optional(),
       provenance: z.string().optional(),
+      remoteEngineNote: z.string().nullable().optional(),
       status: z.string().optional()
     }).passthrough(),
     z.object({
       error: z.string(),
-      status: z.string().optional()
-    })
+      status: z.string().optional(),
+      remoteEngineNote: z.string().nullable().optional()
+    }).passthrough()
   ]).nullable().optional(),
   esmcEval: esmcEvalResultSchema.nullable().optional(),
   esm2Eval: esmcEvalResultSchema.nullable().optional(),
@@ -2148,6 +2150,8 @@ export interface Esm3EvalResult {
     plddt?: number | null;
     sequenceCoverage?: number | null;
   };
+  /** Present when the local fallback served this result; says why the remote ESM3 tier did not. */
+  remoteEngineNote?: string | null;
 }
 
 export interface Esm2ScoreData {

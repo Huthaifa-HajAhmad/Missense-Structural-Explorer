@@ -220,6 +220,8 @@ export interface Esm3Reading {
   templateConfidence: number | null;
   burial: string | null;
   secondaryStructure: string | null;
+  /** Present when the local fallback served this result; explains why the remote ESM3 tier did not answer. */
+  remoteEngineNote: string | null;
 }
 
 export interface PerturbationEvidence {
@@ -645,12 +647,14 @@ function buildEsm3(e: any, position: number | null): Esm3Reading | null {
   if (!e) return null;
   const source = embeddingSource(e.provenance);
   const identity = { servedBy: source.recorded, label: source.label, knowledgeKey: source.topic, fallback: source.fallback };
+  const remoteEngineNote = typeof e.remoteEngineNote === "string" && e.remoteEngineNote.trim() ? e.remoteEngineNote.trim() : null;
   if (e.error) {
     return {
       availability: { state: "failed", label: ENGINE_STATE_LABELS["upstream-error"], reason: String(e.error), action: "settings" },
       ...identity, drift: null, driftBand: null, driftResidue: null,
       siteDrift: null, peakDistance: null, confidenceBand: null,
-      templateConfidence: null, burial: null, secondaryStructure: null
+      templateConfidence: null, burial: null, secondaryStructure: null,
+      remoteEngineNote
     };
   }
   // One score per residue, index i ↔ residue i + 1 (the route rejects a length mismatch). The VESM
@@ -677,7 +681,8 @@ function buildEsm3(e: any, position: number | null): Esm3Reading | null {
     confidenceBand: plddtBand(plddt),
     templateConfidence: plddt,
     burial: burialRaw && burialRaw !== UNMEASURED_BURIAL_ENVIRONMENT ? burialRaw : null,
-    secondaryStructure: ss
+    secondaryStructure: ss,
+    remoteEngineNote
   };
 }
 

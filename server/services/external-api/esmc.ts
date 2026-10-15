@@ -20,6 +20,8 @@ export interface EsmcEvalResult {
   localEmbeddingShift?: number;
   localShiftMap?: EsmcLocalShift[];
   provenance?: string;
+  /** Why the remote Biohub tier did not answer, when the local VESM fallback served this result. */
+  remoteEngineNote?: string | null;
   error?: string;
   status?: "offline" | "timeout" | "error" | "invalid_input" | string;
 }
@@ -142,7 +144,8 @@ export async function runEsmcAnalysis(
         embeddingShift,
         localEmbeddingShift,
         localShiftMap,
-        provenance
+        provenance,
+        remoteEngineNote: typeof data.remoteEngineNote === "string" ? data.remoteEngineNote : undefined
       };
     }
     return { error: `VESM sidecar returned unexpected response format`, status: "error" };

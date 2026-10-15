@@ -39,6 +39,8 @@ export interface ESM3StructureEvalResult {
     sequenceCoverage: number;
   };
   provenance?: string;
+  /** Why the remote ESM3 tier did not answer, when the local fallback served this result. */
+  remoteEngineNote?: string;
   sasa?: { rsa: number; sse: string; sasa: number } | null;
   error?: string;
   status?: "ok" | "error" | "timeout" | "offline";
@@ -58,10 +60,16 @@ export const esm3StructureCache = new LRUCache<string, any>({
  * protein that local path takes ~18s on CPU — past the flat 20s this call used to allow — so ESM3 was
  * aborted and reported as a failure while the run still had ~100s of its 120s structural budget left
  * (`CONFIG.timeouts.structuralModelsMs`). Scale the budget for long sequences rather than aborting work
- * the outer budget would have completed; the default is preserved for the ordinary-length case.
+ *
+ * The sidecar spends up to ESM3_REMOTE_BUDGET_S (15 s, doubled past 500 residues) on the remote tier
+ * before the local fallback starts, so the HTTP budget has to cover both. The old 20/60 s values were
+ * sized for the local pass alone; a long protein such as CNOT1 (2,376 aa) then aborted here while the
+ * sidecar was still working. Capped below the outer budget so ESM3 can never hold the whole run.
  */
 const ESM3_SIDECAR_BUDGET_MS = (sequenceLength: number): number =>
-  sequenceLength > 500 ? 60000 : 20000;
+  sequenceLength > 500
+    ? Math.min(100000, Math.max(20000, CONFIG.timeouts.structuralModelsMs - 10000))
+    : 40000;
 
 export async function fetchEsm3StructureEval(
   uniprotId: string,
@@ -94,6 +102,7 @@ export async function fetchEsm3StructureEval(
   let perturbationScores: number[] = [];
   let seqLen = 300;
   let esm3Error: string | undefined;
+  let remoteEngineNote: string | undefined;
   /** Set only when the sidecar failed, so a timeout is not reported as a generic error. */
   let esm3Status: "error" | "timeout" | undefined;
 
@@ -151,6 +160,9 @@ export async function fetchEsm3StructureEval(
         }
         if (typeof sidecarData.provenance === "string") {
           provenance = sidecarData.provenance;
+        }
+        if (typeof sidecarData.remoteEngineNote === "string" && sidecarData.remoteEngineNote.trim()) {
+          remoteEngineNote = sidecarData.remoteEngineNote.trim();
         }
       }
     } else {
@@ -235,15 +247,16 @@ export async function fetchEsm3StructureEval(
 
   // If we could not retrieve real perturbation scores from the API, we return error to avoid fabricating data
   if (perturbationScores.length === 0) {
-    const errorResult: { error: string; status?: "error" | "timeout" } = {
+    const errorResult: { error: string; status?: "error" | "timeout"; remoteEngineNote?: string | null } = {
       error: esm3Error || "No perturbation scores returned by Biohub ESM3 API."
     };
     if (esm3Status) errorResult.status = esm3Status;
+    if (remoteEngineNote) errorResult.remoteEngineNote = remoteEngineNote;
     // Do NOT cache API errors/failures so configuring keys can take immediate effect on retry
     return errorResult as any;
   }
 
-  const maxVal = Math.max(...perturbationScores);
+  const maxVal = perturbationScores.reduce((max, val) => (val > max ? val : max), -Infinity);
   const maxDriftResidue = perturbationScores.indexOf(maxVal) + 1;
 
   // 1. Predicted Local Structural Change
@@ -334,7 +347,8 @@ export async function fetchEsm3StructureEval(
       plddt: targetPlddt !== null ? parseFloat(targetPlddt.toFixed(1)) : (null as any),
       sequenceCoverage: 100
     },
-    provenance
+    provenance,
+    ...(remoteEngineNote ? { remoteEngineNote } : {})
   };
 
   esm3StructureCache.set(cacheKey, result);

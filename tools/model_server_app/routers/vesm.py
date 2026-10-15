@@ -9,6 +9,29 @@ from tools.model_server_app.utils import (
     compute_scientific_metrics
 )
 from tools.model_server_app import models
+from tools.model_server_app.engine_resilience import (
+    RemoteFailureMemory,
+    SingleFlightCache,
+    describe_remote_error,
+    extract_status,
+    raise_if_sdk_error,
+    to_full_coordinates,
+)
+import hashlib
+import os
+
+# Shared across the VESM, ESM-2 and ESM-3 routers so a deterministic remote failure (401/403/451) is
+# paid for once, not on every analysis, and so concurrent engines that fall back to the same local
+# VESM-150M pass compute it once.
+remote_failures = RemoteFailureMemory(ttl_seconds=float(os.environ.get("REMOTE_FAILURE_TTL_S", "600")))
+_local_vesm_results = SingleFlightCache(max_entries=8)
+
+BIOHUB_HOST = "https://biohub.ai"
+FORGE_HOST = os.environ.get("FORGE_API_URL", "https://forge.evolutionaryscale.ai").rstrip("/")
+# Per-request ceiling for the remote SDK. Its own default is 120 s with 5 retries and waits of up to
+# 10 s, which alone can outlast the 60 s the Node layer allows the whole sidecar call.
+REMOTE_REQUEST_TIMEOUT_S = int(os.environ.get("REMOTE_REQUEST_TIMEOUT_S", "20"))
+REMOTE_MAX_RETRY_ATTEMPTS = int(os.environ.get("REMOTE_MAX_RETRY_ATTEMPTS", "2"))
 
 # Canonical ESM-C / ESM-3 amino acid token indices (EvolutionaryScale vocabulary):
 # Indices 0..3 are <cls>, <pad>, <eos>, <unk>. Standard amino acids start at index 4.
@@ -54,6 +77,7 @@ class VesmResponse(BaseModel):
     verdict: str | None = None
     hfError: str | None = None
     error: str | None = None
+    remoteEngineNote: str | None = None
 
 def predict_vesm_sync(req: VesmRequest):
     validate_missense_residues(req.wt, req.mut)
@@ -69,115 +93,44 @@ def predict_vesm_sync(req: VesmRequest):
     if sequence[pos - 1] != wt:
         raise HTTPException(status_code=400, detail=f"Wild-type AA mismatch at position {pos}.")
 
-    # 1. If remote Biohub Token is configured, route via ESMCForgeInferenceClient
+    # 1. If remote Biohub Token is configured, route via ESMCForgeInferenceClient.
+    # EvolutionaryScale routes via both forge.evolutionaryscale.ai and biohub.ai. In regions where
+    # biohub.ai answers 451, Forge remains reachable.
+    remote_engine_note = None
     if req.biohubToken:
-        try:
-            from esm.sdk.forge import ESMCForgeInferenceClient
-            from esm.sdk.api import ESMProtein, LogitsConfig
+        candidate_hosts = [FORGE_HOST, BIOHUB_HOST] if FORGE_HOST != BIOHUB_HOST else [BIOHUB_HOST]
+        notes: list[str] = []
+        for host in candidate_hosts:
+            host_blocked = remote_failures.blocked_reason("esmc", host, req.biohubToken)
+            if host_blocked:
+                notes.append(f"{host}: skipped (recent refusal: {host_blocked})")
+                continue
+            try:
+                result = _run_esmc_remote_host(req, sequence, pos, wt, mut, start_offset, host)
+                return result
+            except Exception as e:
+                err_note = remote_failures.record("esmc", host, req.biohubToken, e)
+                notes.append(f"{host}: {err_note}")
+                print(f"[Model Server Remote ESMC Error on {host}]: {err_note}")
+                continue
+        if notes:
+            remote_engine_note = " · ".join(notes)
+            print(f"[Model Server] All remote ESMC hosts failed. Falling back to local model. Reason: {remote_engine_note}")
 
-            client = ESMCForgeInferenceClient(
-                model="esmc-6b-2024-12",
-                url="https://biohub.ai",
-                token=req.biohubToken
-            )
-            protein = ESMProtein(sequence=sequence)
-            protein_tensor = client.encode(protein)
-            
-            config = LogitsConfig(sequence=True, return_embeddings=req.includeEmbeddings)
-            logits_output = client.logits(protein_tensor, config)
-            
-            seq_logits = None
-            if hasattr(logits_output, "logits") and logits_output.logits:
-                seq_logits = getattr(logits_output.logits, "sequence", None)
-            if seq_logits is None:
-                seq_logits = getattr(logits_output, "sequence", None)
-            
-            if seq_logits is not None:
-                seq_logits_tensor = torch.tensor(seq_logits) if not isinstance(seq_logits, torch.Tensor) else seq_logits
-                logits = seq_logits_tensor[0] if seq_logits_tensor.ndim > 2 else seq_logits_tensor
-            else:
-                raise ValueError("Could not find sequence logits in client response")
+    # 2. Local Fallback (VESM-150M). Concurrent engines that fall back to the same local pass (ESM-3,
+    # ESM-2) share one computation instead of each running three forward passes on the CPU.
+    cache_key = (
+        hashlib.sha256(sequence.encode()).hexdigest(), pos, wt, mut, bool(req.includeEmbeddings), start_offset
+    )
+    result = _local_vesm_results.get_or_compute(
+        cache_key, lambda: _predict_vesm_local(req, sequence, pos, wt, mut, start_offset)
+    )
+    if remote_engine_note:
+        result["remoteEngineNote"] = remote_engine_note
+    return result
 
-            embeddings = None
-            if req.includeEmbeddings:
-                raw_embs = getattr(logits_output, "embeddings", None)
-                if raw_embs is not None:
-                    raw_embs_tensor = torch.tensor(raw_embs) if not isinstance(raw_embs, torch.Tensor) else raw_embs
-                    embeddings = raw_embs_tensor[0] if raw_embs_tensor.ndim > 2 else raw_embs_tensor
-                else:
-                    raise ValueError("Could not find embeddings in client response")
 
-            vocab_map = {}
-            if hasattr(client, "tokenizer") and client.tokenizer:
-                try:
-                    vocab_map = {aa: client.tokenizer.encode(aa)[0] for aa in AA_LIST}
-                except Exception as tok_err:
-                    print(f"[Model Server] Tokenizer encode check: {tok_err}")
-            
-            if not vocab_map:
-                try:
-                    for aa in AA_LIST:
-                        p_aa = ESMProtein(sequence=aa)
-                        pt_aa = client.encode(p_aa)
-                        vocab_map[aa] = int(pt_aa.sequence[1].item())
-                except Exception as ve:
-                    print(f"[Model Server] Failed to build dynamic ESMC vocab map: {ve}. Using canonical ESM-C token indices.")
-                    vocab_map = ESMC_CANONICAL_VOCAB.copy()
-
-            wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
-                logits, pos, wt, mut, vocab_map
-            )
-
-            embedding_shift = None
-            local_shift_map = []
-
-            if req.includeEmbeddings and embeddings is not None:
-                mut_seq_chars = list(sequence)
-                mut_seq_chars[pos - 1] = mut
-                mut_sequence = "".join(mut_seq_chars)
-                mut_protein = ESMProtein(sequence=mut_sequence)
-                mut_protein_tensor = client.encode(mut_protein)
-                
-                mut_logits_output = client.logits(mut_protein_tensor, config)
-                raw_mut_embs = getattr(mut_logits_output, "embeddings", None)
-                if raw_mut_embs is not None:
-                    raw_mut_embs_tensor = torch.tensor(raw_mut_embs) if not isinstance(raw_mut_embs, torch.Tensor) else raw_mut_embs
-                    mut_embeddings = raw_mut_embs_tensor[0] if raw_mut_embs_tensor.ndim > 2 else raw_mut_embs_tensor
-                else:
-                    raise ValueError("Could not find mutant embeddings in client response")
-
-                diff = embeddings - mut_embeddings
-                distances = torch.norm(diff, p=2, dim=-1)
-                embedding_shift = round(distances[pos].item(), 4)
-                
-                for i in range(-10, 11):
-                    target_pos = pos + i
-                    if 1 <= target_pos < len(sequence) - 1:
-                        shift_val = distances[target_pos].item()
-                        res_char = sequence[target_pos - 1]
-                        local_shift_map.append({
-                            "position": target_pos,
-                            "residue": res_char,
-                            "shift": round(shift_val, 4)
-                        })
-
-            return {
-                "status": "success",
-                "wtProbability": wt_prob,
-                "mutProbability": mut_prob,
-                "llr": llr,
-                "preferences": preferences,
-                "mutRank": mut_rank,
-                "positionalEntropy": pos_entropy,
-                "embeddingShift": embedding_shift,
-                "localShiftMap": local_shift_map,
-                "provenance": "ESMC-6B (Remote)",
-                "verdict": "raw score"
-            }
-        except Exception as e:
-            print(f"[Model Server Remote ESMC Error]: {e}. Falling back to local model.")
-
-    # 2. Local Fallback (VESM-150M)
+def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset):
     if models.vesm_model is None or models.vesm_tokenizer is None:
         try:
             models.load_vesm()
@@ -250,12 +203,121 @@ def predict_vesm_sync(req: VesmRequest):
             "mutRank": mut_rank,
             "positionalEntropy": pos_entropy,
             "embeddingShift": embedding_shift,
-            "localShiftMap": local_shift_map,
+            "localShiftMap": to_full_coordinates(local_shift_map, start_offset),
             "provenance": "VESM-150M (Local)",
             "verdict": "raw score"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _run_esmc_remote_host(req: VesmRequest, sequence: str, pos: int, wt: str, mut: str, start_offset: int, host: str):
+    from esm.sdk.forge import ESMCForgeInferenceClient
+    from esm.sdk.api import ESMProtein, LogitsConfig
+
+    client = ESMCForgeInferenceClient(
+        model="esmc-6b-2024-12",
+        url=host,
+        token=req.biohubToken,
+        request_timeout=REMOTE_REQUEST_TIMEOUT_S,
+        max_retry_attempts=REMOTE_MAX_RETRY_ATTEMPTS,
+    )
+    protein = ESMProtein(sequence=sequence)
+    protein_tensor = raise_if_sdk_error(client.encode(protein))
+
+    config = LogitsConfig(sequence=True, return_embeddings=req.includeEmbeddings)
+    logits_output = raise_if_sdk_error(client.logits(protein_tensor, config))
+
+    seq_logits = None
+    if hasattr(logits_output, "logits") and logits_output.logits:
+        seq_logits = getattr(logits_output.logits, "sequence", None)
+    if seq_logits is None:
+        seq_logits = getattr(logits_output, "sequence", None)
+
+    if seq_logits is not None:
+        seq_logits_tensor = torch.tensor(seq_logits) if not isinstance(seq_logits, torch.Tensor) else seq_logits
+        logits = seq_logits_tensor[0] if seq_logits_tensor.ndim > 2 else seq_logits_tensor
+    else:
+        raise ValueError("Could not find sequence logits in client response")
+
+    embeddings = None
+    if req.includeEmbeddings:
+        raw_embs = getattr(logits_output, "embeddings", None)
+        if raw_embs is not None:
+            raw_embs_tensor = torch.tensor(raw_embs) if not isinstance(raw_embs, torch.Tensor) else raw_embs
+            embeddings = raw_embs_tensor[0] if raw_embs_tensor.ndim > 2 else raw_embs_tensor
+        else:
+            raise ValueError("Could not find embeddings in client response")
+
+    vocab_map = {}
+    if hasattr(client, "tokenizer") and client.tokenizer:
+        try:
+            vocab_map = {aa: client.tokenizer.encode(aa)[0] for aa in AA_LIST}
+        except Exception as tok_err:
+            print(f"[Model Server] Tokenizer encode check: {tok_err}")
+
+    if not vocab_map:
+        try:
+            for aa in AA_LIST:
+                p_aa = ESMProtein(sequence=aa)
+                pt_aa = client.encode(p_aa)
+                vocab_map[aa] = int(pt_aa.sequence[1].item())
+        except Exception as ve:
+            print(f"[Model Server] Failed to build dynamic ESMC vocab map: {ve}. Using canonical ESM-C token indices.")
+            vocab_map = ESMC_CANONICAL_VOCAB.copy()
+
+    wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
+        logits, pos, wt, mut, vocab_map
+    )
+
+    embedding_shift = None
+    local_shift_map = []
+
+    if req.includeEmbeddings and embeddings is not None:
+        mut_seq_chars = list(sequence)
+        mut_seq_chars[pos - 1] = mut
+        mut_sequence = "".join(mut_seq_chars)
+        mut_protein = ESMProtein(sequence=mut_sequence)
+        mut_protein_tensor = raise_if_sdk_error(client.encode(mut_protein))
+
+        mut_logits_output = raise_if_sdk_error(client.logits(mut_protein_tensor, config))
+        raw_mut_embs = getattr(mut_logits_output, "embeddings", None)
+        if raw_mut_embs is not None:
+            raw_mut_embs_tensor = torch.tensor(raw_mut_embs) if not isinstance(raw_mut_embs, torch.Tensor) else raw_mut_embs
+            mut_embeddings = raw_mut_embs_tensor[0] if raw_mut_embs_tensor.ndim > 2 else raw_mut_embs_tensor
+        else:
+            raise ValueError("Could not find mutant embeddings in client response")
+
+        diff = embeddings - mut_embeddings
+        distances = torch.norm(diff, p=2, dim=-1)
+        embedding_shift = round(distances[pos].item(), 4)
+
+        for i in range(-10, 11):
+            target_pos = pos + i
+            if 1 <= target_pos <= len(sequence):
+                shift_val = distances[target_pos].item()
+                res_char = sequence[target_pos - 1]
+                local_shift_map.append({
+                    "position": target_pos,
+                    "residue": res_char,
+                    "shift": round(shift_val, 4)
+                })
+
+    host_label = "Forge" if "forge" in host.lower() else "Remote"
+    return {
+        "status": "success",
+        "wtProbability": wt_prob,
+        "mutProbability": mut_prob,
+        "llr": llr,
+        "preferences": preferences,
+        "mutRank": mut_rank,
+        "positionalEntropy": pos_entropy,
+        "embeddingShift": embedding_shift,
+        "localShiftMap": to_full_coordinates(local_shift_map, start_offset),
+        "provenance": f"ESMC-6B ({host_label})",
+        "verdict": "raw score"
+    }
+
 
 @router.post("/predict/vesm", response_model=VesmResponse)
 async def predict_vesm(req: VesmRequest):
