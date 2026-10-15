@@ -53,7 +53,7 @@ export interface SearchState {
   /** What the reader picked on the Landscape tab; keyed like `landscapeExtra`. */
   landscapeSelection: LandscapeSelection | null;
   /** Whole-protein summaries and gene context, keyed like `landscapeExtra`. */
-  landscapeOverview: { key: string; status: "loading" | "ready" | "error"; data: LandscapeOverview | null; error: string | null } | null;
+  landscapeOverview: { key: string; status: "loading" | "ready" | "error"; contextStatus?: "idle" | "loading" | "ready" | "error"; data: LandscapeOverview | null; error: string | null } | null;
   searchVal: string;
   customGene: string;
   customVariant: string;

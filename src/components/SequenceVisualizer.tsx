@@ -227,19 +227,53 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
    */
   const hasLandscape = Boolean(landscapeData);
   const [overviewAttempt, setOverviewAttempt] = useState(0);
+  const contextStatus = overview?.contextStatus ?? "idle";
   const retryOverview = useCallback(() => {
     setOverview(null);
     setOverviewAttempt((n) => n + 1);
   }, [setOverview]);
   useEffect(() => {
     if (!gene || !uniprotId || !variant || !hasLandscape) return;
-    if (useVariantAnalysisStore.getState().landscapeOverview?.key === key) return;
-    setOverview({ key, status: "loading", data: null, error: null });
+    if (useVariantAnalysisStore.getState().landscapeOverview?.key === key) {
+      return;
+    }
+    setOverview({ key, status: "loading", contextStatus: "loading", data: null, error: null });
     const stillCurrent = () => useVariantAnalysisStore.getState().landscapeOverview?.key === key;
     apiClient
       .getLandscapeOverview({ gene, uniprotId, variant })
-      .then((data) => stillCurrent() && setOverview({ key, status: "ready", data, error: null }))
-      .catch((err: any) => stillCurrent() && setOverview({ key, status: "error", data: null, error: err?.message ?? "request failed" }));
+      .then((data) => {
+        if (!stillCurrent()) return;
+        if (data.context) {
+          setOverview({ key, status: "ready", contextStatus: "ready", data: { ...data, context: data.context }, error: null });
+        } else if (typeof apiClient.getLandscapeContext === "function") {
+          setOverview({ key, status: "ready", contextStatus: "loading", data: { ...data, context: null }, error: null });
+          apiClient
+            .getLandscapeContext({ gene, uniprotId, variant, transcript: data.meta?.transcript })
+            .then((ctxRes) => {
+              if (!stillCurrent()) return;
+              const current = useVariantAnalysisStore.getState().landscapeOverview;
+              if (current?.key === key && current.data) {
+                setOverview({ ...current, contextStatus: "ready", data: { ...current.data, context: ctxRes.context } });
+              }
+            })
+            .catch((ctxErr: any) => {
+              console.warn("[Landscape] Context fetch failed:", ctxErr?.message || ctxErr);
+              if (stillCurrent()) {
+                const current = useVariantAnalysisStore.getState().landscapeOverview;
+                if (current?.key === key) {
+                  setOverview({ ...current, contextStatus: "error" });
+                }
+              }
+            });
+        } else {
+          setOverview({ key, status: "ready", contextStatus: "ready", data: { ...data, context: null }, error: null });
+        }
+      })
+      .catch((err: any) => {
+        if (stillCurrent()) {
+          setOverview({ key, status: "error", contextStatus: "error", data: null, error: err?.message ?? "request failed" });
+        }
+      });
   }, [gene, uniprotId, variant, hasLandscape, key, apiClient, setOverview, overviewAttempt]);
 
   const parsedGenomic = useMemo(
@@ -303,14 +337,23 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
         variantAm: variantScores.am,
         mode: metricMode,
         meta: landscapeMeta,
-        context: overview?.status === "ready" ? overview.data?.context ?? null : overview?.status === "error" ? null : undefined,
+        context:
+          overview?.status === "ready"
+            ? contextStatus === "ready"
+              ? (overview.data?.context ?? null)
+              : contextStatus === "error"
+                ? null
+                : undefined
+            : overview?.status === "error"
+              ? null
+              : undefined,
         domains,
         predictorProvenance: {
           am: predictorData?.amProvenance ?? null,
           revel: conservationData?.revelProvenance ?? null
         }
       }),
-    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta, overview, domains, predictorData?.amProvenance, conservationData?.revelProvenance]
+    [landscapeMap, range, targetPos, mutation, variantScores.revel, variantScores.am, metricMode, landscapeMeta, overview, contextStatus, domains, predictorData?.amProvenance, conservationData?.revelProvenance]
   );
 
   /* The finding card only renders on the Focus tab; its data-quality cautions must reach every tab. */
@@ -455,9 +498,9 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             onWidth={setWindowSize}
             targetPos={targetPos}
             available={{
-              clinvar: overview?.status !== "ready" || overview.data?.context?.clinvar !== undefined,
-              gnomad: overview?.status !== "ready" || overview.data?.context?.gnomad !== undefined,
-              regions: overview?.status !== "ready" || (overview.data?.context?.regions?.length ?? 0) > 0
+              clinvar: contextStatus === "loading" || overview?.status !== "ready" || overview.data?.context?.clinvar !== undefined,
+              gnomad: contextStatus === "loading" || overview?.status !== "ready" || overview.data?.context?.gnomad !== undefined,
+              regions: contextStatus === "loading" || overview?.status !== "ready" || (overview.data?.context?.regions?.length ?? 0) > 0
             }}
             awayFromTarget={awayFromTarget}
             onStep={(direction) => setCenter(Math.round((range.start + range.end) / 2) + direction * windowSize)}
@@ -475,6 +518,7 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
             error={overview?.error}
             positions={overview?.data?.positions ?? null}
             context={overview?.data?.context ?? null}
+            contextStatus={contextStatus}
             domains={domains}
             window={range}
             targetPos={targetPos}

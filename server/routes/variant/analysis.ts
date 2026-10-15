@@ -194,8 +194,8 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     }
   });
 
-  // 2b. Landscape overview: whole-protein residue summaries plus gene-wide ClinVar, gnomAD and
-  // regional-constraint context. Kept apart from the ±25 window so the focus grid never waits on it.
+  // 2b. Landscape overview: whole-protein residue summaries.
+  // Returns immediately when AlphaMissense/REVEL scores are ready without blocking on gene-wide context.
   apiRouter.post("/analyze-variant/landscape-overview", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
     const context = await validateAndParseVariantRequest(req, res);
     if (!context) return;
@@ -208,18 +208,40 @@ export function registerAnalysisRoutes(apiRouter: Router, jsonParserRegular: any
     });
 
     try {
-      // The regional lane is projected onto the transcript the residue axis is built on, so resolve
-      // the axis transcript before mapping the gene-wide context.
       const landscape = await fetchLandscape(context.gene, undefined, undefined, context.uniprotId);
-      const geneContext = await fetchLandscapeContext(context.gene, landscape.meta?.transcript ?? null);
       res.json({
         positions: landscape.positions.map(({ substitutions: _omit, ...rest }) => rest),
-        meta: landscape.meta,
-        context: geneContext
+        meta: landscape.meta
       });
     } catch (error: any) {
       console.error("Landscape overview failure:", error);
       sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching the landscape overview.");
+    }
+  });
+
+  // 2c. Landscape context: gene-wide ClinVar, gnomAD and regional-constraint context.
+  // Fetched in parallel or deferred so whole-protein AlphaMissense bars do not wait on external databases.
+  apiRouter.post("/analyze-variant/landscape-context", analyzeVariantLimiter, jsonParserRegular, async (req, res) => {
+    const context = await validateAndParseVariantRequest(req, res);
+    if (!context) return;
+
+    await AuditLogger.logVariantQuery("ANALYZE_VARIANT_LANDSCAPE_CONTEXT", {
+      gene: context.gene,
+      variant: context.variant,
+      pos: context.pos,
+      requestId: (req.headers["x-request-id"] as string) || undefined,
+    });
+
+    try {
+      const rawTranscript = typeof req.body?.transcript === "string" ? req.body.transcript.trim() : null;
+      const transcript = rawTranscript && rawTranscript.length <= 64 && /^[A-Za-z0-9_.-]+$/.test(rawTranscript)
+        ? rawTranscript
+        : null;
+      const geneContext = await fetchLandscapeContext(context.gene, transcript);
+      res.json({ context: geneContext });
+    } catch (error: any) {
+      console.error("Landscape context failure:", error);
+      sendError(res, 500, "INTERNAL_SERVER_ERROR", error.message || "An error occurred fetching the landscape context.");
     }
   });
 

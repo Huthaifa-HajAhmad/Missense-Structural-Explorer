@@ -3,6 +3,7 @@ import { currentCacheScope, newCacheScope, runInCacheScope } from "../../service
 import { apiRouter } from "../../routes.ts";
 import * as externalServices from "../../services/external.ts";
 import * as orchestrator from "../../services/analysis-orchestrator.ts";
+import * as landscapeContext from "../../services/prediction/landscape-context.ts";
 
 describe("Variant Analysis Route Handlers", () => {
   beforeEach(() => {
@@ -184,6 +185,66 @@ describe("Variant Analysis Route Handlers", () => {
 
       await handler({ body: { gene: "PAH", variant: "p.Met1Val", landscapeWindow: { start: 1, end: 500 } }, headers: {} }, res, () => {});
       expect(landscapeSpy).toHaveBeenLastCalledWith("PAH", 1, 26, "P00439");
+    });
+  });
+
+  describe("whole-protein landscape overview", () => {
+    const routeHandler = (path: string) => {
+      const route: any = apiRouter.stack.find((layer: any) => layer.route && layer.route.path === path);
+      expect(route).toBeDefined();
+      return route.route.stack[route.route.stack.length - 1].handle;
+    };
+    const capture = () => {
+      const out: { code: number; body: any } = { code: 200, body: null };
+      const res: any = { status(c: number) { out.code = c; return this; }, json(b: any) { out.body = b; return this; } };
+      return { out, res };
+    };
+
+    it("answers with the residue scores without waiting for the gnomAD/ClinVar context", async () => {
+      const handler = routeHandler("/analyze-variant/landscape-overview");
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR".repeat(20));
+      const landscapeSpy = vi.spyOn(externalServices, "fetchLandscape").mockResolvedValue({
+        positions: [{ residx: 1, amMean: 0.5, substitutions: [{ alt: "V", am: 0.5, revel: null }] }],
+        meta: { source: "myvariant", transcript: "ENST00000317147" }
+      } as any);
+      const contextSpy = vi.spyOn(landscapeContext, "fetchLandscapeContext").mockReturnValue(new Promise(() => {}) as any);
+      const { out, res } = capture();
+
+      await handler({ body: { gene: "PAH", variant: "p.Met1Val" }, headers: {} }, res, () => {});
+
+      expect(landscapeSpy).toHaveBeenCalledWith("PAH", undefined, undefined, "P00439");
+      expect(contextSpy).not.toHaveBeenCalled();
+      expect(out.body.positions).toHaveLength(1);
+      expect(out.body.positions[0].substitutions).toBeUndefined();
+      expect(out.body.meta.transcript).toBe("ENST00000317147");
+      expect(out.body.context).toBeUndefined();
+    });
+
+    it("serves the gene-wide context on its own route, projected onto the axis transcript the client names", async () => {
+      const handler = routeHandler("/analyze-variant/landscape-context");
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR".repeat(20));
+      const ctx = { clinvar: [], gnomad: [], regions: [], regionsStatus: "none", transcript: "ENST00000317147", regionsBasis: "x", errors: [] };
+      const contextSpy = vi.spyOn(landscapeContext, "fetchLandscapeContext").mockResolvedValue(ctx as any);
+      const { out, res } = capture();
+
+      await handler({ body: { gene: "PAH", variant: "p.Met1Val", transcript: "ENST00000317147" }, headers: {} }, res, () => {});
+
+      expect(contextSpy).toHaveBeenCalledWith("PAH", "ENST00000317147");
+      expect(out.body).toEqual({ context: ctx });
+    });
+
+    it("treats a missing or malformed transcript as unknown rather than guessing one", async () => {
+      const handler = routeHandler("/analyze-variant/landscape-context");
+      vi.spyOn(externalServices, "resolveGeneToUniprot").mockResolvedValue("P00439");
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("MAPTVR".repeat(20));
+      const contextSpy = vi.spyOn(landscapeContext, "fetchLandscapeContext").mockResolvedValue({} as any);
+      const { res } = capture();
+
+      await handler({ body: { gene: "PAH", variant: "p.Met1Val", transcript: { not: "a string" } }, headers: {} }, res, () => {});
+
+      expect(contextSpy).toHaveBeenCalledWith("PAH", null);
     });
   });
 

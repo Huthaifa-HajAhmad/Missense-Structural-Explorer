@@ -113,7 +113,9 @@ export function parseGnomad(rows: any[], canonical: string | null): ContextGnoma
 
 export async function fetchLandscapeContext(geneSymbol: string, expectedTranscript: string | null = null): Promise<LandscapeContext> {
   const gene = normalizeGeneSymbol(geneSymbol).toUpperCase();
-  const hit = cache.get(gene);
+  const axisTx = expectedTranscript ? expectedTranscript.trim().split(".")[0] : "none";
+  const cacheKey = `${gene}::${axisTx}`;
+  const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
 
   const errors: string[] = [];
@@ -225,7 +227,7 @@ export async function fetchLandscapeContext(geneSymbol: string, expectedTranscri
   if (!sourceFailed) {
     // Bounded: drop the oldest entry (Map keeps insertion order) rather than grow per gene forever.
     if (cache.size >= MAX_CACHED_GENES) cache.delete(cache.keys().next().value as string);
-    cache.set(gene, { at: Date.now(), value });
+    cache.set(cacheKey, { at: Date.now(), value });
   }
   return value;
 }

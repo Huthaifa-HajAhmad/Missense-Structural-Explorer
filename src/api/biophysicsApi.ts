@@ -2,6 +2,8 @@ import {
   biophysicalAnalysisResponseSchema,
   BiophysicalAnalysisResponse,
   landscapeOverviewResponseSchema,
+  landscapeContextResponseSchema,
+  type LandscapeContext,
   type LandscapeMeta,
   type LandscapeOverview,
   type LandscapeResidueItem
@@ -254,7 +256,7 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
       return await res.json();
     },
 
-    /** Whole-protein residue summaries plus ClinVar / gnomAD / regional-constraint context. */
+    /** Whole-protein residue summaries. Returns immediately without waiting on external context. */
     async getLandscapeOverview(
       params: { gene: string; uniprotId: string; variant: string },
       signal?: AbortSignal
@@ -270,6 +272,24 @@ export function createBiophysicsApi(fetchWithAuth: FetchWithAuth) {
         throw new Error(await extractErrorMessage(res, "Failed to get the landscape overview"));
       }
       return landscapeOverviewResponseSchema.parse(await res.json());
+    },
+
+    /** Gene-wide ClinVar, gnomAD and regional constraint context for the Landscape overview. */
+    async getLandscapeContext(
+      params: { gene: string; uniprotId: string; variant: string; transcript?: string | null },
+      signal?: AbortSignal
+    ): Promise<{ context: LandscapeContext }> {
+      const res = await fetchWithAuth("/api/v1/analyze-variant/landscape-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+        timeout: 60000,
+        signal
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res, "Failed to get the landscape context"));
+      }
+      return landscapeContextResponseSchema.parse(await res.json());
     },
 
     async getStructuralAssessments(

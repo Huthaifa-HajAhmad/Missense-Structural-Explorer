@@ -14,6 +14,7 @@ import type { FoldxPhase } from "../shared/foldxPhase";
 import { useSettings } from "../context/SettingsContext";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { isApplePlatform } from "../shared/platform";
+import { landscapeKey } from "../shared/landscapeEvidence";
 
 export type MasterView =
   | "search"
@@ -522,6 +523,12 @@ function MasterSidebar({
 
   const loadedPdb = useVariantAnalysisStore(s => s.pdbText);
   const engineState = useVariantAnalysisStore(s => s.primaryBiophysics);
+  const landscapeOverview = useVariantAnalysisStore(s => s.landscapeOverview);
+  const currentGene = useVariantAnalysisStore(s => s.gene);
+  const currentVariant = useVariantAnalysisStore(s => s.variant);
+  const currentUniprotId = useVariantAnalysisStore(s => s.uniprotId);
+  const currentKey = landscapeKey(currentGene, currentVariant, currentUniprotId);
+  const overviewStatus = landscapeOverview?.key === currentKey ? landscapeOverview?.status ?? null : null;
   const stageOf = (id: MasterView) =>
     getWorkflowStageStatus({
       ...engineState,
@@ -538,6 +545,7 @@ function MasterSidebar({
       ddmutStatus,
       isNarrativeLoading,
       hasStructureCoordinates: Boolean(loadedPdb),
+      landscapeOverviewStatus: overviewStatus,
     });
 
   return (
