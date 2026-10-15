@@ -20,6 +20,7 @@ interface Props {
   error?: string | null;
   positions: LandscapeResidueItem[] | null;
   context: LandscapeContext | null;
+  contextStatus?: "loading" | "ready" | "error" | "idle";
   domains: DomainSpan[];
   window: { start: number; end: number };
   targetPos: number;
@@ -45,6 +46,7 @@ export function LandscapeOverview({
   error,
   positions,
   context,
+  contextStatus,
   domains,
   window,
   targetPos,
@@ -562,7 +564,7 @@ export function LandscapeOverview({
           </div>
           {context?.clinvar == null ? (
             <p className="ls-overview__missing">
-              {status === "ready" || status === "error"
+              {(contextStatus ?? status) === "ready" || (contextStatus ?? status) === "error"
                 ? "ClinVar not loaded"
                 : "ClinVar context pending"}
             </p>
@@ -621,7 +623,7 @@ export function LandscapeOverview({
           </div>
           {context?.gnomad == null ? (
             <p className="ls-overview__missing">
-              {status === "ready" || status === "error"
+              {(contextStatus ?? status) === "ready" || (contextStatus ?? status) === "error"
                 ? "gnomAD not loaded"
                 : "gnomAD context pending"}
             </p>
@@ -653,10 +655,16 @@ export function LandscapeOverview({
       )}
       {lanes.regions &&
         status === "ready" &&
-        (context?.regions === null || (context?.regions?.length ?? 0) > 0) &&
+        (context == null || context.regions === null || (context.regions?.length ?? 0) > 0) &&
         track(
           "Missense O/E",
-          context?.regions === null ? (
+          context == null ? (
+            <p className="ls-overview__missing">
+              {(contextStatus ?? status) === "ready" || (contextStatus ?? status) === "error"
+                ? "Regional constraint not loaded"
+                : "Regional constraint pending"}
+            </p>
+          ) : context.regions === null ? (
             <p className="ls-overview__missing">
               {context.regionsStatus === "withheld-mapping"
                 ? "Regional map withheld: transcript-to-protein mapping not verified"

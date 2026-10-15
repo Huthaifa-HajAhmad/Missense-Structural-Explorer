@@ -23,6 +23,7 @@ import { LandscapeOverview } from "../LandscapeOverview";
 import { GenomicSaturationHeatmap } from "../GenomicSaturationHeatmap";
 import { alignCodonsToSequence, codonsByResidue } from "../useAlphaGenomeRegion";
 import SequenceVisualizer, { resolveTarget } from "../../SequenceVisualizer";
+import { useVariantAnalysisStore } from "../../../stores/useVariantAnalysisStore";
 import { toOneLetter } from "../sequenceConstants";
 
 // NAE1-like: residue 116 is D (coding GAT), gene on the − strand. Genomic positions descend 5'→3'.
@@ -119,6 +120,30 @@ describe("LandscapeOverview", () => {
     expect(screen.getByText("ClinVar not loaded")).toBeTruthy();
     expect(screen.getByText("no regional missense constraint call for this gene")).toBeTruthy();
   });
+
+  it("renders AlphaMissense scores and shows pending context states while context is loading", () => {
+    render(
+      <LandscapeOverview
+        length={100}
+        status="ready"
+        contextStatus="loading"
+        positions={[{ residx: 10, amMean: 0.82, revelMean: null, gerp: null, phylop: null }]}
+        context={null}
+        domains={[]}
+        window={{ start: 1, end: 31 }}
+        targetPos={10}
+        mode="mean"
+        lanes={{ clinvar: true, gnomad: true, regions: true }}
+        onMove={vi.fn()}
+        onPick={vi.fn()}
+        pageStep={31}
+      />
+    );
+    expect(screen.queryByText("Loading whole-protein scores…")).toBeNull();
+    expect(screen.getByText("ClinVar context pending")).toBeTruthy();
+    expect(screen.getByText("gnomAD context pending")).toBeTruthy();
+    expect(screen.getByText("Regional constraint pending")).toBeTruthy();
+  });
 });
 
 describe("GenomicSaturationHeatmap on a − strand gene", () => {
@@ -184,6 +209,40 @@ describe("SequenceVisualizer states", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Nucleotide map" }));
     expect(screen.queryByRole("group", { name: /Substitution heatmap/ })).toBeNull();
     expect(screen.queryByRole("slider")).toBeNull();
+    sequenceState.sequence = "";
+  });
+
+  it("displays gene-wide context as loading while background context is pending, not as a failure", () => {
+    sequenceState.sequence = "M".repeat(100) + "SGSFVEESPENLLDNDPSFFCRFTVVVATQL" + "A".repeat(50);
+    useVariantAnalysisStore.setState({
+      landscapeOverview: {
+        key: "NAE1|p.Asp116Gly|Q13564",
+        status: "ready",
+        contextStatus: "loading",
+        data: {
+          positions: [],
+          meta: { source: "dbnsfp-local", sourceVersion: "dbNSFP 4.9a", transcriptBasis: "mane", transcript: "ENST1", window: null, referenceSequence: null, cached: false, qualityFlags: [], retrievedAt: "2026-10-15T00:00:00Z" },
+          context: null
+        },
+        error: null
+      }
+    });
+
+    render(
+      <SequenceVisualizer
+        uniprotId="Q13564"
+        gene="NAE1"
+        variant="p.Asp116Gly"
+        residueIndex={116}
+        landscapeData={[...rows.values()]}
+        conservationData={{ revel: 0.231 }}
+        predictorData={{ amPathogenicity: 0.362 }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Focus residue" }));
+    expect(screen.getByText(/Gene-wide ClinVar, gnomAD and regional-constraint context is loading/)).toBeTruthy();
+    expect(screen.queryByText(/ClinVar, gnomAD and regional constraint could not be loaded/)).toBeNull();
     sequenceState.sequence = "";
   });
 });

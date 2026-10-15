@@ -150,6 +150,7 @@ export interface WorkflowStageStatusParams {
   foldingError?: string | null;
   thermompnnStatus?: string | null;
   thermompnnError?: string | null;
+  landscapeOverviewStatus?: "loading" | "ready" | "error" | "idle" | null;
 }
 
 export function getWorkflowStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string };
@@ -212,7 +213,8 @@ export function getWorkflowStageStatus(
     isNarrativeLoading = false,
     dynamut2Status = null,
     ddmutStatus = null,
-    hasStructureCoordinates = false
+    hasStructureCoordinates = false,
+    landscapeOverviewStatus = null
   } = p;
 
   /**
@@ -351,9 +353,15 @@ export function getWorkflowStageStatus(
           desc: "Landscape data unavailable"
         };
       }
+      if (landscapeOverviewStatus === "loading") {
+        return {
+          status: "progress",
+          desc: `${count} residue${count === 1 ? "" : "s"} ready · Loading whole protein...`
+        };
+      }
       return {
         status: "complete",
-        desc: `${count} residues loaded`
+        desc: `${count} residue${count === 1 ? "" : "s"} loaded`
       };
     }
 

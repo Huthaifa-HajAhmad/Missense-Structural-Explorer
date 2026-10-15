@@ -1577,9 +1577,14 @@ export type LandscapeContext = z.infer<typeof landscapeContextSchema>;
 export const landscapeOverviewResponseSchema = z.object({
   positions: z.array(landscapeResidueSchema),
   meta: landscapeMetaSchema,
-  context: landscapeContextSchema
+  context: landscapeContextSchema.optional().nullable()
 });
 export type LandscapeOverview = z.infer<typeof landscapeOverviewResponseSchema>;
+
+export const landscapeContextResponseSchema = z.object({
+  context: landscapeContextSchema
+});
+export type LandscapeContextResponse = z.infer<typeof landscapeContextResponseSchema>;
 
 export const analyzeVariantResponseSchema = z.object({
   analysis: z.string().nullable().optional(),

@@ -29,12 +29,19 @@ export function useProteinSequence(
   const fetchRef = useRef(fetchWithAuth);
   fetchRef.current = fetchWithAuth;
 
-  const [sequence, setSequence] = useState("");
+  const initialAccession = normalizeUniprotAccession(uniprotId);
+  const initialCached = useVariantAnalysisStore.getState().proteinSequence;
+  const hasInitialMatch = Boolean(
+    initialAccession && initialCached && initialCached.accession === initialAccession && initialCached.sequence
+  );
+
+  const [sequence, setSequence] = useState<string>(() => (hasInitialMatch ? initialCached!.sequence : ""));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     const accession = normalizeUniprotAccession(uniprotId);
 
     const publish = (value: string) => {
@@ -56,21 +63,30 @@ export function useProteinSequence(
       return;
     }
 
+    const cachedEntry = useVariantAnalysisStore.getState().proteinSequence;
+    if (cachedEntry && cachedEntry.accession === accession && cachedEntry.sequence) {
+      publish(cachedEntry.sequence);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     (async () => {
       try {
         const response = await fetchRef.current(
-          `/api/v1/sequence/${encodeURIComponent(accession)}`
+          `/api/v1/sequence/${encodeURIComponent(accession)}`,
+          { signal: controller.signal, timeout: 10000 }
         );
         if (!response.ok) {
           throw new Error(`Failed to retrieve sequence data: ${response.statusText}`);
         }
         const data = await response.json();
         if (active) publish(typeof data?.sequence === "string" ? data.sequence : "");
-      } catch (err) {
-        if (!active) return;
+      } catch (err: any) {
+        if (!active || err?.name === "AbortError") return;
         console.warn("[UniProt] Unable to fetch sequence:", err);
         publish("");
         setError("UniProt sequence data unavailable. Check network or server connection.");
@@ -81,6 +97,7 @@ export function useProteinSequence(
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [uniprotId]);
 

@@ -47,4 +47,21 @@ describe("truthful pipeline outcomes", () => {
   it("does not infer concurrent Landscape execution from a legacy step number", () => {
     expect(getWorkflowStageStatus({ view: "landscape", isLoadingSearch: true, loadingStep: "Step 4/4: Biophysics" }).status).toBe("pending");
   });
+  it("reports whole-protein loading honestly when window residues are ready but overview is fetching", () => {
+    const singleResidueStatus = getWorkflowStageStatus({
+      view: "landscape",
+      result: { ...result, landscapeData: [{ pos: 1 }] },
+      landscapeOverviewStatus: "loading"
+    });
+    expect(singleResidueStatus.status).toBe("progress");
+    expect(singleResidueStatus.desc).toBe("1 residue ready · Loading whole protein...");
+
+    const multiResidueStatus = getWorkflowStageStatus({
+      view: "landscape",
+      result: { ...result, landscapeData: [{ pos: 1 }, { pos: 2 }] },
+      landscapeOverviewStatus: "loading"
+    });
+    expect(multiResidueStatus.status).toBe("progress");
+    expect(multiResidueStatus.desc).toBe("2 residues ready · Loading whole protein...");
+  });
 });

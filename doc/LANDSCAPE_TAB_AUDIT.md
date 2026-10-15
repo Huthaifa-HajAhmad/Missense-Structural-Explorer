@@ -479,6 +479,37 @@ Pinned: `vep-orchestrator.test.ts` asserts the tier provenance on the VEP and co
 paths; `landscapeEvidence.test.ts` pins the release-gap / same-release / unknown-release caution
 wording.
 
+### Whole-protein overview decoupled loading & sequence resilience
+
+1. **Decoupled overview endpoints (`/landscape-overview` vs `/landscape-context`):**
+   Previously, `/analyze-variant/landscape-overview` evaluated both full-protein dbNSFP AlphaMissense scores
+   and multi-query gnomAD/ClinVar/regional constraint serially before returning any data. This forced
+   the Whole Protein AlphaMissense score bars to wait >20s on external APIs (and occasionally timeout).
+   The routes are now split:
+   - `POST /analyze-variant/landscape-overview` returns whole-protein AlphaMissense & REVEL scores and
+     transcript metadata immediately (~9s on large proteins like CNOT1 without local dbNSFP).
+   - `POST /analyze-variant/landscape-context` loads gene-wide ClinVar, gnomAD, and regional constraint in
+     the background, displaying explicit pending states ("ClinVar context pending", "gnomAD context pending",
+     "Regional constraint pending") in their respective lanes without blocking residue score visualization.
+2. **Pipeline rail honesty:**
+   `getWorkflowStageStatus` now inspects `landscapeOverviewStatus`. If the ±25 focus window has finished but
+   the whole-protein overview is still loading, it reports `"progress"` (`"${count} residues ready · Loading whole protein..."`)
+   instead of prematurely claiming "complete" while the user observes spinners on the Whole protein overview.
+3. **Protein sequence fetch resilience:**
+   `useProteinSequence` now reuses pre-cached protein sequence from `useVariantAnalysisStore` on initial render
+   via lazy initialization, enforces an `AbortController` signal and strict 10s timeout on `/api/v1/sequence/:id`
+   with clean abort on unmount, and provides fallback error messaging, verified by unit tests in
+   `src/hooks/__tests__/useProteinSequence.test.ts`.
+4. **Context state persistence & honest finding presentation:**
+   `contextStatus` is stored in the persistent `landscapeOverview` slice of `useVariantAnalysisStore` rather
+   than ephemeral local component state, preserving context loading and completion across tab switches.
+   `landscapeFinding` distinguishes loading from failure: passing `undefined` while context is fetching displays
+   the informative loading message rather than prematurely printing failure text.
+5. **Cross-transcript isolation & key-guarded rail status:**
+   The server `landscapeContextCache` is keyed by `${gene}::${axisTx}` with sanitized `transcript` inputs,
+   preventing cache collisions between different transcript axes. `MasterSidebar` and `VariantSearchPanel`
+   strictly match `landscapeOverview.key === currentKey` before passing the status to `getWorkflowStageStatus`.
+
 ### Sources
 
 - Pejaver V, et al. Am J Hum Genet 2022;109:2163–2177. doi:10.1016/j.ajhg.2022.10.013 (REVEL Table 2).

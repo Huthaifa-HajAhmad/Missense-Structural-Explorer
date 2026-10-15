@@ -27,6 +27,7 @@ import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus, summarizeWorkflowStatuses } from "../shared/workflowStatus";
+import { landscapeKey } from "../shared/landscapeEvidence";
 import {
   needsNotationResolution,
   classifyNotation,
@@ -563,6 +564,7 @@ function VariantSearchPanel({
   const isForegroundActive = Boolean((propsAnalysisState ?? storeAnalysisState).isLoading || isBiophysicalLoading || isClinicalLoading);
   const dynamut2Status = useVariantAnalysisStore(s => s.dynamut2Status ?? null);
   const ddmutStatus = useVariantAnalysisStore(s => s.ddmutStatus ?? null);
+  const landscapeOverview = useVariantAnalysisStore(s => s.landscapeOverview);
 
   const actions = useVariantAnalysisActions();
   const { hasConfiguredGeminiKey, openSettingsTab, settings } = useSettings();
@@ -598,6 +600,8 @@ function VariantSearchPanel({
   const analysisState = propsAnalysisState ?? storeAnalysisState;
   const gene = propsGene ?? storeGene;
   const variant = propsVariant ?? storeVariant;
+  const storeUniprotId = useVariantAnalysisStore(s => s.uniprotId ?? "");
+  const uniprotId = propsUniprotId ?? storeUniprotId;
   const history = propsHistory ?? storeHistory;
   const clearHistory = propsClearHistory ?? actions.clearHistory;
   const handleSelectHistoryItem = propsHandleSelectHistoryItem ?? ((item: SearchHistoryItem) => {
@@ -617,6 +621,8 @@ function VariantSearchPanel({
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
+    const currentKey = landscapeKey(gene, variant, uniprotId);
+    const overviewStatus = landscapeOverview?.key === currentKey ? landscapeOverview?.status ?? null : null;
     const raw = getWorkflowStageStatus({
       ...engineState,
       foldingPhase: engineState.foldingProgress?.phase,
@@ -631,7 +637,8 @@ function VariantSearchPanel({
       dynamut2Status,
       ddmutStatus,
       isNarrativeLoading,
-      hasStructureCoordinates: Boolean(loadedPdb)
+      hasStructureCoordinates: Boolean(loadedPdb),
+      landscapeOverviewStatus: overviewStatus
     });
     /**
      * Display labels for the workflow states. "In Progress" was retired — it is in
