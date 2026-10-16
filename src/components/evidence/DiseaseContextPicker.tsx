@@ -36,6 +36,16 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
   }
   const selectionNote = <p className={inline ? 'ctx-caption' : 'gd-caption gd-picker__note'}>Disease choice is shared across Gene–disease, Expression and Species &amp; models. Your review systems stay selected when the disease changes.
       {frames.some(f => f.selectionSource === 'Gene2Phenotype') && ' Additional choices use verified G2P gene and MONDO IDs with the supported local allelic mapping; they do not imply GenCC validity coverage.'}</p>;
+  if (compact && frames.length === 1 && (stale || !selection.diseaseKey)) {
+    const frame = frames[0];
+    return <section className="gd-disease-choice" aria-label="Disease context">
+      <div><span className="eyebrow">Available disease for {gene}</span><h2>{frame.label}</h2>
+        <p>{frame.inheritance.label} · {frame.diseaseId}{frame.selectionSource === 'Gene2Phenotype' && ' · G2P choice; no GenCC assertion'}</p></div>
+      <button type="button" className="ctx-button" onClick={() => onChange(selectDisease(selection, frame.key))}>Review this disease</button>
+      {selectionNote}
+      {stale && <p role="status">The previous choice is absent from this snapshot. Confirm the available disease to continue.</p>}
+    </section>;
+  }
   const fields = <>
     <label className={inline ? 'ctx-label' : 'gd-picker__label'} htmlFor={id}>{inline ? 'Disease' : `Review ${gene} for`}</label>
     <select id={id} className="ctx-select" value={stale ? '' : selection.diseaseKey ?? ''}
@@ -44,7 +54,7 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
       {frames.map(frame => <option key={frame.key} value={frame.key}>{frame.label} · {frame.inheritance.label} · {frame.diseaseId}{frame.selectionSource === 'Gene2Phenotype' ? ' · G2P choice; no GenCC assertion' : ''}</option>)}
     </select>
     {frames.length === 1 && selection.diseaseKey !== frames[0].key && <button type="button" className="ctx-button" onClick={() => onChange(selectDisease(selection, frames[0].key))}>{compact ? 'Review this disease' : <>Review the only curated disease: {frames[0].label}</>}</button>}
-    {compact ? <details className="gd-picker-help"><summary>About disease selection</summary>{selectionNote}</details> : selectionNote}
+    {selectionNote}
     {stale && load.status === 'ready' && <p role="status">The saved disease choice is absent from this snapshot. Choose it again; your review systems have been kept.</p>}
   </>;
   if (inline) return <div className="ctx-field">{fields}</div>;

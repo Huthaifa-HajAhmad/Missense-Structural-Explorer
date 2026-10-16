@@ -26,12 +26,12 @@ export function SpeciesCoverage({ rows }: { rows: ContextReading[] }) {
 }
 
 export function AssertionMatrix({ rows, levels, selected, onSelect }: { rows: ContextReading[]; levels: string[]; selected: string | null; onSelect: (key: string) => void }) {
-  return <ChartFrame title="Where do the submitted assertions differ?" description="Each row is one submission for the selected disease and inheritance. Select its category to inspect the original assertion."
+  return <ChartFrame title="Where do the submitted assertions differ?" description="Each row is one submission for the selected disease and inheritance. Select a submitter or category to inspect the original assertion."
     summary={`${rows.length} displayed submissions. Categories are not a numeric scale or independent votes.`}
     footer={<span>Column positions are categorical. Submission counts do not establish consensus or classify this variant.</span>}>
     <div className="cx-table-scroll" role="region" aria-label="Submitted validity assertion matrix" tabIndex={0}><table className="cx-table cx-matrix">
       <thead><tr><th scope="col">Submitter</th>{levels.map(level => <th scope="col" key={level}>{level}</th>)}<th scope="col">Evaluated</th></tr></thead>
-      <tbody>{rows.map(r => <tr key={r.key} data-selected={selected === r.key || undefined}><th scope="row">{r.name}</th>{levels.map(level => <td key={level}>{r.valueText === level ? <button type="button" className="cx-assertion" aria-label={`${r.name}: ${level}`} aria-pressed={selected === r.key} onClick={() => onSelect(r.key)}><span aria-hidden="true">●</span><span className="sr-only">{level}</span></button> : <><span aria-hidden="true">—</span><span className="sr-only">No assertion in this category</span></>}</td>)}<td>{r.facts.find(f => f.label === 'Evaluated')?.value}</td></tr>)}</tbody>
+      <tbody>{rows.map(r => <tr key={r.key} data-selected={selected === r.key || undefined}><th scope="row"><button type="button" className="evw-reading-button" aria-pressed={selected === r.key} onClick={() => onSelect(r.key)}>{r.name}</button></th>{levels.map(level => <td key={level}>{r.valueText === level ? <button type="button" className="cx-assertion" aria-label={`${r.name}: ${level}`} aria-pressed={selected === r.key} onClick={() => onSelect(r.key)}><span aria-hidden="true">●</span><span className="sr-only">{level}</span></button> : <><span aria-hidden="true">—</span><span className="sr-only">No assertion in this category</span></>}</td>)}<td>{r.facts.find(f => f.label === 'Evaluated')?.value}</td></tr>)}</tbody>
     </table></div>
   </ChartFrame>;
 }

@@ -36,9 +36,10 @@ export function Step({ n, label, state, children }: { n: number; label: string; 
 }
 
 /** `rolling`: a live table with no release number (ClinGen dosage); each record carries its own date. */
-export function Provenance({ provenance, rolling = false }: { provenance: ContextProvenance; rolling?: boolean }) {
+export function Provenance({ provenance, rolling = false, name, status, children }: { provenance: ContextProvenance; rolling?: boolean; name?: string; status?: { label: string; tone: string }; children?: React.ReactNode }) {
   return <details className="xp-prov" aria-label={`${provenance.source} provenance`}>
-    <summary><span className="xp-prov__name">{provenance.source}</span><span className="xp-prov__meta">{provenance.release ?? (rolling ? 'Rolling table' : `${basisLabel(provenance)} ${day(provenance.retrievedAt)}`)}</span></summary>
+    <summary><span className="xp-prov__name">{name ?? provenance.source}</span>{status && <span className="ev-tier" data-tone={status.tone}>{status.label}</span>}<span className="xp-prov__meta">{provenance.release ?? (rolling ? 'Rolling table' : `${basisLabel(provenance)} ${day(provenance.retrievedAt)}`)}</span></summary>
+    {children}
     <dl className="rail-kv">
       <div className="rail-kv__row"><dt>Release</dt><dd>{provenance.release ?? (rolling ? 'Rolling table; per-gene dates' : 'Not reported')}</dd></div>
       <div className="rail-kv__row"><dt>{basisLabel(provenance)}</dt><dd className="ctx-mono">{day(provenance.retrievedAt)}</dd></div>
