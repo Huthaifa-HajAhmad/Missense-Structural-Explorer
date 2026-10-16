@@ -31,7 +31,7 @@
 .gd-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .gd-hero__finding { color: var(--cs-text-secondary); }
 .gd-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; white-space: normal; }
-.gd-hero[data-verdict="adverse"] { border-color: color-mix(in srgb, var(--cs-text-warning) 45%, var(--cs-border)); }
+.gd-hero[data-verdict="adverse"] { border-color: color-mix(in oklch, var(--cs-text-warning) 45%, var(--cs-border)); }
 .gd-hero[data-verdict="adverse"] .gd-hero__finding { color: var(--cs-text-primary); }
 .gd-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2); }
 .gd-facts > div { padding: 11px 16px; min-width: 0; }
@@ -53,7 +53,7 @@
 .gd-table tbody tr + tr > * { border-top: 1px solid var(--cs-border-subtle); }
 .gd-table tbody tr.gd-group > th { padding: 8px 16px; background: var(--cs-surface-2); font-size: var(--cs-font-size-badge); letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-semibold); }
 .gd-table tbody + tbody tr.gd-group > th { border-top: 1px solid var(--cs-border-subtle); }
-.gd-table tr[data-adverse] > * { background: color-mix(in srgb, var(--cs-text-warning) 6%, transparent); }
+.gd-table tr[data-adverse] > * { background: color-mix(in oklch, var(--cs-text-warning) 6%, transparent); }
 .gd-table td .ev-tier { white-space: normal; }
 .gd-table td.gd-mono { white-space: nowrap; }
 .gd-table thead th:nth-child(2) { min-width: 190px; }
@@ -66,7 +66,7 @@
 .gd-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 16px; min-height: var(--gd-bar-h); padding: 8px 16px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); border-top: 1px solid var(--cs-border-subtle); }
 .gd-crosscheck { border-bottom: 1px solid var(--cs-border-subtle); }
 .gd-crosscheck strong { color: var(--cs-text-primary); }
-.gd-crosscheck[data-relation="differs"] { background: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface)); }
+.gd-crosscheck[data-relation="differs"] { background: color-mix(in oklch, var(--cs-accent-clay) 6%, var(--cs-surface)); }
 
 /* Focus, hit targets, print */
 .gd-screen :is(button, select, summary, a, [tabindex]):focus-visible, .gd-rail :is(summary, a):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }

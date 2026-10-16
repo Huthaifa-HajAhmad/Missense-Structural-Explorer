@@ -46,7 +46,7 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
 
   return <div className="ctx-rail gd-rail" data-testid="gene-disease-rail">
     <EvidenceReadingInspector tab="gene-disease" rows={rows} />
-    <ContextDisclosure tab="gene-disease" id="review-trace" title="Review trace"><section className="rail-section" aria-labelledby="gd-rail-trace"><h3 className="eyebrow" id="gd-rail-trace">Review trace</h3>
+    <ContextDisclosure tab="gene-disease" id="review-trace" title="Review trace"><section className="rail-section" aria-label="Review trace">
       <ol className="rail-steps" data-testid="context-trace">
         <Step n={1} label="Disease choice">{selected ? <>{selected.label}<span className="rail-step__sub">{selected.inheritance.label}</span></> : choice}</Step>
         <Step n={2} label="Validity assertions" state={model.verdict.kind === 'adverse' ? 'warn' : undefined}>{validity}</Step>
