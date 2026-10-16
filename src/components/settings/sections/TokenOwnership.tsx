@@ -142,6 +142,7 @@ export function AccountTokenControls({
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   if (!secrets.signedIn) return null;
   const entry = secrets.saved?.[kind];
   const typed = browserToken.trim();
@@ -149,11 +150,14 @@ export function AccountTokenControls({
   const run = async (action: () => Promise<void>, done: string) => {
     setBusy(true);
     setMessage(null);
+    setError(null);
     try {
       await action();
       setMessage(done);
     } catch (err) {
-      setMessage(err instanceof AccountError ? err.message : "That did not work; try again.");
+      const msg = err instanceof AccountError ? err.message : "That did not work; try again.";
+      setError(msg);
+      setMessage(msg);
     } finally {
       setBusy(false);
     }
@@ -201,8 +205,13 @@ export function AccountTokenControls({
       {secrets.loadFailed ? (
         <span className="text-cs-text-muted">Your saved tokens could not be loaded; reopen Settings to try again.</span>
       ) : null}
-      {/* Kept mounted so screen readers announce the message when it appears. */}
-      <span role="status" aria-live="polite" className="text-cs-text-muted">
+      {error && (
+        <span role="alert" className="text-rose-600 dark:text-rose-400">
+          {error}
+        </span>
+      )}
+      {/* Kept mounted and hidden visually so screen readers announce changes via aria-live without duplicate visual text. */}
+      <span role="status" aria-live="polite" className="sr-only">
         {message ?? ""}
       </span>
     </div>

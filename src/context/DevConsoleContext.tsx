@@ -15,6 +15,7 @@ import {
 } from "../types/devConsole";
 import { isConnectionFailureText } from "../shared/fetch-retry";
 import { classifyLogSource } from "./logSource";
+import { redactSecrets } from "../shared/redactSecrets";
 
 const ERROR_STORAGE_KEY = "devConsoleErrors";
 const LIVE_STORAGE_KEY = "devConsoleLive";
@@ -439,7 +440,7 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
 function readRequestBody(body: BodyInit | null | undefined): unknown {
   if (typeof body !== "string" || body.length > 4096) return undefined;
   try {
-    return JSON.parse(body);
+    return redactSecrets(JSON.parse(body));
   } catch {
     return body;
   }

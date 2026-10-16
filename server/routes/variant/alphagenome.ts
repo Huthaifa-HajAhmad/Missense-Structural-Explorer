@@ -67,7 +67,7 @@ export function registerAlphaGenomeRoutes(apiRouter: Router, jsonParserRegular: 
     }
 
     try {
-      const result = await verifyAlphaGenomeConnection(userApiKey!, 5000);
+      const result = await verifyAlphaGenomeConnection(userApiKey!, 10000);
       res.json({
         ok: result.ok,
         latencyMs: result.latencyMs,

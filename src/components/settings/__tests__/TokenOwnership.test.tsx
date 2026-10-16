@@ -51,6 +51,7 @@ describe("AccountTokenControls", () => {
     expect(api.saveSecret).toHaveBeenCalledWith("biohub", "tok_typed_12345678");
     expect(onClear).toHaveBeenCalled();
     expect(await screen.findByText(/Saved to your account \(ends …5678\)/)).toBeTruthy();
+    expect(screen.getByRole("status").className).toContain("sr-only");
   });
 
   it("shows a saved token by its last four characters and removes it", async () => {
