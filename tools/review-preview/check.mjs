@@ -73,8 +73,11 @@ try {
   await page.screenshot({ path: `${output}/insights-${width}-light.png` });
  }
  await page.setViewportSize({ width: 1500, height: 1100 });
- await page.getByRole('button', { name: 'Open inspector', exact: true }).click();
- check('Open inspector uses registered section', await page.getByRole('region', { name: 'Selected evidence reading' }).evaluate(e => e.id === 'inspector-evidence-reading' && e === document.activeElement));
+ check('Open inspector button removed', (await page.getByRole('button', { name: 'Open inspector' }).count()) === 0);
+ await page.getByRole('button', { name: 'Collapse Inspector Panel', exact: true }).click();
+ check('Inspector collapses', (await page.getByLabel('Collapsed Context Inspector').count()) === 1);
+ await page.getByRole('button', { name: 'Expand Context Inspector', exact: true }).click();
+ check('Inspector uses registered section', await page.getByRole('region', { name: 'Selected evidence reading' }).evaluate(e => e.id === 'inspector-evidence-reading'));
  check('Review actions meet 44px touch size', await page.locator('.review-action').evaluateAll(es => { const visible = es.filter(e => e.getBoundingClientRect().height > 0); return visible.length > 0 && visible.every(e => e.getBoundingClientRect().height >= 44); }));
  await page.emulateMedia({ media: 'print' });
  check('Closed classification disclosure prints', await page.locator('.ins-tiers').evaluate(e => e.getBoundingClientRect().height > 0));
