@@ -20,6 +20,6 @@ export function InterfaceMapWorkspace({ ev, lit, onLit, onOpen, numbering }: {
     <p className="mx-map-reference">Residues {v.bounds.start}–{v.bounds.end} · bar height shows structural support · select a lane to inspect</p>
     {v.evidence.track.length ? <InterfaceTrack ev={v.evidence} bounds={v.bounds} lit={lit} onLit={onLit} onOpen={onOpen} inspectAllLanes />
       : <p className="mx-map-reference">{ev.track.length ? 'All map layers are hidden. Enable a layer above to explore its records.' : 'No interface or annotation records can be placed on this sequence.'}</p>}
-    <details className="mx-reference-note"><summary>Residue numbering and reference</summary><p>{numbering}</p><p>The map window and layer controls change the display only. Source records and the inspector retain original, unclipped annotation bounds.</p></details>
+    <details className="mx-reference-note"><summary>Residue numbering and reference</summary><p>{numbering}</p><p>The map window and layer controls change the display only. Assemblies & models and the inspector retain original, unclipped annotation bounds.</p></details>
   </>;
 }

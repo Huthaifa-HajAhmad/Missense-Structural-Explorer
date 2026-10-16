@@ -43,7 +43,10 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
     <h2 id="gd-dosage-title">Gene dosage</h2>
     <p className="detail-prose">Whole-gene copy-number evidence; independent of disease selection.</p>
     {model.dosage.state === 'ready' ? <GeneDiseaseReadings model={model} section="dosage" onRetryDosage={context.retryDosage} />
-      : <div data-testid="dosage-card"><ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage} /></div>}
+      : <div data-testid="dosage-card"><ContextSourceState name="ClinGen dosage" load={context.dosageLoad} onRetry={context.retryDosage}
+        loadingMessage={`Checking ClinGen dosage curation for ${context.gene}. This may take a few moments.`} />
+        {model.dosage.state === 'not-found' && context.dosageLoad?.data?.provenance && <p className="gd-caption">Source table retrieved {context.dosageLoad.data.provenance.retrievedAt.slice(0, 10)}. No matching gene record was found.</p>}
+      </div>}
   </section>;
   const mechanism = selected && <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />;
   const variant = selected && <VariantLocusCard clinvar={result.clinvar} frame={selected} />;

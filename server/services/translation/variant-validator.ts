@@ -168,6 +168,7 @@ export function mapVariantValidatorResponse(
 
   const annotations = payload.annotations ?? {};
   const locus = payload.primary_assembly_loci?.[assembly.toLowerCase()]?.vcf;
+  const transcriptVersionNote = transcriptVersionNoteOf(payload);
   const start = locus?.pos === undefined ? undefined : Number(locus.pos);
 
   return {
@@ -193,7 +194,24 @@ export function mapVariantValidatorResponse(
         // gene -> UniProt downstream, so an empty value is expected and already handled.
       },
     ],
+    ...(transcriptVersionNote ? { transcriptVersionNote } : {}),
   };
+}
+
+/**
+ * VariantValidator's note that the stated transcript version is not the current one, without its
+ * `TranscriptVersionWarning:` tag. It resolved on the STATED version (it holds every version's
+ * sequence), so this is information for the reader, not a refusal.
+ */
+function transcriptVersionNoteOf(payload: VariantValidatorPayload): string | undefined {
+  const warnings = (payload as { validation_warnings?: unknown }).validation_warnings;
+  if (!Array.isArray(warnings)) return undefined;
+  for (const warning of warnings) {
+    if (typeof warning !== "string") continue;
+    const match = warning.match(/^TranscriptVersionWarning:\s*(.+)$/);
+    if (match) return match[1].trim();
+  }
+  return undefined;
 }
 
 /**

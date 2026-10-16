@@ -13,6 +13,7 @@ import { BiophysicalJobQueue } from "./server/services/biophysical-queue.ts";
 import { shutdownPool } from "./server/services/biophysics-pool.ts";
 import { shutdownDbPool } from "./server/services/infra/analysis-db-pool.ts";
 import { warmServerTools } from "./server/services/infra/host-probe.ts";
+import { warmAtlasGrpcChannel } from "./server/services/external-api/alphagenome-client.ts";
 import { startSidecarSupervisor } from "./server/sidecar-supervisor.ts";
 import { createExpressApp } from "./server/express-config.ts";
 import { registerGracefulShutdown } from "./server/graceful-shutdown.ts";
@@ -139,6 +140,8 @@ async function startServer(): Promise<void> {
 
   const serverInstance = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    // Open the AlphaGenome channel now so the first Test connection or variant query is not the cold one.
+    void warmAtlasGrpcChannel().then((ready) => console.log(`[alphagenome] gRPC channel ${ready ? "ready" : "not ready yet"}`));
   });
 
   serverInstance.on("error", (err: any) => {

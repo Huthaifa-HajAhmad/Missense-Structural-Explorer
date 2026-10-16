@@ -249,7 +249,9 @@ export async function executeFullAnalysisWorkflow({
           setAnalysisState: setAnalysisState,
           setLoadingStep: analysisSink.setLoadingStep
         },
-        getTraceContext()
+        getTraceContext(),
+        // A bare `c.` names no transcript; the gene lets the server pin it to that gene's canonical (MANE Select) transcript.
+        targetGene
       );
       targetGene = transResult.gene;
       targetVariant = transResult.variant;

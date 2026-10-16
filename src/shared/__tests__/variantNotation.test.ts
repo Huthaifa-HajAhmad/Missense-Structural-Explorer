@@ -22,9 +22,29 @@ import {
   buildForwardStrandGenomicId,
   ACCEPTED_NOTATION_SUMMARY,
   MISSENSE_ONLY_NOTE,
+  isSupportedGenomicHgvs,
+  isSupportedCdnaHgvs,
 } from "../variantNotation.ts";
 
 describe("Shared variant notation grammar", () => {
+  it('validates replacement spans arithmetically and keeps single-base regexes safe as standalone gates', () => {
+    for (const [genomic, cdna] of [
+      ['chr7:g.100_101delinsAA', 'NM_004333.6:c.100_101delinsAA'],
+      ['chr7(GRCh37):g.100_102delinsACT', 'NM_004333.6(GRCh37):c.100_102delinsACT'],
+    ]) {
+      expect(isSupportedGenomicHgvs(genomic)).toBe(true);
+      expect(isSupportedCdnaHgvs(cdna)).toBe(true);
+      expect(GENOMIC_HGVS_PATTERN.test(genomic)).toBe(false);
+      expect(CDNA_PATTERN.test(cdna)).toBe(false);
+    }
+    for (const body of ['100_110delinsAA', '100_102delinsAA', '102_100delinsACT', '0_1delinsAA']) {
+      expect(isSupportedGenomicHgvs(`chr7:g.${body}`)).toBe(false);
+      expect(isSupportedCdnaHgvs(`NM_004333.6:c.${body}`)).toBe(false);
+    }
+    expect(isSupportedGenomicHgvs('chr23:g.100_101delinsAA')).toBe(false);
+    expect(isSupportedCdnaHgvs('NM_004333.6:c.100A>G')).toBe(true);
+    expect(isSupportedGenomicHgvs('chr7:g.100A>G')).toBe(true);
+  });
   describe("GENOMIC_HGVS_PATTERN (strict acceptance gate)", () => {
     it("accepts the previously supported forms", () => {
       expect(GENOMIC_HGVS_PATTERN.test("chr7:g.140753336A>T")).toBe(true);
@@ -532,5 +552,66 @@ describe("Shared variant notation grammar", () => {
       // Forward strand gene (e.g. BRAF on chr7 strand +1)
       expect(buildForwardStrandGenomicId("7", 140753336, "A", "T", 1)).toBe("7-140753336-A-T");
     });
+  });
+});
+
+/**
+ * Extended intake grammar: the spellings people paste from genome browsers, VCF rows and variant
+ * databases. Each must classify into a family the server already resolves — never into a family
+ * that would be modelled without translation.
+ */
+describe("extended intake grammar", () => {
+  it.each([
+    "chr20:23365054:G:A",
+    "20:23365054:G>A",
+    "20:23365054:G/A",
+    "20 23365054 G A",
+    "chr20\t23365054\trs121913529\tG\tA",
+    "20 23365054 . G A",
+  ])("reads %j as a delimited genomic coordinate with the right alleles", (input) => {
+    expect(classifyNotation(input).kind).toBe("genomic-dashed");
+    const match = input.match(DASHED_GENOMIC_PATTERN)!;
+    expect(match.slice(1, 5).map((g) => g.toUpperCase())).toEqual(["20", "23365054", "G", "A"]);
+  });
+
+  it("does not read a VCF row missing its ALT column as a coordinate", () => {
+    expect(classifyNotation("20 23365054 . G").kind).not.toBe("genomic-dashed");
+  });
+
+  it("classifies dbSNP and ClinVar identifiers and routes them to translation", () => {
+    expect(classifyNotation("RS113488022")).toMatchObject({ kind: "rsid", canonical: "rs113488022" });
+    expect(classifyNotation("vcv000013961.2")).toMatchObject({ kind: "clinvar-vcv", canonical: "VCV000013961.2" });
+    expect(isGenomicOrCdnaNotation("rs113488022")).toBe(true);
+    expect(needsNotationResolution("VCV000013961")).toBe(true);
+    expect(isProteinNotation("rs113488022")).toBe(false);
+  });
+
+  it("admits an in-frame 2-3 bp delins (one codon) and still refuses other delins", () => {
+    expect(classifyNotation("NM_004333.6:c.1799_1800delinsAA").kind).toBe("cdna");
+    expect(classifyNotation("chr7:g.140753335_140753336delinsTT").kind).toBe("genomic-hgvs");
+    // span 101 ≠ inserted length 2: not a codon substitution
+    expect(classifyNotation("NM_004333.6:c.100_200delinsAA").kind).toBe("non-substitution");
+    expect(classifyNotation("NM_004333.6:c.1799_1802delinsAAAA").kind).toBe("non-substitution");
+    expect(classifyNotation("NM_004333.6:c.1799delinsA").kind).toBe("non-substitution");
+  });
+
+  it("accepts balanced HGVS prediction parentheses and rejects unbalanced ones", () => {
+    expect(HGVS_PATTERN.test("p.(Asp116Gly)")).toBe(true);
+    expect(HGVS_PATTERN.test("p.(D116G)")).toBe(true);
+    expect(HGVS_PATTERN.test("p.(Asp116Gly")).toBe(false);
+    expect(HGVS_PATTERN.test("p.Asp116Gly)")).toBe(false);
+  });
+
+  it("recognises an Ensembl protein accession as the numbering basis", () => {
+    expect(classifyNotation("ENSP00000493543.1:p.Val600Glu").kind).toBe("protein-accessioned");
+    expect(parseAccessionedProteinNotation("ensp00000493543.1:p.(Val600Glu)")).toEqual({
+      accession: "ENSP00000493543.1",
+      proteinNotation: "p.Val600Glu",
+    });
+  });
+
+  it("names the identifier families in the accepted-notation summary", () => {
+    expect(ACCEPTED_NOTATION_SUMMARY).toContain("rs113488022");
+    expect(ACCEPTED_NOTATION_SUMMARY).toContain("VCV000013961");
   });
 });

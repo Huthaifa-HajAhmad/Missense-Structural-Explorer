@@ -102,6 +102,16 @@ export interface ResolvedConsequence {
    * payload is what the cache stores — a note held beside it would vanish on a cache hit.
    */
   geneSymbolUpdated?: { from: string; to: string };
+  /**
+   * The provider resolved the notation on the transcript VERSION it names, and a newer version of
+   * that transcript exists (VariantValidator: "A more recent version of the selected reference
+   * sequence NM_004333.4 is available … (NM_004333.6)").
+   *
+   * The resolution is correct — it used the stated version's own sequence — but the reader should
+   * know the version is not current. Kept on the payload, like `geneSymbolUpdated`, so it survives
+   * a cache hit.
+   */
+  transcriptVersionNote?: string;
 }
 
 /** Why a resolution attempt failed, so the route can pick an honest HTTP status. */

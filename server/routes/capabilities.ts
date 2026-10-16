@@ -20,6 +20,8 @@ import { inspectRaspIndexFile, hasLoaderVerifiedRaspIndex, RASP_SQLITE_PATH } fr
 import { execSync } from "child_process";
 import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
+import { resolveFoldxReadiness } from "../services/stability/foldx/readiness.ts";
+import { inspectLocalDbnsfpFileForPublic } from "../services/prediction/dbnsfp_local.ts";
 import { providerHealth } from "../services/infra/provider-pause.ts";
 import { governorHealth, limitBasisFor } from "../services/infra/egress-governor.ts";
 import { defaultCacheRegistry } from "../services/infra/cache-registry.ts";
@@ -167,6 +169,19 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
     // 3. Box64 Binary Translator (ARM64 OCI compatibility)
     const { hasBox64, box64Version } = getBox64Status();
 
+    /**
+     * The entries above are an INVENTORY of installed programs. Whether the one this host would
+     * run can actually run (parameter file present, Box64 when emulated) is the runner's own rule,
+     * shared with `/diagnostics` so the two endpoints give one answer.
+     */
+    const foldxHere = resolveFoldxReadiness();
+    const foldxMissing = [
+      !foldxHere.rotabasePresent ? "rotabase.txt" : null,
+      foldxHere.box64Required && !foldxHere.box64Present ? "box64" : null,
+    ].filter(Boolean) as string[];
+    const foldxStatusFor = (installed: boolean, runsHere: boolean): EngineCapability["status"] =>
+      !installed ? "unavailable" : runsHere && !foldxHere.ready ? "unavailable" : "ready";
+
     // 4. RaSP SQLite Database
     //
     // Reported from the index's own completeness record, not from its file size. The size-only
@@ -233,9 +248,10 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         id: "foldx_linux_elf",
         name: "FoldX (Linux 64-bit ELF)",
         category: "biophysical",
-        status: foldxLinuxPath ? "ready" : "unavailable",
+        status: foldxStatusFor(Boolean(foldxLinuxPath), process.platform === "linux"),
         details: {
           installed: Boolean(foldxLinuxPath),
+          ...(process.platform === "linux" ? { runnableHere: foldxHere.ready, missing: foldxMissing } : {}),
           path: foldxLinuxPath,
           sizeMb: foldxLinuxSize > 0 ? (foldxLinuxSize / (1024 * 1024)).toFixed(1) : null,
           platformSupported: process.platform === "linux" || hasBox64,
@@ -246,9 +262,10 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
         id: "foldx_windows",
         name: "FoldX (Windows x64)",
         category: "biophysical",
-        status: foldxWinPath ? "ready" : "unavailable",
+        status: foldxStatusFor(Boolean(foldxWinPath), process.platform === "win32"),
         details: {
           installed: Boolean(foldxWinPath),
+          ...(process.platform === "win32" ? { runnableHere: foldxHere.ready, missing: foldxMissing } : {}),
           path: foldxWinPath,
           sizeMb: foldxWinSize > 0 ? (foldxWinSize / (1024 * 1024)).toFixed(1) : null,
           platformSupported: process.platform === "win32"
@@ -360,7 +377,18 @@ export function registerCapabilitiesRoutes(apiRouter: Router): void {
           javaVersionCompatible: p2rankCap.javaVersionCompatible,
           javaHome: p2rankCap.javaHome
         }
-      }
+      },
+      (() => {
+        const store = inspectLocalDbnsfpFileForPublic();
+        return {
+          id: "dbnsfp_local",
+          name: "dbNSFP (local SQLite store)",
+          category: "runtime" as const,
+          // Optional by design: without it the same scores come from MyVariant.info.
+          status: store.usable ? ("ready" as const) : ("standby" as const),
+          details: store,
+        };
+      })(),
     ];
 
     res.json({

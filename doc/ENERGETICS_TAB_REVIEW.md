@@ -69,6 +69,29 @@ changed a classification and no owner decision was needed. The screen now says "
 3. **Done in code, data pending: RaSP proteome coverage.** The builder ingests the authors' proteome-wide PRISM files with `npm run migrate:rasp -- --proteome <dir>`. Rows are tagged by source, and the AlphaFold (UniProt-numbered) row is preferred at lookup. Index schema v3 still reads v2. Coverage now comes from the index's own record. The download host (sid.erda.dk) is blocked in this build environment, so an operator must fetch the zip; see `doc/RASP_DATA.md`. The ingester was built from the authors' writer code (`rasp_to_prism` → PrismData) and tested on files in that format, but not yet on the real download.
 4. **Done: provenance stamps.** `generation.ts` no longer writes `raspDatasetSnapshot` or `vesmModel` on every run. `energetics.raspSource` names the table that actually served a value.
 
+## FoldX on two templates (local run and ProtVar)
+
+EBI ProtVar precomputes FoldX ΔΔG on the AlphaFold DB model (low-pLDDT regions removed). The app already read it as a reference row; it now uses it as a cross-check and, in one case, as the FoldX reading.
+
+**Rule: one FoldX reading counts** (`FOLDX_STAND_IN_RULE` in `energeticsEvidence.ts`).
+- Local FoldX is the FoldX reading whenever it has a value, even an excluded one (failed repair).
+- ProtVar's value counts instead only when the local run has **no value** and the run's template is the **AlphaFold model** (`structureProvenance.source === "alphafold"`). On an experimental, homology or supplied template it would describe another structure, so it stays a cross-check.
+- The rule lives in `buildEnergeticsEvidence`, which `computeStabilityConsensus` wraps, so the stored verdict (`energy-models.ts`), the screen, the export and the insights snapshot cannot disagree. Every caller that builds a consensus from a narrow object must pass `protvar` and `structureProvenance` (`stabilityConsensus.ts` and `energy-models.ts` do).
+- When ProtVar is the FoldX reading its own row is not listed a second time; the FoldX row carries a "ProtVar value" chip and the rule trace says so. Never 7 engines: coverage stays "n of 6".
+
+**Cross-check** (`evidence.foldxTemplateCheck`), when both values exist:
+- `consistent`: within 1 kcal/mol and in the same FoldX band; `differs`: 1 kcal/mol or more apart, or in different bands; `opposite`: signs differ and both are at least 0.5 kcal/mol from zero. The 1 kcal/mol gap mark is local (about FoldX's reported error) and is named as such.
+- A gap is **not an error bar** on either value: template and pipeline both differ (repair, runs, settings, ProtVar models one chain). When both ran on an AlphaFold model the text points at the pipeline instead of the template.
+- Surfaces: the chart joins the two points when their rows touch; a "FoldX on two templates" strip under the chart; a rail section with both values, the difference and the reading; the unrepaired-template caution names the other value; the finding's `rest` and `energeticsAgreementText` (report/export) carry the sentence.
+
+**Decided against: skipping the local run on AlphaFold monomers.** The original idea was ProtVar by default with an on-demand local button. Two facts in the code argue against it:
+1. The local run builds the mutant structure (`data.pdb`) that the 3D "Mutant" view and the FoldX superposition read, and the workflow status and export read its state. Deferring it would remove the mutant model until the button is pressed.
+2. AlphaFold templates always skip RepairPDB here (`foldxRepairSkippedReason: "alphafold-plddt"`), and repair is where the minutes go (205 s of 208 s on a 489-residue template). The run on an AlphaFold model is already cheap, so deferring it saves little.
+
+If it is revisited: a `foldxCore: "precomputed"` mode would need a separate cache key (so a deferred result cannot answer a later local request), a `deferred` FoldX state through `foldxService`, the retry policy, `variantCache` and the workflow, an empty state in the 3D Mutant view, and a rule for paired-computer jobs. The evidence model above already handles it: a missing local value on an AlphaFold template resolves to ProtVar.
+
+Tests: `energeticsEvidence.test.ts` ("FoldX on two templates", including the stored-verdict parity), `energeticsComparison.test.ts` (pair link, cautions), `EnergeticsInspector.test.tsx`.
+
 ## Sources
 
 - Schymkowitz J et al. The FoldX web server. Nucleic Acids Res 2005. doi:10.1093/nar/gki387

@@ -173,6 +173,19 @@ export const energeticsDataSchema = z.object({
   stabilityoracleStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
   stabilityoracleError: z.string().nullable().optional(),
   /**
+   * EBI ProtVar's precomputed FoldX ΔΔG on the AlphaFold model (kcal/mol, positive = destabilizing).
+   * A REFERENCE value: FoldX again, so it is never counted in the engine agreement.
+   */
+  protvar: nullableFiniteNumber.optional(),
+  protvarStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
+  /** pLDDT at this residue in the AlphaFold model ProtVar's FoldX ran on. */
+  protvarPlddt: nullableFiniteNumber.optional(),
+  /** The AlphaFold DB model, e.g. `AF-P15056-F1`. */
+  protvarModel: z.string().nullable().optional(),
+  /** Why ProtVar has no value (no prediction, fragment models disagree, residue differs). */
+  protvarReason: z.string().nullable().optional(),
+  protvarError: z.string().nullable().optional(),
+  /**
    * @deprecated No longer produced. They came from hand-typed curves (`thresholds/consensus.ts`) and
    * are kept only so payloads cached before their retirement still parse. Nothing may read them.
    */
@@ -667,6 +680,20 @@ export const translateVariantResponseSchema = z.object({
   coordinateLift: coordinateLiftSchema.nullable().optional(),
   /** Canonical form of the submitted notation after normalization (annotation stripped). */
   notationNormalized: z.string().optional(),
+  /**
+   * Present when the submitted notation NAMED the variant rather than spelling it (an rsID, a
+   * ClinVar VCV, or `GENE:c.…`) and was rewritten before resolution. `note` is display-ready.
+   */
+  /** The stated transcript version is not current (it was still the one resolved on). */
+  transcriptVersionNote: z.string().optional(),
+  inputResolution: z
+    .object({
+      method: z.enum(["dbsnp-rsid", "clinvar-vcv", "gene-canonical-transcript"]),
+      submitted: z.string(),
+      resolvedNotation: z.string(),
+      note: z.string(),
+    })
+    .optional(),
   /**
    * Prose explanation of the build decision: an inline annotation was honoured (or overridden by a
    * RefSeq accession that states a different build), or the coordinate was verified onto the
@@ -2036,6 +2063,12 @@ export interface TranscriptMetadata {
    */
   numberingDisambiguated?: boolean | null;
   numberingRemap?: NumberingRemapRecord | null;
+  /**
+   * How the submitted identifier (rsID, ClinVar VCV, or `GENE:c.…`) was rewritten before it was
+   * resolved — so a report can state "rs… was read as 7-140753336-A-T" instead of leaving the
+   * reader to infer which allele or transcript the analysis is about.
+   */
+  inputResolution?: TranslateVariantResponse["inputResolution"] | null;
   /**
    * Genome-build trail of the analysed variant.
    *

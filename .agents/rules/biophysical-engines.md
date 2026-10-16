@@ -24,6 +24,11 @@ Never assume a single binary path or hardcoded operating system architecture.
   2. Build script: `npx tsx scripts/build-rasp-sqlite.ts`.
   3. Never block UI if variant is missing from precomputed database; report `Not in Zenodo DB` without failing other engines.
 
+### ProtVar FoldX (reference only)
+* **Source**: EBI ProtVar `GET /ProtVar/api/prediction/foldx/{accession}/{position}` — FoldX precomputed on the AlphaFold DB model (`server/services/external-api/protvar.ts`).
+* **Never counted**: it is FoldX again, so its engine descriptor is `referenceOnly` — excluded from the consensus, from coverage ("N of 6 engines"), from the run's running/missing lists and from `pendingTools`. Any new count over engines must skip `referenceOnly` rows (`COUNTED_ENERGY_ENGINES`).
+* **No value, with a reason** when AlphaFold fragment models disagree (proteins > ~2,700 aa) or ProtVar's wild type differs. Never pick a fragment.
+
 ### ThermoMPNN & StabilityOracle
 * **Local Sidecar**: Evaluated locally via Python sidecar on `http://127.0.0.1:8000`.
   - ThermoMPNN: `POST /predict/thermompnn` (ProteinMPNN neural embeddings).
@@ -42,7 +47,7 @@ Before assuming an engine is missing or broken, query the machine-readable capab
 ```http
 GET /api/v1/capabilities
 ```
-Returns live JSON status for all 8 engines (`foldx_linux_elf`, `foldx_windows`, `box64`, `rasp`, `thermompnn`, `stabilityoracle`, `saprot`, `japanfold`) along with system architecture and sidecar latency.
+Returns live JSON status for every engine (`foldx_linux_elf`, `foldx_windows`, `box64`, `rasp`, `thermompnn`, `stabilityoracle`, `saprot`, `japanfold`, `p2rank`, `dbnsfp_local`) along with system architecture and sidecar latency. FoldX readiness (binary + `rotabase.txt` + Box64 when emulated) comes from `server/services/stability/foldx/readiness.ts`, the same rule `/api/v1/diagnostics` uses — the per-platform FoldX entries are an inventory, and only the one this host would run is gated on it.
 
 ## 3. Strict No-Heuristics Policy
 

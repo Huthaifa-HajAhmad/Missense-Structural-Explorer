@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { BookOpen, Database, GitBranch, Ruler, SlidersHorizontal } from "lucide-react";
+import { BookOpen, Database, GitBranch, Layers, Ruler, SlidersHorizontal } from "lucide-react";
 import { AnalysisResult, EnergeticsData } from "../../types";
 import { useSettings } from "../../context/SettingsContext";
 import { ENGINE_STATE_LABELS, raspCoverageSentence, getEngine, type EnergyUnit, type EnergyEngineId } from "../../shared/engineStatus";
@@ -13,6 +13,7 @@ import {
   signedDdg,
   ENERGETICS_CAVEAT_TEXT,
   ENERGETICS_GROUP_LABEL,
+  FOLDX_TEMPLATE_DIFFERENCE_KCAL,
 } from "../../shared/energeticsEvidence";
 import { INSPECTOR_SECTIONS } from "../../lib/inspectorFocus";
 
@@ -74,6 +75,22 @@ const REFERENCES: Array<{ citation: string; doi: string }> = [
   { citation: "Blaabjerg et al. RaSP. eLife 2023", doi: "10.7554/eLife.82593" },
 ];
 
+/** The structure a value rests on. ProtVar's FoldX always ran on ITS AlphaFold model, never on this run's template. */
+function structureBasisText(
+  key: EnergyEngineId,
+  group: string,
+  structure: ReturnType<typeof buildEnergeticsEvidence>["structure"],
+  evidence: ReturnType<typeof buildEnergeticsEvidence>
+): string {
+  if (key === "protvar" || (key === "foldx" && evidence.foldxStandIn)) {
+    const model = evidence.foldxStandIn?.model ?? evidence.foldxTemplateCheck?.protvarTemplate ?? null;
+    return `AlphaFold DB model${model ? ` ${model}` : ""}, precomputed by EBI ProtVar; not this run's template.`;
+  }
+  if (group === "lookup") return "Precomputed table; may use a different structure from this run.";
+  const id = structure?.pdbId ? ` · ${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ""}` : "";
+  return `${structure?.label ?? "Not reported"}${id}`;
+}
+
 export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
   selectedEngine = null,
   analysisResult,
@@ -133,7 +150,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <dl>
             <div><dt>Substitution</dt><dd>{analysisResult?.metadata?.gene} {analysisResult?.metadata?.variant}</dd></div>
             <div><dt>Method family</dt><dd>{ENERGETICS_GROUP_LABEL[selected.group]}</dd></div>
-            <div><dt>Structure basis</dt><dd>{selected.group === 'lookup' ? 'Precomputed table; may use a different structure from this run.' : structure?.label ?? 'Not reported'}{selected.group !== 'lookup' && structure?.pdbId ? ` · ${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ''}` : ''}</dd></div>
+            <div><dt>Structure basis</dt><dd>{structureBasisText(selected.key, selected.group, structure, evidence)}</dd></div>
             <div><dt>Sign convention</dt><dd>{getEngine(selected.key).nativeSign === 'negative-destabilizing' ? 'Provider sign reversed for comparison; positive here means less stable folding.' : 'Positive means less stable folding.'}</dd></div>
             <div><dt>Local destabilising mark</dt><dd>{markText(selected.strongMark, unit)} {unit}. App-defined, not a clinical cut-point.</dd></div>
           </dl>
@@ -141,6 +158,49 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           {selected.caveats.map(c => <p className="nrg-selected-caveat" key={c}>{ENERGETICS_CAVEAT_TEXT[c].detail}</p>)}
         </> : <p>Select a point in Comparison or a method in Engine records to see its value, assumptions and limitations here.</p>}
       </section>
+      {evidence.foldxTemplateCheck && (
+        <section className="nrg-rsec" aria-labelledby="nrg-rail-twofold" data-testid="foldx-template-check">
+          <h3 className="eyebrow" id="nrg-rail-twofold">
+            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+            FoldX on two templates
+          </h3>
+          <table className="nrg-twofold">
+            <caption className="sr-only">Local FoldX against ProtVar's FoldX for this variant, in {unit}</caption>
+            <thead>
+              <tr>
+                <th scope="col">Template</th>
+                <th scope="col" className="nrg-twofold__num">ΔΔG</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">
+                  Local FoldX
+                  <span className="nrg-twofold__sub">{evidence.foldxTemplateCheck.localTemplate}{structure?.repairState === "unrepaired" ? " · not repaired" : ""}</span>
+                </th>
+                <td className="nrg-twofold__num">{signedDdg(evidence.foldxTemplateCheck.local, unit).replace(/ (kcal|kJ)\/mol$/, "")}</td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  ProtVar FoldX
+                  <span className="nrg-twofold__sub">{evidence.foldxTemplateCheck.protvarTemplate} · precomputed</span>
+                </th>
+                <td className="nrg-twofold__num">{signedDdg(evidence.foldxTemplateCheck.protvar, unit).replace(/ (kcal|kJ)\/mol$/, "")}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row">Difference (ProtVar − local)</th>
+                <td className="nrg-twofold__num">{signedDdg(evidence.foldxTemplateCheck.delta, unit).replace(/ (kcal|kJ)\/mol$/, "")}</td>
+              </tr>
+            </tfoot>
+          </table>
+          <p className="nrg-twofold-reading" data-tone={evidence.foldxTemplateCheck.tone}>
+            {evidence.foldxTemplateCheck.headline} {evidence.foldxTemplateCheck.detail}
+          </p>
+          <p className="nrg-step__sub">Cross-check only. One FoldX value is counted ({unit}); the {markText(FOLDX_TEMPLATE_DIFFERENCE_KCAL, unit, false)} gap mark is this app's, near FoldX's reported error.</p>
+        </section>
+      )}
       <details className="nrg-lineage" open={!selected || undefined}>
         <summary>How the overall reading was reached</summary>
       {/* ── 1. How the reading was reached ── */}
@@ -165,7 +225,10 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
                   ? "Resolving"
                   : "Not reported"}
             </span>
-            {structure?.repair && <span className="nrg-step__sub">FoldX template: {structure.repair.toLowerCase()}</span>}
+            {structure?.repair && !evidence.foldxStandIn && <span className="nrg-step__sub">FoldX template: {structure.repair.toLowerCase()}</span>}
+            {evidence.foldxStandIn && (
+              <span className="nrg-step__sub">FoldX value: ProtVar precomputed{evidence.foldxStandIn.model ? ` on ${evidence.foldxStandIn.model}` : ""}; no local value</span>
+            )}
             {evidence.lowPlddt !== null && (
               <span className="nrg-step__warn">AlphaFold pLDDT {evidence.lowPlddt.toFixed(1)} at this residue: structure-based estimates are unreliable here.</span>
             )}
@@ -213,21 +276,34 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <Ruler className="w-3.5 h-3.5" aria-hidden="true" />
           Destabilizing marks · local
         </h3>
-        <ul className="nrg-cuts" data-testid="energetics-marks">
-          {evidence.readings.map(r => (
-            <li key={r.key} className="nrg-cut" data-active={r.callTone === "danger" || undefined}>
-              <span className="nrg-cut__name">{r.name}</span>
-              <span className="nrg-cut__rule">≥ {markText(r.strongMark, unit)}</span>
-              <span className="nrg-cut__here">
-                {r.ddg !== null
-                  ? `${signedDdg(r.ddg, unit)}${r.callTone === "danger" ? " · this variant is past it" : ""}${!r.counted ? " · not counted" : ""}`
-                  : r.outcome.state === "running"
-                    ? ENGINE_STATE_LABELS.running
-                    : "no value"}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <table className="nrg-cuts" data-testid="energetics-marks">
+          <caption className="sr-only">Each engine's local destabilizing mark beside this variant's value, in {unit}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Method</th>
+              <th scope="col" className="nrg-cuts__num">Mark</th>
+              <th scope="col" className="nrg-cuts__num">Variant</th>
+              <th scope="col"><span className="sr-only">Reading</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {evidence.readings.map(r => {
+              const past = r.ddg !== null && r.callTone === "danger";
+              const status =
+                r.ddg === null
+                  ? r.outcome.state === "running" ? ENGINE_STATE_LABELS.running : "No value"
+                  : !r.counted ? "Not counted" : past ? "Past mark" : "Below";
+              return (
+                <tr key={r.key} className="nrg-cut" data-active={past || undefined} data-muted={r.ddg === null || !r.counted || undefined}>
+                  <th scope="row" className="nrg-cut__name">{r.name}</th>
+                  <td className="nrg-cuts__num nrg-cut__rule">≥ {markText(r.strongMark, unit)}</td>
+                  <td className="nrg-cuts__num nrg-cut__here">{r.ddg !== null ? signedDdg(r.ddg, unit).replace(/ (kcal|kJ)\/mol$/, "") : "–"}</td>
+                  <td className="nrg-cut__status">{status}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
         <p className="nrg-step__sub">
           FoldX publishes no threshold; {markText(1.5, unit)} and {markText(0.5, unit)} {unit} are this app&apos;s marks. The{" "}
           {markText(1, unit)} mark for the learned engines is local too. None is a clinical cut-point.
@@ -272,7 +348,7 @@ export const EnergeticsInspector: React.FC<EnergeticsInspectorProps> = ({
           <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
           Method
         </h3>
-        <details className="nrg-notes" open>
+        <details className="nrg-notes">
           <summary>How to read these estimates</summary>
           <ul>
             <li>

@@ -43,7 +43,7 @@ describe('rendered contextual coverage', () => {
     const view = render(<SettingsProvider><EvidenceWorkspaceProvider result={result}>
       <EvidenceDashboardCard {...({ analysisState: { result, isLoading: false, error: null }, activeTab: 'predictors' } as any)} />
     </EvidenceWorkspaceProvider></SettingsProvider>);
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Native score scales' }));
     for (const toggle of view.container.querySelectorAll('.prd-group__toggle[aria-expanded="false"]')) fireEvent.click(toggle);
     const triggers = within(view.container).getAllByRole('button').filter(button => /^About /.test(button.getAttribute('aria-label') ?? button.textContent ?? ''));
     expect(triggers.length).toBeGreaterThan(10);

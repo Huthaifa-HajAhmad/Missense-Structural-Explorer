@@ -7,12 +7,11 @@ import {
   validateUniProt,
   sendError,
   AuditLogger,
-  CDNA_PATTERN,
-  DASHED_GENOMIC_PATTERN,
   formatZodError,
 } from "../../utils.ts";
 import {
-  GENOMIC_HGVS_PATTERN,
+  isSupportedGenomicHgvs,
+  isSupportedCdnaHgvs,
   ACCEPTED_NOTATION_SUMMARY,
   MISSENSE_ONLY_NOTE,
   assemblyAnnotationsOf,
@@ -23,6 +22,7 @@ import {
   normalizeGenomicNotation,
   parseAccessionedProteinNotation,
   parseGenomicHgvsNotation,
+  parseGenomicNotation,
   type CdnaReferenceProblem,
   type GenomeAssembly,
 } from "../../../src/shared/variantNotation.ts";
@@ -56,6 +56,10 @@ import {
   resolveAccessionedProteinNotation,
 } from "../../services/translation/protein-numbering.ts";
 import { fetchAssemblyReferenceBase } from "../../services/translation/liftover.ts";
+import {
+  currentEnsemblTranscriptNotation,
+  resolveIdentifierIntake,
+} from "../../services/translation/identifier-intake.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 
 /**
@@ -419,7 +423,24 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
      */
     let decision: IntakeAssemblyDecision | undefined;
     try {
-      const { variant } = req.body;
+      /**
+       * Identifiers (rs…, VCV…) and gene-qualified cDNA (`NAE1:c.347A>G`) are rewritten into an
+       * ordinary coordinate / transcript notation first, so every gate below applies to them
+       * unchanged. An identifier naming several substitutions is refused with the alternatives.
+       */
+      const intake = await resolveIdentifierIntake(req.body.variant);
+      if (intake.status === "refused") {
+        sendError(
+          res,
+          intake.httpStatus,
+          intake.code,
+          intake.message,
+          intake.candidates ? { candidates: intake.candidates } : undefined
+        );
+        return;
+      }
+      const variant: string = intake.notation;
+      const inputResolution = intake.status === "rewritten" ? intake.resolution : undefined;
 
       /**
        * A notation may state ONE build. Two annotations are a contradiction, and every reading of them
@@ -449,9 +470,19 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       // "Chr1(GRCh38):g.25484258G>A" -> "chr1:g.25484258G>A"
       let trimmed = normalizeGenomicNotation(variant);
 
-      const dashedMatch = trimmed.match(DASHED_GENOMIC_PATTERN);
-      if (dashedMatch) {
-        trimmed = `chr${dashedMatch[1]}:g.${dashedMatch[2]}${dashedMatch[3].toUpperCase()}>${dashedMatch[4].toUpperCase()}`;
+      const coordinate = parseGenomicNotation(trimmed);
+      if (coordinate) {
+        /**
+         * Single bases are a substitution. Anything longer (common in VCF rows) is written as the
+         * `delins` it is — `GAG>A` is not HGVS and used to fail as a generic format error — so the
+         * gates below answer properly: an equal-length 2–3 bp change may be one codon and goes to VEP
+         * (`isInFrameSingleAaDelins`), every other length change is refused as non-missense.
+         */
+        const { pos, ref, alt, chrom } = coordinate;
+        const span = ref.length === 1 ? `${pos}` : `${pos}_${pos + ref.length - 1}`;
+        trimmed = ref.length === 1 && alt.length === 1
+          ? `chr${chrom}:g.${pos}${ref}>${alt}`
+          : `chr${chrom}:g.${span}delins${alt}`;
       }
 
       // ── Missense-only scope gate ────────────────────────────────────────────────
@@ -484,7 +515,7 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
         return;
       }
 
-      if (!GENOMIC_HGVS_PATTERN.test(trimmed) && !CDNA_PATTERN.test(trimmed)) {
+      if (!isSupportedGenomicHgvs(trimmed) && !isSupportedCdnaHgvs(trimmed)) {
         // ── Accession-qualified protein notation ──────────────────────────────────────
         // `NP_001032248.1:p.Lys281Asn` (how a lab reports it) or `Q9Y305-4:p.Lys281Asn`. The
         // accession IS the numbering basis, so this resolves exactly — UniProt's RefSeq
@@ -961,6 +992,14 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       // false for a lifted coordinate, and was true here only while the archive was queried.
       const assemblyNote = decision.assemblyNote;
 
+      // The stated transcript version is not the current one. The resolution used the stated
+      // version's own sequence, so it stands; the reader is told, ahead of any other caveat.
+      const transcriptVersionNote = resolution.consequence.transcriptVersionNote;
+      if (transcriptVersionNote) {
+        const versionSentence = `${transcriptVersionNote.replace(/\.?$/, ".")} Resolved on the version you entered.`;
+        transcriptWarning = transcriptWarning ? `${versionSentence} ${transcriptWarning}` : versionSentence;
+      }
+
       res.json({
         gene: geneSymbol,
         variant: proteinPart,
@@ -988,6 +1027,9 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
           ? [{ notation: selectedTc.hgvsc, gene: geneSymbol, proteinVariant: proteinPart, uniprotId, source: consequence.provider }]
           : [],
         notationNormalized: trimmed,
+        // How an identifier or gene-qualified cDNA was rewritten before resolution, when it was.
+        ...(inputResolution ? { inputResolution } : {}),
+        ...(transcriptVersionNote ? { transcriptVersionNote } : {}),
         // Present only when the provider named the resolved gene with a RETIRED symbol that UniProt
         // lists as a synonym, and `gene` above is therefore the current HGNC symbol (Ensembl's
         // GRCh37 archive answers `CPSF3L` for `INTS11`). Machine-readable so a report can state
@@ -1063,23 +1105,6 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
       if (err instanceof CoordinateResolutionError) {
         const { status, code } = resolutionFailureToHttp(err.kind);
 
-        /**
-         * `Retry-After` on BOTH temporary-failure statuses, not just 503.
-         *
-         * A degraded provider sometimes answers with an unusable payload instead of timing out, which
-         * this taxonomy reports as 502 — and a 502 with no cooldown is RETRIED by the client. Observed
-         * in the developer console: three whole ladder runs (12.3s) for one query, each re-asking two
-         * providers that were already failing. The advertised cooldown is what stops that: the client
-         * returns any response whose Retry-After exceeds 2s instead of retrying it, so the user sees
-         * this message once and gets the workaround.
-         *
-         * The per-host circuit breaker cools down for ~60s (jittered), so advise that window.
-         */
-        if (status === 503 || status === 502) {
-          try {
-            res.setHeader?.("Retry-After", "60");
-          } catch { /* headers already sent */ }
-        }
 
         /**
          * The build trail travels with the FAILURE too.
@@ -1109,6 +1134,58 @@ export function registerTranslationRoutes(apiRouter: Router, jsonParserRegular: 
          * which is actively misleading for a coordinate whose build was already stated or whose
          * position exists in neither build.
          */
+        /**
+         * A retired Ensembl transcript version fails in whichever way the providers happen to fail —
+         * "not found", an unusable answer (VEP: "Could not get a Transcript object"), or a timeout
+         * (VEP has been observed to hang on one) — and each generic sentence ("verify the build",
+         * "the providers are degraded") sends the reader looking in the wrong place. The retirement
+         * itself is a fact Ensembl confirms, so when it holds it is what the reader is told, with the
+         * current-version notation OFFERED, not substituted (see `currentEnsemblTranscriptNotation`
+         * for why it cannot be verified automatically). Rate limits and reference mismatches keep
+         * their own remedies.
+         */
+        if (
+          (err.kind === "not_found" || err.kind === "invalid_response" || err.kind === "upstream_unavailable") &&
+          typeof req.body?.variant === "string"
+        ) {
+          // Annotation-free, so `ENST….1(GRCh38):c.…` is recognised too. (A `GENE:c.…` rewrite is
+          // always to the CURRENT canonical version, so it cannot be the retired one.)
+          const submittedNotation = normalizeGenomicNotation(req.body.variant);
+          const current = await currentEnsemblTranscriptNotation(submittedNotation);
+          if (current) {
+            const retired = submittedNotation.split(":")[0];
+            sendError(
+              res,
+              422,
+              "TRANSCRIPT_VERSION_RETIRED",
+              `${retired} is not in the current Ensembl release, so no provider can place this notation. ` +
+                `The current version is ${current.split(":")[0]}: run ${current} if this variant's ` +
+                "c. numbering is unchanged in it. Ensembl no longer serves the retired version's " +
+                "sequence, so that cannot be checked automatically.",
+              { candidates: [current], attempts: err.attempts, ...buildTrail }
+            );
+            return;
+          }
+        }
+
+        /**
+         * `Retry-After` on BOTH temporary-failure statuses, not just 503.
+         *
+         * A degraded provider sometimes answers with an unusable payload instead of timing out, which
+         * this taxonomy reports as 502 — and a 502 with no cooldown is RETRIED by the client. Observed
+         * in the developer console: three whole ladder runs (12.3s) for one query, each re-asking two
+         * providers that were already failing. The advertised cooldown is what stops that: the client
+         * returns any response whose Retry-After exceeds 2s instead of retrying it, so the user sees
+         * this message once and gets the workaround.
+         *
+         * The per-host circuit breaker cools down for ~60s (jittered), so advise that window.
+         */
+        if (status === 503 || status === 502) {
+          try {
+            res.setHeader?.("Retry-After", "60");
+          } catch { /* headers already sent */ }
+        }
+
         if (err.kind !== "reference_mismatch") {
           sendError(res, status, code, err.message, { attempts: err.attempts, ...buildTrail });
           return;

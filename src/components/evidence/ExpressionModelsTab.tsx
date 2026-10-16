@@ -1,8 +1,8 @@
 import React, { useRef } from 'react';
 import type { TabComponentProps } from './types';
 import { useContextWorkspace } from '../../hooks/useContextWorkspace';
-import { ContextExplorer, ContextGuide, ContextDisclosure } from './ContextExplorer';
-import { EvidencePanel, EvidenceViewTabs, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { ContextExplorer, ContextGuide } from './ContextExplorer';
+import { EvidencePanel, EvidenceTopic, EvidenceViewTabs, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { ContextSourceState } from './ContextSourceState';
 import { ReviewFrame } from './expression/ReviewFrame';
 import { ExpressionHero } from './expression/ExpressionHero';
@@ -55,26 +55,27 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     {workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary>Review context · {chosen ? `${chosen.label} · ${chosen.inheritance.label}` : 'No disease selected'}<span>Your choices, not patient findings</span></summary>{reviewFrame}</details> : reviewFrame}
     <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} activeFinding={activeFinding} />
     <EvidencePanel tab="expression-models">
-      <ContextExplorer tab="expression-models" rows={rows} hasReviewSystems={context.selection.systems.length > 0} onChooseSystems={chooseSystems} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}
-        empty={<ContextSourceState name={workspace.section === 'developmental' ? 'dGTEx' : 'GTEx'} load={workspace.section === 'developmental' ? context.developmentalLoad : context.expressionLoad} onRetry={workspace.section === 'developmental' ? context.retryDevelopment : context.retryExpression} />} />
-    </EvidencePanel>
-    <ContextDisclosure tab="expression-models" id="phenotype" title="Disease phenotype annotations and review suggestions">
+      {(!workspace.enabled || workspace.comparison || workspace.view === 'records') && <ContextExplorer tab="expression-models" rows={rows} hasReviewSystems={context.selection.systems.length > 0} onChooseSystems={chooseSystems} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}
+        empty={<ContextSourceState name={workspace.section === 'developmental' ? 'dGTEx' : 'GTEx'} load={workspace.section === 'developmental' ? context.developmentalLoad : context.expressionLoad} onRetry={workspace.section === 'developmental' ? context.retryDevelopment : context.retryExpression} />} />}
+
+    <EvidenceTopic tab="expression-models" view="records">
     <HpoAnnotationCard load={context.hpoLoad} hasDisease={!!context.selection.diseaseKey} hasIds={!!context.hpoIds} diseaseId={chosen?.diseaseId ?? null} selection={context.selection} onChange={context.setSelection} onRetry={context.retryHpo} />
-    </ContextDisclosure>
+    </EvidenceTopic>
     <ContextGuide><p>TPM measures RNA abundance, not pathogenicity. Adult and pediatric RNA use separate views and scales. Review systems bring related tissues forward; they do not establish that an organ was adequately sampled.</p><p>Protein Atlas measurements use a different assay. Pext describes the proportion of expression associated with a genomic region, not expression of your selected transcript.</p></ContextGuide>
-    <ContextDisclosure tab="expression-models" id="development" title="Pediatric sampling and source records">
-    <DevelopmentalExpressionCard load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
-    </ContextDisclosure>
-    <ContextDisclosure tab="expression-models" id="protein" title="Protein measurements">
+    <EvidenceTopic tab="expression-models" view="records">
+    <DevelopmentalExpressionCard coverageOnly={workspace.enabled} cohortScope={workspace.cohort} load={context.developmentalLoad} systems={context.selection.systems} onRetry={context.retryDevelopment} />
+    </EvidenceTopic>
+    <EvidenceTopic tab="expression-models" view="protein">
     <HpaCard load={context.hpaLoad} onRetry={context.retryHpa} />
-    </ContextDisclosure>
-    <ContextDisclosure tab="expression-models" id="pext" title="Expression at the variant (pext)">
+    </EvidenceTopic>
+    <EvidenceTopic tab="expression-models" view="pext">
     <PextCard load={context.pextLoad} site={site} systems={context.selection.systems} tissueLabels={gtexLabels} onRetry={context.retryPext} />
-    </ContextDisclosure>
-    <ContextDisclosure tab="expression-models" id="coverage-limits" title="Coverage limitations"><section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
+    </EvidenceTopic>
+    <EvidenceTopic tab="expression-models" view="records"><section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
       <div><dt>Prenatal</dt><dd>Prenatal and organ-specific atlases (BrainSpan, Cardoso-Moreira, stage-specific Bgee) are not read. dGTEx covers the pediatric public age cohorts only.</dd></div>
       <div><dt>Transcript</dt><dd>Annotation-level pext and isoform expression for the transcript carrying this missense are not read.</dd></div>
       <div><dt>Embryo</dt><dd>Embryo and fetal phenotype resources (such as DECIPHER) are not read.</dd></div>
-    </dl></section></ContextDisclosure>
+    </dl></section></EvidenceTopic>
+    </EvidencePanel>
   </div>;
 }

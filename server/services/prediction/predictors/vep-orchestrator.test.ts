@@ -2,14 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PredictorData } from "../../../../src/shared/contracts.ts";
 
 const mocks = vi.hoisted(() => ({
-  fetch: vi.fn(), transcripts: vi.fn(), lift: vi.fn(), recover: vi.fn(), local: vi.fn(),
+  fetch: vi.fn(), transcripts: vi.fn(), lift: vi.fn(), recover: vi.fn(), local: vi.fn(), localGenomic: vi.fn(),
   l2: new Map<string, unknown>(), save: vi.fn(),
 }));
 vi.mock("../../infra/http-client.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../infra/http-client.ts")>(), fetchWithRetry: mocks.fetch,
 }));
 vi.mock("./transcript-resolver.ts", () => ({ getTranscriptsForProtein: mocks.transcripts }));
-vi.mock("../dbnsfp_local.ts", () => ({ queryLocalDbnsfpVariant: mocks.local, readLocalDbnsfpVersion: vi.fn(() => null) }));
+vi.mock("../dbnsfp_local.ts", () => ({
+  queryLocalDbnsfpVariant: mocks.local,
+  queryLocalDbnsfpByGenomic: mocks.localGenomic,
+  // The real format (`dbnsfp_local.readLocalDbnsfpVersion`), so a label that repeats it is caught.
+  readLocalDbnsfpVersion: vi.fn(() => "dbNSFP 5.3a (local)"),
+}));
 vi.mock("../../translation/liftover.ts", () => ({ liftCoordinateToCanonical: mocks.lift }));
 vi.mock("./locus-resolver.ts", async (importOriginal) => ({
   ...await importOriginal<typeof import("./locus-resolver.ts")>(), recoverCanonicalLocus: mocks.recover,
@@ -48,6 +53,7 @@ beforeEach(() => {
   mocks.save.mockImplementation(async (key: string, data: unknown) => { mocks.l2.set(key, data); });
   mocks.transcripts.mockResolvedValue({ refseqId: "NM_1.1", ensemblId: "ENST1.1", canonicalEnsemblId: "ENST2.1" });
   mocks.lift.mockResolvedValue(null);
+  mocks.localGenomic.mockResolvedValue(null);
   mocks.local.mockResolvedValue(null);
   mocks.recover.mockImplementation(async (id: string) => ({
     id: id.replace("-100-", "-200-"), assembly: "GRCh38", canonicalBy: "dbnsfp-grch38", retryable: false, steps: [],
@@ -351,6 +357,52 @@ describe("predictor locus outcome reconciliation", () => {
         retryable: false,
       });
       expect(result.locusResolution!.steps.some(s => s.outcome === "ok" && s.detail?.includes("MyVariant.info & dbNSFP"))).toBe(true);
+    });
+
+    describe("local dbNSFP by exact allele", () => {
+      const coordinate = { chrom: "17", pos: 65168243, ref: "T", alt: "A", assembly: "GRCh38" as const };
+      const row = { gene: "RGS9", chr: "17", pos_genomic: 65168243, ref: "T", alt: "A", aaref: "C", aaalt: "S", pos: 182, alphamissense: 0.5136, cadd: 22.9 };
+      const vepDownMyVariantUp = async (url: string) => {
+        if (url.includes("myvariant.info/v1/variant/")) {
+          return json({ _id: "chr17:g.65168243T>A", dbnsfp: { genename: ["RGS9"], aa: { ref: "C", alt: "S", pos: [182] }, alphamissense: { score: 0.1 }, cadd: { phred: 1 } } });
+        }
+        return json({}, 503);
+      };
+      beforeEach(() => {
+        mocks.transcripts.mockResolvedValue({ refseqId: "NM_003835.4", ensemblId: "ENST00000262406.10", canonicalEnsemblId: "ENST00000262406.10" });
+        mocks.lift.mockResolvedValue(coordinate);
+        mocks.fetch.mockImplementation(vepDownMyVariantUp);
+      });
+
+      it("answers from the local store before MyVariant, naming the dbNSFP release", async () => {
+        mocks.localGenomic.mockResolvedValue(row);
+        const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+        expect(mocks.localGenomic).toHaveBeenCalledWith("17", 65168243, "T", "A");
+        expect(result).toMatchObject({
+          amPathogenicity: 0.5136,
+          caddPhred: 22.9, // allele-keyed, so its CADD may be reported
+          amProvenance: "dbNSFP 5.3a (local)",
+          gnomadVariantId: "17-65168243-T-A",
+          source: "dbNSFP 5.3a (local) (coordinate fallback)",
+        });
+        expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("myvariant"))).toBe(false);
+      });
+
+      it.each([
+        ["another gene", { gene: "RGS9BP" }],
+        ["another substitution", { aaalt: "R" }],
+        ["a differently numbered transcript", { pos: 190 }],
+      ])("falls through to MyVariant when the local row belongs to %s", async (_label, change) => {
+        mocks.localGenomic.mockResolvedValue({ ...row, ...change });
+        const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+        expect(result.source).toBe("MyVariant.info & dbNSFP (coordinate fallback)");
+      });
+
+      it("falls through when the local store throws", async () => {
+        mocks.localGenomic.mockRejectedValue(new Error("SQLITE_CORRUPT"));
+        const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+        expect(result.source).toBe("MyVariant.info & dbNSFP (coordinate fallback)");
+      });
     });
 
     it("degrades to the first dbNSFP entry when the canonical transcript is not listed", async () => {

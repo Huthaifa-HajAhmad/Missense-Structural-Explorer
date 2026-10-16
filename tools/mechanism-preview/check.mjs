@@ -81,7 +81,7 @@ await page.getByLabel('Map view',{exact:true}).selectOption('50');
 await page.locator('[data-testid="map-ds_al"]').focus();
 await page.keyboard.press('Enter');
 check('Keyboard splice pin',(await page.getByRole('region',{name:'Selected evidence reading'}).innerText()).includes('Acceptor loss'));
-await page.getByRole('tab',{name:'Source records',exact:true}).click();
+await page.getByRole('tab',{name:'Assemblies & models',exact:true}).click();
 await page.setViewportSize({width:390,height:1100});
 check('Splice records no page overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 await page.locator('tr[data-reading-key="spliceai-ds_al"]').scrollIntoViewIfNeeded();

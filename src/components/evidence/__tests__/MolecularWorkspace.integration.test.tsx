@@ -64,8 +64,9 @@ describe('molecular workspace interaction contracts', () => {
     render(<Harness result={molecularWorkspaceFixture()} tab="structure" />);
     fireEvent.click(screen.getByRole('button', { name: /Net charge.*loses its negative charge/ }));
     expect(inspector().getByRole('heading', { name: 'Net charge' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
-    expect(screen.getByRole('button', { name: 'Net charge' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Environment & pockets' }));
+    expect(screen.queryByTestId('residue-properties')).not.toBeInTheDocument();
+    expect(inspector().getByRole('heading', { name: 'Net charge' })).toBeInTheDocument();
     expect(inspector().getByText('−1')).toBeInTheDocument();
     expect(inspector().getByText('0')).toBeInTheDocument();
   });
@@ -83,19 +84,22 @@ describe('molecular workspace interaction contracts', () => {
     expect(inspector().getByRole('heading', { level: 3 }).textContent).toBe(pinned);
     fireEvent.click(screen.getByRole('button', { name: 'Show overview' }));
     expect(screen.getByText(/7 of 20 returned residues/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
-    fireEvent.click(screen.getByRole('button', { name: '20. G' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 20 residues' }));
+    // The comparison exposes every residue, including probabilities too small to target reliably.
+    const picker = screen.getByRole('combobox', { name: 'Inspect amino acid' });
+    const glycine = within(picker).getByRole('option', { name: /G/ }) as HTMLOptionElement;
+    fireEvent.change(picker, { target: { value: glycine.value } });
     expect(inspector().getByRole('heading', { name: 'SaProt · G' })).toBeInTheDocument();
     expect(inspector().getByText('0.0004')).toBeInTheDocument();
   });
 
-  it('keeps focus on the tablist when the reader moves to Source records with the keyboard', () => {
+  it('keeps focus on the tablist when the reader moves to Annotation details with the keyboard', () => {
     render(<Harness result={molecularWorkspaceFixture()} />);
     fireEvent.click(screen.getAllByRole('button', { name: /Illustrative overlap/ })[0]);
-    const records = screen.getByRole('tab', { name: 'Source records' });
+    const records = screen.getByRole('tab', { name: 'Annotation details' });
     records.focus();
     fireEvent.keyDown(screen.getByRole('tablist', { name: /Functional domains views/ }), { key: 'ArrowRight' });
-    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Annotation details' })).toHaveAttribute('aria-selected', 'true');
     // Depending on workspace.view alone, the row-focus effect pulled the keyboard user into the table.
     expect(document.activeElement).toBe(records);
   });

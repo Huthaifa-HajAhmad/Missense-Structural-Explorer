@@ -48,7 +48,7 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
     contextText: o.ac !== null || o.an !== null ? `AC ${formatCount(o.ac)} · AN ${formatCount(o.an)}` : undefined,
     facts: [{ label: 'Allele count (AC)', value: formatCount(o.ac) }, { label: 'Alleles assessed (AN)', value: formatCount(o.an) },
       { label: 'Frequency (AF)', value: o.af === null ? 'Not reported' : `${formatFrequencyPercent(o.af)} (${o.af} as a fraction)` },
-      { label: 'Dataset', value: o.dataset }, { label: 'Homozygotes', value: formatCount(o.homozygotes) }],
+      { label: 'Dataset', value: o.dataset }, { label: 'Homozygotes', value: formatCount(o.homozygotes) }, { label: 'Heterozygotes', value: formatCount(o.heterozygotes) }],
     notes: ['AC counts copies of the allele; AN counts assessed alleles, not people. Sources can overlap and must not be added together.'],
   }));
   const c = evidence.criterion;

@@ -860,6 +860,12 @@ export function enrichBiophysicalResult(
     stabilityoracleStatus: "pending" | "done" | "unavailable" | "error" | string | null;
     stabilityoracleVal: number | null;
     stabilityoracleError: string | null;
+    protvarStatus: "pending" | "done" | "unavailable" | "error" | string | null;
+    protvarVal: number | null;
+    protvarPlddt: number | null;
+    protvarModel: string | null;
+    protvarReason: string | null;
+    protvarError: string | null;
   }> | null,
   structureProvenance: any = null,
   posNum: number = 0
@@ -888,6 +894,21 @@ export function enrichBiophysicalResult(
   const thermompnnVal = jobs.thermompnnVal ?? foldxRawResult?.energetics?.thermompnn ?? null;
   const dynamut2Val = jobs.dynamut2Val ?? foldxRawResult?.energetics?.dynamut2 ?? null;
   const ddmutVal = jobs.ddmutVal ?? foldxRawResult?.energetics?.ddmut ?? null;
+  /**
+   * ProtVar's precomputed FoldX: carried, NOT listed in `pendingTools` (a reference lookup must not
+   * hold the verdict provisional), and never a second vote beside local FoldX. It reaches
+   * `computeStabilityConsensus` only so the shared rule can let it count as THE FoldX reading when the
+   * run has no local value and its template is the AlphaFold model.
+   */
+  const priorEnergetics = foldxRawResult?.energetics ?? {};
+  const protvarFields = {
+    protvar: jobs.protvarVal ?? priorEnergetics.protvar ?? null,
+    protvarStatus: jobs.protvarStatus ?? priorEnergetics.protvarStatus ?? null,
+    protvarPlddt: jobs.protvarPlddt ?? priorEnergetics.protvarPlddt ?? null,
+    protvarModel: jobs.protvarModel ?? priorEnergetics.protvarModel ?? null,
+    protvarReason: jobs.protvarReason ?? priorEnergetics.protvarReason ?? null,
+    protvarError: jobs.protvarError ?? priorEnergetics.protvarError ?? null,
+  };
 
   const pendingTools: string[] = [];
   if (jobs.dynamut2Status === "pending" && dynamut2Val === null) pendingTools.push("DynaMut2");
@@ -911,7 +932,11 @@ export function enrichBiophysicalResult(
     dynamut2: dynamut2Val,
     ddmut: ddmutVal,
     foldxRepairFailed,
-    foldxBinaryMissing
+    foldxBinaryMissing,
+    // ProtVar counts as the FoldX reading only on an AlphaFold template with no local value
+    // (`FOLDX_STAND_IN_RULE`); the same rule the screen applies, so the stored verdict matches it.
+    protvar: protvarFields.protvar,
+    structureProvenance
   });
   /**
    * The verdict is a **closed-set** value; provisionality is a separate typed fact.
@@ -993,6 +1018,7 @@ export function enrichBiophysicalResult(
       stabilityoracle: stabilityoracleVal,
       stabilityoracleStatus,
       stabilityoracleError,
+      ...protvarFields,
       /**
        * The agreement count, not a probability. `consensusProbability` / `consensusConfMin/Max` are no
        * longer emitted: they came from hand-typed curves (see `thresholds/consensus.ts`). Old cached

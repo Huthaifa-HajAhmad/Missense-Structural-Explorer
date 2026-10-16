@@ -11,15 +11,30 @@ import {
   type TranscriptBasis
 } from "./landscape-aggregate.ts";
 
-const DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
+const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
 
 /**
- * Intended SQLite schema for the local dbNSFP database.
- * The database is populated by a future ingestion script that reads dbNSFP v5.
+ * A store at or below this size is the 0-byte placeholder (or a header-only stub), never a built store.
+ * Checking size first also avoids opening a placeholder at all.
+ */
+const MIN_USABLE_BYTES = 4096;
+
+/**
+ * Path of the local store. `DBNSFP_SQLITE_PATH` overrides the default. It is read on every call, not
+ * once at import, so a deploy or a test can point the server at another file without a restart.
+ */
+export function localDbnsfpPath(): string {
+  const override = process.env.DBNSFP_SQLITE_PATH?.trim();
+  return override ? path.resolve(override) : DEFAULT_DB_PATH;
+}
+
+/**
+ * Populated by `tools/ingest_dbnsfp.ts`. Schema summary:
  *
- * Part4 #2 architectural fix: two indexes are required —
- *   idx_dbnsfp_gene_aa   — existing path: look up by gene + amino-acid position
- *   idx_dbnsfp_genomic   — NEW: look up by chromosome:position:ref:alt (VCF/GnomAD-style)
+ *   Lookup indexes (created by the ingest after all inputs load):
+ *     idx_gene_pos                          — gene window scans (landscape) and gene + residue lookups
+ *     idx_variant_scores_gene_pos_ref_alt   — gene + residue + allele lookups
+ *     idx_chr_pos_genomic_ref_alt           — genomic (VCF-style) lookups
  *
  * CREATE TABLE variant_scores (
  *   id              INTEGER PRIMARY KEY,
@@ -51,53 +66,116 @@ const DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
  *   aou_hom         INTEGER
  * ) STRICT;
  *
- * CREATE INDEX idx_dbnsfp_gene_aa  ON variant_scores(gene, pos);
- * CREATE INDEX idx_dbnsfp_genomic  ON variant_scores(chr, pos_genomic, ref, alt);
+ * CREATE INDEX idx_gene_pos                        ON variant_scores(gene, pos);
+ * CREATE INDEX idx_variant_scores_gene_pos_ref_alt ON variant_scores(gene, pos, ref, alt);
+ * CREATE INDEX idx_chr_pos_genomic_ref_alt         ON variant_scores(chr, pos_genomic, ref, alt);
  */
 
-let localDb: DatabaseSync | null = null;
-let dbCheckFailed = false;
-let hasGenomicColumnsChecked: boolean | null = null;
+/**
+ * The store's state, cached against its (path, size, mtime). The file is re-probed only when one of
+ * those changes, so a freshly ingested or replaced store is picked up without a restart, and a
+ * steady-state call costs one stat.
+ */
+interface StoreProbe {
+  path: string;
+  present: boolean;
+  sizeBytes: number;
+  usable: boolean;
+  /** Why the store is not usable; absent when it is. */
+  reason?: string;
+  db: DatabaseSync | null;
+  signature: string;
+}
 
-export function isLocalDbnsfpAvailable(): boolean {
-  if (process.env.ENABLE_LOCAL_DBNSFP !== 'true') return false;
-  if (!fs.existsSync(DB_PATH)) return false;
+let probe: StoreProbe | null = null;
+
+function explicitlyDisabled(): boolean {
+  return (process.env.ENABLE_LOCAL_DBNSFP ?? '').trim().toLowerCase() === 'false';
+}
+
+function closeProbe(): void {
   try {
-    const stat = fs.statSync(DB_PATH);
-    return stat.size > 1024;
+    probe?.db?.close();
   } catch {
-    return false;
+    // A connection that fails to close is already unusable; dropping the reference is enough.
   }
+  probe = null;
+}
+
+function buildProbe(dbPath: string, stat: fs.Stats | null, signature: string): StoreProbe {
+  const base = { path: dbPath, present: stat !== null, sizeBytes: stat?.size ?? 0, signature };
+  if (explicitlyDisabled()) {
+    return { ...base, usable: false, db: null, reason: 'disabled by ENABLE_LOCAL_DBNSFP=false' };
+  }
+  if (!stat) return { ...base, usable: false, db: null, reason: 'database file not found' };
+  if (stat.size <= MIN_USABLE_BYTES) {
+    return { ...base, usable: false, db: null, reason: `database file is ${stat.size} bytes (placeholder; a built store exceeds ${MIN_USABLE_BYTES})` };
+  }
+
+  let db: DatabaseSync;
+  try {
+    db = new DatabaseSync(dbPath, { open: true });
+  } catch (err: any) {
+    return { ...base, usable: false, db: null, reason: `cannot open database: ${err.message}` };
+  }
+  try {
+    const hasTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='variant_scores'").get();
+    if (!hasTable) {
+      db.close();
+      return { ...base, usable: false, db: null, reason: 'variant_scores table is missing' };
+    }
+    // LIMIT 1 stops at the first row, so this stays cheap on a 100M-row table.
+    const hasRow = db.prepare('SELECT 1 FROM variant_scores LIMIT 1').get();
+    if (!hasRow) {
+      db.close();
+      return { ...base, usable: false, db: null, reason: 'variant_scores is empty (run tools/ingest_dbnsfp.ts)' };
+    }
+    return { ...base, usable: true, db, reason: undefined };
+  } catch (err: any) {
+    try { db.close(); } catch { /* already unusable */ }
+    return { ...base, usable: false, db: null, reason: `store is not readable: ${err.message}` };
+  }
+}
+
+function currentProbe(): StoreProbe {
+  const dbPath = localDbnsfpPath();
+  let stat: fs.Stats | null = null;
+  try {
+    stat = fs.statSync(dbPath);
+  } catch {
+    stat = null;
+  }
+  // The env flag is part of the key: flipping ENABLE_LOCAL_DBNSFP must take effect without touching the file.
+  const signature = `${stat ? `${stat.size}:${stat.mtimeMs}` : 'absent'}|off=${explicitlyDisabled()}`;
+  if (probe && probe.path === dbPath && probe.signature === signature) return probe;
+  closeProbe();
+  probe = buildProbe(dbPath, stat, signature);
+  return probe;
+}
+
+/**
+ * Release the cached connection. Needed before the store file can be deleted or replaced on Windows,
+ * and harmless otherwise: the next call re-probes.
+ */
+export function closeLocalDbnsfpStore(): void {
+  closeProbe();
+}
+
+/**
+ * Whether the local store serves queries. Unset or `true` auto-detects: the store must exist, be
+ * larger than the placeholder, and hold at least one variant row. `ENABLE_LOCAL_DBNSFP=false` turns it off.
+ */
+export function isLocalDbnsfpAvailable(): boolean {
+  return currentProbe().usable;
 }
 
 export function getDbInstance(): DatabaseSync | null {
-  if (!isLocalDbnsfpAvailable() || dbCheckFailed) return null;
-  if (!localDb) {
-    try {
-      const db = new DatabaseSync(DB_PATH, { open: true });
-      const stmt = db.prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='variant_scores'");
-      const row = stmt.get() as { count: number } | undefined;
-      if (!row || row.count === 0) {
-        console.warn("[Local dbNSFP] Table variant_scores does not exist in SQLite DB. Disabling local mode.");
-        dbCheckFailed = true;
-        return null;
-      }
-      const countStmt = db.prepare("SELECT COUNT(*) as cnt FROM variant_scores LIMIT 1");
-      const countRow = countStmt.get() as { cnt: number } | undefined;
-      if (!countRow || countRow.cnt === 0) {
-        console.warn("[Local dbNSFP] Local database is empty (0 records). Disabling local mode.");
-        dbCheckFailed = true;
-        return null;
-      }
-      localDb = db;
-    } catch (err: any) {
-      console.warn(`[Local dbNSFP] Failed to initialize SQLite database connection: ${err.message}`);
-      dbCheckFailed = true;
-      localDb = null;
-    }
-  }
-  return localDb;
+  const p = currentProbe();
+  return p.usable ? p.db : null;
 }
+
+/** Whether the store has the `pos_genomic` column. Cached per connection, so a replaced store is re-read. */
+const genomicColumnsByDb = new WeakMap<DatabaseSync, boolean>();
 
 export interface LocalDbnsfpRecord {
   gene: string;
@@ -240,6 +318,61 @@ export function readLocalDbnsfpVersion(): string | null {
   return v ? `dbNSFP ${v} (local)` : null;
 }
 
+/** The dbNSFP release the store was built from, e.g. "5.3a", for callers labelling provenance. Null when unknown. */
+export function getLocalDbnsfpVersion(): string | null {
+  return readBuildMeta("dbnsfp_version");
+}
+
+export interface LocalDbnsfpInspection {
+  path: string;
+  present: boolean;
+  sizeBytes: number;
+  /** False only when ENABLE_LOCAL_DBNSFP=false. */
+  enabled: boolean;
+  /** True when queries are served from the store. */
+  usable: boolean;
+  /** Why the store is not usable. Absent when it is. */
+  reason?: string;
+  version?: string | null;
+  /** Sum of the per-chromosome counts the ingest recorded. Null when none were recorded. */
+  rowCount?: number | null;
+}
+
+/**
+ * Diagnostics for the local store, for health and admin views. Reads only the file's stat, the
+ * probe cache and the `build_meta` table. It never counts `variant_scores`, which can hold 100M rows.
+ */
+/**
+ * {@link inspectLocalDbnsfpFile} for UNAUTHENTICATED endpoints (`/diagnostics`, `/capabilities`): the
+ * file name only, so the host's directory layout is not published. Operators set the path themselves
+ * (`DBNSFP_SQLITE_PATH`), so the name is all a reader needs to tell which store answered.
+ */
+export function inspectLocalDbnsfpFileForPublic(): LocalDbnsfpInspection {
+  const inspection = inspectLocalDbnsfpFile();
+  return { ...inspection, path: path.basename(inspection.path) };
+}
+
+export function inspectLocalDbnsfpFile(): LocalDbnsfpInspection {
+  const p = currentProbe();
+  const enabled = !explicitlyDisabled();
+  const base = { path: p.path, present: p.present, sizeBytes: p.sizeBytes, enabled, usable: p.usable };
+  if (!p.usable) {
+    return { ...base, reason: p.reason, version: null, rowCount: null };
+  }
+  // Per-chromosome counts are written by the ingest; summing them avoids a COUNT(*) scan.
+  let rowCount: number | null = null;
+  const db = self.getDbInstance();
+  if (db) {
+    try {
+      const rows = db.prepare("SELECT value FROM build_meta WHERE key LIKE 'rows:%'").all() as Array<{ value: string }>;
+      if (rows.length > 0) rowCount = rows.reduce((sum, r) => sum + Number(r.value), 0);
+    } catch {
+      rowCount = null;
+    }
+  }
+  return { ...base, version: getLocalDbnsfpVersion(), rowCount };
+}
+
 export interface LocalLandscapeRows {
   candidates: SnvCandidate[];
   maxPos: number;
@@ -328,7 +461,7 @@ export async function queryLocalDbnsfpLandscapeRows(
  * @returns The best-matching record, or null when unavailable / not found.
  *
  * NOTE: Returns null (not an error) when:
- *   - The local database has not yet been built (ENABLE_LOCAL_DBNSFP != 'true')
+ *   - The local database is not usable (disabled, missing, a placeholder, or empty; see inspectLocalDbnsfpFile)
  *   - The chr/pos_genomic columns are not yet populated (awaiting ingest)
  *   - The specific variant is absent from dbNSFP v5
  */
@@ -347,11 +480,13 @@ export async function queryLocalDbnsfpByGenomic(
 
   try {
     // Check that the genomic columns exist (they are absent in pre-migration DBs)
-    if (hasGenomicColumnsChecked === null) {
+    let hasGenomicColumns = genomicColumnsByDb.get(db);
+    if (hasGenomicColumns === undefined) {
       const cols = (db.prepare("PRAGMA table_info(variant_scores)").all as any)() as Array<{ name: string }>;
-      hasGenomicColumnsChecked = cols.some(c => c.name === 'pos_genomic');
+      hasGenomicColumns = cols.some(c => c.name === 'pos_genomic');
+      genomicColumnsByDb.set(db, hasGenomicColumns);
     }
-    if (!hasGenomicColumnsChecked) {
+    if (!hasGenomicColumns) {
       // Database exists but was built without genomic columns — can't serve this query.
       // Callers should fall back to the Ensembl VEP translation path.
       return null;

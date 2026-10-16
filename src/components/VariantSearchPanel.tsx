@@ -26,11 +26,13 @@ import { AnalysisState, SearchHistoryItem } from "../types";
 import { MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
-import { getWorkflowStageStatus, summarizeWorkflowStatuses } from "../shared/workflowStatus";
+import { getWorkflowStageStatus, isOnDemandView, summarizeWorkflowStatuses } from "../shared/workflowStatus";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import {
   needsNotationResolution,
   classifyNotation,
+  cdnaReferenceProblem,
+  isGenomicOrCdnaNotation,
   ACCEPTED_NOTATION_EXAMPLES,
   type GenomeAssembly,
   type NotationKind,
@@ -113,6 +115,16 @@ export const WORKFLOW_STAGES = [
   { key: "literature", title: "Literature", Icon: BookOpen, targetView: "literature" as MasterView },
   { key: "report", title: "Report", Icon: FileText, targetView: "report" as MasterView },
 ] as const;
+
+/**
+ * How many stages the automatic run settles, and how many the reader opens on demand. Derived from the
+ * list above through the same predicate the progress maths uses, so the idle label ("6 core · 1
+ * on-demand") and the in-flight count ("N of 6 settled") cannot quote different totals.
+ */
+export const WORKFLOW_STAGE_COUNTS = (() => {
+  const onDemand = WORKFLOW_STAGES.filter(stage => isOnDemandView(stage.key)).length;
+  return { core: WORKFLOW_STAGES.length - onDemand, onDemand } as const;
+})();
 
 type RailTabId = "telemetry" | "pipeline";
 const RAIL_TAB_ORDER: RailTabId[] = ["telemetry", "pipeline"];
@@ -207,6 +219,18 @@ const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTon
     tone: "clay",
     title: "Transcript cDNA. Resolved to a protein substitution by Ensembl VEP, with VariantValidator as the fallback tier.",
   },
+  rsid: {
+    label: "dbSNP → resolve",
+    tone: "clay",
+    title:
+      "dbSNP identifier. Resolved to its GRCh38 coordinate, then to a protein substitution. An rsID with several alternate alleles is not guessed — each allele is offered to run.",
+  },
+  "clinvar-vcv": {
+    label: "ClinVar → resolve",
+    tone: "clay",
+    title:
+      "ClinVar Variation ID. Resolved to its GRCh38 coordinate (canonical SPDI), then to a protein substitution.",
+  },
   "genomic-hgvs": {
     label: "Genomic → resolve",
     tone: "clay",
@@ -233,6 +257,16 @@ const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTon
     title: "Not yet a recognised notation. Protein HGVS (p.Gly380Arg), cDNA (c.123A>G) or genomic coordinates (20-23365054-G-A) are accepted.",
   },
 };
+
+/**
+ * Copy the form states in more than one place. Held as constants so the hint and the test that pins it
+ * cannot drift apart.
+ */
+const GENE_REQUIRED_HINT =
+  "Enter a gene symbol above (e.g. NAE1) or prefix a transcript (e.g. NM_003905.4:c.347A>G).";
+const COORDINATE_ACCEPTS_COPY = "Accepts chr-pos-ref-alt, VCF rows, rsIDs or ClinVar VCV IDs.";
+const ROUTE_BOTH_COPY = "Coordinate route active — the protein/cDNA field will be ignored";
+const ROUTE_DERIVED_COPY = "Coordinate route active — gene and canonical protein are derived automatically";
 
 /**
  * UniProtKB accession shape, from UniProt's own documented pattern.
@@ -274,6 +308,10 @@ const NOTATION_EXAMPLE_GROUPS: Array<{
       ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated,
       ACCEPTED_NOTATION_EXAMPLES.genomicAccession,
       ACCEPTED_NOTATION_EXAMPLES.genomicDashed,
+      // Identifiers belong in this field because it is the one that accepts them: the server resolves them
+      // to a coordinate, and the field's helper line lists them.
+      ACCEPTED_NOTATION_EXAMPLES.rsid,
+      ACCEPTED_NOTATION_EXAMPLES.clinvarVcv,
     ],
   },
 ];
@@ -435,12 +473,48 @@ const BuildSelect: React.FC<{
    * has to tell them apart — two identically named selects in one form is a coin flip.
    */
   subject: "coordinate" | "cDNA";
+  /**
+   * `chip` (the default) lives in a label's pinned 20px slot. `field` is a 40px row of its own, used by
+   * the coordinate route's "Reference build" row so the control lines up with the Gene input beside it
+   * instead of floating as a badge. The state (default vs stated) reads the same in both.
+   */
+  size?: "chip" | "field";
   onChange: (build: GenomeAssembly) => void;
-}> = ({ value, source, subject, onChange }) => {
+}> = ({ value, source, subject, size = "chip", onChange }) => {
   const surface =
     source === "default"
       ? "bg-cs-surface-2 text-cs-text-muted hover:text-cs-text-secondary"
       : FIELD_CHIP_SURFACE.clay;
+  const title =
+    source === "default"
+      ? `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`
+      : `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${
+          source === "accession" ? "by the RefSeq accession" : "in the notation"
+        })`;
+
+  if (size === "field") {
+    return (
+      <span
+        className={`relative flex h-10 w-full items-center rounded-[var(--cs-radius-input)] border transition-colors duration-150 ${
+          source === "default"
+            ? "border-cs-border bg-cs-surface text-cs-text-secondary hover:border-cs-border hover:bg-cs-surface-2"
+            : "border-cs-accent-clay/40 bg-cs-accent-clay/10 text-cs-text-accent"
+        }`}
+      >
+        <select
+          aria-label={`Genome build this ${subject} is expressed in`}
+          title={title}
+          value={value}
+          onChange={(event) => onChange(event.target.value as GenomeAssembly)}
+          className="h-full w-full cursor-pointer appearance-none rounded-[var(--cs-radius-input)] bg-transparent pl-3 pr-9 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+        >
+          <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
+          <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 w-3.5 h-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
 
   return (
     // The wrapper is the chip: it carries the pill and positions the caret, while the `<select>` fills
@@ -448,13 +522,7 @@ const BuildSelect: React.FC<{
     <span className={`relative inline-flex h-5 shrink-0 items-center ${FIELD_CHIP_BOX} ${surface}`}>
       <select
         aria-label={`Genome build this ${subject} is expressed in`}
-        title={
-          source === "default"
-            ? `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`
-            : `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${
-                source === "accession" ? "by the RefSeq accession" : "in the notation"
-              })`
-        }
+        title={title}
         value={value}
         onChange={(event) => onChange(event.target.value as GenomeAssembly)}
         // `pr-4` is the caret's room, reserved INSIDE the chip so the chip's right edge still lands
@@ -488,6 +556,8 @@ const EXAMPLE_HINTS: Record<string, string> = {
   [ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated]: "Genomic HGVS naming the build",
   [ACCEPTED_NOTATION_EXAMPLES.genomicAccession]: "Accession-qualified genomic coordinate",
   [ACCEPTED_NOTATION_EXAMPLES.genomicDashed]: "Dashed chromosome-position form",
+  [ACCEPTED_NOTATION_EXAMPLES.rsid]: "dbSNP identifier, resolved to a coordinate",
+  [ACCEPTED_NOTATION_EXAMPLES.clinvarVcv]: "ClinVar Variation ID, resolved to a coordinate",
 };
 
 /** One example per route; additional accepted forms remain available on demand. */
@@ -664,9 +734,18 @@ function VariantSearchPanel({
   };
 
   const stageInfos = WORKFLOW_STAGES.map(stage => ({ stage, info: getStageInfo(stage.key) }));
+  // Completion and problems are judged over every stage, as before.
   const summary = summarizeWorkflowStatuses(stageInfos.map(({ info }) => info.rawStatus));
-  const settledCount = summary.settled;
-  const progressPct = summary.percent;
+  /**
+   * The COUNT the rail quotes ("N of M settled") and its progress bar cover the automatic run only. An
+   * on-demand stage is opened by the reader, so counting it made the denominator swing between six and
+   * seven as it was opened, while the idle label already said six core stages.
+   */
+  const coreSummary = summarizeWorkflowStatuses(
+    stageInfos.filter(({ stage }) => !isOnDemandView(stage.key)).map(({ info }) => info.rawStatus)
+  );
+  const settledCount = coreSummary.settled;
+  const progressPct = coreSummary.percent;
 
   const isWorkflowSettled = Boolean(result && summary.total > 0 && summary.settled >= summary.total);
 
@@ -786,7 +865,34 @@ function VariantSearchPanel({
     userChoseTabRef.current = false;
     setActiveRightTab("pipeline");
     handleSelectHistoryItem(item);
-  }, [handleSelectHistoryItem]);
+    /**
+     * Route the replayed notation into the field it was typed in. The handler fills the protein field
+     * with the RESOLVED variant and clears the coordinate field, which put a coordinate into the protein
+     * field's badge ("Protein HGVS") after the run had already been routed by its own text. The replayed
+     * string is `query` (the submission as made), falling back to `variant` for entries without one.
+     *
+     * Runs AFTER the handler on purpose: the handler's fill would otherwise win.
+     */
+    const notation = (item.query ?? item.variant ?? "").trim();
+    if (!notation) return;
+    const { kind } = classifyNotation(notation);
+    if (kind === "cdna") {
+      setCustomVariant(notation);
+      setCustomGenomic("");
+    } else if (isGenomicOrCdnaNotation(notation)) {
+      setCustomGenomic(notation);
+      setCustomVariant("");
+    }
+  }, [handleSelectHistoryItem, setCustomVariant, setCustomGenomic]);
+
+  /**
+   * A benchmark card is a RUN, exactly like a Recent analyses chip: it goes through the same handler, so
+   * the two entry points cannot diverge in what they do. (The card used to only fill the form, which
+   * left a first-run reader with a filled form and no visible result until they pressed Analyse.)
+   */
+  const runBenchmark = useCallback((preset: OnboardingPreset) => {
+    runFromHistory({ gene: preset.gene, variant: preset.variant, uniprotId: preset.uniprotId });
+  }, [runFromHistory]);
 
   /**
    * Empties the four query fields, leaving the workspace as it was before the last fill.
@@ -898,16 +1004,23 @@ function VariantSearchPanel({
    * just accepted — and after a build-mismatch retry, that empty sibling field's `required` attribute
    * then blocked the next submit through native validation, with nothing on screen to explain why.
    */
-  const genomicIsCoordinate = Boolean(
-    genomicNotation &&
-      (genomicNotation.kind === "genomic-hgvs" ||
-        genomicNotation.kind === "genomic-dashed" ||
-        genomicNotation.kind === "genomic-bare" ||
-        genomicNotation.kind === "cdna" ||
-        // A recognised coordinate that is out of missense scope still routes to the resolver,
-        // which explains the scope rather than pretending it is a protein substitution.
-        genomicNotation.kind === "non-substitution")
-  );
+  /**
+   * Whether the coordinate field's text is something the server resolves: a coordinate, a transcript cDNA,
+   * an out-of-scope coordinate (which still routes to the resolver so it can explain the scope), or a
+   * dbSNP / ClinVar identifier. Identifiers were missing from the list, so an rsID typed here was
+   * refused by the form's own badge and marked the Variant field required — though the route accepts it.
+   * `isGenomicOrCdnaNotation` is the one list the server gate and the router share, so this follows it.
+   */
+  const genomicIsCoordinate = Boolean(genomicNotation && isGenomicOrCdnaNotation(customGenomic));
+  /**
+   * A BARE `c.` in the Variant field (no transcript, e.g. `c.347A>G`) names no reference sequence, so it
+   * resolves only against a gene: the server pins it to that gene's MANE Select transcript. It therefore
+   * REQUIRES a gene, where a transcript-qualified notation does not. Ignored when the coordinate route is
+   * active, because the coordinate field is then what gets submitted.
+   */
+  const variantIsBareCdna =
+    !genomicIsCoordinate && Boolean(customVariant.trim()) && cdnaReferenceProblem(customVariant) === "missing-transcript";
+  const bareCdnaNeedsGene = variantIsBareCdna && !customGene.trim();
   /**
    * Does the app resolve the notation itself before modelling?
    *
@@ -918,15 +1031,10 @@ function VariantSearchPanel({
    * required-field rules.
    */
   const notationResolvesItself =
-    (!!customVariant && needsNotationResolution(customVariant)) || genomicIsCoordinate;
+    (!!customVariant && needsNotationResolution(customVariant) && !variantIsBareCdna) || genomicIsCoordinate;
   const isGeneRequired = !notationResolvesItself;
   const isVariantRequired = !genomicIsCoordinate;
 
-  const genomicAssemblyLabel = genomicIsCoordinate && genomicNotation
-    ? genomicNotation.assembly
-      ? `${genomicNotation.assembly} annotated`
-      : "GRCh38 default"
-    : null;
   /**
    * The build control's derived state for the coordinate field.
    *
@@ -976,6 +1084,26 @@ function VariantSearchPanel({
   );
   const uniprotLooksValid = !customUniprot.trim() || UNIPROT_ACCESSION_PATTERN.test(customUniprot.trim());
   const hasDirections = userDirections.trim().length > 0;
+
+  /**
+   * dbSNP and ClinVar identifiers name a variant rather than spell it, and resolve to a GRCh38 coordinate
+   * on the server. They carry no build the reader can state, so they get the verdict badge, not the build row.
+   */
+  const genomicIdentifier = genomicNotation?.kind === "rsid" || genomicNotation?.kind === "clinvar-vcv";
+
+  /**
+   * Which route the submit takes, for the strip under the coordinate field. The coordinate field wins whenever
+   * it has text (the submit reads it first), so a protein/cDNA entry beside it is ignored; the strip says so
+   * rather than letting that happen silently.
+   */
+  const coordinateRoute: "both" | "derived" | "unrecognised" | "empty" =
+    !customGenomic.trim()
+      ? "empty"
+      : customVariant.trim() && genomicIsCoordinate
+        ? "both"
+        : genomicIsCoordinate
+          ? "derived"
+          : "unrecognised";
 
   /**
    * Fills a field from the example catalogue.
@@ -1237,204 +1365,263 @@ function VariantSearchPanel({
                 <fieldset className="query-route">
                   <legend>Gene &amp; protein change</legend>
                   <div className="query-route__fields">
-                  <div className="flex flex-col gap-1.5">
-                    <FieldLabel
-                      htmlFor="input-gene-symbol"
-                      required={isGeneRequired}
-                      badge={
-                        !isGeneRequired ? (
-                          <FieldBadge tone="clay" title="Your coordinate notation resolves the gene, so this field is not required.">
-                            Derived
-                          </FieldBadge>
-                        ) : null
-                      }
-                    >
-                      Gene symbol
-                    </FieldLabel>
-                    <div className="relative">
-                      <input
-                        id="input-gene-symbol"
-                        type="text"
+                    {/* Row 1: the gene. Its helper line is reserved at two lines in both columns (see .query-route__help),
+                        so row 2 starts on the same baseline as the coordinate column's row 2 whatever the hint says. */}
+                    <div className="flex flex-col gap-1.5">
+                      <FieldLabel
+                        htmlFor="input-gene-symbol"
                         required={isGeneRequired}
-                        placeholder="e.g. CNNM2"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={customGene}
-                        onChange={(e) => setCustomGene(e.target.value)}
-                        className={inputBase + " font-mono font-medium uppercase tracking-wide"}
-                      />
-                      <PasteBtn setter={setCustomGene} />
+                        badge={
+                          !isGeneRequired ? (
+                            <FieldBadge tone="clay" title="Your coordinate notation resolves the gene, so this field is not required.">
+                              Derived
+                            </FieldBadge>
+                          ) : null
+                        }
+                      >
+                        Gene symbol
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-gene-symbol"
+                          type="text"
+                          required={isGeneRequired}
+                          aria-describedby="input-gene-symbol-hint"
+                          placeholder="e.g. CNNM2"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customGene}
+                          onChange={(e) => setCustomGene(e.target.value)}
+                          className={inputBase + " font-mono font-medium uppercase tracking-wide"}
+                        />
+                        <PasteBtn setter={setCustomGene} />
+                      </div>
+                      <p id="input-gene-symbol-hint" className="query-route__help">
+                        {bareCdnaNeedsGene ? (
+                          <span className="text-[var(--cs-text-warning-on-soft)]">{GENE_REQUIRED_HINT}</span>
+                        ) : variantIsBareCdna ? (
+                          <span>Resolves on {customGene.trim().toUpperCase()}&apos;s MANE Select transcript.</span>
+                        ) : null}
+                      </p>
                     </div>
-                  </div>
-                  <div className="flex flex-col gap-1.5 min-w-0">
-                    <FieldLabel
-                      htmlFor="input-variant-notation"
-                      required={isVariantRequired}
-                      /**
-                       * This field now states a build too, for the two families that carry one:
-                       * genomic HGVS pasted here, and transcript cDNA. It takes the same slot and
-                       * metrics as the coordinate field's control, so the two fields read alike.
-                       */
-                      action={
-                        variantBuildControllable ? (
-                          <BuildSelect
-                            value={variantBuild}
-                            source={variantBuildSource}
-                            /**
-                             * Derived, not hardcoded: an accessioned GENOMIC coordinate lands in this
-                             * field too (history items, a paste), and a select that announced "this
-                             * cDNA" beside a "Genomic → resolve" badge would be describing a notation
-                             * the reader is not looking at.
-                             */
-                            subject={variantNotation?.kind === "cdna" ? "cDNA" : "coordinate"}
-                            onChange={applyVariantBuild}
-                          />
-                        ) : undefined
-                      }
-                      badge={
-                        /**
-                         * ONE thing in this slot, exactly as the coordinate field does it: when the
-                         * control is shown it already names the family and the build, so the verdict
-                         * badge beside it would be two `shrink-0` items in a pinned 20px row — where
-                         * only the label can give, and it wraps into the input below.
-                         */
-                        variantBuildControllable ? null : variantNotation ? (
-                          <FieldBadge tone={NOTATION_BADGES[variantNotation.kind].tone} title={NOTATION_BADGES[variantNotation.kind].title}>
-                            {NOTATION_BADGES[variantNotation.kind].label}
-                          </FieldBadge>
-                        ) : !isVariantRequired ? (
-                          <FieldBadge title="Your genomic coordinates define the variant, so this field is not required.">
-                            Optional
-                          </FieldBadge>
-                        ) : null
-                      }
-                    >
-                      Protein or cDNA notation
-                    </FieldLabel>
-                    <div className="relative">
-                      <input
-                        id="input-variant-notation"
-                        type="text"
+
+                    {/* Row 2: the protein or cDNA notation, with its examples directly beneath. */}
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <FieldLabel
+                        htmlFor="input-variant-notation"
                         required={isVariantRequired}
-                        placeholder="e.g. p.Gly380Arg"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={customVariant}
-                        onChange={(e) => setCustomVariant(e.target.value)}
-                        className={inputBase + " font-mono font-medium"}
-                      />
-                      <PasteBtn setter={setCustomVariant} />
-                    </div>
-                    <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
-                  </div>
-                  </div>
-                </fieldset>
-                <fieldset className="query-route query-route--coordinate">
-                  <legend>Or use coordinates</legend>
-                  <div className="query-route__fields">
-                  <div className="flex flex-col gap-1.5 min-w-0">
-                    <FieldLabel
-                      htmlFor="input-genomic-coords"
-                      /**
-                       * The right-hand slot states, and SETS, the build.
-                       *
-                       * It used to hold a passive badge ("GRCh38 default" / "GRCh37 annotated") in
-                       * exactly this position; the control takes that slot's metrics and tones, so
-                       * the claim a reader already looked for here is now the thing they can change
-                       * — no new row, no layout shift.
-                       */
-                      action={
-                        genomicBuildControllable ? (
-                          <BuildSelect
-                            value={genomicBuild}
-                            source={genomicBuildSource}
-                            subject="coordinate"
-                            onChange={applyGenomicBuild}
-                          />
-                        ) : undefined
-                      }
-                      badge={
                         /**
-                         * ONE thing in this slot, as measured: when the control is shown it already
-                         * states the build (and says whether it was stated or assumed), so the
-                         * assembly-label badge beside it would be the same fact twice in a 20px row.
-                         * The verdict badge has no such twin — it says the notation is not a
-                         * coordinate at all, which is exactly when no control is shown.
+                         * This field states a build too, for the two families that carry one: genomic HGVS
+                         * pasted here, and transcript cDNA. It takes the same slot and metrics as the
+                         * coordinate field's control, so the two fields read alike.
                          */
-                        genomicBuildControllable ? null : genomicNotation && !genomicIsCoordinate ? (
-                          <FieldBadge
-                            tone={NOTATION_BADGES[genomicNotation.kind].tone}
-                            title={`${NOTATION_BADGES[genomicNotation.kind].title} This field only accepts genomic coordinates.`}
-                          >
-                            {NOTATION_BADGES[genomicNotation.kind].label}
-                          </FieldBadge>
-                        ) : (
-                          <FieldBadge
-                            tone={genomicAssemblyLabel ? "clay" : "neutral"}
-                            title={genomicAssemblyLabel ? "Genome build this coordinate will be resolved against." : "Optional: protein-level notation alone is enough to run the analysis."}
-                          >
-                            {genomicAssemblyLabel ?? "Optional"}
-                          </FieldBadge>
-                        )
-                      }
-                    >
-                      Genomic coordinates
-                    </FieldLabel>
-                    <div className="relative">
-                      <input
-                        id="input-genomic-coords"
-                        type="text"
-                        placeholder="e.g. 20-23365054-G-A"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={customGenomic}
-                        onChange={(e) => setCustomGenomic(e.target.value)}
-                        className={inputBase + " font-mono"}
-                      />
-                      <PasteBtn setter={setCustomGenomic} />
+                        action={
+                          variantBuildControllable ? (
+                            <BuildSelect
+                              value={variantBuild}
+                              source={variantBuildSource}
+                              /**
+                               * Derived, not hardcoded: an accessioned GENOMIC coordinate lands in this field
+                               * too (history items, a paste), and a select that announced "this cDNA" beside a
+                               * "Genomic → resolve" badge would be describing a notation the reader is not
+                               * looking at.
+                               */
+                              subject={variantNotation?.kind === "cdna" ? "cDNA" : "coordinate"}
+                              onChange={applyVariantBuild}
+                            />
+                          ) : undefined
+                        }
+                        badge={
+                          /**
+                           * ONE thing in this slot: when the build control is shown it already names the
+                           * family and the build, so a verdict badge beside it would be two `shrink-0` items in
+                           * a pinned 20px row, where only the label can give.
+                           */
+                          variantBuildControllable ? null : variantNotation ? (
+                            <FieldBadge tone={NOTATION_BADGES[variantNotation.kind].tone} title={NOTATION_BADGES[variantNotation.kind].title}>
+                              {NOTATION_BADGES[variantNotation.kind].label}
+                            </FieldBadge>
+                          ) : !isVariantRequired ? (
+                            <FieldBadge title="Your genomic coordinates define the variant, so this field is not required.">
+                              Optional
+                            </FieldBadge>
+                          ) : null
+                        }
+                      >
+                        Protein or cDNA notation
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-variant-notation"
+                          type="text"
+                          required={isVariantRequired}
+                          placeholder="e.g. p.Gly380Arg"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customVariant}
+                          onChange={(e) => setCustomVariant(e.target.value)}
+                          className={inputBase + " font-mono font-medium"}
+                        />
+                        <PasteBtn setter={setCustomVariant} />
+                      </div>
+                      <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
                     </div>
-                  </div>
-                    <div className="query-reference">
-                          <FieldLabel
-                            htmlFor="input-uniprot-acc"
-                            action={<button ref={referenceActionRef} type="button" className="query-reference__hide" aria-label={`${referenceOpen ? 'Hide' : 'Set'} UniProt accession`} aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>{referenceOpen ? 'Hide' : 'Set'}</button>}
-                            badge={
-                              <FieldBadge
-                                tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
-                                title={
-                                  uniprotLooksValid
-                                    ? "Optional: the accession is auto-resolved from the gene when omitted."
-                                    : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
-                                }
-                              >
-                                {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
-                              </FieldBadge>
-                            }
-                          >
-                            UniProt accession
-                          </FieldLabel>
+
+                    {/* Row 3: the optional UniProt accession. Its state reads in the helper line under the input,
+                        never in the label row, where the Hide/Set action sits (two items cannot share that row). */}
+                    <div className="query-reference query-route__aside">
+                      <FieldLabel
+                        htmlFor="input-uniprot-acc"
+                        action={<button ref={referenceActionRef} type="button" className="query-reference__hide" aria-label={`${referenceOpen ? 'Hide' : 'Set'} UniProt accession`} aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>{referenceOpen ? 'Hide' : 'Set'}</button>}
+                      >
+                        UniProt accession
+                      </FieldLabel>
                       {!referenceOpen && <button type="button" className="query-reference__toggle" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>
                         <span>{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically'}</span>
                         <span aria-hidden="true">+</span>
                       </button>}
                       <div id="query-uniprot-option" hidden={!referenceOpen}>
-                          <div className="relative">
-                            <input
-                              id="input-uniprot-acc"
-                              ref={referenceInputRef}
-                              type="text"
-                              placeholder="e.g. Q9H8M5"
-                              autoComplete="off"
-                              spellCheck={false}
-                              value={customUniprot}
-                              onChange={(e) => setCustomUniprot(e.target.value)}
-                              aria-invalid={!uniprotLooksValid || undefined}
-                              className={inputBase + " font-mono uppercase"}
-                            />
-                            <PasteBtn setter={setCustomUniprot} />
-                          </div>
+                        <div className="relative">
+                          <input
+                            id="input-uniprot-acc"
+                            ref={referenceInputRef}
+                            type="text"
+                            placeholder="e.g. Q9H8M5"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={customUniprot}
+                            onChange={(e) => setCustomUniprot(e.target.value)}
+                            aria-invalid={!uniprotLooksValid || undefined}
+                            aria-describedby="input-uniprot-acc-status"
+                            className={inputBase + " font-mono uppercase"}
+                          />
+                          <PasteBtn setter={setCustomUniprot} />
+                        </div>
+                        <p id="input-uniprot-acc-status" className="query-route__help">
+                          <FieldBadge
+                            tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
+                            title={
+                              uniprotLooksValid
+                                ? "Optional: the accession is auto-resolved from the gene when omitted."
+                                : "Accessions are 6 or 10 alphanumerics, e.g. Q9H8M5. Check for a typo."
+                            }
+                          >
+                            {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
+                          </FieldBadge>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </fieldset>
+
+                <fieldset className="query-route query-route--coordinate">
+                  <legend>Or use coordinates</legend>
+                  <div className="query-route__fields">
+                    {/* Row 1: the build the coordinate is expressed in, at the Gene input's 40px height. It is DERIVED
+                        from the text (see BuildSelect), so this row holds no state; the quiet box keeps the height
+                        when no coordinate can carry a build. */}
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <span className="h-5 flex items-center text-[12px] font-medium text-cs-text-secondary">Genome build</span>
+                      {genomicBuildControllable ? (
+                        <BuildSelect
+                          value={genomicBuild}
+                          source={genomicBuildSource}
+                          subject="coordinate"
+                          size="field"
+                          onChange={applyGenomicBuild}
+                        />
+                      ) : (
+                        <div className="h-10 flex items-center px-3 rounded-[var(--cs-radius-input)] border border-dashed border-cs-border-subtle text-[12.5px] text-cs-text-muted">
+                          {genomicIdentifier ? "GRCh38, set by the identifier" : "Follows the coordinate you enter"}
+                        </div>
+                      )}
+                      <p className="query-route__help">
+                        {genomicBuildControllable
+                          ? genomicBuildSource === "default"
+                            ? "Default build. Choose one to state it in the coordinate."
+                            : "Stated in the coordinate."
+                          : null}
+                      </p>
+                    </div>
+
+                    {/* Row 2: the coordinate, with its examples directly beneath. */}
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <FieldLabel
+                        htmlFor="input-genomic-coords"
+                        badge={
+                          /**
+                           * ONE thing in this slot. When the build row is showing it already states the build,
+                           * so no badge here. Otherwise the slot names what the text is: a verdict for a
+                           * recognised notation, or "Optional" while the field is empty.
+                           */
+                          genomicBuildControllable ? null : genomicNotation ? (
+                            <FieldBadge
+                              tone={NOTATION_BADGES[genomicNotation.kind].tone}
+                              title={`${NOTATION_BADGES[genomicNotation.kind].title}${genomicIsCoordinate ? "" : " This field accepts coordinates, dbSNP IDs and ClinVar IDs."}`}
+                            >
+                              {NOTATION_BADGES[genomicNotation.kind].label}
+                            </FieldBadge>
+                          ) : (
+                            <FieldBadge title="Optional: protein-level notation alone is enough to run the analysis.">
+                              Optional
+                            </FieldBadge>
+                          )
+                        }
+                      >
+                        Genomic coordinates
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-genomic-coords"
+                          type="text"
+                          placeholder="e.g. 20-23365054-G-A"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customGenomic}
+                          onChange={(e) => setCustomGenomic(e.target.value)}
+                          className={inputBase + " font-mono"}
+                        />
+                        <PasteBtn setter={setCustomGenomic} />
                       </div>
                       <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
+                    </div>
+
+                    {/* Row 3: which route the submit takes. A live region, so a change of route is announced. */}
+                    <div className="query-route__aside" id="coordinate-route-status" role="status" aria-live="polite">
+                      {coordinateRoute === "both" ? (
+                        <div className="query-route-status query-route-status--warn">
+                          <span>{ROUTE_BOTH_COPY}</span>
+                          <button
+                            type="button"
+                            className="query-route-status__action"
+                            onClick={() => setCustomGenomic("")}
+                          >
+                            Clear coordinate
+                          </button>
+                        </div>
+                      ) : coordinateRoute === "derived" ? (
+                        <p className="query-route-status">{ROUTE_DERIVED_COPY}</p>
+                      ) : coordinateRoute === "unrecognised" ? (
+                        // Unrecognised text still takes precedence at submit, so beside a protein/cDNA entry
+                        // the strip says that too and offers the same one-click way out as "both".
+                        <div className="query-route-status query-route-status--warn">
+                          <span>
+                            Not recognised as a coordinate yet. {COORDINATE_ACCEPTS_COPY}
+                            {customVariant.trim() ? " While this field has text, the protein/cDNA field is ignored." : ""}
+                          </span>
+                          {customVariant.trim() ? (
+                            <button
+                              type="button"
+                              className="query-route-status__action"
+                              onClick={() => setCustomGenomic("")}
+                            >
+                              Clear coordinate
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="query-route-status query-route-status--quiet">{COORDINATE_ACCEPTS_COPY}</p>
+                      )}
                     </div>
                   </div>
                 </fieldset>
@@ -1493,31 +1680,34 @@ function VariantSearchPanel({
                   designed "AI not configured" report (rule-based ACMG from database metrics). The key
                   only adds the written interpretation, so it is a note here, never a gate — a gate
                   here was also bypassed by the history chips and the benchmarks, which always ran. */}
-              <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                {settings?.narrativeMode === "off" ? (
-                  <span>AI synthesis is off. Evidence and classification remain available.</span>
-                ) : settings?.narrativeMode === "on-demand" ? (
-                  <span>AI synthesis is available on demand in Report.</span>
-                ) : hasConfiguredGeminiKey ? (
-                  <>
-                    <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
-                      <CornerDownLeft className="w-3 h-3" />
-                      Enter
-                    </kbd>
-                    runs from a query field
-                  </>
-                ) : (
-                  <>
-                    <span>Evidence and rule-based classification work without Gemini.</span>
-                    <button
-                      type="button"
-                      onClick={() => openSettingsTab("connections")}
-                      className="font-medium text-cs-text-accent underline-offset-2 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                    >
-                      Add a key
-                    </button>
-                  </>
-                )}
+              {/* The Enter hint is a fact about the form, not about the key, so it sits beside the note on every
+                  path. It used to appear only with a Gemini key, and a keyless reader had no cue that Enter runs. */}
+              <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                  {settings?.narrativeMode === "off" ? (
+                    <span>AI synthesis is off. Evidence and classification remain available.</span>
+                  ) : settings?.narrativeMode === "on-demand" ? (
+                    <span>AI synthesis is available on demand in Report.</span>
+                  ) : hasConfiguredGeminiKey ? null : (
+                    <>
+                      <span>Evidence and rule-based classification work without Gemini.</span>
+                      <button
+                        type="button"
+                        onClick={() => openSettingsTab("connections")}
+                        className="font-medium text-cs-text-accent underline-offset-2 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                      >
+                        Add a key
+                      </button>
+                    </>
+                  )}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
+                    <CornerDownLeft className="w-3 h-3" aria-hidden="true" />
+                    Enter
+                  </kbd>
+                  runs from a query field
+                </span>
               </p>
 
               <div className="flex items-center gap-2 sm:ml-auto">
@@ -1630,22 +1820,42 @@ function VariantSearchPanel({
                   </button>
                 )}
               </div>
+              {/* Each card runs the benchmark, the same as a Recent analyses chip. The card is a control of its own
+                  so it can carry a second, form-only action without nesting interactive elements. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
-                  <button
+                  <div
                     key={preset.gene + preset.variant}
-                    type="button"
-                    onClick={() => applyPreset(preset)}
-                    aria-label={`Load benchmark ${preset.gene} ${preset.variant}`}
-                    title={preset.description}
-                    className="group text-left flex flex-col gap-0.5 px-3 py-2.5 rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface hover:border-cs-border hover:bg-cs-surface-2 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                    className="group flex flex-col rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface hover:border-cs-border transition-colors duration-150"
                   >
-                    <span className="flex items-baseline gap-2">
-                      <span className="text-[12.5px] font-semibold text-cs-text-primary">{preset.gene}</span>
-                      <span className="font-mono text-[11.5px] text-cs-text-secondary">{preset.variant}</span>
-                    </span>
-                    <span className="text-[11px] text-cs-text-muted">{preset.tag}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => runBenchmark(preset)}
+                      aria-label={`Run benchmark ${preset.gene} ${preset.variant}`}
+                      title={preset.description}
+                      className="text-left flex flex-col gap-0.5 px-3 pt-2.5 pb-1.5 rounded-t-[var(--cs-radius-card)] cursor-pointer transition-colors duration-150 hover:bg-cs-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                    >
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-[12.5px] font-semibold text-cs-text-primary">{preset.gene}</span>
+                        <span className="font-mono text-[11.5px] text-cs-text-secondary">{preset.variant}</span>
+                      </span>
+                      <span className="text-[11px] text-cs-text-muted">{preset.tag}</span>
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-medium text-cs-text-accent">
+                        Run benchmark
+                        <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                      </span>
+                    </button>
+                    <div className="px-3 pb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => applyPreset(preset)}
+                        aria-label={`Fill the form with ${preset.gene} ${preset.variant} without running`}
+                        className="inline-flex items-center h-7 px-1.5 -ml-1.5 rounded-[var(--cs-radius-badge)] text-[11.5px] text-cs-text-muted hover:text-cs-text-primary cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                      >
+                        Fill form only
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </>
@@ -1737,8 +1947,8 @@ function VariantSearchPanel({
                     </span>
                     <span className="text-[11px] tabular-nums text-cs-text-muted">
                       {hasRun
-                        ? `${settledCount} of ${summary.total} settled`
-                        : `${WORKFLOW_STAGES.length} stages`}
+                        ? `${settledCount} of ${coreSummary.total} settled`
+                        : `${WORKFLOW_STAGE_COUNTS.core} core · ${WORKFLOW_STAGE_COUNTS.onDemand} on-demand`}
                     </span>
                   </div>
                   {hasRun && (
@@ -1747,7 +1957,7 @@ function VariantSearchPanel({
                       role="progressbar"
                       aria-label="Pipeline progress"
                       aria-valuemin={0}
-                      aria-valuemax={summary.total}
+                      aria-valuemax={coreSummary.total}
                       aria-valuenow={settledCount}
                     >
                       <div

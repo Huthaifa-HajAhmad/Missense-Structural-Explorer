@@ -188,7 +188,7 @@ export function InterfaceTrack({ ev, bounds, lit, onLit, onOpen, inspectAllLanes
           </div>
         )}
       </div>
-      {solvedHidden > 0 && <p className="ifc-track__more">{solvedHidden} more solved partner{solvedHidden === 1 ? "" : "s"} available in Source records.</p>}
+      {solvedHidden > 0 && <p className="ifc-track__more">{solvedHidden} more solved partner{solvedHidden === 1 ? "" : "s"} available in Assemblies & models.</p>}
     </div>
   );
 }

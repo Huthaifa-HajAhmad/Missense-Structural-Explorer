@@ -141,6 +141,23 @@ describe("POST /translate-variant — notation normalization & assembly routing"
     clearAllCaches(true);
   });
 
+  it.each(['chr1:g.25484258_25484259delinsAA', 'NM_018202.6:c.1297_1298delinsAA'])('keeps a supported equal-length replacement reachable through the semantic gate (%s)', async (notation) => {
+    const result = await invokeTranslate(notation);
+    expect(result.statusCode).toBe(200);
+    expect(result.calledUrls.some(url => url.includes(notation))).toBe(true);
+  });
+  it.each(['chr1:g.100_110delinsAA', 'NM_018202.6:c.100_110delinsAA'])('refuses an unsupported span before querying a provider (%s)', async (notation) => {
+    const result = await invokeTranslate(notation);
+    expect(result.statusCode).toBe(422);
+    expect(result.body.error.code).toBe('NON_MISSENSE_VARIANT');
+    expect(result.calledUrls).toHaveLength(0);
+  });
+  it.each(['chr23-100-A-G', 'chr1-0-A-G'])('uses the shared parser to refuse invalid delimited coordinates (%s)', async (notation) => {
+    const result = await invokeTranslate(notation);
+    expect(result.statusCode).toBe(400);
+    expect(result.calledUrls).toHaveLength(0);
+  });
+
   it("accepts the assembly-annotated form and strips the annotation before querying VEP", async () => {
     const { statusCode, body, calledUrl } = await invokeTranslate("Chr1(GRCh38):g.25484258G>A");
 
@@ -2075,5 +2092,110 @@ describe("POST /translate-variant — reference-allele mismatch", () => {
     // cDNA input has no genomic locus of its own, so it takes the provider echo.
     // Forward strand GRCh38 genomic coordinate is 16-66823281-T-C (A->T, G->C).
     expect(result.body.genomicCoordinates).toBe("16-66823281-T-C");
+  });
+});
+
+/**
+ * Transcript versions. RefSeq: VariantValidator holds every version's sequence and resolves the
+ * stated one, so the answer stands and the reader is told a newer version exists. Ensembl: a retired
+ * version's sequence is not served anywhere, so the failure is explained and the current-version
+ * notation OFFERED — never substituted, because its numbering cannot be checked.
+ */
+describe("POST /translate-variant — transcript versions", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+    resetHostStateForTests();
+  });
+
+  const vep400 = { ok: false, status: 400, json: async () => ({ error: "Could not get a Transcript object" }), text: async () => "Could not get a Transcript object" } as any;
+
+  it("tells the reader a newer RefSeq version exists when VariantValidator resolved the stated one", async () => {
+    const fetchImpl = async (url: string) =>
+      url.includes("rest.ensembl.org")
+        ? vep400
+        : ({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              "NM_018202.5:c.1297G>A": {
+                gene_symbol: "MACO1",
+                hgvs_predicted_protein_consequence: { tlr: "NP_060672.2:p.(Glu433Lys)" },
+                annotations: { chromosome: "1", mane_select: false, ensembl_select: false },
+                primary_assembly_loci: { grch38: { vcf: { alt: "A", chr: "1", pos: "25484258", ref: "G" } } },
+                validation_warnings: [
+                  "TranscriptVersionWarning: A more recent version of the selected reference sequence NM_018202.5 is available for genome build GRCh38 (NM_018202.6)",
+                ],
+              },
+            }),
+            text: async () => "",
+          } as any);
+
+    const { statusCode, body } = await invokeTranslate("NM_018202.5:c.1297G>A", MISSENSE_CONSEQUENCE, fetchImpl);
+
+    expect(statusCode).toBe(200);
+    expect(body.variant).toBe("p.Glu433Lys");
+    expect(body.transcriptVersionNote).toContain("(NM_018202.6)");
+    // Shown where transcript caveats are shown, ahead of the others.
+    expect(body.transcriptWarning).toMatch(/^A more recent version .*\(NM_018202\.6\)\. Resolved on the version you entered\./);
+    expect(translateVariantResponseSchema.safeParse(body).success).toBe(true);
+  });
+
+  it("explains a retired Ensembl version and offers the current one instead of 'verify the build'", async () => {
+    const fetchImpl = async (url: string) => {
+      if (url.includes("/lookup/id/ENST00000646891")) {
+        return { ok: true, status: 200, json: async () => ({ id: "ENST00000646891", version: 2 }) } as any;
+      }
+      // Neither provider knows the retired version (live: both end the ladder as "not found").
+      return vep400;
+    };
+
+    const { statusCode, body, headers } = await invokeTranslate("ENST00000646891.1:c.1799T>A", MISSENSE_CONSEQUENCE, fetchImpl);
+
+    expect(statusCode).toBe(422);
+    // A request-side answer: no provider cooldown that would tell the client to wait and retry.
+    expect(headers["Retry-After"]).toBeUndefined();
+    expect(body.error.code ?? body.code).toBe("TRANSCRIPT_VERSION_RETIRED");
+    const message = body.error?.message ?? body.message;
+    expect(message).toContain("ENST00000646891.1 is not in the current Ensembl release");
+    expect(message).toContain("ENST00000646891.2:c.1799T>A");
+    expect(JSON.stringify(body)).toContain('"candidates":["ENST00000646891.2:c.1799T>A"]');
+  });
+});
+
+/**
+ * Multi-base dashed / VCF alleles. `GAG>A` is not HGVS; written as the delins it is, an indel is
+ * refused as non-missense (with the scope note) and an equal-length codon-scale change reaches VEP.
+ */
+describe("POST /translate-variant — multi-base delimited alleles", () => {
+  beforeEach(() => {
+    clearAllCaches(true);
+    resetHostStateForTests();
+  });
+
+  it("refuses a VCF deletion row as non-missense instead of a format error", async () => {
+    const { statusCode, body } = await invokeTranslate("20 23365054 . GAG A");
+    expect(statusCode).toBe(422);
+    expect(JSON.stringify(body)).toContain("NON_MISSENSE_VARIANT");
+  });
+
+  it("sends an equal-length 2 bp change to VEP as an in-frame delins", async () => {
+    const { calledUrls } = await invokeTranslate("7-140753335-CA-TT");
+    expect(calledUrls.some((u: string) => u.includes("/vep/human/hgvs/chr7:g.140753335_140753336delinsTT"))).toBe(true);
+  });
+
+  it("still sends a single-base row as a substitution", async () => {
+    const { calledUrls } = await invokeTranslate("chr1 25484258 . G A");
+    expect(calledUrls.some((u: string) => u.includes("/vep/human/hgvs/chr1:g.25484258G>A"))).toBe(true);
+  });
+
+  it("recognises a retired Ensembl version written with a build annotation", async () => {
+    const vep400 = { ok: false, status: 400, json: async () => ({ error: "x" }), text: async () => "x" } as any;
+    const { statusCode, body } = await invokeTranslate("ENST00000646891.1(GRCh38):c.1799T>A", MISSENSE_CONSEQUENCE, async (url: string) =>
+      url.includes("/lookup/id/ENST00000646891")
+        ? ({ ok: true, status: 200, json: async () => ({ id: "ENST00000646891", version: 2 }) } as any)
+        : vep400
+    );
+    expect(statusCode).toBe(422);
+    expect(JSON.stringify(body)).toContain("ENST00000646891.2:c.1799T>A");
   });
 });

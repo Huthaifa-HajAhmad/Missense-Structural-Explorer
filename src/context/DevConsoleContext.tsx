@@ -15,6 +15,7 @@ import {
 } from "../types/devConsole";
 import { isConnectionFailureText } from "../shared/fetch-retry";
 import { classifyLogSource } from "./logSource";
+import { redactRequestBody } from "../shared/redactSecrets";
 
 const ERROR_STORAGE_KEY = "devConsoleErrors";
 const LIVE_STORAGE_KEY = "devConsoleLive";
@@ -435,16 +436,6 @@ function classifyImpact(source: LogSource, level: "error" | "warn" | "info" | "d
   return level === "error" ? "fatal" : "degraded";
 }
 
-/** Captures small JSON/string request bodies so "Copy cURL" can replay the call. */
-function readRequestBody(body: BodyInit | null | undefined): unknown {
-  if (typeof body !== "string" || body.length > 4096) return undefined;
-  try {
-    return JSON.parse(body);
-  } catch {
-    return body;
-  }
-}
-
 function formatArgsMessage(args: any[]): { message: string; detail?: string } {
   const messageParts = args.map((arg) => {
     if (typeof arg === "string") return arg;
@@ -674,7 +665,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
       const init = args[1];
       const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
       const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
-      const requestBody = readRequestBody(init?.body);
+      const requestBody = redactRequestBody(init?.body);
       const startTime = performance.now();
 
       try {
@@ -723,6 +714,7 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
                 statusText: response.statusText,
                 durationMs,
                 requestBody,
+                requestBodyFormat: typeof requestBody === 'string' ? 'form' : 'json',
                 responseBody: parsedError || responseBody,
               },
               meta: { url, status: response.status, statusText: response.statusText, method, durationMs },

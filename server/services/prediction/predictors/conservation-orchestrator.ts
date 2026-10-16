@@ -167,7 +167,16 @@ export async function fetchConservationData(
    * coordinate is not a valid answer for another's. Absent means "unknown", which is a distinct
    * key rather than a default.
    */
-  assembly?: string | null
+  assembly?: string | null,
+  options?: {
+    /**
+     * The caller fetches the coordinate-keyed enrichment itself (PopEVE tabix, GPN-Star, AlphaGenome)
+     * and overlays it — `fetchConservationDataProgressive` does, with the reader's own AlphaGenome
+     * key. Skipping it here stops the same remote, quota-bound calls being made twice per run, the
+     * second time without that key.
+     */
+    coordinateEnrichmentByCaller?: boolean;
+  }
 ): Promise<ConservationData> {
   const normGene = normalizeGeneSymbol(gene);
   const cleanVar = normalizeVariantTo3Letter(variant);
@@ -203,12 +212,11 @@ export async function fetchConservationData(
         : null;
 
       /**
-       * NOTE: live SpliceAI is deliberately NOT fetched here. This function is reached with
-       * `gnomadVariantId = null` (the progressive caller passes null) and `variant` is already
-       * protein notation, so no genomic coordinate is resolvable at this depth. The live score is
-       * fetched in `fetchConservationDataProgressive` — which has the parsed coordinate — and
+       * NOTE: live SpliceAI is deliberately NOT fetched here. It is fetched once in
+       * `fetchConservationDataProgressive` — which has the parsed coordinate and its build — and
        * overlaid on the merged result there, so every provider path benefits from one request.
        */
+      const enrichCoordinateHere = !options?.coordinateEnrichmentByCaller;
       const aaMatch = variant.match(/([a-zA-Z]{1,3})[=:/]?(\d+)[=:/]?([a-zA-Z]{1,3})/i);
       const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
       const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
@@ -242,9 +250,18 @@ export async function fetchConservationData(
       // 1. Try local SQLite dbNSFP if present
       if (isLocalDbnsfpAvailable() && resolvedPos !== null) {
         try {
-          const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant);
+          const parsedGnomad = parseGenomicCoordinateString(gnomadVariantId);
+          /**
+           * The ALLELE, when a GRCh38 one is known: a protein change encoded by two nucleotide
+           * changes has two rows here, and the protein-only match refuses that as ambiguous — which
+           * sent an allele the store holds out to the network. Other builds keep the protein match
+           * (the store is GRCh38, and a GRCh37 coordinate would refuse every row).
+           */
+          const localAllele = parsedGnomad && assembly === "GRCh38"
+            ? { ...parsedGnomad, assembly: "GRCh38" as const }
+            : null;
+          const rec = await queryLocalDbnsfpVariant(gene, resolvedPos, null, null, variant, localAllele);
           if (rec) {
-            const parsedGnomad = parseGenomicCoordinateString(gnomadVariantId);
             /**
              * Same build gate as the progressive path, applied here too.
              *
@@ -256,7 +273,7 @@ export async function fetchConservationData(
             const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
               assembly !== null && assembly !== undefined && sourceSupportsAssembly(source, assembly as GenomeAssembly);
 
-            const coordinateUsable = parsedGnomad !== null && usableBy("gpn-star");
+            const coordinateUsable = enrichCoordinateHere && parsedGnomad !== null && usableBy("gpn-star");
             const popEVEPromise = coordinateUsable
               ? fetchPopEVEScore(parsedGnomad!.chrom, parsedGnomad!.pos, parsedGnomad!.ref, parsedGnomad!.alt).catch(() => null)
               : Promise.resolve(null);
@@ -272,7 +289,7 @@ export async function fetchConservationData(
             // AlphaGenome is GRCh38-only — the same gate as its progressive-path sibling and
             // the PopEVE/GPN calls in this very block. Gating only the progressive call site
             // left this one free to score an hg19 position against the GRCh38 model (review M-4).
-            const alphaPromise = (parsedGnomad && usableBy("alphagenome"))
+            const alphaPromise = (enrichCoordinateHere && parsedGnomad && usableBy("alphagenome"))
               ? fetchAlphaGenome(parsedGnomad.chrom, parsedGnomad.pos, parsedGnomad.ref, parsedGnomad.alt, {
                   // The build reaches the cache key, as on the progressive path: a GRCh38
                   // entry must never be served for another build's numeric position.
@@ -479,7 +496,7 @@ export async function fetchConservationData(
           ? fetchRealConsurfData(pdbId, chainId, pos)
           : Promise.resolve(null);
 
-        const popEVEPromise = gnomadVariantId
+        const popEVEPromise = gnomadVariantId && enrichCoordinateHere
           ? (async () => {
               const parsed = parseGenomicCoordinateString(gnomadVariantId);
               if (parsed) {
@@ -952,9 +969,30 @@ export async function fetchConservationDataProgressive(
    * A rejection is not fatal: a missing predictor means "no coordinate", and the base payload is
    * still assembled without one.
    */
-  const coordinateAssembly = await (predictorPromise || Promise.resolve(null))
-    .then(pred => (pred?.gnomadVariantAssembly ?? null) as string | null)
-    .catch(() => null);
+  const predictorLocus = await (predictorPromise || Promise.resolve(null))
+    .then(pred => ({
+      assembly: (pred?.gnomadVariantAssembly ?? null) as string | null,
+      id: (pred?.gnomadVariantId ?? null) as string | null,
+    }))
+    .catch(() => ({ assembly: null, id: null }));
+  const coordinateAssembly = predictorLocus.assembly;
+
+  /**
+   * The ALLELE the scores must belong to, when there is one these sources can read.
+   *
+   * REVEL, BayesDel, MetaRNN, ClinPred, DANN, Eigen and CADD are per nucleotide change, and a
+   * protein change can be encoded by more than one (Q867H: CAA→CAC or CAT). Queried as
+   * `GENE:p.…`, Genos and query.dbnsfp.org answer with whichever matching row comes first, so the
+   * scores could describe a different allele from the one analysed. Both are GRCh38-only, so the
+   * coordinate is passed only when it IS GRCh38; any other build keeps the protein query.
+   *
+   * The early Genos record (`fastGenos`) was queried by protein and does not say which allele it
+   * read, so it is not reused when the allele is known — Genos is asked by coordinate instead.
+   */
+  const alleleId =
+    coordinateAssembly === "GRCh38" && parseGenomicCoordinateString(predictorLocus.id)
+      ? predictorLocus.id
+      : null;
 
   const baseConservationPromise = fetchConservationData(
     gene,
@@ -962,12 +1000,13 @@ export async function fetchConservationDataProgressive(
     null,
     null,
     pos,
-    null,
-    fastGenos,
+    alleleId,
+    alleleId ? null : fastGenos,
     uniprotId,
     null,
     null,
-    coordinateAssembly
+    coordinateAssembly,
+    { coordinateEnrichmentByCaller: true }
   );
 
   // 4. Concurrently query frontier genomic foundation model (Song Lab GPN-Star fallback)

@@ -27,6 +27,7 @@
 import {
   fetchDisplayedIsoformId,
   fetchUniprotIsoforms,
+  resolveEnsemblProtein,
   resolveRefSeqProtein,
   type RefSeqLookupResult,
   type UniprotIsoform,
@@ -43,6 +44,9 @@ import {
   type NumberingCandidate,
 } from "./isoform-remap.ts";
 import { buildResolutionUnavailableMessage } from "./coordinate-resolver.ts";
+import { fetchWithRetry } from "../infra/http-client.ts";
+import { LRUCache } from "lru-cache";
+import { defaultCacheRegistry } from "../infra/cache.ts";
 import { CoordinateResolutionError } from "./types.ts";
 
 export interface ProteinNumberingOutcome {
@@ -80,6 +84,45 @@ function geneSymbolFromEntryName(entryName: string | undefined): string | undefi
 export { toNumberingBases };
 
 /**
+ * The current protein sequence of an Ensembl protein, or `null` when Ensembl does not serve the
+ * requested version (a retired id, or a version other than the current one — whose sequence may
+ * differ, so it must not be numbered against today's).
+ */
+/** Ensembl protein sequences by `ID.version`; a release's sequence for a version never changes. */
+const ensemblProteinSequenceCache = new LRUCache<string, { seq: string | null }>({
+  max: 1_000,
+  ttl: 30 * 24 * 60 * 60 * 1000,
+});
+// Registered so `clearAllCaches` and the cache diagnostics see it like every other provider cache.
+defaultCacheRegistry.registerCache("ensemblProteinSequenceCache", ensemblProteinSequenceCache, { ttlDesc: "30d" });
+
+async function fetchEnsemblProteinSequence(accession: string): Promise<string | null> {
+  const cacheKey = accession.toUpperCase();
+  const cached = ensemblProteinSequenceCache.get(cacheKey);
+  if (cached) return cached.seq;
+  const seq = await fetchEnsemblProteinSequenceUncached(accession);
+  ensemblProteinSequenceCache.set(cacheKey, { seq });
+  return seq;
+}
+
+async function fetchEnsemblProteinSequenceUncached(accession: string): Promise<string | null> {
+  const [id, version] = accession.toUpperCase().split(".");
+  const response = await fetchWithRetry(
+    `https://rest.ensembl.org/sequence/id/${encodeURIComponent(id)}?type=protein;content-type=application/json`,
+    {
+      headers: { Accept: "application/json" },
+      timeout: 15000,
+    }
+  );
+  if (response.status === 400 || response.status === 404) return null;
+  if (!response.ok) throw new Error(`Ensembl sequence lookup failed with status ${response.status}`);
+  const data = (await response.json()) as { seq?: string; version?: number };
+  if (!data?.seq) return null;
+  if (version && String(data.version) !== version) return null;
+  return data.seq.toUpperCase();
+}
+
+/**
  * Resolves a protein notation whose numbering basis is DECLARED by an accession
  * (`NP_001032248.1:p.Lys281Asn`, `Q9Y305-4:p.Lys281Asn`).
  *
@@ -102,6 +145,8 @@ export async function resolveAccessionedProteinNotation(
   let basisId: string;
   let geneSymbol: string | undefined;
   let transcriptId: string | undefined;
+  /** Set for an Ensembl protein: the sequence its residue numbers belong to. */
+  let enspSequence: string | null = null;
 
   if (/^NP_\d/.test(accession)) {
     let lookup: RefSeqLookupResult;
@@ -144,6 +189,55 @@ export async function resolveAccessionedProteinNotation(
       };
     }
     basisId = mapping.isoformId;
+  } else if (/^ENSP\d/.test(accession)) {
+    let lookup: RefSeqLookupResult;
+    try {
+      lookup = await resolveEnsemblProtein(accession, options);
+    } catch {
+      throw new CoordinateResolutionError(
+        "upstream_unavailable",
+        buildResolutionUnavailableMessage("upstream_unavailable"),
+        []
+      );
+    }
+    if (lookup.kind === "absent") {
+      return {
+        status: "unresolved",
+        reason: `UniProt (reviewed, human) has no entry cross-referenced to ${accession}`,
+      };
+    }
+    const mapping = lookup.mapping;
+    canonicalAccession = mapping.accession;
+    geneSymbol = mapping.geneSymbol;
+    transcriptId = mapping.transcriptId;
+    /**
+     * The numbering of an Ensembl protein is defined by ITS OWN sequence, which Ensembl serves
+     * directly — so that sequence is the evidence, not UniProt's cross-reference. A UniProt xref
+     * links an Ensembl protein to an entry without promising the sequences are identical, and it
+     * often names no isoform at all; inferring canonical numbering from that silence is the RHOT1
+     * hazard described above. Below, the sequence is matched to a UniProt isoform when identical,
+     * and otherwise aligned onto canonical.
+     */
+    try {
+      enspSequence = await fetchEnsemblProteinSequence(accession);
+    } catch {
+      throw new CoordinateResolutionError(
+        "upstream_unavailable",
+        buildResolutionUnavailableMessage("upstream_unavailable"),
+        []
+      );
+    }
+    if (!enspSequence) {
+      return {
+        status: "unverified",
+        canonicalAccession,
+        basisAccession: accession,
+        geneSymbol,
+        transcriptId,
+        reason: `Ensembl serves no current sequence for ${accession} (retired or a different version), so its numbering cannot be established`,
+      };
+    }
+    basisId = mapping.isoformId ?? accession;
   } else {
     canonicalAccession = accession.split("-")[0];
     basisId = accession;
@@ -184,7 +278,10 @@ export async function resolveAccessionedProteinNotation(
   const basisKey = (id: string): string =>
     isCanonicalIsoformId(id, canonicalAccession) ? "CANONICAL" : id.toUpperCase();
 
-  let declared = bases.find((b) => basisKey(b.id) === basisKey(basisId));
+  let declared = enspSequence
+    ? // Identity with a UniProt isoform names it; otherwise the Ensembl sequence is its own basis.
+      bases.find((b) => b.sequence === enspSequence) ?? { id: accession, kind: "isoform" as const, sequence: enspSequence }
+    : bases.find((b) => basisKey(b.id) === basisKey(basisId));
   let declaredLabel = declared?.id;
 
   if (!declared) {

@@ -46,6 +46,11 @@ export function contextWorkspaceFixture(example = 'Mixed') {
       [`pext:${gene}`]: ready({ gene, status: 'no-pext', geneId: null, chrom: null, flags: [], regions: [], provenance: prov('gnomAD'), message: 'No pext measurements in this fixture.' }) },
     phenotypeSelections: { [evidenceContextIdentity(result, gene, result.metadata!.variant)]: { ...emptyPhenotypeSelection(), diseaseKey: disease.frames[0].key, systems: ['nervous', 'hearing'] } },
   };
+  if (example === 'Single disease') {
+    disease.frames = disease.frames.slice(0, 1);
+    disease.frames[0].label = 'Illustrative neurodevelopmental condition with craniofacial and skeletal findings';
+    for (const selection of Object.values(state.phenotypeSelections!)) selection.diseaseKey = null;
+  }
   if (example === 'Differing assertions') {
     const frame = disease.frames[0];
     frame.validity = ['Limited', 'Moderate', 'Limited', 'Strong'].map((level, n) => ({

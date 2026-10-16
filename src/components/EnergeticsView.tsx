@@ -267,7 +267,8 @@ function tallyCall(r: EnergeticsReading): TallyCall {
 }
 
 function EngineTally({ evidence }: { evidence: EnergeticsEvidence }) {
-  const shown = evidence.readings.filter(r => !(r.outcome.state === "skipped"));
+  // The tally counts engines; the ProtVar reference row is in the table, not in the count.
+  const shown = evidence.readings.filter(r => !(r.outcome.state === "skipped") && !r.outcome.engine.referenceOnly);
   const groups = TALLY_GROUPS.map(g => ({ ...g, rows: shown.filter(r => tallyCall(r) === g.call) })).filter(
     g => g.rows.length > 0
   );
@@ -358,7 +359,7 @@ function CaveatChips({ caveats, inline = false }: { caveats: EnergeticsReading["
         <span
           key={c}
           className="ev-tier"
-          data-tone={c === "excluded" ? "muted" : "warning"}
+          data-tone={c === "excluded" || c === "protvar-stand-in" ? "muted" : "warning"}
           title={ENERGETICS_CAVEAT_TEXT[c].detail}
         >
           {ENERGETICS_CAVEAT_TEXT[c].label}

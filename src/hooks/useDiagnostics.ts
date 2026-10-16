@@ -41,12 +41,32 @@ export interface ServiceHealthItem {
    */
   state?: "ready" | "warming_up";
   fallback?: FallbackHealthItem;
+  /** AlphaGenome only: where its key comes from. `none` + a browser key still counts as ready. */
+  keySource?: "server" | "none";
 }
 
 export interface DiagnosticsData {
   status: string;
   timestamp: string;
   foldxReady: boolean;
+  /** What a not-ready FoldX is missing. Absent from servers that predate it. */
+  foldxDetail?: {
+    binaryFound: boolean;
+    rotabasePresent: boolean;
+    box64Required: boolean;
+    box64Present: boolean;
+  };
+  /** The local dbNSFP store (optional; MyVariant.info serves the same scores without it). */
+  dbnsfp?: {
+    path: string;
+    present: boolean;
+    sizeBytes: number;
+    enabled: boolean;
+    usable: boolean;
+    reason?: string;
+    version?: string | null;
+    rowCount?: number | null;
+  };
   geminiReady: boolean;
   geminiModel?: string;
   modelServerReady: boolean;

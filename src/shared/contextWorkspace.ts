@@ -44,14 +44,14 @@ export function geneDiseaseReadings(model: GeneDiseaseModel): ContextReading[] {
   return [
     ...model.assertions.map(a => row({ key: assertionKey(frame?.key, a.id), name: a.submitter, value: null, valueText: a.level,
       description: 'A submitted gene–disease validity assertion for the selected inheritance.', group: 'validity', source: 'GenCC', reportUrl: a.reportUrl,
-      facts: [{ label: 'Classification', value: a.level }, { label: 'Disease', value: frame?.label ?? 'None selected' },
+      facts: [{ label: 'Source', value: 'GenCC' }, { label: 'Classification', value: a.level }, { label: 'Disease', value: frame?.label ?? 'None selected' },
         { label: 'Disease identifier', value: frame?.diseaseId ?? 'Not reported' }, { label: 'Inheritance', value: frame?.inheritance.label ?? 'Not reported' },
         { label: 'Evaluated', value: reported(a.evaluatedAt) }, { label: 'Assertion', value: a.id }],
       notes: [a.adverse ? 'This assertion disputes, refutes, or reports no known relationship. Read it alongside every other submission.' : 'Validity describes the gene–disease relationship; it does not classify this variant.', 'Submission counts are not independent votes. No consensus score is calculated.'],
     })),
     ...(model.dosage.state === 'ready' ? model.dosage.readings.map(d => row({ key: `dosage:${d.key}`, name: d.name, value: null, valueText: d.call,
       description: d.asks, group: 'dosage', source: 'ClinGen dosage', reportUrl: model.dosage.reportUrl,
-      facts: [{ label: 'Score', value: reported(d.code) }, { label: 'Disease', value: d.disease ?? 'Not reported' }, { label: 'Selected disease scope', value: d.scope }, { label: 'Evaluated', value: reported(model.dosage.evaluatedAt) }],
+      facts: [{ label: 'Source', value: 'ClinGen dosage' }, { label: 'Score', value: reported(d.code) }, { label: 'Disease', value: d.disease ?? 'Not reported' }, { label: 'Selected disease scope', value: d.scope }, { label: 'Evaluated', value: reported(model.dosage.evaluatedAt) }],
       notes: ['Whole-gene copy-number evidence does not establish the mechanism of a missense variant. Codes 30 and 40 are special categories, not higher scores.', d.history ?? 'No curation history reported.'],
     })) : []),
   ];

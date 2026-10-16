@@ -40,6 +40,9 @@
 .nrg-inspect-button { min-height: 36px; padding: 6px 12px; border: 1px solid var(--cs-border); border-radius: 18px; color: var(--cs-text-primary); background: var(--cs-surface); font-size: 13px; }
 .nrg-inspect-button:focus-visible, .nrg-selected-method:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .nrg-hero[data-compact="true"] .nrg-summary { padding-top: 14px; }
+.nrg-template-check { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); font-size: 13px; color: var(--cs-text-secondary); }
+.nrg-template-check strong { color: var(--cs-text-primary); font-weight: 600; }
+.nrg-template-check[data-state="differs"], .nrg-template-check[data-state="opposite"] { border-inline-start: 2px solid var(--cs-text-warning); }
 .nrg-comparison-caution { margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--cs-border-subtle); color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); font-size: 13px; }
 @media (hover: hover) and (pointer: fine) {
   .nrg-method-button:hover { color: var(--cs-text-accent); }
@@ -508,18 +511,31 @@
 }
 
 /* Per-engine marks: engine | its mark | this variant. */
-.nrg-cuts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.nrg-cut {
-  display: grid; grid-template-columns: 104px 56px minmax(0, 1fr);
-  align-items: baseline; gap: 8px; padding: 5px 0;
-  font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-}
-.nrg-cut__name { color: var(--cs-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nrg-cut__rule { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-secondary); }
-.nrg-cut__here { font-variant-numeric: tabular-nums; }
+.nrg-cuts { width: 100%; border-collapse: collapse; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.nrg-cuts th, .nrg-cuts td { padding: 6px 0; text-align: left; vertical-align: baseline; border-bottom: 1px solid var(--cs-border-subtle); }
+.nrg-cuts tbody tr:last-child > * { border-bottom: 0; }
+.nrg-cuts thead th { font-weight: var(--cs-font-weight-medium, 500); color: var(--cs-text-muted); padding-top: 0; }
+.nrg-cuts .nrg-cuts__num { text-align: right; padding-left: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nrg-cut__name { font-weight: 400; color: var(--cs-text-secondary); }
+.nrg-cut__rule { font-family: var(--cs-font-mono); color: var(--cs-text-muted); }
+.nrg-cut__here { color: var(--cs-text-primary); }
+.nrg-cut__status { padding-left: 10px; white-space: nowrap; color: var(--cs-text-muted); }
+.nrg-cut[data-muted] .nrg-cut__here { color: var(--cs-text-muted); }
 .nrg-cut[data-active] .nrg-cut__name,
-.nrg-cut[data-active] .nrg-cut__here { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.nrg-cut[data-active] .nrg-cut__here,
+.nrg-cut[data-active] .nrg-cut__status { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
+.nrg-cut[data-active] .nrg-cut__status::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--cs-accent-clay); }
 .nrg-cuts__head { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+
+/* FoldX on two templates: label | value, with the gap and the one-line reading beneath. */
+.nrg-twofold { width: 100%; border-collapse: collapse; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.nrg-twofold th, .nrg-twofold td { padding: 5px 0; text-align: left; vertical-align: baseline; border-bottom: 1px solid var(--cs-border-subtle); font-weight: 400; }
+.nrg-twofold tbody th { color: var(--cs-text-secondary); }
+.nrg-twofold .nrg-twofold__num { text-align: right; padding-left: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--cs-text-primary); }
+.nrg-twofold tfoot th, .nrg-twofold tfoot td { border-bottom: 0; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.nrg-twofold__sub { display: block; color: var(--cs-text-muted); }
+.nrg-twofold-reading { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); max-width: none; }
+.nrg-twofold-reading[data-tone="warning"] { color: var(--cs-text-warning-on-soft); }
 
 .nrg-missing { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .nrg-missing > li { padding: 8px 0; border-top: 1px solid var(--cs-border-subtle); }

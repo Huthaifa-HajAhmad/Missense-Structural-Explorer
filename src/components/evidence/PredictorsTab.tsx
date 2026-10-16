@@ -480,9 +480,9 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
           </span>
         </p>
 
-        {!workspace.comparison && <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />}
+        {(!workspace.enabled || workspace.view === 'strength') && <StrengthLadder evidence={ladder} referenceKey={evidence.reference?.key ?? null} />}
 
-        {!workspace.comparison && <><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></>}
+        {!workspace.enabled && <><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></>}
 
         {evidence.pending && (
           <div className="prd-hero__foot">
@@ -497,7 +497,7 @@ export function PredictorsTab({ analysisState, isBiophysicalLoading, onOpenSetti
       {/* ── 2. Informational models ─────────────────────────────────────────────────────────── */}
       {workspace.comparison && <React.Suspense fallback={<p>Loading predictor comparison…</p>}><EvidenceComparison tab="predictors" model={predictorModel} title="Where do the predictors agree?" description="Compare published evidence-strength bands; native scores appear at right. These readings are not criteria to add together." /></React.Suspense>}
       {workspace.comparison && <section className="prd-card" aria-label="How the engine used these predictors"><VoteRow evidence={evidence} /><ReferenceRow evidence={evidence} /></section>}
-      {!workspace.comparison && <>
+      {(!workspace.enabled || workspace.view === 'records') && <>
       <InformationalCard evidence={evidence} />
 
       {/* ── 3. Readings ────────────────────────────────────────────────────────────────────── */}

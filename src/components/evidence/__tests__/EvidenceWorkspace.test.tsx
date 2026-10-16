@@ -71,7 +71,7 @@ describe('Evidence workspace interactions', () => {
     fireEvent.change(screen.getByLabelText('Feature family'), { target: { value: 'indicator' } });
     expect(screen.getByText(/pinned feature is outside this filter/)).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /^Feature contributions/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Rank & composition' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin RNA-seq record' }));
     expect(within(inspector).getByText('The returned contribution is zero.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Comparison' }));
@@ -80,7 +80,7 @@ describe('Evidence workspace interactions', () => {
   });
   it('retains each tab’s state but resets synchronously when the analysed allele changes', () => {
     const { rerender } = render(<Fixture />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Rank & composition' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin RNA-seq record' }));
     fireEvent.click(screen.getByRole('button', { name: 'Change evidence tab' }));
     expect(screen.getByLabelText('View state')).toHaveTextContent('comparison all None');
@@ -130,7 +130,7 @@ describe('Evidence workspace interactions', () => {
     render(<Fixture />);
     // Pin the negative contribution from its source record, then read it back on all three
     // surfaces: the chart's readout, the signed axis guide and the inspector's notes.
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Rank & composition' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin splicing record' }));
     fireEvent.click(screen.getAllByRole('tab')[0]);
     await screen.findByRole('img', { name: /^Feature contributions/ });

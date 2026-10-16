@@ -162,8 +162,13 @@ try {
  const accession = page.locator('#input-uniprot-acc');
  check('Query disclosure opening focuses accession', await accession.evaluate(e => e === document.activeElement));
  await accession.fill('Q9H8M5');
- const inputRows = await page.locator('#input-uniprot-acc, #input-variant-notation').evaluateAll(elements => elements.map(e => { const r = e.getBoundingClientRect(); return { top: r.top, height: r.height, width: r.width }; }));
- check('Query reference aligns with protein field', inputRows.length === 2 && Math.abs(inputRows[0].top - inputRows[1].top) < 1 && Math.abs(inputRows[0].height - inputRows[1].height) < 1);
+ // The two route columns share row baselines: the notation field (left, row 2) sits level with the
+ // coordinate field (right, row 2), at the same height. The accession now lives under them (left, row 3).
+ const inputRows = await page.locator('#input-variant-notation, #input-genomic-coords').evaluateAll(elements => elements.map(e => { const r = e.getBoundingClientRect(); return { top: r.top, height: r.height, width: r.width }; }));
+ const wide = (await page.viewportSize()).width >= 1024;
+ check('Query notation and coordinate fields share a baseline', inputRows.length === 2 && (!wide || (Math.abs(inputRows[0].top - inputRows[1].top) < 1 && Math.abs(inputRows[0].height - inputRows[1].height) < 1)));
+ const accessionBox = await accession.boundingBox();
+ check('Query accession sits below the notation field', accessionBox !== null && accessionBox.y > inputRows[0].top + inputRows[0].height);
  await page.getByRole('button', { name: 'Hide UniProt accession', exact: true }).click();
  check('Query closing returns focus to persistent action', await toggle.evaluate(e => e === document.activeElement));
  const using = page.getByRole('button', { name: 'Using Q9H8M5', exact: true });

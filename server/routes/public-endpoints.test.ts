@@ -48,7 +48,19 @@ describe("HTTP Pipeline & Middleware Invariants (Tier 1)", () => {
       const json = await res.json();
       expect(json.status).toBe("ok");
       expect(Array.isArray(json.engines)).toBe(true);
-      expect(json.engines.length).toBe(9);
+      // Named, not counted: adding an engine should fail with a readable diff, not "10 to be 9".
+      expect(json.engines.map((e: { id: string }) => e.id)).toEqual([
+        "foldx_linux_elf",
+        "foldx_windows",
+        "box64",
+        "rasp",
+        "thermompnn",
+        "stabilityoracle",
+        "saprot",
+        "japanfold",
+        "p2rank",
+        "dbnsfp_local",
+      ]);
     });
 
     it("GET /capabilities should return 200 OK without requiring authentication", async () => {

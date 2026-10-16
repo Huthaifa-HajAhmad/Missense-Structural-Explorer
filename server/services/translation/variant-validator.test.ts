@@ -248,6 +248,23 @@ describe("VariantValidator response mapping", () => {
       expect(tc.numbering_protein_id).toBe("NP_060672.2");
     });
 
+    it("keeps VariantValidator's note that a newer transcript version exists, without its tag", () => {
+      const key = "NM_018202.6:c.1297G>A";
+      const withVersionWarning = {
+        ...MACO1_RESPONSE,
+        [key]: {
+          ...(MACO1_RESPONSE as any)[key],
+          validation_warnings: [
+            "TranscriptVersionWarning: A more recent version of the selected reference sequence NM_018202.6 is available for genome build GRCh38 (NM_018202.7)",
+          ],
+        },
+      };
+      expect(mapVariantValidatorResponse(withVersionWarning, "GRCh38")!.transcriptVersionNote).toBe(
+        "A more recent version of the selected reference sequence NM_018202.6 is available for genome build GRCh38 (NM_018202.7)"
+      );
+      expect(mapVariantValidatorResponse(MACO1_RESPONSE, "GRCh38")!.transcriptVersionNote).toBeUndefined();
+    });
+
     it("selects the locus matching the requested assembly", () => {
       expect(mapVariantValidatorResponse(MACO1_RESPONSE, "GRCh37")!.start).toBe(25810749);
       expect(mapVariantValidatorResponse(MACO1_RESPONSE, "GRCh38")!.start).toBe(25484258);

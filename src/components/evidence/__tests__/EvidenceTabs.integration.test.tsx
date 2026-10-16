@@ -30,7 +30,7 @@ describe('Production evidence tabs and their inspectors', () => {
   // default of 1s expired intermittently under a loaded worker and made this suite flaky.
   const FIND = { timeout: 6000 } as const;
 
-  it.each(cases)('$name connects chart and source-record selections to the same inspector', async ({ Tab, Rail, title, record, pinned }) => {
+  it.each(cases)('$name connects chart and source-record selections to the same inspector', async ({ name, Tab, Rail, title, record, pinned }) => {
     const result = evidenceWorkspaceFixture('Partial');
     const props = { analysisState: { result, isLoading: false, error: null } } as TabComponentProps;
     render(<EvidenceWorkspaceProvider result={result}><Tab {...props} /><Rail analysisResult={result} /></EvidenceWorkspaceProvider>);
@@ -38,16 +38,22 @@ describe('Production evidence tabs and their inspectors', () => {
     fireEvent.focus(chart); fireEvent.keyDown(chart, { key: 'Home' }); fireEvent.keyDown(chart, { key: 'Enter' });
     const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });
     await waitFor(() => expect(within(inspector).getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
+    const originalPin = within(inspector).getByRole('heading', { level: 3 }).textContent;
     // Parity: the chart's pinned readout and the inspector heading are the same reading, spelled the same.
     expect(screen.getByText(new RegExp(`^Pinned: .+ · .+$`))).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
-    const source = screen.getByRole('button', { name: record });
-    fireEvent.click(source);
-    expect(within(inspector).getByRole('heading', { name: pinned })).toBeInTheDocument();
-    expect(source).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /Clinical assertion|Native score scales|Rank & composition/ }));
+    if (name === 'Population') {
+      expect(screen.getByTestId('clinvar-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('population-readings')).not.toBeInTheDocument();
+    } else {
+      const source = screen.getByRole('button', { name: record });
+      fireEvent.click(source);
+      expect(within(inspector).getByRole('heading', { name: pinned })).toBeInTheDocument();
+      expect(source).toHaveAttribute('aria-pressed', 'true');
+    }
     fireEvent.click(screen.getAllByRole('tab')[0]);
     await screen.findByRole('img', { name: title }, FIND);
-    expect(within(inspector).getByRole('heading', { name: pinned })).toBeInTheDocument();
+    expect(within(inspector).getByRole('heading', { level: 3 })).toHaveTextContent(name === 'Population' ? originalPin! : pinned);
   });
   it('explains partial AlphaGenome coverage beside the finding, with approachable help and no disease probability', async () => {
     const result = evidenceWorkspaceFixture('Partial');
@@ -103,9 +109,9 @@ describe('Production evidence tabs and their inspectors', () => {
     fireEvent.click(within(coverage).getByRole('button', { name: 'gnomAD exomes' }));
     const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });
     expect(within(inspector).getByRole('heading', { name: 'gnomAD exomes' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Clinical assertion' }));
     expect(within(inspector).getByRole('heading', { name: 'gnomAD exomes' })).toBeInTheDocument();
-    if (example !== 'Missing') expect(screen.getByTestId('frequency-scale').querySelector('.pop-scale__marker')).toBeNull();
+    expect(screen.queryByTestId('population-readings')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Comparison' }));
     expect(screen.getByRole('button', { name: 'gnomAD exomes' })).toHaveAttribute('aria-pressed', 'true');
   });

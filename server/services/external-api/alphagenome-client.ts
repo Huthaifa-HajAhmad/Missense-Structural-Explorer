@@ -174,6 +174,30 @@ export function getAtlasGrpcClient(target = ALPHAGENOME_GRPC_TARGET): any {
   return clientInstance;
 }
 
+/**
+ * Loads the proto and opens the shared Atlas channel (DNS, TLS, HTTP/2) before the first user request, so
+ * that request does not pay the cold-start cost. Resolves true once the channel is READY, false if it is
+ * not ready within `timeoutMs`. Never rejects: a failed warm-up only means the first request connects itself.
+ */
+export function warmAtlasGrpcChannel(timeoutMs = 15000): Promise<boolean> {
+  if (customClientFactory) return Promise.resolve(false);
+  let channel: any;
+  try {
+    channel = getAtlasGrpcClient().getChannel();
+  } catch {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    const deadline = new Date(Date.now() + timeoutMs);
+    const step = (): void => {
+      const state = channel.getConnectivityState(true);
+      if (state === grpc.connectivityState.READY) return resolve(true);
+      channel.watchConnectivityState(state, deadline, (err?: Error) => (err ? resolve(false) : step()));
+    };
+    step();
+  });
+}
+
 export interface GrpcQueryOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -810,7 +834,7 @@ export async function queryAlphaGenomeRegionGrpc(
  */
 export async function verifyAlphaGenomeConnection(
   apiKey: string,
-  timeoutMs = 5000
+  timeoutMs = 10000
 ): Promise<{ ok: boolean; latencyMs: number; scorersCount?: number; error?: string }> {
   if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length === 0) {
     return { ok: false, latencyMs: 0, error: "API key is required" };
@@ -837,7 +861,7 @@ export async function verifyAlphaGenomeConnection(
           } else if (err.code === grpc.status.PERMISSION_DENIED) {
             errorMsg = "API key lacks permission to query AlphaGenome Atlas.";
           } else if (err.code === grpc.status.DEADLINE_EXCEEDED) {
-            errorMsg = "Connection to AlphaGenome Atlas timed out.";
+            errorMsg = "Connection to AlphaGenome Atlas timed out (deadline exceeded). Verify outbound gRPC access to gdmscience.googleapis.com:443 and that your Google API key has AlphaGenome Atlas service access.";
           }
           return resolve({ ok: false, latencyMs, error: errorMsg });
         }

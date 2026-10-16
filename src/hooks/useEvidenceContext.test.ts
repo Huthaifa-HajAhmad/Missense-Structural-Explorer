@@ -17,6 +17,33 @@ beforeEach(() => {
   useVariantAnalysisStore.setState({ diseaseContexts: {}, expressionContexts: {}, developmentalContexts: {}, dosageContexts: {}, modelContexts: {}, extraContexts: {}, phenotypeSelections: {} });
 });
 describe('authenticated context loading and gene isolation', () => {
+  it('keeps failed dosage distinct from a complete negative lookup and coalesces manual retries', async () => {
+    useVariantAnalysisStore.setState({ diseaseContexts: { NAE1: { status: 'ready', data: data('NAE1') as any } } });
+    fetchWithAuth.mockResolvedValueOnce({ ok: true, json: async () => ({ gene: 'NAE1', status: 'error', record: null, provenance: null, message: 'ClinGen dosage request timed out.' }) });
+    const hook = renderHook(() => useEvidenceContext(result('NAE1'), false, true));
+    await waitFor(() => expect(hook.result.current.dosageLoad?.status).toBe('error'));
+    expect(hook.result.current.dosageLoad?.data?.message).toContain('timed out');
+    let finish!: (value: unknown) => void;
+    fetchWithAuth.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    let retry!: Promise<void>;
+    act(() => { retry = hook.result.current.retryDosage(); void hook.result.current.retryDosage(); });
+    expect(hook.result.current.dosageLoad?.status).toBe('loading');
+    expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish({ ok: true, json: async () => ({ gene: 'NAE1', status: 'not-found', record: null, provenance: null, message: 'No curation in the complete table.' }) });
+      await retry;
+    });
+    expect(hook.result.current.dosageLoad).toMatchObject({ status: 'ready', data: { status: 'not-found' } });
+    expect(hook.result.current.dosageLoad?.error).toBeUndefined();
+  });
+  it('rejects a malformed dosage success instead of exposing it as an empty result', async () => {
+    useVariantAnalysisStore.setState({ diseaseContexts: { NAE1: { status: 'ready', data: data('NAE1') as any } } });
+    fetchWithAuth.mockResolvedValue({ ok: true, json: async () => ({ gene: 'NAE1', status: 'ready', record: null, provenance: null, message: null }) });
+    const hook = renderHook(() => useEvidenceContext(result('NAE1'), false, true));
+    await waitFor(() => expect(hook.result.current.dosageLoad?.status).toBe('error'));
+    expect(hook.result.current.dosageLoad?.data).toBeNull();
+    expect(hook.result.current.dosageLoad?.error).toContain('could not be validated');
+  });
   it('loads human sources without animal requests, and joins cached requests when the tab remounts', async () => {
     fetchWithAuth.mockImplementation(() => new Promise(() => {}));
     const first = renderHook(() => useEvidenceContext(result('A'), true, false, false));

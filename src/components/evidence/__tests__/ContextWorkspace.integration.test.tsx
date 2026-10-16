@@ -25,6 +25,30 @@ function Harness({ result }: { result: AnalysisResult }) {
 beforeEach(() => { fetchWithAuth.mockReset(); sessionStorage.clear(); const f = contextWorkspaceFixture(); store.setState({ ...f.state, gene: 'SOD1', variant: f.result.metadata!.variant }); });
 
 describe('production context tabs and linked inspectors', () => {
+  it('gives unique expression and species content its own topic without duplicating measurements', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
+    expect(screen.getByRole('columnheader', { name: 'RNA samples' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Median TPM' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Protein measurements' }));
+    expect(screen.getByRole('heading', { name: 'Protein Atlas' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'RNA samples' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Expression at variant' }));
+    expect(screen.getByRole('heading', { name: 'Base-level pext' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Protein Atlas' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Protein alignments' }));
+    expect(screen.getByRole('heading', { name: 'Residue in orthologs' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Curated model phenotypes' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Phenotype annotations' }));
+    expect(screen.getByRole('heading', { name: 'Curated model phenotypes' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Residue in orthologs' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    expect(screen.getByRole('tab', { name: 'Expression at variant' })).toHaveAttribute('aria-selected', 'true');
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
   it('expands every chart record and recovers a pin beyond the initial twenty', async () => {
     const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
     render(<Harness result={f.result} />);
@@ -33,7 +57,7 @@ describe('production context tabs and linked inspectors', () => {
     expect(chart).not.toHaveTextContent('Illustrative tissue 54');
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show all 54 records' })); });
     expect(chart).toHaveTextContent('Illustrative tissue 54');
-    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Source records' })); });
+    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' })); });
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Illustrative tissue 54' })); });
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show first 20' })); });
     act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Tissue explorer' })); });
@@ -100,7 +124,7 @@ describe('production context tabs and linked inspectors', () => {
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
     // The pinned record is named, not just "a pinned record": substring assertions once passed while the wrong row was pinned.
     expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('heading', { level: 3 })).toHaveTextContent(/Skeletal/i);
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
@@ -126,7 +150,7 @@ describe('production context tabs and linked inspectors', () => {
   it('filters tissue records without losing a pin, retains the cohort on navigation, and clears for a new variant', () => {
     const f = contextWorkspaceFixture(); const rendered = render(<Harness result={f.result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
@@ -159,6 +183,42 @@ describe('production context tabs and linked inspectors', () => {
 });
 
 describe('gene-disease review states', () => {
+  it('keeps dosage loading, failure, retry and verified absence in sync without blocking disease review', async () => {
+    const f = contextWorkspaceFixture();
+    f.disease.frames = f.disease.frames.slice(0, 1);
+    for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
+    f.state.dosageContexts = {};
+    store.setState(f.state);
+    let finish!: (value: unknown) => void;
+    fetchWithAuth.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    render(<Harness result={f.result} />);
+    const dosage = () => within(screen.getByTestId('dosage-card'));
+    const source = () => within(screen.getByTestId('context-sources')).getByText('ClinGen dosage').closest('details')!;
+    expect(dosage().getByRole('status')).toHaveTextContent('Running');
+    expect(source()).toHaveTextContent('Running');
+    expect(source()).not.toHaveTextContent('No result');
+    fireEvent.click(screen.getByRole('button', { name: 'Review this disease' }));
+    expect(screen.getByRole('region', { name: 'Submitted validity assertion matrix' })).toBeInTheDocument();
+    await act(async () => finish({ ok: true, json: async () => ({ gene: 'SOD1', status: 'error', record: null, provenance: null, message: 'ClinGen dosage request timed out.' }) }));
+    expect(source()).toHaveTextContent('Provider error');
+    fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
+    expect(dosage().getByRole('status')).toHaveTextContent('timed out');
+    fireEvent.click(dosage().getByRole('button', { name: 'Try again' }));
+    expect(dosage().getByRole('status')).toHaveTextContent('Running');
+    expect(source()).toHaveTextContent('Running');
+    expect(dosage().queryByRole('button')).not.toBeInTheDocument();
+    await act(async () => finish({ ok: true, json: async () => ({ gene: 'SOD1', status: 'not-found', record: null,
+      provenance: { ...f.disease.provenance!, source: 'ClinGen dosage sensitivity' },
+      message: 'No curation for SOD1 in the complete source table. This does not mean copy-number changes are tolerated.' }) }));
+    expect(dosage().getByRole('status')).toHaveTextContent('No result');
+    expect(dosage().getByText(/Source table retrieved/)).toBeInTheDocument();
+    expect(source()).toHaveTextContent('No result');
+    expect(source()).not.toHaveTextContent('Provider error');
+    expect(dosage().queryByRole('button')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Validity' }));
+    expect(screen.getByRole('region', { name: 'Submitted validity assertion matrix' })).toBeInTheDocument();
+    expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+  });
   it('keeps category and presentation independent and scopes each finding to its evidence', () => {
     render(<Harness result={contextWorkspaceFixture('Differing assertions').result} />);
     const tabs = screen.getByRole('tablist', { name: 'Gene–disease evidence' });

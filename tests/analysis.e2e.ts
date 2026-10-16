@@ -10,22 +10,22 @@ describe('benchmark analysis', { tags: ['live'], timeout: 180_000 }, () => {
     await app.open('/');
   });
 
-  test('a benchmark control fills the query', async ({ screen }) => {
-    await screen.getByRole('button', 'Load benchmark PAH p.Arg408Trp').tap();
+  test('a benchmark fill-only control fills the query without running', async ({ screen }) => {
+    await screen.getByRole('button', 'Fill the form with PAH p.Arg408Trp without running').tap();
     await expect(screen.getByRole('textbox', 'Gene symbol')).toHaveValue('PAH');
     await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Arg408Trp');
   });
 
   test('Analyse variant completes the evidence stage and names the variant', async ({ screen }) => {
-    await screen.getByRole('button', 'Load benchmark PAH p.Arg408Trp').tap();
+    await screen.getByRole('button', 'Fill the form with PAH p.Arg408Trp without running').tap();
     await screen.getByRole('button', 'Analyse variant').tap();
     await expect(screen.getByRole('button', 'Copy link to PAH p.Arg408Trp')).toBeVisible();
     await expect(screen.getByRole('button', /^Evidence .*Complete$/)).toBeVisible({ timeout: 120_000 });
   });
 
-  test('a completed analysis exposes the evidence sub-tabs', async ({ screen }) => {
-    await screen.getByRole('button', 'Load benchmark PAH p.Arg408Trp').tap();
-    await screen.getByRole('button', 'Analyse variant').tap();
+  test('a benchmark run exposes the evidence sub-tabs', async ({ screen }) => {
+    // The card runs the benchmark directly, like a Recent analyses entry.
+    await screen.getByRole('button', 'Run benchmark PAH p.Arg408Trp').tap();
     await expect(screen.getByRole('button', /^Evidence .*Complete$/)).toBeVisible({ timeout: 120_000 });
     for (const tab of ['Population data', 'In-silico predictors', 'Interfaces & PPI']) {
       await expect(screen.getByRole('button', tab)).toBeVisible();

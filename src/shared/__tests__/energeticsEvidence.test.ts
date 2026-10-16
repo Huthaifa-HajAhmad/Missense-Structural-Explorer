@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { computeStabilityConsensus } from "../thresholds";
 import {
   buildEnergeticsEvidence,
   energeticsAgreementText,
@@ -223,5 +224,202 @@ describe("energeticsEvidence — marks follow the display unit", () => {
     expect(markText(1.5, "kJ/mol")).toBe("+6.3");
     expect(markText(DDG_AXIS.max, "kJ/mol")).toBe("+20.9");
     expect(markText(DDG_AXIS.min, "kJ/mol")).toBe("−12.6");
+  });
+});
+
+/**
+ * ProtVar's precomputed FoldX is FoldX again, on EBI's AlphaFold model: a reference row. It must be
+ * visible with its own provenance and never change what the counted engines say.
+ */
+describe("ProtVar FoldX reference row", () => {
+  const withProtvar = (extra: Record<string, unknown> = {}) =>
+    buildEnergeticsEvidence({
+      foldingStatus: "success",
+      foldingEnergetics: {
+        foldx: 2.62, foldxMean: 2.62, dynamut2: -1.9, ddmut: -1.4,
+        protvar: 2.09, protvarStatus: "done", protvarPlddt: 49.5, protvarModel: "AF-P15056-F1",
+        ...extra,
+      },
+    });
+
+  it("shows the value, marked not counted, with its model and pLDDT", () => {
+    const row = withProtvar().readings.find(r => r.key === "protvar")!;
+    expect(row.ddg).toBe(2.09);
+    expect(row.counted).toBe(false);
+    expect(row.callLabel).toBe("Not counted");
+    expect(row.outcome.risk).toBeNull();
+    expect(row.caveats).toEqual(["excluded", "low-plddt"]);
+    expect(row.note).toContain("AF-P15056-F1");
+    expect(row.note).toContain("pLDDT 49.5");
+    // It is FoldX, so it sits in the force-field group beside the local run.
+    expect(row.group).toBe("physics");
+  });
+
+  it("changes neither the agreement nor the coverage of the counted engines", () => {
+    const withIt = withProtvar();
+    const without = withProtvar({ protvar: null, protvarStatus: null });
+    expect(withIt.agreement).toEqual(without.agreement);
+    expect(withIt.coverage.label).toBe("3 of 6 engines");
+    expect(withIt.coverage).toEqual(without.coverage);
+  });
+
+  it("takes the pLDDT caveat from ProtVar's own model, not this run's template", () => {
+    const confident = withProtvar({ protvarPlddt: 92 }).readings.find(r => r.key === "protvar")!;
+    expect(confident.caveats).not.toContain("low-plddt");
+  });
+
+  it("never holds the run 'running' or reports it missing", () => {
+    expect(withProtvar({ protvar: null, protvarStatus: "pending" }).running).toEqual([]);
+    const errored = withProtvar({ protvar: null, protvarStatus: "error", protvarError: "ProtVar answered HTTP 503" });
+    expect(errored.missing.map(r => r.key)).not.toContain("protvar");
+    // …while the row itself still says what happened.
+    expect(errored.readings.find(r => r.key === "protvar")!.outcome.state).toBe("upstream-error");
+  });
+
+  it("says why there is no value when ProtVar answered without one", () => {
+    const row = withProtvar({ protvar: null, protvarReason: "ProtVar's AlphaFold fragment models disagree at this residue" })
+      .readings.find(r => r.key === "protvar")!;
+    expect(row.ddg).toBeNull();
+    expect(row.outcome.state).toBe("not-covered");
+  });
+});
+
+/**
+ * One FoldX reading counts, and two FoldX values are a cross-check. The local run is the FoldX reading
+ * whenever it has a value; ProtVar's precomputed value is it only when there is no local value and the
+ * template is the AlphaFold model (see FOLDX_STAND_IN_RULE).
+ */
+describe("FoldX on two templates", () => {
+  const experimental = { source: "experimental", pdbId: "1yov", chainId: "A", resolution: 2.8, foldxRuns: 5 };
+  const alphafold = { source: "alphafold", foldxRuns: 5 };
+  const build = (energetics: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    buildEnergeticsEvidence({
+      foldingStatus: "success",
+      foldingEnergetics: {
+        dynamut2: 0.8, ddmut: 0.6, thermompnn: 0.4,
+        protvarStatus: "done", protvarPlddt: 91, protvarModel: "AF-Q13564-F1",
+        ...energetics,
+      },
+      ...extra,
+    });
+
+  describe("cross-check (both values exist)", () => {
+    it('keeps the summary numerator and denominator on the same engine set when ProtVar is present', () => {
+      const ev = build({ foldx: 2.6, foldxMean: 2.6, protvar: 2.4, rasp: 1.7, stabilityoracle: 1.8, structureProvenance: experimental });
+      expect(ev.coverage.intended).toBe(6);
+      expect(ev.agreement.nCounted).toBe(6);
+      expect(energeticsSummary(ev).rest.join(' ')).toContain('6 of 6 engines returned a value');
+      expect(energeticsSummary(ev).rest.join(' ')).not.toContain('7 of 6');
+    });
+    const check = (local: number, protvar: number, structureProvenance: object = experimental) =>
+      build({ foldx: local, foldxMean: local, protvar, structureProvenance }).foldxTemplateCheck!;
+
+    it("is consistent when close and in the same band", () => {
+      const c = check(1.6, 1.9);
+      expect(c.state).toBe("consistent");
+      expect(c.delta).toBeCloseTo(0.3);
+      expect(c.tone).toBe("neutral");
+    });
+
+    it("differs when the gap reaches the local difference mark, or the values land in different bands", () => {
+      expect(check(2.6, 1.4).state).toBe("differs"); // 1.2 apart
+      expect(check(1.4, 1.6).state).toBe("differs"); // 0.2 apart, but across the destabilizing mark (1.5)
+      expect(check(2.6, 1.4).tone).toBe("warning");
+    });
+
+    it("is opposite only when the signs differ and both are clear of zero", () => {
+      expect(check(1.2, -1.1).state).toBe("opposite");
+      expect(check(0.3, -0.2).state).not.toBe("opposite");
+    });
+
+    it("names both templates and says a gap is not an error bar", () => {
+      const c = check(2.62, 1.12);
+      expect(c.localTemplate).toBe("1YOV:A (experimental, 2.8 Å)");
+      expect(c.protvarTemplate).toBe("AF-Q13564-F1");
+      expect(c.detail).toContain("not an error bar");
+      expect(c.sameTemplateKind).toBe(false);
+    });
+
+    it("blames the pipeline, not the template, when both ran on an AlphaFold model", () => {
+      const c = check(2.0, 0.9, alphafold);
+      expect(c.sameTemplateKind).toBe(true);
+      expect(c.detail).toContain("pipeline");
+    });
+
+    it("never adds a second FoldX vote to the agreement or the coverage", () => {
+      const withBoth = build({ foldx: 2.6, foldxMean: 2.6, protvar: 2.4, structureProvenance: experimental });
+      const localOnly = build({ foldx: 2.6, foldxMean: 2.6, structureProvenance: experimental });
+      expect(withBoth.agreement).toEqual(localOnly.agreement);
+      expect(withBoth.coverage).toEqual(localOnly.coverage);
+      expect(withBoth.foldxStandIn).toBeNull();
+    });
+
+    it("is absent when either value is missing", () => {
+      expect(build({ foldx: 2.6, foldxMean: 2.6, structureProvenance: experimental }).foldxTemplateCheck).toBeNull();
+      expect(build({ protvar: 2.4, structureProvenance: experimental }).foldxTemplateCheck).toBeNull();
+    });
+
+    it("puts ProtVar's row straight after FoldX's, and says so in the finding", () => {
+      const ev = build({ foldx: 2.6, foldxMean: 2.6, protvar: 1.2, structureProvenance: experimental });
+      expect(ev.readings.slice(0, 2).map(r => r.key)).toEqual(["foldx", "protvar"]);
+      expect(energeticsSummary(ev).rest.join(" ")).toContain("The two FoldX values differ by 1.40 kcal/mol");
+      expect(energeticsSummary(ev).tone).toBe("warning");
+    });
+  });
+
+  describe("stand-in (no local value)", () => {
+    const standIn = (structureProvenance: object, extra: Record<string, unknown> = {}) =>
+      build({ foldx: null, foldxMean: null, protvar: 1.9, structureProvenance, ...extra }, { foldingStatus: "failed" });
+
+    it("counts ProtVar as THE FoldX reading when the template is the AlphaFold model", () => {
+      const ev = standIn(alphafold);
+      const foldx = ev.readings.find(r => r.key === "foldx")!;
+      expect(foldx.ddg).toBe(1.9);
+      expect(foldx.counted).toBe(true);
+      expect(foldx.caveats).toContain("protvar-stand-in");
+      expect(foldx.note).toContain("AF-Q13564-F1");
+      expect(ev.foldxStandIn).toEqual({ model: "AF-Q13564-F1", plddt: 91 });
+      // 4 counted: FoldX (as ProtVar) + DynaMut2 + DDMut + ThermoMPNN. Never 7 engines.
+      expect(ev.agreement.nCounted).toBe(4);
+      expect(ev.coverage.label).toBe("4 of 6 engines");
+    });
+
+    it("shows the value once: ProtVar's own row is not listed a second time", () => {
+      expect(standIn(alphafold).readings.map(r => r.key)).not.toContain("protvar");
+      expect(standIn(alphafold).foldxTemplateCheck).toBeNull();
+    });
+
+    it("is not an excluded value even when the local run's repair failed or its binary is missing", () => {
+      const ev = standIn(alphafold, { foldxRepairFailed: true, foldxBinaryMissing: true });
+      expect(ev.readings.find(r => r.key === "foldx")!.counted).toBe(true);
+    });
+
+    it("does NOT apply on an experimental or homology template: ProtVar would describe another structure", () => {
+      for (const source of ["experimental", "homolog", "client-provided"]) {
+        const ev = standIn({ source });
+        expect(ev.foldxStandIn).toBeNull();
+        expect(ev.readings.find(r => r.key === "foldx")!.ddg).toBeNull();
+        expect(ev.readings.find(r => r.key === "protvar")!.counted).toBe(false);
+      }
+    });
+
+    it("does NOT apply when the template is unknown", () => {
+      expect(build({ foldx: null, protvar: 1.9 }).foldxStandIn).toBeNull();
+    });
+
+    it("never replaces a local value, even an excluded one", () => {
+      const ev = build({ foldx: 0.4, foldxMean: 0.4, protvar: 1.9, foldxRepairFailed: true, structureProvenance: alphafold });
+      expect(ev.foldxStandIn).toBeNull();
+      expect(ev.readings.find(r => r.key === "foldx")!.ddg).toBe(0.4);
+    });
+
+    it("gives the stored verdict, the export and the screen the same answer", () => {
+      const energetics = { foldx: null, foldxMean: null, protvar: 1.9, dynamut2: -0.8, ddmut: -0.6, thermompnn: 0.4, structureProvenance: alphafold };
+      const screen = buildEnergeticsEvidence({ foldingEnergetics: energetics }).agreement;
+      const stored = computeStabilityConsensus(energetics);
+      expect(stored.consensusVerdict).toBe(screen.verdict);
+      expect(stored.enginesCounted).toBe(screen.nCounted);
+      expect(stored.enginesCounted).toBe(4);
+    });
   });
 });
