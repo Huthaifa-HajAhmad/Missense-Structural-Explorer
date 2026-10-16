@@ -17,12 +17,12 @@ function DevelopmentalTable({ observations, max }: { observations: Developmental
     </tr>)}</tbody>
   </table></div>;
 }
-export function DevelopmentalExpressionCard({ load, systems, onRetry }: {
-  load?: ContextLoad<DevelopmentalExpressionResponse>; systems: ReviewSystemId[]; onRetry: () => void;
+export function DevelopmentalExpressionCard({ load, systems, onRetry, coverageOnly = false, cohortScope = 'all' }: {
+  load?: ContextLoad<DevelopmentalExpressionResponse>; systems: ReviewSystemId[]; onRetry: () => void; coverageOnly?: boolean; cohortScope?: string;
 }) {
   const [cohort, setCohort] = useState('all');
   const id = useId();
-  const evidence = buildDevelopmentalEvidence(load?.data ?? null, systems, cohort);
+  const evidence = buildDevelopmentalEvidence(load?.data ?? null, systems, coverageOnly ? cohortScope : cohort);
   const overview = !evidence.relevant.length ? [...evidence.other].sort((a, b) => b.value - a.value).slice(0, 6) : [];
   const counts = load?.data?.counts;
   const max = maxOf((load?.data?.observations ?? []).map(o => o.value));
@@ -35,16 +35,17 @@ export function DevelopmentalExpressionCard({ load, systems, onRetry }: {
       : evidence.ready && <>
         <div className="ctx-card__body">
           <p className="ctx-prose">{counts?.includedSamples} eligible RNA samples from {counts?.includedDonors} donors. The release marks {counts?.excludedSamples} additional samples for exclusion; WGS is not expression evidence.</p>
-          <label className="ctx-onset" htmlFor={id}>Sampled age cohort <select id={id} className="ctx-select" value={cohort} onChange={e => setCohort(e.target.value)}>
+          {!coverageOnly && <label className="ctx-onset" htmlFor={id}>Sampled age cohort <select id={id} className="ctx-select" value={cohort} onChange={e => setCohort(e.target.value)}>
             <option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select></label>
+          </select></label>}
+          {coverageOnly && <p className="ctx-caption">Sampling scope: {Object.entries(DGTEX_COHORTS).find(([key]) => key === cohortScope)?.[1] ?? 'All public age cohorts'}. Tissue values are in Tissue explorer; select Pediatric RNA above for donor and sample counts.</p>}
           <p className="ctx-caption">Source age groups are kept as published. Exact ages are protected. This filter is independent of disease onset.</p>
           {!!evidence.gaps.length && <p className="ctx-prose">No tissue in the local grouping for {evidence.gaps.map(s => REVIEW_SYSTEMS.find(r => r.id === s)?.label).join(', ')} in this sampled age scope. Missing coverage is not a zero measurement.</p>}
           {!evidence.relevant.length && !evidence.other.length && <p>No eligible tissue samples in this source cohort.</p>}
         </div>
-        {!!evidence.relevant.length && <DevelopmentalTable observations={evidence.relevant} max={max} />}
-        {!!overview.length && <><p className="ctx-card__body ctx-caption">Highest measured tissue/cohort medians in this age scope. Cohorts are independent samples, not a developmental trajectory.</p><DevelopmentalTable observations={overview} max={max} /></>}
-        {evidence.other.length > overview.length && <details className="ctx-details ctx-details--table"><summary>{systems.length ? 'Other' : 'Browse'} pediatric tissue × age groups ({evidence.other.length})</summary><DevelopmentalTable observations={evidence.other} max={max} /></details>}
+        {!coverageOnly && !!evidence.relevant.length && <DevelopmentalTable observations={evidence.relevant} max={max} />}
+        {!coverageOnly && !!overview.length && <><p className="ctx-card__body ctx-caption">Highest measured tissue/cohort medians in this age scope. Cohorts are independent samples, not a developmental trajectory.</p><DevelopmentalTable observations={overview} max={max} /></>}
+        {!coverageOnly && evidence.other.length > overview.length && <details className="ctx-details ctx-details--table"><summary>{systems.length ? 'Other' : 'Browse'} pediatric tissue × age groups ({evidence.other.length})</summary><DevelopmentalTable observations={evidence.other} max={max} /></details>}
       </>}
     <p className="ctx-card__foot">Median across donors after taking a within-donor median for repeat samples. Sparse postmortem cohorts are descriptive; a single donor is not a population baseline. Pediatric and adult values are not a developmental trajectory or a matched comparison.</p>
   </section>;

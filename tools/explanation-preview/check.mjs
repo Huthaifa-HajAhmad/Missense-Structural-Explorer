@@ -146,7 +146,7 @@ try {
   await open('About Interfaces & protein interactions');
   check('Evidence workspace opens its own subject', await page.getByRole('dialog', { name: 'Interfaces & protein interactions', exact: true }).count() === 1);
   await page.keyboard.press('Escape');
-  await page.getByRole('tab', { name: 'Source records', exact: true }).click();
+  await page.getByRole('tab', { name: 'Assemblies & models', exact: true }).click();
   await open('About this complex prediction');
   check('Complex record teaches Boltz-2', await page.getByRole('dialog', { name: 'Boltz-2 complex prediction', exact: true }).count() === 1);
   await page.keyboard.press('Escape');
@@ -179,8 +179,9 @@ try {
     check(`${tab}: actual workspace control opens the intended subject`, await page.getByRole('dialog', { name: title, exact: true }).count() === 1);
     await page.keyboard.press('Escape');
     await collectTopics();
-    const records = page.getByRole('tab', { name: 'Source records', exact: true });
-    if (await records.count()) { await records.click(); await collectTopics(); }
+    const topicTabs = page.locator(`[id^="evidence-${tab}-tab-"]`);
+    for (let i = 0; i < await topicTabs.count(); i++) { await topicTabs.nth(i).click(); await collectTopics(); }
+    if (tab === 'predictors') await page.getByRole('tab', { name: 'Native score scales', exact: true }).click();
     if (tab === 'predictors') {
       const collapsed = page.locator('.prd-group__toggle[aria-expanded="false"]');
       while (await collapsed.count()) await collapsed.first().click();
@@ -189,7 +190,7 @@ try {
   }
   await page.getByLabel('Example', { exact: true }).selectOption('Embedding fallback');
   await page.getByLabel('Evidence', { exact: true }).selectOption('perturbation');
-  await page.getByRole('tab', { name: 'Source records', exact: true }).click();
+  await page.getByRole('tab', { name: 'Sequence embeddings', exact: true }).click();
   await page.locator('[data-explanation-topic="vesm_embedding"]').waitFor();
   await collectTopics();
   await open('About the VESM fallback');

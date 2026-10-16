@@ -27,13 +27,15 @@ test('population states, keyboard tabs and inspector survive responsive layouts'
   const inspector = screen.getByRole('region', 'Selected evidence reading');
   await expect(inspector.getByRole('heading', 'gnomAD exomes')).toBeVisible();
   await screen.getByRole('tab', 'Comparison').press('ArrowRight');
-  await expect(screen.getByRole('tab', 'Source records')).toBeSelected();
+  await expect(screen.getByRole('tab', 'Clinical assertion')).toBeSelected();
   await expect(inspector.getByRole('heading', 'gnomAD exomes')).toBeVisible();
-  await screen.getByText('Rule thresholds · app-defined frequency policy').tap();
-  expect(await browser.evaluate(() => document.querySelectorAll('.pop-scale__marker').length)).toBe(0);
-  await app.screenshot('population-source-records');
-  await screen.getByRole('tab', 'Source records').press('ArrowLeft');
+  await expect(screen.getByTestId('clinvar-panel')).toBeVisible();
+  await expect(screen.getByTestId('population-readings')).toHaveCount(0);
+  await app.screenshot('population-clinical-assertion');
+  await screen.getByRole('tab', 'Clinical assertion').press('ArrowLeft');
   await expect(screen.getByRole('button', 'gnomAD exomes')).toHaveAttribute('aria-pressed', 'true');
+  await screen.getByText(/Rule thresholds.*app-defined frequency policy/).tap();
+  expect(await browser.evaluate(() => document.querySelectorAll('.pop-scale__marker').length)).toBe(0);
   for (const example of ['Zero', 'Missing']) {
     await screen.getByRole('combobox', 'Example').selectOption(example);
     await expect(screen.getByRole('region', 'Population source coverage')).toBeVisible();

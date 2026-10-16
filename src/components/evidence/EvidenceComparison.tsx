@@ -82,7 +82,7 @@ export default function EvidenceComparison({ tab, model, title, description }: {
         <span className="evw-legend"><i className="evw-legend__dot" data-tone="accent" />Molecular prediction</span>
         <span className="evw-legend"><i className="evw-legend__dot" data-tone="neutral" />Other input</span>
       </>}
-      <span>Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. Source records retain exact values.</span></>}>
+      <span>Hover or use arrow keys to explore. Click or press Enter to pin a reading; press Enter again to clear it. The inspector retains exact values and provenance.</span></>}>
     {tab === 'alphagenome' && returned > 0 && <div className="evw-figure-scope"><span>{Math.min(returned, limit)} of {returned} returned contributions · largest magnitude first</span>
       {returned > 8 && <button type="button" className="viz-action" aria-expanded={expanded} onClick={() => w.toggleGroup('all-attributions')}>{expanded ? 'Show largest 8' : `Show all ${returned}`}</button>}</div>}
     {plotted.length > 0 && <div className="evw-chart-scroll" role="region" aria-label={`${title} chart`} tabIndex={0}>

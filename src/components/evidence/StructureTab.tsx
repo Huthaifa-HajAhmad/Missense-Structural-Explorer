@@ -489,8 +489,9 @@ export function StructureTab({
       <EvidenceViewTabs tab="structure" comparisonLabel="Residue comparison" />
       <EvidencePanel tab="structure">
       <Finding model={model} compact={workspace.comparison} />
-      {workspace.comparison ? <ResiduePropertyComparison model={model} /> : <Properties model={model} />}
-      <Environment
+      {workspace.comparison && <ResiduePropertyComparison model={model} />}
+      {!workspace.enabled && <Properties model={model} />}
+      {(!workspace.enabled || workspace.view === 'records') && <Environment
         model={model}
         onExplain={setSelectedMetric}
         onRetryPocket={onRetryPocket}
@@ -499,7 +500,7 @@ export function StructureTab({
         isStructuralLoading={isBiophysicalLoading}
         onSelectResidue={onSelectResidue}
         onViewIn3d={viewIn3d}
-      />
+      />}
       </EvidencePanel>
     </div>
   );

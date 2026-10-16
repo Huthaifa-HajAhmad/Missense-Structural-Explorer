@@ -57,7 +57,7 @@ function renderTab(options: {
       <AlphaGenomeTab {...({ analysisState: { result } } as any)} />
     </EvidenceWorkspaceProvider>
   );
-  fireEvent.click(screen.getByRole("tab", { name: "Source records" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Rank & composition" }));
   return rendered;
 }
 
@@ -199,7 +199,8 @@ describe("what the score is made of", () => {
   it("reports shares of the summed |contribution|, not SHAP × 100", () => {
     renderTab({ alphagenome: GZF1 });
     const am = screen.getByTestId("avi-feature-ALPHAMISSENSE");
-    expect(within(am).getByText("+0.686")).toBeInTheDocument();
+    expect(within(am).getByText("Raises score")).toBeInTheDocument();
+    expect(am.querySelector(".ag-diverge")).toBeNull(); // Signed magnitudes have one home: Comparison.
     // 0.686 / 0.778 = 88%
     expect(within(am).getByText("88%")).toBeInTheDocument();
     expect(screen.queryByText(/Rel$/)).not.toBeInTheDocument();
@@ -258,7 +259,7 @@ describe("what the score is made of", () => {
     renderTab({ alphagenome: GZF1 });
     for (const b of screen.getAllByRole("button", { name: /more, each under/ })) fireEvent.click(b);
     // A measured zero prints as 0 — never as "+0.000", the glyph a tiny non-zero value would hide in.
-    expect(within(screen.getByTestId("avi-feature-MAX_ABS_CHIP_TF")).getByText("0")).toBeInTheDocument();
+    expect(within(screen.getByTestId("avi-feature-MAX_ABS_CHIP_TF")).getByText("Zero contribution")).toBeInTheDocument();
     expect(within(screen.getByTestId("avi-feature-CACTUS_241_WAY")).getByText("Not attributed")).toBeInTheDocument();
   });
 

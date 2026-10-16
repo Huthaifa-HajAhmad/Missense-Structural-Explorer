@@ -257,7 +257,7 @@ export function DomainArchitecture({
       data-testid="domain-architecture"
       tabIndex={onStep ? 0 : undefined}
       role={onStep ? "group" : undefined}
-      aria-label={onStep ? "Protein map. Left and right arrow keys move through every annotation; Source records lists them all with exact values." : undefined}
+      aria-label={onStep ? "Protein map. Left and right arrow keys move through every annotation; Annotation details lists them all with exact values." : undefined}
       onKeyDown={onKeyDown}
     >
       <svg

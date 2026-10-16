@@ -6,7 +6,7 @@
  * these hold the surfaces to that contract on the reference variant, NAE1 p.Asp116Gly.
  */
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../context/SettingsContext", () => ({
@@ -18,6 +18,7 @@ vi.mock("../../context/SettingsContext", () => ({
 }));
 
 import { PerturbationTab } from "../evidence/PerturbationTab";
+import { EvidenceWorkspaceProvider } from "../evidence/EvidenceWorkspace";
 import { PerturbationRail } from "../inspector/PerturbationRail";
 import { NAE1_ENERGETICS, NAE1_RESULT } from "../../shared/__tests__/fixtures/nae1Perturbation";
 import { SLC12A4_RESULT } from "../../shared/__tests__/fixtures/slc12a4Perturbation";
@@ -31,6 +32,27 @@ function renderTab(result: any = NAE1_RESULT, extra: Record<string, unknown> = {
 }
 
 describe("PerturbationTab", () => {
+  it('preserves diagnostics and recovery actions after removing duplicate model rows', async () => {
+    const result = { ...NAE1_RESULT,
+      saprotEval: { error: 'Request timed out', remoteEngineNote: 'Remote queue exhausted', fallbackReason: 'Local checkpoint unavailable' },
+      esm2Eval: { error: '401 unauthorized' }, esmcEval: { error: 'Engine unavailable' }
+    };
+    const retry = vi.fn(); const settings = vi.fn();
+    render(<EvidenceWorkspaceProvider result={result}>
+      <PerturbationTab {...({ analysisState: { result, isLoading: false }, foldingEnergetics: NAE1_ENERGETICS, onRetryStructural: retry, onOpenSettings: settings } as any)} />
+    </EvidenceWorkspaceProvider>);
+    const support = within(screen.getByRole('region', { name: 'Model provenance and recovery' }));
+    act(() => {
+      for (const summary of support.getAllByText(/details and availability/, { selector: 'summary' })) fireEvent.click(summary);
+    });
+    expect(support.getByText('Remote queue exhausted')).toBeInTheDocument();
+    expect(support.getByText('Local checkpoint unavailable')).toBeInTheDocument();
+    expect(screen.queryByTestId('ptb-lm-saprot')).not.toBeInTheDocument();
+    fireEvent.click(support.getByRole('button', { name: 'Open connection settings' }));
+    expect(settings).toHaveBeenCalledOnce();
+    await act(async () => { fireEvent.click(support.getByRole('button', { name: 'Run SaProt 35M instead' })); });
+    expect(retry).toHaveBeenCalledWith({ saprotEngine: 'saprot-35m' });
+  });
   it.each([
     ['VESM-150M fallback', 'VESM embedding drift', 'VESM embedding analysis'],
     ['ESM3-Medium (Remote)', 'ESM3 embedding drift', 'ESM3 representation analysis'],

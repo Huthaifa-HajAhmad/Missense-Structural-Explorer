@@ -434,7 +434,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
         <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />
       </div>}
       <EvidencePanel tab="splicing">
-      {workspace.enabled && !workspace.comparison ? <SplicingRecords rows={readings} /> : <>
+      {workspace.enabled && workspace.view === 'records' ? <SplicingRecords rows={readings.filter(r => r.channel !== null)} /> : (!workspace.enabled || workspace.comparison) && <>
       <section className="spl-section" aria-labelledby="spl-geometry-title">
         <h2 className="eyebrow" id="spl-geometry-title">
           <MapPin className="w-3.5 h-3.5" />
@@ -509,11 +509,10 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
           </div>
         </div>
       </section>
-      {workspace.enabled && <p className="spl-records-caption">The map shows location; Source records retains every exact reading, including channels with no position or no returned score.</p>}
+      {workspace.enabled && <p className="spl-records-caption">The map shows location; Channel details retains every exact channel reading, including channels with no position or no returned score.</p>}
       </>}
-      </EvidencePanel>
 
-      {(!workspace.enabled || workspace.comparison) &&
+      {(!workspace.enabled || workspace.view === 'scales') &&
       <section className="spl-section" aria-labelledby="spl-readings-title">
         <div className="spl-section__head">
           <h2 className="eyebrow" id="spl-readings-title">
@@ -563,6 +562,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
         </div>
       </section>}
 
+      </EvidencePanel>
     </div>
   );
 }

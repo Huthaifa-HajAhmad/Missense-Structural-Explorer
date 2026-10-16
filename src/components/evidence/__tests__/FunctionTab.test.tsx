@@ -157,7 +157,7 @@ describe("FunctionTab in the molecular workspace", () => {
     const key = screen.getAllByRole("button", { name: /THIF-type NAD\/FAD binding fold/ })[0];
     fireEvent.click(key);
     fireEvent.click(screen.getByRole("button", { name: "View selected record" }));
-    expect(screen.getByRole("tab", { name: "Source records" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Annotation details" })).toHaveAttribute("aria-selected", "true");
     const focusedRow = document.activeElement?.closest("[data-row-key]") as HTMLElement | null;
     expect(focusedRow).not.toBeNull();
     expect((focusedRow as HTMLElement).querySelector(".fnd-subject__btn")).toBe(document.activeElement);

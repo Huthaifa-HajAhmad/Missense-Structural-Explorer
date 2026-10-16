@@ -41,8 +41,8 @@ describe('linked RNA splicing workspace', () => {
     expect(pinned('ds_al')).toHaveAttribute('aria-pressed', 'true');
     expect(within(inspector()).getByRole('heading', { name: 'Acceptor loss' })).toBeTruthy();
     expect(inspector()).toHaveTextContent('−25 bp');
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
-    const source = screen.getByRole('region', { name: 'Splicing source records' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Channel details' }));
+    const source = screen.getByRole('region', { name: 'Splicing channel details' });
     expect(within(source).getByRole('button', { name: 'Acceptor loss' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(within(source).getByRole('button', { name: 'Donor loss' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Splice map' }));
@@ -61,18 +61,18 @@ describe('linked RNA splicing workspace', () => {
     const mapTab = screen.getByRole('tab', { name: 'Splice map' });
     mapTab.focus();
     fireEvent.keyDown(mapTab, { key: 'ArrowRight' });
-    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveFocus();
-    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Channel details' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Channel details' })).toHaveAttribute('aria-selected', 'true');
   });
   it('retains pin, view and map controls across navigation and resets on a same-position allele change', () => {
     open();
     fireEvent.click(pinned('ds_al'));
     fireEvent.change(screen.getByLabelText('Map view'), { target: { value: '200' } });
     fireEvent.click(screen.getByRole('checkbox', { name: /Show non-zero signals/ }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Channel details' }));
     fireEvent.click(screen.getByText('Other evidence tab'));
     fireEvent.click(screen.getByText('Other evidence tab'));
-    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Channel details' })).toHaveAttribute('aria-selected', 'true');
     expect(inspector()).toHaveTextContent('Acceptor loss');
     fireEvent.click(screen.getByRole('tab', { name: 'Splice map' }));
     expect(screen.getByLabelText('Map view')).toHaveValue('200');
@@ -89,7 +89,7 @@ describe('linked RNA splicing workspace', () => {
     let finish!: (value: unknown) => void;
     fetchWithAuth.mockReturnValue(new Promise(resolve => { finish = resolve; }));
     fireEvent.click(screen.getByRole('radio', { name: '±1000' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Channel details' }));
     await act(async () => { finish(reply()); });
     await waitFor(() => expect(inspector()).toHaveTextContent('0.6'));
     expect(inspector()).toHaveTextContent('±1000 bp');
@@ -143,7 +143,7 @@ describe('linked RNA splicing workspace', () => {
   });
   it.each(['Zero', 'Missing', 'Unknown strand', 'Missing positions'])('keeps %s inspectable without inventing a plotted location', name => {
     open(name);
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Channel details' }));
     fireEvent.click(screen.getByRole('button', { name: 'Acceptor loss' }));
     expect(inspector()).toHaveTextContent(name === 'Zero' ? 'Measured zero' : name === 'Missing' ? 'No score returned' : name === 'Unknown strand' ? 'Strand unresolved' : 'Delta position not reported');
   });

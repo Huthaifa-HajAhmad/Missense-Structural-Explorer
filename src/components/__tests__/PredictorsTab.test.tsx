@@ -34,13 +34,13 @@ function gzf1(overrides: Record<string, any> = {}) {
 
 function renderTab(result: any, extra: Record<string, unknown> = {}) {
   // Production always mounts the tabs under the workspace provider; the tests follow. These
-  // assertions target the SOURCE RECORDS view, so open it explicitly.
+  // assertions start on Native score scales; rule and strength tests select their own topic.
   const rendered = render(
     <EvidenceWorkspaceProvider result={result}>
       <PredictorsTab {...({ analysisState: { result, isLoading: false }, ...extra } as any)} />
     </EvidenceWorkspaceProvider>
   );
-  fireEvent.click(screen.getByRole("tab", { name: "Source records" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Native score scales" }));
   return rendered;
 }
 
@@ -68,6 +68,7 @@ describe("PredictorsTab", () => {
 
   it("prints the calibrated reference's band edges on its ruler", () => {
     renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const ref = screen.getByTestId("predictor-reference-row");
     const edges = Array.from(ref.querySelectorAll(".prd-ruler__cut")).map(n => n.textContent);
     expect(edges).toEqual(expect.arrayContaining(["0.644", "0.29"]));
@@ -91,6 +92,7 @@ describe("PredictorsTab", () => {
 
   it("says when the calibrated reference points the other way, in the summary, not a banner", () => {
     renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const summary = screen.getByTestId("predictor-summary");
     expect(summary.getAttribute("data-tone")).toBe("warning");
     expect(summary.textContent).toMatch(/ClinGen advises one pre-specified calibrated tool/);
@@ -102,6 +104,7 @@ describe("PredictorsTab", () => {
 
   it("does not repeat the voters' scores or the count on the finding card", () => {
     renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const card = screen.getByTestId("predictor-finding");
     // 0.767 is MetaRNN's score: it belongs to the readings table only.
     expect(card.textContent).not.toMatch(/0\.767/);
@@ -115,6 +118,7 @@ describe("PredictorsTab", () => {
 
   it("keeps a row for the calibrated reference when neither REVEL nor BayesDel scored", () => {
     renderTab(gzf1({ conservationData: { ...gzf1().conservationData, revel: null, bayesdel: null } }));
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     const row = screen.getByTestId("predictor-reference-row");
     expect(row.getAttribute("data-relation")).toBe("absent");
     expect(row.textContent).toMatch(/Neither REVEL nor BayesDel scored this variant/);
@@ -136,6 +140,7 @@ describe("PredictorsTab", () => {
 
   it("shows No votes, not a code, when nothing scored", () => {
     renderTab({ metadata: {}, predictorData: {}, conservationData: {}, ruleBasedInsights: { acmgCriteria: [] } });
+    fireEvent.click(screen.getByRole("tab", { name: "Comparison" }));
     expect(screen.getByTestId("predictor-vote-call").textContent).toBe("No votes");
     expect(screen.getByTestId("predictor-summary").textContent).toMatch(/^No PP3 or BP4: no voting tool scored this variant\.$/);
   });
@@ -184,6 +189,7 @@ describe("PredictorsTab", () => {
   });
   it("draws the strength ladder in the finding, with the variant in the band each calibrated tool reached", () => {
     renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
     const finding = screen.getByTestId("predictor-finding");
     const ladder = within(finding).getByTestId("strength-ladder");
     expect(ladder.getAttribute("aria-label")).toMatch(/REVEL: BP4 Supporting/);
@@ -194,6 +200,7 @@ describe("PredictorsTab", () => {
 
   it("shows a side, not a strength, for the tools that publish only the authors' cut-point", () => {
     renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
     const ladder = screen.getByTestId("strength-ladder");
     // popEVE -3.931 is above its -4.617 cut: between, which the old table also refused to call deleterious.
     for (const [key, side] of [["metarnn", "pathogenic"], ["clinpred", "pathogenic"], ["popeve", "between"]]) {
@@ -209,6 +216,7 @@ describe("PredictorsTab", () => {
 
   it("says a ladder row has no result instead of drawing an empty one", () => {
     renderTab(gzf1({ conservationData: { ...gzf1().conservationData, popeve: null } }));
+    fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
     const row = screen.getByTestId("ladder-popeve");
     expect(row.getAttribute("data-side")).toBe("none-scored");
     expect(row.querySelector(".prd-ladder__dot")).toBeNull();
@@ -222,6 +230,7 @@ describe("PredictorsTab", () => {
   });
   it("tints a direction-only side red or green only for a tool the engine counts, and says why they differ to a screen reader", () => {
     renderTab(gzf1());
+    fireEvent.click(screen.getByRole("tab", { name: "Strength bands" }));
     const ladder = screen.getByTestId("strength-ladder");
     expect(ladder.getAttribute("aria-label")).toMatch(/direction only have just their authors' cut-point/);
     const here = ladder.querySelectorAll(".prd-ladder__side[data-here]");
