@@ -50,6 +50,14 @@ function engineUpdatesFromJob(jobData: any, remoteJobs: any): Record<string, unk
     if (remoteJobs.raspError !== undefined) updates.raspError = remoteJobs.raspError;
   }
 
+  if (remoteJobs?.protvarStatus != null || remoteJobs?.protvarVal !== undefined) {
+    updates.protvar = typeof remoteJobs.protvarVal === "number" ? remoteJobs.protvarVal : null;
+    if (remoteJobs.protvarStatus != null) updates.protvarStatus = remoteJobs.protvarStatus;
+    for (const field of ["protvarPlddt", "protvarModel", "protvarReason", "protvarError"] as const) {
+      if (remoteJobs[field] !== undefined) updates[field] = remoteJobs[field];
+    }
+  }
+
   if (remoteJobs?.stabilityoracleStatus != null || remoteJobs?.stabilityoracleVal !== undefined) {
     updates.stabilityoracle = typeof remoteJobs.stabilityoracleVal === "number" ? remoteJobs.stabilityoracleVal : null;
     if (remoteJobs.stabilityoracleStatus != null) updates.stabilityoracleStatus = remoteJobs.stabilityoracleStatus;

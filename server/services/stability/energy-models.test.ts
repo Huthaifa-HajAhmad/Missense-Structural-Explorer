@@ -377,3 +377,32 @@ describe("RaSP sources", () => {
     expect(getRaspCoverage()).toEqual({ proteins: 1, sources: { experimental: 1 } });
   });
 });
+
+/**
+ * ProtVar's precomputed FoldX rides on the energetics payload for display, but it is FoldX again: it
+ * must never enter the consensus, and a pending lookup must never hold the verdict provisional.
+ */
+describe("enrichBiophysicalResult — ProtVar reference value", () => {
+  const foldxRaw = { ddG: 2.6, status: "success", energetics: { foldxMean: 2.6 } };
+
+  it("carries the ProtVar fields and leaves the consensus to the counted engines", () => {
+    const withIt = enrichBiophysicalResult(foldxRaw, {
+      protvarStatus: "done", protvarVal: 2.09, protvarPlddt: 49.5, protvarModel: "AF-P15056-F1", protvarReason: null, protvarError: null,
+    });
+    const without = enrichBiophysicalResult(foldxRaw, {});
+    expect(withIt.energetics).toMatchObject({ protvar: 2.09, protvarStatus: "done", protvarPlddt: 49.5, protvarModel: "AF-P15056-F1" });
+    expect(withIt.energetics.consensusEnginesCounted).toBe(without.energetics.consensusEnginesCounted);
+    expect(withIt.energetics.consensusVerdict).toBe(without.energetics.consensusVerdict);
+  });
+
+  it("does not list a pending ProtVar lookup as a pending tool", () => {
+    const result = enrichBiophysicalResult(foldxRaw, { protvarStatus: "pending", protvarVal: null });
+    expect(result.energetics.pendingTools).not.toContain("ProtVar");
+    expect(result.energetics.evidenceComplete).toBe(true);
+  });
+
+  it("keeps a ProtVar value already on the cached payload", () => {
+    const cached = { ...foldxRaw, energetics: { ...foldxRaw.energetics, protvar: 1.1, protvarStatus: "done", protvarModel: "AF-X-F1" } };
+    expect(enrichBiophysicalResult(cached, {}).energetics).toMatchObject({ protvar: 1.1, protvarStatus: "done", protvarModel: "AF-X-F1" });
+  });
+});

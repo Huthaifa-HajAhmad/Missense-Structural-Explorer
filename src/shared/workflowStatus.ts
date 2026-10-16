@@ -42,7 +42,9 @@ function energeticsStageStatus(params: WorkflowStageStatusParams): { status: Wor
     thermompnnError: params.thermompnnError,
     isFolding: params.isFolding
   });
-  const computed = evidence.readings.find(reading => reading.ddg !== null);
+  // The run's ΔΔG comes from an engine that can count — never from a reference row (ProtVar), which
+  // would otherwise be presented as this run's estimate whenever every counted engine failed.
+  const computed = evidence.readings.find(reading => reading.ddg !== null && !reading.outcome.engine.referenceOnly);
   const failed = evidence.missing.filter(reading => ["failed", "upstream-error", "upstream-busy"].includes(reading.outcome.state));
   /**
    * An engine interrupted when the session expired is neither a provider failure nor an

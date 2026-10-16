@@ -479,7 +479,8 @@ describe("EnergeticsView — FoldX progress banner", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("FoldX score ready");
     expect(container.querySelectorAll('[data-foldx-stage][data-active="true"]')).toHaveLength(0);
-    expect(container.querySelectorAll(".nrg-progress__engine")).toHaveLength(6);
+    // Every row stays in view, the ProtVar reference row included.
+    expect(container.querySelectorAll(".nrg-progress__engine")).toHaveLength(7);
   });
 
   it("offers the hide control only once a row has settled", () => {
@@ -552,5 +553,27 @@ describe("DdgRuler — one unit per row", () => {
     expect(label).toContain("local destabilizing mark +6.3");
     expect(label).not.toContain("kcal");
     expect(container.querySelector(".nrg-ruler__axis")!.textContent).toBe("−12.60+20.9");
+  });
+});
+
+/**
+ * The ProtVar reference row reaches the screen: named, valued, marked not counted, with its own
+ * model and pLDDT — and the counted-engine summary is unchanged by it.
+ */
+describe("EnergeticsView — ProtVar FoldX reference row", () => {
+  it("renders the precomputed value as reference, without changing the engine count", () => {
+    const base = renderView();
+    const baseText = base.container.textContent ?? "";
+    base.unmount();
+
+    const { container } = renderView({
+      foldingEnergetics: { ...MACO1_ENERGETICS, protvar: 2.09, protvarStatus: "done", protvarPlddt: 49.5, protvarModel: "AF-Q13564-F1" },
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("ProtVar FoldX");
+    expect(text).toContain("AF-Q13564-F1");
+    expect(text).toMatch(/Not counted/);
+    for (const count of baseText.match(/\d+ of 6 engines/g) ?? []) expect(text).toContain(count);
+    expect(text).not.toMatch(/of 7 engines/);
   });
 });

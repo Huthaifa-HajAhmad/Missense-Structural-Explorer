@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  COUNTED_ENERGY_ENGINES,
   ENERGY_ENGINES,
   ENERGY_ENGINE_IDS,
   ENGINE_STATE_IDS,
@@ -31,9 +32,11 @@ import { CANCELLED_RUN_MESSAGE } from "../jobsCopy.ts";
  */
 
 describe("engineStatus — registry integrity", () => {
-  it("registers exactly six engines with unique ids", () => {
-    expect(ENERGY_ENGINES).toHaveLength(6);
-    expect(new Set(ENERGY_ENGINE_IDS).size).toBe(6);
+  it("registers six counted engines and one reference-only row, with unique ids", () => {
+    expect(new Set(ENERGY_ENGINE_IDS).size).toBe(ENERGY_ENGINES.length);
+    expect(COUNTED_ENERGY_ENGINES.map(e => e.id)).toEqual(["foldx", "dynamut2", "ddmut", "rasp", "thermompnn", "stabilityoracle"]);
+    // ProtVar's value IS FoldX (on EBI's AlphaFold model): shown, never a second vote.
+    expect(ENERGY_ENGINES.filter(e => e.referenceOnly).map(e => e.id)).toEqual(["protvar"]);
   });
 
   it("gives every engine a non-empty name, taxonomy, summary and sane cut-points", () => {

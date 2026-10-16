@@ -40,6 +40,34 @@ describe('TanStack stability comparison', () => {
     // Neither the stem midpoint, direct label nor pin ring is another focus stop.
     await waitFor(() => expect(screen.getByLabelText('Pinned method')).toHaveTextContent('ddmut'));
   });
+  it('puts each value label at the outer end of its stem: left of a negative dot, right of a positive one', async () => {
+    render(<Fixture />);
+    const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 8000 });
+    const anchorOf = (text: string) => within(chart).getByText(text).getAttribute('text-anchor');
+    expect(anchorOf('−0.50')).toBe('end');
+    expect(anchorOf('+2.00')).toBe('start');
+    expect(anchorOf('0.00')).toBe('start');
+  });
+  it('names the two FoldX templates under the chart, and plots ProtVar on the row after FoldX', async () => {
+    function TwoTemplates() {
+      const [options, setOptions] = useState<EnergeticsChartOptions>({ sort: 'method', countedOnly: false, showMarks: false });
+      const evidence = buildEnergeticsEvidence({
+        foldingStatus: 'success',
+        foldingEnergetics: {
+          foldx: 2.62, foldxMean: 2.62, dynamut2: 0.5, ddmut: 0, protvar: 1.12, protvarStatus: 'done', protvarModel: 'AF-Q13564-F1',
+          structureProvenance: { source: 'experimental', pdbId: '1yov', chainId: 'A', resolution: 2.8 },
+        },
+      });
+      return <EnergeticsComparison evidence={evidence} unit="kcal/mol" selected={null} onSelect={() => {}} options={options} onOptions={setOptions} />;
+    }
+    render(<TwoTemplates />);
+    const chart = await screen.findByRole('img', { name: /^Stability estimates by method/ }, { timeout: 8000 });
+    const check = screen.getByTestId('foldx-template-check');
+    expect(check).toHaveTextContent('The two FoldX values differ by 1.50 kcal/mol');
+    expect(check).toHaveTextContent('1YOV:A (experimental, 2.8 Å)');
+    expect(within(chart).getByText('+1.12')).toBeInTheDocument();
+    expect(within(chart).getByText('ProtVar FoldX')).toBeInTheDocument();
+  });
   it('renders the real library and pins a canonical negative estimate by keyboard', async () => {
     render(<Fixture />);
     // The comparison chart is a lazy chunk; the 1s default expires under full-suite CPU load.

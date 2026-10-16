@@ -57,6 +57,13 @@ export interface StabilityConsensusInput {
   stabilityoracle?: number | null;
   foldxRepairFailed?: boolean;
   foldxBinaryMissing?: boolean;
+  /**
+   * ProtVar's precomputed FoldX and the template of the run. Both are needed for ONE reason: ProtVar
+   * counts as the FoldX reading when there is no local value and the template is the AlphaFold model
+   * (`FOLDX_STAND_IN_RULE`). Without them a caller's verdict would disagree with the screen's.
+   */
+  protvar?: number | null;
+  structureProvenance?: { source?: string | null } | null;
 }
 
 export interface StabilityConsensusResult {
