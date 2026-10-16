@@ -52,6 +52,10 @@ The reviewer-reported unused `formatAttributionValue` import remains necessary f
 the language-model attribution display. The perturbation recovery test now awaits
 the asynchronous state update inside `act`; the channel detail table names only its
 SpliceAI group. The mechanism preview check now selects Channel details for splicing.
+It also targets the table's existing `data-row-key` attribute. The broader mechanism
+preview has 19 passing checks and no page errors; two checks fail identically on the
+PR and unchanged `origin/main` (`a21ae95`): the new-variant empty-state text assertion
+and adjacent splice-label geometry. These are recorded follow-ups outside this pass.
 
 Follow-up repair verification (2026-10-16): lint passed; 244 focused tests passed;
 the full suite passed 5,319 tests with five skipped (419 passing files, two skipped).

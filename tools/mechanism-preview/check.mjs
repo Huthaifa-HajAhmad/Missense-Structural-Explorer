@@ -84,7 +84,7 @@ check('Keyboard splice pin',(await page.getByRole('region',{name:'Selected evide
 await page.getByRole('tab',{name:'Channel details',exact:true}).click();
 await page.setViewportSize({width:390,height:1100});
 check('Splice records no page overflow',await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-await page.locator('tr[data-reading-key="spliceai-ds_al"]').scrollIntoViewIfNeeded();
+await page.locator('tr[data-row-key="spliceai-ds_al"]').scrollIntoViewIfNeeded();
 await page.screenshot({path:output + '/mechanism-splice-records-390.png'});
 await page.setViewportSize({width:1500,height:1100});
 await page.getByRole('tab',{name:'Splice map',exact:true}).click();
