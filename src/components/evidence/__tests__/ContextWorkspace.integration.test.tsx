@@ -33,7 +33,7 @@ describe('production context tabs and linked inspectors', () => {
     expect(chart).not.toHaveTextContent('Illustrative tissue 54');
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show all 54 records' })); });
     expect(chart).toHaveTextContent('Illustrative tissue 54');
-    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' })); });
+    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Source records' })); });
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Illustrative tissue 54' })); });
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show first 20' })); });
     act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Tissue explorer' })); });
@@ -100,7 +100,7 @@ describe('production context tabs and linked inspectors', () => {
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
     // The pinned record is named, not just "a pinned record": substring assertions once passed while the wrong row was pinned.
     expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('heading', { level: 3 })).toHaveTextContent(/Skeletal/i);
-    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
@@ -126,7 +126,7 @@ describe('production context tabs and linked inspectors', () => {
   it('filters tissue records without losing a pin, retains the cohort on navigation, and clears for a new variant', () => {
     const f = contextWorkspaceFixture(); const rendered = render(<Harness result={f.result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
