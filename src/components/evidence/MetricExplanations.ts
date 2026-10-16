@@ -60,6 +60,11 @@ export const METRIC_EXPLANATIONS: Record<string, MetricExplanation> = {
     paperTitle: "Blaabjerg et al. eLife (2023)",
     paperUrl: "https://doi.org/10.7554/eLife.82593",
   },
+  protvar: {
+    name: "ProtVar FoldX (precomputed, EBI)",
+    paperTitle: "Stephenson et al. Nucleic Acids Res (2024)",
+    paperUrl: "https://doi.org/10.1093/nar/gkae413",
+  },
   bayesdel: {
     name: "BayesDel (noAF)",
     paperTitle: "Feng. Hum Mutat (2017)",

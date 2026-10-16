@@ -67,7 +67,8 @@ describe('Energetics comparison scientific display contract', () => {
     expect(energeticsComparisonFinding(buildEnergeticsEvidence({ foldingDdG: 0, foldingStatus: 'success' }))).toContain('Agreement cannot be assessed');
     const empty = buildEnergeticsComparison(buildEnergeticsEvidence({}), 'kcal/mol');
     expect(empty.points).toEqual([]);
-    expect(empty.missing).toHaveLength(6);
+    // Six counted engines and the ProtVar reference row: every method is listed as absent.
+    expect(empty.missing).toHaveLength(7);
     expect(empty.domain.every(Number.isFinite)).toBe(true);
   });
 
@@ -104,5 +105,26 @@ describe('Energetics comparison scientific display contract', () => {
     expect(collecting.running.map(r => r.key)).toContain('thermompnn');
     expect(finding).toContain('agree on');
     expect(finding).toContain('Other results are still being collected');
+  });
+  describe('FoldX on two templates', () => {
+    const both = (extra = {}) => evidence({ protvar: 1.4, protvarStatus: 'done', protvarModel: 'AF-Q13564-F1', structureProvenance: { source: 'experimental', pdbId: '1yov', chainId: 'A' }, ...extra });
+    it('joins the two FoldX estimates when their rows touch, and not otherwise', () => {
+      const adjacent = buildEnergeticsComparison(both(), 'kcal/mol', 'method');
+      expect(adjacent.foldxPair).toEqual([{ key: 'foldx-pair', x1: 2.62, y1: 0, x2: 1.4, y2: 1 }]);
+      // Sorted by value another engine can sit between them; a diagonal across it would read as a third series.
+      const sorted = buildEnergeticsComparison(both({ thermompnn: 2.0 }), 'kcal/mol', 'value');
+      expect(sorted.foldxPair).toEqual([]);
+      expect(buildEnergeticsComparison(evidence(), 'kcal/mol').foldxPair).toEqual([]);
+    });
+    it('names the other FoldX value beside the unrepaired-template caution', () => {
+      const unrepaired = both({ foldxRepairSkipped: true, foldxRepairSkippedReason: 'large-structure' });
+      const notes = energeticsComparisonCautions(unrepaired);
+      expect(notes.join(' ')).toContain('unrepaired template');
+      expect(notes.join(' ')).toContain('The two FoldX values differ by 1.22 kcal/mol');
+    });
+    it('keeps the plotted value in the display unit', () => {
+      const kj = buildEnergeticsComparison(both(), 'kJ/mol', 'method');
+      expect(kj.foldxPair[0].x2).toBeCloseTo(1.4 * KJ_PER_KCAL);
+    });
   });
 });

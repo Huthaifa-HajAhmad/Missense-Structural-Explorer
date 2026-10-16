@@ -7,7 +7,8 @@ import { AGREEMENT_CHIP, absenceText, signedDdg, markText, type EnergeticsEviden
  */
 export type EnergySort = 'method' | 'value';
 export interface EnergeticsChartOptions { sort: EnergySort; countedOnly: boolean; showMarks: boolean }
-export const returnedEnergyEstimates = (evidence: EnergeticsEvidence) => evidence.readings.filter(r => r.ddg !== null).length;
+/** Engines that returned a value — of the engines that CAN count; a reference-only row (ProtVar) is not one. */
+export const returnedEnergyEstimates = (evidence: EnergeticsEvidence) => evidence.readings.filter(r => r.ddg !== null && !r.outcome.engine.referenceOnly).length;
 /** A prominent finding must qualify sparse evidence before presenting its direction. */
 export function energeticsComparisonHeadline(evidence: EnergeticsEvidence): string {
   const count = evidence.agreement.nCounted;
@@ -21,10 +22,16 @@ export function energeticsComparisonCautions(evidence: EnergeticsEvidence): stri
   if (evidence.lowPlddt !== null) notes.push(`Low confidence in the AlphaFold template here (pLDDT ${evidence.lowPlddt.toFixed(1)}); inspect the structure basis.`);
   const unrepaired = evidence.readings.filter(r => r.caveats.includes('unrepaired-template'));
   if (unrepaired.length) notes.push(`${unrepaired.map(r => r.name).join(', ')} used an unrepaired template, which can distort the estimate.`);
-  const excluded = evidence.readings.filter(r => r.ddg !== null && !r.counted);
+  // The cross-check names the other FoldX value beside the caveat it bears on.
+  if (evidence.foldxTemplateCheck && (unrepaired.length || evidence.foldxTemplateCheck.state !== 'consistent')) notes.push(evidence.foldxTemplateCheck.headline);
+  // A reference-only row is excluded by design, so it is not a caution with a reason to look up.
+  const excluded = evidence.readings.filter(r => r.ddg !== null && !r.counted && !r.outcome.engine.referenceOnly);
   if (excluded.length) notes.push(`${excluded.map(r => r.name).join(', ')} returned a value but is excluded from agreement. Select the method for the reason.`);
   return notes;
 }
+/** The connector drawn between the two FoldX estimates (local and ProtVar) on adjacent rows. */
+export interface FoldxPairLink { x1: number; y1: number; x2: number; y2: number; key: string }
+
 export interface EnergyPoint {
   key: EnergeticsReading['key'];
   name: string;
@@ -49,13 +56,21 @@ export function buildEnergeticsComparison(evidence: EnergeticsEvidence, unit: En
     guideLabel: `Local destabilising guide for ${r.name}: ${markText(r.strongMark, unit)} ${unit}. App-defined, not a clinical cut-point.`,
     label: `${r.name}: ${signedDdg(r.ddg, unit)}. ${r.callLabel ?? 'Estimate'}${r.counted ? '' : '; not counted in agreement'}.`,
   }]);
+  const local = points.find(p => p.key === 'foldx');
+  const protvar = points.find(p => p.key === 'protvar');
+  // Drawn only when the two rows touch; across other rows a diagonal would read as a third series.
+  const foldxPair: FoldxPairLink[] = local && protvar && Math.abs(local.row - protvar.row) === 1
+    ? [{ key: 'foldx-pair', x1: local.value, y1: local.row, x2: protvar.value, y2: protvar.row }]
+    : [];
   const extent = evidence.readings.flatMap(r => r.ddg === null ? [] : [r.ddg, r.strongMark]);
   const min = Math.min(-1, ...extent);
   const max = Math.max(1, ...extent);
   const padding = (max - min) * 0.12;
+  // A negative value's label sits left of its dot, so the stable side needs room for it.
+  const leftPadding = extent.some(v => v < 0) ? padding * 1.6 : padding;
   return {
-    readings, points,
-    domain: [(min - padding) * factor, (max + padding) * factor] as [number, number],
+    readings, points, foldxPair,
+    domain: [(min - leftPadding) * factor, (max + padding) * factor] as [number, number],
     missing: readings.filter(r => r.ddg === null).map(r => ({ key: r.key, name: r.name, status: r.outcome.label, reason: absenceText(r) })),
     summary: `${points.length} displayed estimates. Positive values predict less stable folding; negative values predict more stable folding. ${readings.length - points.length} displayed methods have no estimate. Values are predictions, not a disease classification.`,
   };

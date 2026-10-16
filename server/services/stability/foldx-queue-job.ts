@@ -19,6 +19,7 @@
 import { BiophysicalJobQueue } from "../infra/biophysical-queue.ts";
 import { enrichBiophysicalResult, generateMutantPdb, getRaspCoverage, runRaspLocal, runStabilityOracleAnalysis } from "../biophysics.ts";
 import { fetchUniprotSequence } from "../uniprot.ts";
+import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../external-api/protvar.ts";
 
 export interface QueueMutation {
   wtAa: string;
@@ -99,6 +100,25 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
     }
   })();
 
+  /**
+   * ProtVar's precomputed FoldX (EBI, on the AlphaFold model): a reference value, looked up beside
+   * RaSP for the same reason — a remote table read must never wait behind the local FoldX run.
+   */
+  const protvar = (async () => {
+    if (previousRemoteJobs.protvarStatus === "done") return;
+    if (!data.uniprotId || !position || !wtAa || !mutAa) {
+      await publishRemoteJobs(jobId, { protvarStatus: "done" });
+      return;
+    }
+    await publishRemoteJobs(jobId, { protvarStatus: "pending" });
+    try {
+      await publishRemoteJobs(jobId, protvarJobFields(await fetchProtVarFoldx(data.uniprotId, position, wtAa, mutAa)));
+    } catch (err: any) {
+      console.warn("[Queue Worker] ProtVar FoldX lookup failed:", err?.message ?? err);
+      await publishRemoteJobs(jobId, protvarErrorFields(err));
+    }
+  })();
+
   /** StabilityOracle uses the input template, so it can run while FoldX repairs that template. */
   const stabilityOracle = (async () => {
     if (previousRemoteJobs.stabilityoracleStatus === "done") return;
@@ -127,7 +147,7 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
     }
   })();
 
-  await Promise.all([rasp, stabilityOracle]);
+  await Promise.all([rasp, protvar, stabilityOracle]);
 }
 
 /** The result a FoldX failure becomes, so the other engines' values still reach the reader. */

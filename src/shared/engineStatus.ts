@@ -45,7 +45,8 @@ export type EnergyEngineId =
   | "ddmut"
   | "rasp"
   | "thermompnn"
-  | "stabilityoracle";
+  | "stabilityoracle"
+  | "protvar";
 
 /**
  * The provider's native sign convention for its raw ΔΔG output.
@@ -86,6 +87,12 @@ export interface EngineDescriptor {
   absenceClass: AbsenceClass;
   /** One-line description of what the engine measures. */
   summary: string;
+  /**
+   * Shown for reference, NEVER counted: not in the consensus, not in coverage ("N of 6 engines"),
+   * and not in the run's running/missing lists. For a value that repeats a method already counted —
+   * ProtVar's precomputed FoldX is FoldX — counting it would count one method twice.
+   */
+  referenceOnly?: boolean;
 }
 
 /**
@@ -186,7 +193,23 @@ export const ENERGY_ENGINES: readonly EngineDescriptor[] = [
     absenceClass: "install",
     summary: "Geometric graph-transformer over wild-type and mutant 3D coordinates.",
   },
+  {
+    id: "protvar",
+    name: "ProtVar FoldX",
+    taxonomy: "Force Field, precomputed (EBI ProtVar)",
+    nativeSign: "positive-destabilizing",
+    // FoldX's own cut-points: it IS FoldX, on a different template.
+    strongCut: THRESHOLDS.foldxDdG.destabilizingStrong,
+    supportingCut: THRESHOLDS.foldxDdG.destabilizingSupporting,
+    stabilizingCut: THRESHOLDS.foldxDdG.stabilizing,
+    absenceClass: "coverage",
+    summary: "FoldX ΔΔG precomputed by EBI ProtVar on the AlphaFold DB model. Shown for reference; not counted.",
+    referenceOnly: true,
+  },
 ] as const;
+
+/** Engines whose values may be counted — the denominator of every "N of M engines". */
+export const COUNTED_ENERGY_ENGINES: readonly EngineDescriptor[] = ENERGY_ENGINES.filter(e => !e.referenceOnly);
 
 export const ENERGY_ENGINE_IDS: readonly EnergyEngineId[] = ENERGY_ENGINES.map(e => e.id);
 
@@ -752,6 +775,12 @@ export interface EngineFacts {
    * FoldX are absent by construction (neither reports through the app's session).
    */
   energeticsAuthLapsed?: { dynamut2?: boolean; ddmut?: boolean; thermompnn?: boolean; stabilityoracle?: boolean } | null;
+  /** ProtVar's precomputed FoldX (reference only). */
+  protvar?: number | null;
+  protvarStatus?: RemoteStatus;
+  /** Why ProtVar has no value, when it answered without one. */
+  protvarReason?: string | null;
+  protvarError?: string | null;
 }
 
 /**
@@ -956,6 +985,21 @@ export function buildEngineOutcomes(facts: EngineFacts): EngineOutcome[] {
         absenceProblemFor(getEngine("stabilityoracle"), facts.stabilityoracleStatus),
       runActive: stabilityoracleRunActive,
     },
+    {
+      id: "protvar",
+      value: facts.protvar ?? null,
+      status: facts.protvarStatus ?? null,
+      // A ProtVar answer without a value is a statement about its table, like a RaSP miss.
+      problem: noValue(facts.protvar) && facts.protvarStatus === "done" && facts.protvarReason
+        ? "coverage-miss"
+        : facts.protvarStatus === "error"
+          ? "upstream-error"
+          : null,
+      detail: facts.protvarError ?? facts.protvarReason ?? null,
+      runActive: facts.protvarStatus === "pending",
+      // Always: it is FoldX again. See `referenceOnly` on its descriptor.
+      excludeFromConsensus: true,
+    },
   ];
 
   return observations.map(obs => resolveEngineOutcome({ ...obs, hidden: facts.hidePending }));
@@ -995,7 +1039,9 @@ export interface CoverageSummary {
 /** Below this many engines, a weighted average is a single-tool estimate, not a consensus. */
 export const MIN_ENGINES_FOR_CONSENSUS = 3;
 
-export function summarizeCoverage(outcomes: readonly EngineOutcome[]): CoverageSummary {
+export function summarizeCoverage(allOutcomes: readonly EngineOutcome[]): CoverageSummary {
+  // Coverage describes the COUNTED engines; a reference-only row is neither intended nor missing.
+  const outcomes = allOutcomes.filter(o => !o.engine.referenceOnly);
   const computed = outcomes.filter(o => o.contributesToConsensus).length;
   const running = outcomes.filter(o => o.state === "running").map(o => o.id);
   /**
@@ -1012,12 +1058,12 @@ export function summarizeCoverage(outcomes: readonly EngineOutcome[]): CoverageS
 
   return {
     computed,
-    intended: ENERGY_ENGINES.length,
+    intended: COUNTED_ENERGY_ENGINES.length,
     notAvailableInDeployment,
     running,
     missing,
     insufficient: computed < MIN_ENGINES_FOR_CONSENSUS,
-    label: `${computed} of ${ENERGY_ENGINES.length} engines`,
+    label: `${computed} of ${COUNTED_ENERGY_ENGINES.length} engines`,
   };
 }
 

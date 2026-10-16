@@ -173,6 +173,20 @@ export const energeticsDataSchema = z.object({
   stabilityoracleStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
   stabilityoracleError: z.string().nullable().optional(),
   /**
+   * EBI ProtVar's precomputed FoldX ΔΔG on the AlphaFold model (kcal/mol, positive = destabilizing).
+   * A cross-check, never a second vote: FoldX again. It counts as THE FoldX reading only when there is
+   * no local FoldX value and the template is the AlphaFold model (`FOLDX_STAND_IN_RULE`).
+   */
+  protvar: nullableFiniteNumber.optional(),
+  protvarStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
+  /** pLDDT at this residue in the AlphaFold model ProtVar's FoldX ran on. */
+  protvarPlddt: nullableFiniteNumber.optional(),
+  /** The AlphaFold DB model, e.g. `AF-P15056-F1`. */
+  protvarModel: z.string().nullable().optional(),
+  /** Why ProtVar has no value (no prediction, fragment models disagree, residue differs). */
+  protvarReason: z.string().nullable().optional(),
+  protvarError: z.string().nullable().optional(),
+  /**
    * @deprecated No longer produced. They came from hand-typed curves (`thresholds/consensus.ts`) and
    * are kept only so payloads cached before their retirement still parse. Nothing may read them.
    */

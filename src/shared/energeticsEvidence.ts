@@ -33,6 +33,7 @@
 
 import {
   buildEngineOutcomes,
+  classifyRawDdg,
   describeProvenance,
   formatDdg,
   getEngine,
@@ -65,9 +66,9 @@ export const ENERGETICS_GROUP_LABEL: Record<EnergeticsGroup, string> = {
 };
 
 export const ENERGETICS_GROUP_NOTE: Record<EnergeticsGroup, string> = {
-  physics: "Computed here on the template structure",
+  physics: "A force-field ΔΔG on a template structure: computed here, or precomputed by ProtVar",
   learned: "Remote servers and local model services, run on the same template",
-  lookup: "Read from a bundled table; no calculation for this run",
+  lookup: "Read from a precomputed table; no calculation for this run",
 };
 
 const ENGINE_GROUP: Record<EnergyEngineId, EnergeticsGroup> = {
@@ -77,9 +78,11 @@ const ENGINE_GROUP: Record<EnergyEngineId, EnergeticsGroup> = {
   thermompnn: "learned",
   stabilityoracle: "learned",
   rasp: "lookup",
+  // It IS FoldX, so it sits beside the local run in the force-field group, where the two are compared.
+  protvar: "physics",
 };
 
-export type EnergeticsCaveat = "unrepaired-template" | "low-plddt" | "excluded" | "rosetta-surrogate";
+export type EnergeticsCaveat = "unrepaired-template" | "low-plddt" | "excluded" | "rosetta-surrogate" | "protvar-stand-in";
 
 export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; detail: string }> = {
   "unrepaired-template": {
@@ -95,6 +98,11 @@ export const ENERGETICS_CAVEAT_TEXT: Record<EnergeticsCaveat, { label: string; d
   excluded: {
     label: "Not counted",
     detail: "Shown for reference only — excluded from the agreement count.",
+  },
+  "protvar-stand-in": {
+    label: "ProtVar value",
+    detail:
+      "No local FoldX value exists for this run, and its template is the AlphaFold model, so EBI ProtVar's precomputed FoldX on that model stands in as the one FoldX reading. It is counted once; it is not a second engine.",
   },
   "rosetta-surrogate": {
     label: "Rosetta surrogate",
@@ -194,6 +202,43 @@ export interface EnergeticsStructure {
   repairState: "repaired" | "unrepaired" | "failed" | "unknown";
 }
 
+/**
+ * Two FoldX values for one substitution, on two templates: the local BuildModel run, and EBI
+ * ProtVar's precomputed value on the AlphaFold DB model.
+ *
+ * It is a CROSS-CHECK, never a second vote. The two differ in template (an experimental complex or a
+ * homology model against an AlphaFold monomer) and in pipeline (repair, runs, settings, ProtVar's
+ * low-pLDDT trimming), so a gap is not an error bar on either value; it says how template-sensitive
+ * FoldX is for this variant. The size rule is local, like every ΔΔG mark here.
+ */
+export interface FoldxTemplateCheck {
+  /** `consistent`: close and in the same band; `differs`: far apart or in different bands; `opposite`: they point in opposite directions. */
+  state: "consistent" | "differs" | "opposite";
+  /** The local run's ΔΔG, canonical kcal/mol. */
+  local: number;
+  /** ProtVar's ΔΔG, canonical kcal/mol. */
+  protvar: number;
+  /** `protvar − local`, canonical kcal/mol. */
+  delta: number;
+  /** "1YOV:A (experimental, 2.8 Å)" or "the AlphaFold model". */
+  localTemplate: string;
+  /** "AF-Q13564-F1". */
+  protvarTemplate: string;
+  /** Both ran on an AlphaFold model, so a gap points at the pipeline rather than the template. */
+  sameTemplateKind: boolean;
+  /** Whether the local value is excluded from the agreement (its template repair failed). */
+  localCounted: boolean;
+  headline: string;
+  detail: string;
+  tone: "neutral" | "warning";
+}
+
+/** ProtVar's value standing in as the run's single FoldX reading (see `FOLDX_STAND_IN_RULE`). */
+export interface FoldxStandIn {
+  model: string | null;
+  plddt: number | null;
+}
+
 export interface EnergeticsEvidence {
   readings: EnergeticsReading[];
   coverage: CoverageSummary;
@@ -208,7 +253,25 @@ export interface EnergeticsEvidence {
   isFolding: boolean;
   /** Provenance rows the payload actually carries. */
   sources: Array<[string, string]>;
+  /** Local FoldX against ProtVar's FoldX, when both returned a value; otherwise null. */
+  foldxTemplateCheck: FoldxTemplateCheck | null;
+  /** Set when ProtVar's value IS the FoldX reading because no local value exists (AlphaFold template only). */
+  foldxStandIn: FoldxStandIn | null;
 }
+
+/**
+ * ONE FoldX reading counts. Local FoldX is it whenever it has a value. ProtVar's precomputed FoldX
+ * counts instead only when the local run has NO value AND the run's template is the AlphaFold model
+ * (the model ProtVar computed on), so the value describes the template the rest of the run uses. On an
+ * experimental or homology template ProtVar stays a cross-check: it would describe another structure.
+ */
+export const FOLDX_STAND_IN_RULE =
+  "ProtVar's FoldX counts as the FoldX reading only when there is no local value and the template is the AlphaFold model.";
+
+/** The local gap above which two FoldX values are called different: about FoldX's own reported error. */
+export const FOLDX_TEMPLATE_DIFFERENCE_KCAL = 1;
+/** Below this magnitude a value is "near zero", so a sign difference is not read as opposite directions. */
+const FOLDX_NEAR_ZERO_KCAL = 0.5;
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -310,10 +373,20 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   const isFolding = Boolean(input.isFolding);
   const prov: StructureProvenance | null = (e?.structureProvenance as StructureProvenance | undefined) ?? null;
 
+  const localFoldxMean = num(e?.foldxMean) ?? num(input.foldingDdG);
+  const localFoldxDdg = num(e?.foldx) ?? num(input.foldingDdG);
+  const protvarValue = num(e?.protvar);
+  const protvarPlddt = num(e?.protvarPlddt);
+  const protvarModel = typeof e?.protvarModel === "string" ? e.protvarModel : null;
+  const standIn: FoldxStandIn | null =
+    localFoldxMean === null && localFoldxDdg === null && protvarValue !== null && prov?.source === "alphafold"
+      ? { model: protvarModel, plddt: protvarPlddt }
+      : null;
+
   const facts: EngineFacts = {
-    foldxMean: num(e?.foldxMean) ?? num(input.foldingDdG),
-    foldxDdg: num(e?.foldx) ?? num(input.foldingDdG),
-    foldxSd: num(e?.foldxSd),
+    foldxMean: standIn ? protvarValue : localFoldxMean,
+    foldxDdg: standIn ? protvarValue : localFoldxDdg,
+    foldxSd: standIn ? null : num(e?.foldxSd),
     dynamut2: num(e?.dynamut2),
     ddmut: num(e?.ddmut),
     rasp: num(e?.rasp),
@@ -335,8 +408,9 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     thermompnnError: input.thermompnnError ?? null,
     foldingError: input.foldingError ?? null,
     foldingStatus: input.foldingStatus ?? null,
-    foldxRepairFailed: Boolean(e?.foldxRepairFailed),
-    foldxBinaryMissing: Boolean(e?.foldxBinaryMissing),
+    // A local repair failure or missing binary says nothing about ProtVar's value.
+    foldxRepairFailed: standIn ? false : Boolean(e?.foldxRepairFailed),
+    foldxBinaryMissing: standIn ? false : Boolean(e?.foldxBinaryMissing),
     isFolding,
     structureProvenance: prov,
     hidePending: input.hidePending,
@@ -346,7 +420,12 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
      */
     energeticsAuthLapsed:
       (e?.energeticsAuthLapsed as EngineFacts["energeticsAuthLapsed"]) ?? null,
+    protvar: num(e?.protvar),
+    protvarStatus: e?.protvarStatus,
+    protvarReason: typeof e?.protvarReason === "string" ? e.protvarReason : null,
+    protvarError: typeof e?.protvarError === "string" ? e.protvarError : null,
   };
+  // `protvarPlddt` is the pLDDT at this residue in the model ProtVar's FoldX ran on — ITS model.
 
   const outcomes = buildEngineOutcomes(facts);
   const coverage = summarizeCoverage(outcomes);
@@ -362,22 +441,36 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   const runs = num(prov?.foldxRuns);
   const sd = num(e?.foldxSd);
 
-  const readings: EnergeticsReading[] = outcomes.map(outcome => {
+  const allReadings: EnergeticsReading[] = outcomes.map(outcome => {
     const engine = getEngine(outcome.id);
     const has = outcome.canonicalDdg !== null;
     const caveats: EnergeticsCaveat[] = [];
     if (has && outcome.excluded) caveats.push("excluded");
-    if (has && outcome.id === "foldx" && repair.repairState === "unrepaired") caveats.push("unrepaired-template");
-    if (has && lowPlddt !== null && outcome.id !== "rasp") caveats.push("low-plddt");
+    if (has && outcome.id === "foldx" && standIn) caveats.push("protvar-stand-in");
+    if (has && outcome.id === "foldx" && !standIn && repair.repairState === "unrepaired") caveats.push("unrepaired-template");
+    if (outcome.id === "protvar" || (outcome.id === "foldx" && standIn)) {
+      // ProtVar always ran on an AlphaFold model, so its own pLDDT is the one that applies.
+      if (has && protvarPlddt !== null && protvarPlddt < 70) caveats.push("low-plddt");
+    } else if (has && lowPlddt !== null && outcome.id !== "rasp") caveats.push("low-plddt");
     if (has && outcome.id === "rasp") caveats.push("rosetta-surrogate");
 
     let note: string | null = null;
-    if (outcome.id === "foldx" && has) {
+    if (outcome.id === "foldx" && has && standIn) {
+      note =
+        `Precomputed by EBI ProtVar with FoldX on ${protvarModel ?? "the AlphaFold DB model"}` +
+        `${protvarPlddt !== null ? ` (pLDDT ${protvarPlddt.toFixed(1)} at this residue)` : ""}. ` +
+        "No local FoldX value exists for this run; it stands in because the template is the AlphaFold model.";
+    } else if (outcome.id === "foldx" && has) {
       const parts: string[] = [];
       if (runs !== null) parts.push(`Mean of ${runs} BuildModel runs${runRange(e?.rawDdGs)}`);
       if (sd !== null) parts.push(`run-to-run spread ${formatDdg(sd)}, not an error bar`);
       if (outcome.excluded) parts.push(outcome.reason);
       note = parts.length ? parts.join("; ") + "." : null;
+    } else if (outcome.id === "protvar" && has) {
+      note =
+        `Precomputed by EBI ProtVar with FoldX on ${protvarModel ?? "the AlphaFold DB model"}` +
+        `${protvarPlddt !== null ? ` (pLDDT ${protvarPlddt.toFixed(1)} at this residue)` : ""}. ` +
+        "Shown as a cross-check: it is FoldX again, on a different template, so it is not counted as a second engine.";
     } else if (outcome.id === "rasp" && has) {
       const src = e?.raspSource as RaspSource | undefined;
       note = src
@@ -413,6 +506,16 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
       knowledgeKey: outcome.id,
     };
   });
+
+  /**
+   * ProtVar's row sits right after FoldX, where the two are compared. When its value IS the FoldX
+   * reading it is not shown a second time.
+   */
+  const readings: EnergeticsReading[] = [
+    ...allReadings.filter(r => r.key === "foldx"),
+    ...allReadings.filter(r => r.key === "protvar" && !standIn),
+    ...allReadings.filter(r => r.key !== "foldx" && r.key !== "protvar"),
+  ];
 
   const counted = readings.filter(r => r.counted && r.ddg !== null);
   const destabilizing = counted.filter(r => r.outcome.risk?.id === "high");
@@ -467,7 +570,7 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
     add("Template", structure.pdbId ? `${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ""}` : structure.label);
     add("AlphaFold DB", prov?.afdbVersion);
   }
-  const foldxHas = readings[0]?.ddg !== null;
+  const foldxHas = !standIn && readings[0]?.ddg !== null;
   if (foldxHas) {
     add("FoldX version", prov?.foldxVersion);
     add("FoldX runs", runs ?? undefined);
@@ -475,18 +578,102 @@ export function buildEnergeticsEvidence(input: EnergeticsInputs): EnergeticsEvid
   }
   const raspSrc = e?.raspSource as RaspSource | undefined;
   if (readings.find(r => r.key === "rasp")?.ddg !== null && raspSrc) add("RaSP table", RASP_SOURCE_LABEL[raspSrc]);
+  if (protvarValue !== null) add("ProtVar model", protvarModel ?? undefined);
   add("Model digest", typeof prov?.modelSha === "string" ? prov.modelSha.slice(0, 12) : undefined);
+
+  const localReading = readings.find(r => r.key === "foldx");
+  const foldxTemplateCheck =
+    !standIn && localReading?.ddg != null && protvarValue !== null
+      ? buildFoldxTemplateCheck({
+          local: localReading.ddg,
+          localCounted: localReading.counted,
+          protvar: protvarValue,
+          protvarModel,
+          structure,
+          repairState: repair.repairState,
+        })
+      : null;
 
   return {
     readings,
     coverage,
     agreement,
-    running: readings.filter(r => r.outcome.state === "running"),
-    missing: readings.filter(r => r.ddg === null && r.outcome.state !== "running"),
+    // The run's state is about the engines that can count; a reference row keeps its own state in
+    // the table but never holds the stage "running" or reports it "failed".
+    running: readings.filter(r => r.outcome.state === "running" && !r.outcome.engine.referenceOnly),
+    missing: readings.filter(r => r.ddg === null && r.outcome.state !== "running" && !r.outcome.engine.referenceOnly),
     structure,
     lowPlddt,
     isFolding,
     sources,
+    foldxTemplateCheck,
+    foldxStandIn: standIn,
+  };
+}
+
+/** The template a local FoldX value was computed on, in words, for the cross-check. */
+function describeLocalTemplate(structure: EnergeticsStructure | null): { text: string; alphafold: boolean } {
+  if (!structure) return { text: "the local template", alphafold: false };
+  if (structure.source === "alphafold") return { text: "the AlphaFold model", alphafold: true };
+  const id = structure.pdbId ? `${structure.pdbId}${structure.chainId ? `:${structure.chainId}` : ""}` : null;
+  const kind = structure.source === "homolog" ? "homology template" : structure.source === "client-provided" ? "supplied structure" : "experimental";
+  const res = structure.resolution !== null ? `, ${structure.resolution.toFixed(1)} Å` : "";
+  return { text: id ? `${id} (${kind}${res})` : `the ${kind} structure`, alphafold: false };
+}
+
+function buildFoldxTemplateCheck(args: {
+  local: number;
+  localCounted: boolean;
+  protvar: number;
+  protvarModel: string | null;
+  structure: EnergeticsStructure | null;
+  repairState: EnergeticsStructure["repairState"];
+}): FoldxTemplateCheck {
+  const { local, protvar, protvarModel, structure, repairState } = args;
+  const delta = protvar - local;
+  const localBand = classifyRawDdg("foldx", local)?.id;
+  const protvarBand = classifyRawDdg("foldx", protvar)?.id;
+  const opposite =
+    Math.sign(local) !== Math.sign(protvar) &&
+    Math.abs(local) >= FOLDX_NEAR_ZERO_KCAL &&
+    Math.abs(protvar) >= FOLDX_NEAR_ZERO_KCAL;
+  const state: FoldxTemplateCheck["state"] = opposite
+    ? "opposite"
+    : Math.abs(delta) >= FOLDX_TEMPLATE_DIFFERENCE_KCAL || localBand !== protvarBand
+      ? "differs"
+      : "consistent";
+
+  const tpl = describeLocalTemplate(structure);
+  const protvarTemplate = protvarModel ?? "the AlphaFold DB model";
+  const gap = `${Math.abs(delta).toFixed(2)} kcal/mol`;
+  const headline =
+    state === "opposite"
+      ? "The two FoldX values point in opposite directions."
+      : state === "differs"
+        ? `The two FoldX values differ by ${gap}.`
+        : `The two FoldX values are close (${gap} apart).`;
+
+  const parts = [`FoldX on ${tpl.text} gave ${signedDdg(local)}; ProtVar's FoldX on ${protvarTemplate} gave ${signedDdg(protvar)}.`];
+  parts.push(
+    tpl.alphafold
+      ? "Both ran on an AlphaFold model, so a gap points at the pipeline (repair, number of runs, FoldX settings) rather than the template."
+      : "They differ in template and pipeline (and ProtVar models a single chain), so the gap is not an error bar on either value; it shows how template-sensitive FoldX is for this variant."
+  );
+  if (repairState === "unrepaired" && !tpl.alphafold) parts.push("The local template was not repaired, which can add to the gap.");
+  if (!args.localCounted) parts.push("The local value is not counted in the agreement.");
+
+  return {
+    state,
+    local,
+    protvar,
+    delta,
+    localTemplate: tpl.text,
+    protvarTemplate,
+    sameTemplateKind: tpl.alphafold,
+    localCounted: args.localCounted,
+    headline,
+    detail: parts.join(" "),
+    tone: state === "consistent" ? "neutral" : "warning",
   };
 }
 
@@ -585,6 +772,12 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
     rest.push(`${returnedCount} of ${coverage.intended} engines returned a value${countedTail}.`);
   }
 
+  if (ev.foldxTemplateCheck) {
+    if (ev.foldxTemplateCheck.state !== "consistent") tone = "warning";
+    rest.push(
+      `${ev.foldxTemplateCheck.headline} ProtVar's FoldX on the AlphaFold model is a cross-check, not a second engine.`
+    );
+  }
   const caveated = [...a.destabilizing, ...a.moderate].filter(r => r.caveats.includes("unrepaired-template"));
   if (caveated.length) {
     rest.push(`${named(caveated)} ran on an unrepaired template, which can distort its ΔΔG.`);

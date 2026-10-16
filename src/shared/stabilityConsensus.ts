@@ -24,7 +24,10 @@ export function stabilityConsensusFor(args: {
       thermompnn: fe?.thermompnn ?? null,
       stabilityoracle: fe?.stabilityoracle ?? null,
       foldxRepairFailed: fe?.foldxRepairFailed ?? false,
-      foldxBinaryMissing: fe?.foldxBinaryMissing ?? false
+      foldxBinaryMissing: fe?.foldxBinaryMissing ?? false,
+      // ProtVar stands in for FoldX on an AlphaFold template with no local value; see `FOLDX_STAND_IN_RULE`.
+      protvar: fe?.protvar ?? null,
+      structureProvenance: fe?.structureProvenance ?? null
     }
     // Values only. The residue context and pLDDT arguments fed per-context "AUC" weights that had no
     // source (`protein_class_calibration.json`); they were retired with the probability.

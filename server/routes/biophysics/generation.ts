@@ -56,6 +56,7 @@ import { QueueLimitError } from "../../services/infra/queue-owners.ts";
 import { AdmissionError } from "../../services/infra/admission.ts";
 import { countResidues, foldxQueueCostEstimateMs, isAlphaFoldModel } from "../../services/stability/foldx/estimate.ts";
 import { agentJoinGuard } from "../../services/infra/agent-jobs.ts";
+import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../../services/external-api/protvar.ts";
 
 const generateMutantSchema = z.object({
   wtPdb: z.string().optional(),
@@ -532,7 +533,9 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
                   raspStatus: "pending",
                   raspReason: null,
                   raspSource: null,
-                  raspError: null
+                  raspError: null,
+                  protvarStatus: "pending",
+                  protvarVal: null
                 }
               }, {
                 ownerId: submitterId(req),
@@ -855,6 +858,28 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             }
           }
 
+          /**
+           * ProtVar on a cache hit, for the same reason as RaSP above: the companion lookup lands after
+           * FoldX wrote its cache entry, so a revisit would otherwise never show it. One cached read.
+           */
+          if (cachedFoldx.energetics && cachedFoldx.energetics.protvarStatus !== "done" && uniprotId) {
+            try {
+              // `protvarVal` is the job-record name; on the energetics payload the value is `protvar`.
+              const { protvarVal, ...protvarRest } = protvarJobFields(
+                await fetchProtVarFoldx(uniprotId, posNum, wtLetter, mutLetter)
+              );
+              Object.assign(cachedFoldx.energetics, protvarRest, { protvar: protvarVal });
+              // A ProtVar answer (value or definitive absence) is reference data: keep it with the entry,
+              // as RaSP does, so a restart does not re-ask EBI.
+              writeMutantToCache(foldxCacheKey, cachedFoldx);
+            } catch (protvarErr: any) {
+              console.warn("[ProtVar Cache-Hit Lookup Warning]:", protvarErr.message);
+              // Said, not silent — and not persisted, so the next visit retries an outage.
+              const { protvarVal, ...protvarRest } = protvarErrorFields(protvarErr);
+              Object.assign(cachedFoldx.energetics, protvarRest, { protvar: protvarVal });
+            }
+          }
+
           let finalDynamut2Val = typeof existingDynamut2 === "number" ? existingDynamut2 : null;
           let finalDdmutVal = typeof existingDdmut === "number" ? existingDdmut : null;
 
@@ -869,7 +894,14 @@ export function registerGenerationRoutes(apiRouter: Router, jsonParserPdb: any):
             thermompnnStatus,
             thermompnnError,
             thermompnnVal: finalThermompnnVal,
-            stabilityoracleVal: finalStabilityoracleVal
+            stabilityoracleVal: finalStabilityoracleVal,
+            // Passed explicitly like every other engine, rather than relying on the in-place update above.
+            protvarStatus: cachedFoldx.energetics?.protvarStatus ?? null,
+            protvarVal: cachedFoldx.energetics?.protvar ?? null,
+            protvarPlddt: cachedFoldx.energetics?.protvarPlddt ?? null,
+            protvarModel: cachedFoldx.energetics?.protvarModel ?? null,
+            protvarReason: cachedFoldx.energetics?.protvarReason ?? null,
+            protvarError: cachedFoldx.energetics?.protvarError ?? null
           }, {
             source: resolvedStructure?.provenance.source ?? "client-provided",
             pdbId: resolvedStructure?.provenance.pdbId ?? null,

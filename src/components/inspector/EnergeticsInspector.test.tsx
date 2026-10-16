@@ -92,9 +92,11 @@ describe("EnergeticsInspector — the rule trace", () => {
   it("lists each engine's local mark beside this variant's value", () => {
     renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done" });
     const marks = screen.getByTestId("energetics-marks");
-    const foldx = within(marks).getByText("FoldX").closest("li")!;
+    const foldx = within(marks).getByText("FoldX").closest("tr")!;
     expect(foldx).toHaveTextContent("≥ +1.5");
-    expect(foldx).toHaveTextContent("+2.62 kcal/mol · this variant is past it");
+    expect(foldx).toHaveTextContent("+2.62");
+    expect(foldx).toHaveTextContent("Past mark");
+    expect(marks).toHaveTextContent("Method");
     expect(foldx.getAttribute("data-active")).toBe("true");
     expect(marks.closest("section")).toHaveTextContent("FoldX publishes no threshold");
   });
@@ -113,6 +115,45 @@ describe("EnergeticsInspector — the rule trace", () => {
     expect(text).not.toContain("VESM_150M_v1");
     expect(text).not.toContain("2023-Zenodo-6835877");
     expect(text).toContain("FoldX runs");
+  });
+});
+
+describe("EnergeticsInspector — FoldX on two templates", () => {
+  const withProtvar = { ...NAE1, protvar: 1.12, protvarStatus: "done", protvarPlddt: 88, protvarModel: "AF-Q13564-F1" };
+
+  it("sets the local run beside ProtVar's, with the gap and a cross-check-only note", () => {
+    renderInspector({ foldingEnergetics: withProtvar, foldingStatus: "success", thermompnnStatus: "done" });
+    const section = screen.getByTestId("foldx-template-check");
+    expect(section).toHaveTextContent("1YOV:A (experimental, 2.8 Å)");
+    expect(section).toHaveTextContent("not repaired");
+    expect(section).toHaveTextContent("AF-Q13564-F1");
+    expect(section).toHaveTextContent("+2.62");
+    expect(section).toHaveTextContent("+1.12");
+    expect(section).toHaveTextContent("−1.50");
+    expect(section).toHaveTextContent("The two FoldX values differ by 1.50 kcal/mol");
+    expect(section).toHaveTextContent("Cross-check only");
+  });
+
+  it("is absent when ProtVar has no value", () => {
+    renderInspector({ foldingEnergetics: NAE1, foldingStatus: "success", thermompnnStatus: "done" });
+    expect(screen.queryByTestId("foldx-template-check")).toBeNull();
+  });
+
+  it("does not claim ProtVar's value rests on this run's template", () => {
+    renderInspector({ foldingEnergetics: withProtvar, foldingStatus: "success", thermompnnStatus: "done", selectedEngine: "protvar" });
+    const panel = document.getElementById(INSPECTOR_SECTIONS.stabilityMethod)!;
+    expect(panel).toHaveTextContent("AlphaFold DB model AF-Q13564-F1");
+    expect(panel).not.toHaveTextContent("1YOV");
+  });
+
+  it("says ProtVar is the FoldX value when it stands in for a missing local run on an AlphaFold template", () => {
+    renderInspector({
+      foldingEnergetics: { protvar: 1.9, protvarStatus: "done", protvarModel: "AF-Q13564-F1", structureProvenance: { source: "alphafold" } },
+      foldingStatus: "failed",
+      thermompnnStatus: "done",
+    });
+    expect(screen.getByTestId("energetics-rule-trace")).toHaveTextContent("FoldX value: ProtVar precomputed on AF-Q13564-F1; no local value");
+    expect(screen.queryByTestId("foldx-template-check")).toBeNull();
   });
 });
 
@@ -161,7 +202,7 @@ describe("EnergeticsInspector — engines without a value", () => {
       foldingStatus: "success",
     });
     expect(screen.getByTestId("energetics-rule-trace")).toHaveTextContent("Shown, not counted: FoldX");
-    expect(within(screen.getByTestId("energetics-marks")).getByText("FoldX").closest("li")).toHaveTextContent("not counted");
+    expect(within(screen.getByTestId("energetics-marks")).getByText("FoldX").closest("tr")).toHaveTextContent("Not counted");
   });
 
   it("keeps the canonical focus target the view links to", () => {
