@@ -113,6 +113,19 @@ describe("PerturbationTab", () => {
     expect(screen.getByTestId("ptb-esm3-context").textContent).toMatch(/input structure/i);
   });
 
+  it("renders ESM3 remoteEngineNote in ptb-esm3 when present", () => {
+    renderTab({
+      ...NAE1_RESULT,
+      esm3Eval: {
+        ...NAE1_RESULT.esm3Eval,
+        remoteEngineNote: "remote skipped (recent refusal: 451: Unavailable For Legal Reasons)"
+      }
+    });
+    const row = screen.getByTestId("ptb-esm3");
+    expect(row.textContent).toContain("Engine notes");
+    expect(row.textContent).toContain("remote skipped (recent refusal: 451: Unavailable For Legal Reasons)");
+  });
+
   it("uses no legacy status words for a failed or running model", () => {
     renderTab({ ...NAE1_RESULT, esm2Eval: { error: "Request timed out" }, esmcEval: { loading: true } });
     const text = document.body.textContent ?? "";

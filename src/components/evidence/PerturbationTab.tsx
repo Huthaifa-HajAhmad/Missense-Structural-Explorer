@@ -219,7 +219,15 @@ function ModelCaveatCallouts({ evidence }: { evidence: PerturbationEvidence }) {
     .map(l => {
       const parts: React.ReactNode[] = [];
       if (l.caveats.includes("fallback-model")) {
-        parts.push(<>was served by {l.servedBy}{l.fallbackReason ? ` (${l.fallbackReason})` : ""}, so its row describes the model that ran, not the one it is named for</>);
+        const remoteDiag = l.diagnostics.find(d => /remote/i.test(d.tier))?.text;
+        parts.push(
+          <>
+            was served by {l.servedBy}
+            {l.fallbackReason ? ` (${l.fallbackReason})` : ""}
+            {remoteDiag ? ` · ${remoteDiag}` : ""}
+            , so its row describes the model that ran, not the one it is named for
+          </>
+        );
       }
       if (l.caveats.includes("sequence-only")) parts.push(<>had no structure token at this residue and read it from sequence alone</>);
       if (l.caveats.includes("flat") && l.entropy !== null) {
@@ -399,6 +407,14 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
       <tr data-testid="ptb-esm3">
         <th scope="row" className="ptb-subject">
           <span className="ptb-subject__line"><span className="ptb-subject__name">{e.label}</span><ResearchGuideButton topic={e.knowledgeKey} label={e.fallback ? "About the VESM fallback" : "About this embedding analysis"} iconOnly /></span>
+          {e.remoteEngineNote && (
+            <details className="ptb-diag">
+              <summary>Engine notes</summary>
+              <ul>
+                <li><strong>Remote tier:</strong> {e.remoteEngineNote}</li>
+              </ul>
+            </details>
+          )}
         </th>
         <td className="ptb-reason" colSpan={2}>{e.availability.reason}</td>
         <td className="ptb-status"><StatusChip a={e.availability} /></td>
@@ -440,6 +456,14 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
             </span>
           )}
           {e.servedBy && <span className="ptb-subject__note ptb-subject__fact">Served by {e.servedBy}</span>}
+          {e.remoteEngineNote && (
+            <details className="ptb-diag">
+              <summary>Engine notes</summary>
+              <ul>
+                <li><strong>Remote tier:</strong> {e.remoteEngineNote}</li>
+              </ul>
+            </details>
+          )}
         </th>
         <td className="ptb-num">{e.drift!.toFixed(3)}<span className="ptb-unit">cosine distance</span></td>
         <td className="ptb-scale">

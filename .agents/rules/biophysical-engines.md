@@ -24,10 +24,13 @@ Never assume a single binary path or hardcoded operating system architecture.
   2. Build script: `npx tsx scripts/build-rasp-sqlite.ts`.
   3. Never block UI if variant is missing from precomputed database; report `Not in Zenodo DB` without failing other engines.
 
-### ProtVar FoldX (reference only)
+### ProtVar FoldX (cross-check; one FoldX reading counts)
 * **Source**: EBI ProtVar `GET /ProtVar/api/prediction/foldx/{accession}/{position}` — FoldX precomputed on the AlphaFold DB model (`server/services/external-api/protvar.ts`).
-* **Never counted**: it is FoldX again, so its engine descriptor is `referenceOnly` — excluded from the consensus, from coverage ("N of 6 engines"), from the run's running/missing lists and from `pendingTools`. Any new count over engines must skip `referenceOnly` rows (`COUNTED_ENERGY_ENGINES`).
+* **Never a second vote**: it is FoldX again, so its engine descriptor is `referenceOnly` — excluded from coverage ("N of 6 engines"), from the run's running/missing lists and from `pendingTools`. Any new count over engines must skip `referenceOnly` rows (`COUNTED_ENERGY_ENGINES`).
+* **One FoldX reading counts** (`FOLDX_STAND_IN_RULE`, `src/shared/energeticsEvidence.ts`): local FoldX whenever it has a value; ProtVar's value only when there is no local value AND the template is the AlphaFold model. Never on an experimental/homology template. Any caller building a consensus from a narrow object must pass `protvar` and `structureProvenance` (`computeStabilityConsensus`), or its verdict will disagree with the screen.
+* **Cross-check** (`evidence.foldxTemplateCheck`) when both exist: consistent / differs / opposite, with a local 1 kcal/mol gap mark. A gap is a template-and-pipeline difference, not an error bar on either value.
 * **No value, with a reason** when AlphaFold fragment models disagree (proteins > ~2,700 aa) or ProtVar's wild type differs. Never pick a fragment.
+* **Local FoldX still always runs** (it builds the mutant structure the 3D view reads); `doc/ENERGETICS_TAB_REVIEW.md` says why deferring it on AlphaFold monomers was not done.
 
 ### ThermoMPNN & StabilityOracle
 * **Local Sidecar**: Evaluated locally via Python sidecar on `http://127.0.0.1:8000`.
@@ -40,6 +43,14 @@ Never assume a single binary path or hardcoded operating system architecture.
 * **Local Sidecar**: `POST /predict/saprot` and `POST /predict/esmc` (VESM-150M).
 * **Remote Sovereign Fallback**: If local sidecar is offline or warming up, automatically fallback to **JapanFold** (`POST https://api.japanfold.aiand.com/v1/predictions`).
 * **Keyless**: JapanFold is 100% keyless and incurs zero compute overhead on resource-constrained cloud VMs.
+
+### Remote tiers (ESM3 / ESMC via Forge-Biohub, ESM-2 via Hugging Face) and their fallbacks
+* **Measured 2026-10-14/15 from the dev host**: an unauthenticated `POST` to `forge.evolutionaryscale.ai/api/v1/encode` answers 401 (reachable); `biohub.ai/api/v1/encode` answers **451** (regionally restricted). A HEAD on a host root is not evidence either way: the root gave 451 on both while Forge's API path was reachable. ESM3 uses the Forge host, ESMC uses `biohub.ai`, so one saved token can work for ESM3 and be refused for ESMC. HF lists `facebook/esm2_t33_650M_UR50D` as live on `hf-inference` for `fill-mask`, so a failing ESM-2 remote call is a token/provider/cold-start problem, not an unsupported model.
+* **The ESM SDK retries only 429/500/502/503/504** (5 attempts, backoff up to 10 s, 120 s request timeout by default) and **returns** an `ESMProteinError` from `encode`/`logits` instead of raising it. The sidecar caps the timeout and retries (`REMOTE_REQUEST_TIMEOUT_S`, `REMOTE_MAX_RETRY_ATTEMPTS`), bounds the ESM-3 remote tier (`ESM3_REMOTE_BUDGET_S`, 15 s, doubled past 500 residues) and calls `raise_if_sdk_error` so the status survives.
+* **Deterministic refusals (401/403/451) are remembered** for `REMOTE_FAILURE_TTL_S` (600 s) per engine, host and credential (`tools/model_server_app/engine_resilience.py`); transient ones (429, 5xx, timeouts) are not. A skipped attempt reports `remote skipped (recent refusal): ...` in `remoteEngineNote`.
+* **The local VESM-150M pass is computed once per `(sequence, position, wt, mut)`** and shared by the ESM-3 and ESM-2 fallbacks (single-flight cache). Pass the FULL sequence and position to `predict_vesm_sync`: it crops to 1,022 residues itself and returns `localShiftMap` positions in full-protein numbering (`to_full_coordinates`). Handing it an already-cropped window loses the offset.
+* **Diagnosing a "timed out after Ns" ESM3 warning**: read the sidecar line `[Model Server Remote ESM3 Error] after Xs: <reason>`. A reason with HTTP 451/401/403 is access; HTTP 429/5xx is the provider; a bare `exceeded its Ns remote budget` is a slow remote on a long sequence; no such line means the local pass itself was slow. The Node budget (`esm3_forge.ts`: 40 s, or 100 s past 500 residues) must cover the remote tier plus the local fallback.
+* **Not measurable from an agent shell**: the sidecar venv's DLLs fail to load there (`_ctypes`), so local VESM timings for CNOT1 were not benchmarked; run the sidecar normally and read its log.
 
 ## 2. Capabilities Diagnostic Endpoint
 

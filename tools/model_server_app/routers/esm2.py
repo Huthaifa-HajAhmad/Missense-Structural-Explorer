@@ -1,3 +1,4 @@
+import os
 import torch
 import asyncio
 import numpy as np
@@ -10,7 +11,8 @@ from tools.model_server_app.utils import (
     compute_scientific_metrics
 )
 from tools.model_server_app import models
-from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync
+from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync, remote_failures
+from tools.model_server_app.engine_resilience import to_full_coordinates
 
 router = APIRouter()
 
@@ -51,7 +53,9 @@ class Esm2Response(BaseModel):
 
 def run_esm2_remote(model_name: str, sequence: str, pos: int, wt: str, mut: str, token: str):
     from huggingface_hub import InferenceClient
-    client = InferenceClient(token=token)
+    # Bounded: three serverless calls follow (fill_mask and two feature_extraction), and a cold model on
+    # the provider can otherwise hold this request past the Node layer's budget.
+    client = InferenceClient(token=token, timeout=float(os.environ.get("ESM2_REMOTE_TIMEOUT_S", "30")))
     
     wt_sequence = sequence.upper()
     masked_seq = wt_sequence[:pos-1] + "<mask>" + wt_sequence[pos:]
@@ -153,6 +157,9 @@ def predict_esm2_3b_sync(req: Esm2Request):
     wt = req.wt.upper()
     mut = req.mut.upper()
     pos = req.position
+    # The VESM fallback crops for itself and reports positions in full-protein numbering; handing it the
+    # already-cropped window would lose the offset and stop it sharing a result with the other engines.
+    full_sequence, full_pos = sequence, pos
     
     sequence, pos, start_offset = crop_sequence_around_mutation(sequence, pos, 1022)
             
@@ -162,22 +169,27 @@ def predict_esm2_3b_sync(req: Esm2Request):
         raise HTTPException(status_code=400, detail="Wild-type AA mismatch.")
 
     remote_engine_note = None
-    if req.hfToken:
+    hf_blocked = remote_failures.blocked_reason("esm2", "huggingface", req.hfToken) if req.hfToken else None
+    if hf_blocked:
+        remote_engine_note = f"remote skipped (recent refusal): {hf_blocked}"
+        print(f"[Model Server] ESM-2 remote skipped: {hf_blocked}")
+    if req.hfToken and not hf_blocked:
         try:
             print(f"[Model Server] Querying ESM-2 remotely via HF Serverless Inference API (model={req.modelName})...")
             result = run_esm2_remote(req.modelName, sequence, pos, wt, mut, req.hfToken)
             print(f"[Model Server] ESM-2 remote call succeeded.")
+            result["localShiftMap"] = to_full_coordinates(result.get("localShiftMap"), start_offset)
             return result
         except Exception as e:
             import traceback
-            remote_engine_note = f"{type(e).__name__}: {e}"
+            remote_engine_note = remote_failures.record("esm2", "huggingface", req.hfToken, e)
             print(f"[Model Server] ESM-2 remote run FAILED: {remote_engine_note}")
             print(traceback.format_exc())
             print(f"[Model Server] Remote failed — checking for CPU fallback path...")
 
     if not torch.cuda.is_available():
         print(f"[Model Server] No GPU detected. Using VESM-150M for fast CPU inference.")
-        vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
+        vesm_req = VesmRequest(sequence=full_sequence, position=full_pos, wt=wt, mut=mut)
         vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
         vesm_res["provenance"] = "VESM-150M (CPU Local - no GPU)" if not req.hfToken else "VESM-150M (CPU Fallback - remote failed)"
@@ -257,13 +269,13 @@ def predict_esm2_3b_sync(req: Esm2Request):
             "mutRank": mut_rank,
             "positionalEntropy": pos_entropy,
             "embeddingShift": embedding_shift,
-            "localShiftMap": local_shift_map,
+            "localShiftMap": to_full_coordinates(local_shift_map, start_offset),
             "klDivergence": round(kl_div, 4),
             "provenance": f"ESM-2 ({req.modelName.split('/')[-1]})"
         }
     except Exception as e:
         print(f"[Model Server] ESM-2 local run failed: {e}. Falling back to VESM-150M.")
-        vesm_req = VesmRequest(sequence=sequence, position=pos, wt=wt, mut=mut)
+        vesm_req = VesmRequest(sequence=full_sequence, position=full_pos, wt=wt, mut=mut)
         vesm_res = predict_vesm_sync(vesm_req)
         vesm_res["klDivergence"] = None  # Zero-heuristics compliant: VESM fallback cannot compute ESM-2 KL divergence
         vesm_res["provenance"] = "VESM-150M (Local Fallback)"

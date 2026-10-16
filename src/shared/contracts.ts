@@ -174,7 +174,8 @@ export const energeticsDataSchema = z.object({
   stabilityoracleError: z.string().nullable().optional(),
   /**
    * EBI ProtVar's precomputed FoldX ΔΔG on the AlphaFold model (kcal/mol, positive = destabilizing).
-   * A REFERENCE value: FoldX again, so it is never counted in the engine agreement.
+   * A cross-check, never a second vote: FoldX again. It counts as THE FoldX reading only when there is
+   * no local FoldX value and the template is the AlphaFold model (`FOLDX_STAND_IN_RULE`).
    */
   protvar: nullableFiniteNumber.optional(),
   protvarStatus: z.enum(["pending", "done", "unavailable", "error"]).nullable().optional(),
@@ -1830,12 +1831,14 @@ export const analyzeVariantResponseSchema = z.object({
         sequenceCoverage: z.number().nullable().optional()
       }).optional(),
       provenance: z.string().optional(),
+      remoteEngineNote: z.string().nullable().optional(),
       status: z.string().optional()
     }).passthrough(),
     z.object({
       error: z.string(),
-      status: z.string().optional()
-    })
+      status: z.string().optional(),
+      remoteEngineNote: z.string().nullable().optional()
+    }).passthrough()
   ]).nullable().optional(),
   esmcEval: esmcEvalResultSchema.nullable().optional(),
   esm2Eval: esmcEvalResultSchema.nullable().optional(),
@@ -2186,6 +2189,8 @@ export interface Esm3EvalResult {
     plddt?: number | null;
     sequenceCoverage?: number | null;
   };
+  /** Present when the local fallback served this result; says why the remote ESM3 tier did not. */
+  remoteEngineNote?: string | null;
 }
 
 export interface Esm2ScoreData {
