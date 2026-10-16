@@ -42,3 +42,9 @@ Context and molecular fixtures are `src/test/contextWorkspaceFixture.ts` and
 `src/test/molecularWorkspaceFixture.ts`; their integration tests live beside the Evidence
 tests above. See `doc/CONTEXT_MOLECULAR_VISUALIZATION_REVIEW.md` for the latest review.
 The development server also works on `localhost` with the selected port.
+
+Expression includes Dense expression (54 illustrative tissues) and Pediatric unavailable.
+`tests/expression-workspace.e2e.ts` checks expansion, exact pin recovery, source availability,
+independent pediatric scales and responsive light/dark layouts. The unavailable fixture answers
+the development endpoint with its own illustrative snapshot state; no live source is contacted.
+See `doc/EXPRESSION_UX_POLISH_REVIEW.md` for the implementation and verification boundaries.

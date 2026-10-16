@@ -57,6 +57,13 @@ export function contextWorkspaceFixture(example = 'Mixed') {
       mechanism: 'undetermined', confidence: 'moderate', support: 'inferred', modifier: '', categorisation: '',
       evidence: '', consequence: '', variantTypes: '', publications: [], reviewedAt: '2026-08-20' }];
   }
+  if (example === 'Dense expression') {
+    adult.tissues = Array.from({ length: 54 }, (_, i) => ({ ...adult.tissues[0], id: `Illustrative_${i + 1}`, label: `Illustrative tissue ${i + 1}`, value: 54 - i }));
+    for (const selection of Object.values(state.phenotypeSelections!)) selection.systems = [];
+  }
+  if (example === 'Pediatric unavailable') {
+    state.developmentalContexts = { [gene]: ready({ ...developmental, status: 'not-installed', observations: [], counts: null, provenance: null, message: 'The dGTEx snapshot is not installed.' }) };
+  }
   if (example === 'Missing') {
     const failure = { status: 'error' as const, data: null, error: 'Illustrative provider failure. Try again when the source recovers.' };
     state.expressionContexts = { [gene]: failure }; state.developmentalContexts = { [gene]: failure }; state.modelContexts = { [gene]: failure };

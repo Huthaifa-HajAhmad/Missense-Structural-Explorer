@@ -1,12 +1,23 @@
 import React from 'react';
 import { Layers } from 'lucide-react';
 import type { ExpressionFinding, SourceFact } from '../../../shared/expressionTabEvidence';
+import type { ExpressionWorkspaceFinding } from '../../../shared/expressionWorkspaceFinding';
 
 const EARLY_ONSET = ['antenatal', 'congenital', 'neonatal', 'infantile', 'childhood', 'juvenile'];
 export const onsetNeedsCaveat = (onset: string) => EARLY_ONSET.includes(onset);
 
 /** The finding: how far the measurements reach the reviewer's systems. Context only, no ACMG vote. */
-export function ExpressionHero({ finding, facts, onset, compact = false }: { finding: ExpressionFinding; facts: SourceFact[]; onset: string; compact?: boolean }) {
+export function ExpressionHero({ finding, facts, onset, compact = false, activeFinding }: { finding: ExpressionFinding; facts: SourceFact[]; onset: string; compact?: boolean; activeFinding?: ExpressionWorkspaceFinding }) {
+  if (compact && activeFinding) return <section className="xp-summary" aria-label="Expression finding" data-testid="expression-finding">
+    <span className="ctx-eyebrow">{activeFinding.source}</span>
+    <h2>{activeFinding.headline}</h2><p>{activeFinding.detail}</p>
+    <p className="xp-boundary">Gene-level expression context, not a measurement of this variant’s effect. No ACMG criterion is added or changed.</p>
+    <details><summary>Coverage and source status</summary>
+      {activeFinding.source.startsWith('Adult') && finding.coverage.length > 0 && <ul>{finding.coverage.map(c => <li key={c.id}>{c.label}: {c.top ? `${c.top.label}, ${c.top.value} TPM` : c.state === 'no-reading' ? 'No gene reading' : 'Not sampled by GTEx'}</li>)}</ul>}
+      <dl className="xp-facts">{facts.map(f => <div key={f.key} className="xp-fact"><dt>{f.label}</dt><dd>{f.value}<span className="xp-fact__sub">{f.sub}</span></dd></div>)}</dl>
+      {onsetNeedsCaveat(onset) && <p>Disease onset is separate from sampled age. Adult GTEx and public pediatric cohorts do not establish exact-age or prenatal coverage.</p>}
+    </details>
+  </section>;
   return <section className="ctx-card xp-hero" aria-labelledby="xp-finding-title" data-testid="expression-finding">
     <div className="xp-hero__body">
       <div className="xp-hero__top">

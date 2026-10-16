@@ -12,8 +12,10 @@ import { molecularWorkspaceFixture } from '../../src/test/molecularWorkspaceFixt
 import { splicingWorkspaceFixture, SPLICING_WORKSPACE_CASES } from '../../src/test/splicingWorkspaceFixture';
 import type { MasterView } from '../../src/components/MasterSidebar';
 
+let unavailablePediatric: unknown = null;
 function scenario(name: string, scope: 'context' | 'molecular' | 'evidence' | 'splicing' = 'context') {
   const f = scope === 'splicing' ? { state: null, result: splicingWorkspaceFixture(name) } : scope === 'evidence' ? { state: null, result: evidenceWorkspaceFixture(name) } : scope === 'molecular' ? { state: null, result: molecularWorkspaceFixture(name) } : contextWorkspaceFixture(name);
+  unavailablePediatric = name === 'Pediatric unavailable' ? f.state?.developmentalContexts?.[f.result.metadata!.gene!]?.data : null;
   store.setState({ ...f.state, gene: f.result.metadata!.gene, variant: f.result.metadata!.variant, uniprotId: f.result.metadata!.uniprotId,
     analysisState: { result: f.result, isLoading: false, error: null }, isFolding: false, isBiophysicalLoading: false } as never);
 }
@@ -22,6 +24,7 @@ const tabScope = (tab: string) => tab === 'splicing' ? 'splicing' : ['structure'
 const nativeFetch = window.fetch;
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  if (unavailablePediatric && url.includes('/evidence-context/') && url.endsWith('/development')) return Response.json(unavailablePediatric);
   return url.includes('/api/') ? Response.json({ error: 'Live services disabled in preview' }, { status: 404 }) : nativeFetch(input, init);
 };
 function Preview() {
@@ -47,7 +50,7 @@ function Preview() {
         }
       }}>
         <option value="splicing">RNA splicing</option><option value="function">Functional domains</option><option value="structure">Residue shifts &amp; pockets</option><option value="perturbation">Structural perturbation</option><option value="gene-disease">Gene-disease</option><option value="expression-models">Expression</option><option value="species-models">Species &amp; models</option><option value="clinical">Population Data</option><option value="predictors">Predictors</option><option value="alphagenome">AlphaGenome</option></select></label>
-      <label>Example <select aria-label="Example" value={example} onChange={e => { setExample(e.target.value); scenario(e.target.value, scope); }}>{(scope === 'splicing' ? SPLICING_WORKSPACE_CASES : molecular ? ['Overlapping domains', 'Dense SOD1', 'NAE1', 'Missing', 'New variant'] : scope === 'evidence' ? ['Mixed', 'Partial', 'Absent', 'Zero', 'Missing', 'New variant'] : ['Mixed', 'Differing assertions', 'Mismatch', 'Missing', 'New variant']).map(name => <option key={name}>{name}</option>)}</select></label>
+      <label>Example <select aria-label="Example" value={example} onChange={e => { setExample(e.target.value); scenario(e.target.value, scope); }}>{(scope === 'splicing' ? SPLICING_WORKSPACE_CASES : molecular ? ['Overlapping domains', 'Dense SOD1', 'NAE1', 'Missing', 'New variant'] : scope === 'evidence' ? ['Mixed', 'Partial', 'Absent', 'Zero', 'Missing', 'New variant'] : ['Mixed', 'Differing assertions', 'Dense expression', 'Pediatric unavailable', 'Mismatch', 'Missing', 'New variant']).map(name => <option key={name}>{name}</option>)}</select></label>
     </header>
     <AppViews masterView={view} setMasterView={setView} pushErrorEntry={console.error} setIsSettingsOpen={() => {}}
       activeEvidenceTab={tab} setActiveEvidenceTab={setTab} metricMode={metric} setMetricMode={setMetric}
