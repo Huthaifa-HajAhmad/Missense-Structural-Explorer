@@ -31,7 +31,7 @@ describe('verdict: agreement is reported, never a winner', () => {
     const one = model(disease([['ClinGen', 'Definitive']]));
     expect(one.verdict.label).toBe('Single submitter: Definitive');
     const same = model(disease([['A', 'Strong'], ['A', 'Limited']]));
-    expect(same.headline).toBe('1 submitter'); expect(same.headlineLabel).toBe('reports 2 different validity levels');
+    expect(same.headline).toBe('Submitted validity levels differ'); expect(same.headlineLabel).toBe('1 submitter; 2 validity levels');
   });
   it('says it is reading, not unavailable, while the disease sources are still loading', () => {
     const m = buildGeneDiseaseModel({ gene: 'SOD1', disease: { status: 'loading', data: null }, selectedKey: null, dosage: undefined, now: NOW });
@@ -149,5 +149,24 @@ describe('ClinGen score 0 and the mechanism cross-check', () => {
   it('is bound to the selected disease: no frame, no comparison', () => {
     expect(model(disease([['A', 'Strong']], [mech('gain of function')]), dosage(3)).crossCheck?.relation).toBe('differs');
     expect(model(disease([['A', 'Strong']], [mech('gain of function')]), dosage(3), null).crossCheck).toBeNull();
+  });
+});
+
+
+describe('mechanism availability explanation', () => {
+  it('retains an undetermined G2P record when dosage has no result', () => {
+    const m = model(disease([['A', 'Strong']], [mech('undetermined')]), { gene: 'SOD1', status: 'not-found', record: null, provenance: null, message: null });
+    expect(m.mechanismRecords).toHaveLength(1);
+    expect(m.crossCheck).toBeNull();
+    expect(m.mechanismSummary).toContain('Gene2Phenotype reports undetermined');
+    expect(m.mechanismSummary).toContain('ClinGen dosage: no result');
+    expect(m.mechanismSummary).not.toContain('No matching');
+  });
+  it('distinguishes a missing source from a successful lookup with no matching record', () => {
+    const d = disease([['A', 'Strong']]);
+    expect(model(d).mechanismSummary).toContain('No matching Gene2Phenotype');
+    d.mechanismContext!.status = 'not-installed';
+    expect(model(d).mechanismSummary).toContain('not installed');
+    expect(model(d).mechanismSummary).not.toContain('No matching');
   });
 });

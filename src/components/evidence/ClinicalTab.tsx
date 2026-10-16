@@ -113,9 +113,9 @@ function VerdictChip({ criterion, applied }: { criterion: FrequencyCriterion; ap
             ? `${criterion.code} is what the frequency supports — this payload carries no engine record to confirm it against`
             : "No frequency criterion was applied"
       }
-      aria-label={unconfirmed ? `${criterion.code}, supported by the frequency, unconfirmed by the engine record` : undefined}
+      aria-label={unconfirmed ? `${criterion.code}${criterion.code === 'PM2' ? ', Supporting' : ''}, supported by the frequency, unconfirmed by the engine record` : undefined}
     >
-      {text}
+      {text === "PM2" ? "PM2 · Supporting" : text}
     </span>
   );
 }
@@ -377,13 +377,14 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
         </div>
 
         {criterion.af !== null && !workspace.comparison && (
-          <div className="pop-hero__scale">
+          <details className="pop-hero__scale pop-thresholds">
+            <summary>Rule thresholds · app-defined frequency policy</summary>
             <FrequencyScale
               criterion={criterion}
               readings={scaleReadings}
               ruleSource={`${reading.ruleSource}${gnomadRelease && reading.ruleSource.startsWith("gnomAD") ? ` · ${gnomadRelease}` : ""}`}
             />
-          </div>
+          </details>
         )}
 
 
@@ -422,7 +423,21 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
         )}
       </section>
 
-      {workspace.comparison && <React.Suspense fallback={<p>Loading frequency comparison…</p>}><EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." /></React.Suspense>}
+      {workspace.comparison && (populationModel.rows.some(row => row.value !== null)
+        ? <React.Suspense fallback={<p>Loading frequency comparison…</p>}><EvidenceComparison tab="clinical" model={populationModel} title="How often is this allele observed?" description="Compare source frequencies and the input used by the engine. Each step on the axis represents a multiplicative change." /></React.Suspense>
+        : <section className="pop-card pop-availability" aria-labelledby="pop-availability-title">
+            <h2 id="pop-availability-title">Population source coverage</h2>
+            <p>No positive allele frequencies were returned. Select a source to inspect its exact record.</p>
+            <ul>{populationModel.rows.map(row => <li key={row.key} data-rule={row.group === 'rule' || undefined}>
+              <div><InspectReadingButton tab="clinical" readingKey={row.key}>{row.name}</InspectReadingButton><strong>{row.valueText}</strong></div>
+              <p>{row.description}</p>
+              {row.group !== 'rule' && row.contextText && <p className="pop-mono">{row.contextText}</p>}
+            </li>)}</ul>
+          </section>)}
+      {workspace.comparison && <section className="pop-card pop-clinvar-summary" aria-label="ClinVar summary">
+        <div><h2>ClinVar</h2><strong>{clinvar.availability.hasValue ? clinvar.classification : clinvar.availability.state === 'no-result' ? 'No classification' : clinvar.availability.label ?? 'No classification available'}</strong></div>
+        <p>{clinvar.availability.hasValue ? 'A submitted clinical assertion, separate from population frequency. Review its condition and review status in Source records.' : clinvar.availability.reason ?? 'No classification in ClinVar is available for this variant.'}</p>
+      </section>}
       {!workspace.comparison && <div className="pop-lower">
         {/* ── 2. Source readings ──────────────────────────────────────────────────────────── */}
         <section className="pop-section" aria-labelledby="pop-readings-title">

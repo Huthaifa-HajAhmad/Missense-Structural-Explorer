@@ -11,7 +11,6 @@ import { PopulationRail } from '../../inspector/PopulationRail';
 import { PredictorsRail } from '../../inspector/PredictorsRail';
 import { AlphaGenomeRail } from '../../inspector/AlphaGenomeRail';
 import { EvidenceWorkspaceProvider, EvidenceViewTabs } from '../EvidenceWorkspace';
-import { INSPECTOR_SECTIONS } from '../../../lib/inspectorFocus';
 import { evidenceWorkspaceFixture } from '../../../test/evidenceWorkspaceFixture';
 import type { TabComponentProps } from '../types';
 
@@ -74,23 +73,41 @@ describe('Production evidence tabs and their inspectors', () => {
     expect(screen.getByText('Molecular prediction')).toBeInTheDocument();
     expect(screen.getByText('Other input')).toBeInTheDocument();
   });
-  it('Open inspector expands a collapsed rail and moves focus to the pinned-reading section', async () => {
+  it('keeps the rail expand control available without duplicate navigation actions', async () => {
     localStorage.setItem('cs-inspector-collapsed', 'true');
     const result = evidenceWorkspaceFixture('Partial');
     render(
       <SettingsProvider>
         <EvidenceWorkspaceProvider result={result}>
-          {/* The button lives in the main pane's navigation; the inspector is the second surface. */}
+          {/* Navigation has no duplicate inspector action; the rail owns expansion. */}
           <EvidenceViewTabs tab="alphagenome" comparisonLabel="Feature contributions" />
           <ViewInspector {...({ activeView: 'evidence', activeEvidenceTab: 'alphagenome', analysisResult: result, gene: 'GZF1', variant: 'p.Arg591Trp' } as any)} />
         </EvidenceWorkspaceProvider>
       </SettingsProvider>
     );
     expect(screen.getByLabelText('Collapsed Context Inspector')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Open inspector' }));
+    expect(screen.queryByRole('button', { name: 'Open inspector' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Context Inspector' }));
     await waitFor(() => expect(screen.getByLabelText('Context & Provenance Inspector')).toBeInTheDocument());
-    await waitFor(() => expect(document.activeElement?.id).toBe(INSPECTOR_SECTIONS.evidenceReading));
   });
   beforeEach(() => { localStorage.clear(); });
+  it.each(['Absent', 'Zero', 'Missing'])('shows inspectable source states instead of an empty chart for %s', (example) => {
+    const result = evidenceWorkspaceFixture(example);
+    render(<EvidenceWorkspaceProvider result={result}><ClinicalTab {...({ analysisState: { result } } as TabComponentProps)} /><PopulationRail analysisResult={result} /></EvidenceWorkspaceProvider>);
+    const coverage = screen.getByRole('region', { name: 'Population source coverage' });
+    expect(screen.queryByRole('img', { name: /How often is this allele observed/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Each step on the axis/)).not.toBeInTheDocument();
+    if (example === 'Absent') expect(within(coverage).getAllByText('No variant record returned')).toHaveLength(2);
+    if (example === 'Zero') expect(within(coverage).getAllByText('0%').length).toBeGreaterThan(0);
+    if (example === 'Missing') expect(within(coverage).getAllByText('Provider error').length).toBeGreaterThan(0);
+    fireEvent.click(within(coverage).getByRole('button', { name: 'gnomAD exomes' }));
+    const inspector = screen.getByRole('region', { name: 'Selected evidence reading' });
+    expect(within(inspector).getByRole('heading', { name: 'gnomAD exomes' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    expect(within(inspector).getByRole('heading', { name: 'gnomAD exomes' })).toBeInTheDocument();
+    if (example !== 'Missing') expect(screen.getByTestId('frequency-scale').querySelector('.pop-scale__marker')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Comparison' }));
+    expect(screen.getByRole('button', { name: 'gnomAD exomes' })).toHaveAttribute('aria-pressed', 'true');
+  });
   afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 });

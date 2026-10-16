@@ -17,7 +17,6 @@
 @import "./population.css";
 @import "./evidence-context.css";
 @import "./expression.css";
-@import "./gene-disease.css";
 @import "./context-workspace.css";
 @import "./insights.css";
 @import "./review-workspace.css";
@@ -27,6 +26,7 @@
 @import "./workspace.css";
 @import "./charts.css";
 @import "./evidence-workspace.css";
+@import "./gene-disease.css";
 @import "./perturbation.css";
 @import "./splicing.css";
 @import "./interfaces.css";

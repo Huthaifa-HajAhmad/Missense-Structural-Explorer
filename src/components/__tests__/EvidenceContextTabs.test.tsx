@@ -103,7 +103,9 @@ describe('context tab claims and interactions', () => {
     expect(finding.getByText(/no tissue for bone and growth-plate cartilage: that is a coverage limit, not a low reading/)).toBeInTheDocument();
     expect(finding.getByText('Not sampled')).toBeInTheDocument();
     const row = screen.getByRole('rowheader', { name: /Skeletal muscle/ }).closest('tr')!;
-    expect(within(row).getByText('0 TPM')).toBeInTheDocument();
+    // Units belong to the column once; a measured zero remains numeric in its cell.
+    expect(screen.getByRole('columnheader', { name: 'Median TPM' })).toBeInTheDocument();
+    expect(within(row).getByRole('cell', { name: /^0$/ })).toBeInTheDocument();
     expect(row).toBeVisible();
   });
   it('renders an upstream error without claiming missing tissue or no expression', () => {

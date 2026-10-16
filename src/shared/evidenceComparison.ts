@@ -40,10 +40,12 @@ export function buildPopulationComparison(evidence: FrequencyEvidence): Evidence
   const rows: EvidenceChartRow[] = evidence.observations.map(o => ({
     knowledgeKey: 'allele_frequency', key: o.key, name: frequencyObservationName(o),
     value: o.availability.state === 'available' && o.af !== null && o.af > 0 ? Math.log10(o.af) : null,
-    valueText: o.af !== null ? formatFrequencyPercent(o.af) : o.availability.label ?? 'No frequency',
+    valueText: o.af !== null ? formatFrequencyPercent(o.af)
+      : evidence.criterion.absent && o.id.startsWith('gnomad') ? 'No variant record returned'
+      : o.availability.state === 'no-result' ? 'No frequency returned' : o.availability.label ?? 'No frequency',
     description: o.af === null ? observationAbsence(o) : o.af === 0 ? 'A reported frequency of zero. Zero has no position on a logarithmic axis.' : 'Reported allele frequency in this source.',
     group: o.id, tone: 'neutral',
-    contextText: `AC ${formatCount(o.ac)} · AN ${formatCount(o.an)}`,
+    contextText: o.ac !== null || o.an !== null ? `AC ${formatCount(o.ac)} · AN ${formatCount(o.an)}` : undefined,
     facts: [{ label: 'Allele count (AC)', value: formatCount(o.ac) }, { label: 'Alleles assessed (AN)', value: formatCount(o.an) },
       { label: 'Frequency (AF)', value: o.af === null ? 'Not reported' : `${formatFrequencyPercent(o.af)} (${o.af} as a fraction)` },
       { label: 'Dataset', value: o.dataset }, { label: 'Homozygotes', value: formatCount(o.homozygotes) }],

@@ -19,8 +19,7 @@ import { formatAlleleFrequency, type FrequencyCriterion } from "../../../shared/
  *     the track — nothing can overlap it;
  *   • the value is stated once, in the legend, next to the words that say what it is.
  *
- * A recorded absence has no position on a log axis. It is drawn as an open ring pinned to the left
- * edge ("below detection"), never as a dot at some invented tiny frequency.
+ * Absence and reported zero have no position on a log axis. Describe them in the caption only.
  */
 
 const MIN_EXP = -7; // 1e-7 — below the reciprocal of gnomAD v4's largest allele number (~1.6M)
@@ -63,7 +62,7 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
   const FREQ = THRESHOLDS.populationFrequency;
   const ceiling = criterion.pm2Ceiling ?? FREQ.extremelyRare;
   const otherCeiling = ceiling === FREQ.extremelyRare ? FREQ.extremelyRareRecessive : FREQ.extremelyRare;
-  const otherReading = ceiling === FREQ.extremelyRare ? "recessive" : "dominant";
+  const otherReading = ceiling === FREQ.extremelyRare ? "higher" : "lower";
 
   const zones: ReadonlyArray<{ id: ZoneId; from: number; to: number; label: string; tone: string }> = [
     { id: "PM2", from: 0, to: position(ceiling), label: "PM2", tone: "danger" },
@@ -81,7 +80,7 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
     : criterion.code === "none" ? "none"
     : null;
 
-  const markerAt = af === null ? null : position(af);
+  const markerAt = af === null || af <= 0 || criterion.absent ? null : position(af);
 
   const ariaLabel =
     af === null
@@ -119,7 +118,7 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
         <span
           className="pop-scale__alt-ceiling"
           style={{ left: `${position(otherCeiling)}%` }}
-          title={`PM2 ceiling if the gene read as ${otherReading}: ${formatAlleleFrequency(otherCeiling)}`}
+          title={`Alternative ${otherReading} local PM2 ceiling: ${formatAlleleFrequency(otherCeiling)}`}
         />
         {readings.map(r => (
           <span
@@ -169,7 +168,7 @@ export function FrequencyScale({ criterion, readings, ruleSource }: FrequencySca
         {readings.length > 0 && (
           <span><i className="pop-key pop-key--dot" /> Source readings</span>
         )}
-        <span><i className="pop-key pop-key--alt" /> PM2 ceiling if {otherReading}</span>
+        <span><i className="pop-key pop-key--alt" /> Alternative {otherReading} local PM2 ceiling</span>
       </figcaption>
 
       {/* The per-source values the dots stand for, for keyboard and screen-reader users. */}

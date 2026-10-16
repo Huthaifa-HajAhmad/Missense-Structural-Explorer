@@ -81,7 +81,7 @@ describe("ClinicalTab — a missing frequency is explained, not asserted", () =>
     // The chip shows the supported criterion behind a DASHED border — this fixture carries no engine
     // criteria, so it is what the frequency SUPPORTS, not a confirmed engine verdict.
     const chip = screen.getByTestId("verdict-chip");
-    expect(chip.textContent).toBe("PM2");
+    expect(chip.textContent).toBe("PM2 · Supporting");
     expect(chip.getAttribute("style") ?? "").toContain("dashed");
     // Both gnomAD datasets report the same classified cause.
     expect(screen.getAllByText(/holds no record of this variant/i).length).toBe(2);
@@ -169,7 +169,7 @@ describe("ClinicalTab — the governing reading is on the screen, counts first",
     // Unconfirmed criterion: the chip shows the code behind a dashed border, not a "PM2?" plus a
     // paragraph explaining the "?".
     const chip = screen.getByTestId("verdict-chip");
-    expect(chip.textContent).toBe("PM2");
+    expect(chip.textContent).toBe("PM2 · Supporting");
     expect(chip.getAttribute("style") ?? "").toContain("dashed");
     expect(screen.queryByText(/rather than a confirmed engine decision/)).toBeNull();
     // The prose states the finding WITHOUT restating the lead value. The headline is its own
@@ -303,7 +303,7 @@ describe("ClinicalTab — the verdict is the engine's, and a disagreement is sta
   it("reports the criterion the engine recorded", () => {
     renderTab(gzf1Result({ ruleBasedInsights: { acmgCriteria: [{ code: "PM2", reason: "rare" }] } }));
     const chip = screen.getByTestId("verdict-chip");
-    expect(chip.textContent).toBe("PM2");
+    expect(chip.textContent).toBe("PM2 · Supporting");
     expect(chip.getAttribute("style") ?? "").not.toContain("dashed");
     expect(screen.queryByText(/The engine applied no frequency criterion/)).toBeNull();
   });

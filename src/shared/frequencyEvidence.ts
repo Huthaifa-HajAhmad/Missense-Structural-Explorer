@@ -687,7 +687,7 @@ export function classifyAcmgFrequency(input: FrequencyEvidenceInput): FrequencyC
     const reading = recessive
       ? `higher local ceiling (pLI < ${FREQ.recessivePlI})`
       : inheritance === "dominant"
-        ? `dominant (pLI ≥ ${FREQ.recessivePlI})`
+        ? `lower local ceiling (pLI ≥ ${FREQ.recessivePlI})`
         : "lower local ceiling (pLI not available)";
     const headline = "Extremely rare";
     const predicate = `at or below the ${pct(pm2Ceiling, 2)} PM2 ceiling under the app-defined policy: ${reading}`;

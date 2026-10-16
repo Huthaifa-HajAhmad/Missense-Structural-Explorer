@@ -1,4 +1,30 @@
 /* Expression & models: the review frame, the finding, and the coverage strip. Tokens only. */
+.xp-workspace.cx-screen { gap: 12px; }
+.xp-workspace .evw-navigation { padding-block-end: 8px; }
+.xp-workspace .workspace-tabs { padding-block-end: 8px; }
+.xp-workspace .cx-empty { padding-block: 12px; }
+.xp-summary { padding-block: 4px 8px; display: grid; gap: 6px; }
+.xp-summary h2 { font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.xp-summary p { margin: 0; line-height: 1.5; }
+.xp-boundary { font-size: 12px; color: var(--cs-text-secondary); line-height: 1.5; }
+.xp-summary summary { cursor: pointer; min-block-size: 32px; padding-block: 6px; font-size: 12px; }
+.xp-summary summary:active { color: var(--cs-text-primary); }
+.xp-summary ul { padding-inline-start: 20px; }
+.xp-workspace .cx-record-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 4px 16px; }
+.xp-workspace .cx-controls { margin-block: 0; }
+.xp-workspace .cx-caption { margin-block: 6px; }
+.xp-workspace .cx-records { margin-block: 8px; }
+.xp-record-table { max-block-size: 640px; }
+.xp-record-table caption { text-align: start; padding-block: 8px 12px; font-size: 12px; }
+.xp-record-table thead { position: sticky; inset-block-start: 0; background: var(--cs-surface); z-index: 1; text-transform: none; font-size: 12px; }
+.xp-record-table :is(th, td) { padding-block: 8px; padding-inline: 12px; }
+.xp-record-table td { font-variant-numeric: tabular-nums; }
+.xp-record-table .evw-reading-button { min-block-size: 32px; }
+.xp-record-table .evw-reading-button:active { background: var(--cs-surface-2); }
+.xp-rail .evw-inspection h3 { text-transform: none; letter-spacing: normal; font-size: 16px; line-height: 1.5; }
+.xp-rail .ctx-details > summary { min-block-size: 44px; cursor: pointer; padding-block: 12px; }
+.xp-rail .ctx-details > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.xp-rail .ctx-details > summary:active { color: var(--cs-text-primary); }
 .ctx-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .ctx-field > .ctx-button { align-self: flex-start; }
 .ctx-status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
@@ -44,7 +70,7 @@
 /* One cell per review system: measured (top tissue and median) or not sampled by GTEx. */
 .xp-coverage { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .xp-coverage__cell { display: flex; flex-direction: column; gap: 1px; padding: 9px 12px; border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-surface); min-width: 0; }
-.xp-coverage__cell[data-state="measured"] { border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, var(--cs-border)); background: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface)); }
+.xp-coverage__cell[data-state="measured"] { border-color: color-mix(in oklch, var(--cs-accent-clay) 45%, var(--cs-border)); background: color-mix(in oklch, var(--cs-accent-clay) 6%, var(--cs-surface)); }
 .xp-coverage__name { font-size: 12px; color: var(--cs-text-muted); }
 .xp-coverage__value { color: var(--cs-text-primary); font-weight: 500; }
 .xp-coverage__cell[data-state="not-sampled"] .xp-coverage__value { color: var(--cs-text-secondary); font-weight: 400; }

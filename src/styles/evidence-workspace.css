@@ -90,6 +90,8 @@
 .evw-inspection { border: 1px solid var(--cs-border); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-family: var(--cs-font-sans); font-size: 13px; color: var(--cs-text-secondary); }
 .evw-inspection h3 { margin: 7px 0 10px; font-size: 18px; font-weight: 600; color: var(--cs-text-primary); }
 .evw-inspection p { margin: 8px 0 12px; line-height: 1.65; }
+.evw-inspection[data-empty] { border: 0; border-block-end: 1px solid var(--cs-border-subtle); border-radius: 0; padding: 0; padding-block-end: 12px; margin-block-end: 16px; }
+.evw-inspection[data-empty] p { margin: 0; }
 .evw-inspection dl { margin: 18px 0; }
 .evw-inspection dl > div { display: grid; grid-template-columns: minmax(80px, .8fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--cs-border-subtle); }
 .evw-inspection dt { font-size: 12px; color: var(--cs-text-muted); }

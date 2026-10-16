@@ -238,4 +238,30 @@ describe("analyzeMultimerStructure", () => {
     const res = await analyzeMultimerStructure("NAE1", "p.Asp116Gly", "Q13564");
     expect(res.experimental?.status).toBe("none");
   });
+
+  it("leaves no unhandled rejection when the PDBe read is aborted while the UniProt reads fail", async () => {
+    // The PDBe read starts first and is awaited last. An abort that failed the UniProt reads
+    // ahead of it used to leave its AbortError with no handler, which exits the Node process.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const controller = new AbortController();
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+        const url = String(typeof input === "string" ? input : input?.url);
+        if (url.includes("interface_residues")) {
+          // Settles after the UniProt reads have already failed.
+          await new Promise(r => setTimeout(r, 20));
+          controller.abort();
+          throw new DOMException("aborted", "AbortError");
+        }
+        throw new Error("UniProt unreachable");
+      });
+      await analyzeMultimerStructure("NAE1", "p.Asp116Gly", "Q13564", controller.signal).catch(() => undefined);
+      await new Promise(r => setTimeout(r, 100));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });

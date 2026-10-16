@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import type { TabComponentProps } from './types';
 import { useContextWorkspace } from '../../hooks/useContextWorkspace';
 import { ContextExplorer, ContextGuide, ContextDisclosure } from './ContextExplorer';
@@ -14,6 +14,7 @@ import { HpaCard } from './HpaCard';
 import { PextCard } from './PextCard';
 import { pextSiteFromVariantId, locatePext } from '../../shared/pext';
 import { isFallbackLocus } from '../../shared/locusResolution';
+import { expressionWorkspaceFinding } from '../../shared/expressionWorkspaceFinding';
 
 export function ExpressionModelsTab({ analysisState }: TabComponentProps) {
   if (!analysisState.result) return null;
@@ -22,10 +23,25 @@ export function ExpressionModelsTab({ analysisState }: TabComponentProps) {
 function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentProps['analysisState']['result']> }) {
   const { context, rows } = useContextWorkspace(result, 'expression-models');
   const workspace = useEvidenceWorkspace('expression-models');
+  const reviewRef = useRef<HTMLDetailsElement>(null);
+  const chooseSystems = () => {
+    if (!reviewRef.current) return;
+    reviewRef.current.open = true;
+    const focus = reviewRef.current.querySelector<HTMLDetailsElement>('.cx-frame-focus');
+    if (focus) focus.open = true;
+    const target = reviewRef.current.querySelector<HTMLButtonElement>('[role="group"] button');
+    if (target) {
+      target.focus();
+      target.scrollIntoView?.({ block: 'nearest' });
+    } else {
+      reviewRef.current.querySelector('summary')?.focus();
+    }
+  };
   const chosen = buildGeneDiseaseEvidence(context.diseaseLoad?.data ?? null, context.selection.diseaseKey).selected;
   const gtexLabels = new Map((context.expressionLoad?.data?.tissues ?? []).map(t => [t.id.toLowerCase(), t.label] as const));
   const site = pextSiteFromVariantId(result.predictorData?.gnomadVariantId, result.predictorData?.gnomadVariantAssembly, isFallbackLocus(result));
   const finding = buildExpressionFinding(context.expressionLoad?.data ?? null, context.expressionLoad?.status ?? null, context.selection.systems);
+  const activeFinding = expressionWorkspaceFinding({ section: workspace.section, adult: context.expressionLoad, developmental: context.developmentalLoad, systems: context.selection.systems, cohort: workspace.cohort });
   const pextLocation = locatePext(context.pextLoad?.data ?? null, site);
   const facts = buildSourceFacts({ adult: finding, developmental: context.developmentalLoad, hpa: context.hpaLoad,
     pext: { load: context.pextLoad?.status ?? null, status: context.pextLoad?.data?.status ?? null, locationNote: pextLocation.state === 'no-locus' ? 'No verified GRCh38 position' : pextLocation.state === 'no-region' ? 'Outside the coding regions' : pextLocation.state === 'other-chromosome' ? 'Different chromosome from the gene record' : null,
@@ -36,10 +52,10 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <EvidenceViewTabs tab="expression-models" comparisonLabel="Tissue explorer" />
-    {workspace.enabled ? <details className="xp-review-settings"><summary>Review context · {chosen ? `${chosen.label} · ${chosen.inheritance.label}` : 'No disease selected'}<span>Your choices, not patient findings</span></summary>{reviewFrame}</details> : reviewFrame}
-    <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} />
+    {workspace.enabled ? <details ref={reviewRef} className="xp-review-settings"><summary>Review context · {chosen ? `${chosen.label} · ${chosen.inheritance.label}` : 'No disease selected'}<span>Your choices, not patient findings</span></summary>{reviewFrame}</details> : reviewFrame}
+    <ExpressionHero compact={workspace.enabled} finding={finding} facts={facts} onset={context.selection.onset} activeFinding={activeFinding} />
     <EvidencePanel tab="expression-models">
-      <ContextExplorer tab="expression-models" rows={rows} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}
+      <ContextExplorer tab="expression-models" rows={rows} hasReviewSystems={context.selection.systems.length > 0} onChooseSystems={chooseSystems} groups={[{ id: 'adult', label: 'Adult RNA' }, { id: 'developmental', label: 'Pediatric RNA' }]}
         empty={<ContextSourceState name={workspace.section === 'developmental' ? 'dGTEx' : 'GTEx'} load={workspace.section === 'developmental' ? context.developmentalLoad : context.expressionLoad} onRetry={workspace.section === 'developmental' ? context.retryDevelopment : context.retryExpression} />} />
     </EvidencePanel>
     <ContextDisclosure tab="expression-models" id="phenotype" title="Disease phenotype annotations and review suggestions">
@@ -55,10 +71,10 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     <ContextDisclosure tab="expression-models" id="pext" title="Expression at the variant (pext)">
     <PextCard load={context.pextLoad} site={site} systems={context.selection.systems} tissueLabels={gtexLabels} onRetry={context.retryPext} />
     </ContextDisclosure>
-    <section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
+    <ContextDisclosure tab="expression-models" id="coverage-limits" title="Coverage limitations"><section className="ctx-card"><div className="ctx-card__head"><h2>Not covered yet</h2></div><dl className="ctx-definition">
       <div><dt>Prenatal</dt><dd>Prenatal and organ-specific atlases (BrainSpan, Cardoso-Moreira, stage-specific Bgee) are not read. dGTEx covers the pediatric public age cohorts only.</dd></div>
       <div><dt>Transcript</dt><dd>Annotation-level pext and isoform expression for the transcript carrying this missense are not read.</dd></div>
       <div><dt>Embryo</dt><dd>Embryo and fetal phenotype resources (such as DECIPHER) are not read.</dd></div>
-    </dl></section>
+    </dl></section></ContextDisclosure>
   </div>;
 }

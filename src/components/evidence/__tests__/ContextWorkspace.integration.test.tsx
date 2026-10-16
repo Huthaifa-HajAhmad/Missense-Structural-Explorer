@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { contextWorkspaceFixture } from '../../../test/contextWorkspaceFixture';
@@ -25,6 +25,59 @@ function Harness({ result }: { result: AnalysisResult }) {
 beforeEach(() => { fetchWithAuth.mockReset(); sessionStorage.clear(); const f = contextWorkspaceFixture(); store.setState({ ...f.state, gene: 'SOD1', variant: f.result.metadata!.variant }); });
 
 describe('production context tabs and linked inspectors', () => {
+  it('expands every chart record and recovers a pin beyond the initial twenty', async () => {
+    const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    const chart = await screen.findByRole('img', { name: /Adult tissue expression/ }, { timeout: 8000 });
+    expect(chart).not.toHaveTextContent('Illustrative tissue 54');
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show all 54 records' })); });
+    expect(chart).toHaveTextContent('Illustrative tissue 54');
+    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Source records' })); });
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Illustrative tissue 54' })); });
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show first 20' })); });
+    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Tissue explorer' })); });
+    act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show pinned record' })); });
+    expect(screen.getByRole('button', { name: 'Illustrative tissue 54' })).toHaveFocus();
+    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Illustrative tissue 54');
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+  it('opens system choices explicitly and does not trap the view when its last selected system is removed', async () => {
+    const f = contextWorkspaceFixture('Dense expression'); store.setState(f.state);
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    const filter = screen.getByRole('checkbox', { name: 'Selected systems only' });
+    expect(filter).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose systems' }));
+    const systems = screen.getByRole('group', { name: 'Review systems' });
+    expect(systems.contains(document.activeElement)).toBe(true);
+    const choice = within(systems).getAllByRole('button')[0];
+    act(() => { fireEvent.click(choice); });
+    act(() => { fireEvent.click(filter); });
+    act(() => { fireEvent.click(choice); });
+    expect(filter).toBeDisabled();
+    expect(filter).not.toBeChecked();
+    await screen.findByRole('img', { name: /Adult tissue expression/ }, { timeout: 8000 });
+    expect(screen.getByText('20 of 54 records shown.')).toBeInTheDocument();
+  });
+  it('uses pediatric availability in the finding and rail without empty exploration controls', async () => {
+    const f = contextWorkspaceFixture('Pediatric unavailable'); store.setState(f.state);
+    fetchWithAuth.mockResolvedValue({ ok: true, json: async () => f.state.developmentalContexts!.SOD1.data });
+    render(<Harness result={f.result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Pediatric RNA' }));
+    await waitFor(() => expect(screen.getByTestId('expression-finding')).toHaveTextContent('Pediatric measurements are not available here'));
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Sampled age cohort' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Linear TPM scale/)).not.toBeInTheDocument();
+    const trace = screen.getByText('Review context and reading', { selector: 'summary' }).closest('details')!;
+    act(() => {
+      trace.open = true;
+      fireEvent(trace, new Event('toggle'));
+    });
+    await waitFor(() => expect(screen.getByTestId('context-trace')).toHaveTextContent('Pediatric measurements are not available here'));
+    expect(screen.getByTestId('context-trace')).not.toHaveTextContent('Highest in');
+  });
   it('drills from a species coverage count into that source without collapsing one-to-many records', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go species' }));
@@ -102,5 +155,43 @@ describe('production context tabs and linked inspectors', () => {
     const sources = within(screen.getByTestId('context-sources'));
     expect(sources.getByText('Ensembl protein alignment')).toBeInTheDocument();
     expect(sources.queryByText('GTEx adult tissues')).not.toBeInTheDocument();
+  });
+});
+
+describe('gene-disease review states', () => {
+  it('restores a hidden pin to its source and keyboard target without fetching', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Panel C: Disputed Evidence' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Gene dosage' }));
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show pinned record' }));
+    const point = screen.getByRole('button', { name: 'Panel C: Disputed Evidence' });
+    expect(point).toHaveFocus();
+    expect(point).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Panel C');
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+  it('offers disease selection without empty search or record instructions', () => {
+    const f = contextWorkspaceFixture();
+    for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
+    store.setState(f.state);
+    render(<Harness result={f.result} />);
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue('');
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/records shown/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Submitted validity assertion matrix' })).not.toBeInTheDocument();
+  });
+  it('keeps classification reference collapsed and persists an explicitly expanded trace', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    expect(screen.queryByRole('list', { name: /GenCC classification scale/ })).not.toBeInTheDocument();
+    const trace = screen.getByText('Review trace', { selector: 'summary' }).closest('details')!;
+    trace.open = true; fireEvent(trace, new Event('toggle'));
+    expect(screen.getByTestId('context-trace')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go gene' }));
+    expect(screen.getByTestId('context-trace')).toBeInTheDocument();
   });
 });

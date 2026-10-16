@@ -4,6 +4,7 @@ import { AVI_FEATURES } from '../shared/alphagenomeEvidence';
 /** Illustrative payload for UI contracts, never a provider result or clinical fixture. */
 export function evidenceWorkspaceFixture(example = 'Mixed'): AnalysisResult {
   const missing = example === 'Missing';
+  const absent = example === 'Absent';
   const zeros = example === 'Zero';
   // 'Mixed' lets a variant-type ("indicator") input carry a real value: the chart/inspector path for
   // a non-measured molecular input was previously masked by forcing every indicator feature to 0.
@@ -19,10 +20,10 @@ export function evidenceWorkspaceFixture(example = 'Mixed'): AnalysisResult {
         atlasUrl: 'https://deepmind.google.com/science/alphagenome/atlas/track-predictions?v=chr20:23369727:C%3ET',
         featureAttributions: example === 'Partial' ? { Splicing: -.08, AlphaMissense: .68, 'RNA-seq': 0 } : fullAttributions },
     },
-    gnomadFrequency: missing ? null : { maxAF: zeros ? 0 : .0000055, groupMaxAF: zeros ? 0 : .00008, genomeAF: zeros ? 0 : .000004,
+    gnomadFrequency: missing || absent ? null : { maxAF: zeros ? 0 : .0000055, groupMaxAF: zeros ? 0 : .00008, genomeAF: zeros ? 0 : .000004,
       exomeAF: zeros ? 0 : .0000055, genomeAC: zeros ? 0 : 2, exomeAC: zeros ? 0 : 8, genomeAN: 500000, exomeAN: 1459156, nHomozygous: 0, dataset: 'gnomad_r4' },
-    serviceStatus: { gnomadFrequency: missing ? 'timeout' : 'ok', clinvar: 'ok' },
-    gnomadConstraint: { pli: .42 }, clinvar: { classification: 'Uncertain significance', reviewStatus: 'criteria provided, single submitter', trait: 'Illustrative condition' },
+    serviceStatus: { gnomadFrequency: missing ? 'timeout' : absent ? 'not_found' : 'ok', clinvar: absent ? 'not_found' : 'ok' },
+    gnomadConstraint: { pli: .42 }, clinvar: absent ? null : { classification: 'Uncertain significance', reviewStatus: 'criteria provided, single submitter', trait: 'Illustrative condition' },
     ruleBasedInsights: { acmgCriteria: [{ code: 'PP3', reason: 'Illustrative engine record' }, { code: 'PM2', reason: 'Illustrative engine record' }] },
   } as unknown as AnalysisResult;
 }

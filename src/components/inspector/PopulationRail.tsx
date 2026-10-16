@@ -131,7 +131,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
     {
       code: "PM2",
       rule: `≤ ${(FREQ.extremelyRare * 100).toFixed(2)}%`,
-      meaning: `Extremely rare — dominant; ≤ ${(FREQ.extremelyRareRecessive * 100).toFixed(1)}% when pLI < ${FREQ.recessivePlI} reads as recessive`,
+      meaning: `Supporting evidence; higher local ceiling ≤ ${(FREQ.extremelyRareRecessive * 100).toFixed(1)}% when pLI < ${FREQ.recessivePlI}. App-defined policy, not an inheritance assignment`,
       tone: "danger",
     },
   ];
@@ -167,8 +167,8 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
               <span className="pop-mono">≤ {formatAlleleFrequency(criterion.pm2Ceiling)}</span>
               <span className="rail-step__sub">
                 {criterion.inheritance === "unknown"
-                  ? "No pLI — read as dominant/unknown"
-                  : `pLI ${typeof pli === "number" ? pli.toFixed(2) : "—"} → ${criterion.inheritance}`}
+                  ? "Lower local ceiling — pLI not available"
+                  : `pLI ${typeof pli === "number" ? pli.toFixed(2) : "—"} → ${criterion.inheritance === 'recessive' ? 'higher' : 'lower'} local ceiling`}
               </span>
             </Step>
           )}
@@ -179,7 +179,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
           >
             <span className="rail-step__verdict">
               {applied.known ? (
-                applied.code ? <span className="ev-tier chip-code" data-tone={applied.code === "PM2" ? "danger" : "good"}>{applied.code}</span> : "None recorded"
+                applied.code ? <span className="ev-tier chip-code" data-tone={applied.code === "PM2" ? "danger" : "good"}>{applied.code === 'PM2' ? 'PM2 · Supporting' : applied.code}</span> : "None recorded"
               ) : supportsCode ? (
                 <>unconfirmed (supports {criterion.code})</>
               ) : criterion.code === "withheld" ? (
@@ -236,7 +236,7 @@ export function PopulationRail({ analysisResult }: PopulationRailProps) {
             <li>BS1 uses a fixed {(FREQ.tooCommonForDisorder * 100).toFixed(0)}% cut-point, not a disorder-specific maximum credible allele frequency.</li>
             <li>The rule reads gnomAD&apos;s raw grouped-maximum AF, not the filtering allele frequency (FAF95) ClinGen recommends for BA1/BS1.</li>
             <li>A gnomAD &ldquo;no record&rdquo; is not checked against site coverage; a poorly covered site can also return no record.</li>
-            <li>Inheritance is inferred from pLI, which measures loss-of-function intolerance, not mode of inheritance.</li>
+            <li>This app uses pLI to select a local frequency ceiling. pLI measures loss-of-function intolerance; it does not establish disease-specific inheritance.</li>
           </ul>
         </details>
       </section>

@@ -33,6 +33,13 @@
         "C:/Users/HSA19/antigravity/Missense-Structural-Explorer"
       ],
       "description": "graft: AST codebase graph \u2014 symbol wiring, call hierarchies, skeletons, and architecture maps"
+    },
+    "e2e": {
+      "command": "npx",
+      "args": [
+        "e2e",
+        "mcp"
+      ]
     }
   }
 }

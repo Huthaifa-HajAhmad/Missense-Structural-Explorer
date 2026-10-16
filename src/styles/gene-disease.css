@@ -31,7 +31,7 @@
 .gd-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
 .gd-hero__finding { color: var(--cs-text-secondary); }
 .gd-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; white-space: normal; }
-.gd-hero[data-verdict="adverse"] { border-color: color-mix(in srgb, var(--cs-text-warning) 45%, var(--cs-border)); }
+.gd-hero[data-verdict="adverse"] { border-color: color-mix(in oklch, var(--cs-text-warning) 45%, var(--cs-border)); }
 .gd-hero[data-verdict="adverse"] .gd-hero__finding { color: var(--cs-text-primary); }
 .gd-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2); }
 .gd-facts > div { padding: 11px 16px; min-width: 0; }
@@ -53,7 +53,7 @@
 .gd-table tbody tr + tr > * { border-top: 1px solid var(--cs-border-subtle); }
 .gd-table tbody tr.gd-group > th { padding: 8px 16px; background: var(--cs-surface-2); font-size: var(--cs-font-size-badge); letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-semibold); }
 .gd-table tbody + tbody tr.gd-group > th { border-top: 1px solid var(--cs-border-subtle); }
-.gd-table tr[data-adverse] > * { background: color-mix(in srgb, var(--cs-text-warning) 6%, transparent); }
+.gd-table tr[data-adverse] > * { background: color-mix(in oklch, var(--cs-text-warning) 6%, transparent); }
 .gd-table td .ev-tier { white-space: normal; }
 .gd-table td.gd-mono { white-space: nowrap; }
 .gd-table thead th:nth-child(2) { min-width: 190px; }
@@ -66,7 +66,7 @@
 .gd-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 16px; min-height: var(--gd-bar-h); padding: 8px 16px; font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); border-top: 1px solid var(--cs-border-subtle); }
 .gd-crosscheck { border-bottom: 1px solid var(--cs-border-subtle); }
 .gd-crosscheck strong { color: var(--cs-text-primary); }
-.gd-crosscheck[data-relation="differs"] { background: color-mix(in srgb, var(--cs-accent-clay) 6%, var(--cs-surface)); }
+.gd-crosscheck[data-relation="differs"] { background: color-mix(in oklch, var(--cs-accent-clay) 6%, var(--cs-surface)); }
 
 /* Focus, hit targets, print */
 .gd-screen :is(button, select, summary, a, [tabindex]):focus-visible, .gd-rail :is(summary, a):focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
@@ -86,3 +86,61 @@
 .gd-rail .ctx-rail__section { display: flex; flex-direction: column; gap: 10px; }
 .gd-rail .ctx-rail__section { border-top: 1px solid var(--cs-border-subtle); padding-top: 18px; }
 .gd-rail .ctx-rail__section h3 { margin: 0; }
+
+/* Gene-disease figure styles live with their tab, after shared primitives. */
+.gd-screen[data-comparison] { gap: 16px; }
+.gd-screen[data-comparison] .cx-explorer { gap: 8px; }
+.gd-screen[data-comparison] .cx-controls { margin-block: 0 8px; }
+.gd-screen[data-comparison] .cx-controls label { flex-direction: row; align-items: center; gap: 12px; }
+.gd-screen[data-comparison] .cx-records { border: 0; margin-block: 8px; }
+.gd-screen[data-comparison] .workspace-tabs { padding-block-end: 8px; }
+.gd-screen[data-comparison] .cx-matrix { min-width: 600px; }
+.gd-screen[data-comparison] .cx-matrix thead { background: var(--cs-surface-2); text-transform: none; font-size: 12px; }
+.gd-screen[data-comparison] .cx-matrix :is(th, td) { padding: 14px 20px; vertical-align: middle; }
+.gd-screen[data-comparison] .cx-matrix td:not(:last-child) { border-inline-start: 1px solid var(--cs-border-subtle); }
+.gd-screen[data-comparison] .cx-matrix th { color: var(--cs-text-primary); }
+.gd-screen[data-comparison] .cx-matrix td:last-child { white-space: nowrap; }
+.cx-screen .gd-hero__body { padding: 16px 20px; }
+.cx-screen .gd-hero__figure { margin: 10px 0; }
+.cx-screen .gd-hero__finding { font-size: 13px; }
+
+/* Finding-first composition. Keep the figure, scope and qualifications together;
+   reference material remains in labelled disclosures rather than a second summary. */
+.gd-screen.cx-screen { gap: 12px; }
+.gd-screen.cx-screen .gd-hero__body { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding-block: 12px; padding-inline: 16px; }
+.gd-screen .gd-finding-heading { font-size: clamp(20px, 2.4cqi, 25px); font-weight: var(--cs-font-weight-semibold); line-height: 1.25; }
+.gd-screen .gd-picker { padding-block: 8px; padding-inline: 0; border: 0; border-radius: 0; }
+.gd-picker-help { flex-basis: 100%; font-size: var(--cs-font-size-caption); }
+.gd-picker-help > summary { cursor: pointer; padding-block: 4px; }
+.gd-screen .gd-hero__finding { font-size: var(--cs-font-size-prose); }
+.gd-screen[data-comparison] .cx-matrix :is(th, td) { padding-block: 8px; padding-inline: 16px; }
+.gd-screen .cx-assertion { min-inline-size: 36px; min-block-size: 36px; }
+.gd-screen .cx-controls { justify-content: flex-end; }
+.gd-screen .cx-controls label { flex-wrap: wrap; }
+.gd-screen .cx-controls input { inline-size: min(100%, 220px); }
+.gd-screen .cx-caption { margin-block: 4px; }
+.gd-screen .cx-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gd-screen .cx-finding-details > summary { padding-inline: 0; }
+.gd-rail > .ctx-details > summary { padding-block: 10px; min-block-size: 44px; cursor: pointer; font-weight: var(--cs-font-weight-semibold); color: var(--cs-text-primary); }
+.gd-rail > .ctx-details .rail-section { margin-block-start: 12px; }
+.gd-screen .eyebrow, .gd-rail .eyebrow { text-transform: none; letter-spacing: normal; font-size: var(--cs-font-size-caption); }
+.gd-screen summary:active, .gd-rail summary:active { background: var(--cs-surface-2); }
+@media (hover: hover) and (pointer: fine) {
+  .gd-screen summary:hover, .gd-rail summary:hover { color: var(--cs-text-primary); }
+}
+
+.gd-screen.cx-screen .evw-navigation { padding-block-end: 8px; }
+.gd-screen.cx-screen .cx-record-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.gd-screen.cx-screen .cx-controls { margin: 0; }
+.gd-screen.cx-screen .cx-controls label { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.gd-screen.cx-screen .cx-empty:empty { display: none; }
+.gd-screen.cx-screen .viz-frame__head { padding-block: 12px; padding-inline: 16px; }
+
+.gd-screen.cx-screen .cx-controls { flex: 0 1 330px; }
+.gd-screen .gd-picker-help { flex-basis: auto; }
+.gd-screen.cx-screen .gd-picker { padding-block: 4px; }
+.gd-screen.cx-screen .workspace-tabs { padding-block-end: 4px; }
+.gd-screen.cx-screen .cx-matrix :is(th, td) { padding-block: 8px; padding-inline: 16px; }
+
+.gd-screen.cx-screen .cx-controls label { flex-wrap: nowrap; }
+.gd-screen.cx-screen .cx-controls input { min-inline-size: 0; flex: 1 1 160px; }
