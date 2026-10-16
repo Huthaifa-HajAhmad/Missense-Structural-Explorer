@@ -38,7 +38,7 @@ describe('Mechanism workspaces', () => {
     expect(screen.getByText(/outside the current view or filter/)).toBeInTheDocument();
     expect(inspector).toHaveTextContent('4 of 15');
     fireEvent.click(screen.getByRole('button', { name: 'Show selected reading' }));
-    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Assemblies & models' })).toHaveAttribute('aria-selected', 'true');
     expect(document.activeElement).toHaveTextContent('SOD1 fibril');
   });
   it('restores partner search and pin across tab navigation, then resets for another allele', () => {
@@ -64,7 +64,7 @@ describe('Mechanism workspaces', () => {
     render(<Fixture result={mechanismWorkspaceFixture('Missing position')} initial="splicing" />);
     fireEvent.change(screen.getByLabelText('Map view'), { target: { value: '50' } });
     expect(screen.getByRole('option', { name: '0–0.3 (focused range)' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Channel details' }));
     fireEvent.click(screen.getByRole('button', { name: 'Donor loss' }));
     expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('0.9');
     fireEvent.click(screen.getByRole('tab', { name: 'Splice map' }));
@@ -78,6 +78,6 @@ describe('Mechanism workspaces', () => {
     expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Acceptor loss');
     const tab = screen.getByRole('tab', { name: 'Splice map' });
     tab.focus(); fireEvent.keyDown(tab, { key: 'ArrowRight' });
-    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Source records' }));
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Channel details' }));
   });
 });

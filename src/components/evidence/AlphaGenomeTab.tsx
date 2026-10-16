@@ -159,53 +159,17 @@ function Fact({ label, children, sub }: { label: string; children: React.ReactNo
 
 // ── Contributions ───────────────────────────────────────────────────────────────────────────────
 
-/**
- * The zero line sits where the data puts it: at the left edge when nothing lowers the score, further
- * in only as far as the largest negative contribution needs. Centring it left half the column empty.
- */
-interface BarScale { zero: number; span: number }
-
-function barScale(ev: AlphaGenomeEvidence): BarScale {
-  const values = (ev.groups ?? []).flatMap(g => g.rows.map(r => r.shap)).filter((v): v is number => v !== null);
-  const pos = Math.max(0, ...values);
-  const neg = Math.max(0, ...values.map(v => -v));
-  const span = pos + neg;
-  return { zero: span > 0 ? (neg / span) * 100 : 0, span };
-}
-
-function ContributionBar({ shap, scale, origin }: { shap: number; scale: BarScale; origin: string }) {
-  const width = scale.span > 0 ? (Math.abs(shap) / scale.span) * 100 : 0;
-  return (
-    <div className="ag-diverge" aria-hidden="true" style={{ ["--ag-zero" as string]: `${scale.zero}%` }}>
-      {shap !== 0 && (
-        <span
-          className="ag-diverge__bar"
-          data-side={shap > 0 ? "up" : "down"}
-          data-origin={origin}
-          style={shap > 0 ? { left: `${scale.zero}%`, width: `${width}%` } : { right: `${100 - scale.zero}%`, width: `${width}%` }}
-        />
-      )}
-    </div>
-  );
-}
-
-function FeatureRow({ row, scale }: { row: AviFeatureReading; scale: BarScale }) {
+function FeatureRow({ row }: { row: AviFeatureReading }) {
   const has = row.shap !== null;
   const origin = AVI_ORIGIN[row.group];
   const note = origin === "new" ? row.description : `${AVI_GROUP_LABEL[row.group]} · ${AVI_GROUP_NOTE[row.group]}`;
-  // formatAttributionValue, not fmtSigned: a 0.0004 contribution must not print "+0.000", the same
-  // glyph as a returned zero (the chart model already used this rule).
-  const valueText = has ? formatAttributionValue(row.shap as number) : null;
   return (
     <tr data-testid={`avi-feature-${row.id}`}>
       <th scope="row" className="ag-feature">
         <span className="ag-feature__name"><InspectReadingButton tab="alphagenome" readingKey={row.id}>{row.name}</InspectReadingButton></span>
         <span className="ag-feature__note">{note}</span>
       </th>
-      <td title={has ? `${row.name}: ${valueText} (${(row.shap as number) >= 0 ? "raises" : "lowers"} the score)` : `${row.name}: not attributed`}>
-        {has ? <ContributionBar shap={row.shap as number} scale={scale} origin={origin} /> : <span className="ag-dim">Not attributed</span>}
-      </td>
-      <td className="ag-num">{has ? valueText : <span className="ag-dim">—</span>}</td>
+      <td>{has ? row.shap === 0 ? 'Zero contribution' : (row.shap as number) > 0 ? 'Raises score' : 'Lowers score' : 'Not attributed'}</td>
       <td className="ag-num ag-num--share">{row.share !== null ? fmtShare(row.share) : <span className="ag-dim">—</span>}</td>
     </tr>
   );
@@ -246,7 +210,6 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
       </section>
     );
   }
-  const scale = barScale(ev);
   return (
     <section className="ag-card" aria-labelledby="ag-contrib-title">
       {head}
@@ -255,14 +218,12 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
           <colgroup>
             <col className="ag-col-feature" />
             <col />
-            <col className="ag-col-value" />
             <col className="ag-col-share" />
           </colgroup>
           <thead>
             <tr>
               <th scope="col">Feature</th>
-              <th scope="col" title="Right of the line raises the score, left lowers it">Contribution</th>
-              <th scope="col" className="ag-num" title="SHAP contribution, in the units of the raw AVI score">Value</th>
+              <th scope="col">Direction</th>
               <th scope="col" className="ag-num" title="|value| as a share of the summed |values|">Share</th>
             </tr>
           </thead>
@@ -280,7 +241,7 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
             return (
               <tbody key={o.origin} data-origin={o.origin}>
                 <tr className="ag-group">
-                  <th colSpan={4} scope="rowgroup">
+                  <th colSpan={3} scope="rowgroup">
                     <span className="ag-group__line">
                       <span>
                         <span className="ag-group__title">{AVI_ORIGIN_LABEL[o.origin]}</span>
@@ -292,10 +253,10 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
                     </span>
                   </th>
                 </tr>
-                {visible.map(r => <FeatureRow key={r.id} row={r} scale={scale} />)}
+                {visible.map(r => <FeatureRow key={r.id} row={r} />)}
                 {foldable && (hidden > 0 || open) && (
                   <tr className="ag-fold">
-                    <td colSpan={4}>
+                    <td colSpan={3}>
                       <button
                         type="button"
                         className="ag-link"

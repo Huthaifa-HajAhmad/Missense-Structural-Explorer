@@ -334,7 +334,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
   // A mark picked in the drawing may open a row below the fold; bring it into view without moving anything else.
   // When the reader arrived from the comparison view's "View selected record" button, scroll alone is not
   // enough: that button unmounts with the comparison view, so focus must land on the row as well. Only that
-  // button sets focusRowRef; switching to Source records from the tablist must leave focus on the tab it just
+  // button sets focusRowRef; switching to Annotation details from the tablist must leave focus on the tab it just
   // moved to, which depending on `workspace.view` alone used to override.
   useEffect(() => {
     if (!selectedKey) return;
@@ -476,7 +476,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       {/* ── 2. What is annotated ────────────────────────────────────────────────────────── */}
       {ok && workspace.comparison && <div className="mol-guide mol-selection">
         <strong>{selectedKey ? ev.groups.flatMap(g => g.rows).find(r => r.key === selectedKey)?.name ?? 'The pinned annotation is no longer available' : 'Pin an annotation to follow its evidence'}</strong>
-        <span>{selectedKey ? 'The inspector holds the pinned record. Open Source records for its exact bounds and citations.' : 'Click a domain or site, or use the drawing’s arrow keys. Full domain names remain available above.'}</span>
+        <span>{selectedKey ? 'The inspector holds the pinned record. Open Annotation details for its exact bounds and citations.' : 'Click a domain or site, or use the drawing’s arrow keys. Full domain names remain available above.'}</span>
         {selectedKey && <button className="viz-action" type="button" onClick={() => { focusRowRef.current = selectedKey; workspace.setView('records'); }}>View selected record</button>}
       </div>}
       {ok && (!workspace.enabled || !workspace.comparison) && (

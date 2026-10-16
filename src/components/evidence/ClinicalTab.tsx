@@ -376,7 +376,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           )}
         </div>
 
-        {criterion.af !== null && !workspace.comparison && (
+        {criterion.af !== null && (!workspace.enabled || workspace.comparison) && (
           <details className="pop-hero__scale pop-thresholds">
             <summary>Rule thresholds · app-defined frequency policy</summary>
             <FrequencyScale
@@ -434,13 +434,13 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
               {row.group !== 'rule' && row.contextText && <p className="pop-mono">{row.contextText}</p>}
             </li>)}</ul>
           </section>)}
-      {workspace.comparison && <section className="pop-card pop-clinvar-summary" aria-label="ClinVar summary">
-        <div><h2>ClinVar</h2><strong>{clinvar.availability.hasValue ? clinvar.classification : clinvar.availability.state === 'no-result' ? 'No classification' : clinvar.availability.label ?? 'No classification available'}</strong></div>
-        <p>{clinvar.availability.hasValue ? 'A submitted clinical assertion, separate from population frequency. Review its condition and review status in Source records.' : clinvar.availability.reason ?? 'No classification in ClinVar is available for this variant.'}</p>
-      </section>}
-      {!workspace.comparison && <div className="pop-lower">
+      {workspace.comparison && evidence.gnomadHomozygotes !== null && <p className="pop-card__foot">
+        gnomAD homozygotes <span className="pop-mono pop-strong">{formatCount(evidence.gnomadHomozygotes)}</span>
+        {bs2 !== null && <span className="ev-tier chip-code" data-tone={bs2 ? 'good' : 'muted'}>{bs2 ? 'BS2' : 'No BS2'}</span>}
+      </p>}
+      {!workspace.comparison && <div className={workspace.enabled ? undefined : "pop-lower"}>
         {/* ── 2. Source readings ──────────────────────────────────────────────────────────── */}
-        <section className="pop-section" aria-labelledby="pop-readings-title">
+        {!workspace.enabled && <section className="pop-section" aria-labelledby="pop-readings-title">
           <h2 className="eyebrow" id="pop-readings-title">
             <Database className="w-3.5 h-3.5" />
             Source readings
@@ -512,7 +512,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
                 )}
             </div>
           </div>
-        </section>
+        </section>}
 
         {/* ── 3. Clinical assertion ───────────────────────────────────────────────────────── */}
         <section className="pop-section" aria-labelledby="pop-clinvar-title">

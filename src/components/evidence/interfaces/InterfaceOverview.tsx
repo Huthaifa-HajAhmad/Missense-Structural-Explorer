@@ -17,7 +17,7 @@ export function InterfaceOverview({ ev }: { ev: InterfacesEvidence }) {
         <span className="mx-support__scale" aria-hidden="true">{p.supportPercent !== null && <><span style={{ inlineSize: `${p.supportPercent}%` }} /><i style={{ insetInlineStart: `${p.supportPercent}%` }} /></>}</span>
         <span className="mx-support__count">{p.k}<small> / {p.n}</small></span>
       </button>)}
-      {g.total > g.rows.length && <button type="button" className="viz-action" onClick={() => w.setView('records')}>View all {g.total} {g.label.toLowerCase()} in source records</button>}
+      {g.total > g.rows.length && <button type="button" className="viz-action" onClick={() => w.setView('records')}>View all {g.total} {g.label.toLowerCase()} in assemblies & models</button>}
     </div>)}
     <footer>Each row keeps its own denominator. Fibril and outside-assembly contacts do not contribute to the native-interface finding.</footer>
   </section>;

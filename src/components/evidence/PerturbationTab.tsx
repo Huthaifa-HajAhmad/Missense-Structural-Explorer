@@ -95,8 +95,16 @@ function AvailabilityCell({
   colSpan: number;
   onAction: (action: NonNullable<ReadingAvailability["action"]>) => void;
 }) {
+  return <td className="ptb-reason" colSpan={colSpan}><AvailabilityMessage a={a} onAction={onAction} /></td>;
+}
+
+/** One recovery contract for the model disclosure and the standalone readings table. */
+function AvailabilityMessage({ a, onAction }: {
+  a: ReadingAvailability;
+  onAction: (action: NonNullable<ReadingAvailability['action']>) => void;
+}) {
   return (
-    <td className="ptb-reason" colSpan={colSpan}>
+    <>
       {a.state === "pending" ? <span className="ptb-dim">Still being computed for this variant.</span> : a.reason}
       {a.action && a.state !== "pending" && (
         <span className="ptb-actions">
@@ -111,8 +119,26 @@ function AvailabilityCell({
           )}
         </span>
       )}
-    </td>
+    </>
   );
+}
+
+/** Provenance and recovery are unique content, even when numeric readings are deduplicated. */
+function ModelSupport({ evidence, onAction }: {
+  evidence: PerturbationEvidence;
+  onAction: (action: NonNullable<ReadingAvailability['action']>) => void;
+}) {
+  return <section aria-label="Model provenance and recovery">
+    {evidence.lms.map(lm => <details key={lm.id} className="mol-finding-details">
+      <summary>{lm.family} details and availability</summary>
+      <p>{lm.description} <ResearchGuideButton topic={/vesm/i.test(lm.servedBy ?? '') ? 'vesm' : lm.id} label={`About ${lm.family}`} iconOnly /></p>
+      {lm.servedBy && <p>Served by {lm.servedBy}</p>}
+      {lm.diagnostics.length > 0 && <ul aria-label={`${lm.family} engine notes`}>
+        {lm.diagnostics.map(d => <li key={d.tier}><strong>{d.tier}:</strong> {d.text}</li>)}
+      </ul>}
+      {lm.availability.state !== 'computed' && <p className="ptb-reason"><StatusChip a={lm.availability} /> <AvailabilityMessage a={lm.availability} onAction={onAction} /></p>}
+    </details>)}
+  </section>;
 }
 
 function StatusChip({ a }: { a: ReadingAvailability }) {
@@ -667,6 +693,8 @@ export function PerturbationTab({
 
           <ModelStrip evidence={evidence} selectedId={selected?.id ?? null} onSelect={selectModel} />
 
+          {workspace.comparison && <ModelSupport evidence={evidence} onAction={onAction} />}
+
           <ModelCaveatCallouts evidence={evidence} />
 
           <details className="mol-finding-details" open={workspace.comparison ? undefined : true}>
@@ -708,10 +736,10 @@ export function PerturbationTab({
       </section>
 
       {/* ── 2. Readings ────────────────────────────────────────────────────────────────────── */}
-      {(!workspace.enabled || !workspace.comparison) && <section className="ptb-section" aria-labelledby="ptb-readings-title">
+      {(!workspace.enabled || workspace.view === 'records' || (workspace.view === 'embeddings' && !!evidence.esm3)) && <section className="ptb-section" aria-labelledby="ptb-readings-title">
         <h2 className="eyebrow" id="ptb-readings-title">
           <ListChecks className="w-3.5 h-3.5" />
-          Readings
+          {workspace.enabled ? workspace.view === 'embeddings' ? 'Sequence embeddings' : 'Packing & geometry' : 'Readings'}
         </h2>
         <div className="ptb-card ptb-table-wrap">
           <table className="ptb-table" data-testid="perturbation-readings">
@@ -723,7 +751,7 @@ export function PerturbationTab({
                 <th scope="col" className="ptb-status">Reading</th>
               </tr>
             </thead>
-            <tbody data-group="lm">
+            {!workspace.enabled && <tbody data-group="lm">
               <tr className="ptb-group">
                 <th colSpan={4} scope="rowgroup">
                   <span className="ptb-group__inner">
@@ -735,8 +763,8 @@ export function PerturbationTab({
               {evidence.lms.map(l => (
                 <LmRow key={l.id} lm={l} wt={wt} mut={mut} selected={selected?.id === l.id} onSelect={setActiveModel} onAction={onAction} />
               ))}
-            </tbody>
-            <tbody data-group="foldx">
+            </tbody>}
+            {(!workspace.enabled || workspace.view === 'records') && <tbody data-group="foldx">
               <tr className="ptb-group">
                 <th colSpan={4} scope="rowgroup">
                   <span className="ptb-group__inner">
@@ -776,8 +804,8 @@ export function PerturbationTab({
                   </td>
                 </tr>
               )}
-            </tbody>
-            {evidence.esm3 && (
+            </tbody>}
+            {(!workspace.enabled || workspace.view === 'embeddings') && evidence.esm3 && (
               <tbody data-group="esm3">
                 <tr className="ptb-group">
                   <th colSpan={4} scope="rowgroup">
@@ -792,11 +820,13 @@ export function PerturbationTab({
             )}
           </table>
           <div className="ptb-table-foot" aria-label="Legend">
+            {!workspace.enabled && <>
             <span className="ptb-legend__item"><i className="ptb-legend__marker" />Variant ({mut})</span>
             <span className="ptb-legend__item"><i className="ptb-legend__native" />Native ({wt})</span>
             <span className="ptb-legend__item"><span className="ptb-legend__band" aria-hidden="true"><i /><i /><i /><i /></span>Rank bands, 1 → 20</span>
+            </>}
             <span className="ptb-legend__item"><i className="ptb-legend__tick" />App-defined reading mark</span>
-            {evidence.physical.runsIdentical && (
+            {(!workspace.enabled || workspace.view === 'records') && evidence.physical.runsIdentical && (
               <span className="ptb-legend__item">
                 FoldX runs identical (SD 0.00) — no run-to-run spread, not a precision claim
               </span>
@@ -806,7 +836,8 @@ export function PerturbationTab({
       </section>}
 
       {/* ── 3. Residue detail ──────────────────────────────────────────────────────────────── */}
-      <ResidueDetail evidence={evidence} selected={selected} onSelect={selectModel} />
+      {workspace.view === 'embeddings' && !evidence.esm3 && <p>No sequence embedding measurements were returned for this variant.</p>}
+      {(!workspace.enabled || workspace.comparison) && <ResidueDetail evidence={evidence} selected={selected} onSelect={selectModel} />}
 
       {busy && (
         <p role="status" className="ptb-callout" data-tone="neutral">

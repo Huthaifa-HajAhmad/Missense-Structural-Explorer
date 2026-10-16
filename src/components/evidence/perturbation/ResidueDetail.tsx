@@ -185,6 +185,12 @@ export function ResidueDetail({
               <div>
                 {workspace.comparison ? <Suspense fallback={<p role="status">Loading residue distribution…</p>}>
                   {comparison.rows.length > 8 && <div className="evw-figure-scope"><span>{overview.rows.length} of {comparison.rows.length} returned residues · {expanded ? 'full distribution' : 'six highest probabilities plus reference and variant'}</span><button type="button" className="viz-action" aria-expanded={expanded} onClick={() => workspace.toggleGroup('all-probabilities')}>{expanded ? 'Show overview' : `Show all ${comparison.rows.length} residues`}</button></div>}
+                  <div className="evw-controls"><label>Inspect amino acid <select
+                    value={comparison.rows.some(r => r.key === workspace.selected) ? workspace.selected! : ''}
+                    onChange={e => workspace.select(e.target.value || null)}>
+                    <option value="">Choose a residue</option>
+                    {comparison.rows.map(r => <option key={r.key} value={r.key}>{r.name}</option>)}
+                  </select></label></div>
                   <EvidenceComparison tab="perturbation" model={overview} title={`${selected.family}: amino-acid preferences`}
                     description={`At residue ${position ?? 'under study'}, which amino acids does this model favour? Reference and variant are labelled; every dot retains its exact probability in the inspector.`} />
                 </Suspense> : <Preferences lm={selected} wtCode={wtCode} mutCode={mutCode} wtLabel={wtLabel} mutLabel={mutLabel} />}

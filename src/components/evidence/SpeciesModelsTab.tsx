@@ -1,8 +1,8 @@
 import type { TabComponentProps } from './types';
 import { useContextWorkspace } from '../../hooks/useContextWorkspace';
 import { ReviewFrame } from './expression/ReviewFrame';
-import { EvidenceViewTabs, EvidencePanel, useEvidenceWorkspace } from './EvidenceWorkspace';
-import { ContextExplorer, ContextGuide, ContextDisclosure } from './ContextExplorer';
+import { EvidenceViewTabs, EvidencePanel, EvidenceTopic, useEvidenceWorkspace } from './EvidenceWorkspace';
+import { ContextExplorer, ContextGuide } from './ContextExplorer';
 import { ContextSourceState } from './ContextSourceState';
 import { ModelOrganismsCard } from './ModelOrganismsCard';
 import { ModelPhenotypesCard } from './ModelPhenotypesCard';
@@ -32,14 +32,15 @@ function SpeciesContent({ result }: { result: NonNullable<TabComponentProps['ana
     {phenotypes?.mapping === 'unavailable' && <p className="cx-notice">Cross-species term mapping is unavailable. Curated phenotype records remain available without disease-overlap claims.</p>}
     {incomplete.length > 0 && <p className="cx-notice">Phenotypes could not be read completely for {incomplete.map(s => s.symbol).join(', ')}. <button type="button" className="viz-action" onClick={c.retryPhenotypes}>Retry phenotypes</button></p>}
     {omitted > 0 && <p className="cx-notice">{omitted} returned phenotype summaries could not be resolved into the displayed term records. Coverage is partial; displayed counts are not the full annotation set.</p>}
-    <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}<ContextExplorer tab="species-models" rows={rows}
+    <EvidencePanel tab="species-models">{w.comparison && <SpeciesCoverage rows={rows} />}{(!w.enabled || w.comparison) && <ContextExplorer tab="species-models" rows={rows}
       groups={[{ id: 'orthologs', label: 'Orthologs' }, { id: 'alignment', label: 'Variant site' }, { id: 'phenotypes', label: 'Phenotypes' }]}
-      empty={<ContextSourceState {...source} />} relevantLabel="Selected disease term overlap only" />
-    </EvidencePanel>
+      empty={<ContextSourceState {...source} />} relevantLabel="Selected disease term overlap only" />}
+
     {!model.selected && <p className="cx-caption">Choose a disease to explore overlap with its annotated HPO terms. These are disease annotations, not patient findings.</p>}
     <ContextGuide><p>An ortholog is a gene related through speciation. A species may have several; the view retains every returned ortholog and distinguishes Alliance gene records from Ensembl alignments.</p><p>The variant-site view walks gapped protein alignments and verifies the human sequence first. A gap or reference mismatch stays explicit. Whole-protein identity is different from conservation at this site.</p><p>Animal phenotype summaries have limited experimental detail. No significant difference is not proof of a normal organism, and no annotation is not a negative experiment.</p></ContextGuide>
-    <ContextDisclosure tab="species-models" id="orthology" title="Orthology methods and mouse screen coverage"><ModelOrganismsCard load={c.modelLoad} systems={c.selection.systems} onRetry={c.retryModels} /></ContextDisclosure>
-    <ContextDisclosure tab="species-models" id="phenotypes" title="Curated phenotype source records"><ModelPhenotypesCard load={c.phenotypesLoad} diseaseTerms={new Map((c.hpoLoad?.data?.terms ?? []).map(t => [t.id, t.name]))} diseaseName={model.selected?.label ?? null} onRetry={c.retryPhenotypes} /></ContextDisclosure>
-    <ContextDisclosure tab="species-models" id="alignment" title="Alignment source records"><ResidueAlignmentCard load={c.alignmentLoad} onRetry={c.retryAlignment} residue={{ sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: pair.wildTypeCode, mutant: pair.mutantCode }} /></ContextDisclosure>
+    <EvidenceTopic tab="species-models" view="records"><ModelOrganismsCard load={c.modelLoad} systems={c.selection.systems} onRetry={c.retryModels} /></EvidenceTopic>
+    <EvidenceTopic tab="species-models" view="phenotypes"><ModelPhenotypesCard load={c.phenotypesLoad} diseaseTerms={new Map((c.hpoLoad?.data?.terms ?? []).map(t => [t.id, t.name]))} diseaseName={model.selected?.label ?? null} onRetry={c.retryPhenotypes} /></EvidenceTopic>
+    <EvidenceTopic tab="species-models" view="alignment"><ResidueAlignmentCard load={c.alignmentLoad} onRetry={c.retryAlignment} residue={{ sequence: result.metadata?.sequence, position: result.metadata?.residueIndex ?? null, wildType: pair.wildTypeCode, mutant: pair.mutantCode }} /></EvidenceTopic>
+    </EvidencePanel>
   </div>;
 }

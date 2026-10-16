@@ -26,7 +26,7 @@ test('expression expansion, exact pins and source availability', { tags: ['expre
   await browser.setViewport({ width: 1440, height: 900 });
   await screen.getByRole('button', 'Show all 54 records').tap();
   await expect(chart).toContainText('Illustrative tissue 54');
-  await screen.getByRole('tab', 'Source records').tap();
+  await screen.getByRole('tab', 'Sampling & coverage').tap();
   await screen.getByRole('button', 'Illustrative tissue 54').press('Enter');
   const inspector = screen.getByRole('region', 'Selected evidence reading');
   await expect(inspector.getByRole('heading', 'Illustrative tissue 54')).toBeVisible();
@@ -46,7 +46,7 @@ test('expression expansion, exact pins and source availability', { tags: ['expre
   await screen.getByRole('combobox', 'Sampled age cohort').selectOption('Pre-pubertal (8 to approximately 13)');
   await expect(screen.getByTestId('expression-finding')).toContainText('29 TPM');
   await expect(screen.getByText(/Linear TPM scale: 0–36/)).toBeVisible();
-  await screen.getByRole('tab', 'Source records').tap();
+  await screen.getByRole('tab', 'Sampling & coverage').tap();
   await screen.getByRole('button', 'Brain').press('Enter');
   await expect(inspector).toContainText('29');
   await app.screenshot('expression-pediatric-record');
