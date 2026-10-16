@@ -33,7 +33,7 @@ describe('production context tabs and linked inspectors', () => {
     expect(chart).not.toHaveTextContent('Illustrative tissue 54');
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show all 54 records' })); });
     expect(chart).toHaveTextContent('Illustrative tissue 54');
-    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Source records' })); });
+    act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' })); });
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Illustrative tissue 54' })); });
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'Show first 20' })); });
     act(() => { fireEvent.click(screen.getByRole('tab', { name: 'Tissue explorer' })); });
@@ -100,7 +100,7 @@ describe('production context tabs and linked inspectors', () => {
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('button', { name: 'Clear pin' })).toBeInTheDocument());
     // The pinned record is named, not just "a pinned record": substring assertions once passed while the wrong row was pinned.
     expect(within(screen.getByRole('region', { name: 'Selected evidence reading' })).getByRole('heading', { level: 3 })).toHaveTextContent(/Skeletal/i);
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
@@ -114,19 +114,19 @@ describe('production context tabs and linked inspectors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Panel C: Disputed Evidence' }));
     const inspector = () => within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector().getByRole('heading', { name: 'Panel C' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Records' }));
     fireEvent.click(screen.getByRole('button', { name: 'Panel A' }));
     expect(inspector().getByRole('heading', { name: 'Panel A' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('button', { name: 'Go gene' }));
-    expect(screen.getByRole('tab', { name: 'Source records' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Records' })).toHaveAttribute('aria-pressed', 'true');
     expect(inspector().getByRole('heading', { name: 'Panel A' })).toBeInTheDocument();
     expect(fetchWithAuth).not.toHaveBeenCalled();
   });
   it('filters tissue records without losing a pin, retains the cohort on navigation, and clears for a new variant', () => {
     const f = contextWorkspaceFixture(); const rendered = render(<Harness result={f.result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Sampling & coverage' }));
     fireEvent.click(screen.getByRole('button', { name: 'Skeletal muscle' }));
     const inspector = within(screen.getByRole('region', { name: 'Selected evidence reading' }));
     expect(inspector.getByRole('heading', { level: 3 })).toHaveTextContent('Skeletal muscle');
@@ -159,15 +159,71 @@ describe('production context tabs and linked inspectors', () => {
 });
 
 describe('gene-disease review states', () => {
+  it('keeps category and presentation independent and scopes each finding to its evidence', () => {
+    render(<Harness result={contextWorkspaceFixture('Differing assertions').result} />);
+    const tabs = screen.getByRole('tablist', { name: 'Gene–disease evidence' });
+    expect(within(tabs).getAllByRole('tab').map(t => t.textContent)).toEqual(['Validity', 'Dosage', 'Mechanism', 'Variant context']);
+    fireEvent.click(screen.getByRole('button', { name: 'Records' }));
+    expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('dosage-card')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
+    expect(screen.queryByTestId('gene-disease-finding')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Validity presentation' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Mechanism' }));
+    expect(screen.getByRole('heading', { name: 'Disease mechanism' })).toBeInTheDocument();
+    expect(screen.queryByTestId('dosage-card')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Variant context' }));
+    expect(screen.getByTestId('variant-locus-card')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Validity' }));
+    expect(screen.getByRole('button', { name: 'Records' })).toHaveAttribute('aria-pressed', 'true');
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+  it('names the single disease before explicit selection, preserving gene-level dosage', () => {
+    const f = contextWorkspaceFixture();
+    f.disease.frames = f.disease.frames.slice(0, 1);
+    for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
+    store.setState(f.state);
+    render(<Harness result={f.result} />);
+    const choice = within(screen.getByRole('region', { name: 'Disease context' }));
+    expect(choice.getByRole('heading', { name: f.disease.frames[0].label })).toBeInTheDocument();
+    expect(choice.getByText(/Autosomal dominant/)).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dosage-card')).toBeInTheDocument();
+    fireEvent.click(choice.getByRole('button', { name: 'Review this disease' }));
+    expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue(f.disease.frames[0].key);
+    expect(screen.getByRole('tab', { name: 'Validity' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('tab', { name: 'Variant context' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Review SOD1 for' }), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Review this disease' }));
+    expect(screen.getByRole('tab', { name: 'Validity' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Validity' })).toHaveFocus();
+  });
+  it('offers one source entry per provider and pins a submitter idempotently', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    const sources = within(screen.getByTestId('context-sources'));
+    for (const name of ['GenCC validity', 'Gene2Phenotype mechanism', 'ClinGen dosage']) {
+      expect(sources.getAllByText(name)).toHaveLength(1);
+    }
+    expect(sources.queryByText('Read')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review overview' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Panel A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Panel A' }));
+    expect(screen.getByRole('button', { name: 'Panel A' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Panel A' }).closest('tr')).toHaveAttribute('data-selected', 'true');
+    expect(screen.queryByRole('heading', { name: 'Review overview' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear pin' }));
+    expect(screen.getByRole('heading', { name: 'Review overview' })).toBeInTheDocument();
+  });
   it('restores a hidden pin to its source and keyboard target without fetching', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     fireEvent.click(screen.getByRole('button', { name: 'Panel C: Disputed Evidence' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Gene dosage' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show pinned record' }));
-    const point = screen.getByRole('button', { name: 'Panel C: Disputed Evidence' });
+    const point = screen.getByRole('button', { name: 'Panel C' });
     expect(point).toHaveFocus();
     expect(point).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Panel C');
@@ -184,14 +240,14 @@ describe('gene-disease review states', () => {
     expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Submitted validity assertion matrix' })).not.toBeInTheDocument();
   });
-  it('keeps classification reference collapsed and persists an explicitly expanded trace', () => {
+  it('keeps classification reference collapsed and persists explicitly expanded reference material', () => {
     render(<Harness result={contextWorkspaceFixture().result} />);
     expect(screen.queryByRole('list', { name: /GenCC classification scale/ })).not.toBeInTheDocument();
-    const trace = screen.getByText('Review trace', { selector: 'summary' }).closest('details')!;
+    const trace = screen.getByText('Reference & methods', { selector: 'summary' }).closest('details')!;
     trace.open = true; fireEvent(trace, new Event('toggle'));
-    expect(screen.getByTestId('context-trace')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: /GenCC classification scale/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
     fireEvent.click(screen.getByRole('button', { name: 'Go gene' }));
-    expect(screen.getByTestId('context-trace')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: /GenCC classification scale/ })).toBeInTheDocument();
   });
 });
