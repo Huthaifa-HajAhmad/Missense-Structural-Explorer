@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 import type { AnalysisResult } from '../../types';
 import { useAlleleWorkspaceState } from '../../hooks/useAlleleWorkspaceState';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
-import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 
 type ReviewTab = 'insights' | 'literature';
 type ReviewView = 'map' | 'records' | 'summary';
@@ -31,6 +30,5 @@ export function ReviewNavigation({ tab, workspace: w }: { tab: ReviewTab; worksp
   return <div className="review-navigation"><WorkspaceTabs id={`review-${tab}`} label={`${tab === 'insights' ? 'Insights' : 'Literature'} views`}
     tabs={[{ id: 'map', label: tab === 'insights' ? 'Evidence map' : 'Reading desk' }, { id: 'records', label: tab === 'insights' ? 'Criterion records' : 'Source records' },
       ...(tab === 'insights' ? [{ id: 'summary' as const, label: 'Written summary' }] : [])]}
-    value={w.view} onChange={w.setView} />
-    <button type="button" className="review-action" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.evidenceReading)}>Open inspector</button></div>;
+    value={w.view} onChange={w.setView} /></div>;
 }

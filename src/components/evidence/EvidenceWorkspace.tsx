@@ -3,7 +3,6 @@ import type { AnalysisResult } from '../../types';
 import type { EvidenceWorkspaceTab, AttributionFilter } from '../../shared/evidenceComparison';
 import { useAlleleWorkspaceState } from '../../hooks/useAlleleWorkspaceState';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
-import { INSPECTOR_SECTIONS, requestInspectorFocus } from '../../lib/inspectorFocus';
 import { ReviewWorkspaceProvider } from '../review/ReviewWorkspace';
 
 type View = 'comparison' | 'records' | 'partners';
@@ -37,7 +36,7 @@ export function EvidenceViewTabs({ tab, comparisonLabel = 'Comparison' }: { tab:
   if (!w.enabled) return null;
   const names: Record<EvidenceWorkspaceTab, string> = { clinical: 'Population', predictors: 'Predictors', alphagenome: 'AlphaGenome', 'gene-disease': 'Gene–disease', 'expression-models': 'Expression', 'species-models': 'Species & models', structure: 'Residue shifts & pockets', perturbation: 'Structural perturbation', function: 'Functional domains', splicing: 'RNA splicing', interfaces: 'Interfaces & PPI' };
   return <div className="evw-navigation"><WorkspaceTabs id={`evidence-${tab}`} label={`${names[tab]} views`}
-    tabs={[{ id: 'comparison', label: comparisonLabel }, ...(tab === 'interfaces' ? [{ id: 'partners' as const, label: 'Partners' }] : []), { id: 'records', label: 'Source records' }]} value={w.view} onChange={w.setView} /><RevealEvidenceInspector /></div>;
+    tabs={[{ id: 'comparison', label: comparisonLabel }, ...(tab === 'interfaces' ? [{ id: 'partners' as const, label: 'Partners' }] : []), { id: 'records', label: 'Source records' }]} value={w.view} onChange={w.setView} /></div>;
 }
 export function EvidencePanel({ tab, children }: { tab: EvidenceWorkspaceTab; children: ReactNode }) {
   const w = useEvidenceWorkspace(tab);
@@ -50,7 +49,4 @@ export function InspectReadingButton({ tab, readingKey, children }: { tab: Evide
   // Selection convention of the whole workspace: a reading button pins its reading; the inspector's
   // Clear pin is the single release action. `aria-pressed` marks which control owns the pin.
   return <button type="button" className="evw-reading-button" aria-pressed={w.selected === readingKey} onClick={() => w.select(readingKey)}>{children}</button>;
-}
-export function RevealEvidenceInspector() {
-  return <button type="button" className="viz-action" onClick={() => requestInspectorFocus(INSPECTOR_SECTIONS.evidenceReading)}>Open inspector</button>;
 }

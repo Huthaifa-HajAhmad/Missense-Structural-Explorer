@@ -9,7 +9,7 @@ background workspaces may log blocked requests. Never use these values as scient
 
 Ten tabs use four fixture families. The Example selector changes with the family:
 
-- Population / Predictors / AlphaGenome: Mixed, Partial, Zero, Missing and New variant.
+- Population / Predictors / AlphaGenome: Mixed, Partial, Absent, Zero, Missing and New variant. Absent models a confirmed gnomAD no-record response and no ClinVar assertion; it is not a measured zero.
 - Gene–disease / Expression / Species: Mixed, Mismatch, Missing and New variant. Missing
   removes expression/animal sources; the disease assertions remain. Choose the recessive
   disease frame to exercise a frame without validity assertions.
@@ -20,6 +20,10 @@ Ten tabs use four fixture families. The Example selector changes with the family
 Check source-record and figure selection, AlphaGenome filters, categorical assertion pins,
 species coverage drilldown, the bounded/full probability distribution, protein-map windows,
 keyboard arrows/Enter, inspector collapse/reveal, light/dark and widths down to 390px.
+
+Population navigation/availability proof: run `tests/population-workspace.e2e.ts` with
+`APP_URL` pointing at this preview server. The inspector shell owns expand/collapse;
+workspace navigation no longer includes a duplicate Open inspector button.
 
 Shared fixture: `src/test/evidenceWorkspaceFixture.ts`. Model contracts:
 `src/test/evidenceComparison.test.ts`; interactions and tab/rail integration:

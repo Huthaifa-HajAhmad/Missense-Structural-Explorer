@@ -70,7 +70,7 @@ describe("EvidenceInspector — clinical pane", () => {
 
     // PM2 documents both ceilings, including the recessive branch.
     expect(within(cuts).getByText("≤ 0.01%")).toBeTruthy();
-    expect(within(cuts).getByText(/≤ 0\.1% when pLI < 0\.9 reads as recessive/)).toBeTruthy();
+    expect(within(cuts).getByText(/higher local ceiling ≤ 0\.1% when pLI < 0\.9/)).toBeTruthy();
     expect(within(cuts).getByText("> 5%")).toBeTruthy();
     // The cut-point this variant's frequency supports is the one marked.
     const active = cuts.querySelectorAll("[data-active]");
@@ -106,7 +106,7 @@ describe("EvidenceInspector — clinical pane", () => {
     expect(within(card).getByText(/gnomAD ancestry-grouped maximum · v4/)).toBeTruthy();
     // Scoped to this card: the ACMG Frequency Criteria card below it also renders the code "PM2" as
     // a reference row, so a page-wide query would find two and prove nothing about this one.
-    expect(within(card).getByText("PM2")).toBeTruthy();
+    expect(within(card).getByText("PM2 · Supporting")).toBeTruthy();
   });
 
   it("states the weighting that decided whether the criterion was applied", () => {
@@ -168,7 +168,7 @@ describe("EvidenceInspector — clinical pane", () => {
     });
     const card = screen.getByTestId("rule-trace");
     expect(card.textContent).toMatch(/gnomAD — no record/);
-    expect(card.textContent).toMatch(/pLI 1\.00 → dominant/);
+    expect(card.textContent).toMatch(/pLI 1\.00 → lower local ceiling/);
     expect(container.textContent).not.toMatch(/global maximum/);
   });
 });

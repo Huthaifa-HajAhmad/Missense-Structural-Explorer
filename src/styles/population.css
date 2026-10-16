@@ -113,7 +113,23 @@
   color: var(--cs-text-primary);
   line-height: 1.2;
 }
-.pop-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
+.pop-hero__figure-label { font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
+
+/* No positive frequencies: readable source states replace an empty quantitative frame. */
+.pop-availability, .pop-clinvar-summary { padding: 20px; }
+.pop-availability h2, .pop-clinvar-summary h2 { font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-primary); margin: 0; }
+.pop-availability p, .pop-clinvar-summary p { margin-block: 6px 0; font-size: var(--cs-font-size-prose); line-height: 1.55; color: var(--cs-text-secondary); }
+.pop-availability ul { list-style: none; padding: 0; margin-block: 16px 0; }
+.pop-availability li { padding-block: 12px; border-block-start: 1px solid var(--cs-border-subtle); }
+.pop-availability li[data-rule] { border-block-start: 1px solid var(--cs-border); }
+.pop-availability li > div, .pop-clinvar-summary > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 20px; }
+.pop-availability strong, .pop-clinvar-summary strong { font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-primary); }
+.pop-availability .evw-reading-button { min-block-size: 44px; font-size: var(--cs-font-size-prose); font-weight: 600; }
+.pop-availability .evw-reading-button:active { color: var(--cs-text-accent); }
+.pop-thresholds > summary { min-block-size: 44px; align-content: center; cursor: pointer; color: var(--cs-text-secondary); font-size: var(--cs-font-size-prose); }
+.pop-thresholds > summary:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.pop-thresholds > summary:active { color: var(--cs-text-primary); }
+.pop-thresholds[open] > summary { margin-block-end: 16px; }
 
 .pop-hero__finding { margin: 0; color: var(--cs-text-secondary); max-width: none; }
 .pop-hero__finding strong { color: var(--cs-text-primary); font-weight: var(--cs-font-weight-semibold); }
