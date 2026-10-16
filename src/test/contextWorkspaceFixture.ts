@@ -46,6 +46,17 @@ export function contextWorkspaceFixture(example = 'Mixed') {
       [`pext:${gene}`]: ready({ gene, status: 'no-pext', geneId: null, chrom: null, flags: [], regions: [], provenance: prov('gnomAD'), message: 'No pext measurements in this fixture.' }) },
     phenotypeSelections: { [evidenceContextIdentity(result, gene, result.metadata!.variant)]: { ...emptyPhenotypeSelection(), diseaseKey: disease.frames[0].key, systems: ['nervous', 'hearing'] } },
   };
+  if (example === 'Differing assertions') {
+    const frame = disease.frames[0];
+    frame.validity = ['Limited', 'Moderate', 'Limited', 'Strong'].map((level, n) => ({
+      id: `d${n}`, level, submitter: `Panel ${String.fromCharCode(65 + n)}`, submitterId: `s${n}`,
+      evaluatedAt: '2026-08-20', reportUrl: 'https://example.org/illustrative',
+    }));
+    disease.mechanismContext!.records = [{ id: 'G2P-example', geneId: frame.geneId, gene,
+      diseaseId: frame.diseaseId, diseaseLabel: frame.label, allelicRequirement: 'monoallelic_autosomal',
+      mechanism: 'undetermined', confidence: 'moderate', support: 'inferred', modifier: '', categorisation: '',
+      evidence: '', consequence: '', variantTypes: '', publications: [], reviewedAt: '2026-08-20' }];
+  }
   if (example === 'Missing') {
     const failure = { status: 'error' as const, data: null, error: 'Illustrative provider failure. Try again when the source recovers.' };
     state.expressionContexts = { [gene]: failure }; state.developmentalContexts = { [gene]: failure }; state.modelContexts = { [gene]: failure };

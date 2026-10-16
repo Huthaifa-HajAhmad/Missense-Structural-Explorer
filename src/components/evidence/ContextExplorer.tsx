@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { contextPage, type ContextReading, type ContextTab } from '../../shared/contextWorkspace';
 import { useEvidenceWorkspace, InspectReadingButton } from './EvidenceWorkspace';
 import { DGTEX_COHORTS } from '../../shared/developmentalExpression';
@@ -31,12 +31,21 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
   tab: ContextTab; rows: ContextReading[]; groups: { id: string; label: string }[]; empty?: React.ReactNode; relevantLabel?: string;
 }) {
   const w = useEvidenceWorkspace(tab);
+  const explorerRef = useRef<HTMLElement>(null);
+  const [revealRequested, setRevealRequested] = useState(false);
+  const geneDisease = tab === 'gene-disease';
   const group = groups.some(g => g.id === w.section) ? w.section : groups[0].id;
   const all = w.expanded.includes(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`);
   const page = useMemo(() => contextPage(rows, { group, query: w.query, cohort: group === 'developmental' ? w.cohort : 'all',
     relevantOnly: w.relevantOnly, limit: all ? Number.MAX_SAFE_INTEGER : CX_PAGE_LIMIT }), [rows, group, w.query, w.cohort, w.relevantOnly, all]);
   const selected = rows.find(r => r.key === w.selected);
   const levels = useMemo(() => [...new Set(rows.filter(r => r.group === 'validity').map(r => r.valueText))].sort((a, b) => (validityPosition(b) ?? -1) - (validityPosition(a) ?? -1)), [rows]);
+  useLayoutEffect(() => {
+    if (!revealRequested) return;
+    const target = explorerRef.current?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]');
+    if (target) { target.focus(); target.scrollIntoView?.({ block: 'nearest' }); }
+    setRevealRequested(false);
+  }, [revealRequested]);
   const chart = useMemo(() => {
     const maximum = page.max || 1;
     const ticks = [0, maximum / 4, maximum / 2, maximum * .75, maximum];
@@ -47,20 +56,28 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
       unplottedBody: 'These tissues have no returned gene median. Missing measurements are not zero.',
       emptyCopy: 'No returned tissue values can plot on this axis. Inspect the source records below.' };
   }, [page]);
-  return <section className="cx-explorer" aria-label="Explore source readings">
+  return <section ref={explorerRef} className="cx-explorer" aria-label="Explore source readings">
     {groups.length > 1 && <WorkspaceTabs id={`${tab}-sources`} label="Evidence sources" tabs={groups} value={group} onChange={section => w.setOptions({ section, query: '', relevantOnly: false })} />}
     <div role={groups.length > 1 ? 'tabpanel' : undefined} id={`${tab}-sources-panel-${group}`} aria-labelledby={groups.length > 1 ? `${tab}-sources-tab-${group}` : undefined}>
-      <div className="cx-controls">
+      <div className="cx-record-toolbar">
+      {(!geneDisease || page.sourceCount > 0) && <div className="cx-controls">
         <label>Search records<input type="search" value={w.query} placeholder={tab === 'expression-models' ? 'Tissue or cohort' : tab === 'gene-disease' ? 'Submitter or assertion' : 'Species, taxon or term'} onChange={e => w.setOptions({ query: e.target.value })} /></label>
         {group === 'developmental' && <label>Sampled age cohort<select value={w.cohort} onChange={e => w.setOptions({ cohort: e.target.value })}><option value="all">All public age cohorts</option>{Object.entries(DGTEX_COHORTS).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
         {(tab === 'expression-models' || group === 'phenotypes') && <label className="cx-check"><input type="checkbox" checked={w.relevantOnly} onChange={e => w.setOptions({ relevantOnly: e.target.checked })} />{relevantLabel}</label>}
+      </div>}
+      {(!geneDisease || page.sourceCount > 0) && <p className="cx-caption" role="status">{page.rows.length} of {page.sourceCount} records shown{page.total !== page.sourceCount ? `; ${page.total} match the filters` : ''}.</p>}
       </div>
-      <p className="cx-caption" role="status">Showing {page.rows.length} of {page.total} matching records · {page.sourceCount} in this source view.</p>
-      {group === 'developmental' && <p className="cx-caption">Sampled age is independent of disease onset. Cohorts are descriptive, not a developmental trajectory.</p>}
-      {selected && !page.rows.some(r => r.key === selected.key) && <p className="cx-notice">The pinned record is outside this view. Its details remain in the inspector.</p>}
-      {!page.rows.length ? <div className="cx-empty">{page.sourceCount ? 'No records match these display filters. Clear the search or filters to see the source readings.' : empty ?? 'No returned readings in this source view. Check the source status below.'}</div>
+      {group === 'developmental' && page.sourceCount > 0 && <p className="cx-caption">Sampled age is independent of disease onset. Cohorts are descriptive, not a developmental trajectory.</p>}
+      {selected && !page.rows.some(r => r.key === selected.key) && <p className="cx-notice">The pinned record is outside this view. Its details remain in the inspector. {geneDisease && <button type="button" className="viz-action" onClick={() => {
+        setRevealRequested(true);
+        w.setOptions({ section: selected.group, query: '', cohort: 'all', relevantOnly: false });
+        // Reveal every returned row in that source, including pins beyond the initial bound.
+        const expansion = `all:${selected.group}::all:false`;
+        if (!w.expanded.includes(expansion)) w.toggleGroup(expansion);
+      }}>Show pinned record</button>}</p>}
+      {!page.rows.length ? <div className="cx-empty">{page.sourceCount ? 'No records match these display filters. Clear the search or filters to see the source readings.' : empty === null ? null : empty ?? 'No returned readings in this source view. Check the source status below.'}</div>
         : <div className="cx-records" data-testid="context-records">
-          {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." />{page.rows.length > CX_PAGE_LIMIT && <p className="cx-caption">The chart shows the first {CX_PAGE_LIMIT} matching readings. Source records contain all matches.</p>}</React.Suspense>
+          {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." /></React.Suspense>
           : w.comparison && tab === 'gene-disease' && group === 'validity' ? <AssertionMatrix rows={page.rows} levels={levels} selected={w.selected} onSelect={key => w.select(key === w.selected ? null : key)} />
           : w.comparison ? page.rows.map(r => <button key={r.key} type="button" className="cx-reading" aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}>
             <span className="cx-reading__name">{r.name}<small>{r.group === 'developmental' || tab === 'species-models' ? r.description : r.source}</small></span>
@@ -71,11 +88,11 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
           </tr>)}</tbody></table></div>}
         </div>}
       {page.total > CX_PAGE_LIMIT && <button type="button" className="viz-action" onClick={() => w.toggleGroup(`all:${group}:${w.query}:${w.cohort}:${w.relevantOnly}`)}>{all ? `Show first ${CX_PAGE_LIMIT}` : `Show all ${page.total} records`}</button>}
-      <p className="cx-caption">
+      {page.rows.length > 0 && <p className="cx-caption">
         {w.comparison && tab === 'expression-models'
-          ? `Linear TPM scale: 0–${page.max || 1}. The scale uses the full source view and stays fixed when filtering. Zero is plotted at the origin; missing readings have no mark. Arrow keys explore the chart; Enter pins a reading.`
+          ? `Linear TPM scale: 0–${page.max || 1}. The scale uses the full source view and stays fixed when filtering. Zero is plotted at the origin; missing readings have no mark.`
           : 'Select a record to pin its interpretation and provenance. Tab to a record, then press Enter or Space.'}
-      </p>
+      </p>}
     </div>
   </section>;
 }

@@ -47,6 +47,7 @@ export interface GeneDiseaseModel {
   gene: string; selected: DiseaseFrame | null; frameCount: number;
   verdict: GeneDiseaseVerdict; headline: string; headlineLabel: string; sentence: string;
   assertions: AssertionRow[]; submitters: string[]; latestAssertion: string | null; distinctLevels: string[];
+  mechanismSummary: string;
   dosage: DosageEvidence; crossCheck: MechanismCrossCheck | null; mechanismRecords: MechanismRecord[];
   sources: { gencc: SourceReading; g2p: SourceReading; dosage: SourceReading };
   stale: SnapshotAge[];
@@ -151,7 +152,7 @@ export function buildGeneDiseaseModel(input: {
     sentence = 'Disease-specific validity needs the GenCC snapshot, which is not available here. ClinGen dosage below is gene-level and does not depend on it.';
   } else if (!base.selected) {
     verdict = frames.length ? { kind: 'unselected', label: 'Choose a disease', tone: 'neutral' } : { kind: 'unselected', label: 'No curated disease', tone: 'muted' };
-    headline = frames.length ? `${frames.length} disease–inheritance frame${frames.length === 1 ? '' : 's'}` : 'None listed';
+    headline = frames.length ? `${frames.length} disease and inheritance choice${frames.length === 1 ? '' : 's'}` : 'None listed';
     headlineLabel = frames.length ? 'curated for this gene by the installed sources' : '';
     sentence = frames.length
       ? 'Validity, mechanism and variant context are scoped to one disease and inheritance. Choose one to read them.'
@@ -176,14 +177,23 @@ export function buildGeneDiseaseModel(input: {
     }
   } else if (levels.length > 1) {
     verdict = { kind: 'differ', label: 'Validity levels differ', tone: 'neutral' };
-    headline = `${submitters.length} submitter${submitters.length === 1 ? '' : 's'}`; headlineLabel = `${submitters.length === 1 ? 'reports' : 'report'} ${levels.length} different validity levels`;
-    sentence = `${levels.map(short).join(', ')}. Disagreement between curators is evidence in itself: levels are shown as submitted and never averaged.`;
+    headline = 'Submitted validity levels differ';
+    headlineLabel = `${submitters.length} submitter${submitters.length === 1 ? '' : 's'}; ${levels.length} validity levels`;
+    sentence = `${levels.map(short).join(', ')}. Each submission is retained; these categories do not form a consensus or classify this variant.`;
   } else {
     verdict = { kind: 'agree', label: submitters.length > 1 ? `Submitters agree: ${short(levels[0])}` : `Single submitter: ${short(levels[0])}`, tone: 'neutral' };
     headline = short(levels[0]); headlineLabel = `${submitters.length} submitter${submitters.length === 1 ? '' : 's'}: ${submitters.join(', ')}`;
     sentence = 'Gene–disease validity describes the relationship; it does not classify this variant.';
   }
+  // Keep source availability and reported mechanism separate. A null comparison does not mean
+  // no G2P record: dosage may be missing while an exact record reports "undetermined".
+  const crossCheck = compareMechanism(dosage, records);
+  const mechanismSummary = !base.selected ? 'Choose a disease and inheritance to inspect its mechanism.'
+    : crossCheck ? crossCheck.sentence
+    : !sources.g2p.available ? `Gene2Phenotype: ${sources.g2p.label}. ${sources.g2p.reason ?? 'Mechanism records cannot be read.'}`
+    : !records.length ? 'No matching Gene2Phenotype mechanism record for this disease and inheritance.'
+    : `Gene2Phenotype reports ${[...new Set(records.map(r => r.mechanism || 'mechanism not reported'))].join('; ')}. ClinGen dosage: ${sources.dosage.label.toLowerCase()}; no cross-check is available.`;
   const stale = [sources.gencc.age, sources.g2p.age].filter((a): a is SnapshotAge => !!a && a.stale);
   return { gene: input.gene, selected: base.selected, frameCount: frames.length, verdict, headline, headlineLabel, sentence,
-    assertions, submitters, latestAssertion, distinctLevels: levels, dosage, crossCheck: compareMechanism(dosage, records), mechanismRecords: records, sources, stale };
+    assertions, submitters, latestAssertion, distinctLevels: levels, dosage, crossCheck, mechanismSummary, mechanismRecords: records, sources, stale };
 }

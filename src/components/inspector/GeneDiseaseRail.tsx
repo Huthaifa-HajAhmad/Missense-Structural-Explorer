@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AnalysisResult } from '../../types';
 import { useContextWorkspaceRead } from '../../hooks/useContextWorkspace';
+import { ContextDisclosure } from '../evidence/ContextExplorer';
 import { EvidenceReadingInspector } from './EvidenceReadingInspector';
 import { VALIDITY_SCALE, validityPosition } from '../../shared/diseaseFrame';
 import { DOSAGE_CODE_LABELS, DOSAGE_ZERO_NOTE } from '../../shared/dosageSensitivity';
@@ -45,22 +46,28 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
 
   return <div className="ctx-rail gd-rail" data-testid="gene-disease-rail">
     <EvidenceReadingInspector tab="gene-disease" rows={rows} />
-    <section className="rail-section" aria-labelledby="gd-rail-trace"><h3 className="eyebrow" id="gd-rail-trace">Review trace</h3>
+    <ContextDisclosure tab="gene-disease" id="review-trace" title="Review trace"><section className="rail-section" aria-labelledby="gd-rail-trace"><h3 className="eyebrow" id="gd-rail-trace">Review trace</h3>
       <ol className="rail-steps" data-testid="context-trace">
         <Step n={1} label="Disease choice">{selected ? <>{selected.label}<span className="rail-step__sub">{selected.inheritance.label}</span></> : choice}</Step>
         <Step n={2} label="Validity assertions" state={model.verdict.kind === 'adverse' ? 'warn' : undefined}>{validity}</Step>
         <Step n={3} label="ClinGen dosage">{trimmed(dosageLine)}.</Step>
-        <Step n={4} label="Mechanism cross-check">{model.crossCheck ? model.crossCheck.sentence : selected ? 'No Gene2Phenotype mechanism for this exact disease and inheritance, or dosage is unavailable.' : 'Needs a chosen disease.'}</Step>
+        <Step n={4} label="Mechanism cross-check">{model.mechanismSummary}</Step>
         <Step n={5} label="Interpretation boundary">Context only<span className="rail-step__sub">No ACMG criterion is added or changed.</span></Step>
       </ol>
     </section>
 
+    </ContextDisclosure>
     <section className="rail-section" aria-labelledby="gd-rail-sources"><h3 className="eyebrow" id="gd-rail-sources">Sources read</h3>
       <dl className="rail-kv rail-kv--sources" data-testid="context-sources">{sourceRows.map(row => { const st = row.state ?? slotState(row.slot);
         return <div className="rail-kv__row" key={row.name}><dt>{row.name}</dt><dd><span className="ev-tier" data-tone={st.tone === 'good' ? 'neutral' : st.tone}>{st.label}</span></dd></div>; })}</dl>
     </section>
 
-    <section className="rail-section" aria-labelledby="gd-rail-gencc"><h3 className="eyebrow" id="gd-rail-gencc">GenCC scale</h3>
+    {(disease?.provenance || g2p || dosageSource) && <section className="rail-section" aria-labelledby="gd-rail-prov"><h3 className="eyebrow" id="gd-rail-prov">Provenance</h3><div data-testid="context-provenance">
+      {disease?.provenance && <Provenance provenance={disease.provenance} />}
+      {g2p && <Provenance provenance={g2p} />}
+      {dosageSource && <Provenance provenance={dosageSource} rolling />}
+    </div></section>}
+    <ContextDisclosure tab="gene-disease" id="classification-reference" title="Classification definitions"><section className="rail-section" aria-labelledby="gd-rail-gencc"><h3 className="eyebrow" id="gd-rail-gencc">GenCC scale</h3>
       <ul className="gd-cuts" aria-label="GenCC classification scale, strongest first">
         {[...VALIDITY_SCALE].map((label, i) => ({ label, i })).reverse().map(({ label, i }) =>
           <li key={label} data-active={present.has(i) || undefined}><span>{label}</span>{present.has(i) && <span className="gd-here">this disease</span>}</li>)}
@@ -75,6 +82,7 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
       <p className="rail-step__sub">Codes 30 and 40 are special categories, not higher scores.</p>
     </section>
 
+    </ContextDisclosure>
     <section className="rail-section" aria-labelledby="gd-rail-method"><h3 className="eyebrow" id="gd-rail-method">Method</h3>
       <details className="rail-notes"><summary>How the readings are made</summary><ul>
         <li>{DOSAGE_ZERO_NOTE} Dosage is gene-level and says nothing about a missense change; it casts no ACMG vote.</li>
@@ -84,11 +92,6 @@ export function GeneDiseaseRail({ analysisResult }: { analysisResult: AnalysisRe
       </ul></details>
     </section>
 
-    {(disease?.provenance || g2p || dosageSource) && <section className="rail-section" aria-labelledby="gd-rail-prov"><h3 className="eyebrow" id="gd-rail-prov">Provenance</h3><div data-testid="context-provenance">
-      {disease?.provenance && <Provenance provenance={disease.provenance} />}
-      {g2p && <Provenance provenance={g2p} />}
-      {dosageSource && <Provenance provenance={dosageSource} rolling />}
-    </div></section>}
     {(() => { const href = safeExternalHref(dosage.reportUrl); return href
       ? <a className="ctx-link" href={href} target="_blank" rel="noreferrer">ClinGen curation for {gene}<span className="ctx-sr-only"> (opens in a new tab)</span></a>
       : null; })()}

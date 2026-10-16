@@ -74,7 +74,7 @@ describe('context workspace scientific and presentation contracts', () => {
   it('counts inheritance frames accurately and keeps assertions categorical with stable keys', () => {
     const f = contextWorkspaceFixture();
     const input = { gene: 'SOD1', disease: { status: 'ready' as const, data: f.disease }, dosage: undefined, selectedKey: null };
-    expect(buildGeneDiseaseModel(input).headline).toBe('2 disease–inheritance frames');
+    expect(buildGeneDiseaseModel(input).headline).toBe('2 disease and inheritance choices');
     const model = buildGeneDiseaseModel({ ...input, selectedKey: f.disease.frames[0].key });
     const rows = geneDiseaseReadings(model);
     expect(rows).toHaveLength(3); expect(rows.every(r => r.value === null)).toBe(true);

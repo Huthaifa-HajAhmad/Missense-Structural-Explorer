@@ -104,3 +104,42 @@ describe('production context tabs and linked inspectors', () => {
     expect(sources.queryByText('GTEx adult tissues')).not.toBeInTheDocument();
   });
 });
+
+
+describe('gene-disease review states', () => {
+  it('restores a hidden pin to its source and keyboard target without fetching', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Panel C: Disputed Evidence' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Gene dosage' }));
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show pinned record' }));
+    const point = screen.getByRole('button', { name: 'Panel C: Disputed Evidence' });
+    expect(point).toHaveFocus();
+    expect(point).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('region', { name: 'Selected evidence reading' })).toHaveTextContent('Panel C');
+    expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+  it('offers disease selection without empty search or record instructions', () => {
+    const f = contextWorkspaceFixture();
+    for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
+    store.setState(f.state);
+    render(<Harness result={f.result} />);
+    expect(screen.getByRole('combobox', { name: 'Review SOD1 for' })).toHaveValue('');
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/records shown/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Tab to a record/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Submitted validity assertion matrix' })).not.toBeInTheDocument();
+  });
+  it('keeps classification reference collapsed and persists an explicitly expanded trace', () => {
+    render(<Harness result={contextWorkspaceFixture().result} />);
+    expect(screen.queryByRole('list', { name: /GenCC classification scale/ })).not.toBeInTheDocument();
+    const trace = screen.getByText('Review trace', { selector: 'summary' }).closest('details')!;
+    trace.open = true; fireEvent(trace, new Event('toggle'));
+    expect(screen.getByTestId('context-trace')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go expression' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go gene' }));
+    expect(screen.getByTestId('context-trace')).toBeInTheDocument();
+  });
+});

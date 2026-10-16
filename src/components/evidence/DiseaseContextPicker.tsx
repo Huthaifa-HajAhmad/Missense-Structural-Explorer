@@ -11,8 +11,8 @@ import type { ContextLoad } from '../../stores/slices/evidenceContextSlice';
  * `inline` drops the picker row's chrome so a parent frame can place the field among its own
  * controls (the Expression & models review frame); the Gene–disease tab uses the default row.
  */
-export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry, inline = false }: {
-  inline?: boolean; gene: string; load?: ContextLoad<GeneDiseaseResponse>; selection: PhenotypeSelection;
+export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry, inline = false, compact = false }: {
+  compact?: boolean; inline?: boolean; gene: string; load?: ContextLoad<GeneDiseaseResponse>; selection: PhenotypeSelection;
   onChange: (selection: PhenotypeSelection) => void; onRetry: () => void;
 }) {
   const id = useId();
@@ -34,6 +34,8 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
       ? empty(<>{ENGINE_STATE_LABELS['not-installed']} — the GenCC snapshot is not installed on this server and could not be fetched. Gene-level evidence below is unaffected.</>, 'Check again')
       : empty('Not curated by the installed GenCC snapshot for this exact gene symbol. This does not establish absence of a disease relationship.');
   }
+  const selectionNote = <p className={inline ? 'ctx-caption' : 'gd-caption gd-picker__note'}>Disease choice is shared across Gene–disease, Expression and Species &amp; models. Your review systems stay selected when the disease changes.
+      {frames.some(f => f.selectionSource === 'Gene2Phenotype') && ' Additional choices use verified G2P gene and MONDO IDs with the supported local allelic mapping; they do not imply GenCC validity coverage.'}</p>;
   const fields = <>
     <label className={inline ? 'ctx-label' : 'gd-picker__label'} htmlFor={id}>{inline ? 'Disease' : `Review ${gene} for`}</label>
     <select id={id} className="ctx-select" value={stale ? '' : selection.diseaseKey ?? ''}
@@ -41,9 +43,8 @@ export function DiseaseContextPicker({ gene, load, selection, onChange, onRetry,
       <option value="">Choose a disease and inheritance</option>
       {frames.map(frame => <option key={frame.key} value={frame.key}>{frame.label} · {frame.inheritance.label} · {frame.diseaseId}{frame.selectionSource === 'Gene2Phenotype' ? ' · G2P choice; no GenCC assertion' : ''}</option>)}
     </select>
-    {frames.length === 1 && selection.diseaseKey !== frames[0].key && <button type="button" className="ctx-button" onClick={() => onChange(selectDisease(selection, frames[0].key))}>Review the only curated disease: {frames[0].label}</button>}
-    <p className={inline ? 'ctx-caption' : 'gd-caption gd-picker__note'}>Disease choice is shared across Gene–disease, Expression and Species &amp; models. Your review systems stay selected when the disease changes.
-      {frames.some(f => f.selectionSource === 'Gene2Phenotype') && ' Additional choices use verified G2P gene and MONDO IDs with the supported local allelic mapping; they do not imply GenCC validity coverage.'}</p>
+    {frames.length === 1 && selection.diseaseKey !== frames[0].key && <button type="button" className="ctx-button" onClick={() => onChange(selectDisease(selection, frames[0].key))}>{compact ? 'Review this disease' : <>Review the only curated disease: {frames[0].label}</>}</button>}
+    {compact ? <details className="gd-picker-help"><summary>About disease selection</summary>{selectionNote}</details> : selectionNote}
     {stale && load.status === 'ready' && <p role="status">The saved disease choice is absent from this snapshot. Choose it again; your review systems have been kept.</p>}
   </>;
   if (inline) return <div className="ctx-field">{fields}</div>;
