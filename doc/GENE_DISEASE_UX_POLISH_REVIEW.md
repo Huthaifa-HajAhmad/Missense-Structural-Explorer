@@ -1,69 +1,57 @@
-# Gene–disease review workflow polish
+﻿# Gene-disease workspace: navigation and inspector contract
 
-16 October 2026. Implements the screenshot audit against `VISUALIZATION_SYSTEM.md` and
-`TRANSLATIONAL_PHILOSOPHY.md`. This is a presentation and interaction change; provider requests,
-assertion categories, matching rules, dosage comparisons and ACMG decisions are unchanged.
+16 October 2026. This follow-up supersedes the earlier two-row pill navigation and
+review-trace composition. It changes presentation and interaction only. Scientific models,
+provider requests, assertion identities, matching rules and ACMG decisions are unchanged.
 
-## Decisions
+## UI ownership
 
-- Lead with the finding and keep the disease selector available. Differing submissions are named
-  explicitly rather than leading with a submitter count. Each original submission remains visible.
-- Retain comparison/source-record navigation and validity/dosage source selection. These are
-  distinct operations with existing persistence contracts; replacing them was unnecessary risk.
-- Put scope metadata after the figure. Make selection guidance, the rail review trace and full
-  classification definitions disclosures. Show source availability and provenance before the
-  reference definitions. The selected-reading inspector retains its exact record and limitations.
-- Explain mechanism availability in the pure evidence model. An undetermined matching G2P record
-  with missing dosage must not become a claim that no mechanism record exists.
-- Hide search, zero-record counts and selection instructions when there is no source record to
-  explore. A successful empty read offers no failure-style retry. Errors retain Try again;
-  missing installations retain Check again.
-- Preserve hidden pins. Show pinned record returns to their source, clears display filters,
-  expands the source bound and explicitly focuses the selected control. Ordinary view changes
-  continue to preserve focus rather than moving it implicitly.
-- Consolidate Gene–disease figure styles in `gene-disease.css`, after shared workspace primitives.
-  The rendered check exposed an older shared grid rule overriding the intended finding layout;
-  leaving competing copies would have made subsequent agent and developer edits fragile.
+- `GeneDiseaseTab` owns one evidence-category tablist: Validity, Dosage, Mechanism,
+  Variant context. The selected category uses the existing allele-scoped `section` state.
+- Comparison / Records are labelled presentation buttons inside Validity, using the existing
+  `view` state. Changing representation never changes category. Other categories do not expose
+  an irrelevant representation control. Returning to Validity retains its representation.
+- Validity findings stay inside Validity. Mechanism and variant context have explicit sections.
+  `GeneDiseaseReadings.section` limits records to the active category. Standalone rendering
+  without a workspace provider retains all sections as a readable document.
+- Disease selection is always explicit. A single available disease is named with inheritance
+  and identifier before the review action. No disease-dependent navigation appears until selection;
+  gene-level dosage remains available. Missing/error source responses retain their distinct actions.
+  Starting a review from no disease opens Validity and focuses its tab; changing an existing disease
+  preserves the active section.
+- Submitter names and categorical marks both pin the same original record, idempotently.
+  Clear pin is the release action. The selected row is highlighted in both representations.
+- A pin remains visible in the inspector across category changes. Show pinned record opens its
+  source records, clears filters and focuses the corresponding named control. Presentation state
+  and source-record identity remain separate; selecting another allele resets workspace state.
 
-## Reproducible verification
+## Inspector ownership
 
-- `src/shared/__tests__/geneDiseaseEvidence.test.ts`: undetermined mechanism with absent dosage;
-  missing snapshot versus successful lookup with no matching mechanism; original scientific rules.
-- `src/components/evidence/__tests__/ContextSourceState.test.tsx`: running, failed, unavailable
-  installation and successful empty source actions.
-- `src/components/evidence/__tests__/ContextWorkspace.integration.test.tsx`: empty selection,
-  hidden-pin recovery and focus, persisted trace disclosure, existing cross-tab record contracts.
-- `tests/gene-disease-workspace.e2e.ts`: real AppViews components and styles; four assertions in
-  the first desktop viewport; light/dark at 1440, 800 and 390 px; no document overflow; keyboard
-  selection, dosage absence, source-record round trip, mechanism trace and clearing disease choice.
-- Preview: `tools/evidence-preview/index.html`, Gene-disease, Differing assertions. This is a
-  reusable, explicitly illustrative fixture; its records are not clinical evidence. API calls are
-  disabled. The preview contains the production evidence wrapper and inspector, but omits global
-  navigation/search chrome; it does not establish live-provider or full-shell acceptance.
+- `GeneDiseaseRail` uses the read-only workspace model; it does not create an API client or
+  fetch sources. The main workspace owns source retries.
+- `EvidenceReadingInspector` accepts an optional workspace-owned empty state and guide visibility.
+  The Gene-disease empty state is a review overview, replaced by selected-record facts and notes.
+  Other inspectors retain their existing defaults.
+- Sources & availability contains exactly one entry per provider. Status, release/retrieval
+  information, terms, safe source URL and fingerprint live together. Available means source data
+  was returned, not that the user reviewed it. Missing, empty and failed responses stay distinct.
+- Reference & methods consolidates classification definitions, matching scope, freshness policy
+  and interpretation boundaries. Its disclosure uses the existing persisted expansion state.
+- The general research guide remains available from the page header. Record-specific scientific
+  qualifications remain beside the selected reading; no second general-guide button is added there.
 
-Final results:
+## Verification and reproduction
 
-- Lint, boundary/focus/verification-parity checks and TypeScript passed.
-- Six focused test files passed: 75 tests.
-- Client production build passed; existing large-chunk advisory remains.
-- App smoke passed. Final Gene–disease e2e passed with retries disabled, including the desktop
-  four-row viewport assertion and light/dark responsive checks. Inspected desktop light, phone
-  dark and selected-record dark screenshots. Proof: `.e2e/proof/gene-disease-polish-final/`.
-- Full suite: 406 files passed, 2 skipped, 1 failed; 5,108 tests passed, 5 skipped, 1 failed.
-  The unrelated `server/services/infra/admission.test.ts` peak-memory telemetry test received null
-  instead of a numeric RSS measurement. Its isolated rerun passed, together with the model
-  tests (39 tests). No server code or assertion was changed. The full suite was not repeated
-  after the final CSS adjustments and added recovery-action tests; focused tests and browser
-  verification cover the final changes. Do not describe the full-suite run as clean.
-- `git diff --check` passed.
+- `npm run lint`: architecture, focus indicators, verification parity and TypeScript.
+- Seven focused test files: 86 passing tests, including the shared scientific model, source-state
+  distinctions, explicit single-disease selection, category/presentation independence, pin persistence
+  and keyboard recovery, consolidated sources, and unaffected context inspectors.
+- `npm run build:client`: passed; Vite still reports the existing large-chunk advisory.
+- `npx e2e run tests/gene-disease-workspace.e2e.ts --output .e2e/proof/gene-disease-navigation-final --trace on`:
+  production AppViews and inspector, light/dark at 1440/800/390 px, document overflow checks,
+  all four categories, keyboard pin/recovery, reference disclosure, deselection and single-disease choice.
+- Preview: `/tools/evidence-preview/index.html`, Evidence = Gene-disease, Example = Differing assertions
+  or Single disease. Fixtures are explicitly illustrative, with live provider calls disabled.
 
-Initial browser runs caught a test option-label mismatch and a real CSS composition defect;
-neither was bypassed by relaxing the viewport requirement. Existing Population/shared-shell
-working-tree edits were preserved. No commit or deployment was performed.
-
-## Boundaries
-
-The categorical visualization upgrade remains in place. No new chart library, clinical scoring,
-provider or global restyle was introduced. This does not claim a human comprehension study or a
-live NAE1 reanalysis. Long mechanism matching notes and source-record tables remain accessible;
-further editorial compression should preserve their source-specific qualifications.
+This proof covers production components in the preview wrapper. It does not claim a fresh live
+NAE1 analysis, full-shell acceptance or a full-suite run. Unrelated working-tree edits are preserved.

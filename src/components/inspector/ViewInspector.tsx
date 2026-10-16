@@ -115,6 +115,7 @@ const VIEW_TITLES: Record<MasterView, { title: string; subtitle: string; Icon: R
  * between the ten evidence tabs; naming the active surface does.
  */
 const EVIDENCE_TAB_SUBTITLES: Record<string, string> = {
+  "gene-disease": "Gene–disease · records & sources",
   clinical: "Population Data & Clinical DBs",
   predictors: "In-Silico Ensemble Calibration",
   alphagenome: "AlphaGenome variant impact (AVI)",
@@ -362,6 +363,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       ? EVIDENCE_TAB_SUBTITLES[(activeEvidenceTab || "").toLowerCase()]
       : undefined;
   const headerSubtitle = evidenceSubtitle ?? headerInfo.subtitle;
+  const headerTitle = activeView === "evidence" && activeEvidenceTab === "gene-disease" ? "Evidence inspector" : headerInfo.title;
 
   const Icon = headerInfo.Icon;
 
@@ -387,7 +389,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
             className="text-[10px] font-mono uppercase tracking-widest text-cs-text-muted select-none"
             style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
           >
-            {headerInfo.title}
+            {headerTitle}
           </span>
         </div>
 
@@ -432,7 +434,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-semibold text-xs text-cs-text-primary truncate">
-              {headerInfo.title}
+              {headerTitle}
             </span>
             <span className="text-[10px] text-cs-text-muted truncate font-sans">
               {headerSubtitle}

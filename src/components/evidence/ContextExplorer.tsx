@@ -106,12 +106,12 @@ export function ContextExplorer({ tab, rows, groups, empty, relevantLabel = 'Rev
         : <div className="cx-records" data-testid="context-records">
           {w.comparison && tab === 'expression-models' ? <React.Suspense fallback={<p role="status">Preparing tissue comparison.</p>}><EvidenceComparison tab={tab} model={chart} title={group === 'adult' ? 'Adult tissue expression' : 'Pediatric tissue and age cohorts'} description="Compare measured medians within one source. Pin a tissue to inspect the exact value and sampling context." /></React.Suspense>
           : !w.comparison && expression ? <ExpressionRecords rows={page.rows} selected={w.selected} />
-          : w.comparison && tab === 'gene-disease' && group === 'validity' ? <AssertionMatrix rows={page.rows} levels={levels} selected={w.selected} onSelect={key => w.select(key === w.selected ? null : key)} />
+          : w.comparison && tab === 'gene-disease' && group === 'validity' ? <AssertionMatrix rows={page.rows} levels={levels} selected={w.selected} onSelect={key => w.select(key)} />
           : w.comparison ? page.rows.map(r => <button key={r.key} type="button" className="cx-reading" aria-pressed={w.selected === r.key} onClick={() => w.select(r.key)}>
             <span className="cx-reading__name">{r.name}<small>{r.group === 'developmental' || tab === 'species-models' ? r.description : r.source}</small></span>
             <span className="cx-reading__visual">{r.mapping?.window ? <AlignmentStrip mapping={r.mapping} /> : tab === 'expression-models' && r.value !== null ? <span className="cx-meter" aria-hidden="true"><span style={{ width: `${page.max > 0 ? r.value / page.max * 100 : 0}%` }} /><i style={{ left: `${page.max > 0 ? r.value / page.max * 100 : 0}%` }} /></span> : <span className="cx-category">{r.group}</span>}</span>
             <strong className="cx-reading__value">{r.valueText}</strong>
-          </button>) : <div className="cx-table-scroll" role="region" aria-label="Exact source readings" tabIndex={0}><table className="cx-table"><thead><tr><th>Record</th><th>Reading</th><th>Source / context</th></tr></thead><tbody>{page.rows.map(r => <tr key={r.key} data-selected={w.selected === r.key || undefined}>\
+          </button>) : <div className="cx-table-scroll" role="region" aria-label="Exact source readings" tabIndex={0}><table className="cx-table"><thead><tr><th>Record</th><th>Reading</th><th>Source / context</th></tr></thead><tbody>{page.rows.map(r => <tr key={r.key} data-selected={w.selected === r.key || undefined}>
             <th scope="row"><InspectReadingButton tab={tab} readingKey={r.key}>{r.name}</InspectReadingButton></th><td>{tab === 'expression-models' && r.value !== null ? `${r.value} TPM` : r.valueText}</td><td>{r.source}<small>{r.description}</small></td>
           </tr>)}</tbody></table></div>}
         </div>}

@@ -56,7 +56,7 @@ describe('context tab claims and interactions', () => {
     expect(card.getByText('3: Sufficient evidence')).toBeVisible();
     expect(card.getByText('40: Dosage sensitivity unlikely')).toBeVisible();
     expect(card.getByText(/exact MONDO ID/)).toBeVisible();
-    expect(screen.getByText(/casts no ACMG vote/)).toBeVisible();
+    expect(screen.getByText(/No ACMG criterion is added\./)).toBeVisible();
     expect(screen.queryByText(/dosage sensitivity is not integrated yet/i)).not.toBeInTheDocument();
   });
   it('says when dosage cannot be read and offers a retry', () => {
@@ -260,7 +260,8 @@ describe('Gene–disease finding, cross-check and rail', () => {
     context.value.dosageLoad = dosage(3);
     render(<GeneDiseaseTab {...props} />);
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    expect(screen.getByTestId('gene-disease-finding')).toHaveAttribute('data-verdict', 'unavailable');
+    expect(screen.getByText(/GenCC snapshot is not installed/)).toBeVisible();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     expect(screen.getByText('3: Sufficient evidence')).toBeVisible();
   });
 });
@@ -269,7 +270,7 @@ import { EvidenceContextRail } from '../inspector/EvidenceContextRail';
 import { useVariantAnalysisStore } from '../../stores/useVariantAnalysisStore';
 import { evidenceContextIdentity } from '../../shared/evidenceContextIdentity';
 describe('Gene–disease inspector rail', () => {
-  it('renders the same model as a trace: the chosen disease, both scales with this review marked, and the engine record last', () => {
+  it('shows review context, source availability and classification reference without a duplicate trace', () => {
     const result: any = { metadata: { gene: 'TEST' } };
     const s: any = useVariantAnalysisStore;
     s.setState({ gene: 'TEST', variant: 'p.A1B' });
@@ -280,13 +281,14 @@ describe('Gene–disease inspector rail', () => {
     actions.setPhenotypeSelection(evidenceContextIdentity(result, 'TEST', 'p.A1B'), { ...emptyPhenotypeSelection(), diseaseKey: frame.key });
     render(<EvidenceContextRail analysisResult={result} expression={false} />);
     const rail = within(screen.getByTestId('gene-disease-rail'));
-    const steps = rail.getAllByRole('listitem').slice(0, 5);
-    expect(steps[0]).toHaveTextContent(/Example disease\s*Autosomal dominant/);
-    expect(steps[4]).toHaveTextContent(/Context only\s*No ACMG criterion is added or changed\./);
+    expect(rail.getByRole('heading', { name: 'Review overview' })).toBeInTheDocument();
+    expect(rail.getByText('Example disease')).toBeInTheDocument();
+    expect(rail.getByText(/Context only: no ACMG criterion is added or changed/)).toBeVisible();
+    expect(rail.queryByText('Review trace')).not.toBeInTheDocument();
     expect(rail.getAllByText('Export of 2026-10-04').length).toBeGreaterThan(0);
     expect(within(rail.getByRole('list', { name: /ClinGen dosage evidence scale/ })).getByText('this gene')).toBeVisible();
     expect(rail.getAllByText('this disease').length).toBeGreaterThan(0);
-    expect(rail.getByRole('link', { name: /ClinGen curation for TEST/ })).toHaveAttribute('href', expect.stringContaining('gene-dosage/HGNC:1'));
+    expect(within(rail.getByTestId('context-sources')).getAllByText('ClinGen dosage')).toHaveLength(1);
   });
   it('keeps a not-installed Gene2Phenotype snapshot distinct from an empty read in the sources list', () => {
     const result: any = { metadata: { gene: 'TEST' } };
