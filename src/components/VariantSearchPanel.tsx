@@ -1177,11 +1177,9 @@ function VariantSearchPanel({
       {/* ── Main grid: form (8) + rail (4) ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 items-stretch">
         {/* ── Left column: query form, then recent analyses ──
-            At lg the grid row is as tall as the rail's floor, so the form (whose
-            footer already pins via mt-auto) takes the leftover height instead of
-            letting it pool under the recents card — both panels then share one
-            bottom line with the rail. Below lg the row is content-sized, so the
-            grow is inert. */}
+            The column sets the row height; the rail beside it keeps its own fixed height
+            (see the rail below) rather than stretching to the column's bottom edge, because
+            a stretched rail has nothing to put in the extra ~150px but a hole under its list. */}
         <div className="lg:col-span-8 flex flex-col gap-6 min-w-0">
         <section
           className="cs-panel flex flex-col flex-1"
@@ -1867,9 +1865,13 @@ function VariantSearchPanel({
             From `lg` up the rail's content is taken out of flow (absolute fill) over a fixed floor, so
             neither tab can resize the row and switching tabs never moves the page; the services list
             scrolls inside it with a fade as the cue. Below `lg` the columns stack and the list flows
-            instead — a nested scroller inside a scrolling page is a trap on touch. */}
+            instead — a nested scroller inside a scrolling page is a trap on touch.
+
+            `lg:self-start` keeps the rail at that floor instead of stretching to the form column's
+            height: the services list fits the floor, so stretching only added blank space between
+            the last service and the sweep footer. */}
         <aside
-          className="cs-panel lg:col-span-4 lg:relative min-h-[480px] lg:min-h-[672px] flex flex-col"
+          className="cs-panel lg:col-span-4 lg:relative lg:self-start min-h-[480px] lg:min-h-[672px] flex flex-col"
           data-tour="workflow-rail"
           id="workspace-stage-rail"
           aria-label="Services and pipeline"
