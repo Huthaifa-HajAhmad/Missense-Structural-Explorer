@@ -23,7 +23,7 @@ const HEADER_COLS = [
 const line = (r: Record<string, string>) => HEADER_COLS.map(c => r[c] ?? ".").join("\t") + "\n";
 const header = HEADER_COLS.join("\t") + "\n";
 
-const R1 = { "#chr": "1", "pos(1-based)": "100", ref: "C", alt: "A", aaref: "Q", aaalt: "H", aapos: "867", genename: "TEST", Ensembl_transcriptid: "ENST00000001", aachange: "p.Gln867His", REVEL_score: "0.912345", AlphaMissense_score: "0.8", gnomAD_exomes_AC: "2", gnomAD_genomes_AC: "1", gnomAD_exomes_AN: "1000", gnomAD_genomes_AN: "500", AoU_AC: "3", AoU_AN: "100" };
+const R1 = { "#chr": "1", "pos(1-based)": "100", ref: "C", alt: "A", aaref: "Q", aaalt: "H", aapos: "867", genename: "TEST", Ensembl_transcriptid: "ENST00000002", aachange: "p.Gln867His", REVEL_score: "0.912345", AlphaMissense_score: "0.8", gnomAD_exomes_AC: "2", gnomAD_genomes_AC: "1", gnomAD_exomes_AN: "1000", gnomAD_genomes_AN: "500", AoU_AC: "3", AoU_AN: "100" };
 // Multi-transcript: the MANE Select entry (second) must be the one stored.
 const R2 = { "#chr": "1", "pos(1-based)": "101", ref: "G", alt: "T", aaref: "Q", aaalt: "H", aapos: "500;867", genename: "TEST;TEST", Ensembl_transcriptid: "ENST00000009;ENST00000002", MANE: ".;MANE_Select", VEP_canonical: ".;.", aachange: "p.Ala500Thr;p.Gln867His", REVEL_score: "0.1;0.2", AlphaMissense_score: "0.3;0.4" };
 const R3 = { "#chr": "2", "pos(1-based)": "5", ref: "A", alt: "G", aaref: "N", aaalt: "S", aapos: "42", genename: "OTHER", Ensembl_transcriptid: "ENST00000003", aachange: "p.Asn42Ser", CADD_phred: "25.55555" };
@@ -135,7 +135,7 @@ describe("local dbNSFP store, ingested by tools/ingest_dbnsfp.ts and queried", (
     expect(local.isLocalDbnsfpAvailable()).toBe(true);
 
     const cAtoA = await local.queryLocalDbnsfpVariant("TEST", 867, "C", "A");
-    expect(cAtoA).toMatchObject({ gene: "TEST", pos: 867, ref: "C", alt: "A", transcript: "ENST00000001", revel: 0.9123, gnomad_ac: 3, aou_ac: 3 });
+    expect(cAtoA).toMatchObject({ gene: "TEST", pos: 867, ref: "C", alt: "A", transcript: "ENST00000002", revel: 0.9123, gnomad_ac: 3, aou_ac: 3 });
 
     // The MANE Select transcript carries the second entry of each list.
     const gToT = await local.queryLocalDbnsfpVariant("TEST", 867, "G", "T");
@@ -221,11 +221,73 @@ describe("local dbNSFP store, transcript basis per row", () => {
     expect(await local.queryLocalDbnsfpLandscapeRows("NOMANE")).toBeNull();
   });
 
-  it("still serves MANE and single-transcript rows, and reports the window's basis from its rows", async () => {
+  it("still serves MANE and single-transcript rows, and reports the window's basis from the gene's MANE transcript", async () => {
     expect(await local.queryLocalDbnsfpByGenomic("1", 101, "G", "T")).toMatchObject({ gene: "TEST", pos: 867 });
+    // R1 is a lone line on TEST's MANE transcript, so its numbering is MANE's.
     const landscape = await local.queryLocalDbnsfpLandscapeRows("TEST");
     expect(landscape?.candidates).toHaveLength(2);
     expect(landscape?.transcriptBasis).toBe("mane");
+    // OTHER has one transcript and no MANE/canonical flag: served, but its basis is not claimed as MANE.
+    expect(await local.queryLocalDbnsfpByGenomic("2", 5, "A", "G")).toMatchObject({ gene: "OTHER", pos: 42 });
+    expect((await local.queryLocalDbnsfpLandscapeRows("OTHER"))?.transcriptBasis).toBe("unknown");
+  });
+});
+
+describe("local dbNSFP store, residue numbering is the gene's MANE transcript's", () => {
+  // dbNSFP writes one line per transcript that translates an SNV differently, so a line naming only an
+  // alternative isoform is stored as `single`. Measured on 5.4a: BRAF ENST00000469930 p.Ser170Arg sits
+  // beside MANE residue 170 = Pro. These lines reproduce that shape.
+  const mk = (o: Record<string, string>) => ({ MANE: ".", VEP_canonical: ".", REVEL_score: "0.5", AlphaMissense_score: "0.5", ...o });
+  const ISO_MANE = mk({ "#chr": "4", "pos(1-based)": "10", ref: "C", alt: "T", aaref: "P", aaalt: "L", aapos: "100;100", genename: "ISO;ISO", Ensembl_transcriptid: "ENST00000020;ENST00000022", MANE: "MANE_Select;.", VEP_canonical: ".;.", aachange: "p.Pro100Leu;p.Pro100Leu", REVEL_score: "0.5;0.5", AlphaMissense_score: "0.9;0.9" });
+  const ISO_ALT_SAME_SNV = mk({ "#chr": "4", "pos(1-based)": "10", ref: "C", alt: "T", aaref: "S", aaalt: "F", aapos: "60", genename: "ISO", Ensembl_transcriptid: "ENST00000021", aachange: "p.Ser60Phe" });
+  const ISO_ALT_EXON = mk({ "#chr": "4", "pos(1-based)": "500", ref: "G", alt: "A", aaref: "S", aaalt: "N", aapos: "100", genename: "ISO", Ensembl_transcriptid: "ENST00000021", aachange: "p.Ser100Asn", AlphaMissense_score: "0.1" });
+  const OVA = mk({ "#chr": "5", "pos(1-based)": "20", ref: "A", alt: "G", aaref: "K", aaalt: "R", aapos: "5", genename: "OVA", Ensembl_transcriptid: "ENST00000030", MANE: "MANE_Select", aachange: "p.Lys5Arg" });
+  const OVB = mk({ "#chr": "5", "pos(1-based)": "20", ref: "A", alt: "G", aaref: "E", aaalt: "G", aapos: "7", genename: "OVB", Ensembl_transcriptid: "ENST00000031", MANE: "MANE_Select", aachange: "p.Glu7Gly" });
+
+  beforeEach(() => {
+    const input = zlib.gzipSync(header + [ISO_MANE, ISO_ALT_SAME_SNV, ISO_ALT_EXON, OVA, OVB].map(line).join(""));
+    const res = spawnSync(process.execPath, ["--import", "tsx", ingestScript, "-", "--db", dbPath, "--version", "5.4a"], {
+      cwd: repoRoot, input, encoding: "utf8", timeout: 120000,
+      env: { ...process.env, DBNSFP_VERSION: "" },
+    });
+    if (res.status !== 0) throw new Error(`ingest failed: ${res.stderr}`);
+  });
+
+  it("stores the alternative-isoform lines as single (the line-level label this rule corrects)", () => {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const bases = db.prepare("SELECT transcript, transcript_basis AS basis FROM variant_scores WHERE gene = 'ISO' ORDER BY rowid").all();
+      expect(bases).toEqual([
+        { transcript: "ENST00000020", basis: "mane" },
+        { transcript: "ENST00000021", basis: "single" },
+        { transcript: "ENST00000021", basis: "single" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("answers a coordinate with the MANE reading, whichever line was stored first", async () => {
+    expect(await local.queryLocalDbnsfpByGenomic("4", 10, "C", "T")).toMatchObject({ gene: "ISO", pos: 100, aa_change: "p.Pro100Leu" });
+    expect(await local.queryLocalDbnsfpByGenomic("4", 500, "G", "A")).toBeNull();
+  });
+
+  it("never serves another isoform's residue by gene and position", async () => {
+    expect(await local.queryLocalDbnsfpVariant("ISO", 60, null, null, "S60F")).toBeNull();
+    expect(await local.queryLocalDbnsfpVariant("ISO", 100, null, null, "S100N")).toBeNull();
+    expect(await local.queryLocalDbnsfpVariant("ISO", 100, null, null, "P100L")).toMatchObject({ alphamissense: 0.9 });
+  });
+
+  it("keeps an alternative exon's scores out of the MANE residue with the same number", async () => {
+    const landscape = await local.queryLocalDbnsfpLandscapeRows("ISO");
+    expect(landscape?.candidates).toHaveLength(1);
+    expect(landscape?.candidates[0]).toMatchObject({ aaref: "P", readings: [{ transcript: "ENST00000020", pos: 100, am: 0.9 }] });
+    expect(landscape?.transcript).toBe("ENST00000020");
+  });
+
+  it("refuses an SNV shared by two genes unless the caller names the gene", async () => {
+    expect(await local.queryLocalDbnsfpByGenomic("5", 20, "A", "G")).toBeNull();
+    expect(await local.queryLocalDbnsfpByGenomic("5", 20, "A", "G", "OVB")).toMatchObject({ gene: "OVB", pos: 7 });
   });
 });
 

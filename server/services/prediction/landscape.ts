@@ -22,8 +22,10 @@ export { fetchLocalPopulationFrequencies } from "./local-population.ts";
  * Bumped whenever the meaning of a cached row changes. v4: rows are read on one transcript and
  * count each SNV once (v3 rows pooled every isoform's residue numbers and must never be served).
  * v5: window queries fetch each residue by exact term (v4 windows silently lacked residues whose number sorts after the window end as text).
+ * v6: local dbNSFP windows read only the gene's MANE/canonical transcript (v5 local windows mixed in
+ * alternative-isoform lines stored as `single` — BRAF: 567 extra rows from 4 other transcripts).
  */
-const CACHE_SCHEMA = "schema:v5";
+const CACHE_SCHEMA = "schema:v6";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Expired rows are swept at most this often, not on every read. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;

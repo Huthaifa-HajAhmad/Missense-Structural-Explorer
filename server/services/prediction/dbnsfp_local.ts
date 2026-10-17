@@ -190,6 +190,75 @@ function isUsableRow(row: { transcript_basis?: string | null } | null | undefine
   return !!row && row.transcript_basis !== "first-listed";
 }
 
+/**
+ * The one transcript whose residue numbers a gene's rows may be read in.
+ *
+ * `transcript_basis` is a per-LINE label, and dbNSFP writes a separate line for each transcript that
+ * translates an SNV differently. A line listing only an alternative isoform is therefore stored as
+ * `single` although its numbering is not MANE's: measured on the 5.4a store, 60% of a random sample of
+ * `single` rows (36 of 60) sit on a non-MANE transcript of a gene that has one, and 520 of BRAF's 567
+ * such rows name a different wild-type residue than MANE at the same number (ENST00000469930
+ * p.Ser170Arg where MANE residue 170 is Pro). So a row is read only when its TRANSCRIPT is the gene's
+ * numbering transcript: the MANE Select one, else the Ensembl canonical one, else the gene's only
+ * transcript. A gene with two candidates at one level has no single numbering and serves nothing.
+ *
+ * `transcript: undefined` marks a store built before per-row bases existed: such stores keep the
+ * line-level rule ({@link isUsableRow}) because they hold nothing to decide by.
+ */
+interface GeneNumbering {
+  transcript: string | null | undefined;
+  basis: TranscriptBasis;
+}
+
+const numberingByDb = new WeakMap<DatabaseSync, Map<string, GeneNumbering>>();
+
+function geneNumbering(db: DatabaseSync, gene: string): GeneNumbering {
+  let byGene = numberingByDb.get(db);
+  if (!byGene) {
+    byGene = new Map();
+    numberingByDb.set(db, byGene);
+  }
+  const key = gene.trim().toUpperCase();
+  const cached = byGene.get(key);
+  if (cached) return cached;
+
+  let result: GeneNumbering;
+  try {
+    const groups = (db.prepare(
+      "SELECT transcript_basis AS basis, transcript FROM variant_scores WHERE gene = ? GROUP BY 1, 2"
+    ).all as any)(key) as Array<{ basis: string | null; transcript: string | null }>;
+    if (!groups.some(g => typeof g.basis === "string")) {
+      result = { transcript: undefined, basis: "unknown" };
+    } else {
+      const at = (basis: string) => new Set(groups.filter(g => g.basis === basis && g.transcript).map(g => g.transcript as string));
+      const any = new Set(groups.filter(g => g.basis !== "first-listed" && g.transcript).map(g => g.transcript as string));
+      const pick = (set: Set<string>) => (set.size === 1 ? [...set][0] : null);
+      const mane = at("mane");
+      const canonical = at("ensembl-canonical");
+      result = mane.size > 0
+        ? { transcript: pick(mane), basis: "mane" }
+        : canonical.size > 0
+          ? { transcript: pick(canonical), basis: "ensembl-canonical" }
+          // A lone transcript with no MANE or canonical flag: its numbering is unambiguous but unconfirmed.
+          : { transcript: pick(any), basis: "unknown" };
+    }
+  } catch {
+    // Pre-basis schema (no `transcript_basis` column): keep the line-level rule.
+    result = { transcript: undefined, basis: "unknown" };
+  }
+  byGene.set(key, result);
+  return result;
+}
+
+/** Whether `row` may be read: line-level rule, then (on stores that record bases) the gene's numbering transcript. */
+function isNumberedRow(db: DatabaseSync, row: { gene?: string | null; transcript?: string | null; transcript_basis?: string | null } | null | undefined): boolean {
+  if (!isUsableRow(row)) return false;
+  if (typeof row!.transcript_basis !== "string" || !row!.gene) return true;
+  const numbering = geneNumbering(db, row!.gene);
+  if (numbering.transcript === undefined) return true;
+  return numbering.transcript !== null && row!.transcript === numbering.transcript;
+}
+
 export interface LocalDbnsfpRecord {
   gene: string;
   /** hg38 chromosome, e.g. "12" (null until dbNSFP ingest populates it) */
@@ -288,7 +357,7 @@ export async function queryLocalDbnsfpVariant(
       `);
       rows = (stmt.all as any)(gene.trim().toUpperCase(), pos);
     }
-    rows = rows.filter(isUsableRow);
+    rows = rows.filter(r => isNumberedRow(db, r));
     // A requested substitution that is absent must not inherit the first row's allele.
     if (aaChange) rows = rows.filter(r => matchAminoAcidChange(aaChange, r.aa_change));
     if (coordinate) {
@@ -437,8 +506,9 @@ export async function queryLocalDbnsfpLandscapeRows(
       ePos = boundary.max_pos;
     }
     const rows = ((db.prepare("SELECT * FROM variant_scores WHERE gene = ? AND pos BETWEEN ? AND ?").all as any)(g, sPos, ePos) as any[])
-      .filter(isUsableRow);
+      .filter(r => isNumberedRow(db, r));
     if (rows.length === 0) return null;
+    const numbering = geneNumbering(db, g);
 
     const candidates: SnvCandidate[] = rows.map((row) => {
       const parsed = parseAminoAcidChange(row.aa_change);
@@ -470,7 +540,7 @@ export async function queryLocalDbnsfpLandscapeRows(
       candidates,
       maxPos: ePos as number,
       transcript: transcripts.size === 1 ? ([...transcripts][0] as string) : null,
-      transcriptBasis: windowBasis(rows)
+      transcriptBasis: numbering.transcript === undefined ? windowBasis(rows) : numbering.basis
     };
   } catch (err: any) {
     console.warn(`[Local dbNSFP Error] landscape query failed:`, err.message);
@@ -500,7 +570,8 @@ export async function queryLocalDbnsfpByGenomic(
   chr: string,
   posGenomic: number,
   ref: string,
-  alt: string
+  alt: string,
+  gene?: string | null
 ): Promise<LocalDbnsfpRecord | null> {
   await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
@@ -523,19 +594,24 @@ export async function queryLocalDbnsfpByGenomic(
       return null;
     }
 
+    // Every row at the locus: one SNV can be stored once per transcript that translates it differently
+    // (and once per overlapping gene), so the first row is not necessarily the correctly numbered one.
     const stmt = db.prepare(`
       SELECT * FROM variant_scores
       WHERE chr = ? AND pos_genomic = ? AND ref = ? AND alt = ?
-      LIMIT 1
     `);
-    const row = (stmt.get as any)(
+    const wantGene = gene?.trim().toUpperCase() || null;
+    const rows = ((stmt.all as any)(
       normChr,
       posGenomic,
       ref.trim().toUpperCase(),
       alt.trim().toUpperCase()
-    ) as (LocalDbnsfpRecord & { transcript_basis?: string | null }) | undefined;
+    ) as Array<LocalDbnsfpRecord & { transcript?: string | null; transcript_basis?: string | null }>)
+      .filter(r => (!wantGene || String(r.gene ?? "").toUpperCase() === wantGene) && isNumberedRow(db, r));
 
-    return isUsableRow(row) ? (row as LocalDbnsfpRecord) : null;
+    // Two genes (or two readings) still standing is an ambiguity the caller cannot see from one record.
+    const readings = new Set(rows.map(r => `${String(r.gene).toUpperCase()}|${r.pos}|${r.aa_change}`));
+    return readings.size === 1 ? rows[0] : null;
   } catch (err: any) {
     console.warn(`[Local dbNSFP Error] genomic lookup failed:`, err.message);
     return null;
