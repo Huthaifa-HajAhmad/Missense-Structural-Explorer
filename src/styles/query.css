@@ -1,5 +1,6 @@
 /* Query hierarchy inside the deliberately equal-height form and service columns. */
 .query-routes {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: 1.5rem;
@@ -18,9 +19,29 @@
 .query-examples details { max-inline-size: 100%; }
 .query-example { max-inline-size: 100%; min-block-size: 1.75rem; padding: .125rem .375rem; border: 0; border-radius: var(--cs-radius-badge); background: var(--cs-surface-2); color: var(--cs-text-secondary); font-family: var(--cs-font-mono); font-size: 11px; overflow-wrap: anywhere; text-align: start; cursor: pointer; }
 .query-examples summary { min-block-size: 1.75rem; align-content: center; cursor: pointer; }
-.query-examples summary:focus-visible, .query-reference__toggle:focus-visible, .query-reference__hide:focus-visible, .query-example:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.query-examples summary:active, .query-reference__toggle:active, .query-reference__hide:active, .query-example:active { color: var(--cs-text-accent); }
+/* Helper line under a row's control. */
+.query-route__help { margin: 0; font-size: 11px; line-height: 1rem; color: var(--cs-text-muted); }
+/* Row 3 of each column: a hairline, then the optional (UniProt) or route (coordinate) content. The min-height
+   keeps the two columns' row-3 hairlines on one line even when one column's content is a single line. */
+.query-route__aside { display: flex; flex-direction: column; gap: .375rem; padding-block-start: .75rem; border-top: 1px solid var(--cs-border-subtle); }
+/* Reserved heights only while the two columns sit SIDE BY SIDE — the grid's own threshold, 2 × 16rem + the
+   1.5rem gap. They exist to keep rows on one baseline across the columns; stacked, they are empty space.
+   The help line reserves two lines because the gene hint is a full sentence; row 3 keeps both hairlines
+   level when one column's content is a single line. */
+@container (min-width: 33.5rem) {
+  .query-route__help { min-block-size: 2rem; }
+  .query-route__aside { min-block-size: 4.25rem; }
+}
+/* The route strip. A status line, not a control: nominal text is quiet, a route that overrides the other field is
+   amber so the reader sees what the submit will ignore. */
+.query-route-status { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 0; font-size: 12px; line-height: 1.375; color: var(--cs-text-secondary); }
+.query-route-status--quiet { font-size: 11px; color: var(--cs-text-muted); }
+.query-route-status--warn { padding: .5rem .625rem; border-radius: var(--cs-radius-badge); background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
+.query-route-status__action { min-block-size: 1.75rem; padding-inline: .5rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-badge); background: var(--cs-surface); color: inherit; font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; }
+.query-examples summary:focus-visible, .query-reference__toggle:focus-visible, .query-reference__hide:focus-visible, .query-example:focus-visible, .query-route-status__action:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
+.query-examples summary:active, .query-reference__toggle:active, .query-reference__hide:active, .query-example:active, .query-route-status__action:active { color: var(--cs-text-accent); }
 @media (hover: hover) and (pointer: fine) {
+  .query-route-status__action:hover { color: var(--cs-text-accent); border-color: var(--cs-accent-clay); }
   .query-examples summary:hover, .query-reference__toggle:hover, .query-reference__hide:hover { color: var(--cs-text-primary); }
   .query-example:hover { color: var(--cs-text-accent); background: color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface)); }
 }

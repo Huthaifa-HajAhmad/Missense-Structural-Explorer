@@ -304,6 +304,13 @@ describe("FoldX on two templates", () => {
     });
 
   describe("cross-check (both values exist)", () => {
+    it('keeps the summary numerator and denominator on the same engine set when ProtVar is present', () => {
+      const ev = build({ foldx: 2.6, foldxMean: 2.6, protvar: 2.4, rasp: 1.7, stabilityoracle: 1.8, structureProvenance: experimental });
+      expect(ev.coverage.intended).toBe(6);
+      expect(ev.agreement.nCounted).toBe(6);
+      expect(energeticsSummary(ev).rest.join(' ')).toContain('6 of 6 engines returned a value');
+      expect(energeticsSummary(ev).rest.join(' ')).not.toContain('7 of 6');
+    });
     const check = (local: number, protvar: number, structureProvenance: object = experimental) =>
       build({ foldx: local, foldxMean: local, protvar, structureProvenance }).foldxTemplateCheck!;
 

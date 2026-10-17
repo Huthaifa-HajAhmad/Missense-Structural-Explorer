@@ -183,6 +183,42 @@ describe('production context tabs and linked inspectors', () => {
 });
 
 describe('gene-disease review states', () => {
+  it('keeps dosage loading, failure, retry and verified absence in sync without blocking disease review', async () => {
+    const f = contextWorkspaceFixture();
+    f.disease.frames = f.disease.frames.slice(0, 1);
+    for (const selection of Object.values(f.state.phenotypeSelections!)) selection.diseaseKey = null;
+    f.state.dosageContexts = {};
+    store.setState(f.state);
+    let finish!: (value: unknown) => void;
+    fetchWithAuth.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    render(<Harness result={f.result} />);
+    const dosage = () => within(screen.getByTestId('dosage-card'));
+    const source = () => within(screen.getByTestId('context-sources')).getByText('ClinGen dosage').closest('details')!;
+    expect(dosage().getByRole('status')).toHaveTextContent('Running');
+    expect(source()).toHaveTextContent('Running');
+    expect(source()).not.toHaveTextContent('No result');
+    fireEvent.click(screen.getByRole('button', { name: 'Review this disease' }));
+    expect(screen.getByRole('region', { name: 'Submitted validity assertion matrix' })).toBeInTheDocument();
+    await act(async () => finish({ ok: true, json: async () => ({ gene: 'SOD1', status: 'error', record: null, provenance: null, message: 'ClinGen dosage request timed out.' }) }));
+    expect(source()).toHaveTextContent('Provider error');
+    fireEvent.click(screen.getByRole('tab', { name: 'Dosage' }));
+    expect(dosage().getByRole('status')).toHaveTextContent('timed out');
+    fireEvent.click(dosage().getByRole('button', { name: 'Try again' }));
+    expect(dosage().getByRole('status')).toHaveTextContent('Running');
+    expect(source()).toHaveTextContent('Running');
+    expect(dosage().queryByRole('button')).not.toBeInTheDocument();
+    await act(async () => finish({ ok: true, json: async () => ({ gene: 'SOD1', status: 'not-found', record: null,
+      provenance: { ...f.disease.provenance!, source: 'ClinGen dosage sensitivity' },
+      message: 'No curation for SOD1 in the complete source table. This does not mean copy-number changes are tolerated.' }) }));
+    expect(dosage().getByRole('status')).toHaveTextContent('No result');
+    expect(dosage().getByText(/Source table retrieved/)).toBeInTheDocument();
+    expect(source()).toHaveTextContent('No result');
+    expect(source()).not.toHaveTextContent('Provider error');
+    expect(dosage().queryByRole('button')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Validity' }));
+    expect(screen.getByRole('region', { name: 'Submitted validity assertion matrix' })).toBeInTheDocument();
+    expect(fetchWithAuth).toHaveBeenCalledTimes(2);
+  });
   it('keeps category and presentation independent and scopes each finding to its evidence', () => {
     render(<Harness result={contextWorkspaceFixture('Differing assertions').result} />);
     const tabs = screen.getByRole('tablist', { name: 'Gene–disease evidence' });

@@ -48,8 +48,11 @@ const IUPAC_3 = "(?:Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|
 /** 1-letter IUPAC amino-acid codes. */
 const IUPAC_1 = "[ARNDCQEGHILKMFPSTWYV]";
 
-/** Protein substitution with an optional `p.` prefix. Groups: 1=wt, 2=pos, 3=mut. */
-export const HGVS_PATTERN = new RegExp(`^(?:p\\.)?(${IUPAC_3}|${IUPAC_1})(\\d{1,6})(${IUPAC_3}|${IUPAC_1})$`, "i");
+/** Protein substitution with an optional `p.` prefix and balanced parentheses. Groups: 1=wt, 2=pos, 3=mut. */
+export const HGVS_PATTERN = new RegExp(
+  `^(?:p\\.)?(?=\\([^)]+\\)$|[^()]+$)\\(?(${IUPAC_3}|${IUPAC_1})(\\d{1,6})(${IUPAC_3}|${IUPAC_1})\\)?$`,
+  "i"
+);
 
 /**
  * Longest residue position any human protein can have (Titin, TTN, is ~34 350 aa).
@@ -123,9 +126,9 @@ const ACCESSION_GROUP = String.raw`NC_\d{6}\.\d+`;
 
 /**
  * STRICT genomic HGVS, anchored to the full substitution — use this to *accept* a genomic
- * query. Because it requires exactly `[A-Z]>[A-Z]`, it also rejects genomic indels
- * (`del`, `ins`, `dup`, `inv`, `delins`, `=`), which are outside this platform's
- * missense-only scope.
+ * query consisting of a single-base substitution. It requires exactly `[A-Z]>[A-Z]` and rejects genomic indels
+ * (`del`, `ins`, `dup`, `inv`, `=`), which are outside this platform's missense-only scope.
+ * Use {@link isSupportedGenomicHgvs} to include the supported short block replacements.
  *
  * Capture groups: 1 = reference allele, 2 = alternate allele.
  */
@@ -140,11 +143,26 @@ export const GENOMIC_HGVS_PREFIX_PATTERN = new RegExp(
   "i"
 );
 
-/** Dashed genomic coordinates. Groups: 1=chrom, 2=pos, 3=ref, 4=alt. */
-export const DASHED_GENOMIC_PATTERN = /^(?:chr)?([0-9XYMT]+)-(\d+)-([ACGTN]+)-([ACGTN]+)$/i;
+/**
+ * Delimited genomic coordinates — the spellings people paste from browsers, gnomAD and VCF rows:
+ *   `20-23365054-G-A` · `chr20:23365054:G:A` · `20:23365054:G>A` · `20:23365054:G/A`
+ *   `20 23365054 G A` · `chr20 23365054 rs121913529 G A` (a VCF `CHROM POS ID REF ALT` row, tabs or spaces)
+ * The optional third column is VCF's ID (`.` or an rsID); it is matched lazily, so a 4-column row
+ * is never read as `ID REF` + `ALT`.
+ * Groups: 1=chrom, 2=pos, 3=ref, 4=alt.
+ */
+export const DASHED_GENOMIC_PATTERN =
+  /^(?:chr)?([0-9XYMT]+)(?:[-:]|\s+)(\d+)(?:[-:]|\s+(?:\S+\s+)??)([ACGTN]+)(?:[-:/>]|\s+)([ACGTN]+)$/i;
+
+/** dbSNP rsID identifier (e.g. rs121913529). */
+export const RSID_PATTERN = /^rs\d+$/i;
+
+/** ClinVar VCV accession (e.g. VCV000013961 or VCV000013961.2). */
+export const CLINVAR_VCV_PATTERN = /^VCV\d+(?:\.\d+)?$/i;
 
 /**
- * cDNA HGVS, anchored. Groups: 1 = reference allele, 2 = alternate allele.
+ * Single-base cDNA HGVS, anchored. Groups: 1 = reference allele, 2 = alternate allele.
+ * Use {@link isSupportedCdnaHgvs} when accepting the supported delins family as well.
  *
  * The optional build annotation sits between the transcript accession and the colon —
  * `NM_004333.6(GRCh37):c.1799T>A` — because it qualifies the REFERENCE SEQUENCE the transcript
@@ -176,26 +194,28 @@ export const CDNA_PREFIX_PATTERN = new RegExp(`^(?:[A-Z0-9_.]+${ASSEMBLY_GROUP}:
  * {@link referenceSequenceOf} + the accession tables, not by this pattern.
  */
 export const ACCESSIONED_CDNA_PATTERN = new RegExp(
-  `^([A-Z0-9_.]+)${ASSEMBLY_GROUP}:(c\\.\\d+[A-Z]>[A-Z])$`,
+  `^([A-Z0-9_.]+)${ASSEMBLY_GROUP}:(c\\.\\d+(?:[A-Z]>[A-Z]|_\\d+delins[ACGT]{2,3}))$`,
   "i"
 );
 
 /**
  * Protein accession a substitution's residue numbers belong to: a RefSeq protein
- * (`NP_001032248.1`) or a UniProt accession / isoform (`Q9Y305`, `Q9Y305-4`).
+ * (`NP_001032248.1`), an Ensembl protein (`ENSP00000369497.3`), or a UniProt accession / isoform
+ * (`Q9Y305`, `Q9Y305-4`).
  *
  * Explicit because the numbering basis is not cosmetic: MANE Select routinely follows a
  * NON-canonical isoform, so the same variant has different numbers on `NP_001032248.1` and on
  * canonical `Q9Y305`. Lab/clinical pipelines report the former; structures follow the latter.
  */
-export const PROTEIN_ACCESSION_GROUP = String.raw`(?:NP_\d+(?:\.\d+)?|[A-Z][A-Z0-9]{5,9}(?:-\d+)?)`;
+export const PROTEIN_ACCESSION_GROUP = String.raw`(?:NP_\d+(?:\.\d+)?|ENSP\d+(?:\.\d+)?|[A-Z][A-Z0-9]{5,9}(?:-\d+)?)`;
 
-/** The substitution body shared by the protein patterns (optional `p.`, optional parentheses). */
-const PROTEIN_SUBSTITUTION_BODY = String.raw`(?:p\.)?\(?(${IUPAC_3}|${IUPAC_1})(\d{1,6})(${IUPAC_3}|${IUPAC_1})\)?`;
+/** The substitution body shared by the protein patterns (optional `p.`, optional balanced parentheses). */
+const PROTEIN_SUBSTITUTION_BODY = String.raw`(?:p\.)?(?=\([^)]+\)$|[^()]+$)\(?(${IUPAC_3}|${IUPAC_1})(\d{1,6})(${IUPAC_3}|${IUPAC_1})\)?`;
 
 /**
  * A protein substitution qualified by the protein it is numbered on:
  *   `NP_001032248.1:p.Lys281Asn` | `NP_001032248.1:p.(Lys281Asn)`
+ *   `ENSP00000369497.3:p.Val600Glu`
  *   `Q9Y305-4:p.Lys281Asn`       | `Q9Y305:p.Lys272Asn`
  * Groups: 1 = accession, 2 = wt, 3 = position, 4 = mut.
  */
@@ -217,7 +237,8 @@ export const CHROM_POS_PATTERN = new RegExp(`^(?:chr)?(?:[0-9XYMT]+|${ACCESSION_
  * MissenseResolve models single amino-acid substitutions only. Recognizing these explicitly
  * lets the API reject them with a precise missense-scope explanation instead of a generic
  * "invalid notation format" message — and without spending an Ensembl VEP round trip on a
- * query that could never be modeled.
+ * query that could never be modeled. The one exception is an in-frame 2–3 bp `delins`
+ * ({@link isInFrameSingleAaDelins}), which is admitted and left to VEP to confirm as missense.
  *
  * NOTE: this deliberately covers only the `g.` / `c.` coordinate families. Protein-level
  * non-missense notations (nonsense, frameshift, protein indels) are diagnosed by
@@ -225,6 +246,38 @@ export const CHROM_POS_PATTERN = new RegExp(`^(?:chr)?(?:[0-9XYMT]+|${ACCESSION_
  */
 export const GENOMIC_OR_CDNA_NON_SUBSTITUTION_PATTERN =
   /^(?:[A-Z0-9_.]+:)?(?:g|c)\.\d+(?:_\d+)?(?:delins|del|dup|inv|ins|=)/i;
+
+/**
+ * True when a `g.` or `c.` delins notation replaces an exact 2- or 3-bp span with an equal-length
+ * nucleotide block (dinucleotide or trinucleotide substitution, e.g. `c.1799_1800delinsAA`),
+ * which can encode a single amino-acid missense substitution.
+ */
+export function isInFrameSingleAaDelins(input: string): boolean {
+  if (!input || typeof input !== "string") return false;
+  const canonical = normalizeGenomicNotation(input);
+  const match = canonical.match(/^(?:[A-Z0-9_.]+:)?(?:g|c)\.(\d+)_(\d+)delins([ACGT]{2,3})$/i);
+  if (!match) return false;
+  const start = Number.parseInt(match[1], 10);
+  const end = Number.parseInt(match[2], 10);
+  const ins = match[3];
+  const span = end - start + 1;
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 1 && end > start && span === ins.length && (span === 2 || span === 3);
+}
+
+// Regexes identify the spelling; arithmetic verifies the replaced span. Keeping these checks
+// together prevents a caller accepting g.100_110delinsAA as a two-base replacement.
+const GENOMIC_DELINS_PATTERN = new RegExp(`^(?:${CHROM_GROUP}|${ACCESSION_GROUP})${ASSEMBLY_GROUP}:g\\.\\d+_\\d+delins[ACGT]{2,3}$`, 'i');
+const CDNA_DELINS_PATTERN = new RegExp(`^(?:[A-Z0-9_.]+${ASSEMBLY_GROUP}:)?c\\.\\d+_\\d+delins[ACGT]{2,3}$`, 'i');
+
+/** Genomic substitution or equal-length 2–3 bp replacement; VEP must still confirm missense. */
+export function isSupportedGenomicHgvs(input: string): boolean {
+  return GENOMIC_HGVS_PATTERN.test(input) || (GENOMIC_DELINS_PATTERN.test(input) && isInFrameSingleAaDelins(input));
+}
+
+/** cDNA substitution or equal-length 2–3 bp replacement; reference validation is separate. */
+export function isSupportedCdnaHgvs(input: string): boolean {
+  return CDNA_PATTERN.test(input) || (CDNA_DELINS_PATTERN.test(input) && isInFrameSingleAaDelins(input));
+}
 
 /** User-facing statement of the missense-only scope, shared by every rejection site. */
 export const MISSENSE_ONLY_NOTE =
@@ -243,11 +296,13 @@ export type NotationKind =
   | "genomic-dashed"
   | "genomic-bare"
   | "cdna"
+  | "rsid"
+  | "clinvar-vcv"
   | "protein-hgvs"
   /**
    * A protein substitution qualified by the protein whose numbering it uses
-   * (`NP_001032248.1:p.Lys281Asn`, `Q9Y305-4:p.Lys281Asn`). Needs the isoform model to be turned
-   * into canonical numbering before it can be modelled.
+   * (`NP_001032248.1:p.Lys281Asn`, `ENSP00000369497.3:p.Val600Glu`, `Q9Y305-4:p.Lys281Asn`).
+   * Needs the isoform model to be turned into canonical numbering before it can be modelled.
    */
   | "protein-accessioned"
   | "protein-foldx"
@@ -257,6 +312,38 @@ export type NotationKind =
    */
   | "non-substitution"
   | "unknown";
+
+export interface ParsedGenomicCoordinate {
+  chrom: string;
+  pos: number;
+  ref: string;
+  alt: string;
+  canonical: string;
+}
+
+/**
+ * Parses dashed, colon-separated (`chr20:23365054:G:A`, `chr20:23365054:G>A`, `20:23365054:G/A`),
+ * or 4-/5-column VCF-style (`20 23365054 . G A`, `chr20 23365054 rs12345 G A`) genomic strings.
+ */
+export function parseGenomicNotation(input: string): ParsedGenomicCoordinate | null {
+  if (!input || typeof input !== "string") return null;
+  const trimmed = normalizeGenomicNotation(input);
+  const match = trimmed.match(DASHED_GENOMIC_PATTERN);
+  if (!match) return null;
+  const chrom = match[1].replace(/^chr/i, "").toUpperCase();
+  if (!/^(?:[1-9]|1[0-9]|2[0-2]|X|Y|MT|M)$/.test(chrom)) return null;
+  const pos = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(pos) || pos < 1) return null;
+  const ref = match[3].toUpperCase();
+  const alt = match[4].toUpperCase();
+  return {
+    chrom,
+    pos,
+    ref,
+    alt,
+    canonical: `${chrom}-${pos}-${ref}-${alt}`,
+  };
+}
 
 export interface NotationDescriptor {
   /** Which grammar family the input belongs to. */
@@ -435,8 +522,16 @@ export function classifyNotation(input: string): NotationDescriptor {
   // Missense-scope check first: `c.1799del` and `chr1:g.25484258delG` otherwise look like
   // ordinary cDNA / genomic notations to the prefix patterns below. Tested against the
   // canonical form so assembly-annotated input ("Chr1(GRCh38):g.25484258delG") is covered.
-  if (GENOMIC_OR_CDNA_NON_SUBSTITUTION_PATTERN.test(canonical)) {
+  if (GENOMIC_OR_CDNA_NON_SUBSTITUTION_PATTERN.test(canonical) && !isInFrameSingleAaDelins(canonical)) {
     return { kind: "non-substitution", assembly, canonical };
+  }
+  // Database identifiers name a variant rather than spell it; the server resolves them to a
+  // coordinate (and refuses, listing the alleles, when one identifier names several).
+  if (RSID_PATTERN.test(trimmed)) {
+    return { kind: "rsid", assembly: null, canonical: trimmed.toLowerCase() };
+  }
+  if (CLINVAR_VCV_PATTERN.test(trimmed)) {
+    return { kind: "clinvar-vcv", assembly: null, canonical: trimmed.toUpperCase() };
   }
   if (DASHED_GENOMIC_PATTERN.test(trimmed)) {
     return { kind: "genomic-dashed", assembly, canonical: trimmed };
@@ -490,6 +585,8 @@ export function isGenomicOrCdnaNotation(input: string): boolean {
     kind === "genomic-dashed" ||
     kind === "genomic-bare" ||
     kind === "cdna" ||
+    kind === "rsid" ||
+    kind === "clinvar-vcv" ||
     kind === "non-substitution"
   );
 }
@@ -664,6 +761,8 @@ export const ACCEPTED_NOTATION_EXAMPLES = {
   cdnaAssemblyAnnotated: "NM_004333.6(GRCh37):c.1799T>A",
   protein: "p.Arg408Trp",
   proteinAccessioned: "NP_001032248.1:p.Lys281Asn",
+  rsid: "rs113488022",
+  clinvarVcv: "VCV000013961",
 } as const;
 
 /** One-line summary of accepted coordinate notations, used in user-facing error messages. */
@@ -671,5 +770,6 @@ export const ACCEPTED_NOTATION_SUMMARY =
   `genomic HGVS (e.g., ${ACCEPTED_NOTATION_EXAMPLES.genomicHgvs} or ` +
   `${ACCEPTED_NOTATION_EXAMPLES.genomicHgvsAssemblyAnnotated}), ` +
   `transcript cDNA (e.g., ${ACCEPTED_NOTATION_EXAMPLES.cdna}), ` +
-  `dashed genomic coordinates (e.g., ${ACCEPTED_NOTATION_EXAMPLES.genomicDashed}), or a protein ` +
+  `dashed genomic coordinates (e.g., ${ACCEPTED_NOTATION_EXAMPLES.genomicDashed}), a dbSNP or ClinVar ` +
+  `identifier (e.g., ${ACCEPTED_NOTATION_EXAMPLES.rsid} or ${ACCEPTED_NOTATION_EXAMPLES.clinvarVcv}), or a protein ` +
   `substitution qualified by the protein it is numbered on (e.g., ${ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned})`;

@@ -153,7 +153,8 @@ export function buildCurl(entry: ConsoleEntry): string | null {
   const parts = [`curl -X ${method} ${shellQuote(absoluteUrl(http.url))}`];
   if (http.requestBody !== undefined) {
     const body = typeof http.requestBody === "string" ? http.requestBody : JSON.stringify(http.requestBody);
-    parts.push(`-H 'Content-Type: application/json'`, `-d ${shellQuote(body)}`);
+    const contentType = http.requestBodyFormat === 'form' ? 'application/x-www-form-urlencoded' : 'application/json';
+    parts.push(`-H 'Content-Type: ${contentType}'`, `-d ${shellQuote(body)}`);
   }
   return parts.join(" ");
 }

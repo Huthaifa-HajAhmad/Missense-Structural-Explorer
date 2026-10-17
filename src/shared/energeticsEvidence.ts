@@ -726,7 +726,7 @@ export function energeticsSummary(ev: EnergeticsEvidence, unit: EnergyUnit = "kc
    * count), so the sentence says both whenever they differ — the fact tile beside it must not
    * contradict this sentence on the same screen.
    */
-  const returnedCount = ev.readings.filter(r => r.ddg !== null).length;
+  const returnedCount = ev.readings.filter(r => r.ddg !== null && !r.outcome.engine.referenceOnly).length;
   const countedTail = returnedCount !== a.nCounted ? `, ${a.nCounted} of them counted in the agreement` : "";
 
   let lead: string;

@@ -91,7 +91,7 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
 
     const row = ensemblRowWithin();
     expect(row.getByText("REST Live")).toBeInTheDocument();
-    expect(row.getByText("Transcript & consequence mapping")).toBeInTheDocument();
+    expect(row.getByText("VEP, coordinates & cDNA translation")).toBeInTheDocument();
     expect(row.getByText("16ms")).toBeInTheDocument();
     // Healthy rows are not actionable, so no re-check affordance is offered. Read off the element
     // itself, because the row is what would carry the button role.
@@ -209,13 +209,18 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     expect(screen.getByText(/on fallback/)).toBeInTheDocument();
   });
 
-  it("re-checks the whole ladder when the degraded row is clicked", () => {
+  it("re-checks the whole ladder from the drawer, and a click on the row alone does not", () => {
     setDiagnostics(svc({ healthy: false, fallback: fallback() }));
     renderPanel();
 
-    const recheck = screen.getByRole("button", { name: /Re-check Ensembl VEP and its fallback/i });
-    expect(recheck.tagName).toBe('BUTTON');
-    expect(ensemblRow()).toContainElement(recheck);
+    // The header only opens the row. Re-running the ladder is a separate, named action.
+    fireEvent.click(ensemblRow());
+    expect(h.refresh).not.toHaveBeenCalled();
+    expect(ensemblRowWithin().queryByRole("button", { name: /Re-check Ensembl VEP/i })).toBeNull();
+
+    const drawer = document.querySelector('[data-service-detail="ensembl"]') as HTMLElement;
+    const recheck = within(drawer).getByRole("button", { name: /Re-check Ensembl VEP and its fallback/i });
+    expect(recheck.tagName).toBe("BUTTON");
 
     fireEvent.click(recheck);
     expect(h.refresh).toHaveBeenCalledTimes(1);
@@ -266,27 +271,28 @@ describe("LiveTelemetryPanel — summary tone", () => {
     expect(pill.className).not.toMatch(/bg-\[var\(--cs-bg-/);
   });
 
-  it("gives every clickable row a visible action cue", () => {
-    setDiagnostics(svc());
+  it("gives every row exactly one visible cue, its disclosure chevron", () => {
+    // Every row opens, so the chevron is the cue for all of them. A second glyph beside it (the
+    // refresh icon, or an arrow for the action) read as two controls for one row.
+    setDiagnostics(svc({ healthy: false, fallback: fallback() }));
     renderPanel();
 
-    const actionRows = Array.from(document.querySelectorAll('[data-service-id]')).filter(row => row.querySelector('button:not([aria-expanded])'));
-    expect(actionRows.length).toBeGreaterThan(0);
-    for (const row of actionRows) {
-      expect(row.querySelector("svg"), `${row.getAttribute("data-service-id")} needs a visible cue`).not.toBeNull();
+    const rows = Array.from(document.querySelectorAll("[data-service-id]"));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const id = row.getAttribute("data-service-id");
+      expect(row.querySelectorAll("svg"), `${id} renders more than one glyph`).toHaveLength(1);
+      expect(row.querySelector("svg")!.closest("button"), `${id} cue is not the disclosure`).not.toBeNull();
     }
   });
-  it("keeps the action cue outside the disclosure button on action rows", () => {
-    // The disclosure chevron says "this row opens"; the row click fires the action. The cue for
-    // the action must therefore be its own glyph, not the toggle's.
-    setDiagnostics(svc());
+
+  it("never renders an arrow beside the chevron on an action row", () => {
+    setDiagnostics(svc({ healthy: false, fallback: fallback() }));
     renderPanel();
 
-    for (const row of Array.from(document.querySelectorAll('[data-service-id][role="button"]'))) {
-      const cues = Array.from(row.querySelectorAll("svg")).filter(icon => !icon.closest("button"));
-      expect(cues.length, `${row.getAttribute("data-service-id")} lost its action cue`).toBeGreaterThan(0);
-    }
+    expect(document.querySelector(".lucide-arrow-right")).toBeNull();
   });
+
   it("draws one chevron per row, not a matched pair", () => {
     // A collapsed `ChevronDown` rotated a quarter turn points right — the exact glyph
     // `ChevronRight` draws. A row that both opens and carries an action used to render both, so
@@ -373,13 +379,17 @@ describe("LiveTelemetryPanel — Gemini session honesty", () => {
     const pill = within(row).getByText("Session Lapsed — Relink");
     // The warning tint, not the nominal quiet text: a lapsed session needs the reader's eye.
     expect(pill.className).toMatch(/cs-bg-warning/);
-    // The row must say what clicking does.
-    expect(within(row).getByRole('button', { name: 'Relink the stored Gemini key now' }).tagName).toBe('BUTTON');
     // Ready count reflects it: the summary no longer claims a service that lapses is online.
     expect(screen.getByTitle(/services online/i).textContent).toMatch(/9\/10/);
 
-    // The row is the action: one click re-runs the same handshake Settings does.
-    fireEvent.click(within(row).getByRole('button', { name: 'Relink the stored Gemini key now' }));
+    // The header opens the row; the relink itself is a named button in the drawer.
+    expect(within(row).queryByRole('button', { name: 'Relink the stored Gemini key now' })).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: /Show details for Gemini Clinical AI/ }));
+    const drawer = document.querySelector('[data-service-detail="gemini"]') as HTMLElement;
+    expect(within(drawer).getByRole('button', { name: 'Relink the stored Gemini key now' }).tagName).toBe('BUTTON');
+
+    // One click re-runs the same handshake Settings does.
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Relink the stored Gemini key now' }));
     await screen.findByText(/^Session Active ·/);
 
     const linkCall = fetchMock.mock.calls.find((call: any[]) => call[0] === "/api/v1/session/keys");

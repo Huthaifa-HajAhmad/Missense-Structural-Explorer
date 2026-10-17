@@ -36,9 +36,9 @@ export function normalizeAminoAcid3(code: string): string {
  */
 export function cleanVariantString(input: string): string {
   let clean = input.trim();
-  clean = clean.replace(/^p\./i, "").replace(/[()]/g, "").trim();
   clean = clean.replace(/^[A-Z0-9_.]{4,25}:\s*/i, ""); // Strip transcript/uniprot prefix (e.g. ENST00000373031.7:, NM_000546.6:)
   clean = clean.replace(/^[A-Z]{2,10}\s+/i, "");      // Strip leading gene symbol
+  clean = clean.replace(/^p\./i, "").replace(/[()]/g, "").trim();
   clean = clean.replace(/_/g, "");                    // Strip underscores
   clean = clean.replace(/>(?=[A-Z])/i, "");           // Strip HGVS '>' arrows (e.g. R>H -> RH)
   return clean.trim();
@@ -67,6 +67,21 @@ export function parseVariantCoordinate(
       `Genomic/cDNA notation detected: "${variantStr.trim()}". This parser accepts protein-level ` +
       `substitutions only. Resolve the coordinate to a protein change first (e.g., p.Glu433Lys).`
     );
+  }
+
+  if (/[()]/.test(variantStr)) {
+    const bodyAfterPrefix = variantStr
+      .trim()
+      .replace(/^[A-Z0-9_.]{4,25}:\s*/i, "")
+      .replace(/^[A-Z]{2,10}\s+/i, "")
+      .replace(/^p\./i, "")
+      .trim();
+    if (!/^\([^()]+\)$/.test(bodyAfterPrefix)) {
+      throw new Error(
+        `Invalid HGVS missense format: "${variantStr}" has unbalanced parentheses. ` +
+        `Expected formats: p.Arg408Trp, p.(Arg408Trp), p.R408W, or RA408W.`
+      );
+    }
   }
 
   const clean = cleanVariantString(variantStr);

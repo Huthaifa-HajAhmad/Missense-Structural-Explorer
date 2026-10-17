@@ -6,6 +6,21 @@ import { isFallbackLocus, fallbackCause, locusFailureKind, locusRecoveryAction }
 
 export type WorkflowStatusType = "complete" | "progress" | "pending" | "degraded" | "error" | "unavailable" | "on-demand";
 
+/**
+ * Views the pipeline never runs by itself: the reader opens them, so they are not part of the
+ * automatic run and must not be counted in its progress.
+ *
+ * Kept as data rather than inferred from a status word, because the status is not stable: literature
+ * reads "on-demand" while idle but "running" or "complete" once the reader has asked for it. Counting by
+ * status made the denominator change from six to seven mid-run, which is the drift the rail's
+ * "N of M settled" line exists to rule out.
+ */
+export const ON_DEMAND_VIEWS: ReadonlySet<string> = new Set(["literature"]);
+
+export function isOnDemandView(view: string): boolean {
+  return ON_DEMAND_VIEWS.has(view);
+}
+
 export function summarizeWorkflowStatuses(statuses: WorkflowStatusType[]) {
   const automatic = statuses.filter(status => status !== "on-demand");
   const settled = automatic.filter(status => ["complete", "degraded", "error", "unavailable"].includes(status)).length;
@@ -312,6 +327,23 @@ export function getWorkflowStageStatus(
         hasStructureCoordinates ||
         (result.esm3Eval && "pdbText" in result.esm3Eval && result.esm3Eval.pdbText)
       );
+      /**
+       * Multimer and PPI are started with the structure and are read through the same viewer (the
+       * Interfaces & PPI tab). Showing the structure as settled while they still compute would tell the
+       * reader the interface view is final when its data is still arriving, so the stage waits for them.
+       * A failed or skipped sidecar is settled and does not hold the stage.
+       */
+      const sidecarRunning =
+        result.metadata?.pipelineStages?.multimer === "running" ||
+        result.metadata?.pipelineStages?.ppi === "running";
+      if (sidecarRunning) {
+        return {
+          status: "progress",
+          desc: hasStructureEvidence
+            ? "Protein 3D coordinates ready · Interface and multimer analysis running..."
+            : "Loading protein 3D coordinates · Interface and multimer analysis running..."
+        };
+      }
       if (hasStructureEvidence) {
         return {
           status: "complete",

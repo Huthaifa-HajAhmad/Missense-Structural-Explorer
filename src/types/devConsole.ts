@@ -43,6 +43,8 @@ export interface HttpMeta {
   statusText?: string;
   durationMs?: number;
   requestBody?: unknown;
+  /** Format of the sanitized body, so copied requests retain the correct content type. */
+  requestBodyFormat?: 'json' | 'form';
   responseBody?: string | unknown;
   cached?: boolean;
 }

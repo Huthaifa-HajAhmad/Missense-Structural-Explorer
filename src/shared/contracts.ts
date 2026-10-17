@@ -682,6 +682,20 @@ export const translateVariantResponseSchema = z.object({
   /** Canonical form of the submitted notation after normalization (annotation stripped). */
   notationNormalized: z.string().optional(),
   /**
+   * Present when the submitted notation NAMED the variant rather than spelling it (an rsID, a
+   * ClinVar VCV, or `GENE:c.…`) and was rewritten before resolution. `note` is display-ready.
+   */
+  /** The stated transcript version is not current (it was still the one resolved on). */
+  transcriptVersionNote: z.string().optional(),
+  inputResolution: z
+    .object({
+      method: z.enum(["dbsnp-rsid", "clinvar-vcv", "gene-canonical-transcript"]),
+      submitted: z.string(),
+      resolvedNotation: z.string(),
+      note: z.string(),
+    })
+    .optional(),
+  /**
    * Prose explanation of the build decision: an inline annotation was honoured (or overridden by a
    * RefSeq accession that states a different build), or the coordinate was verified onto the
    * canonical reference, or it could not be and was annotated on the older archive. API prose for
@@ -2052,6 +2066,12 @@ export interface TranscriptMetadata {
    */
   numberingDisambiguated?: boolean | null;
   numberingRemap?: NumberingRemapRecord | null;
+  /**
+   * How the submitted identifier (rsID, ClinVar VCV, or `GENE:c.…`) was rewritten before it was
+   * resolved — so a report can state "rs… was read as 7-140753336-A-T" instead of leaving the
+   * reader to infer which allele or transcript the analysis is about.
+   */
+  inputResolution?: TranslateVariantResponse["inputResolution"] | null;
   /**
    * Genome-build trail of the analysed variant.
    *

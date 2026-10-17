@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDosageEvidence, parseDosageScore, type DosageResponse } from '../dosageSensitivity';
+import { buildDosageEvidence, dosageResponseSchema, parseDosageScore, type DosageResponse } from '../dosageSensitivity';
 
 const score = (code: number | null, diseaseId: string | null = null) => ({ ...parseDosageScore(code), disease: diseaseId ? 'Example' : null, diseaseId, history: null });
 const response = (haplo: ReturnType<typeof score>, triplo = score(0)): DosageResponse => ({ gene: 'PTEN', status: 'ready', message: null, provenance: null,
@@ -16,6 +16,18 @@ describe('ClinGen dosage score parsing', () => {
   });
 });
 describe('buildDosageEvidence', () => {
+  it('rejects contradictory success and absence payloads rather than manufacturing no curation', () => {
+    const valid = response(score(3));
+    for (const invalid of [
+      { ...valid, record: null },
+      { ...valid, status: 'not-found' },
+      { ...valid, record: { ...valid.record!, symbol: 'OTHER' } },
+      { ...valid, record: { ...valid.record!, geneId: '' } },
+    ]) {
+      expect(dosageResponseSchema.safeParse(invalid).success).toBe(false);
+      expect(buildDosageEvidence({ status: 'ready', data: invalid as DosageResponse }, null).state).toBe('error');
+    }
+  });
   it('scopes the curated disease by exact MONDO ID only', () => {
     const load = { status: 'ready' as const, data: response(score(3, 'MONDO:0017623')) };
     expect(buildDosageEvidence(load, 'MONDO:0017623').readings[0].scope).toBe('same-disease');

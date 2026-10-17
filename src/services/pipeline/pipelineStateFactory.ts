@@ -100,6 +100,8 @@ export interface PipelineStateBaseParams {
     resolvedAssembly?: GenomeAssembly;
     liftedGenomicCoordinates?: string | null;
     coordinateLift?: CoordinateLiftRecord | null;
+    /** How an rsID / ClinVar VCV / `GENE:c.…` input was rewritten before resolution. */
+    inputResolution?: import("../../shared/contracts").TranslateVariantResponse["inputResolution"] | null;
   } | null;
 }
 
@@ -127,6 +129,7 @@ function resultProvenance(
     uniprotIsoform: transcriptMeta?.uniprotIsoform,
     numberingBasis: transcriptMeta?.numberingBasis,
     numberingRemap: transcriptMeta?.numberingRemap,
+    ...(transcriptMeta?.inputResolution ? { inputResolution: transcriptMeta.inputResolution } : {}),
     // The analysis route reports whether it could verify the numbering across isoforms; the
     // translation meta carries it when the notation itself declared a basis. Either may be the
     // only source, so both are consulted.

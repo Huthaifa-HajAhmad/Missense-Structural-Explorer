@@ -2,7 +2,7 @@
 import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import VariantSearchPanel, { WORKFLOW_STAGES, formatVariantForDisplay } from "../VariantSearchPanel";
+import VariantSearchPanel, { WORKFLOW_STAGES, WORKFLOW_STAGE_COUNTS, formatVariantForDisplay } from "../VariantSearchPanel";
 import { ONBOARDING_BENCHMARK_PRESETS } from "../../shared/benchmarkPresets";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { SettingsProvider } from "../../context/SettingsContext";
@@ -682,9 +682,10 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       await openPipeline();
 
       // Derived, not a literal: "7/7 Complete" was hardcoded against a 7-element array, so an
-      // eighth stage would still have reported seven of seven as complete.
-      const expectedCount = WORKFLOW_STAGES.length;
-      expect(screen.getByText(`${expectedCount} stages`)).toBeInTheDocument();
+      // eighth stage would still have reported seven of seven as complete. The idle label splits the
+      // list into the automatic run and the on-demand stage, and both halves are counted from the list.
+      expect(WORKFLOW_STAGE_COUNTS.core + WORKFLOW_STAGE_COUNTS.onDemand).toBe(WORKFLOW_STAGES.length);
+      expect(screen.getByText(`${WORKFLOW_STAGE_COUNTS.core} core · ${WORKFLOW_STAGE_COUNTS.onDemand} on-demand`)).toBeInTheDocument();
 
       for (const stage of WORKFLOW_STAGES) {
         expect(screen.getByText(stage.title)).toBeInTheDocument();
@@ -702,7 +703,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   });
 
   describe("first-run benchmarks", () => {
-    it("loads a complete, submittable query — gene, notation and accession — and clears coordinates", async () => {
+    it("fills a complete, submittable query for the benchmark and clears coordinates", async () => {
       await act(async () => {
         useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A" });
       });
@@ -710,7 +711,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
       const preset = ONBOARDING_BENCHMARK_PRESETS[0];
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: new RegExp(`Load benchmark ${preset.gene}`) }));
+        fireEvent.click(screen.getByRole("button", { name: new RegExp(`Run benchmark ${preset.gene}`) }));
       });
 
       const state = useVariantAnalysisStore.getState();
@@ -725,7 +726,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
         useVariantAnalysisStore.setState({ history: [{ gene: "BRAF", variant: "p.V600E", uniprotId: "P15056" }] });
       });
       renderPanel();
-      expect(screen.queryByRole("button", { name: /Load benchmark/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Run benchmark/ })).not.toBeInTheDocument();
     });
   });
 
@@ -755,7 +756,8 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
         useVariantAnalysisStore.setState({ isBiophysicalLoading: true });
       });
       const bar = screen.getByRole("progressbar", { name: /Pipeline progress/i });
-      expect(bar.getAttribute("aria-valuemax")).toBe(String(WORKFLOW_STAGES.length));
+      // The bar measures the automatic run; the on-demand stage is not part of its denominator.
+      expect(bar.getAttribute("aria-valuemax")).toBe(String(WORKFLOW_STAGE_COUNTS.core));
     });
   });
 });

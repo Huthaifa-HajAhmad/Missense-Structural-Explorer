@@ -152,6 +152,10 @@ export interface TranslatedVariantResult {
     assembly?: string;
     /** Explanation emitted when an inline assembly annotation redirected the query. */
     assemblyNote?: string;
+    /** Set when an identifier or gene-qualified cDNA was rewritten before resolution. */
+    inputResolution?: import("../../shared/contracts").TranslateVariantResponse["inputResolution"] | null;
+    /** The stated transcript version is not current (the resolution still used it). */
+    transcriptVersionNote?: string | null;
     /**
      * The genomic coordinate the protein notation was translated from (hyphen form, e.g.
      * "X-23723975-C-A"), in the build named by `assembly`. Forwarded with the analysis request

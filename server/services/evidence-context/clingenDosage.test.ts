@@ -23,4 +23,53 @@ describe('ClinGen dosage adapter', () => {
     expect((await (await load([row('A')], 5))('A')).status).toBe('error');
     expect((await (await load([row('A')], 1, false))('A')).status).toBe('error');
   });
+  it('does not turn a matching row with a missing HGNC ID into a negative lookup', async () => {
+    const r = await (await load([row('NAE1', { hgnc_id: '' })]))('NAE1');
+    expect(r.status).toBe('error');
+    expect(r.message).toContain('invalid gene identifier');
+    expect(r.provenance).toBeNull();
+  });
+  it('rejects ambiguous duplicate symbol rows instead of taking the first assertion', async () => {
+    const r = await (await load([row('NAE1'), row('NAE1', { hgnc_id: 'HGNC:2' })]))('NAE1');
+    expect(r.status).toBe('error');
+    expect(r.message).toContain('ambiguous');
+  });
+  it('shares one complete table across concurrent genes and subsequent negative lookups', async () => {
+    const loader = await load([row('PTEN')]);
+    const [positive, negative] = await Promise.all([loader('PTEN'), loader('NAE1')]);
+    expect(positive.status).toBe('ready');
+    expect(negative).toMatchObject({ status: 'not-found', record: null, provenance: { source: 'ClinGen dosage sensitivity' } });
+    expect(negative.message).toContain('NAE1 in the complete source table');
+    expect((await loader('NAE1')).provenance?.sha256).toBe(positive.provenance?.sha256);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('does not cache incomplete reads and reports the successful retry with provenance', async () => {
+    const loader = await load([row('PTEN')], 2);
+    expect((await loader('NAE1')).message).toContain('incomplete');
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ rows: [row('PTEN')], total: 1 })));
+    const retried = await loader('NAE1');
+    expect(retried.status).toBe('not-found');
+    expect(retried.provenance?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('recovers one transient transport failure without requiring a manual retry', async () => {
+    const loader = await load([row('PTEN')]);
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
+    expect((await loader('PTEN')).status).toBe('ready');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    [new DOMException('timeout', 'TimeoutError'), 'timed out'],
+    [new TypeError('fetch failed'), 'could not be reached'],
+    [new SyntaxError('bad JSON'), 'invalid dosage table'],
+  ])('keeps transport and parsing diagnostics distinct', async (error, message) => {
+    const loader = await load([row('PTEN')]);
+    vi.mocked(fetch).mockRejectedValue(error);
+    const failed = await loader('NAE1');
+    expect(failed.status).toBe('error');
+    expect(failed.message).toContain(message);
+    expect(failed.message).not.toContain('No ClinGen dosage curation');
+    expect(failed.provenance).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
 });

@@ -421,8 +421,9 @@ export interface RefSeqProteinMapping {
   proteinId: string;
   /** Isoform whose sequence that protein is: `Q9Y305-1` for canonical, else e.g. `Q9Y305-4`. */
   isoformId?: string;
-  /** RefSeq transcript this protein is the product of (`NM_…`). */
+  /** Transcript this protein is the product of (`NM_…` for RefSeq, `ENST…` for Ensembl). */
   transcriptId?: string;
+
   /** HGNC symbol when UniProt reports one. */
   geneSymbol?: string;
 }
@@ -477,8 +478,10 @@ export async function resolveRefSeqProtein(
     l1Cache: cache,
     ttlSeconds: 30 * 24 * 60 * 60,
     bypassSqlite: options?.bypassSqlite,
-    // Only a definitive negative is worth remembering; failures throw and are never cached.
-    shouldCache: (result) => result.kind === "absent",
+    // Both answers are facts about the accession and are kept for the TTL; failures THROW, so they
+    // never reach the cache. (This predicate once admitted only `absent`, which re-asked UniProt for
+    // every successful mapping.)
+    shouldCache: (result) => result.kind === "found" || result.kind === "absent",
     fetcher: async () => {
       const url =
         `https://rest.uniprot.org/uniprotkb/search?query=` +
@@ -522,6 +525,75 @@ export async function resolveRefSeqProtein(
           proteinId: match?.id ?? key,
           isoformId: match?.isoformId ? String(match.isoformId).toUpperCase() : undefined,
           transcriptId: transcriptId ? String(transcriptId) : undefined,
+          geneSymbol: entry?.genes?.[0]?.geneName?.value,
+        },
+      };
+    },
+  });
+}
+
+/**
+ * Maps an Ensembl protein accession (`ENSP00000493543.1`) to its UniProt entry AND isoform — the
+ * Ensembl counterpart of {@link resolveRefSeqProtein}, with the same reviewed-human filter, the
+ * same "absent is a fact, failure is not" contract, and the same cache.
+ *
+ * `isoformId` is set only when UniProt names the isoform, and a cross-reference does not promise
+ * identical sequences — so this answers "which ENTRY", and the caller establishes the numbering from
+ * the Ensembl protein's own sequence (see `resolveAccessionedProteinNotation`).
+ */
+export async function resolveEnsemblProtein(
+  proteinAccession: string,
+  options?: UniprotCacheOptions
+): Promise<RefSeqLookupResult> {
+  const key = proteinAccession.trim().toUpperCase();
+  const cache = options?.l1Cache ?? refSeqProteinCache;
+  if (!/^ENSP\d+(\.\d+)?$/.test(key)) return { kind: "absent" };
+  const versionless = key.split(".")[0];
+
+  return getCachedOrFetch<RefSeqLookupResult>({
+    key: buildRefSeqProteinKey(`ensembl:${key}`),
+    source: "UniProt Search API (Ensembl xref)",
+    l1Cache: cache,
+    ttlSeconds: 30 * 24 * 60 * 60,
+    bypassSqlite: options?.bypassSqlite,
+    shouldCache: (result) => result.kind === "found" || result.kind === "absent",
+    fetcher: async () => {
+      const url =
+        `https://rest.uniprot.org/uniprotkb/search?query=` +
+        `xref:ensembl-${encodeURIComponent(versionless)}+AND+reviewed:true+AND+organism_id:9606` +
+        `&fields=xref_ensembl,gene_primary&format=json&size=1`;
+      const response = await fetchWithRetry(url, {
+        headers: { "User-Agent": "Missense-Structural-Explorer/1.0" },
+        timeout: 15000,
+        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(options?.cappedByCaller ? { cappedByCaller: true } : {}),
+      });
+
+      if (response.status === 400 || response.status === 404) return { kind: "absent" };
+      if (!response.ok) {
+        throw new Error(`UniProt Ensembl lookup failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as any;
+      const entry = data?.results?.[0];
+      if (!entry?.primaryAccession) return { kind: "absent" };
+
+      // In UniProt's Ensembl xrefs the id is the TRANSCRIPT; the protein sits in `ProteinId`.
+      const xrefs: any[] = entry.uniProtKBCrossReferences ?? [];
+      const proteinIdOf = (x: any) =>
+        String(x?.properties?.find((p: any) => p?.key === "ProteinId")?.value ?? "").toUpperCase();
+      const match =
+        xrefs.find((x) => x?.database === "Ensembl" && proteinIdOf(x) === key) ??
+        xrefs.find((x) => x?.database === "Ensembl" && proteinIdOf(x).split(".")[0] === versionless);
+      if (!match) return { kind: "absent" };
+
+      return {
+        kind: "found",
+        mapping: {
+          accession: String(entry.primaryAccession).toUpperCase(),
+          proteinId: proteinIdOf(match) || key,
+          isoformId: match.isoformId ? String(match.isoformId).toUpperCase() : undefined,
+          transcriptId: typeof match.id === "string" ? match.id : undefined,
           geneSymbol: entry?.genes?.[0]?.geneName?.value,
         },
       };

@@ -30,6 +30,13 @@ describe("fetchProtVarFoldx", () => {
   });
   afterEach(() => vi.mocked(fetchWithRetry).mockReset());
 
+  it.each([undefined, null, ''])('reports an unverifiable reference residue as a provider error and permits a fresh lookup (%j)', async (wildType) => {
+    vi.mocked(fetchWithRetry).mockResolvedValueOnce(json([row({ wildType })])).mockResolvedValueOnce(json([row()]));
+    await expect(fetchProtVarFoldx('P15056', 600, 'V', 'E')).rejects.toThrow('reference residue');
+    expect(await fetchProtVarFoldx('P15056', 600, 'V', 'E')).toMatchObject({ status: 'found', ddg: 2.09408 });
+    expect(fetchWithRetry).toHaveBeenCalledTimes(2);
+  });
+
   it("returns the FoldX ΔΔG with the model and the pLDDT it ran at", async () => {
     vi.mocked(fetchWithRetry).mockResolvedValue(json([row({ mutatedType: "K", foldxDdg: 0.27 }), row()]));
     expect(await fetchProtVarFoldx("P15056", 600, "V", "E")).toEqual({

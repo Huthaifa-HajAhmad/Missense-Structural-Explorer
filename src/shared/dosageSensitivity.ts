@@ -36,6 +36,14 @@ export type DosageRecord = z.infer<typeof dosageRecordSchema>;
 export const dosageResponseSchema = z.object({
   gene: z.string(), status: z.enum(['ready', 'not-found', 'error']), record: dosageRecordSchema.nullable(),
   provenance: contextProvenanceSchema.nullable(), message: z.string().nullable(),
+}).superRefine((response, ctx) => {
+  // A malformed success is a validation failure, never a confirmed absence of curation.
+  if ((response.status === 'ready') !== (response.record !== null)) {
+    ctx.addIssue({ code: 'custom', path: ['record'], message: 'Only a ready dosage response may carry a record, and it must carry one.' });
+  }
+  if (response.record && (response.record.symbol !== response.gene || !/^HGNC:\d+$/.test(response.record.geneId))) {
+    ctx.addIssue({ code: 'custom', path: ['record'], message: 'The dosage record must identify the queried gene with an HGNC identifier.' });
+  }
 });
 export type DosageResponse = z.infer<typeof dosageResponseSchema>;
 
@@ -85,7 +93,11 @@ export function buildDosageEvidence(load: { status: 'loading' | 'ready' | 'error
   if (load.status === 'loading') return { ...empty, state: 'loading', message: null };
   const data = load.data;
   if (load.status === 'error' || !data || data.status === 'error') return { ...empty, state: 'error', message: data?.message ?? null };
-  if (data.status === 'not-found' || !data.record) return { ...empty, state: 'not-found', message: data.message };
+  // Retain the guard for cached/legacy payloads that did not pass the current response schema.
+  if (data.status === 'not-found') return data.record
+    ? { ...empty, state: 'error', message: 'The dosage response contradicts its reported lookup status.' }
+    : { ...empty, state: 'not-found', message: data.message };
+  if (!data.record || data.record.symbol !== data.gene || !/^HGNC:\d+$/.test(data.record.geneId)) return { ...empty, state: 'error', message: 'The dosage response did not contain a valid record for this gene.' };
   const r = data.record;
   return { state: 'ready', evaluatedAt: r.evaluatedAt, reportUrl: r.reportUrl, message: null,
     readings: [reading('haploinsufficiency', r.haploinsufficiency, selectedDiseaseId), reading('triplosensitivity', r.triplosensitivity, selectedDiseaseId)] };

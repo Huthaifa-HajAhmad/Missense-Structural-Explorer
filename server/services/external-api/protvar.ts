@@ -95,6 +95,11 @@ export async function fetchProtVarFoldx(
 
   // ProtVar numbers the canonical sequence; a different wild type means the two are not describing
   // the same residue, and a value for it would be a value for another variant.
+  if (rows.some(e => typeof e.wildType !== "string" || !e.wildType.trim())) {
+    // Missing identity is a malformed response, not evidence that this variant is absent.
+    // Throw so it is reported as a provider error and is not cached as a month-long absence.
+    throw new Error("ProtVar did not report the reference residue, so the FoldX prediction cannot be verified.");
+  }
   const otherWt = rows.find((e) => String(e.wildType ?? "").toUpperCase() !== wt);
   if (otherWt) {
     return remember(key, {

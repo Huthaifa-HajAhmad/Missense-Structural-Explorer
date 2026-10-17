@@ -250,7 +250,9 @@ describe("useAnalysisPipeline Hook Integration", () => {
       await result.current.executeAnalysis("PAH", "c.1222C>T", "", undefined, mockOptions);
     });
 
-    expect(mockApiClient.translateVariant).toHaveBeenCalledWith("c.1222C>T", expect.any(AbortSignal));
+    // A bare `c.` names no transcript, so the gene travels with it; the server pins `PAH:c.…` to
+    // PAH's canonical (MANE Select) transcript instead of every transcript of the gene.
+    expect(mockApiClient.translateVariant).toHaveBeenCalledWith("PAH:c.1222C>T", expect.any(AbortSignal));
     expect(mockOptions.setGene).toHaveBeenCalledWith("PAH");
     expect(mockOptions.setVariant).toHaveBeenCalledWith("p.Arg408Trp");
   });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import type { ConsoleEntry, TraceRun, TraceSpan } from "../../types/devConsole";
+import { redactRequestBody } from '../../shared/redactSecrets';
 import {
   barGeometry,
   buildCurl,
@@ -84,6 +85,15 @@ describe("matchesFilters", () => {
 });
 
 describe("buildCurl", () => {
+  it('replays a sanitized form with its format and no credential values', () => {
+    const requestBody = redactRequestBody('api_key=private-key&gene=NAE1');
+    const diagnostic = entry({ httpMeta: { url: '/api/v1/x', method: 'POST', requestBody, requestBodyFormat: 'form' } });
+    const curl = buildCurl(diagnostic)!;
+    expect(curl).toContain('Content-Type: application/x-www-form-urlencoded');
+    expect(curl).toContain('api_key=%5Bredacted%5D&gene=NAE1');
+    expect(JSON.stringify(diagnostic)).not.toContain('private-key');
+    expect(curl).not.toContain('private-key');
+  });
   it("returns null without a URL", () => {
     expect(buildCurl(entry({}))).toBeNull();
   });

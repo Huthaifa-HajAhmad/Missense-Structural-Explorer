@@ -171,7 +171,7 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     const row = within(sidecarRow());
     expect(row.getByText("Predictions ready")).toBeInTheDocument();
     expect(row.queryByText("Starting up")).not.toBeInTheDocument();
-    expect(row.getByText("ThermoMPNN, SaProt & StabilityOracle")).toBeInTheDocument();
+    expect(row.getByText("Protein language & stability models")).toBeInTheDocument();
     expect(sidecarDot().className).toMatch(/cs-text-success/);
     expect(sidecarDot().className).not.toMatch(/animate-pulse/);
     // The sidecar is counted once it can serve. 9 of 10 rather than 10 because Gemini carries no
@@ -386,8 +386,8 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
     expect(document.querySelector('[data-service-detail="clinvar"]')).toBeNull();
   });
 
-  it.each(['alphagenome', 'gemini', 'foldx', 'p2rank'])(
-    '%s disclosure leaves Enter and Space to the native button without configuring the service', id => {
+  it.each(['alphagenome', 'gemini'])(
+    '%s disclosure leaves Enter and Space to the native button, and its action waits in the drawer', id => {
       h.diag.current = allReadyExcept({});
       const configure = vi.fn();
       render(<SettingsProvider><LiveTelemetryPanel onConfigureClick={configure} /></SettingsProvider>);
@@ -401,7 +401,10 @@ describe("LiveTelemetryPanel — ML sidecar cold start", () => {
       expect(disclosure).toHaveAttribute('aria-expanded', 'true');
       expect(configure).not.toHaveBeenCalled();
       expect(disclosure.closest('[role="button"]')).toBeNull();
-      fireEvent.click(within(row).getByRole('button', { name: /Configure/ }));
+      // The action is not on the header: it is a named button inside the drawer.
+      expect(within(row).queryByRole('button', { name: /Configure/ })).toBeNull();
+      const drawer = document.querySelector(`[data-service-detail="${id}"]`) as HTMLElement;
+      fireEvent.click(within(drawer).getByRole('button', { name: /Configure connection/ }));
       expect(configure).toHaveBeenCalledOnce();
     }
   );

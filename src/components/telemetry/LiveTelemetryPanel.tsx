@@ -3,8 +3,7 @@ import {
   RefreshCw,
   Settings,
   ChevronRight,
-  ChevronDown,
-  ArrowRight
+  ChevronDown
 } from "lucide-react";
 import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnostics";
 import { useSettings } from "../../context/SettingsContext";
@@ -64,10 +63,14 @@ interface ServiceStatusCard {
   tag?: string;
   /** Extra detail for the row's tooltip, e.g. how old a coverage verdict is. */
   detail?: string;
-  /** Visible affordance for clickable rows, so the action is not discoverable only via AT. */
+  /** Icon on the drawer's action button. */
   actionIcon?: React.ReactNode;
-  /** Overrides the default "Configure <name> settings" accessible label. */
+  /**
+   * The action's name. On an expandable row it is the drawer button's text; on a row that cannot
+   * expand it is the overlay button's accessible name, which defaults to "Configure <name> settings".
+   */
   actionLabel?: string;
+  /** Re-checks a service or opens the place it is configured. Expandable rows run it from the drawer. */
   onAction?: () => void;
   /** Opens the row to reveal `explain` and `detailRows`. */
   explain?: ServiceExplanation;
@@ -233,7 +236,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     ? "No provider reachable — use p.Glu433Lys style notation"
     : ensemblCoverageUnknown
     ? "Fallback not verified — coordinate queries may still work"
-    : "Transcript & consequence mapping";
+    : "VEP, coordinates & cDNA translation";
   /** Age of the coverage verdict, so an old claim is not presented as a current one. */
   const ensemblCoverageTitle = ensemblFallback
     ? [
@@ -249,17 +252,24 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
   // 2. AlphaGenome Atlas
   const alphagenomeHealth = diagnostics?.serviceHealth?.alphagenome;
-  const hasClientAlphaGenome = Boolean(
-    (settings.alphagenomeApiKey && settings.alphagenomeApiKey.trim().length > 0) ||
-    (settings.alphagenomeApiUrl && settings.alphagenomeApiUrl.trim().length > 0)
-  );
-  const alphagenomeReady = Boolean(alphagenomeHealth?.healthy || hasClientAlphaGenome);
+  const hasBrowserAlphaGenomeKey = Boolean(settings.alphagenomeApiKey?.trim());
+  const hasBrowserAlphaGenomeUrl = Boolean(settings.alphagenomeApiUrl?.trim());
+  /**
+   * `healthy` reflects only the server's own key, so a key typed into this browser never reached
+   * it. The browser does send that key on every request (`x-alphagenome-key`), and the analysis
+   * uses it, so it counts as ready. `keySource` is read as a structured field, not from the
+   * message text. A payload with no `keySource` (an older server) gets the same rule, since the
+   * browser key is the only way this row could have been ready before.
+   */
+  const alphagenomeKeySource = alphagenomeHealth?.keySource;
+  const browserKeyReady = hasBrowserAlphaGenomeKey && alphagenomeKeySource !== "server";
+  const alphagenomeReady = Boolean(alphagenomeHealth?.healthy || browserKeyReady || hasBrowserAlphaGenomeUrl);
   const alphagenomeLatency = alphagenomeHealth?.latencyMs;
   const alphagenomeStatusText = !isLoaded && loading
     ? "Connecting…"
     : alphagenomeHealth?.healthy
     ? "Bridge Active"
-    : hasClientAlphaGenome
+    : alphagenomeReady
     ? "Key Ready"
     : "Standby";
 
@@ -336,6 +346,13 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
 
   // 7. FoldX Biophysical Engine
   const foldxReady = Boolean(diagnostics?.foldxReady);
+  /**
+   * What the server found, so a FoldX that is present but missing a piece is named as such. Without
+   * it, "installed, but its parameter file is missing" reads as "not installed", which sends the
+   * operator looking for a binary they already have.
+   */
+  const foldxDetail = diagnostics?.foldxDetail;
+  const foldxIncomplete = !foldxReady && foldxDetail?.binaryFound === true;
   const foldxEngineCap = capabilities?.engines?.find(
     e => e.id.startsWith("foldx_") && e.status === "ready"
   );
@@ -397,7 +414,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     : "Standby / Cloud";
   const sidecarDescription = sidecarWarming
     ? "Some models are loading; check individual availability"
-    : "ThermoMPNN, SaProt & StabilityOracle";
+    : "Protein language & stability models";
   /**
    * What the row means when opened, in words that assume no knowledge of what a sidecar is.
    *
@@ -563,7 +580,12 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
               "Regulatory-impact scoring is switched off because no API key is connected. This " +
               "limits the Insights view only — every other view works normally. Add a key in " +
               "Settings to enable it."
-          }
+          },
+      // Named when it is the reason the row is ready, so a reader can tell their own key from the
+      // server's. Absent otherwise: the server's key needs no explanation of where it lives.
+      detailRows: browserKeyReady
+        ? [{ label: "Key source", value: "API key configured (this browser)", tone: "ready" }]
+        : undefined
     },
     {
       id: "myvariant",
@@ -604,7 +626,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "europepmc",
       name: "PubMed & Europe PMC",
       category: "literature",
-      description: "Biomedical literature mining & citations",
+      description: "Literature search & citations",
       statusText: europePmcStatusText,
       isReady: europePmcReady,
       latency: formatLatency(europePmcLatency),
@@ -634,9 +656,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
           ? "Relink the stored Gemini key now"
           : undefined,
       /**
-       * The row is the action. A lapsed session or a refused authorization needs no Settings
-       * trip when the key is on file: a click re-runs the same link handshake Settings does,
-       * and the row flips back to its counted-ready state. Anything the row cannot self-serve
+       * The drawer's button is the action. A lapsed session or a refused authorization needs no
+       * Settings trip when the key is on file: the button re-runs the same link handshake Settings
+       * does, and the row flips back to its counted-ready state. Anything the row cannot self-serve
        * keeps the old route into Settings.
        */
       onAction: (sessionLapsed || authLost) && keyLinkable && !linking
@@ -647,7 +669,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
             heading: "Your key needs reconnecting",
             body:
               "The stored key is no longer accepted, so written interpretations are paused. " +
-              "Nothing has been lost — click this line to reconnect with the same key."
+              "Nothing has been lost — use the button below to reconnect with the same key."
           }
         : geminiWarning
         ? {
@@ -670,16 +692,33 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       name: "FoldX Engine",
       category: "compute",
       description: "Empirical structural ΔΔG forcefield",
-      statusText: foldxReady ? "Forcefield Live" : "Local Standby",
+      statusText: foldxReady ? "Forcefield Live" : foldxIncomplete ? "Incomplete" : "Local Standby",
       isReady: foldxReady,
+      // Installed but unable to run is a state the operator must fix, so it earns the one warning chip.
+      isWarning: foldxIncomplete,
       tag: foldxTag,
-      onAction: () => handleConfigure("connections"),
+      // No `onAction`: FoldX is a server-side program. Client Settings cannot install it, so a
+      // button here would only open a page that cannot fix the problem.
       explain: foldxReady
         ? {
             heading: "Working normally",
             body:
               "Estimates a change in protein stability using an empirical energy function and " +
               "a structural model. This is a prediction, not a measured folding energy."
+          }
+        : foldxIncomplete
+        ? {
+            heading: "Installed, but cannot run yet",
+            body: foldxDetail?.rotabasePresent === false
+              ? "The FoldX program is present, but its parameter file (rotabase.txt) is missing " +
+                "beside it, so the server cannot run it. Stability estimates that rely on it are " +
+                "unavailable until the file is added. Everything else is unaffected."
+              : foldxDetail?.box64Required && !foldxDetail.box64Present
+              ? "The FoldX program is built for x86 and this server runs on ARM, so it needs Box64 " +
+                "to run, and Box64 is not installed. Stability estimates that rely on it are " +
+                "unavailable until it is. Everything else is unaffected."
+              : "The FoldX program is present but the server cannot run it. Stability estimates " +
+                "that rely on it are unavailable. Everything else is unaffected."
           }
         : {
             heading: "Not installed in this setup",
@@ -697,7 +736,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       statusText: p2rankStatusText,
       isReady: p2rankReady,
       isWarning: p2rankWarning,
-      onAction: () => handleConfigure("connections"),
+      // No `onAction`: a server-side Java program, not something Settings can change.
       explain: p2rankReady
         ? {
             heading: "Working normally",
@@ -735,7 +774,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       id: "uniprot",
       name: "UniProtKB",
       category: "genomic",
-      description: "Functional domains & catalytic residues",
+      description: "Sequences & functional domains",
       statusText: uniprotStatusText,
       isReady: uniprotReady,
       latency: formatLatency(uniprotLatency),
@@ -894,37 +933,32 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                 const nominal = isNominal(svc);
                 const slow = typeof svc.latency === "string" && parseInt(svc.latency, 10) >= 1000;
                 /**
-                 * A row may carry an action (re-check, open Settings), an explanation, or both.
-                 * Native action and disclosure buttons are siblings with distinct names.
+                 * A row may carry an action (re-check, open Settings), an explanation, or both, and
+                 * the two are never exposed on the same surface.
+                 *
+                 * An expandable row opens when its header is clicked. Its action moves into the
+                 * drawer as a plain button, so the reader sees what the click will do before doing it,
+                 * and a click on the row can never fire an action by accident. Only a row that cannot
+                 * expand keeps the whole-row action, because it has no drawer to hold a button.
                  */
                 const rowAction = svc.onAction;
+                const rowOverlayAction = isExpandable ? undefined : rowAction;
                 /**
-                 * The row's own accessible name, and whether it is a control at all.
-                 *
                  * The chevron is THE disclosure control: one role, one tab stop, one `aria-expanded`,
                  * and a name that says what it opens. The row header is only a wider hit target for
                  * the same action, never a second control — a row that is both a button and contains
                  * a button gives a keyboard user two tab stops for one thing, and nesting the two is
-                 * invalid HTML.
-                 *
-                 * A native action button stretches over the row beside the disclosure button.
-                 * A row with no action keeps no role
-                 * even though it opens: `LiveTelemetryFallback.test.tsx` pins this for a healthy
-                 * Ensembl row, and it is right — a row with nothing to do must not look like a control.
+                 * invalid HTML. A row with nothing to do keeps no role even though it can open:
+                 * `LiveTelemetryFallback.test.tsx` pins this, and it is right — a row with nothing to
+                 * do must not look like a control.
                  */
-                const rowLabel = rowAction
-                  ? (svc.actionLabel ?? `Configure ${svc.name} settings`)
-                  : svc.name;
+                const rowLabel = svc.actionLabel ?? `Configure ${svc.name} settings`;
                 return (
                   <div key={svc.id} className="flex flex-col">
                   <div
                     data-service-id={svc.id}
                     data-expanded={isExpandable ? (isOpen ? "true" : "false") : undefined}
-                    onClick={
-                      !rowAction && isExpandable
-                        ? () => toggleExpanded(svc.id)
-                        : undefined
-                    }
+                    onClick={isExpandable ? () => toggleExpanded(svc.id) : undefined}
                     className={`group relative flex items-center gap-2.5 px-3 py-1 min-h-[42px] select-none transition-colors duration-150 ${
                       svc.isDown
                         ? "bg-[var(--cs-bg-danger)]"
@@ -937,8 +971,8 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                         : ""
                     }`}
                   >
-                    {rowAction && <button type="button" aria-label={rowLabel}
-                      onClick={rowAction}
+                    {rowOverlayAction && <button type="button" aria-label={rowLabel}
+                      onClick={rowOverlayAction}
                       className="absolute inset-0 rounded-[inherit] cursor-pointer active:bg-cs-surface-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cs-accent-clay)]" />}
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDotClass(svc)}`} aria-hidden="true" />
 
@@ -977,26 +1011,26 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       >
                         {svc.statusText}
                       </span>
-                      {/* A clickable row must SAY what clicking does. Without this the Ensembl row's
-                          only cue was its aria-label, and the settings rows had no cue at all. */}
-                      {rowAction && (
+                      {/* A row whose whole surface is the action must SAY so. Only the non-expandable
+                          case lands here: an expandable row's gutter is its one disclosure chevron
+                          below, and a second glyph beside it read as two controls for one row. */}
+                      {rowOverlayAction && (
                         <span
                           className="text-cs-text-muted group-hover:text-cs-text-primary transition-colors duration-150"
                           aria-hidden="true"
                         >
-                          {svc.actionIcon ?? (isExpandable ? <ArrowRight className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />)}
+                          {svc.actionIcon ?? <ChevronRight className="w-3.5 h-3.5" />}
                         </span>
                       )}
-                      {/* The disclosure affordance, only on a row that opens. A chevron that rotates
-                          rather than a "+"/"−" pair: one glyph, and its orientation states which way
-                          the panel will move.
+                      {/* The disclosure affordance, only on a row that opens, and the row's only glyph.
+                          A chevron that rotates rather than a "+"/"−" pair: one glyph, and its
+                          orientation states which way the panel will move.
 
                           It is a real <button> because that is the only way a keyboard reader gets a
-                          control that is reachable and named. The name states what it opens and its
-                          current state, which the row's own label cannot: on an action row the row's
-                          label already names the action (re-check, open Settings), so a second
-                          meaning there would announce the wrong thing. `stopPropagation` keeps the
-                          chevron from also firing the row's own click. */}
+                          control that is reachable and named. Its name states what it opens and its
+                          state, and says nothing about the row's action: that action lives in the
+                          drawer under its own name. `stopPropagation` keeps the chevron from also
+                          firing the row's own click. */}
                       {isExpandable && (
                         <button
                           type="button"
@@ -1028,6 +1062,19 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       <p className="text-[11.5px] leading-relaxed text-cs-text-secondary m-0">
                         {svc.explain!.body}
                       </p>
+                      {/* The row's action, as a named button in the drawer. Its name is the action's own
+                          (re-check, relink, open Settings), so a reader reads what it does before
+                          pressing it. It is a real button, so the keyboard path is the platform's. */}
+                      {rowAction && (
+                        <button
+                          type="button"
+                          onClick={() => rowAction()}
+                          className="self-start inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--cs-radius-input)] text-[11.5px] font-medium text-cs-text-primary bg-cs-surface-2 hover:bg-cs-bg-subtle active:bg-cs-surface-2 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cs-accent-clay)]"
+                        >
+                          {svc.actionIcon}
+                          {svc.actionLabel ?? "Configure connection"}
+                        </button>
+                      )}
                       {svc.detailRows && svc.detailRows.length > 0 && (
                         <ul className="flex flex-col gap-1 m-0 p-0 list-none">
                           {svc.detailRows.map(row => (

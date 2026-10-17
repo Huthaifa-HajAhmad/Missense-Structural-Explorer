@@ -154,6 +154,11 @@ describe('ClinGen score 0 and the mechanism cross-check', () => {
 
 
 describe('mechanism availability explanation', () => {
+  it('reports dosage as running before the first request instead of a completed empty lookup', () => {
+    const m = buildGeneDiseaseModel({ gene: 'NAE1', disease: undefined, dosage: undefined, selectedKey: null });
+    expect(m.sources.dosage).toMatchObject({ status: 'loading', label: 'Running', available: false });
+    expect(m.dosage.state).toBe('not-requested');
+  });
   it('retains an undetermined G2P record when dosage has no result', () => {
     const m = model(disease([['A', 'Strong']], [mech('undetermined')]), { gene: 'SOD1', status: 'not-found', record: null, provenance: null, message: null });
     expect(m.mechanismRecords).toHaveLength(1);

@@ -519,3 +519,127 @@ describe("analysis-path verification bounds", () => {
     expect(positions).toEqual([55, 64]);
   });
 });
+
+/**
+ * An Ensembl protein is numbered by ITS OWN sequence. UniProt's Ensembl cross-reference names the
+ * entry but often no isoform, and does not promise identical sequences — so the Ensembl sequence is
+ * fetched and either matched to a UniProt isoform or aligned onto canonical.
+ */
+describe("resolveAccessionedProteinNotation — Ensembl protein (ENSP)", () => {
+  let fetchSpy: any;
+
+  const ENSEMBL_SEARCH = {
+    results: [
+      {
+        primaryAccession: "P00001",
+        uniProtKBCrossReferences: [
+          {
+            database: "Ensembl",
+            id: "ENST00000000009.3",
+            // No isoformId: UniProt frequently omits it.
+            properties: [{ key: "ProteinId", value: "ENSP00000000009.2" }],
+          },
+        ],
+        genes: [{ geneName: { value: "TESTGENE" } }],
+      },
+    ],
+  };
+
+  function installEnsemblFetch(ensp: { seq?: string; version?: number | null; status?: number }) {
+    const base = installFetch({ search: ENSEMBL_SEARCH });
+    const fallthrough = base.getMockImplementation()!;
+    return base.mockImplementation(async (url: any, init?: any) => {
+      if (String(url).includes("rest.ensembl.org/sequence/id/")) {
+        if (ensp.status) return { ok: false, status: ensp.status, json: async () => ({}) } as any;
+        return jsonOk({ id: "ENSP00000000009", version: ensp.version === null ? undefined : ensp.version ?? 2, seq: ensp.seq });
+      }
+      return fallthrough(url, init);
+    });
+  }
+
+  beforeEach(() => {
+    clearAllCaches(true);
+    resetHostStateForTests();
+    vi.restoreAllMocks();
+  });
+  afterEach(() => fetchSpy?.mockRestore());
+
+  it('refuses a versioned accession when Ensembl omits the version instead of silently using the current sequence', async () => {
+    fetchSpy = installEnsemblFetch({ seq: CANONICAL, version: null });
+    const outcome = await resolveAccessionedProteinNotation({ accession: 'ENSP00000000009.2', proteinNotation: 'p.Gly49Ala' });
+    expect(outcome.status).toBe('unverified');
+    expect(outcome.reason).toContain('ENSP00000000009.2');
+  });
+
+  it("numbers canonically when the Ensembl sequence IS the canonical sequence", async () => {
+    fetchSpy = installEnsemblFetch({ seq: CANONICAL });
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "ENSP00000000009.2",
+      proteinNotation: "p.Gly49Ala",
+    });
+    expect(outcome.status).toBe("canonical");
+    expect(outcome.canonicalAccession).toBe("P00001");
+    expect(outcome.transcriptId).toBe("ENST00000000009.3");
+  });
+
+  it("matches an Ensembl sequence identical to a UniProt isoform and remaps it", async () => {
+    fetchSpy = installEnsemblFetch({ seq: ISOFORM_2 });
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "ENSP00000000009.2",
+      proteinNotation: "p.Gly59Ala",
+    });
+    expect(outcome.status).toBe("remapped");
+    expect(outcome.canonicalVariant).toBe("p.Gly49Ala");
+    expect(outcome.basisId).toBe("P00001-2");
+  });
+
+  it("aligns an Ensembl sequence UniProt does not list, instead of assuming canonical numbering", async () => {
+    // A 5-residue insertion after canonical 20 that no UniProt isoform carries: basis 59 is canonical 54.
+    fetchSpy = installEnsemblFetch({ seq: withInsertion(CANONICAL, 20, "PPPPP") });
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "ENSP00000000009.2",
+      proteinNotation: `p.${CANONICAL[53]}59Ala`,
+    });
+    expect(outcome.status).toBe("remapped");
+    expect(outcome.canonicalVariant).toMatch(/54Ala$/);
+    expect(outcome.basisId).toBe("ENSP00000000009.2");
+  });
+
+  it("refuses rather than guesses when the Ensembl sequence differs in more than one place", async () => {
+    fetchSpy = installEnsemblFetch({ seq: `${ISOFORM_2}K` });
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "ENSP00000000009.2",
+      proteinNotation: "p.Gly59Ala",
+    });
+    expect(outcome.status).toBe("unresolved");
+    expect(outcome.reason).toContain("no counterpart in the canonical sequence");
+  });
+
+  it("keeps the UniProt mapping and the Ensembl sequence for the next request", async () => {
+    fetchSpy = installEnsemblFetch({ seq: ISOFORM_2 });
+    await resolveAccessionedProteinNotation({ accession: "ENSP00000000009.2", proteinNotation: "p.Gly59Ala" });
+    const callsAfterFirst = fetchSpy.mock.calls.length;
+    await resolveAccessionedProteinNotation({ accession: "ENSP00000000009.2", proteinNotation: "p.Gly59Ala" });
+    const lookups = (from: number) =>
+      fetchSpy.mock.calls.slice(from).map((c: any[]) => String(c[0])).filter((u: string) => u.includes("/uniprotkb/search") || u.includes("/sequence/id/"));
+    expect(lookups(0).length).toBeGreaterThan(0);
+    expect(lookups(callsAfterFirst)).toEqual([]);
+  });
+
+  it("refuses to number a version Ensembl no longer serves", async () => {
+    fetchSpy = installEnsemblFetch({ seq: CANONICAL, version: 3 });
+    const outcome = await resolveAccessionedProteinNotation({
+      accession: "ENSP00000000009.2",
+      proteinNotation: "p.Gly59Ala",
+    });
+    expect(outcome.status).toBe("unverified");
+    expect(outcome.reason).toContain("ENSP00000000009.2");
+  });
+
+  it("answers 'unavailable', not 'unknown accession', when Ensembl is down", async () => {
+    fetchSpy = installEnsemblFetch({ status: 503 });
+    await expect(
+      resolveAccessionedProteinNotation({ accession: "ENSP00000000009.2", proteinNotation: "p.Gly59Ala" })
+    ).rejects.toBeInstanceOf(CoordinateResolutionError);
+  });
+});

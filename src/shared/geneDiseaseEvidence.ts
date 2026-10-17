@@ -104,7 +104,6 @@ function snapshotReading(name: string, load: Load<SnapshotLike>, now: Date, what
       age: data.provenance ? snapshotAge(name, data.provenance.retrievedAt, now) : null };
   }
   const failed = load?.status === 'error' || data?.status === 'error';
-  const label = !load || load.status === 'loading' ? ENGINE_STATE_LABELS.running : failed ? ENGINE_STATE_LABELS['upstream-error'] : ENGINE_STATE_LABELS['not-installed'];
   const reason = load?.status === 'error' ? load.error ?? data?.message ?? null
     : failed ? data?.message ?? null
     : data?.status === 'not-installed' ? `${what} is not installed on this server and could not be fetched.` : null;
@@ -112,6 +111,8 @@ function snapshotReading(name: string, load: Load<SnapshotLike>, now: Date, what
   // it must not claim the snapshot is missing from the server.
   const status: SourceStatus = !load || load.status === 'loading' ? 'loading' : failed ? 'error'
     : data?.status === 'not-installed' ? 'not-installed' : 'no-result';
+  const label = status === 'loading' ? ENGINE_STATE_LABELS.running : status === 'error' ? ENGINE_STATE_LABELS['upstream-error']
+    : status === 'not-installed' ? ENGINE_STATE_LABELS['not-installed'] : ENGINE_STATE_LABELS['no-result'];
   return { source: name, available: false, label, reason, release: null, age: null, status };
 }
 
@@ -129,7 +130,7 @@ export function buildGeneDiseaseModel(input: {
     dosage: { source: 'ClinGen dosage', available: dosage.state === 'ready',
       label: dosage.state === 'ready' ? 'Available' : dosage.state === 'not-found' ? ENGINE_STATE_LABELS['no-result'] : dosage.state === 'error' ? ENGINE_STATE_LABELS['upstream-error'] : ENGINE_STATE_LABELS.running,
       reason: dosage.message ?? input.dosage?.error ?? null, age: null, release: null,
-      status: dosage.state === 'ready' ? 'ready' : dosage.state === 'not-found' ? 'no-result' : dosage.state === 'error' ? 'error' : dosage.state === 'loading' ? 'loading' : 'no-result' } as SourceReading,
+      status: dosage.state === 'ready' ? 'ready' : dosage.state === 'not-found' ? 'no-result' : dosage.state === 'error' ? 'error' : 'loading' } as SourceReading,
   };
   const frames = data?.frames ?? [];
   const assertions: AssertionRow[] = base.assertions.map(a => ({ id: a.id, submitter: a.submitter, level: a.level, adverse: isAdverseLevel(a.level),

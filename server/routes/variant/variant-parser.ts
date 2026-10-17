@@ -20,7 +20,11 @@ import {
   type CoordinateLiftRecord,
 } from "../../../src/shared/contracts.ts";
 import { classifyNotation, type GenomeAssembly } from "../../../src/shared/variantNotation.ts";
-import { resolveGeneProteinNumbering, withNumberingBudget } from "../../services/translation/protein-numbering.ts";
+import {
+  resolveGeneProteinNumbering,
+  withNumberingBudget,
+  type ProteinNumberingOutcome,
+} from "../../services/translation/protein-numbering.ts";
 import { buildAmbiguousNumberingMessage } from "../../services/translation/isoform-remap.ts";
 import { resolveAlphaGenomeAccess } from "../../services/external-api/alphagenome-bridge.ts";
 import { resolveGpnAccess } from "../../services/external-api/gpn.ts";
@@ -226,6 +230,128 @@ export interface ParsedVariantContext {
   saprotEngine?: "saprot-650m" | "saprot-35m" | "remote-hf" | string;
 }
 
+/**
+ * The canonical sequence plus the numbering verification that applies to it: `mismatchDiagnosis`
+ * when the sequence does NOT carry the stated wild type at `pos`, `matchNumbering` when it does.
+ * Exactly one of the two is ever computed, so a request pays for one lookup, as before.
+ */
+export interface VerifiedVariantEntry {
+  sequence: string;
+  mismatchDiagnosis?: ProteinNumberingOutcome | null;
+  matchNumbering?: ProteinNumberingOutcome | null;
+}
+
+/**
+ * In-flight verifications, shared by identical concurrent requests.
+ *
+ * A single query fires `/stream`, `/landscape` and `/structural` together, and each one used to
+ * repeat the same UniProt + numbering resolution. Entries live only while the work is in flight
+ * (removed when it settles) — the underlying UniProt lookups have their own caches, so a longer
+ * TTL would add staleness without saving a round trip, and it would leak results across tests
+ * that mock the sequence per case.
+ */
+const inFlightVerifications = new Map<string, Promise<VerifiedVariantEntry>>();
+
+export function getVerifiedSequenceAndNumbering(params: {
+  gene: string;
+  uniprotId: string;
+  variant: string;
+  pos: number;
+  wt1Letter: string;
+  verificationBudgetMs?: number;
+}): Promise<VerifiedVariantEntry> {
+  const key = [
+    params.gene.toUpperCase(),
+    params.uniprotId.toUpperCase(),
+    params.variant,
+    params.pos,
+    params.wt1Letter,
+    params.verificationBudgetMs ?? "",
+  ].join("|");
+  const pending = inFlightVerifications.get(key);
+  if (pending) return pending;
+  const work = verifySequenceAndNumbering(params).finally(() => {
+    inFlightVerifications.delete(key);
+  });
+  inFlightVerifications.set(key, work);
+  return work;
+}
+
+async function verifySequenceAndNumbering(params: {
+  gene: string;
+  uniprotId: string;
+  variant: string;
+  pos: number;
+  wt1Letter: string;
+  verificationBudgetMs?: number;
+}): Promise<VerifiedVariantEntry> {
+  const { gene, uniprotId, variant, pos, wt1Letter, verificationBudgetMs } = params;
+  // Rejections propagate: the caller reports a failed sequence fetch as a 502.
+  const sequence = await fetchUniprotSequence(uniprotId);
+  // Out of bounds is refused by the caller before either verification is consulted.
+  if (pos < 1 || pos > sequence.length) return { sequence };
+
+  /**
+   * One controller for every numbering verification in this request: the work is advisory, so when the
+   * budget expires it is CANCELLED rather than left running (an orphaned lookup retried for up to ~65s,
+   * holding a per-host semaphore slot and booking breaker failures against a healthy provider).
+   */
+  const numberingAbort = new AbortController();
+
+  if (sequence[pos - 1] !== wt1Letter) {
+    /**
+     * Diagnose WHY, before answering. A MANE Select notation is the common cause and it has a
+     * remedy that works today (the accession-qualified form), so the answer names it — and when
+     * two numberings are equally consistent at DIFFERENT canonical positions it says so instead
+     * of picking one, because choosing here would model an arbitrary residue.
+     *
+     * Best-effort: `resolveGeneProteinNumbering` returns null when UniProt is unreachable, so an
+     * outage leaves the previous message in place rather than failing the request.
+     */
+    // Bounded like the success-path check: this diagnosis is equally advisory, and unbounded it waited
+    // out the full provider retry envelope (~65s) before answering a request that was going to be
+    // refused anyway.
+    const mismatchDiagnosis = await withNumberingBudget(
+      resolveGeneProteinNumbering({
+        gene,
+        notation: variant,
+        canonicalAccession: uniprotId,
+        options: { signal: numberingAbort.signal, cappedByCaller: true },
+      }),
+      verificationBudgetMs,
+      () => numberingAbort.abort()
+    );
+    return { sequence, mismatchDiagnosis };
+  }
+
+  /**
+   * The wild type MATCHES the canonical sequence — but for a gene whose MANE protein is numbered
+   * differently, the same letters can also describe a DIFFERENT canonical residue (ACOT9: 16 of 400
+   * indices, where the offset is 9). So the match is verified across every numbering before any
+   * analysis is modelled:
+   *   - two numberings consistent at DIFFERENT canonical positions → refuse; picking one would
+   *     model an arbitrary residue;
+   *   - verification impossible (UniProt unreachable) → accept, but say so, because a provider
+   *     outage must not fail an otherwise valid query and must not be mistaken for a clean bill.
+   */
+  const matchNumbering = await withNumberingBudget(
+    resolveGeneProteinNumbering({
+      gene,
+      notation: variant,
+      canonicalAccession: uniprotId,
+      // A bare notation is canonical- or MANE-numbered in practice, so the ambiguity check compares
+      // exactly that pair: admitting every isoform of the gene multiplies the refusal set (ACOT9:
+      // 14.8% of positions versus 3.4%) for numberings a report would not be using.
+      basisScope: "mane",
+      // `cappedByCaller`: the 2.5s budget is OUR cap, so a timeout must not eject the provider.
+      options: { signal: numberingAbort.signal, cappedByCaller: true },
+    }),
+    verificationBudgetMs,
+    () => numberingAbort.abort()
+  );
+  return { sequence, matchNumbering };
+}
+
 export async function validateAndParseVariantRequest(
   req: any,
   res: any,
@@ -368,13 +494,22 @@ export async function validateAndParseVariantRequest(
   const mut1Letter = coord.mut1;
   const pos = coord.pos;
 
-  let sequence: string;
+  let verifiedSequenceAndNumbering: VerifiedVariantEntry;
   try {
-    sequence = await fetchUniprotSequence(uniprotId);
+    verifiedSequenceAndNumbering = await getVerifiedSequenceAndNumbering({
+      gene,
+      uniprotId,
+      variant,
+      pos,
+      wt1Letter,
+      verificationBudgetMs: options?.verificationBudgetMs,
+    });
   } catch (seqErr: any) {
     sendError(res, 502, "BAD_GATEWAY", `Failed to retrieve protein sequence from UniProt: ${seqErr.message}`);
     return null;
   }
+
+  const { sequence, mismatchDiagnosis, matchNumbering } = verifiedSequenceAndNumbering;
 
   if (pos < 1 || pos > sequence.length) {
     sendError(
@@ -386,37 +521,9 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
-  /**
-   * One controller for every numbering verification in this request: the work is advisory, so when the
-   * budget expires it is CANCELLED rather than left running (an orphaned lookup retried for up to ~65s,
-   * holding a per-host semaphore slot and booking breaker failures against a healthy provider).
-   */
-  const numberingAbort = new AbortController();
-
   const actualWt = sequence[pos - 1];
   if (actualWt !== wt1Letter) {
-    /**
-     * Diagnose WHY, before answering. A MANE Select notation is the common cause and it has a
-     * remedy that works today (the accession-qualified form), so the answer names it — and when
-     * two numberings are equally consistent at DIFFERENT canonical positions it says so instead
-     * of picking one, because choosing here would model an arbitrary residue.
-     *
-     * Best-effort: `resolveGeneProteinNumbering` returns null when UniProt is unreachable, so an
-     * outage leaves the previous message in place rather than failing the request.
-     */
-    // Bounded like the success-path check: this diagnosis is equally advisory, and unbounded it waited
-    // out the full provider retry envelope (~65s) before answering a request that was going to be
-    // refused anyway.
-    const diagnosis = await withNumberingBudget(
-      resolveGeneProteinNumbering({
-        gene,
-        notation: variant,
-        canonicalAccession: uniprotId,
-        options: { signal: numberingAbort.signal, cappedByCaller: true },
-      }),
-      options?.verificationBudgetMs,
-      () => numberingAbort.abort()
-    );
+    const diagnosis = mismatchDiagnosis ?? null;
 
     if (diagnosis?.status === "ambiguous" && diagnosis.candidates?.length) {
       sendError(
@@ -448,31 +555,7 @@ export async function validateAndParseVariantRequest(
     return null;
   }
 
-  /**
-   * The wild type MATCHES the canonical sequence — but for a gene whose MANE protein is numbered
-   * differently, the same letters can also describe a DIFFERENT canonical residue (ACOT9: 16 of 400
-   * indices, where the offset is 9). So the match is verified across every numbering before any
-   * analysis is modelled:
-   *   - two numberings consistent at DIFFERENT canonical positions → refuse; picking one would
-   *     model an arbitrary residue;
-   *   - verification impossible (UniProt unreachable) → accept, but say so, because a provider
-   *     outage must not fail an otherwise valid query and must not be mistaken for a clean bill.
-   */
-  const numbering = await withNumberingBudget(
-    resolveGeneProteinNumbering({
-      gene,
-      notation: variant,
-      canonicalAccession: uniprotId,
-      // A bare notation is canonical- or MANE-numbered in practice, so the ambiguity check compares
-      // exactly that pair: admitting every isoform of the gene multiplies the refusal set (ACOT9:
-      // 14.8% of positions versus 3.4%) for numberings a report would not be using.
-      basisScope: "mane",
-      // `cappedByCaller`: the 2.5s budget is OUR cap, so a timeout must not eject the provider.
-      options: { signal: numberingAbort.signal, cappedByCaller: true },
-    }),
-    options?.verificationBudgetMs,
-    () => numberingAbort.abort()
-  );
+  const numbering = matchNumbering ?? null;
 
   /**
    * The reader's explicit answer, read before the refusal: when they have said these numbers are

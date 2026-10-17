@@ -58,7 +58,7 @@ Before assuming an engine is missing or broken, query the machine-readable capab
 ```http
 GET /api/v1/capabilities
 ```
-Returns live JSON status for all 8 engines (`foldx_linux_elf`, `foldx_windows`, `box64`, `rasp`, `thermompnn`, `stabilityoracle`, `saprot`, `japanfold`) along with system architecture and sidecar latency.
+Returns live JSON status for every engine (`foldx_linux_elf`, `foldx_windows`, `box64`, `rasp`, `thermompnn`, `stabilityoracle`, `saprot`, `japanfold`, `p2rank`, `dbnsfp_local`) along with system architecture and sidecar latency. FoldX readiness (binary + `rotabase.txt` + Box64 when emulated) comes from `server/services/stability/foldx/readiness.ts`, the same rule `/api/v1/diagnostics` uses — the per-platform FoldX entries are an inventory, and only the one this host would run is gated on it.
 
 ## 3. Strict No-Heuristics Policy
 

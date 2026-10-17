@@ -1,5 +1,6 @@
 import { TraceContext, TranslatedVariantResult } from "./types";
 import { parseVariantCoordinate } from "../../shared/variantCoordinate.ts";
+import { cdnaReferenceProblem } from "../../shared/variantNotation.ts";
 
 // ── Notation grammar is centralized in src/shared/variantNotation.ts ──────────
 // Re-exported here so existing import paths (`./notationService`,
@@ -38,7 +39,8 @@ export async function translateVariantNotation(
     setAnalysisState?: (fn: any) => void;
     setLoadingStep?: (step: string) => void;
   },
-  traceContext?: TraceContext
+  traceContext?: TraceContext,
+  gene?: string
 ): Promise<TranslatedVariantResult> {
   if (callbacks?.setAnalysisState) {
     callbacks.setAnalysisState((prev: any) => ({ ...prev, isLoading: true, error: null }));
@@ -47,9 +49,20 @@ export async function translateVariantNotation(
     callbacks.setLoadingStep("Step 1/4: Translating genomic / cDNA variant notation…");
   }
 
+  /**
+   * A bare `c.123A>G` names no transcript, so on its own no provider can place it. With a gene it
+   * becomes `GENE:c.123A>G`, which the server pins to that gene's canonical = MANE Select transcript (and says
+   * so in `inputResolution`) — never to "whichever transcript VEP lists first".
+   */
+  const trimmedGene = gene?.trim() ?? "";
+  const effectiveNotation =
+    trimmedGene && cdnaReferenceProblem(notation) === "missing-transcript"
+      ? `${trimmedGene.toUpperCase()}:${notation.trim()}`
+      : notation;
+
   const startTime = performance.now();
   try {
-    const data = await apiClient.translateVariant(notation, signal);
+    const data = await apiClient.translateVariant(effectiveNotation, signal);
     const durationMs = Math.round(performance.now() - startTime);
     const offsetMs = traceContext ? Math.max(0, Math.round(startTime - traceContext.traceStart)) : 0;
 
@@ -121,7 +134,12 @@ export async function translateVariantNotation(
         // annotation from protein HGVS — a notation Ensembl rejects for codon-ambiguous
         // substitutions and isoform-remapped genes, dropping the variant onto the GRCh37
         // fallback and blanking every GRCh38-only source (unmapping defect F-1).
-        genomicCoordinates: data.genomicCoordinates ?? null
+        genomicCoordinates: data.genomicCoordinates ?? null,
+        // How an rsID / ClinVar VCV / `GENE:c.…` input was rewritten before resolution, so the
+        // reader can see which coordinate or transcript their identifier was read as.
+        inputResolution: data.inputResolution ?? null,
+        // Structured twin of the version sentence in `transcriptWarning`, for reports and agents.
+        transcriptVersionNote: data.transcriptVersionNote ?? null
       },
       // Carried through rather than dropped, so downstream surfaces can disclose a degraded
       // provider. VariantValidator returns no UniProt accession and no Ensembl transcript id,

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { predictorCache, getCachedOrFetch } from "../../infra/cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { buildPredictorsKey } from "../../infra/cache-keys.ts";
-import { queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
+import { queryLocalDbnsfpByGenomic, queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
 import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
@@ -282,6 +282,62 @@ async function fetchPredictorsViaCoordinateMyVariant(
 }
 
 /**
+ * Coordinate fallback via the local dbNSFP store — the same allele MyVariant would be asked for,
+ * answered without a network round trip, and with the dbNSFP release named in the provenance.
+ *
+ * Keyed by the EXACT allele (chr, pos, ref, alt), so unlike the protein-row lookup in
+ * `fetchPredictorsFallback` its CADD belongs to this nucleotide change and may be reported. The row
+ * must still bind to the request like a MyVariant hit does: same gene, and the stored substitution
+ * (the MANE/canonical transcript's, see `tools/ingest_dbnsfp.ts`) must be the requested one at the
+ * requested position. A MANE numbering that differs from canonical fails that check and falls
+ * through to MyVariant, which searches every transcript — the safe direction.
+ */
+async function fetchPredictorsViaCoordinateLocal(
+  lifted: { chrom: string; pos: number; ref: string; alt: string },
+  canonicalEnsemblId: string | null,
+  expect: { gene: string; wt: string | null; mut: string | null; pos: number | null }
+): Promise<PredictorData | null> {
+  type LocalRow = NonNullable<Awaited<ReturnType<typeof queryLocalDbnsfpByGenomic>>> & {
+    aaref?: string | null;
+    aaalt?: string | null;
+  };
+  // A local store problem is never a reason to lose the remote tiers below.
+  const row = (await queryLocalDbnsfpByGenomic(lifted.chrom, lifted.pos, lifted.ref, lifted.alt).catch(() => null)) as LocalRow | null;
+  if (!row) return null;
+  if (row.gene?.trim().toUpperCase() !== expect.gene.trim().toUpperCase()) return null;
+  if (expect.wt && expect.mut) {
+    const bound =
+      row.aaref?.toUpperCase() === expect.wt.toUpperCase() &&
+      row.aaalt?.toUpperCase() === expect.mut.toUpperCase() &&
+      (expect.pos === null || row.pos === expect.pos);
+    if (!bound) return null;
+  }
+
+  const amPathogenicity = safeParseFloat(row.alphamissense);
+  const caddPhred = safeParseFloat(row.cadd);
+  if (amPathogenicity === null && caddPhred === null) return null;
+  // `readLocalDbnsfpVersion` already reads "dbNSFP 5.3a (local)", so it is used as the label as is.
+  const version = readLocalDbnsfpVersion() ?? "local dbNSFP (version not recorded)";
+  const normChrom = lifted.chrom.replace(/^chr/i, "");
+  return {
+    available: true,
+    amPathogenicity,
+    // Same published cut-offs as the protein-row branch in `fetchPredictorsFallback`.
+    amClass: amPathogenicity === null ? null : amPathogenicity >= 0.564 ? "likely_pathogenic" : amPathogenicity <= 0.34 ? "likely_benign" : "ambiguous",
+    amProvenance: amPathogenicity !== null ? version : undefined,
+    caddPhred,
+    gnomadVariantId: `${normChrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`,
+    gnomadVariantAssembly: "GRCh38",
+    transcriptId: canonicalEnsemblId ?? undefined,
+    canonicalEnsemblId,
+    isManeSelect: false,
+    isManePlusClinical: false,
+    isCanonical: Boolean(canonicalEnsemblId),
+    source: `${version} (coordinate fallback)`,
+  };
+}
+
+/**
  * Coordinate fallback via UCSC Reference Genome.
  *
  * Confirms that the reference base at the requested GRCh38 position matches the input coordinate.
@@ -383,6 +439,12 @@ async function fetchPredictorsViaCoordinate(
     }
   } catch (err: any) {
     console.warn(`[VEP Coordinate Query] Ensembl query failed for ${lifted.chrom}:${lifted.pos}: ${err?.message ?? err}`);
+  }
+
+  // ── Fallback 0: the local dbNSFP store, by the exact GRCh38 allele ──
+  const localData = await fetchPredictorsViaCoordinateLocal(lifted, canonicalEnsemblId, expect);
+  if (localData) {
+    return localData;
   }
 
   // ── Fallback 1: MyVariant.info by exact GRCh38 genomic coordinate ──

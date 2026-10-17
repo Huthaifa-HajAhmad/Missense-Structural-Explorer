@@ -11,7 +11,7 @@ describe('variant search form', { tags: ['search'] }, () => {
   test('lists the four benchmark controls on first run', async ({ screen }) => {
     await expect(screen.getByRole('region', 'No recent analyses')).toBeVisible();
     for (const label of ['PAH p.Arg408Trp', 'FGFR3 p.Gly380Arg', 'GBA1 p.Leu483Pro', 'CNNM2 p.Glu357Lys']) {
-      await expect(screen.getByRole('button', `Load benchmark ${label}`)).toBeVisible();
+      await expect(screen.getByRole('button', `Run benchmark ${label}`)).toBeVisible();
     }
   });
 
