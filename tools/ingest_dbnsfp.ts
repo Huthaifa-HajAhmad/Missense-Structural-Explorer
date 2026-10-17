@@ -37,6 +37,9 @@ const INSERT_COLUMNS = [
   'metarnn', 'clinpred', 'dann', 'eigen', 'esm1b', 'popeve', 'cadd',
   'gnomad_ac', 'gnomad_an', 'gnomad_hom',
   'aou_ac', 'aou_an', 'aou_het', 'aou_hom',
+  // How this row's transcript was chosen (mane | ensembl-canonical | single | first-listed), so a reader can
+  // refuse the residue numbers of a row whose gene lists no MANE Select or canonical transcript.
+  'transcript_basis',
 ];
 const INSERT_SQL = `INSERT INTO variant_scores (${INSERT_COLUMNS.join(', ')}) VALUES (${INSERT_COLUMNS.map(() => '?').join(', ')});`;
 
@@ -76,11 +79,39 @@ export function parseIntInt(val: string): number | null {
   return isNaN(parsed) ? null : parsed;
 }
 
+/**
+ * How dbNSFP writes a MANE flag. v5.4a writes `Select` / `Plus_Clinical` in a `MANE` column; older
+ * releases wrote `MANE_Select`. Only MANE SELECT is the transcript residue numbers are reported on:
+ * a Plus-Clinical entry is a second, clinically-requested transcript and must not be mistaken for it
+ * (the previous `/^MANE/` test accepted both).
+ */
+const MANE_SELECT = /^(?:MANE[_ ]?)?Select$/i;
+const MANE_ANY = /^(?:MANE[_ ]?)?(?:Select|Plus[_ ]?Clinical)$/i;
+
+/**
+ * A value in the MANE column this loader does not understand, or null.
+ *
+ * The loader once missed 5.4a's `Select` entirely: it fell back to the FIRST-listed transcript for
+ * every multi-transcript row, which stored a different residue number than MANE's in ~21% of them
+ * (IL17RA 198 instead of 311), and nothing failed. A format the loader cannot read must stop the load.
+ */
+export function unrecognisedManeValue(mane: string): string | null {
+  for (const raw of mane.split(';')) {
+    const v = raw.trim();
+    if (v && v !== '.' && v.toUpperCase() !== 'YES' && !MANE_ANY.test(v)) return v;
+  }
+  return null;
+}
+
 export function chooseTranscriptIndex(mane: string, vepCanonical: string, transcriptCount: number): { index: number; basis: TranscriptBasis } {
+  // One transcript is no choice, whatever it is flagged as. Checked FIRST: chrM's genes each list a single
+  // transcript carrying `Ensembl_canonical = YES`, which used to count as an "ensembl-canonical" pick and
+  // turned a store of MANE-numbered chromosomes into policy `mixed` (read back as `unknown` by the landscape).
+  if (transcriptCount <= 1) return { index: 0, basis: 'single' };
   const maneList = mane ? mane.split(';') : [];
   const canonList = vepCanonical ? vepCanonical.split(';') : [];
   if (maneList.length === transcriptCount) {
-    const i = maneList.findIndex(v => /^MANE/i.test(v.trim()) || v.trim().toUpperCase() === 'YES');
+    const i = maneList.findIndex(v => MANE_SELECT.test(v.trim()) || v.trim().toUpperCase() === 'YES');
     if (i >= 0) return { index: i, basis: 'mane' };
   }
   if (canonList.length === transcriptCount) {
@@ -253,7 +284,8 @@ function openStore(dbPath: string, create: boolean): DatabaseSync {
         aou_ac INTEGER,
         aou_an INTEGER,
         aou_het INTEGER,
-        aou_hom INTEGER
+        aou_hom INTEGER,
+        transcript_basis TEXT
       );
       CREATE TABLE IF NOT EXISTS build_meta (
         key TEXT PRIMARY KEY,
@@ -265,7 +297,7 @@ function openStore(dbPath: string, create: boolean): DatabaseSync {
   // retained. Add nullable columns atomically; preserve all rows and existing score columns.
   // Run for indexes-only as well, because its genomic index needs these columns too.
   const columns = new Set((db.prepare('PRAGMA table_info(variant_scores)').all() as Array<{ name: string }>).map(c => c.name));
-  const legacyColumns = { chr: 'TEXT', pos_genomic: 'INTEGER', transcript: 'TEXT', aaref: 'TEXT', aaalt: 'TEXT' };
+  const legacyColumns = { chr: 'TEXT', pos_genomic: 'INTEGER', transcript: 'TEXT', aaref: 'TEXT', aaalt: 'TEXT', transcript_basis: 'TEXT' };
   const missing = Object.entries(legacyColumns).filter(([name]) => !columns.has(name));
   if (missing.length) {
     let transactionStarted = false;
@@ -329,6 +361,19 @@ function recordSource(db: DatabaseSync, opts: {
       String(total)
     );
   }
+  // The policy label is one word; how many rows each basis actually decided is the number that says how far
+  // to trust it (a `mane` store still holds rows whose gene lists no MANE Select, stored on the first-listed
+  // transcript). Cumulative across files, like `rows:<chr>`.
+  const priorPicks = (db.prepare("SELECT value FROM build_meta WHERE key = 'transcript_pick_counts';").get() as any)?.value;
+  const picks = zeroCounts();
+  try {
+    Object.assign(picks, priorPicks ? JSON.parse(priorPicks) : {});
+  } catch {
+    /* an unreadable earlier value is replaced, not extended */
+  }
+  for (const basis of Object.keys(opts.policy) as TranscriptBasis[]) picks[basis] += opts.policy[basis];
+  db.prepare("INSERT OR REPLACE INTO build_meta (key, value) VALUES ('transcript_pick_counts', ?);").run(JSON.stringify(picks));
+
   const policyName = derivePolicy(opts.policy);
   const existingPolicy = (db.prepare("SELECT value FROM build_meta WHERE key = 'transcript_policy';").get() as any)?.value;
   if (!existingPolicy || existingPolicy === 'single') {
@@ -351,6 +396,7 @@ export async function ingestStream(src: Source, db: DatabaseSync, run: { force: 
 
   const insertStmt = db.prepare(INSERT_SQL);
   let headers: string[] | null = null;
+  let populationSource: 'joint' | 'exomes+genomes' | 'none' = 'none';
   let colIndex = new Map<string, number>();
   let rows = 0;
   const rowsByChr = new Map<string, number>();
@@ -369,6 +415,12 @@ export async function ingestStream(src: Source, db: DatabaseSync, run: { force: 
         headers = parts.map(h => h.trim());
         colIndex = indexColumns(headers);
         console.log(`[Ingest] Mapped headers: found ${headers.length} columns.`);
+        populationSource = colIndex.has('gnomAD4.1_joint_AC') ? 'joint'
+          : colIndex.has('gnomAD_exomes_AC') || colIndex.has('gnomad_exomes_ac') ? 'exomes+genomes'
+          : 'none';
+        // Said at the top of every file, because a gap here is silent downstream (NULL reads as "not reported").
+        console.log(`[Ingest] Population counts: ${populationSource === 'joint' ? 'gnomAD v4.1 joint (exomes+genomes)' : populationSource === 'exomes+genomes' ? 'gnomAD exomes + genomes, summed' : 'NO gnomAD count columns recognised — gnomad_* will be NULL'}; ` +
+          `All of Us AC/AN: ${['AllofUs_ALL_AC', 'AoU_AC', 'aou_ac'].some(c => colIndex.has(c)) ? 'found' : 'not found'}.`);
         continue;
       }
 
@@ -382,8 +434,18 @@ export async function ingestStream(src: Source, db: DatabaseSync, run: { force: 
 
       const txList = getVal(['Ensembl_transcriptid', 'ensembl_transcriptid']);
       const txCount = txList ? txList.split(';').length : 1;
-      const choice = chooseTranscriptIndex(getVal(['MANE', 'MANE_Select', 'mane']), getVal(['VEP_canonical', 'vep_canonical']), txCount);
-      policy[choice.basis] += 1;
+      const maneValue = getVal(['MANE', 'MANE_Select', 'mane']);
+      // Stop at the FIRST row we cannot read: batches commit as they go, so a late failure would leave
+      // most of a chromosome stored under the wrong transcript.
+      const unreadable = unrecognisedManeValue(maneValue);
+      if (unreadable !== null) {
+        throw new Error(
+          `${src.label}: MANE column holds "${unreadable}", which this loader does not recognise ` +
+            `(expected Select / Plus_Clinical / MANE_Select). Refusing to fall back to the first-listed transcript.`
+        );
+      }
+      // `Ensembl_canonical` in dbNSFP >= 5, `VEP_canonical` before.
+      const choice = chooseTranscriptIndex(maneValue, getVal(['Ensembl_canonical', 'VEP_canonical', 'vep_canonical']), txCount);
       const at = (cols: string[]) => pick(getVal(cols), choice.index, txCount);
 
       const gene = at(['genename', 'geneName', 'gene_name']);
@@ -423,12 +485,21 @@ export async function ingestStream(src: Source, db: DatabaseSync, run: { force: 
         const [a, b] = cols.map(c => parseIntInt(getVal(c)));
         return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
       };
-      const gnomad_ac = sumReported([['gnomAD_exomes_AC', 'gnomad_exomes_ac'], ['gnomAD_genomes_AC', 'gnomad_genomes_ac']]);
-      const gnomad_an = sumReported([['gnomAD_exomes_AN', 'gnomad_exomes_an'], ['gnomAD_genomes_AN', 'gnomad_genomes_an']]);
-      const gnomad_hom = sumReported([['gnomAD_exomes_nhomalt', 'gnomad_exomes_hom'], ['gnomAD_genomes_nhomalt', 'gnomad_genomes_hom']]);
+      // dbNSFP >= 5 ships ONE combined exomes+genomes cohort (gnomAD v4.1 "joint"): use it as is — summing
+      // it with anything would double count. Older releases carry exomes and genomes apart.
+      const gnomad_ac = populationSource === 'joint'
+        ? parseIntInt(getVal(['gnomAD4.1_joint_AC']))
+        : sumReported([['gnomAD_exomes_AC', 'gnomad_exomes_ac'], ['gnomAD_genomes_AC', 'gnomad_genomes_ac']]);
+      const gnomad_an = populationSource === 'joint'
+        ? parseIntInt(getVal(['gnomAD4.1_joint_AN']))
+        : sumReported([['gnomAD_exomes_AN', 'gnomad_exomes_an'], ['gnomAD_genomes_AN', 'gnomad_genomes_an']]);
+      const gnomad_hom = populationSource === 'joint'
+        ? parseIntInt(getVal(['gnomAD4.1_joint_nhomalt']))
+        : sumReported([['gnomAD_exomes_nhomalt', 'gnomad_exomes_hom'], ['gnomAD_genomes_nhomalt', 'gnomad_genomes_hom']]);
 
-      const aou_ac = parseIntInt(getVal(['AoU_AC', 'aou_ac']));
-      const aou_an = parseIntInt(getVal(['AoU_AN', 'aou_an']));
+      // (5.4a: `AllofUs_ALL_AC/AN`; it ships no AoU het/hom columns, so those stay NULL = not reported.)
+      const aou_ac = parseIntInt(getVal(['AllofUs_ALL_AC', 'AoU_AC', 'aou_ac']));
+      const aou_an = parseIntInt(getVal(['AllofUs_ALL_AN', 'AoU_AN', 'aou_an']));
       const aou_het = parseIntInt(getVal(['AoU_het', 'AoU_het_count', 'aou_het']));
       const aou_hom = parseIntInt(getVal(['AoU_hom', 'AoU_hom_count', 'aou_hom']));
 
@@ -437,8 +508,12 @@ export async function ingestStream(src: Source, db: DatabaseSync, run: { force: 
         revel, alphamissense, gerp, phylop, bayesdel,
         metarnn, clinpred, dann, eigen, esm1b, popeve, cadd,
         gnomad_ac, gnomad_an, gnomad_hom,
-        aou_ac, aou_an, aou_het, aou_hom
+        aou_ac, aou_an, aou_het, aou_hom,
+        choice.basis
       );
+      // Counted for STORED rows only, so `transcript_pick_counts` sums to the table (rows skipped above for
+      // having no residue on the chosen transcript are not picks).
+      policy[choice.basis] += 1;
 
       rows++;
       rowsByChr.set(chrKey, (rowsByChr.get(chrKey) ?? 0) + 1);

@@ -168,6 +168,67 @@ describe("local dbNSFP store, ingested by tools/ingest_dbnsfp.ts and queried", (
   });
 });
 
+/**
+ * Per-row transcript basis. A gene that lists neither a MANE Select nor a canonical transcript is stored
+ * on its FIRST-listed transcript, whose residue numbers belong to an arbitrary isoform (~4% of a 5.4a
+ * build). Those rows must never be served as canonical numbering.
+ */
+describe("local dbNSFP store, transcript basis per row", () => {
+  // Two transcripts, neither MANE nor canonical: the residue is 10 on one isoform and 20 on the other.
+  const NO_MANE = {
+    "#chr": "3", "pos(1-based)": "50", ref: "A", alt: "G", aaref: "K", aaalt: "R", aapos: "10;20",
+    genename: "NOMANE;NOMANE", Ensembl_transcriptid: "ENST00000010;ENST00000011", MANE: ".;.", VEP_canonical: ".;.",
+    aachange: "p.Lys10Arg;p.Lys20Arg", REVEL_score: "0.5;0.6", CADD_phred: "20",
+  };
+
+  beforeEach(() => {
+    const input = Buffer.concat([zlib.gzipSync(header + line(R1) + line(R2) + line(R3) + line(NO_MANE))]);
+    const res = spawnSync(process.execPath, ["--import", "tsx", ingestScript, "-", "--db", dbPath, "--version", "5.4a"], {
+      cwd: repoRoot, input, encoding: "utf8", timeout: 120000,
+      env: { ...process.env, DBNSFP_VERSION: "" },
+    });
+    if (res.status !== 0) throw new Error(`ingest failed: ${res.stderr}`);
+  });
+
+  const raw = () => {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      return {
+        bases: db.prepare("SELECT gene, ref, transcript_basis AS basis FROM variant_scores ORDER BY rowid").all(),
+        total: (db.prepare("SELECT count(*) AS n FROM variant_scores").get() as { n: number }).n,
+        picks: JSON.parse((db.prepare("SELECT value FROM build_meta WHERE key = 'transcript_pick_counts'").get() as { value: string }).value),
+      };
+    } finally {
+      db.close();
+    }
+  };
+
+  it("records how every stored row's transcript was chosen, and counts that sum to the table", () => {
+    const { bases, total, picks } = raw();
+    expect(bases).toEqual([
+      { gene: "TEST", ref: "C", basis: "single" },
+      { gene: "TEST", ref: "G", basis: "mane" },
+      { gene: "OTHER", ref: "A", basis: "single" },
+      { gene: "NOMANE", ref: "A", basis: "first-listed" },
+    ]);
+    expect(Object.values(picks as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(total);
+  });
+
+  it("never serves a first-listed row: not by residue, not by coordinate, not in a landscape window", async () => {
+    expect(await local.queryLocalDbnsfpVariant("NOMANE", 10, "A", "G")).toBeNull();
+    expect(await local.queryLocalDbnsfpVariant("NOMANE", 10, null, null, "K10R")).toBeNull();
+    expect(await local.queryLocalDbnsfpByGenomic("3", 50, "A", "G")).toBeNull();
+    expect(await local.queryLocalDbnsfpLandscapeRows("NOMANE")).toBeNull();
+  });
+
+  it("still serves MANE and single-transcript rows, and reports the window's basis from its rows", async () => {
+    expect(await local.queryLocalDbnsfpByGenomic("1", 101, "G", "T")).toMatchObject({ gene: "TEST", pos: 867 });
+    const landscape = await local.queryLocalDbnsfpLandscapeRows("TEST");
+    expect(landscape?.candidates).toHaveLength(2);
+    expect(landscape?.transcriptBasis).toBe("mane");
+  });
+});
+
 describe("inspectLocalDbnsfpFileForPublic", () => {
   const saved = process.env.DBNSFP_SQLITE_PATH;
   afterEach(() => {

@@ -177,6 +177,19 @@ export function getDbInstance(): DatabaseSync | null {
 /** Whether the store has the `pos_genomic` column. Cached per connection, so a replaced store is re-read. */
 const genomicColumnsByDb = new WeakMap<DatabaseSync, boolean>();
 
+/**
+ * Whether a stored row's residue numbers may be used.
+ *
+ * The ingest records how it chose each row's transcript (`transcript_basis`). A `first-listed` row is one
+ * whose gene lists neither a MANE Select nor a canonical transcript, so its residue number belongs to an
+ * arbitrary isoform (about 4% of a dbNSFP 5.4a build). Reading it as canonical numbering would score a
+ * different residue, so such rows are not served; the caller falls through to the remote sources.
+ * Stores built before the column existed have no per-row basis and keep their previous behaviour.
+ */
+function isUsableRow(row: { transcript_basis?: string | null } | null | undefined): boolean {
+  return !!row && row.transcript_basis !== "first-listed";
+}
+
 export interface LocalDbnsfpRecord {
   gene: string;
   /** hg38 chromosome, e.g. "12" (null until dbNSFP ingest populates it) */
@@ -275,6 +288,7 @@ export async function queryLocalDbnsfpVariant(
       `);
       rows = (stmt.all as any)(gene.trim().toUpperCase(), pos);
     }
+    rows = rows.filter(isUsableRow);
     // A requested substitution that is absent must not inherit the first row's allele.
     if (aaChange) rows = rows.filter(r => matchAminoAcidChange(aaChange, r.aa_change));
     if (coordinate) {
@@ -373,6 +387,23 @@ export function inspectLocalDbnsfpFile(): LocalDbnsfpInspection {
   return { ...base, version: getLocalDbnsfpVersion(), rowCount };
 }
 
+/**
+ * The numbering basis of the rows actually returned. Per row when the store records it (a lone
+ * transcript is no choice, so `single` agrees with either); otherwise the store-level label, which only
+ * says the build used MANE somewhere.
+ */
+function windowBasis(rows: Array<{ transcript_basis?: string | null }>): TranscriptBasis {
+  const bases = new Set(rows.map(r => r.transcript_basis).filter((b): b is string => typeof b === "string"));
+  if (bases.size === 0) {
+    const policy = readBuildMeta("transcript_policy");
+    return policy === "mane" || policy === "ensembl-canonical" ? policy : "unknown";
+  }
+  bases.delete("single");
+  if (bases.size === 0 || (bases.size === 1 && bases.has("mane"))) return "mane";
+  if (bases.size === 1 && bases.has("ensembl-canonical")) return "ensembl-canonical";
+  return "unknown";
+}
+
 export interface LocalLandscapeRows {
   candidates: SnvCandidate[];
   maxPos: number;
@@ -405,7 +436,8 @@ export async function queryLocalDbnsfpLandscapeRows(
       sPos = boundary.min_pos;
       ePos = boundary.max_pos;
     }
-    const rows = (db.prepare("SELECT * FROM variant_scores WHERE gene = ? AND pos BETWEEN ? AND ?").all as any)(g, sPos, ePos) as any[];
+    const rows = ((db.prepare("SELECT * FROM variant_scores WHERE gene = ? AND pos BETWEEN ? AND ?").all as any)(g, sPos, ePos) as any[])
+      .filter(isUsableRow);
     if (rows.length === 0) return null;
 
     const candidates: SnvCandidate[] = rows.map((row) => {
@@ -433,13 +465,12 @@ export async function queryLocalDbnsfpLandscapeRows(
       };
     });
 
-    const policy = readBuildMeta("transcript_policy");
     const transcripts = new Set(rows.map((r) => r.transcript).filter(Boolean));
     return {
       candidates,
       maxPos: ePos as number,
       transcript: transcripts.size === 1 ? ([...transcripts][0] as string) : null,
-      transcriptBasis: policy === "mane" || policy === "ensembl-canonical" ? policy : "unknown"
+      transcriptBasis: windowBasis(rows)
     };
   } catch (err: any) {
     console.warn(`[Local dbNSFP Error] landscape query failed:`, err.message);
@@ -502,9 +533,9 @@ export async function queryLocalDbnsfpByGenomic(
       posGenomic,
       ref.trim().toUpperCase(),
       alt.trim().toUpperCase()
-    ) as LocalDbnsfpRecord | undefined;
+    ) as (LocalDbnsfpRecord & { transcript_basis?: string | null }) | undefined;
 
-    return row ?? null;
+    return isUsableRow(row) ? (row as LocalDbnsfpRecord) : null;
   } catch (err: any) {
     console.warn(`[Local dbNSFP Error] genomic lookup failed:`, err.message);
     return null;
