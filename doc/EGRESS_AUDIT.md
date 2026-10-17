@@ -481,3 +481,12 @@ Section 3.2:
 
 Section 7, prewarm: the whole pre-warm (including its structure fetch) runs as the `system` owner, served after
 every person, and it skips a run whose FoldX result is already cached.
+
+## Addendum, 2026-10-17: EBI ProtVar (not in the 2026-10-09 snapshot)
+
+Two `fetchWithRetry` call sites to `www.ebi.ac.uk/ProtVar` postdate this audit. They are listed here in the section 4 format, so the counts in section 1 remain those of the snapshot date.
+
+| # | File:line | Method | Cached | Key (quoted) | User in key | TTL | Single-flight | Negative caching | Credential |
+|---|---|---|---|---|---|---|---|---|---|
+| A1 | `services/external-api/protvar.ts:74` (`prediction/foldx`) | fWR | yes (`protvarFoldxCache`, LRU 2,000) | `${accession}:${position}:${wt}>${mut}` | no | 30 d | no | `absent` answers (404, no row, other wild type, fragment disagreement) are cached; HTTP and transport errors throw and are not cached. | none (keyless) |
+| A2 | `services/external-api/protvar.ts:211` (`mapping`, shadow resolver rung) | fWR, 1 retry, 10 s | no | none | no | none | no | none. It runs only for fresh coordinate resolutions (`translation/shadow-tiers.ts`), at most 4 in flight, and never on a cache hit. | none (keyless) |

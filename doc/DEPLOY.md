@@ -46,7 +46,14 @@ Create a production `.env` file in the project root:
 FOLDX_BINARY=""
 
 # Optional local dbNSFP override (set to true only after running ingest_dbnsfp.ts to completion)
+# Unset: the store is used once it is populated. Set false to switch it off.
 ENABLE_LOCAL_DBNSFP="false"
+
+# Candidate coordinate-resolver rungs (local dbNSFP, ProtVar) evaluated beside the live ladder and only
+# counted, never served; counters appear under `resolverShadow` in /api/v1/diagnostics. Unset = on.
+# RESOLVER_SHADOW_TIERS="off"
+# Log disagreeing coordinates in production too (they are logged outside production by default).
+# RESOLVER_SHADOW_LOG_VARIANTS="true"
 
 # Node Environment
 NODE_ENV="production"
