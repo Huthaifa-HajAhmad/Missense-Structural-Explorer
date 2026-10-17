@@ -6,7 +6,7 @@
  * these hold the surfaces to that contract on the reference variant, NAE1 p.Asp116Gly.
  */
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../context/SettingsContext", () => ({
@@ -32,7 +32,7 @@ function renderTab(result: any = NAE1_RESULT, extra: Record<string, unknown> = {
 }
 
 describe("PerturbationTab", () => {
-  it('preserves diagnostics and recovery actions after removing duplicate model rows', () => {
+  it('preserves diagnostics and recovery actions after removing duplicate model rows', async () => {
     const result = { ...NAE1_RESULT,
       saprotEval: { error: 'Request timed out', remoteEngineNote: 'Remote queue exhausted', fallbackReason: 'Local checkpoint unavailable' },
       esm2Eval: { error: '401 unauthorized' }, esmcEval: { error: 'Engine unavailable' }
@@ -42,13 +42,15 @@ describe("PerturbationTab", () => {
       <PerturbationTab {...({ analysisState: { result, isLoading: false }, foldingEnergetics: NAE1_ENERGETICS, onRetryStructural: retry, onOpenSettings: settings } as any)} />
     </EvidenceWorkspaceProvider>);
     const support = within(screen.getByRole('region', { name: 'Model provenance and recovery' }));
-    for (const summary of support.getAllByText(/details and availability/, { selector: 'summary' })) fireEvent.click(summary);
+    act(() => {
+      for (const summary of support.getAllByText(/details and availability/, { selector: 'summary' })) fireEvent.click(summary);
+    });
     expect(support.getByText('Remote queue exhausted')).toBeInTheDocument();
     expect(support.getByText('Local checkpoint unavailable')).toBeInTheDocument();
     expect(screen.queryByTestId('ptb-lm-saprot')).not.toBeInTheDocument();
     fireEvent.click(support.getByRole('button', { name: 'Open connection settings' }));
     expect(settings).toHaveBeenCalledOnce();
-    fireEvent.click(support.getByRole('button', { name: 'Run SaProt 35M instead' }));
+    await act(async () => { fireEvent.click(support.getByRole('button', { name: 'Run SaProt 35M instead' })); });
     expect(retry).toHaveBeenCalledWith({ saprotEngine: 'saprot-35m' });
   });
   it.each([

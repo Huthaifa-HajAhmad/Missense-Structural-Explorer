@@ -10,7 +10,7 @@ export function SplicingRecords({ rows }: { rows: SplicingWorkspaceReading[] }) 
     <div className="spl-card spl-records-scroll" role="region" aria-label="Splicing channel details" tabIndex={0}>
       <table className="spl-records-table">
         <thead><tr><th scope="col">Reading</th><th scope="col">Exact value</th><th scope="col">Position or context</th></tr></thead>
-        {['Splicing rule input', 'SpliceAI channels', 'Context'].filter(group => rows.some(r => r.group === group)).map(group => <tbody key={group}>
+        {['SpliceAI channels'].filter(group => rows.some(r => r.group === group)).map(group => <tbody key={group}>
           <tr className="spl-group"><th scope="rowgroup" colSpan={3}>{group}</th></tr>
           {rows.filter(r => r.group === group).map(r => <tr key={r.key} data-selected={workspace.selected === r.key || undefined} data-row-key={r.key}>
             <th scope="row"><button type="button" className="spl-record-button" aria-pressed={workspace.selected === r.key}
