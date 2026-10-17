@@ -45,9 +45,12 @@ Create a production `.env` file in the project root:
 # Path to FoldX binary (or leave blank to auto-detect from tools/foldx)
 FOLDX_BINARY=""
 
-# Optional local dbNSFP override (set to true only after running ingest_dbnsfp.ts to completion)
-# Unset: the store is used once it is populated. Set false to switch it off.
-ENABLE_LOCAL_DBNSFP="false"
+# Local dbNSFP store (data/dbnsfp_v5.sqlite). Unset or "true": used when the file is populated (a 0-byte
+# placeholder or an empty table is ignored). "false": never used; scores then come from the remote sources.
+# Build it with tools/rebuild_dbnsfp.sh and gate it with tools/verify_dbnsfp.sh (see the dbNSFP section of
+# doc/VARIANT_QUERY_AND_PIPELINE_AUDIT_PLAN.md). Rows whose gene lists no MANE Select or canonical
+# transcript are never served. Status: /api/v1/diagnostics -> dbnsfp, /api/v1/capabilities -> dbnsfp_local.
+ENABLE_LOCAL_DBNSFP="true"
 
 # Candidate coordinate-resolver rungs (local dbNSFP, ProtVar) evaluated beside the live ladder and only
 # counted, never served; counters appear under `resolverShadow` in /api/v1/diagnostics. Unset = on.
