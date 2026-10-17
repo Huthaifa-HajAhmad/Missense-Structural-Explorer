@@ -33,6 +33,15 @@ This study supplies the evidence for ordering the coordinate ladder: cache, then
 2. **ProtVar rung.** It reports UniProt canonical numbering directly, so its answers reconcile as `canonical` without a remap. A change that is synonymous on the canonical protein must be a miss that continues down the ladder, not a final answer. It has no MANE or HGVSc fields, so the response must say so.
 3. **Recommended order:** cache, local (MANE), ProtVar, VEP, VariantValidator. Proceed only after the open items below, behind a shadow-mode flag, with the current ladder still serving.
 
+## Shadow rollout (implemented)
+
+`server/services/translation/shadow-tiers.ts` runs both candidate rungs after every fresh GRCh38 SNV resolution. It compares local against the served MANE consequence and ProtVar against the served canonical numbering. It never serves either rung.
+
+- **Counters:** `resolverShadow` in `/api/v1/diagnostics` (agree, disagree, miss, no-reference, error per rung).
+- **Disagreement log:** `[Resolver shadow] … disagrees with …` in the server log.
+- **Switch:** `RESOLVER_SHADOW_TIERS`.
+- **Promotion criterion:** promote a rung into the live ladder (and relabel the Search page's Services row) only after its disagreements on real traffic have been read one by one and none is an error of the rung.
+
 ## Limitations
 
 - **Sample size.** 248 variants. Rare classes are thin: 15 `first-listed` rows, and chrM, X and Y appear only through random draw.

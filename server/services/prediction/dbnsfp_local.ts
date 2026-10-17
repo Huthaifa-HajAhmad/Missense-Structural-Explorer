@@ -549,6 +549,23 @@ export async function queryLocalDbnsfpLandscapeRows(
 }
 
 /**
+ * A coordinate's local reading together with the numbering basis of its gene ({@link geneNumbering}),
+ * so a caller can accept only MANE-numbered answers. Null when the store has no single reading.
+ */
+export async function queryLocalDbnsfpCoordinateReading(
+  chr: string,
+  posGenomic: number,
+  ref: string,
+  alt: string,
+  gene?: string | null
+): Promise<{ record: LocalDbnsfpRecord; basis: TranscriptBasis } | null> {
+  const record = await queryLocalDbnsfpByGenomic(chr, posGenomic, ref, alt, gene);
+  const db = self.getDbInstance();
+  if (!record || !db) return null;
+  return { record, basis: geneNumbering(db, record.gene).basis };
+}
+
+/**
  * Look up a variant by genomic coordinates (Part4 #2 architectural fix).
  *
  * This is the new lookup path that uses the idx_dbnsfp_genomic index on

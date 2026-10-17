@@ -162,3 +162,80 @@ export function protvarErrorFields(err: unknown): ProtVarJobFields {
     protvarError: (err as any)?.message ?? "ProtVar lookup failed",
   };
 }
+
+/** ProtVar's reading of one GRCh38 SNV on a gene's canonical UniProt isoform, or why there is none. */
+export type ProtVarCoordinateMapping =
+  | {
+      status: "found";
+      gene: string;
+      /** Canonical UniProt accession; `position` is numbered on it. */
+      accession: string;
+      position: number;
+      /** Single-letter wild type and mutant. */
+      wt: string;
+      mut: string;
+    }
+  | { status: "absent"; reason: string };
+
+const THREE_TO_ONE: Record<string, string> = {
+  Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q", Glu: "E", Gly: "G", His: "H", Ile: "I",
+  Leu: "L", Lys: "K", Met: "M", Phe: "F", Pro: "P", Ser: "S", Thr: "T", Trp: "W", Tyr: "Y", Val: "V",
+};
+
+interface ProtVarMappingIsoform {
+  accession?: string;
+  canonical?: boolean;
+  isoformPosition?: number;
+  refAA?: string;
+  variantAA?: string;
+}
+
+/**
+ * ProtVar's mapping of a GRCh38 SNV (`GET /ProtVar/api/mapping?q=chr-pos-ref-alt`), read on the
+ * canonical isoform only. This is the same numbering the analysis pipeline verifies against.
+ *
+ * Only a missense change on exactly one gene's canonical isoform is `found`. A change that is
+ * synonymous on the canonical protein is `absent`, not "not missense": in the concordance study
+ * (doc/RESOLVER_CONCORDANCE.md) every such case was missense on a non-canonical transcript, which is
+ * a question for the other rungs. Two genes answering is also `absent`, because one record cannot
+ * carry that ambiguity. Throws on transport failure, since an outage is not a fact about the variant.
+ */
+export async function fetchProtVarCoordinateMapping(
+  chrom: string,
+  pos: number,
+  ref: string,
+  alt: string,
+  signal?: AbortSignal
+): Promise<ProtVarCoordinateMapping> {
+  const query = `${chrom.replace(/^chr/i, "")}-${pos}-${ref.toUpperCase()}-${alt.toUpperCase()}`;
+  const response = await fetchWithRetry(
+    `https://www.ebi.ac.uk/ProtVar/api/mapping?q=${encodeURIComponent(query)}&assembly=GRCh38`,
+    { headers: { Accept: "application/json" }, timeout: 10_000, ...(signal ? { signal } : {}) },
+    1
+  );
+  if (!response.ok) throw new Error(`ProtVar mapping answered HTTP ${response.status}`);
+  const body = (await response.json()) as any;
+
+  const readings: Array<Extract<ProtVarCoordinateMapping, { status: "found" }>> = [];
+  for (const input of body?.content?.inputs ?? []) {
+    for (const derived of input?.derivedGenomicVariants ?? []) {
+      for (const gene of derived?.genes ?? []) {
+        for (const iso of (gene?.isoforms ?? []) as ProtVarMappingIsoform[]) {
+          const wt = THREE_TO_ONE[iso.refAA ?? ""];
+          const mut = THREE_TO_ONE[iso.variantAA ?? ""];
+          if (!iso.canonical || !wt || !mut || typeof iso.isoformPosition !== "number" || !iso.accession) continue;
+          if (wt === mut) continue; // synonymous on the canonical protein
+          readings.push({ status: "found", gene: String(gene.geneName ?? ""), accession: iso.accession, position: iso.isoformPosition, wt, mut });
+        }
+      }
+    }
+  }
+  const distinct = new Map(readings.map(r => [`${r.gene}|${r.accession}|${r.position}|${r.wt}>${r.mut}`, r]));
+  if (distinct.size === 1) return [...distinct.values()][0];
+  return {
+    status: "absent",
+    reason: distinct.size === 0
+      ? "ProtVar reports no missense change on a canonical isoform at this coordinate"
+      : `ProtVar reports ${distinct.size} canonical readings (more than one gene), so none is chosen`,
+  };
+}

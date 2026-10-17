@@ -15,6 +15,7 @@ import { CONFIG } from "../config.ts";
 import { checkP2RankCapability } from "../services/pocket.ts";
 import { resolveFoldxReadiness } from "../services/stability/foldx/readiness.ts";
 import { inspectLocalDbnsfpFileForPublic } from "../services/prediction/dbnsfp_local.ts";
+import { getShadowTierStats } from "../services/translation/shadow-tiers.ts";
 
 /**
  * Resolve a disk-cache directory, honouring an environment override.
@@ -258,6 +259,8 @@ export function registerHealthRoutes(apiRouter: Router): void {
       },
       // Additive: whether predictor scores can be served from the local store, and which release.
       dbnsfp: inspectLocalDbnsfpFileForPublic(),
+      // Candidate resolver rungs evaluated beside the live ladder; counters only, no variant data.
+      resolverShadow: getShadowTierStats(),
       geminiReady,
       geminiModel,
       modelServerReady,
