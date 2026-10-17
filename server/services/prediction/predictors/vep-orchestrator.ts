@@ -302,7 +302,7 @@ async function fetchPredictorsViaCoordinateLocal(
     aaalt?: string | null;
   };
   // A local store problem is never a reason to lose the remote tiers below.
-  const row = (await queryLocalDbnsfpByGenomic(lifted.chrom, lifted.pos, lifted.ref, lifted.alt).catch(() => null)) as LocalRow | null;
+  const row = (await queryLocalDbnsfpByGenomic(lifted.chrom, lifted.pos, lifted.ref, lifted.alt, expect.gene).catch(() => null)) as LocalRow | null;
   if (!row) return null;
   if (row.gene?.trim().toUpperCase() !== expect.gene.trim().toUpperCase()) return null;
   if (expect.wt && expect.mut) {

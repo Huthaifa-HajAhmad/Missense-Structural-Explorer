@@ -377,7 +377,7 @@ describe("predictor locus outcome reconciliation", () => {
       it("answers from the local store before MyVariant, naming the dbNSFP release", async () => {
         mocks.localGenomic.mockResolvedValue(row);
         const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
-        expect(mocks.localGenomic).toHaveBeenCalledWith("17", 65168243, "T", "A");
+        expect(mocks.localGenomic).toHaveBeenCalledWith("17", 65168243, "T", "A", "RGS9");
         expect(result).toMatchObject({
           amPathogenicity: 0.5136,
           caddPhred: 22.9, // allele-keyed, so its CADD may be reported
