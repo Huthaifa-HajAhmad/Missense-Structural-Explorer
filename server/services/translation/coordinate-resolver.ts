@@ -54,6 +54,7 @@ import {
 import type { GenomeAssembly } from "../../../src/shared/variantNotation.ts";
 import { fetchVariantValidatorConsequence } from "./variant-validator.ts";
 import { isEgressRefusal } from "../infra/egress-governor.ts";
+import { runShadowTiers } from "./shadow-tiers.ts";
 import {
   normalizeIsoformIds,
   reconcileIsoformNumbering,
@@ -1123,7 +1124,7 @@ export async function resolveCoordinate(
       ? await normalizeProviderConsequence(cached.consequence)
       : cached.consequence;
 
-    return buildOutcome(served, {
+    const outcome = buildOutcome(served, {
       assembly: cached.assembly,
       attempts,
       // Prefer the provenance stored with the payload; fall back to deriving it for
@@ -1133,6 +1134,10 @@ export async function resolveCoordinate(
         (!cacheHit && cached.resolvedBy !== PROVIDER_CHAIN[0].provider),
       cacheHit,
     });
+    // Candidate rungs (local dbNSFP, ProtVar) read the same coordinate beside the live answer and are
+    // only counted, never served (shadow-tiers.ts). A cache hit carries no new evidence.
+    if (!cacheHit) runShadowTiers(outcome);
+    return outcome;
   } finally {
     clearTimeout(timer);
   }

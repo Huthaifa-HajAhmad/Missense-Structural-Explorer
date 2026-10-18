@@ -52,6 +52,12 @@ FOLDX_BINARY=""
 # transcript are never served. Status: /api/v1/diagnostics -> dbnsfp, /api/v1/capabilities -> dbnsfp_local.
 ENABLE_LOCAL_DBNSFP="true"
 
+# Candidate coordinate-resolver rungs (local dbNSFP, ProtVar) evaluated beside the live ladder and only
+# counted, never served; counters appear under `resolverShadow` in /api/v1/diagnostics. Unset = on.
+# RESOLVER_SHADOW_TIERS="off"
+# Log disagreeing coordinates in production too (they are logged outside production by default).
+# RESOLVER_SHADOW_LOG_VARIANTS="true"
+
 # Node Environment
 NODE_ENV="production"
 PORT=3000
