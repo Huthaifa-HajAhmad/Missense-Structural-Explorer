@@ -156,11 +156,12 @@ try {
  await page.getByLabel('Example', { exact: true }).selectOption('New allele');
  check('New allele resets selection', await page.getByRole('button', { name: 'Clear selection', exact: true }).count() === 0);
  await page.getByLabel('Workspace', { exact: true }).selectOption('search');
- const toggle = page.getByRole('button', { name: 'Set UniProt accession', exact: true });
- await toggle.focus();
- await page.keyboard.press('Enter');
+ // The accession field has no reveal step: it is on first paint, and its STATE owns the label row's
+ // right slot (where Set/Hide used to be), so the state and the control it describes share one line.
  const accession = page.locator('#input-uniprot-acc');
- check('Query disclosure opening focuses accession', await accession.evaluate(e => e === document.activeElement));
+ check('Query accession field needs no disclosure', await accession.isVisible());
+ await accession.focus();
+ check('Query accession is keyboard reachable', await accession.evaluate(e => e === document.activeElement));
  await accession.fill('Q9H8M5');
  // The two route columns share row baselines: the notation field (left, row 2) sits level with the
  // coordinate field (right, row 2), at the same height. The accession now lives under them (left, row 3).
@@ -169,10 +170,11 @@ try {
  check('Query notation and coordinate fields share a baseline', inputRows.length === 2 && (!wide || (Math.abs(inputRows[0].top - inputRows[1].top) < 1 && Math.abs(inputRows[0].height - inputRows[1].height) < 1)));
  const accessionBox = await accession.boundingBox();
  check('Query accession sits below the notation field', accessionBox !== null && accessionBox.y > inputRows[0].top + inputRows[0].height);
- await page.getByRole('button', { name: 'Hide UniProt accession', exact: true }).click();
- check('Query closing returns focus to persistent action', await toggle.evaluate(e => e === document.activeElement));
- const using = page.getByRole('button', { name: 'Using Q9H8M5', exact: true });
- check('Query override accessible name matches visible text', await using.count() === 1 && await using.getAttribute('aria-label') === null);
+ // The state reads from the label row, above the control — and above its own input's top edge.
+ const state = page.locator('#input-uniprot-acc-status');
+ const stateBox = await state.boundingBox();
+ check('Query accession state sits in the label row', stateBox !== null && accessionBox !== null && stateBox.y + stateBox.height <= accessionBox.y + 1);
+ check('Query accession state names the format', (await state.innerText()).trim() === 'Format OK');
  await page.screenshot({ path: `${output}/query-desktop.png` });
  await page.setViewportSize({ width: 390, height: 1100 });
  check('Query fits phone viewport', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));

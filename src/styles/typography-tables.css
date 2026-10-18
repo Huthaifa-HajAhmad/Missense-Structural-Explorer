@@ -363,5 +363,11 @@
 /* Paragraphs fill their card. A per-class measure cap (60 to 92ch) left the right half of a wide card empty and cut
    sentences mid-line; the card's own width is the measure. `pretty` only stops a one-word last line. */
 p { text-wrap: pretty; }
+/* A lede that must break at its own sentence rather than wherever the measure runs out — `balance`
+   re-splits the lines instead of stranding a fragment ("… AI / synthesis is optional.").
+   A CLASS, not Tailwind's `text-balance` utility: that utility is layered, the `p` rule above is not,
+   and an unlayered declaration beats every layered one whatever the specificity — so the utility
+   compiled and then lost, and the paragraph wrapped exactly as before. */
+.cs-lede { text-wrap: balance; }
 /* A numeric range ("helices 109–114") is one unit; see components/ui/Prose.tsx. */
 .nb { white-space: nowrap; }
