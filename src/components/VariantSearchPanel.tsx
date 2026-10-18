@@ -38,6 +38,7 @@ import {
   type NotationKind,
 } from "../shared/variantNotation.ts";
 import { ASSEMBLY_LABELS, statedAssemblyOf, withAssemblyAnnotation } from "../shared/assembly";
+import { parseVariantCoordinate } from "../shared/variantCoordinate";
 import { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../shared/benchmarkPresets";
 import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import BuildMismatchPrompt from "./BuildMismatchPrompt";
@@ -177,12 +178,14 @@ const FIELD_BADGE_TONES: Record<FieldBadgeTone, string> = {
  * make of it?" is always read from the same place. Height is pinned so a badge appearing on a
  * keystroke never nudges the input beneath it.
  */
-const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; children: React.ReactNode }> = ({
+const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; id?: string; children: React.ReactNode }> = ({
   tone = "neutral",
   title,
+  id,
   children,
 }) => (
   <span
+    id={id}
     title={title}
     className={`text-[11px] leading-4 shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
   >
@@ -265,8 +268,45 @@ const NOTATION_BADGES: Record<NotationKind, { label: string; tone: FieldBadgeTon
 const GENE_REQUIRED_HINT =
   "Enter a gene symbol above (e.g. NAE1) or prefix a transcript (e.g. NM_003905.4:c.347A>G).";
 const COORDINATE_ACCEPTS_COPY = "Accepts chr-pos-ref-alt, VCF rows, rsIDs or ClinVar VCV IDs.";
-const ROUTE_BOTH_COPY = "Coordinate route active — the protein/cDNA field will be ignored";
 const ROUTE_DERIVED_COPY = "Coordinate route active — gene and canonical protein are derived automatically";
+/**
+ * The conflict copy, built from both sides. Naming only one of them leaves the reader to guess which
+ * value belongs to which field, and this strip is the only place the disagreement is stated.
+ */
+const routeConflictCopy = (resolved: string, typed: string) =>
+  `This coordinate resolves to ${resolved}, not ${typed}. The coordinate is analysed.`;
+/**
+ * The both-filled state with nothing to warn about: both fields hold the SAME substitution (the app
+ * resolves a coordinate to the protein change and puts it in the other field, so this is the ordinary
+ * case), or this session has no resolution for this coordinate yet. Quiet 11px text, no button — the
+ * strip still has to say which route the submit takes, it just has no conflict to report.
+ */
+const ROUTE_BOTH_QUIET_COPY = "Using the coordinate; the protein/cDNA field is not analysed.";
+
+/**
+ * A protein substitution as the three facts that decide identity: which residue, and what it becomes.
+ *
+ * Parsed rather than compared as text, because the same change is legitimately written four ways —
+ * `p.Asp116Gly`, `p.D116G`, `D116G`, `DA116G` (FoldX) — and a text comparison would call those a
+ * conflict. Returns null for anything that is not a single substitution (a cDNA or coordinate string,
+ * an indel, junk), which is the signal for "cannot be judged" rather than "differs".
+ */
+function substitutionOf(notation: string): { pos: number; wt1: string; mut1: string } | null {
+  if (!notation.trim()) return null;
+  try {
+    const parsed = parseVariantCoordinate(notation);
+    return { pos: parsed.pos, wt1: parsed.wt1, mut1: parsed.mut1 };
+  } catch {
+    return null;
+  }
+}
+
+function sameSubstitution(
+  a: { pos: number; wt1: string; mut1: string },
+  b: { pos: number; wt1: string; mut1: string }
+): boolean {
+  return a.pos === b.pos && a.wt1 === b.wt1 && a.mut1 === b.mut1;
+}
 
 /**
  * UniProtKB accession shape, from UniProt's own documented pattern.
@@ -649,23 +689,6 @@ function VariantSearchPanel({
   const customGenomic = storeCustomGenomic;
   const setCustomGenomic = actions.setCustomGenomic;
   const setUserDirections = actions.setUserDirections;
-  const referenceActionRef = useRef<HTMLButtonElement>(null);
-  const referenceInputRef = useRef<HTMLInputElement>(null);
-  const [referenceOpen, setReferenceOpen] = useState(() => Boolean(customUniprot.trim()));
-  const referenceFocusPending = useRef(false);
-  const toggleReference = () => {
-    referenceFocusPending.current = true;
-    setReferenceOpen(open => !open);
-  };
-  useEffect(() => {
-    if (!referenceFocusPending.current) return;
-    referenceFocusPending.current = false;
-    (referenceOpen ? referenceInputRef.current : referenceActionRef.current)?.focus();
-  }, [referenceOpen]);
-  useEffect(() => {
-    // Reveal a reference restored from history; clearing an edited field must not close it.
-    if (customUniprot.trim()) setReferenceOpen(true);
-  }, [customUniprot]);
 
   const analysisState = propsAnalysisState ?? storeAnalysisState;
   const gene = propsGene ?? storeGene;
@@ -1106,6 +1129,56 @@ function VariantSearchPanel({
           : "unrecognised";
 
   /**
+   * Is the both-filled state a CONFLICT, or two ways of writing the same variant?
+   *
+   * The strip used to go amber on the state alone — two fields with text — so the ordinary case (a
+   * coordinate beside the protein change the app itself resolved it to and filled in) got an
+   * alarm-styled card and a button that deletes the input the run actually uses. Amber now needs
+   * evidence of a disagreement, and the only evidence available before a submit is this session's own
+   * resolution of THIS coordinate: history stores the submitted notation (`query`) beside the
+   * substitution it resolved to (`variant`). So:
+   *
+   *   • resolved differently → a real conflict, and the copy can name what the coordinate will run;
+   *   • resolved the same     → agree; quiet, the fact still stated;
+   *   • never resolved here   → unknown, not a conflict. Guessing would be the same false alarm in a
+   *                             new costume, so it stays quiet until a run settles it.
+   */
+  const resolvedForCoordinate = customGenomic.trim()
+    ? history.find(item => (item.query ?? "").trim() === customGenomic.trim())?.variant ?? null
+    : null;
+  const typedSubstitution = substitutionOf(customVariant);
+  const resolvedSubstitution = substitutionOf(resolvedForCoordinate ?? "");
+  /**
+   * The two sides of a KNOWN disagreement, or null. An object rather than a boolean so the render can
+   * read both values without non-null assertions — the branch that shows them is the branch that
+   * proved they exist.
+   */
+  const routeConflict: { resolved: string; typed: string } | null =
+    coordinateRoute === "both" &&
+    resolvedForCoordinate &&
+    typedSubstitution &&
+    resolvedSubstitution &&
+    !sameSubstitution(typedSubstitution, resolvedSubstitution)
+      ? { resolved: resolvedForCoordinate, typed: customVariant.trim() }
+      : null;
+
+  /**
+   * How many lines of helper text the row-1 controls must reserve under themselves.
+   *
+   * The reservation is what keeps "Protein or cDNA notation" and "Genomic coordinates" on one baseline
+   * when ONE column shows a hint the other does not — so it has to be a fact of the ROW, not of a
+   * column, which is why it is computed here and applied to `.query-routes`.
+   *
+   * It used to be unconditional at two lines, and with no hint on either side (the ordinary case: a
+   * gene typed, a protein notation typed, no coordinate) that bought 32px of dead air between the
+   * first control and the next label — 54px in total, three times every other gap in the form, with
+   * nothing in it. Now each state pays only for what it shows: 2 lines for the gene hint (a full
+   * sentence at this width), 1 for a build hint (it fits on one line), 0 when there is no hint at all.
+   */
+  const reservedHelpLines: 0 | 1 | 2 =
+    bareCdnaNeedsGene || variantIsBareCdna ? 2 : genomicBuildControllable ? 1 : 0;
+
+  /**
    * Fills a field from the example catalogue.
    *
    * The sibling notation field is cleared, because the two are alternative routes to the
@@ -1164,7 +1237,11 @@ function VariantSearchPanel({
         <div className="min-w-0">
           <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
           <ResearchGuideButton topic="variant_identity" label="Which variant will be analysed?" />
-          <p className="mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
+          {/* `cs-lede` balances the two lines so the sentence breaks where it ends, instead of
+              stranding "synthesis is optional." under a full-measure first line. It is a class, not
+              Tailwind's `text-balance`, because `p { text-wrap: pretty }` in typography-tables.css is
+              unlayered and outranks a layered utility — see that file. */}
+          <p className="cs-lede mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
             Start with a gene and protein change, or use genomic coordinates.
             Evidence, structure and stability arrive independently; AI synthesis is optional.
           </p>
@@ -1174,15 +1251,20 @@ function VariantSearchPanel({
             in the header, two warnings for one fact. The form footer still names the consequence. */}
       </header>
 
-      {/* ── Main grid: form (8) + rail (4) ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 items-stretch">
-        {/* ── Left column: query form, then recent analyses ──
-            The column sets the row height; the rail beside it keeps its own fixed height
-            (see the rail below) rather than stretching to the column's bottom edge, because
-            a stretched rail has nothing to put in the extra ~150px but a hole under its list. */}
-        <div className="lg:col-span-8 flex flex-col gap-6 min-w-0">
+      {/* ── Main grid: form (8) + rail (4) on row 1, recent analyses under the form on row 2 ──
+          The card placement is explicit (`row-start`), not implied by nesting, because the two
+          panels that share row 1 must also share their BOTTOM edge: the form is content-sized and
+          the rail is pinned to a 672px floor, and while the rail kept its own height (`self-start`)
+          the two bottoms sat ~11px apart — a near-miss the eye reads as a mistake. On one row they
+          stretch together, and the rail's floor wins only when it is the taller of the two. The
+          recent card is the column's second row for the same reason: it used to live inside the
+          form's column, which made the column taller than its own first card and left the rail's
+          bottom hovering next to it.
+          Column gap and row gap are separate on purpose: 20px between the form and the rail (they
+          are siblings), 24px between the form and the card under it (a block rhythm). */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-4 lg:gap-x-5 gap-y-6 items-stretch">
         <section
-          className="cs-panel flex flex-col flex-1"
+          className="cs-panel flex flex-col min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1"
           data-tour="variant-input"
           id="variant-input-card"
           aria-labelledby="variant-form-title"
@@ -1359,12 +1441,21 @@ function VariantSearchPanel({
                 )
               ) : null}
 
-              <div className="query-routes" id="workspace-accepted-inputs">
+              {/* `data-help-lines` (0/1/2) is on the CONTAINER because the reserved helper band is a
+                  property of the row: both columns must reserve the same space or their row-2 labels
+                  stop sharing a baseline. See `reservedHelpLines`. */}
+              <div
+                className="query-routes"
+                id="workspace-accepted-inputs"
+                data-help-lines={reservedHelpLines}
+              >
                 <fieldset className="query-route">
                   <legend>Gene &amp; protein change</legend>
                   <div className="query-route__fields">
-                    {/* Row 1: the gene. Its helper line is reserved at two lines in both columns (see .query-route__help),
-                        so row 2 starts on the same baseline as the coordinate column's row 2 whatever the hint says. */}
+                    {/* Row 1: the gene. Its helper line is reserved band-wise at the row's own height in
+                        both columns (see `reservedHelpLines` / `.query-route__help`), so row 2 starts on
+                        the same baseline as the coordinate column's row 2 whatever either hint says — and
+                        costs nothing when neither column has a hint. */}
                     <div className="flex flex-col gap-1.5">
                       <FieldLabel
                         htmlFor="input-gene-symbol"
@@ -1465,39 +1556,27 @@ function VariantSearchPanel({
                       <ExampleRow group={NOTATION_EXAMPLE_GROUPS[0]} onPick={applyNotationExample} />
                     </div>
 
-                    {/* Row 3: the optional UniProt accession. Its state reads in the helper line under the input,
-                        never in the label row, where the Hide/Set action sits (two items cannot share that row). */}
+                    {/* Row 3: the optional UniProt accession.
+                        The field is always the editable input — collapsed it was a 40px summary button
+                        ("Resolved automatically"), open it is a 40px input, so the reveal step bought
+                        no space and one extra click. Its STATE now sits in the label row's slot, which
+                        is the one place this form states a field's verdict ("Derived", "Optional",
+                        "Protein HGVS") — in place of the Hide/Set link that used to occupy that slot:
+                        the state is the more useful fact there, and collapsing only re-printed the
+                        accession the input was already showing. */}
                     <div className="query-reference query-route__aside">
                       <FieldLabel
                         htmlFor="input-uniprot-acc"
-                        action={<button ref={referenceActionRef} type="button" className="query-reference__hide" aria-label={`${referenceOpen ? 'Hide' : 'Set'} UniProt accession`} aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>{referenceOpen ? 'Hide' : 'Set'}</button>}
-                      >
-                        UniProt accession
-                      </FieldLabel>
-                      {!referenceOpen && <button type="button" className="query-reference__toggle" aria-expanded={referenceOpen} aria-controls="query-uniprot-option" onClick={toggleReference}>
-                        <span>{customUniprot.trim() ? `Using ${customUniprot.trim()}` : 'Resolved automatically'}</span>
-                        <span aria-hidden="true">+</span>
-                      </button>}
-                      <div id="query-uniprot-option" hidden={!referenceOpen}>
-                        <div className="relative">
-                          <input
-                            id="input-uniprot-acc"
-                            ref={referenceInputRef}
-                            type="text"
-                            placeholder="e.g. Q9H8M5"
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={customUniprot}
-                            onChange={(e) => setCustomUniprot(e.target.value)}
-                            aria-invalid={!uniprotLooksValid || undefined}
-                            aria-describedby="input-uniprot-acc-status"
-                            className={inputBase + " font-mono uppercase"}
-                          />
-                          <PasteBtn setter={setCustomUniprot} />
-                        </div>
-                        <p id="input-uniprot-acc-status" className="query-route__help">
+                        badge={
                           <FieldBadge
-                            tone={uniprotLooksValid ? (customUniprot.trim() ? "ok" : "neutral") : "warn"}
+                            id="input-uniprot-acc-status"
+                            /**
+                             * `warn` is the only loud state this slot has. A well-formed accession is not
+                             * a state worth a green chip: it is the ordinary case, the chip was the
+                             * loudest colour in a row that is otherwise grey, and it said nothing the
+                             * input's own text does not. `neutral` renders as plain muted text.
+                             */
+                            tone={uniprotLooksValid ? "neutral" : "warn"}
                             title={
                               uniprotLooksValid
                                 ? "Optional: the accession is auto-resolved from the gene when omitted."
@@ -1506,7 +1585,24 @@ function VariantSearchPanel({
                           >
                             {customUniprot.trim() ? (uniprotLooksValid ? "Format OK" : "Check format") : "Auto-resolved"}
                           </FieldBadge>
-                        </p>
+                        }
+                      >
+                        UniProt accession
+                      </FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="input-uniprot-acc"
+                          type="text"
+                          placeholder="e.g. Q9H8M5"
+                          autoComplete="off"
+                          spellCheck={false}
+                          value={customUniprot}
+                          onChange={(e) => setCustomUniprot(e.target.value)}
+                          aria-invalid={!uniprotLooksValid || undefined}
+                          aria-describedby="input-uniprot-acc-status"
+                          className={inputBase + " font-mono uppercase"}
+                        />
+                        <PasteBtn setter={setCustomUniprot} />
                       </div>
                     </div>
                   </div>
@@ -1584,19 +1680,26 @@ function VariantSearchPanel({
                       <ExampleRow group={NOTATION_EXAMPLE_GROUPS[1]} onPick={applyNotationExample} />
                     </div>
 
-                    {/* Row 3: which route the submit takes. A live region, so a change of route is announced. */}
+                    {/* Row 3: which route the submit takes. A live region, so a change of route is announced.
+                        "Both filled" splits in two: a KNOWN disagreement wears amber and offers the way out,
+                        while agreement (or an unknown coordinate) gets the same quiet line an empty field
+                        gets — information without an alarm. */}
                     <div className="query-route__aside" id="coordinate-route-status" role="status" aria-live="polite">
                       {coordinateRoute === "both" ? (
-                        <div className="query-route-status query-route-status--warn">
-                          <span>{ROUTE_BOTH_COPY}</span>
-                          <button
-                            type="button"
-                            className="query-route-status__action"
-                            onClick={() => setCustomGenomic("")}
-                          >
-                            Clear coordinate
-                          </button>
-                        </div>
+                        routeConflict ? (
+                          <div className="query-route-status query-route-status--warn">
+                            <span>{routeConflictCopy(routeConflict.resolved, routeConflict.typed)}</span>
+                            <button
+                              type="button"
+                              className="query-route-status__action"
+                              onClick={() => setCustomGenomic("")}
+                            >
+                              Clear coordinate
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="query-route-status query-route-status--quiet">{ROUTE_BOTH_QUIET_COPY}</p>
+                        )
                       ) : coordinateRoute === "derived" ? (
                         <p className="query-route-status">{ROUTE_DERIVED_COPY}</p>
                       ) : coordinateRoute === "unrecognised" ? (
@@ -1750,12 +1853,17 @@ function VariantSearchPanel({
           </form>
         </section>
 
-          {/* ── Recent analyses / first-run benchmarks ──
-              Boxed on the same panel surface as the form and the rail, so the lower
-              row reads as a third structural element instead of loose chips under
-              the panel — the workspace then closes with the same two-surface rhythm
-              it opens with. */}
-        <section aria-labelledby="recent-title" className="cs-panel p-4 flex flex-col gap-3" data-tour="recent-benchmarks">
+        {/* ── Recent analyses / first-run benchmarks ──
+            Boxed on the same panel surface as the form and the rail, so the lower row reads as a
+            third structural element instead of loose chips under the panel — the workspace then
+            closes with the same two-surface rhythm it opens with. Pinned to column 1, row 2: it
+            keeps its DOM order (form → recent → rail, which is the reading order when the grid
+            stacks) without being inside the form's column and inflating row 1. */}
+        <section
+          aria-labelledby="recent-title"
+          className="cs-panel p-4 flex flex-col gap-3 lg:col-span-8 lg:col-start-1 lg:row-start-2"
+          data-tour="recent-benchmarks"
+        >
           {history.length > 0 ? (
             <>
               <div className="flex items-center justify-between gap-2">
@@ -1859,7 +1967,6 @@ function VariantSearchPanel({
             </>
           )}
         </section>
-        </div>
 
         {/* ── Rail: services / pipeline ──
             From `lg` up the rail's content is taken out of flow (absolute fill) over a fixed floor, so
@@ -1867,11 +1974,14 @@ function VariantSearchPanel({
             scrolls inside it with a fade as the cue. Below `lg` the columns stack and the list flows
             instead — a nested scroller inside a scrolling page is a trap on touch.
 
-            `lg:self-start` keeps the rail at that floor instead of stretching to the form column's
-            height: the services list fits the floor, so stretching only added blank space between
-            the last service and the sweep footer. */}
+            The floor is a MINIMUM, not the height: with the form on the same grid row the rail
+            stretches to that row, so the two panels close on one line at every window height instead
+            of the near-miss a fixed 672px bought against a content-sized form. It used to be pinned
+            with `lg:self-start` because stretching to the COLUMN (form + recent card) added ~150px of
+            hole under the list; the row no longer includes the recent card, so the leftover is at most
+            the form's own slack — and that lands in the AI textarea, not under the services. */}
         <aside
-          className="cs-panel lg:col-span-4 lg:relative lg:self-start min-h-[480px] lg:min-h-[672px] flex flex-col"
+          className="cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:relative min-h-[480px] lg:min-h-[672px] flex flex-col"
           data-tour="workflow-rail"
           id="workspace-stage-rail"
           aria-label="Services and pipeline"

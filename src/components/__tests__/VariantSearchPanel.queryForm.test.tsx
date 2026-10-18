@@ -150,16 +150,73 @@ describe("coordinate route status strip (UI-3)", () => {
     expect(routeStatus().querySelector(".query-route-status--warn")).toBeNull();
   });
 
-  it("warns that the protein/cDNA field is ignored when both are filled, and clears the coordinate on request", () => {
-    act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A", customVariant: "p.Arg408Trp" }));
+  /**
+   * "Both filled" is not a conflict. Amber needs evidence of a DISAGREEMENT, and the only evidence a
+   * submit has not yet produced is this session's own resolution of the coordinate (history holds the
+   * submitted notation beside the substitution it resolved to).
+   *
+   * The bug this pins: the app fills the protein/cDNA field with the coordinate's resolution, so the
+   * ordinary both-filled state AGREES with itself — and it still wore an alarm-styled card plus a
+   * button that deletes the input the run actually uses.
+   */
+  it("says which route runs — quietly — when both fields hold the same substitution", () => {
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGenomic: "16-66823281-T-C",
+        customVariant: "p.Asp116Gly",
+        history: [{ gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", query: "16-66823281-T-C" }],
+      });
+    });
     renderPanel();
 
-    expect(routeStatus()).toHaveTextContent("Coordinate route active — the protein/cDNA field will be ignored");
-    expect(routeStatus().querySelector(".query-route-status--warn")).not.toBeNull();
+    expect(routeStatus()).toHaveTextContent("Using the coordinate; the protein/cDNA field is not analysed.");
+    expect(routeStatus().querySelector(".query-route-status--warn")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clear coordinate" })).not.toBeInTheDocument();
+  });
+
+  it("warns when the coordinate is known to resolve to a DIFFERENT change, names both, and clears on request", () => {
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGenomic: "16-66823281-T-C",
+        customVariant: "p.Ala1Val",
+        history: [{ gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", query: "16-66823281-T-C" }],
+      });
+    });
+    renderPanel();
+
+    const status = routeStatus();
+    expect(status.querySelector(".query-route-status--warn")).not.toBeNull();
+    // Both sides are named: one of them alone leaves the reader guessing which is which.
+    expect(status).toHaveTextContent("This coordinate resolves to p.Asp116Gly, not p.Ala1Val");
 
     fireEvent.click(screen.getByRole("button", { name: "Clear coordinate" }));
     expect(useVariantAnalysisStore.getState().customGenomic).toBe("");
-    expect(useVariantAnalysisStore.getState().customVariant).toBe("p.Arg408Trp");
+    expect(useVariantAnalysisStore.getState().customVariant).toBe("p.Ala1Val");
+  });
+
+  it("does not mistake the same change written another way for a conflict", () => {
+    act(() => {
+      useVariantAnalysisStore.setState({
+        customGenomic: "16-66823281-T-C",
+        customVariant: "p.D116G",
+        history: [{ gene: "NAE1", variant: "p.Asp116Gly", uniprotId: "Q13564", query: "16-66823281-T-C" }],
+      });
+    });
+    renderPanel();
+
+    // Identity is the parsed substitution (residue + change), not the spelling.
+    expect(routeStatus().querySelector(".query-route-status--warn")).toBeNull();
+    expect(routeStatus()).toHaveTextContent("Using the coordinate");
+  });
+
+  it("does not call a never-resolved coordinate a conflict", () => {
+    act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A", customVariant: "p.Arg408Trp" }));
+    renderPanel();
+
+    // Nothing known is not a disagreement: amber here would be the same false alarm in a new costume.
+    expect(routeStatus().querySelector(".query-route-status--warn")).toBeNull();
+    expect(routeStatus()).toHaveTextContent("Using the coordinate");
+    expect(screen.queryByRole("button", { name: "Clear coordinate" })).not.toBeInTheDocument();
   });
 
   it("does not claim the route is derived for text that is not a coordinate", () => {
@@ -192,20 +249,108 @@ describe("coordinate route status strip (UI-3)", () => {
   });
 });
 
-describe("UniProt helper line does not share the label row (UI-5)", () => {
-  it("renders the accession in the left fieldset and its state below the input", () => {
+/**
+ * The UniProt field's state lives in the LABEL ROW's one slot — where every other field in this form
+ * states "Derived", "Optional", "Protein HGVS" — and that slot used to hold a Hide/Set link instead.
+ *
+ * Two decisions are pinned here:
+ *
+ * 1. The state is in that slot, not on a helper line under the input. Under the input it had NO gap
+ *    above it (the wrapper was a plain div while the collapsed toggle was a flex child), so the inline
+ *    chip landed exactly on the input's bottom border and covered its rounded corner.
+ * 2. There is no collapse affordance any more, so there is no Hide/Set control: closed, the field was
+ *    a 40px summary button printing the same accession the input prints, and it cost a click to edit.
+ * 3. Only a MALFORMED accession wears a chip. A well-formed one is the ordinary case and reads as
+ *    muted text — a green chip there was the loudest colour in an otherwise grey row.
+ */
+describe("UniProt state takes the label-row slot (UI-5)", () => {
+  it("states the accession's state in the label row and keeps the field always editable", () => {
     act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
     renderPanel();
 
     const input = document.getElementById("input-uniprot-acc") as HTMLInputElement;
+    // The accession belongs to the left fieldset, beside Gene and Protein or cDNA.
     expect(input.closest(".query-route:not(.query-route--coordinate)")).not.toBeNull();
+    // No reveal step: the input is there on first paint, empty or filled.
+    expect(input).toBeVisible();
 
     const status = document.getElementById("input-uniprot-acc-status") as HTMLElement;
     expect(status).toHaveTextContent("Format OK");
-    // The label row keeps only the label and its Hide/Set action: the badge is not in it.
-    const labelRow = screen.getByText("UniProt accession").closest("div") as HTMLElement;
-    expect(labelRow).not.toHaveTextContent("Format OK");
+    // The state is the label row's content, next to the label it describes.
+    const labelRow = screen.getByText("UniProt accession").closest("label") as HTMLElement;
+    expect(labelRow).toContainElement(status);
+    // ...and it still describes the input for assistive tech.
     expect(input).toHaveAttribute("aria-describedby", "input-uniprot-acc-status");
+
+    // The slot's old occupant is gone: nothing to hide, nothing to set.
+    expect(screen.queryByRole("button", { name: /UniProt accession/ })).not.toBeInTheDocument();
+  });
+
+  it("wears a chip only for a malformed accession", () => {
+    act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
+    renderPanel();
+
+    const status = document.getElementById("input-uniprot-acc-status") as HTMLElement;
+    // Neutral tone = muted text, no chip surface.
+    expect(status.className).not.toContain("cs-bg-success");
+    expect(status.className).not.toContain("cs-bg-warning");
+
+    act(() => useVariantAnalysisStore.setState({ customUniprot: "123456" }));
+    expect(status).toHaveTextContent("Check format");
+    // A typo is the state worth a chip: warn is the only loud tone this slot has.
+    expect(status.className).toContain("cs-bg-warning");
+  });
+});
+
+/**
+ * The deck's bottom edges. Three cards on one page: the form, the rail beside it, and Recent
+ * analyses under the form. The recent card used to live INSIDE the form's column, which made that
+ * column taller than its own first card — the rail was then pinned to a fixed 672px floor against a
+ * content-sized form, so its bottom corner hung ~11px below the form's and floated beside the card.
+ * Row 1 is now shared, so the two stretch together.
+ */
+describe("workspace deck: the recent card is a row of its own, not the form's column (UI-9)", () => {
+  it("puts the form and the rail on one grid row and the recent card on the next", () => {
+    renderPanel();
+    const form = document.getElementById("variant-input-card") as HTMLElement;
+    const rail = document.getElementById("workspace-stage-rail") as HTMLElement;
+    const recent = document.querySelector('[data-tour="recent-benchmarks"]') as HTMLElement;
+
+    expect(recent).not.toBeNull();
+    // Siblings in the grid, so row 1's height is the tallest of form/rail and nothing depends on
+    // the recent card being present.
+    expect(recent.parentElement).toBe(form.parentElement);
+    expect(rail.parentElement).toBe(form.parentElement);
+    expect(recent.className).toContain("lg:row-start-2");
+    expect(rail.className).toContain("lg:row-start-1");
+    // Stretched to the row, not pinned to its own floor: the near-miss corner.
+    expect(rail.className).not.toContain("lg:self-start");
+  });
+});
+
+/**
+ * The reserved band under row 1's controls. It exists to keep the two columns' row-2 labels on one
+ * baseline, but reserving two lines unconditionally put 32px of dead air under the first control in
+ * the ordinary state (no hint on either side) — 54px in total, three times every other gap in the
+ * form. The band now follows what is actually shown.
+ */
+describe("form rhythm: the reserved helper band follows the hints (UI-10)", () => {
+  const band = () => document.getElementById("workspace-accepted-inputs") as HTMLElement;
+
+  it("reserves nothing when neither column shows a hint", () => {
+    act(() => useVariantAnalysisStore.setState({ customGene: "NAE1", customVariant: "p.Asp116Gly" }));
+    renderPanel();
+    expect(band()).toHaveAttribute("data-help-lines", "0");
+  });
+
+  it("reserves one line for a build hint and two for the gene hint", () => {
+    act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A", customVariant: "" }));
+    renderPanel();
+    expect(band()).toHaveAttribute("data-help-lines", "1");
+
+    // A bare cDNA names no transcript, so it needs the gene — and that hint is a full sentence.
+    act(() => useVariantAnalysisStore.setState({ customGenomic: "", customGene: "", customVariant: "c.347A>G" }));
+    expect(band()).toHaveAttribute("data-help-lines", "2");
   });
 });
 
