@@ -19,6 +19,7 @@
 import { BiophysicalJobQueue } from "../infra/biophysical-queue.ts";
 import { enrichBiophysicalResult, generateMutantPdb, getRaspCoverage, runRaspLocal, runStabilityOracleAnalysis } from "../biophysics.ts";
 import { fetchUniprotSequence } from "../uniprot.ts";
+import { requestBackgroundRepair } from "./foldx/background-repair.ts";
 import { fetchProtVarFoldx, protvarErrorFields, protvarJobFields } from "../external-api/protvar.ts";
 
 export interface QueueMutation {
@@ -225,6 +226,19 @@ export async function runFoldxQueueJobOnServer(data: any, signal: AbortSignal | 
     );
   } catch (err: any) {
     foldxResult = foldxFailureResult(err);
+  }
+  /**
+   * This job went without a repaired template because RepairPDB cannot finish inside its cap on this
+   * host. Repair it in idle time so the next variant on this structure does not pay for that again
+   * (`foldx/background-repair.ts`: idle-only, yields to any job). Fire and forget, and never a reason
+   * for this job to wait or fail.
+   */
+  if (foldxResult?.energetics?.foldxRepairSkippedReason === "repair-exceeds-budget") {
+    void Promise.resolve(requestBackgroundRepair({
+      wtPdb: data.wtPdb,
+      options: data.options,
+      label: `${data.uniprotId ?? "structure"} ${data.mutation ?? ""}`.trim()
+    })).catch(() => {});
   }
   return finishFoldxQueueJob(jobId, data, foldxResult, companions);
 }

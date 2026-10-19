@@ -33,11 +33,92 @@ export interface FoldxRunContext {
   /** "repaired", "repaired (reused)", "unrepaired (<reason>)" — the template BuildModel was given. */
   template: string;
   emulated: boolean;
+  /**
+   * What RepairPDB did before BuildModel, when it was tried. "Unrepaired (repair failed)" alone sent an
+   * RCA looking for a bad template when RepairPDB had been working correctly and was killed by its
+   * budget 64% of the way through; this says which, and how far it got.
+   */
+  repair?: FoldxRepairDiagnostic;
+}
+
+export type FoldxRepairOutcome = "completed" | "reused" | "skipped" | "timed-out" | "failed" | "no-output";
+
+/** The facts of one RepairPDB attempt, small enough to log whole and to carry in a timeout record. */
+export interface FoldxRepairDiagnostic {
+  outcome: FoldxRepairOutcome;
+  /** Why it was not attempted (outcome "skipped"). */
+  skipReason?: string;
+  budgetMs?: number;
+  elapsedMs?: number;
+  /** FoldX's own "number of incomplete residues = N" (truncated side chains it must rebuild). */
+  incompleteResidues?: number;
+  /** Residues FoldX had finished optimising when the process ended ("Now optimizing Residue" lines). */
+  residuesOptimised?: number;
+  /** The residue FoldX was working on, e.g. "ILEA546". */
+  lastResidue?: string | null;
+  signal?: string | null;
+  exitCode?: number | string | null;
+  /** The last lines of FoldX's own output, verbatim. Empty stderr is recorded as empty, not omitted. */
+  stderrTail?: string;
+  stdoutTail?: string;
+}
+
+/** What FoldX's RepairPDB prints that says how far it got; all of it is optional in the output. */
+export function parseRepairProgress(stdout: string): Pick<FoldxRepairDiagnostic, "incompleteResidues" | "residuesOptimised" | "lastResidue"> {
+  const incomplete = /number of incomplete residues\s*=\s*(\d+)/i.exec(stdout);
+  let optimised = 0;
+  let last: string | null = null;
+  for (const match of stdout.matchAll(/Now optimizing Residue\s+(\S+)/g)) {
+    optimised++;
+    last = match[1];
+  }
+  return { incompleteResidues: incomplete ? Number(incomplete[1]) : undefined, residuesOptimised: optimised, lastResidue: last };
+}
+
+/**
+ * The last `maxChars` of FoldX output, kept to whole lines so a log reader does not start mid-word.
+ * FoldX's `getInstances` heartbeat lines and blank lines carry nothing and would fill the tail.
+ */
+export function tailOutput(text: string | undefined | null, maxChars = 600): string {
+  const body = (text ?? "")
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .split(/\r?\n/)
+    .filter(line => line.trim() !== "" && line.trim() !== "getInstances")
+    .join("\n")
+    .trimEnd();
+  if (body.length <= maxChars) return body;
+  const cut = body.slice(body.length - maxChars);
+  const firstBreak = cut.indexOf("\n");
+  return firstBreak >= 0 ? cut.slice(firstBreak + 1) : cut;
+}
+
+function describeRepair(repair: FoldxRepairDiagnostic, residueCount: number): string {
+  const seconds = (ms?: number) => (ms === undefined ? "?" : (ms / 1000).toFixed(0));
+  const progress = repair.residuesOptimised
+    ? `, had optimised ${repair.residuesOptimised} of ${residueCount} residues${repair.lastResidue ? ` (at ${repair.lastResidue})` : ""}`
+    : "";
+  const incomplete = repair.incompleteResidues !== undefined ? `; ${repair.incompleteResidues} incomplete residues` : "";
+  switch (repair.outcome) {
+    case "timed-out":
+      return `RepairPDB was killed by its ${seconds(repair.budgetMs)} s budget after ${seconds(repair.elapsedMs)} s${progress}${incomplete}`;
+    case "failed":
+      return `RepairPDB failed after ${seconds(repair.elapsedMs)} s (exit ${repair.exitCode ?? "?"}${repair.signal ? `, ${repair.signal}` : ""})${incomplete}` +
+        `${repair.stderrTail ? `: ${repair.stderrTail.split("\n").slice(-3).join(" | ")}` : ", empty stderr"}`;
+    case "no-output":
+      return `RepairPDB exited without writing wt_Repair.pdb after ${seconds(repair.elapsedMs)} s${incomplete}`;
+    case "completed":
+      return `RepairPDB completed in ${seconds(repair.elapsedMs)} s${incomplete}`;
+    case "reused":
+      return repair.elapsedMs !== undefined ? `joined the background RepairPDB of this structure after ${seconds(repair.elapsedMs)} s` : "RepairPDB output reused from cache";
+    case "skipped":
+      return `RepairPDB skipped (${repair.skipReason ?? "not applicable"}${repair.elapsedMs !== undefined ? `; waited ${seconds(repair.elapsedMs)} s for the background repair of this structure, which did not finish` : ""})`;
+  }
 }
 
 function describeRun(ctx: FoldxRunContext): string {
   return `${(ctx.budgetMs / 1000).toFixed(0)} s budget; ${ctx.residueCount} residues, ${ctx.template} template, ` +
-    `${ctx.numberOfRuns} runs${ctx.emulated ? ", emulated through Box64" : ""}`;
+    `${ctx.numberOfRuns} runs${ctx.emulated ? ", emulated through Box64" : ""}` +
+    (ctx.repair ? `; ${describeRepair(ctx.repair, ctx.residueCount)}` : "");
 }
 
 export function describeFoldxFailure(error: any, repairFailed: boolean, ctx?: FoldxRunContext): string {
@@ -64,6 +145,14 @@ export interface FoldxCrashInput {
   pdbText: string;
   mutation: string;
   args: readonly string[];
+  /**
+   * Whether FoldX ran through Box64. The runner knows (`getFoldxExecutionTarget`); the binary path
+   * never contains "box64", so inferring it from the path reported `emulated: false` for every
+   * production timeout on the ARM host.
+   */
+  emulated?: boolean;
+  /** What RepairPDB did first (see {@link FoldxRunContext.repair}). */
+  repair?: FoldxRepairDiagnostic;
 }
 
 /**
@@ -81,6 +170,7 @@ export function foldxCrashContext(input: FoldxCrashInput) {
     pdbBytes: input.pdbText.length,
     atomRecords: lines.filter(line => line.startsWith("ATOM")).length,
     hetatmRecords: lines.filter(line => line.startsWith("HETATM")).length,
-    host: { platform: process.platform, arch: process.arch, emulated: /box64/i.test(input.binary) }
+    host: { platform: process.platform, arch: process.arch, emulated: input.emulated ?? /box64/i.test(input.binary) },
+    ...(input.repair ? { repair: input.repair } : {})
   };
 }

@@ -1238,7 +1238,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
         ? [
             ddG !== null ? `ΔΔG ${signed(ddG, 2)}${foldx.ddGSd !== null ? ` ± ${foldx.ddGSd.toFixed(2)}` : ""} kcal/mol${foldx.runs ? ` over ${foldx.runs} runs` : ""} — a stability estimate, not pathogenicity` : null,
             foldx.repairSkipped
-              ? `Template not repaired${foldx.repairSkippedReason === "alphafold-plddt" ? " (AlphaFold model)" : foldx.repairSkippedReason === "large-structure" ? " (large structure)" : ""}`
+              ? `Template not repaired${foldx.repairSkippedReason === "alphafold-plddt" ? " (AlphaFold model)" : foldx.repairSkippedReason === "large-structure" ? " (large structure)" : foldx.repairSkippedReason === "repair-exceeds-budget" ? " (repair too slow on this server)" : ""}`
               : foldx.repairFailed
                 ? "RepairPDB failed; built on the unrepaired template"
                 : "Built on the RepairPDB-minimised template",

@@ -110,15 +110,34 @@ export const CONFIG = {
      * FoldX BuildModel subprocess cap (the 5-run ensemble) on a native host, and the FLOOR of the
      * size-aware cap under emulation (`foldx/budget.ts`). Measured with `npm run foldx:timing`:
      *   native Windows x64   154 res 2.3 s · 875 res 4.7 s (~0.5 s per extra run)
-     *   OCI ARM64 + Box64    1,085 res 167.2 s (13.3 s fixed + 30.8 s per run)
      */
     foldxBuildModelMs: parseInt(process.env.FOLDX_BUILDMODEL_TIMEOUT_MS || "180000", 10),
     /** Ceiling of the size-aware BuildModel cap. Repair is skipped at this size, so it fits `foldxSec`. */
     foldxBuildModelMaxMs: parseInt(process.env.FOLDX_BUILDMODEL_MAX_MS || "600000", 10),
-    /** Emulated cost model, fixed part (measured 13.3 s on the OCI host). */
+    /**
+     * Emulated (OCI ARM64 + Box64) BuildModel cost model; see `foldx/budget.ts` for the measurements.
+     * Fixed part: the largest measured was 13.4 s (SLC12A4, 1,085 residues).
+     */
     foldxEmulatedFixedMs: parseInt(process.env.FOLDX_EMULATED_FIXED_MS || "15000", 10),
-    /** Emulated cost model, per residue per run (measured 30.8 s / 1,085 residues = 28.4 ms). */
-    foldxEmulatedMsPerResidueRun: parseFloat(process.env.FOLDX_EMULATED_MS_PER_RESIDUE_RUN || "30"),
+    /**
+     * Per residue per run, the UPPER ENVELOPE of what was measured (87.7 ms: p53 R175H, 393 residues),
+     * not a fit: per-run cost spans 0.6-76 s on this host depending on the substitution, and residue
+     * count explains 29% of the variance of the 5-run total.
+     */
+    foldxEmulatedMsPerResidueRun: parseFloat(process.env.FOLDX_EMULATED_MS_PER_RESIDUE_RUN || "90"),
+    /** Per incomplete residue FoldX must rebuild itself (measured 4.68 s: 211 s unrepaired vs 5 s repaired, 44 residues). */
+    foldxEmulatedMsPerIncompleteResidue: parseInt(process.env.FOLDX_EMULATED_MS_PER_INCOMPLETE_RESIDUE || "5000", 10),
+    /**
+     * Per residue, RepairPDB wall time under emulation, as an envelope: 1.77 s (SOD1, 154), 1.16 s
+     * (p53, 393) and 1.49 s (6N7E, 305, after the incomplete-residue term). Gates whether RepairPDB is
+     * attempted at all (`repairFitsBudget`); a repair that cannot finish in `foldxRepairMs` is wasted time.
+     */
+    foldxEmulatedRepairMsPerResidue: parseInt(process.env.FOLDX_EMULATED_REPAIR_MS_PER_RESIDUE || "1800", 10),
+    /**
+     * Ceiling for a BACKGROUND RepairPDB (`foldx/background-repair.ts`), which runs outside the queue's
+     * whole-job cap because it only ever uses an idle server and yields to any job. 6N7E needs 660 s.
+     */
+    foldxBackgroundRepairMaxMs: parseInt(process.env.FOLDX_BACKGROUND_REPAIR_MAX_MS || "1500000", 10),
     /** Second BuildModel attempt, made only after a RepairPDB failure. */
     foldxBuildModelRetryMs: parseInt(process.env.FOLDX_BUILDMODEL_RETRY_MS || "120000", 10),
     /** Reaper lease for a job a crash left in `running`. Must exceed the job cap. */

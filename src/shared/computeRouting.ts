@@ -252,6 +252,13 @@ const NATIVE_BUILDMODEL_MS_PER_RESIDUE_RUN = 2400 / (5 * (875 - 154));
  * The power law is anchored on the 1,085-residue total and split between fixed and per-run in the
  * measured 13.3 : 153.9 proportion, so it reproduces 167.2 s (5 runs), 44.1 s (1 run, measured 44.0 s)
  * and ~10 s for SOD1.
+ *
+ * CAVEAT (2026-10-17, OCI host, n=3 per cell): those are the two anchors this curve passes through, and no
+ * other size does. p53 (393 residues) took 173 s, 4.5x the curve; CNNM2 AlphaFold (875) took 22 s, 5.6x
+ * below it; across the four sizes log(5-run total) on log(residues) has R^2 = 0.29. Per-run cost follows the
+ * substitution (SLC12A4 Gln867 -> Ala/His/Lys, 1 run: 28/45/84 s) and, for an unrepaired crystal structure,
+ * the incomplete residues FoldX rebuilds (4.7 s each); see `foldx/budget.ts`. Treat this as a coarse ETA
+ * prior, not a bound.
  */
 const EMULATED_ANCHOR_RESIDUES = 1085;
 const EMULATED_ANCHOR_TOTAL_MS = 167_200;

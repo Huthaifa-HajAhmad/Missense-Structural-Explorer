@@ -7,7 +7,8 @@
  * under Box64 emulation. The runner imports `isAlphaFoldModel` from here so the two cannot disagree.
  */
 import { foldxPriorP50Ms, foldxRepairApplies } from "../../../../src/shared/computeRouting.ts";
-import { detectBFactorProvenance } from "./pdb-utils.ts";
+import { cleanPdbForFoldX, countIncompleteResidues, detectBFactorProvenance } from "./pdb-utils.ts";
+import { repairFitsBudget } from "./budget.ts";
 import { getFoldxExecutionTarget } from "./detector.ts";
 
 /** The runner skips RepairPDB on predicted models; see the rationale where it is applied (runner.ts). */
@@ -27,7 +28,7 @@ export function countResidues(pdb: string): number {
   return seen.size;
 }
 
-/** True when FoldX runs under Box64 here (the ARM server), which is ~60x slower than native. */
+/** True when FoldX runs under Box64 here (the ARM server), which measured 3-6x slower than native (see budget.ts). */
 export function foldxRunsEmulated(): boolean {
   return getFoldxExecutionTarget("foldx", []).file !== "foldx";
 }
@@ -37,8 +38,11 @@ export function foldxQueueCostEstimateMs(wtPdb: string, numberOfRuns = 5): numbe
   try {
     const residues = countResidues(wtPdb);
     if (residues === 0) return null;
-    const repair = foldxRepairApplies(residues, isAlphaFoldModel(wtPdb));
-    return foldxPriorP50Ms({ residues, numberOfRuns, repair }, foldxRunsEmulated());
+    const emulated = foldxRunsEmulated();
+    // The runner does not start a RepairPDB that cannot finish in its cap, so the estimate must not charge for one.
+    const repair = foldxRepairApplies(residues, isAlphaFoldModel(wtPdb)) &&
+      repairFitsBudget({ residueCount: residues, incompleteResidues: countIncompleteResidues(cleanPdbForFoldX(wtPdb)), emulated });
+    return foldxPriorP50Ms({ residues, numberOfRuns, repair }, emulated);
   } catch {
     return null;
   }
