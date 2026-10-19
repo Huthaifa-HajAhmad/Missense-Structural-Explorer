@@ -76,6 +76,11 @@ export class Semaphore {
     });
   }
 
+  /** True when nothing holds a slot and nothing waits for one (a read, not a reservation). */
+  isIdle(): boolean {
+    return this.activeCount === 0 && this.queue.length === 0;
+  }
+
   release(): void {
     if (this.activeCount <= 0) {
       console.error("Semaphore over-release detected");

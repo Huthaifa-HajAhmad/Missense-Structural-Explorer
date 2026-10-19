@@ -144,7 +144,7 @@ export const energeticsDataSchema = z.object({
    * log line.
    */
   foldxRepairSkipped: z.boolean().optional(),
-  foldxRepairSkippedReason: z.enum(["large-structure", "alphafold-plddt"]).optional(),
+  foldxRepairSkippedReason: z.enum(["large-structure", "alphafold-plddt", "repair-exceeds-budget"]).optional(),
   /** The repaired template was reused from cache instead of recomputed — same coordinates, disclosed. */
   foldxRepairCached: z.boolean().optional(),
   foldxError: z.string().nullable().optional(),

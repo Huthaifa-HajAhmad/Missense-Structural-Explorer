@@ -29,6 +29,16 @@ export function currentJobMeter(): ProcessTreeSampler | undefined {
   return current.getStore();
 }
 
+/**
+ * Run `fn`, and everything it schedules, outside any job's meter. For work a job starts but does not own
+ * (a background repair outlives the job that asked for it): without this, AsyncLocalStorage would carry
+ * the finished job's sampler into that work's timers and child processes, charging them to the wrong
+ * row and keeping the sampler alive for as long as the work runs.
+ */
+export function runOutsideJobMeter<T>(fn: () => T): T {
+  return current.exit(fn);
+}
+
 /** Count `child` (and everything it starts) toward the current job's memory, until it exits. */
 export function meterChildProcess(child: ChildProcess | undefined): void {
   const sampler = current.getStore();

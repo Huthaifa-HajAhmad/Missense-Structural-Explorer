@@ -132,3 +132,57 @@ export function cleanPdbForFoldX(pdbContent: string): string {
 
   return cleaned.join("\n");
 }
+
+/** Heavy atoms beyond N, CA, C and O that a complete standard residue carries (IUPAC/PDB v3 names). */
+const SIDE_CHAIN_ATOMS: Record<string, readonly string[]> = {
+  ALA: ["CB"],
+  ARG: ["CB", "CG", "CD", "NE", "CZ", "NH1", "NH2"],
+  ASN: ["CB", "CG", "OD1", "ND2"],
+  ASP: ["CB", "CG", "OD1", "OD2"],
+  CYS: ["CB", "SG"],
+  GLN: ["CB", "CG", "CD", "OE1", "NE2"],
+  GLU: ["CB", "CG", "CD", "OE1", "OE2"],
+  GLY: [],
+  HIS: ["CB", "CG", "ND1", "CD2", "CE1", "NE2"],
+  ILE: ["CB", "CG1", "CG2", "CD1"],
+  LEU: ["CB", "CG", "CD1", "CD2"],
+  LYS: ["CB", "CG", "CD", "CE", "NZ"],
+  MET: ["CB", "CG", "SD", "CE"],
+  PHE: ["CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ"],
+  PRO: ["CB", "CG", "CD"],
+  SER: ["CB", "OG"],
+  THR: ["CB", "OG1", "CG2"],
+  TRP: ["CB", "CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"],
+  TYR: ["CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "OH"],
+  VAL: ["CB", "CG1", "CG2"],
+};
+const BACKBONE_ATOMS = ["N", "CA", "C", "O"] as const;
+
+/**
+ * Standard residues missing at least one heavy atom.
+ *
+ * This is the quantity FoldX itself reports as "number of incomplete residues = N" and then completes
+ * one residue at a time, in RepairPDB and again, on an unrepaired template, inside BuildModel. On the
+ * OCI ARM host (Box64) that completion cost ~4.7 s per residue: CNNM2's 6N7E chain A (305 residues,
+ * 44 truncated at C-beta, typical of a 3.5 A structure) took 211 s to model unrepaired and 5.2 s once
+ * repaired, so the count predicts BuildModel's fixed cost where residue count does not.
+ *
+ * Expects ATOM records after {@link cleanPdbForFoldX}; hydrogens, ligands and non-standard residues are ignored.
+ */
+export function countIncompleteResidues(pdbText: string): number {
+  const atomsByResidue = new Map<string, { resName: string; atoms: Set<string> }>();
+  for (const line of pdbText.split(/\r?\n/)) {
+    if (!line.startsWith("ATOM")) continue;
+    const resName = line.slice(17, 20).trim().toUpperCase();
+    if (!(resName in SIDE_CHAIN_ATOMS)) continue;
+    const key = line.slice(21, 27);
+    let residue = atomsByResidue.get(key);
+    if (!residue) atomsByResidue.set(key, (residue = { resName, atoms: new Set() }));
+    residue.atoms.add(line.slice(12, 16).trim().toUpperCase());
+  }
+  let incomplete = 0;
+  for (const { resName, atoms } of atomsByResidue.values()) {
+    if (BACKBONE_ATOMS.some(a => !atoms.has(a)) || SIDE_CHAIN_ATOMS[resName].some(a => !atoms.has(a))) incomplete++;
+  }
+  return incomplete;
+}

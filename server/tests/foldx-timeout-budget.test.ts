@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.ts";
-import { buildModelBudgetMs, FOLDX_REPAIR_MAX_RESIDUES } from "../services/stability/foldx/budget.ts";
+import { buildModelBudgetMs, clampToJobRemaining, emulatedRepairResidueLimit } from "../services/stability/foldx/budget.ts";
 import {
   CLIENT_FOLDX_POLL_BUDGET_MS,
   CLIENT_FOLDX_POLL_REQUEST_MS,
@@ -37,15 +37,16 @@ const { timeouts } = CONFIG;
  * Worst-case wall-clock cost of one FoldX job, per PATH, all stages serialised.
  *
  * The BuildModel cap is sized to the structure (`foldx/budget.ts`), so the worst case is no longer
- * the sum of every stage's ceiling. RepairPDB runs only at ≤ FOLDX_REPAIR_MAX_RESIDUES, so a job
- * either repairs and then models a small structure, or skips repair and models a large one. Both
- * paths can still pay the retry (it follows any RepairPDB failure, including the pre-flight one).
- * Each path is computed under emulation, the slower host.
+ * the sum of every stage's ceiling. Under emulation RepairPDB is attempted only when it is predicted to
+ * finish inside its own cap (`repairFitsBudget`), which bounds the structure a repaired job can carry
+ * to `emulatedRepairResidueLimit` residues; a job either repairs and then models that structure, or
+ * skips repair and models a large one. Both paths can still pay the retry (it follows any RepairPDB
+ * failure, including the pre-flight one). Each path is computed under emulation, the slower host.
  */
 const REPAIRED_PATH_MS =
   timeouts.foldxSemaphoreWaitMs +
   timeouts.foldxRepairMs +
-  buildModelBudgetMs({ residueCount: FOLDX_REPAIR_MAX_RESIDUES, numberOfRuns: 5, emulated: true }) +
+  buildModelBudgetMs({ residueCount: emulatedRepairResidueLimit(), numberOfRuns: 5, emulated: true }) +
   timeouts.foldxBuildModelRetryMs;
 const LARGE_PATH_MS =
   timeouts.foldxSemaphoreWaitMs +
@@ -62,6 +63,16 @@ describe("FoldX timeout budgets nest", () => {
         `large-structure path ${LARGE_PATH_MS / SEC}s) exceeds the job cap (${timeouts.foldxSec}s), ` +
         `so a successful run would be reported as a timeout`
     ).toBeLessThanOrEqual(jobCapMs);
+  });
+
+  it("cannot let a BuildModel that follows a spent RepairPDB outlast the job", () => {
+    // A repair that ran to its cap and failed leaves an unrepaired template whose own budget (it grows with
+    // incomplete residues) can be the 600 s ceiling. The runner clamps it to what the job has left.
+    const jobCapMs = timeouts.foldxSec * SEC;
+    const afterRepairMs = timeouts.foldxSemaphoreWaitMs + timeouts.foldxRepairMs;
+    const worstFallback = buildModelBudgetMs({ residueCount: 400, numberOfRuns: 5, emulated: true, incompleteResidues: 400 });
+    expect(worstFallback).toBe(timeouts.foldxBuildModelMaxMs);
+    expect(afterRepairMs + clampToJobRemaining(worstFallback, jobCapMs - afterRepairMs)).toBeLessThanOrEqual(jobCapMs);
   });
 
   it("keeps every server timer ordered as work ≤ cap < lease", () => {
