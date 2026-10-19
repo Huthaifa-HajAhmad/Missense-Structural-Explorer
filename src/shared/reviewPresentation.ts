@@ -10,3 +10,9 @@ export function literatureCoverage(papers: readonly PaperReading[]) {
 }
 
 export const READING_DESK_LIMIT = 8;
+
+/** A missing abstract limits the literal screen; it is never a negative finding. */
+export function literatureTextCoverage(papers: readonly PaperReading[]) {
+  const withAbstract = papers.filter(p => p.citation.abstract?.trim()).length;
+  return { total: papers.length, withAbstract, withoutAbstract: papers.length - withAbstract };
+}

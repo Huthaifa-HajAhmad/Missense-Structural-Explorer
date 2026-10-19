@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
-  Camera, ChevronDown, ClipboardCopy, Crosshair, Download, HelpCircle,
+  Camera, ChevronDown, ClipboardCopy, Crosshair, Download, Focus, HelpCircle,
   Maximize2, Minimize2, ScanSearch, SlidersHorizontal,
 } from "lucide-react";
 import type { AlignmentScope, RepresentationId, Structure3dEvidence, ViewMode } from "../../shared/structure3dEvidence";
@@ -17,6 +17,8 @@ export interface StructureToolbarProps {
   onPlddtFilterChange: (value: PlddtFilter) => void;
   onAlignmentScopeChange?: (scope: AlignmentScope) => void;
   onFocusSite: () => void;
+  siteCloseUp?: boolean;
+  onToggleSiteCloseUp?: () => void;
   onFocusSelection?: () => void;
   pocketOpen: boolean;
   pocketTriggerRef?: React.RefObject<HTMLButtonElement | null>;
@@ -90,9 +92,24 @@ export function StructureToolbar(props: StructureToolbarProps) {
         <div className="s3d-bar__top-actions">
           {site.substitution && (
             site.canAddressVariantSite ? (
-              <button type="button" className="s3d-site" onClick={props.onFocusSite} title="Frame the variant site" data-testid="structure-site">
-                <Crosshair aria-hidden="true" />{site.substitution}
-              </button>
+              <>
+                <button type="button" className="s3d-site" onClick={props.onFocusSite} title="Frame the variant site" data-testid="structure-site">
+                  <Crosshair aria-hidden="true" />{site.substitution}
+                </button>
+                {props.onToggleSiteCloseUp && (
+                  <button
+                    type="button"
+                    className="s3d-site"
+                    data-kind="closeup"
+                    aria-pressed={Boolean(props.siteCloseUp)}
+                    onClick={props.onToggleSiteCloseUp}
+                    title="Site close-up: soften surrounding ribbon, show 5 Å local contacts and residue labels"
+                    data-testid="structure-site-closeup"
+                  >
+                    <Focus aria-hidden="true" />Close-up
+                  </button>
+                )}
+              </>
             ) : (
               <span className="s3d-site" data-kind="unmapped" title={site.check.text} data-testid="structure-site">
                 {site.substitution} · site unmapped

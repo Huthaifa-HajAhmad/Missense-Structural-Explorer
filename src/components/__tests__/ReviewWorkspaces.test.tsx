@@ -30,6 +30,13 @@ beforeEach(() => {
 });
 
 describe('Insights reading workspace', () => {
+  it('gives evidence gaps their own view without duplicating the comparison figure', () => {
+    render(<InsightsScreen evidence={evidence} narrative={null} />);
+    expect(screen.queryByRole('heading', { name: 'Still needed to decide' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Evidence gaps' }));
+    expect(screen.getByRole('heading', { name: 'Still needed to decide' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Evidence direction' })).not.toBeInTheDocument();
+  });
   it.each([['PP3_Moderate', 'Moderate'], ['PP3_Strong', 'Strong'], ['BP4_Moderate', 'Strong']] as const)('shows the recorded strength of %s in both panes', (code, strength) => {
     const analysis = nae1Reference({ ruleBasedInsights: { acmgVerdict: 'Variant of Uncertain Significance (VUS)', acmgCriteria: [{ code, reason: 'Recorded calibrated criterion' }] }, insights: { acmgCriteria: [] } });
     const ev = buildInsightsEvidence({ result: analysis, functionInput: functionEvidenceInputFrom(analysis), stability: null });
@@ -97,9 +104,39 @@ describe('Literature reading workspace', () => {
     const [ev, setEv] = React.useState<LiteratureEvidence | null>(null);
     return <ReviewWorkspaceProvider result={result}><LiteratureView gene="NAE1" variant="p.Asp116Gly" onEvidenceChange={e => { setEv(e); report(e); }} /><LiteratureInspector gene="NAE1" variant="p.Asp116Gly" evidence={ev} /></ReviewWorkspaceProvider>;
   }
+  it('gives coverage its own view and exports no invisible paper rows', async () => {
+    let latest: LiteratureEvidence | null = null;
+    render(<Harness report={e => { latest = e; }} />);
+    await screen.findByTestId('literature-table');
+    expect(screen.queryByRole('region', { name: 'What the loaded text names' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
+    expect(screen.getByRole('region', { name: 'What the loaded text names' })).toBeInTheDocument();
+    expect(screen.queryByTestId('literature-table')).not.toBeInTheDocument();
+    await waitFor(() => expect(latest!.displayed).toEqual([]));
+    expect(latest!.papers).toHaveLength(12);
+    expect(screen.getByRole('button', { name: 'Export shortlist' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Names only NAE1/ })).not.toHaveAttribute('aria-pressed');
+    const textCoverage = screen.getByRole('heading', { name: 'How much text was available?' }).parentElement!;
+    expect(textCoverage).toHaveTextContent('With an abstract12 / 12');
+    expect(textCoverage).toHaveTextContent('Without an abstract0 / 12');
+    fireEvent.click(screen.getByRole('tab', { name: 'Reading desk' }));
+    expect(screen.getByTestId('literature-table')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export shortlist' })).toBeEnabled();
+  });
+  it('returns keyboard focus to the reading desk from empty coverage', async () => {
+    api.getLiterature.mockResolvedValue({ citations: [], hitCount: 0, degraded: false });
+    render(<Harness report={() => {}} />);
+    await screen.findByTestId('literature-empty');
+    fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
+    const action = screen.getByRole('button', { name: 'Open reading desk' });
+    action.focus();
+    fireEvent.click(action);
+    expect(screen.getByRole('tab', { name: 'Reading desk' })).toHaveFocus();
+  });
   it('does not present an unsupported variant check as a zero-match group', async () => {
     render(<LiteratureView gene="NAE1" variant="c.123A>G" />);
     await screen.findByTestId('literature-table');
+    fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
     const coverage = screen.getByRole('region', { name: 'What the loaded text names' });
     expect(within(coverage).getAllByRole('button')).toHaveLength(2);
     expect(within(coverage).queryByRole('button', { name: /Names (the variant|p\.|c\.)/ })).not.toBeInTheDocument();
@@ -183,12 +220,13 @@ describe('Literature reading workspace', () => {
     api.getLiterature.mockResolvedValue({ gene: 'NAE1', citations: papers.slice(1), hitCount: 11, degraded: false });
     render(<Harness report={() => {}} />);
     await screen.findByTestId('literature-table');
+    fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
     const coverage = screen.getByRole('heading', { name: 'What the loaded text names' }).closest('section')!;
     const zeroGroup = within(coverage).getByRole('button', { name: /^Names p.Asp116Gly/ });
     expect(zeroGroup).toHaveTextContent('0 / 11');
     fireEvent.click(zeroGroup);
     expect(screen.getByText('None in this group')).toBeInTheDocument();
-    fireEvent.click(zeroGroup);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all text-check groups' }));
     expect(screen.getByTestId('literature-table')).toBeInTheDocument();
   });
   it('preserves a draft query while revealing a source outside its narrowing filter', async () => {
@@ -204,7 +242,7 @@ describe('Literature reading workspace', () => {
     expect(search).toHaveFocus();
     expect(screen.queryByTestId('paper-91000000')).not.toBeInTheDocument();
   });
-  it('bounds the desk and its export to eight papers; records expose all twelve loaded papers', async () => {
+  it('bounds the desk and its export to eight papers; expanding exposes all twelve loaded papers', async () => {
     let latest: LiteratureEvidence | null = null;
     render(<Harness report={e => { latest = e; }} />);
     await screen.findByTestId('literature-table');
@@ -212,17 +250,18 @@ describe('Literature reading workspace', () => {
     expect(within(screen.getByTestId('literature-table')).getAllByTestId(/^paper-/)).toHaveLength(8);
     await waitFor(() => expect(latest!.displayed).toHaveLength(8));
     expect(latest!.counts.total).toBe(12);
-    fireEvent.click(screen.getByRole('tab', { name: 'Source records' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show all matching papers' }));
     await waitFor(() => expect(latest!.displayed).toHaveLength(12));
     expect(within(screen.getByTestId('literature-table')).getAllByTestId(/^paper-/)).toHaveLength(12);
   });
   it('keeps hidden selections inspectable and reveals their source with explicit focus', async () => {
     render(<Harness report={() => {}} />);
-    const table = await screen.findByTestId('literature-table');
+    await screen.findByTestId('literature-table');
     fireEvent.click(within(screen.getByTestId('paper-91000000')).getByRole('button', { name: 'Inspect source' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Mention coverage' }));
     fireEvent.click(screen.getByRole('button', { name: /^Names only NAE1/ }));
     await screen.findByText(/outside the current reading desk or filters/);
-    expect(within(table).queryByTestId('paper-91000000')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('paper-91000000')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show selected source record' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'NAE1 source 1' })).toHaveFocus());
     const search = screen.getByLabelText('Search literature'); search.focus(); fireEvent.change(search, { target: { value: 'NAE1' } });

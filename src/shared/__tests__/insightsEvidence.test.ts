@@ -33,6 +33,36 @@ function nae1(over: Record<string, any> = {}) {
 }
 
 describe("buildInsightsEvidence", () => {
+  it('qualifies uncounted population support inside agreement prose', () => {
+    const result = nae1({ gnomadFrequency: { exomeAF: 0.000001, exomeAC: 1, exomeAN: 1000000, groupMaxAF: 0.000001 }, serviceStatus: { gnomadFrequency: "ok" } });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(model.lanes.find(l => l.key === 'population')?.unconfirmed).toBe(true);
+    expect(model.agree.map(a => a.text).join(' ')).toContain('Population (not counted)');
+  });
+  it('uses the raw engine list consistently when a stale merged narrative omits a criterion', () => {
+    const result = nae1();
+    result.ruleBasedInsights.acmgCriteria.push({ code: 'PM2', reason: 'Recorded rarity' });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(model.engineCodes.map(c => c.code)).toEqual(['PP3', 'PM2']);
+    expect(model.finding.rest).toContain('2 criteria: PP3, PM2');
+    expect(model.criteria.find(c => c.code === 'PM2')?.state).toBe('met');
+    expect(model.lanes.find(l => l.key === 'population')?.counted).toBe(true);
+    expect(model.droppedEngineOwned.some(c => c.code === 'PM2')).toBe(false);
+  });
+
+  it('does not restore stale merged criteria over an explicitly empty raw engine list', () => {
+    const result = nae1();
+    result.ruleBasedInsights.acmgCriteria = [];
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(model.engineCodes).toEqual([]);
+    expect(model.lanes.every(l => !l.counted)).toBe(true);
+  });
+
+  it('identifies a recorded predictor criterion opposed by the current vote', () => {
+    const result = nae1({ predictorData: null, conservationData: { revel: 0.1 } });
+    const model = buildInsightsEvidence({ result, functionInput, stability: null });
+    expect(model.lanes.find(l => l.key === 'computational')?.rest).toContain('differs from the current predictor vote');
+  });
   it("describes PM2 with the same Supporting strength as the recorded criterion", () => {
     const result = nae1({ insights: null, ruleBasedInsights: { ...nae1().ruleBasedInsights, acmgCriteria: [{ code: "PM2", reason: "Recorded rarity" }] } });
     const model = buildInsightsEvidence({ result, functionInput, stability: null });

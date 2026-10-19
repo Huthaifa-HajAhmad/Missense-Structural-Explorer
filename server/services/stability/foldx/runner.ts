@@ -627,9 +627,11 @@ export async function generateMutantPdbInternal(
     // The template BuildModel will actually read: repaired, reused from the repair cache, or the cleaned
     // input. FoldX rebuilds its incomplete residues itself (~4.7 s each under Box64), so they set the cap.
     const templateIncomplete = countIncompleteResidues(await fs.promises.readFile(fullWtPath, "utf8").catch(() => cleanedWt));
+    // A failed repair leaves the retry on the original PDB; hold its time back so both fit the job cap.
+    const retryReserveMs = foldxRepairFailed ? CONFIG.timeouts.foldxBuildModelRetryMs : 0;
     buildModelBudget = clampToJobRemaining(
       buildModelBudgetMs({ residueCount, numberOfRuns: 5, emulated: foldxEmulated, incompleteResidues: templateIncomplete }),
-      CONFIG.timeouts.foldxSec * 1000 - (Date.now() - jobStartedAt)
+      CONFIG.timeouts.foldxSec * 1000 - (Date.now() - jobStartedAt) - retryReserveMs
     );
 
     // 2. Run FoldX BuildModel with 5 stochastic runs for publication-grade statistics (H1)
@@ -701,6 +703,10 @@ export async function generateMutantPdbInternal(
       emulated: foldxEmulated,
       repair: repairDiagnostic
     });
+    // The queue worker reports the repair state from these fields, not by searching the message text
+    // (every message now names RepairPDB, whatever it did).
+    const withRepairState = (error: Error): Error =>
+      Object.assign(error, { foldxRepair: { failed: foldxRepairFailed, skipped: foldxRepairSkipped, skippedReason: foldxRepairSkippedReason } });
     if (failureKind === "runtime-crash" || failureKind === "timeout") {
       // jobDir still holds the exact wt.pdb, individual_list.txt and parameter links: rerun it by hand,
       // or time it with `npm run foldx:timing -- --pdb <jobDir>/wt.pdb --mut <WT><pos><MUT>`.
@@ -730,7 +736,11 @@ export async function generateMutantPdbInternal(
           "--mutant-file=individual_list.txt",
           "--numberOfRuns=5",
           ...extraArgs
-        ], { timeout: CONFIG.timeouts.foldxBuildModelRetryMs, cwd: jobDir, signal });
+        ], {
+          timeout: clampToJobRemaining(CONFIG.timeouts.foldxBuildModelRetryMs, CONFIG.timeouts.foldxSec * 1000 - (Date.now() - jobStartedAt)),
+          cwd: jobDir,
+          signal
+        });
 
         // Check BuildModel output files
         let foldxOutPdb2 = path.join(jobDir, "wt_1_0.pdb");
@@ -760,18 +770,18 @@ export async function generateMutantPdbInternal(
         if (secondErr.stderr) console.error(`[Second BuildModel STDERR]:`, secondErr.stderr.slice(0, 500));
 
         // Both attempts failed — throw a combined error
-        throw new Error(
+        throw withRepairState(new Error(
           `FoldX BuildModel failed after two attempts. ` +
           `Attempt 1 (cleaned PDB after RepairPDB): ${foldxErr.message}. ` +
           `Attempt 2 (original PDB): ${describeFoldxFailure(secondErr, foldxRepairFailed, runContext(CONFIG.timeouts.foldxBuildModelRetryMs))}. ` +
           `Check that the FoldX binary is accessible and parameter files (molecules/, rotabase.txt) are in place.`
-        );
+        ));
       }
     }
 
     // If we got here and still haven't succeeded, surface the original error
     if (!foldxSuccess) {
-      throw new Error(describeFoldxFailure(foldxErr, foldxRepairFailed, runContext(buildModelBudget)));
+      throw withRepairState(new Error(describeFoldxFailure(foldxErr, foldxRepairFailed, runContext(buildModelBudget))));
     }
   }
 

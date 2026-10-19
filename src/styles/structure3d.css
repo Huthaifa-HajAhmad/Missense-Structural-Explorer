@@ -139,6 +139,17 @@ button.s3d-site { cursor: pointer; }
   background: var(--cs-surface-2);
 }
 .s3d-site[data-kind="unmapped"] { color: var(--cs-text-muted); border-color: var(--cs-border); background: var(--cs-surface-2); }
+.s3d-site[data-kind="closeup"] {
+  font-family: var(--cs-font-sans);
+  color: var(--cs-text-secondary);
+  border-color: var(--cs-border);
+  background: var(--cs-surface);
+}
+.s3d-site[data-kind="closeup"][aria-pressed="true"] {
+  color: var(--cs-text-accent);
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 45%, transparent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 12%, transparent);
+}
 
 /* Segmented control: Wild type / Variant / Superposition */
 .s3d-seg {
@@ -494,6 +505,64 @@ button.s3d-site { cursor: pointer; }
 .s3d-notice[data-tone="warning"] { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); border-left-color: var(--cs-text-warning); }
 .s3d-notice[data-tone="info"] { color: var(--cs-text-secondary); background: var(--cs-surface-2); border-left-color: var(--cs-accent-clay); }
 .s3d-notice[data-tone="info"] strong { color: var(--cs-text-primary); }
+
+/* Side-chain topology card (Wild-type vs. Variant residue) */
+.s3d-sidechain-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  background: var(--cs-surface);
+}
+.s3d-sidechain-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.s3d-sidechain-card__title {
+  font-size: var(--cs-font-size-caption);
+  font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-text-primary);
+}
+.s3d-sidechain-card__badge {
+  font-family: var(--cs-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--cs-font-size-badge);
+  padding: 2px 6px;
+  border-radius: var(--cs-radius-badge, 6px);
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface-2);
+  color: var(--cs-text-secondary);
+}
+.s3d-sidechain-card__badge[data-class="radical"],
+.s3d-sidechain-card__badge[data-class="moderately radical"] {
+  border-color: color-mix(in srgb, var(--cs-accent-clay) 40%, transparent);
+  background: color-mix(in srgb, var(--cs-accent-clay) 8%, transparent);
+  color: var(--cs-text-accent);
+}
+.s3d-sidechain-card .rsx-glyph-caption {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.s3d-sidechain-card__note {
+  margin: 0;
+  font-size: var(--cs-font-size-badge);
+  line-height: 1.45;
+  color: var(--cs-text-secondary);
+}
+.s3d-sidechain-card__caveat {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--cs-border-subtle);
+  font-size: var(--cs-font-size-badge);
+  line-height: 1.45;
+  color: var(--cs-text-secondary);
+}
 
 /* Readings */
 .s3d-readings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }

@@ -94,8 +94,17 @@ try {
  await page.emulateMedia({ media: 'screen' });
  await page.getByRole('button', { name: 'Show all tiers' }).click();
  check('Desk bounded at eight', await page.locator('.lit-row').count() === 8);
+ await page.getByRole('tab', { name: 'Mention coverage' }).click();
+ check('Shortlist export disabled in coverage', await page.getByRole('button', { name: 'Export shortlist', exact: true }).isDisabled());
+ check('Coverage rows are navigation, not toggles', await page.locator('.lit-coverage__rows button[aria-pressed]').count() === 0);
+ await page.emulateMedia({ media: 'print' });
+ check('Coverage figure and abstract counts print', await page.locator('.lit-coverage').isVisible() && await page.locator('.lit-text-coverage').isVisible());
+ await page.emulateMedia({ media: 'screen' });
+ check('Coverage has no duplicate papers', await page.locator('.lit-row').count() === 0);
  check('Coverage denominator is loaded count', (await page.locator('.lit-coverage').innerText()).includes('25 loaded papers'));
+ await page.getByRole('tab', { name: 'Reading desk' }).click();
  await page.locator('[data-testid="paper-91000000"]').getByRole('button', { name: 'Inspect source' }).click();
+ await page.getByRole('tab', { name: 'Mention coverage' }).click();
  await page.getByRole('button', { name: /^Names only NAE1/ }).click();
  check('Hidden source notice', await page.getByText('This paper is outside the current reading desk or filters. Its source remains selected.').isVisible());
  await page.getByRole('button', { name: 'Show selected source record' }).click();
@@ -109,6 +118,7 @@ try {
  for (const width of [1500, 800, 390]) {
   await page.setViewportSize({ width, height: 1100 });
   check('Literature fits width ' + width, await page.locator('.lit-screen').evaluate(e => e.scrollWidth <= e.clientWidth + 1));
+  await page.getByRole('tab', { name: 'Mention coverage' }).click();
   check('Coverage fits width ' + width, await page.locator('.lit-coverage').evaluate(e => e.scrollWidth <= e.clientWidth + 1));
   await page.locator('.data-screen-layout, .data-screen-primary, .lit-view').evaluateAll(elements => elements.forEach(e => { e.scrollTop = 0; }));
   await page.screenshot({ path: `${output}/literature-${width}-light.png` });
@@ -116,8 +126,9 @@ try {
  await page.setViewportSize({ width: 1500, height: 1100 });
  await page.getByRole('button', { name: 'Switch theme', exact: true }).click();
  await page.screenshot({ path: `${output}/literature-dark.png` });
+ await page.getByRole('tab', { name: 'Reading desk' }).click();
  await page.getByRole('button', { name: 'Load 25 more', exact: true }).click();
- await page.getByRole('tab', { name: 'Source records' }).click();
+ await page.getByRole('tab', { name: 'Reading desk' }).click();
  check('Pagination deduplicates and retains all records', await page.locator('.lit-row').count() === 36);
  for (const width of [800, 390]) {
   await page.setViewportSize({ width, height: 1100 });
@@ -133,6 +144,9 @@ try {
  await page.getByLabel('Example', { exact: true }).selectOption('Missing');
  await page.getByTestId('literature-papers').getByRole('button', { name: 'Search Europe PMC', exact: true }).click();
  await page.getByTestId('literature-empty').waitFor();
+ await page.getByRole('tab', { name: 'Mention coverage' }).click();
+ await page.getByRole('button', { name: 'Open reading desk', exact: true }).click();
+ check('Empty coverage returns focus to reading desk', await page.getByRole('tab', { name: 'Reading desk' }).evaluate(e => e === document.activeElement));
  check('Missing papers have explicit empty state', await page.getByText('No papers returned', { exact: true }).isVisible());
  await page.getByLabel('Example', { exact: true }).selectOption('Degraded');
  await page.getByTestId('literature-papers').getByRole('button', { name: 'Search Europe PMC', exact: true }).click();
@@ -149,12 +163,33 @@ try {
  check('Suffixed strength shown in map', await page.locator('[data-lane="computational"] .ins-dim').innerText() === 'Moderate');
  await page.getByLabel('Workspace', { exact: true }).selectOption('literature');
  await page.getByLabel('Example', { exact: true }).selectOption('Unsupported notation');
+ await page.getByRole('tab', { name: 'Mention coverage' }).click();
  await page.locator('.lit-coverage').waitFor();
  check('Unsupported notation has no zero-match variant group', await page.locator('.lit-coverage__rows button').count() === 2 && (await page.locator('.lit-coverage').innerText()).includes('check the gene only'));
  await page.getByLabel('Workspace', { exact: true }).selectOption('insights');
  await page.getByRole('button', { name: 'Computational', exact: true }).click();
  await page.getByLabel('Example', { exact: true }).selectOption('New allele');
  check('New allele resets selection', await page.getByRole('button', { name: 'Clear selection', exact: true }).count() === 0);
+ await page.getByRole('tab', { name: 'Evidence gaps' }).click();
+ check('Gaps own the missing-evidence questions', await page.getByRole('heading', { name: 'Still needed to decide' }).isVisible() && await page.locator('.ins-lane').count() === 0);
+ await page.getByLabel('Workspace', { exact: true }).selectOption('report');
+ await page.getByRole('tab', { name: 'Citations & methods' }).click();
+ check('Report methods have a dedicated view', await page.locator('#report-method').isVisible() && !await page.locator('#report-classification').isVisible());
+ await page.getByRole('tab', { name: 'Narrative & notes' }).click();
+ check('Narrative view excludes methods', !await page.locator('#report-method').isVisible());
+ for (const width of [1500, 800, 390]) {
+  await page.setViewportSize({ width, height: 1100 });
+  check('Report fits width ' + width, await page.locator('.rpt-screen').evaluate(e => e.scrollWidth <= e.clientWidth + 1));
+  await page.screenshot({ path: `${output}/report-writing-${width}.png` });
+ }
+ await page.setViewportSize({ width: 1500, height: 1100 });
+ await page.getByRole('tab', { name: 'Citations & methods' }).click();
+ await page.emulateMedia({ media: 'print' });
+ check('Print retains classification outside current view', await page.locator('#report-classification').isVisible());
+ await page.emulateMedia({ media: 'screen' });
+ await page.screenshot({ path: `${output}/report-sources.png` });
+ // Keep unrelated Query checks available; synthesis reviews can select their owned surface.
+ if (process.env.REVIEW_PREVIEW_SCOPE !== 'synthesis') {
  await page.getByLabel('Workspace', { exact: true }).selectOption('search');
  // The accession field has no reveal step: it is on first paint, and its STATE owns the label row's
  // right slot (where Set/Hide used to be), so the state and the control it describes share one line.
@@ -179,6 +214,7 @@ try {
  await page.setViewportSize({ width: 390, height: 1100 });
  check('Query fits phone viewport', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
  await page.screenshot({ path: `${output}/query-phone.png` });
+ }
  check('No runtime errors', errors.length === 0);
  await fs.writeFile(`${output}/checks.json`, JSON.stringify({ checks, errors }, null, 2));
  console.log(JSON.stringify({ passed: checks.filter(c => c.pass).length, total: checks.length, failed: checks.filter(c => !c.pass), errors }));

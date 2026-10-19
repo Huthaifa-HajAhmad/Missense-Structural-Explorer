@@ -70,7 +70,9 @@ export function describeStructureSource(pdbId?: string | null, pdbSource?: strin
 }
 
 /** Grantham distance classes, Li, Wu and Luo 1984. */
-export function granthamClass(distance: number): string {
+export type GranthamClass = "conservative" | "moderately conservative" | "moderately radical" | "radical";
+
+export function granthamClass(distance: number): GranthamClass {
   if (distance <= 50) return "conservative";
   if (distance <= 100) return "moderately conservative";
   if (distance <= 150) return "moderately radical";

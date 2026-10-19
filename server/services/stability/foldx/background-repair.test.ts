@@ -235,6 +235,12 @@ describe("requestBackgroundRepair, spare core", () => {
     expect(backgroundRepairSlot(1, 1)).toBe("shared");
   });
 
+  it("obeys FOLDX_BACKGROUND_REPAIR_SLOT over the core count, and ignores any other value", () => {
+    expect(backgroundRepairSlot(8, 1, { FOLDX_BACKGROUND_REPAIR_SLOT: "shared" })).toBe("shared");
+    expect(backgroundRepairSlot(1, 1, { FOLDX_BACKGROUND_REPAIR_SLOT: "spare-core" })).toBe("spare-core");
+    expect(backgroundRepairSlot(2, 1, { FOLDX_BACKGROUND_REPAIR_SLOT: "bogus" })).toBe("spare-core");
+  });
+
   it("starts during continuous use: it does not wait for an idle FoldX slot", async () => {
     const h = harness();
     h.deps.slot = () => "spare-core";

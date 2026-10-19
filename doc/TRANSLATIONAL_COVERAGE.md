@@ -140,3 +140,14 @@ or semantic re-index is claimed.
 
 These checks establish implemented educational coverage and interaction behaviour. They do
 not constitute fresh biological validation of each model or live-provider end-to-end testing.
+
+
+## Synthesis view ownership (18 October 2026)
+
+Literature's **Mention coverage** view now owns the literal-mention chart and a text-availability
+breakdown (with/without an abstract, denominator = all loaded papers). The explanation beside it
+states that missing abstracts restrict screening to titles and that missing mentions do not establish
+irrelevance. Selecting a group opens its papers in the single Reading desk. Insights separates
+**Evidence gaps** from the direction map and criterion audit; hypothetical additions remain explicitly
+uncounted. Report separates **Narrative & notes** from **Citations & methods**. See
+[SYNTHESIS_WORKSPACES_REVIEW.md](SYNTHESIS_WORKSPACES_REVIEW.md) for integrity fixes and verification.

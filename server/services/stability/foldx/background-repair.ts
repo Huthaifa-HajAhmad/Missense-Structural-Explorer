@@ -4,9 +4,9 @@
  * WHY. Under Box64 a RepairPDB takes minutes and is a function of the STRUCTURE (`cache.ts`), not of the
  * substitution. 6N7E (305 residues, 44 incomplete) needs 660 s against the interactive 420 s cap, so
  * `repairFitsBudget` skips it and every variant on that template pays BuildModel's own completion of the
- * 44 side chains (214 s). A repaired template makes the same BuildModel 7.5 s. The repair costs about as
- * much as three unrepaired variants, so it pays back from the fourth variant on that structure; this
- * module spends it when the server would otherwise sit idle.
+ * 44 side chains (214 s). A repaired template makes the same BuildModel 7.5 s. Each later variant saves
+ * about 206 s, so the 660 s repair is recovered after about four variants following the one that triggered
+ * it (the fifth overall); this module spends it when the server would otherwise sit idle.
  *
  * WHEN. After a job reports `foldxRepairSkippedReason === "repair-exceeds-budget"` (the worker calls
  * {@link requestBackgroundRepair}). That is demand-triggered: a structure nobody queried is never repaired,
@@ -109,8 +109,20 @@ export function backgroundRepairEnabled(env: NodeJS.ProcessEnv = process.env): b
   return flag === "true" || env.NODE_ENV !== "test";
 }
 
-/** More cores than FoldX processes allowed at once: a core is free beside every job. */
-export function backgroundRepairSlot(cores = os.availableParallelism?.() ?? os.cpus().length, foldxSlots = resolveFoldxConcurrency()): BackgroundRepairSlot {
+export const BACKGROUND_REPAIR_SLOT_ENV = "FOLDX_BACKGROUND_REPAIR_SLOT";
+
+/**
+ * More cores than FoldX processes allowed at once: a core is free beside every job. The core count is the
+ * runtime's view of the host, which may not honour a container CPU quota, so `FOLDX_BACKGROUND_REPAIR_SLOT`
+ * (`spare-core` | `shared`) overrides the inference when the operator knows better.
+ */
+export function backgroundRepairSlot(
+  cores = os.availableParallelism?.() ?? os.cpus().length,
+  foldxSlots = resolveFoldxConcurrency(),
+  env: NodeJS.ProcessEnv = process.env
+): BackgroundRepairSlot {
+  const forced = (env[BACKGROUND_REPAIR_SLOT_ENV] ?? "").trim().toLowerCase();
+  if (forced === "spare-core" || forced === "shared") return forced;
   return cores > foldxSlots ? "spare-core" : "shared";
 }
 
