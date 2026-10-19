@@ -524,7 +524,7 @@ export function buildLiteratureEvidence(input: LiteratureEvidenceInput): Literat
       headline: c === 0 ? `No matches for the searched protein notations of ${label}.` : `Europe PMC matched ${n(c)} ${plural(c, "record", "records")} for these protein notations.`,
       predicate: c === 0
         ? `A search for ${gene} with ${forms.forms.join(", ")} matched 0 records, in titles, abstracts and open-access full text. A report under another notation, such as a nucleotide change, would not match`
-        : `Matched on ${gene} with ${forms.forms.join(", ")}; ${scope === "variant" ? "they are listed below" : `choose "Naming ${label}" below to read them`}`,
+        : `Matched on ${gene} with ${forms.forms.join(", ")}; ${scope === "variant" ? "inspect them in the reading desk" : `choose "Naming ${label}" in the reading desk to read them`}`,
     };
   } else if (probe.state === "error") {
     finding = {

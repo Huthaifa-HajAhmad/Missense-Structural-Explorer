@@ -29,7 +29,7 @@ vi.mock("./foldx/background-repair.ts", () => ({
   requestBackgroundRepair: (...args: unknown[]) => requestBackgroundRepair(...args)
 }));
 
-const { runFoldxQueueJobOnServer } = await import("./foldx-queue-job.ts");
+const { runFoldxQueueJobOnServer, foldxFailureResult } = await import("./foldx-queue-job.ts");
 
 const data = { wtPdb: "PDB TEXT", mutation: "SA489C", uniprotId: "Q9H8M5", options: { pH: 7.4, temperature: 298.15, ionicStrength: 0.15 } };
 const result = (energetics: Record<string, unknown>) => ({ pdb: "x", ddG: 0, status: "success", energetics: { foldxMean: 0, ...energetics } });
@@ -62,11 +62,37 @@ describe("runFoldxQueueJobOnServer and the background repair", () => {
     expect(requestBackgroundRepair).not.toHaveBeenCalled();
   });
 
-  it("does not ask after a FoldX failure, and the failure still reaches the reader", async () => {
+  it("does not ask after a failure that says nothing about the repair, and the failure still reaches the reader", async () => {
     generateMutantPdb.mockRejectedValue(new Error("FoldX BuildModel exceeded its execution budget"));
     const out = await runFoldxQueueJobOnServer(data, undefined, undefined);
     expect(requestBackgroundRepair).not.toHaveBeenCalled();
     expect(out.status).toBe("failed");
+  });
+
+  it("asks after a BuildModel failure that followed a repair skipped for its cost", async () => {
+    const err = Object.assign(new Error("FoldX BuildModel exceeded its execution budget (...; RepairPDB skipped (repair-exceeds-budget))"), {
+      foldxRepair: { failed: false, skipped: true, skippedReason: "repair-exceeds-budget" },
+    });
+    generateMutantPdb.mockRejectedValue(err);
+    const out = await runFoldxQueueJobOnServer(data, undefined, undefined);
+    expect(requestBackgroundRepair).toHaveBeenCalledTimes(1);
+    expect(out.status).toBe("failed");
+  });
+
+  it("does not report a skipped or completed repair as failed just because the message names RepairPDB", () => {
+    const skipped = foldxFailureResult(Object.assign(new Error("... RepairPDB skipped (repair-exceeds-budget)): x"), {
+      foldxRepair: { failed: false, skipped: true, skippedReason: "repair-exceeds-budget" },
+    }));
+    const completed = foldxFailureResult(Object.assign(new Error("... RepairPDB completed in 205 s): x"), {
+      foldxRepair: { failed: false, skipped: false },
+    }));
+    const failed = foldxFailureResult(Object.assign(new Error("FoldX BuildModel failed (RepairPDB previously failed): x"), {
+      foldxRepair: { failed: true, skipped: false },
+    }));
+    expect(skipped.energetics.foldxRepairFailed).toBe(false);
+    expect(skipped.energetics.foldxRepairSkippedReason).toBe("repair-exceeds-budget");
+    expect(completed.energetics.foldxRepairFailed).toBe(false);
+    expect(failed.energetics.foldxRepairFailed).toBe(true);
   });
 
   it("returns the job's result unchanged, however the request goes", async () => {

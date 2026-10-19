@@ -143,35 +143,20 @@ export function InsightsScreen({ evidence: ev, narrative, onOpenTab, onOpenRepor
           <div className="ins-two">
             <div>
               <h3>Where the evidence agrees</h3>
-              {ev.agree.length ? <ul>{ev.agree.map(a => <li key={a.text}>{a.text}</li>)}</ul> : <p className="ins-p ins-dim">No two areas point the same way.</p>}
+              {ev.agree.length ? <ul>{ev.agree.map(a => <li key={a.text}>{a.text}</li>)}</ul> : <p className="ins-p ins-dim">No agreement identified between the available evidence areas.</p>}
             </div>
             <div>
               <h3>Where it pulls apart</h3>
-              {ev.differ.length ? <ul>{ev.differ.map(a => <li key={a.text}>{a.text}</li>)}</ul> : <p className="ins-p ins-dim">Nothing conflicts.</p>}
+              {ev.differ.length ? <ul>{ev.differ.map(a => <li key={a.text}>{a.text}</li>)}</ul> : <p className="ins-p ins-dim">No disagreement identified among the available readings. Missing evidence can still change this picture.</p>}
             </div>
           </div>
-          <div className="ins-card__foot"><span>Each line comes from the tabs&apos; own recorded calls. No new score is made.</span></div>
+          <div className="ins-card__foot"><span>These comparisons describe available readings, including uncounted context. Only recorded criteria enter the classification; no new score is made.</span></div>
         </section>
       )}
 
-      {/* Model proposals for codes the engine cannot compute: listed, never counted. */}
-      {ev.proposals.length > 0 && (
-        <section className="ins-card" aria-labelledby="ins-prop-h">
-          <div className="ins-card__head">
-            <h2 className="ins-label" id="ins-prop-h" style={{ margin: 0 }}>Proposed by the model · not counted</h2>
-          </div>
-          <div className="ins-proposals">
-            {ev.proposals.map(p => (
-              <div className="ins-proposal" key={p.code}>
-                <div><span className="ev-tier chip-code" data-tone="accent" data-unconfirmed="true">{p.code}</span> <span className="ins-dim">{ACMG_SOURCE_LABEL.ai_suggested}</span></div>
-                <p className="ins-p">{p.reason}</p>
-              </div>
-            ))}
-          </div>
-          <div className="ins-card__foot"><span>The engine cannot compute {ev.proposals.map(p => p.code).join(", ")}, so nothing here has been checked against data.</span></div>
-        </section>
-      )}
-
+      </>}
+      {w.view === 'gaps' && <>
+      <header className="ins-view-heading"><h2>What evidence is still needed?</h2><p>Missing evidence and hypothetical additions are research questions, not criteria already met.</p></header>
       {gap && <section className="ins-gap" aria-label="What would move the classification">
         <h3>What would move it</h3>
         {gap.options.length > 0 ? <><p className="ins-p">To reach <strong>{gap.target.toLowerCase()}</strong>, the engine needs one of these in addition to {gap.have}:</p><ul>{gap.options.map(o => <li key={o}>{o}</li>)}</ul></> : <p className="ins-p">{gap.sentence}</p>}
@@ -191,26 +176,46 @@ export function InsightsScreen({ evidence: ev, narrative, onOpenTab, onOpenRepor
       </section>
 
       </>}
-      {w.view === 'records' && <section className="ins-records" aria-labelledby="ins-records-h">
-        <header className="ins-view-heading"><h2 id="ins-records-h">Criterion records</h2><p>Every criterion the engine owns, including withheld and missing records. Only recorded criteria enter the classification.</p></header>
-        <div className="ins-record-table-wrap"><table className="ins-record-table"><thead><tr><th scope="col">Criterion</th><th scope="col">Engine state</th><th scope="col">Recorded reason</th></tr></thead>
-          <tbody>{ev.criteria.map(c => <tr key={c.code}><th scope="row"><span className="ins-mono">{formatEvidenceCode(c.code)}</span><small>{c.strength}</small></th><td>{c.state}</td><td>{c.reason}{c.tab && <button type="button" className="ins-link" onClick={() => onOpenTab?.(c.tab!)}>Open source tab</button>}</td></tr>)}</tbody>
-        </table></div>
-      </section>}
+      {w.view === 'records' && <>
+        <section className="ins-records" aria-labelledby="ins-records-h">
+          <header className="ins-view-heading"><h2 id="ins-records-h">Criterion records</h2><p>Every criterion the engine owns, including withheld and missing records. Only recorded criteria enter the classification.</p></header>
+          <div className="ins-record-table-wrap"><table className="ins-record-table"><thead><tr><th scope="col">Criterion</th><th scope="col">Engine state</th><th scope="col">Recorded reason</th></tr></thead>
+            <tbody>{ev.criteria.map(c => <tr key={c.code}><th scope="row"><span className="ins-mono">{formatEvidenceCode(c.code)}</span><small>{c.strength}</small></th><td>{c.state}</td><td>{c.reason}{c.tab && <button type="button" className="ins-link" onClick={() => onOpenTab?.(c.tab!)}>Open source tab</button>}</td></tr>)}</tbody>
+          </table></div>
+        </section>
+
+        {/* Model proposals for codes the engine cannot compute: listed, never counted. */}
+        {ev.proposals.length > 0 && (
+          <section className="ins-card" aria-labelledby="ins-prop-h">
+            <div className="ins-card__head">
+              <h2 className="ins-label" id="ins-prop-h" style={{ margin: 0 }}>Proposed by the model · not counted</h2>
+            </div>
+            <div className="ins-proposals">
+              {ev.proposals.map(p => (
+                <div className="ins-proposal" key={p.code}>
+                  <div><span className="ev-tier chip-code" data-tone="accent" data-unconfirmed="true">{p.code}</span> <span className="ins-dim">{ACMG_SOURCE_LABEL.ai_suggested}</span></div>
+                  <p className="ins-p">{p.reason}</p>
+                </div>
+              ))}
+            </div>
+            <div className="ins-card__foot"><span>The engine cannot compute {ev.proposals.map(p => p.code).join(", ")}, so nothing here has been checked against data.</span></div>
+          </section>
+        )}
+
+        <details className="ins-card ins-details">
+          <summary className="ins-card__head"><span className="ins-label">New to this? Plain-language guide</span><span className="ev-tier" data-tone="muted">optional</span></summary>
+          <dl className="ins-rows">
+            {ev.glossary.map(g => (<div key={g.term}><dt>{g.term}</dt><dd>{g.text}</dd></div>))}
+          </dl>
+        </details>
+      </>}
       {w.view === 'summary' && !narrative && <section className="ins-view-heading"><h2>No written summary yet</h2><p>The evidence map and criterion records are available independently. Generate an optional summary from Report.</p><button type="button" className="ins-link" onClick={onOpenReport}>Open the full report</button></section>}
-      {/* 5 · Plain-language guide */}
-      {w.view === "records" && <details className="ins-card ins-details">
-        <summary className="ins-card__head"><span className="ins-label">New to this? Plain-language guide</span><span className="ev-tier" data-tone="muted">optional</span></summary>
-        <dl className="ins-rows">
-          {ev.glossary.map(g => (<div key={g.term}><dt>{g.term}</dt><dd>{g.text}</dd></div>))}
-        </dl>
-      </details>}
 
       {/* 6 · Written summary */}
       {w.view === "summary" && narrative && (
         <section className="ins-card" aria-labelledby="ins-sum-h">
           <div className="ins-card__head">
-            <h2 className="ins-label" id="ins-sum-h" style={{ margin: 0 }}>Clinical summary</h2>
+            <h2 className="ins-label" id="ins-sum-h" style={{ margin: 0 }}>Written interpretation</h2>
             <span className="ins-card__chips">
               {narrative.truncated && <span className="ins-label">Excerpt — continues</span>}
               <span className="ev-tier" data-tone="muted">{narrative.isAi ? "AI-written" : "Rule-based"}</span>

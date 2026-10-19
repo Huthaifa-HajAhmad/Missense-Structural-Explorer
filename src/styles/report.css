@@ -349,4 +349,8 @@
   .rpt-heading__chips { display: none; }
 }
 /* A paper report is the whole document: sections outside the chosen pill print too. */
-@media print { .rpt-part[hidden] { display: block !important; } }
+/* Tailwind's important [hidden] rule lives in base. Important layer precedence
+   beats unlayered declarations, so the print override must share that layer. */
+@layer base {
+  @media print { .rpt-part[hidden] { display: block !important; } }
+}

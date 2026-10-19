@@ -259,4 +259,24 @@ describe("3D toolbar and legend", () => {
     expect(legend.textContent).toContain("Very high");
     expect(legend.textContent).toContain("AlphaFold DB bands");
   });
+
+  it("renders the Close-up toggle button in the toolbar and the Wild-Type vs. Variant side-chain card in the inspector", () => {
+    const onToggleSiteCloseUp = vi.fn();
+    const { container: barContainer } = toolbar(buildStructure3dEvidence(input()), {
+      siteCloseUp: true,
+      onToggleSiteCloseUp,
+    });
+    const closeUpBtn = barContainer.querySelector("[data-testid='structure-site-closeup']") as HTMLButtonElement;
+    expect(closeUpBtn).toBeTruthy();
+    expect(closeUpBtn.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(closeUpBtn);
+    expect(onToggleSiteCloseUp).toHaveBeenCalledTimes(1);
+
+    const { container: railContainer } = render(<StructureInspector family="alphafold" setCustomPdbUrl={() => {}} />);
+    const sidechainCard = railContainer.querySelector("[data-testid='structure-sidechain-card']");
+    expect(sidechainCard).toBeTruthy();
+    expect(sidechainCard?.textContent).toContain("Aspartate");
+    expect(sidechainCard?.textContent).toContain("Glycine");
+    expect(sidechainCard?.textContent).toContain("Grantham 94");
+  });
 });

@@ -46,6 +46,8 @@ export interface UseMolstarStructureOptions {
   selectedResidue: number | null;
   showPolarContacts: boolean;
   show3DLabels: boolean;
+  /** Missense-style site close-up: softens surrounding cartoon, shows 5 Å contact shell and labels, and frames the site tightly. */
+  siteCloseUp?: boolean;
   residueColorHex: number;
   neonHighContrast: boolean;
   autoZoomOnSelect: boolean;
@@ -61,22 +63,25 @@ export interface UseMolstarStructureOptions {
   setLoadError: (err: string | null) => void;
 }
 
-function themeRef(plan: ThemePlan, esm3Scores: number[] | null): { color: string; colorParams?: any; typeParams?: any } {
+function themeRef(plan: ThemePlan, esm3Scores: number[] | null, alphaOverride?: number | null): { color: string; colorParams?: any; typeParams?: any } {
+  const extraAlpha = typeof alphaOverride === "number" && alphaOverride < 1 ? { typeParams: { alpha: alphaOverride } } : {};
   switch (plan.theme) {
     case "plddt":
-      return { color: "plddt-confidence", colorParams: { scale: plan.scale } };
+      return { color: "plddt-confidence", colorParams: { scale: plan.scale }, ...extraAlpha };
     case "bfactor-quartile":
-      return { color: "bfactor-quartile" };
+      return { color: "bfactor-quartile", ...extraAlpha };
     case "displacement":
-      return { color: "backbone-displacement" };
+      return { color: "backbone-displacement", ...extraAlpha };
     case "esm3":
-      return { color: "esm3-shift", colorParams: { perturbationScores: esm3Scores ?? [] } };
-    case "uniform":
+      return { color: "esm3-shift", colorParams: { perturbationScores: esm3Scores ?? [] }, ...extraAlpha };
+    case "uniform": {
+      const alpha = typeof alphaOverride === "number" ? Math.min(plan.alpha, alphaOverride) : plan.alpha;
       return {
         color: "uniform",
         colorParams: { value: Color(plan.color) },
-        ...(plan.alpha < 1 ? { typeParams: { alpha: plan.alpha } } : {}),
+        ...(alpha < 1 ? { typeParams: { alpha } } : {}),
       };
+    }
   }
 }
 
@@ -133,6 +138,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
     selectedResidue,
     showPolarContacts,
     show3DLabels,
+    siteCloseUp = false,
     residueColorHex,
     neonHighContrast,
     autoZoomOnSelect,
@@ -173,11 +179,14 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
   const filterCut = plddtScale && plddtFilter !== "none" ? Number(plddtFilter) / (plddtScale === 1 ? 100 : 1) : null;
   // Alpha/visibility are representation properties, not colour-theme properties. Only these
   // changes require rebuilding visual components; palette and ESM3 score changes do not.
+  const closeUpActive = Boolean(siteCloseUp && variantPosition && canAddressVariantSite);
+  const ribbonAlphaOverride = closeUpActive ? 0.22 : null;
   const visualStructureKey = JSON.stringify({
     filterCut,
     primaryAlpha: colour.primary.theme === "uniform" ? colour.primary.alpha : 1,
     secondaryAlpha: colour.secondary?.theme === "uniform" ? colour.secondary.alpha : 1,
     secondaryCartoon: colour.secondaryCartoon,
+    closeUpActive,
   });
 
   /* ── Load and draw ───────────────────────────────────────────────────── */
@@ -310,7 +319,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         if (!active) return;
         polymerRef.current = polymerTarget;
         if (polymerTarget) {
-          await plugin.builders.structure.representation.addRepresentation(polymerTarget, { type: "cartoon", ...themeRef(colour.primary, esm3Scores) });
+          await plugin.builders.structure.representation.addRepresentation(polymerTarget, { type: "cartoon", ...themeRef(colour.primary, esm3Scores, ribbonAlphaOverride) });
         }
         const ligand = await plugin.builders.structure.tryCreateComponentStatic(structure, "ligand");
         if (ligand) await plugin.builders.structure.representation.addRepresentation(ligand, { type: "ball-and-stick", color: "element-symbol" });
@@ -330,7 +339,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           const polymer2 = colour.secondaryCartoon ? await plugin.builders.structure.tryCreateComponentStatic(structure2, "polymer") : null;
           polymer2Ref.current = polymer2;
           if (polymer2) {
-            await plugin.builders.structure.representation.addRepresentation(polymer2, { type: "cartoon", ...themeRef(colour.secondary, esm3Scores) });
+            await plugin.builders.structure.representation.addRepresentation(polymer2, { type: "cartoon", ...themeRef(colour.secondary, esm3Scores, ribbonAlphaOverride) });
           }
         }
 
@@ -425,8 +434,11 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
         const refs: string[] = [];
         const loci: any[] = [];
         const superposed = !!structure2 && stillInTree(plugin, structure2.ref);
+        const effectiveContacts = showPolarContacts || closeUpActive;
+        const effectiveLabels = show3DLabels || closeUpActive;
 
         if (variantPosition && canAddressVariantSite) {
+          const surroundings = MS.struct.modifier.includeSurroundings({ 0: residueExpression(variantPosition), radius: 5, "as-whole-residues": true });
           const site = await plugin.builders.structure.tryCreateComponentFromExpression(structure, residueExpression(variantPosition), "variant-site", { label: `Variant site ${variantPosition}` });
           if (!active) return;
           if (site) {
@@ -437,27 +449,29 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
               colorParams: { value: superposed ? Color(PAIR_COLOURS.template) : residueColorHex },
               // Thinner in a superposition, so the variant residue drawn over it stays visible where
               // the two coincide (a glycine is backbone only).
-              ...(superposed ? { typeParams: { sizeFactor: 0.16 } } : neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : {}),
+              ...(superposed ? { typeParams: { sizeFactor: closeUpActive ? 0.22 : 0.16 } } : neonHighContrast ? { typeParams: { sizeFactor: 1.8 } } : closeUpActive ? { typeParams: { sizeFactor: 0.34 } } : {}),
             });
             if (neonHighContrast) {
               await plugin.builders.structure.representation.addRepresentation(site, { type: "spacefill", typeParams: { alpha: 0.35 }, color: "uniform", colorParams: { value: residueColorHex } });
             }
-            if (show3DLabels) {
+            if (effectiveLabels) {
               await plugin.builders.structure.representation.addRepresentation(site, {
                 type: "label",
                 typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.4, offsetZ: 1.5, tether: true, tetherLength: 1.8, tetherBaseWidth: 0.35, attachment: "bottom-left" },
               });
             }
-            try { loci.push(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(variantPosition), structure.obj.data))); } catch { /* focus is optional */ }
+            try {
+              const focusExpr = effectiveContacts ? surroundings : residueExpression(variantPosition);
+              loci.push(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(focusExpr, structure.obj.data)));
+            } catch { /* focus is optional */ }
           }
 
           // The site's surroundings: whole residues within 5 Å, thin sticks, and (if enabled) the
           // non-covalent contacts Mol* finds among them. An interactions representation on the single
           // site residue — what this used to draw — has no partners to show.
-          if (showPolarContacts) {
+          if (effectiveContacts) {
             // The neighbours only (the site residue keeps its own colour), with grey carbons so the
             // variant site stays the one coloured residue; contacts are drawn over site + neighbours.
-            const surroundings = MS.struct.modifier.includeSurroundings({ 0: residueExpression(variantPosition), radius: 5, "as-whole-residues": true });
             const env = await plugin.builders.structure.tryCreateComponentFromExpression(
               structure,
               MS.struct.modifier.exceptBy({ 0: surroundings, by: residueExpression(variantPosition) }),
@@ -472,7 +486,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
                 type: "ball-and-stick",
                 color: "element-symbol",
                 colorParams: { carbonColor: { name: "uniform", params: { value: Color(PAIR_COLOURS.template) } } },
-                typeParams: { sizeFactor: 0.14 },
+                typeParams: { sizeFactor: closeUpActive ? 0.16 : 0.14 },
               });
             }
             if (contacts) {
@@ -490,9 +504,31 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
                 type: "ball-and-stick",
                 color: "uniform",
                 colorParams: { value: Color(PAIR_COLOURS.variant) },
-                typeParams: { sizeFactor: 0.3 },
+                typeParams: { sizeFactor: closeUpActive ? 0.36 : 0.3 },
               });
-              try { loci.push(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(residueExpression(variantPosition), structure2.obj.data))); } catch { /* optional */ }
+              if (effectiveLabels) {
+                await plugin.builders.structure.representation.addRepresentation(site2, {
+                  type: "label",
+                  typeParams: { level: "residue", background: true, backgroundOpacity: 0.9, borderWidth: 0.3, residueScale: 1.4, offsetZ: 2.1, tether: true, tetherLength: 2.2, tetherBaseWidth: 0.35, attachment: "top-right" },
+                });
+              }
+              try {
+                const focusExpr2 = effectiveContacts ? surroundings : residueExpression(variantPosition);
+                loci.push(StructureSelection.toLociWithSourceUnits(Script.getStructureSelection(focusExpr2, structure2.obj.data)));
+              } catch { /* optional */ }
+            }
+            if (effectiveContacts) {
+              const contacts2 = await plugin.builders.structure.tryCreateComponentFromExpression(
+                structure2,
+                surroundings,
+                "site-contacts-superposed",
+                { label: `Variant contacts around ${variantPosition}` }
+              );
+              if (!active) return;
+              if (contacts2) {
+                refs.push(contacts2.ref);
+                await plugin.builders.structure.representation.addRepresentation(contacts2, { type: "interactions" });
+              }
             }
           }
         }
@@ -529,9 +565,10 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
           return;
         }
         highlightRefs.current = refs;
-        if (loci.length > 0 && autoZoomOnSelect) {
+        if (loci.length > 0 && (autoZoomOnSelect || closeUpActive)) {
           plugin.managers.structure.selection.clear();
-          plugin.managers.camera.focusLoci(loci[0], { durationMs: cameraDuration, extraRadius: 6 });
+          const extraRadius = closeUpActive ? 3 : effectiveContacts ? 5 : 6;
+          plugin.managers.camera.focusLoci(loci[0], { durationMs: cameraDuration, extraRadius });
         } else if (!variantPosition && autoZoomOnSelect) {
           try { plugin.managers.camera.reset(); } catch { /* optional */ }
         }
@@ -550,7 +587,7 @@ export function useMolstarStructure(opts: UseMolstarStructureOptions) {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, showPolarContacts, show3DLabels, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
+  }, [pluginCreated, readyVersion, variantPosition, canAddressVariantSite, selectedResidue, showPolarContacts, show3DLabels, siteCloseUp, residueColorHex, neonHighContrast, autoZoomOnSelect, cameraDuration, showPocket, pocketResidueIndices.join(",")]);
 
   /** Frames one residue without changing any selection. */
   const focusResidue = (index: number) => {

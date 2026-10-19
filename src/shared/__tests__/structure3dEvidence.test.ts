@@ -547,4 +547,64 @@ describe("vocabulary", () => {
     expect(pdbIdFromUrl("https://files.rcsb.org/download/9QN5.pdb")).toBe("9QN5");
     expect(pdbIdFromUrl(null)).toBeNull();
   });
+
+  it("populates pure sideChain topology, Grantham class, and glycine backbone caveat on site", () => {
+    const m = buildStructure3dEvidence(baseInput());
+    expect(m.site.sideChain).not.toBeNull();
+    expect(m.site.sideChain?.wildTypeCode).toBe("D");
+    expect(m.site.sideChain?.mutantCode).toBe("G");
+    expect(m.site.sideChain?.wildTypeName).toBe("Aspartate");
+    expect(m.site.sideChain?.mutantName).toBe("Glycine");
+    expect(m.site.sideChain?.grantham).toBe(94);
+    expect(m.site.sideChain?.granthamClass).toBe("moderately conservative");
+    expect(m.site.sideChain?.backboneCaveat?.title).toMatch(/glycine/i);
+    expect(m.site.sideChain?.diff.lost.length).toBeGreaterThan(0);
+  });
+
+  it("keeps canAddressVariantSite true in Variant and Superposition modes when FoldX's template is verified even if an unmapped PDB entry is loaded on the wild-type canvas", () => {
+    const unmappedWildType = {
+      provenance: { source: "alphafold", afdbVersion: "v6" },
+      customPdbUrl: "/api/v1/pdb/entry/9XYZ",
+      entry: { numbering: "author" as const, chainId: null, mapping: null, reason: "No SIFTS mapping" },
+      scan: scanBFactors(CRYSTAL_TEXT),
+      site: null,
+    };
+    const wtMode = buildStructure3dEvidence(baseInput({
+      viewMode: "wildtype",
+      wildType: unmappedWildType,
+      foldx: readyFoldx(),
+    }));
+    expect(wtMode.site.canAddressVariantSite).toBe(false);
+
+    const verifiedFoldx = {
+      ...readyFoldx(),
+      referenceSite: readResidueAt(CRYSTAL_TEXT, 116),
+    };
+    const mutMode = buildStructure3dEvidence(baseInput({
+      viewMode: "mutant",
+      wildType: unmappedWildType,
+      foldx: verifiedFoldx,
+    }));
+    expect(mutMode.site.canAddressVariantSite).toBe(true);
+
+    const supMode = buildStructure3dEvidence(baseInput({
+      viewMode: "superimposed",
+      wildType: unmappedWildType,
+      foldx: verifiedFoldx,
+    }));
+    expect(supMode.site.canAddressVariantSite).toBe(true);
+  });
+
+  it("explains repairSkippedReason: 'repair-exceeds-budget' in the variant model trace step", () => {
+    const m = buildStructure3dEvidence(baseInput({
+      viewMode: "mutant",
+      foldx: {
+        ...readyFoldx(),
+        repairSkipped: true,
+        repairSkippedReason: "repair-exceeds-budget",
+      },
+    }));
+    const step2 = m.trace.find(s => s.n === 2);
+    expect(step2?.sub).toContain("Template not repaired (repair too slow on this server)");
+  });
 });

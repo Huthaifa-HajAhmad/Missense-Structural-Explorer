@@ -146,6 +146,17 @@ describe("report authoring transactions", () => {
 describe("report views", () => {
   beforeEach(() => useVariantAnalysisStore.getState().setReportView("document"));
 
+  it('separates prose editing from citations and methods without changing export inclusion', () => {
+    renderScreen();
+    const before = useVariantAnalysisStore.getState().reportSections;
+    fireEvent.click(screen.getByRole('tab', { name: 'Citations & methods' }));
+    expect(document.getElementById('report-method')!.closest('[hidden]')).toBeNull();
+    expect(document.getElementById('report-classification')!.closest('[hidden]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Narrative & notes' }));
+    expect(document.getElementById('report-method')!.closest('[hidden]')).not.toBeNull();
+    expect(useVariantAnalysisStore.getState().reportSections).toEqual(before);
+  });
+
   it("shows one part of the document per pill and says exports still take every ticked section", () => {
     renderScreen();
     expect(document.getElementById("report-classification")).not.toBeNull();

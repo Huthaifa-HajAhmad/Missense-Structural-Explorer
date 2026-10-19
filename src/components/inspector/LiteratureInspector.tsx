@@ -262,6 +262,7 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
   const selectionHidden = selected && !readings.some(paper => paper.citation.id === workspace.selected);
 
   const handleExportCitations = (format: "bibtex" | "ris" | "csv", shortlistOnly = false) => {
+    if (workspace.view !== 'map') return;
     const records = shortlistOnly ? shortlistReadings : readings;
     if (records.length === 0) return;
 
@@ -408,11 +409,12 @@ export const LiteratureInspector: React.FC<LiteratureInspectorProps> = ({
           type="button"
           className="lit-btn lit-btn--quiet lit-shortlist-export"
           onClick={() => handleExportCitations("csv", true)}
-          disabled={shortlistReadings.length === 0}
-          title="Download Read first and Read next papers as CSV"
+          disabled={workspace.view !== 'map' || shortlistReadings.length === 0}
+          title={workspace.view !== 'map' ? "Open the reading desk to export papers" : "Download all loaded Read first and Read next papers as CSV, regardless of desk filters"}
         >
           <Download aria-hidden="true" /> Export shortlist
         </button>
+        <p className="rail-step__sub">{workspace.view !== 'map' ? "Open the reading desk to export papers." : "Shortlist export includes all loaded Read first and Read next papers, including those outside the current filters."}</p>
         {evidence && evidence.counts.pinned > 0 && (
           <p className="rail-step__sub">{evidence.counts.pinned} pinned for the Report — pins are kept per variant and appear in its literature block.</p>
         )}

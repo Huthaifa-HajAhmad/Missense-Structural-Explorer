@@ -12,6 +12,13 @@ export const AMINO_ACID_1_TO_3_TITLE: Record<string, string> = {
   "S": "Ser", "T": "Thr", "W": "Trp", "Y": "Tyr", "V": "Val"
 };
 
+export const AMINO_ACID_FULL_NAME: Record<string, string> = {
+  "A": "Alanine", "R": "Arginine", "N": "Asparagine", "D": "Aspartate", "C": "Cysteine",
+  "Q": "Glutamine", "E": "Glutamate", "G": "Glycine", "H": "Histidine", "I": "Isoleucine",
+  "L": "Leucine", "K": "Lysine", "M": "Methionine", "F": "Phenylalanine", "P": "Proline",
+  "S": "Serine", "T": "Threonine", "W": "Tryptophan", "Y": "Tyrosine", "V": "Valine"
+};
+
 export const AMINO_ACID_3_TO_1: Record<string, string> = {
   "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
   "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",

@@ -4,9 +4,9 @@ import { useAlleleWorkspaceState } from '../../hooks/useAlleleWorkspaceState';
 import { WorkspaceTabs } from '../ui/WorkspaceTabs';
 
 type ReviewTab = 'insights' | 'literature';
-type ReviewView = 'map' | 'records' | 'summary';
-interface State { view: ReviewView; selected: string | null; reveal: number }
-const initial: State = { view: 'map', selected: null, reveal: 0 };
+type ReviewView = 'map' | 'records' | 'summary' | 'gaps';
+interface State { view: ReviewView; selected: string | null; reveal: number; allPapers: boolean }
+const initial: State = { view: 'map', selected: null, reveal: 0, allPapers: false };
 const Context = createContext<{ states: Partial<Record<ReviewTab, State>>; update: (tab: ReviewTab, patch: Partial<State>) => void } | null>(null);
 
 /** Review selections outlive a tab remount, but never the analysed allele. */
@@ -22,13 +22,14 @@ export function useReviewWorkspace(tab: ReviewTab) {
   const update = (patch: Partial<State>) => context ? context.update(tab, patch) : setLocal(s => ({ ...s, ...patch }));
   return { ...state, select: (selected: string | null) => update({ selected }),
     setView: (view: ReviewView) => update({ view }),
+    setAllPapers: (allPapers: boolean) => update({ allPapers }),
     finishReveal: () => update({ reveal: 0 }),
-    showSelected: () => update({ view: tab === 'insights' ? 'map' : 'records', reveal: state.reveal + 1 }) };
+    showSelected: () => update({ view: 'map', allPapers: true, reveal: state.reveal + 1 }) };
 }
 
 export function ReviewNavigation({ tab, workspace: w }: { tab: ReviewTab; workspace: ReturnType<typeof useReviewWorkspace> }) {
   return <div className="review-navigation"><WorkspaceTabs id={`review-${tab}`} label={`${tab === 'insights' ? 'Insights' : 'Literature'} views`}
-    tabs={[{ id: 'map', label: tab === 'insights' ? 'Evidence map' : 'Reading desk' }, { id: 'records', label: tab === 'insights' ? 'Criterion records' : 'Source records' },
-      ...(tab === 'insights' ? [{ id: 'summary' as const, label: 'Written summary' }] : [])]}
+    tabs={[{ id: 'map', label: tab === 'insights' ? 'Evidence map' : 'Reading desk' }, { id: 'records', label: tab === 'insights' ? 'Criterion records' : 'Mention coverage' },
+      ...(tab === 'insights' ? [{ id: 'gaps' as const, label: 'Evidence gaps' }, { id: 'summary' as const, label: 'Written summary' }] : [])]}
     value={w.view} onChange={w.setView} /></div>;
 }

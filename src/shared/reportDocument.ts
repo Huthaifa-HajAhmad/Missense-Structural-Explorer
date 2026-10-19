@@ -104,15 +104,16 @@ export const BLOCK_TITLE: Record<BlockKey, string> = {
 };
 
 /**
- * The document's three parts. The Report screen's view pills and the rail's contents list both read
+ * The document's four parts. The Report screen's view pills and the rail's contents list both read
  * this, so a block is filed in the same place on both sides. Together they cover `BLOCK_ORDER` once.
  */
-export type ReportGroupId = "interpretation" | "evidence" | "writing";
+export type ReportGroupId = "interpretation" | "evidence" | "writing" | "sources";
 
 export const REPORT_GROUPS: readonly { id: ReportGroupId; label: string; keys: readonly BlockKey[] }[] = [
   { id: "interpretation", label: "Case and interpretation", keys: ["identity", "classification", "contrast", "needed"] },
   { id: "evidence", label: "Evidence readings", keys: ["computational", "population", "splicing", "function", "structure", "stability", "assembly", "language-models"] },
-  { id: "writing", label: "Writing and sources", keys: ["literature", "summary", "notes", "method"] },
+  { id: "writing", label: "Narrative & notes", keys: ["summary", "notes"] },
+  { id: "sources", label: "Citations & methods", keys: ["literature", "method"] },
 ];
 
 export function reportGroupOf(key: BlockKey): ReportGroupId {

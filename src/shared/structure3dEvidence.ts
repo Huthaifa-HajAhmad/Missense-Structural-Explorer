@@ -42,7 +42,10 @@ import {
   STRUCTURE_COLOUR_BANDS,
   THRESHOLDS,
 } from "./thresholds";
-import { AMINO_ACID_1_TO_3_TITLE, AMINO_ACID_3_TO_1 } from "./aminoAcids";
+import { AMINO_ACID_1_TO_3_TITLE, AMINO_ACID_3_TO_1, AMINO_ACID_FULL_NAME } from "./aminoAcids";
+import { diffSideChains, type SideChainDiff } from "./sideChainTopology";
+import { granthamDistance } from "./residueScales";
+import { backboneCaveat, granthamClass, type GranthamClass } from "./residueContextEvidence";
 import type { BFactorScan, ResidueAt } from "./coordinateText";
 import { describeDeNovoFoldTimeout, isFoldingTimeoutError } from "./foldingLimits";
 
@@ -292,6 +295,19 @@ export interface Reading {
   caveat: string | null;
 }
 
+export interface ResidueSideChainSummary {
+  wildTypeCode: string;
+  mutantCode: string;
+  wildTypeLabel: string;
+  mutantLabel: string;
+  wildTypeName: string;
+  mutantName: string;
+  grantham: number | null;
+  granthamClass: GranthamClass | null;
+  backboneCaveat: { title: string; body: string } | null;
+  diff: SideChainDiff;
+}
+
 export interface SiteContext {
   position: number | null;
   substitution: string | null;
@@ -299,6 +315,8 @@ export interface SiteContext {
   confidence: { kind: "plddt" | "b-factor" | "none"; value: number | null; text: string; note: string };
   region: string | null;
   burial: string | null;
+  /** Pure chemical side-chain topology and Grantham comparison of the wild-type and variant residues. */
+  sideChain: ResidueSideChainSummary | null;
   /** True only when the canvas uses verified UniProt residue numbering. */
   canAddressVariantSite: boolean;
 }
@@ -1126,7 +1144,16 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       text: `The mapped structure has ${toThree(siteStructure.resName) ?? siteStructure.resName} at UniProt ${position}, not ${wt3}; the variant site is not highlighted or measured until the residue identity is reconciled.`,
     };
   }
-  const canAddressVariantSite = hasVerifiedNumbering && check.state === "match";
+  const templateAddressesSite =
+    isAf &&
+    effectiveMode !== "wildtype" &&
+    foldx.status === "success" &&
+    Boolean(
+      expected &&
+        ((foldxTemplate?.numbering === "uniprot" && (!foldx.referenceSite || foldx.referenceSite.resName === expected)) ||
+          foldx.referenceSite?.resName === expected)
+    );
+  const canAddressVariantSite = (hasVerifiedNumbering && check.state === "match") || templateAddressesSite;
 
   let confidence: SiteContext["confidence"] = { kind: "none", value: null, text: "Not read", note: "No wild-type coordinates at the site." };
   const siteB = siteStructure?.caBFactor ?? null;
@@ -1156,6 +1183,23 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
   }
 
   const substitution = wt3 && mt3 && position !== null ? `${wt3}${position}${mt3}` : null;
+  const sideChainDiff = wt1 && mt1 ? diffSideChains(wt1, mt1) : null;
+  const grantham = wt1 && mt1 ? granthamDistance(wt1, mt1) : null;
+  const sideChain: ResidueSideChainSummary | null =
+    wt1 && mt1 && wt3 && mt3 && sideChainDiff
+      ? {
+          wildTypeCode: wt1,
+          mutantCode: mt1,
+          wildTypeLabel: position !== null ? `${wt3} ${position}` : wt3,
+          mutantLabel: position !== null ? `${mt3} ${position}` : mt3,
+          wildTypeName: AMINO_ACID_FULL_NAME[wt1] ?? wt3,
+          mutantName: AMINO_ACID_FULL_NAME[mt1] ?? mt3,
+          grantham,
+          granthamClass: grantham !== null ? granthamClass(grantham) : null,
+          backboneCaveat: backboneCaveat(wt1, mt1),
+          diff: sideChainDiff,
+        }
+      : null;
   const site: SiteContext = {
     position,
     substitution,
@@ -1166,6 +1210,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       input.burial && (input.burial.label || input.burial.rsa !== null)
         ? `${input.burial.label ?? "Accessibility measured"}${input.burial.rsa !== null ? ` · RSA ${Math.round(input.burial.rsa * 100)}%` : ""}${input.burial.structure ? ` · on ${input.burial.structure}` : ""}`
         : null,
+    sideChain,
     canAddressVariantSite,
   };
 

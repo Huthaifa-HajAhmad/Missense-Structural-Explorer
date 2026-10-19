@@ -75,6 +75,17 @@ describe("FoldX timeout budgets nest", () => {
     expect(afterRepairMs + clampToJobRemaining(worstFallback, jobCapMs - afterRepairMs)).toBeLessThanOrEqual(jobCapMs);
   });
 
+  it("holds the retry's time back so a failed repair, a BuildModel and the retry all fit the job and its lease", () => {
+    const jobCapMs = timeouts.foldxSec * SEC;
+    const retryMs = timeouts.foldxBuildModelRetryMs;
+    const afterRepairMs = timeouts.foldxSemaphoreWaitMs + timeouts.foldxRepairMs;
+    const worstFallback = buildModelBudgetMs({ residueCount: 400, numberOfRuns: 5, emulated: true, incompleteResidues: 400 });
+    const buildModel = clampToJobRemaining(worstFallback, jobCapMs - afterRepairMs - retryMs);
+    const retry = clampToJobRemaining(retryMs, jobCapMs - afterRepairMs - buildModel);
+    expect(afterRepairMs + buildModel + retry).toBeLessThanOrEqual(jobCapMs);
+    expect(afterRepairMs + buildModel + retry).toBeLessThan(timeouts.foldxReaperLeaseMs);
+  });
+
   it("keeps every server timer ordered as work ≤ cap < lease", () => {
     const jobCapMs = timeouts.foldxSec * SEC;
     expect(jobCapMs).toBeLessThan(timeouts.foldxReaperLeaseMs);

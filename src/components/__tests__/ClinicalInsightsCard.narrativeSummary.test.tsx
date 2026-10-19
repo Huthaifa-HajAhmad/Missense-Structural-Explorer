@@ -117,7 +117,7 @@ describe("ClinicalInsightsCard — condensed clinical summary", () => {
     renderCard(baseResult());
 
     expect(screen.getByText(/CLINICAL_SECTION_MARKER/)).toBeInTheDocument();
-    expect(screen.getByText("Clinical summary")).toBeInTheDocument();
+    expect(screen.getByText("Written interpretation")).toBeInTheDocument();
     expect(screen.getByText("Clinical and Pathogenicity Interpretation")).toBeInTheDocument();
   });
 

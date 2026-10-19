@@ -111,6 +111,7 @@ const GUARDED_SURFACES = [
   "src/shared/structure3dEvidence.ts",
   "src/components/molstar/StructureStatusOverlay.tsx",
   "src/components/molstar/StructurePocketPanel.tsx",
+  "src/components/inspector/StructureInspector.tsx",
 ] as const;
 
 /**

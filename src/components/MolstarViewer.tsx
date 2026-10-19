@@ -91,6 +91,7 @@ export default function MolstarViewer({
   const residueColorHex = parseInt((settings.residueColor || "#C46849").replace("#", ""), 16);
 
   const [plddtFilter, setPlddtFilter] = useState<PlddtFilter>("none");
+  const [siteCloseUp, setSiteCloseUp] = useState(false);
   const [pocketOpen, setPocketOpen] = useState(false);
   const [showPocket, setShowPocket] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
@@ -159,6 +160,7 @@ export default function MolstarViewer({
     selectedResidue: selection.state === "available" ? selection.position : null,
     showPolarContacts,
     show3DLabels: settings.show3DLabels !== false,
+    siteCloseUp,
     residueColorHex: Number.isFinite(residueColorHex) ? residueColorHex : 0xc46849,
     neonHighContrast: settings.neonHighContrast === true,
     autoZoomOnSelect: settings.autoZoomOnSelect,
@@ -206,6 +208,8 @@ export default function MolstarViewer({
           onPlddtFilterChange={setPlddtFilter}
           onAlignmentScopeChange={onAlignmentScopeChange}
           onFocusSite={() => model.site.canAddressVariantSite && variantPosition && structure.focusResidue(variantPosition)}
+          siteCloseUp={siteCloseUp}
+          onToggleSiteCloseUp={() => setSiteCloseUp(prev => !prev)}
           onFocusSelection={selection.state === "available" && selection.position ? () => structure.focusResidue(selection.position!) : undefined}
           pocketOpen={pocketOpen}
           pocketTriggerRef={pocketTriggerRef}

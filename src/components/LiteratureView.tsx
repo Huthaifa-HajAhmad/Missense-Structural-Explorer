@@ -23,7 +23,7 @@ import type { GeneConstraint, ScreeningTagName } from "../shared/literatureScree
 import { verifiedAliasQuery } from "../shared/literatureAliases";
 import type { VerifiedLiteratureAlias } from "../shared/contracts";
 import { ENGINE_STATE_LABELS } from "../shared/engineStatus";
-import { literatureCoverage, READING_DESK_LIMIT } from "../shared/reviewPresentation";
+import { literatureCoverage, literatureTextCoverage, READING_DESK_LIMIT } from "../shared/reviewPresentation";
 import { ReviewNavigation, useReviewWorkspace } from "./review/ReviewWorkspace";
 
 export type { Citation };
@@ -67,8 +67,8 @@ const screeningFilters: Array<{ tag: ScreeningTagName; label: string }> = [
  *
  *   1. THE FINDING — how many Europe PMC records name the variant (a background search answers it on
  *      load), stating the query's reach and limits. Search facts live in a disclosure.
- *   2. READING DESK — loaded-text coverage and up to eight matching papers in the existing attention
- *      order. SOURCE RECORDS exposes every matching loaded paper with the same filtering controls.
+ *   2. READING DESK exposes a bounded bibliography with an explicit expand control.
+ *      MENTION COVERAGE owns the loaded-text figure without duplicating the bibliography.
  *   3. THE TRACE — persistent selected source, query as sent, matches and loaded records in the rail.
  *
  * The request state machine below is unchanged from the audited revision (newest-request-wins,
@@ -365,8 +365,9 @@ export default function LiteratureView({
     return base.filter(paper => visibleIds.has(paper.citation.id));
   }, [evidence.papers, evidence.visible, tierFilter, tagFilters]);
 
-  const deskPapers = workspace.view === 'map' ? screeningVisible.slice(0, READING_DESK_LIMIT) : screeningVisible;
+  const deskPapers = useMemo(() => workspace.view !== 'map' ? [] : workspace.allPapers ? screeningVisible : screeningVisible.slice(0, READING_DESK_LIMIT), [screeningVisible, workspace.view, workspace.allPapers]);
   const coverage = useMemo(() => literatureCoverage(evidence.papers).filter(row => forms || row.level !== 'variant'), [evidence.papers, forms]);
+  const textCoverage = useMemo(() => literatureTextCoverage(evidence.papers), [evidence.papers]);
   useEffect(() => {
     if (!workspace.reveal) return;
     setGroupFilter('all'); setTierFilter('all'); setTagFilters([]); setRevealedDraft(internalQuery);
@@ -387,7 +388,7 @@ export default function LiteratureView({
       value: step.value.replace(/\d[\d,]* shown$/, `${deskPapers.length.toLocaleString("en-GB")} shown`),
     } : step),
     displayed: deskPapers.map(paper => paper.citation),
-  }), [evidence, screeningVisible, workspace.view]);
+  }), [evidence, deskPapers]);
 
   // Hand the evidence model to shared state for the inspector. Guarded on what the inspector prints, so
   // a keystroke that changes nothing it shows does not re-render the whole inspector tree.
@@ -503,22 +504,29 @@ export default function LiteratureView({
 
         <ReviewNavigation tab="literature" workspace={workspace} />
         <div role="tabpanel" id={`review-literature-panel-${workspace.view}`} aria-labelledby={`review-literature-tab-${workspace.view}`}>
-        {workspace.view === 'map' && counts.total > 0 && <section className="lit-coverage" aria-labelledby="lit-coverage-title">
-          <header><h2 id="lit-coverage-title">What the loaded text names</h2><p>{counts.total} loaded papers{curatedAdded > 0 ? ` (including ${curatedAdded} curated additions)` : ''} · literal title and abstract checks · select a group to explore</p></header>
-          <div className="lit-coverage__rows">{coverage.map(row => <button type="button" key={row.level} aria-pressed={groupFilter === row.level} onClick={() => { setGroupFilter(groupFilter === row.level ? 'all' : row.level); setTierFilter('all'); setTagFilters([]); }}>
+        {workspace.view === 'records' && counts.total > 0 && <section className="lit-coverage" aria-labelledby="lit-coverage-title">
+          <header><h2 id="lit-coverage-title">What the loaded text names</h2><p>{counts.total} loaded papers{curatedAdded > 0 ? ` (including ${curatedAdded} curated additions)` : ''} · literal title and abstract checks · select a group to open matching papers</p></header>
+          <div className="lit-coverage__rows">{coverage.map(row => <button type="button" key={row.level} onClick={() => { setGroupFilter(row.level); setTierFilter('all'); setTagFilters([]); workspace.setView('map'); document.getElementById('review-literature-tab-map')?.focus(); }}>
             <span>{row.level === 'variant' ? `Names ${forms?.label}` : row.level === 'gene' ? `Names ${forms ? 'only ' : ''}${gene}` : forms ? 'Neither in title / abstract' : 'Gene not in title / abstract'}</span>
             <span className="lit-coverage__track" aria-hidden="true"><i style={{ inlineSize: `${row.percent}%` }} /></span>
             <span className="lit-mono">{row.count}<small> / {row.total}</small></span>
           </button>)}</div>
           <p className="lit-coverage__note">These are mentions, not evidence of a paper’s conclusion. Curated additions are included in this loaded set; unreturned search matches are not screened.</p>
           {!forms && <p className="lit-coverage__note">Variant notation is unavailable; these groups check the gene only.</p>}
+          <div className="lit-text-coverage">
+            <h3>How much text was available?</h3>
+            <dl><div><dt>With an abstract</dt><dd>{textCoverage.withAbstract}<small> / {textCoverage.total}</small></dd></div>
+              <div><dt>Without an abstract</dt><dd>{textCoverage.withoutAbstract}<small> / {textCoverage.total}</small></dd></div></dl>
+            <p>A record without an abstract can only be screened against its title. A missing mention does not establish that the paper is irrelevant. Open the paper to assess its findings.</p>
+          </div>
         </section>}
 
         {/* ── 2. The papers ──────────────────────────────────────────────────────────────── */}
-        <section className="lit-section" aria-labelledby="lit-papers-title">
+        {workspace.view === 'records' && counts.total === 0 && <section className="lit-empty"><h2>No loaded text to compare</h2><p>{isLoading ? 'The search is running.' : error ? 'The search failed. Retry from the reading desk.' : 'Search or load papers in the reading desk to inspect their mention coverage.'}</p><button type="button" className="review-action" onClick={() => { workspace.setView('map'); document.getElementById('review-literature-tab-map')?.focus(); }}>Open reading desk</button></section>}
+        {workspace.view === 'map' && <section className="lit-section" aria-labelledby="lit-papers-title">
           <h2 className="eyebrow" id="lit-papers-title">
             <Library className="w-3.5 h-3.5" />
-            {workspace.view === 'map' ? 'Reading desk' : 'Source records'}
+            Reading desk
             {counts.pinned > 0 && <span className="lit-eyebrow-meta">{counts.pinned} in the report</span>}
           </h2>
 
@@ -697,9 +705,9 @@ export default function LiteratureView({
                 selectedId={workspace.selected} onSelect={workspace.select} reveal={groupFilter === "all" && tierFilter === "all" && !tagFilters.length && !isNarrowingFilter ? workspace.reveal : 0} onRevealed={workspace.finishReveal} />
             )}
 
-            {workspace.view === 'map' && screeningVisible.length > READING_DESK_LIMIT && <div className="lit-load-more">
-              <span>Showing the first {READING_DESK_LIMIT} of {screeningVisible.length} matching loaded papers.</span>
-              <button type="button" className="lit-link" onClick={() => workspace.setView('records')}>Show all matching source records</button>
+            {screeningVisible.length > READING_DESK_LIMIT && <div className="lit-load-more">
+              <span>Showing {deskPapers.length} of {screeningVisible.length} matching loaded papers.</span>
+              <button type="button" className="lit-link" onClick={() => workspace.setAllPapers(!workspace.allPapers)}>{workspace.allPapers ? `Show first ${READING_DESK_LIMIT}` : 'Show all matching papers'}</button>
             </div>}
 
             {moreError && <p className="lit-callout" role="alert" data-tone="warning">{moreError}</p>}
@@ -718,7 +726,7 @@ export default function LiteratureView({
               <span>{sortOrder === "attention" ? "Screening tiers 1–6; ties keep the supplied list order." : "Publication year, newest first."} Titles and abstracts checked.</span>
             </div>
           </div>
-        </section>
+        </section>}
         </div>
       </div>
     </div>

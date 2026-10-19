@@ -38,14 +38,16 @@ const VIEW_TABS: readonly { id: ReportView; label: string }[] = [
   { id: "document", label: "Full document" },
   { id: "interpretation", label: "Interpretation" },
   { id: "evidence", label: "Evidence readings" },
-  { id: "writing", label: "Writing & sources" },
+  { id: "writing", label: "Narrative & notes" },
+  { id: "sources", label: "Citations & methods" },
 ];
 
 const VIEW_NOTE: Record<ReportView, string> = {
   document: "Every section in reading order. Tick a section to keep it in the export.",
   interpretation: "Identity, the rule-engine classification, where the evidence agrees and what is still missing.",
   evidence: "One reading per evidence tab, each with the criterion the engine did or did not count.",
-  writing: "Pinned literature, the written summary, your notes and the method.",
+  writing: "Review the written interpretation and add your own commentary. Editing prose does not change the recorded classification.",
+  sources: "Papers selected for this report, with limitations and method provenance. Inclusion is not an assessment of a paper's conclusions.",
 };
 
 function ReportHeading({ title, subtitle, draft = true }: { title: string; subtitle: string; draft?: boolean }) {

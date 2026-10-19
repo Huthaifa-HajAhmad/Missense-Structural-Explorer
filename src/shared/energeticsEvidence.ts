@@ -349,7 +349,8 @@ export function listNames(names: string[]): string {
 
 function repairOf(e: Record<string, any> | null | undefined): Pick<EnergeticsStructure, "repair" | "repairState"> {
   if (!e) return { repair: null, repairState: "unknown" };
-  if (e.foldxRepairFailed) return { repair: "Repair failed", repairState: "failed" };
+  // A deliberate skip is not a failure: if both are ever set, say the template was not repaired.
+  if (e.foldxRepairFailed && !e.foldxRepairSkipped) return { repair: "Repair failed", repairState: "failed" };
   if (e.foldxRepairSkipped) {
     const why =
       e.foldxRepairSkippedReason === "large-structure"

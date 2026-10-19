@@ -152,8 +152,11 @@ async function runCompanions(jobId: string | undefined, data: any): Promise<void
 }
 
 /** The result a FoldX failure becomes, so the other engines' values still reach the reader. */
-export function foldxFailureResult(err: { message?: string }): any {
+export function foldxFailureResult(err: { message?: string; foldxRepair?: { failed: boolean; skipped: boolean; skippedReason?: string } }): any {
   const message = err?.message ?? "FoldX failed";
+  // The runner states what RepairPDB did. Only an error from elsewhere falls back to its wording, and
+  // only the one phrase that says the repair failed (the runner's own messages mention RepairPDB always).
+  const repair = err?.foldxRepair;
   const isPdbResidueMissing = /not found in the PDB structure|Mutation mismatch|Invalid mutation code/i.test(message);
   const isBinaryMissing = !isPdbResidueMissing && /FoldX binary not found|parameter files missing|cannot be executed|ENOENT/i.test(message);
   console.warn(`[Queue Worker] FoldX execution failed (${message}). Binary missing: ${isBinaryMissing}. PDB coordinate mismatch: ${isPdbResidueMissing}. Proceeding with independent biophysical predictors.`);
@@ -164,7 +167,9 @@ export function foldxFailureResult(err: { message?: string }): any {
     error: message,
     energetics: {
       foldxMean: null,
-      foldxRepairFailed: !isBinaryMissing && !isPdbResidueMissing && /repair/i.test(message),
+      foldxRepairFailed: !isBinaryMissing && !isPdbResidueMissing && (repair ? repair.failed : /RepairPDB previously failed/i.test(message)),
+      ...(repair?.skipped ? { foldxRepairSkipped: true } : {}),
+      ...(repair?.skippedReason ? { foldxRepairSkippedReason: repair.skippedReason } : {}),
       foldxBinaryMissing: isBinaryMissing,
       foldxError: message,
     },

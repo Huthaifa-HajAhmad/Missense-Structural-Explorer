@@ -79,9 +79,12 @@ export const CONFIG = {
    *
    * Required ordering, asserted by `server/tests/foldx-timeout-budget.test.ts`:
    *
-   *   semaphoreWait + max(repair + buildModel(≤400 res), buildModelMax) + buildModelRetry
+   *   semaphoreWait + max(repair + buildModel(≤ emulatedRepairResidueLimit res), buildModelMax) + buildModelRetry
    *                                                           ← worst-case work (repair and a long
-   *                                                             BuildModel never share a job)
+   *                                                             BuildModel never share a job). The runner
+   *                                                             clamps BuildModel to the job time left
+   *                                                             minus the retry's time after a failed
+   *                                                             repair, and clamps the retry too.
    *     ≤ foldxSec                                            ← queue job cap
    *     < foldxReaperLeaseMs                                  ← stale-running reaper
    *     ≤ foldxQueuedLeaseMs                                  ← stale-queued reaper

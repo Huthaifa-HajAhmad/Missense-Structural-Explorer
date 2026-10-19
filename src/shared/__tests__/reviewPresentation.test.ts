@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { literatureCoverage } from '../reviewPresentation';
+import { literatureCoverage, literatureTextCoverage } from '../reviewPresentation';
 import { buildLiteratureEvidence } from '../literatureEvidence';
 
 describe('loaded literature coverage', () => {
@@ -12,6 +12,10 @@ describe('loaded literature coverage', () => {
     const rows = literatureCoverage(evidence.papers);
     expect(rows.map(r => [r.level, r.count, r.total])).toEqual([['variant', 1, 3], ['gene', 1, 3], ['elsewhere', 1, 3]]);
     expect(rows.reduce((n, r) => n + r.count, 0)).toBe(evidence.papers.length);
+    expect(literatureTextCoverage(evidence.papers)).toEqual({ total: 3, withAbstract: 0, withoutAbstract: 3 });
+    const mixed = evidence.papers.map((paper, i) => ({ ...paper, citation: { ...paper.citation, abstract: i === 0 ? 'Measured enzyme activity.' : i === 1 ? '   ' : '' } }));
+    expect(literatureTextCoverage(mixed)).toEqual({ total: 3, withAbstract: 1, withoutAbstract: 2 });
+    expect(literatureTextCoverage([])).toEqual({ total: 0, withAbstract: 0, withoutAbstract: 0 });
     expect(evidence.facts.find(f => f.label === 'Query matches loaded')?.value).toBe('2');
   });
   it('does not divide by zero for an empty loaded set', () => {

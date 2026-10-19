@@ -293,7 +293,13 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const weighting = result.metadata?.acmgWeighting ?? null;
 
   const view = acmgCriteriaView(result.insights?.acmgCriteria, result.ruleBasedInsights?.acmgCriteria);
-  const { engine: engineCodes, proposals, droppedEngineOwned } = partitionCriteria(view);
+  const { engine: mergedEngineCodes, proposals, droppedEngineOwned: mergedDropped } = partitionCriteria(view);
+  // The merged narrative can be older than the raw engine record. Read the same raw list
+  // as the lanes, including an explicitly empty list; otherwise the headline and map disagree.
+  const engineCodes = result.ruleBasedInsights?.acmgCriteria != null
+    ? partitionCriteria(acmgCriteriaView(null, result.ruleBasedInsights.acmgCriteria)).engine
+    : mergedEngineCodes;
+  const droppedEngineOwned = mergedDropped.filter(proposal => !engineCodes.some(c => baseAcmgCode(c.code) === baseAcmgCode(proposal.code)));
   const recordedVerdict = result.ruleBasedInsights?.acmgVerdict ?? result.insights?.acmgVerdict ?? null;
   const computedVerdict = classifyVariant(engineCodes.map(c => ({ code: c.code, reason: c.reason })));
   const hasRecord = Boolean(result.ruleBasedInsights || result.insights);
@@ -325,9 +331,11 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
       : `${nP} ${plural(nP, "predictor says", "predictors say")} damaging, ${nB} ${plural(nB, "says", "say")} tolerated, ${nI} ${plural(nI, "is", "are")} unsure.`,
     rest: nVoting === 0
       ? peCounted ? "The engine recorded this criterion, but its voting inputs are unavailable in this payload." : "Nothing is counted for this lane."
-      : nP > 0 && nB > 0
-        ? peCounted ? "Contested. The engine still recorded the plurality call." : "Contested, and the engine recorded no code."
-        : peCounted ? "The engine recorded this call." : "The engine recorded no code for it.",
+      : peCounted && baseAcmgCode(peCode!) !== pe.vote.code
+          ? "The recorded criterion differs from the current predictor vote. Re-run the analysis to refresh it."
+        : nP > 0 && nB > 0
+          ? peCounted ? "Contested. The engine still recorded the plurality call." : "Contested, and the engine recorded no code."
+          : peCounted ? "The engine recorded this call." : "The engine recorded no code for it.",
   });
 
   // Population ─ the frequency tab's own criterion and what the engine recorded.
@@ -342,7 +350,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     key: "population",
     name: "Population",
     links: [{ label: "Population data", tab: "clinical" }],
-    lean: CODE_LEAN(popCode),
+    lean: CODE_LEAN(popCode ?? (fe.applied.suppressed ? fe.criterion.code : null)),
     counted: Boolean(popCode),
     code: popCode,
     length: recordedLength(popCode),
@@ -350,12 +358,16 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
     state: fe.hasPendingSource && !popRead ? "pending" : popRead ? "read" : "absent",
     lead: popCode
       ? `${fe.criterion.headline ?? fe.criterion.statement}.`
-      : popRead
+      : fe.applied.suppressed
+        ? "The frequency supports a criterion that was not recorded."
+        : popRead
         ? "No frequency criterion applies."
         : "No frequency evidence was counted.",
     rest: popCode
       ? (fe.criterion.predicate ? `${fe.criterion.predicate[0].toUpperCase()}${fe.criterion.predicate.slice(1)}.` : "")
-      : popRead
+      : fe.applied.suppressed
+        ? fe.applied.withheldByWeighting ? `The ${weighting} weighting withheld it; it does not count toward the classification.` : "Inspect Population data for the current reading. Only the engine's recorded criteria count toward the classification."
+        : popRead
         ? (fe.criterion.predicate ? `The frequency read is ${fe.criterion.predicate}, so PM2, BS1 and BA1 are all unmet.` : "The frequency read meets none of PM2, BS1 or BA1.")
         : fe.hasProviderFault
           ? "A source failed to answer, so rarity (PM2) was not computed."
@@ -495,9 +507,10 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const agree: Contrast[] = [];
   const differ: Contrast[] = [];
   const readLanes = lanes.filter(l => l.state === "read");
+  const directionName = (lane: Lane) => lane.counted ? lane.name : `${lane.name} (not counted)`;
   for (const lean of ["pathogenic", "benign"] as const) {
     const same = readLanes.filter(l => l.lean === lean);
-    if (same.length >= 2) agree.push({ text: `${oxfordList(same.map(l => l.name))} ${same.length === 2 ? "both" : "all"} point to ${lean}.` });
+    if (same.length >= 2) agree.push({ text: `${oxfordList(same.map(directionName))} ${same.length === 2 ? "both" : "all"} point to ${lean}.` });
   }
   const silent = readLanes.filter(l => l.lean === "none");
   if (silent.length >= 2) agree.push({ text: `${oxfordList(silent.map(l => l.name))} provide context without an assessed clinical direction.` });
@@ -509,7 +522,7 @@ export function buildInsightsEvidence(input: InsightsEvidenceInput): InsightsEvi
   const path = readLanes.filter(l => l.lean === "pathogenic");
   const ben = readLanes.filter(l => l.lean === "benign");
   if (path.length && ben.length) {
-    differ.push({ text: `${oxfordList(path.map(l => l.name))} ${path.length === 1 ? "leans" : "lean"} pathogenic while ${oxfordList(ben.map(l => l.name))} ${ben.length === 1 ? "leans" : "lean"} benign.` });
+    differ.push({ text: `${oxfordList(path.map(directionName))} ${path.length === 1 ? "leans" : "lean"} pathogenic while ${oxfordList(ben.map(directionName))} ${ben.length === 1 ? "leans" : "lean"} benign.` });
   }
   for (const l of readLanes) {
     if (l.lean !== "none" && !l.counted && !l.unconfirmed && tierIndex <= 2) {
