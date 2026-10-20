@@ -7,6 +7,9 @@ import zlib from "zlib";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 import * as local from "./dbnsfp_local.ts";
+import { computeGeneNumbering } from "./dbnsfp-reader-core.ts";
+import { getDbnsfpReaderPool } from "./dbnsfp-reader-pool.ts";
+import { aggregateLandscape } from "./landscape-aggregate.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const ingestScript = path.join(repoRoot, "tools", "ingest_dbnsfp.ts");
@@ -41,7 +44,7 @@ function ingestFixture(dbPath: string): void {
   if (res.status !== 0) throw new Error(`ingest failed: ${res.stderr}`);
 }
 
-const ENV_KEYS = ["ENABLE_LOCAL_DBNSFP", "DBNSFP_SQLITE_PATH"] as const;
+const ENV_KEYS = ["ENABLE_LOCAL_DBNSFP", "DBNSFP_SQLITE_PATH", "DBNSFP_WORKER_MIN_BYTES", "DBNSFP_WORKER_WINDOW_RESIDUES"] as const;
 let saved: Record<string, string | undefined>;
 let tmp: string;
 let dbPath: string;
@@ -54,8 +57,8 @@ beforeEach(() => {
   process.env.DBNSFP_SQLITE_PATH = dbPath;
 });
 
-afterEach(() => {
-  local.closeLocalDbnsfpStore();
+afterEach(async () => {
+  await local.closeLocalDbnsfpStore();
   for (const k of ENV_KEYS) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -288,6 +291,85 @@ describe("local dbNSFP store, residue numbering is the gene's MANE transcript's"
   it("refuses an SNV shared by two genes unless the caller names the gene", async () => {
     expect(await local.queryLocalDbnsfpByGenomic("5", 20, "A", "G")).toBeNull();
     expect(await local.queryLocalDbnsfpByGenomic("5", 20, "A", "G", "OVB")).toMatchObject({ gene: "OVB", pos: 7 });
+  });
+
+  it("precomputes gene_numbering at ingest with exactly the reader's own derivation, for every gene", () => {
+    const d = new DatabaseSync(dbPath);
+    try {
+      const table = d.prepare("SELECT gene, transcript, basis FROM gene_numbering ORDER BY gene").all() as Array<{ gene: string; transcript: string | null; basis: string }>;
+      expect(table).toEqual([
+        { gene: "ISO", transcript: "ENST00000020", basis: "mane" },
+        // Lone transcripts carry no MANE or canonical flag: unambiguous numbering, unconfirmed basis.
+        { gene: "OVA", transcript: "ENST00000030", basis: "unknown" },
+        { gene: "OVB", transcript: "ENST00000031", basis: "unknown" },
+      ]);
+      // Drift guard: tools/ingest_dbnsfp.ts repeats the derivation (it runs without server/ sources).
+      const genes = (d.prepare("SELECT DISTINCT gene FROM variant_scores ORDER BY gene").all() as Array<{ gene: string }>).map(r => r.gene);
+      for (const gene of genes) {
+        const scanned = computeGeneNumbering(d, gene);
+        const row = table.find(t => t.gene === gene);
+        if (scanned.transcript === undefined) expect(row).toBeUndefined();
+        else expect(row).toEqual({ gene, transcript: scanned.transcript, basis: scanned.basis });
+      }
+    } finally {
+      d.close();
+    }
+  });
+
+  it("derives a gene's numbering from a whole-gene window read first in the worker, identically to the scan", async () => {
+    const d = new DatabaseSync(dbPath);
+    d.exec("DROP TABLE gene_numbering;");
+    const scanned = Object.fromEntries(["ISO", "OVA", "OVB"].map(g => [g, computeGeneNumbering(d, g)]));
+    d.close();
+    await local.closeLocalDbnsfpStore();
+    process.env.DBNSFP_WORKER_MIN_BYTES = "1";
+    for (const g of ["ISO", "OVA", "OVB"]) {
+      // The window is this process's first read of the gene: no cached numbering, no prior scan.
+      const window = await local.queryLocalDbnsfpLandscapeRows(g);
+      expect(window?.numbering).toEqual(scanned[g]);
+    }
+    // ...and the derived numbering then filters point reads exactly as the scanned one would.
+    expect(await local.queryLocalDbnsfpVariant("ISO", 100, null, null, "S100N")).toBeNull();
+    expect(await local.queryLocalDbnsfpByGenomic("4", 10, "C", "T")).toMatchObject({ gene: "ISO", pos: 100 });
+  });
+
+  it("returns identical answers whether the gene-sized reads run inline or in the reader worker", async () => {
+    // Without the precomputed table, so the GROUP BY itself runs on both paths.
+    const d = new DatabaseSync(dbPath);
+    d.exec("DROP TABLE gene_numbering;");
+    d.close();
+    const sequence = "A".repeat(99) + "P";
+    const ask = async () => ({
+      coordinate: await local.queryLocalDbnsfpByGenomic("4", 10, "C", "T"),
+      sharedSnv: await local.queryLocalDbnsfpByGenomic("5", 20, "A", "G"),
+      sharedSnvNamed: await local.queryLocalDbnsfpByGenomic("5", 20, "A", "G", "OVB"),
+      reading: await local.queryLocalDbnsfpCoordinateReading("4", 10, "C", "T", "ISO"),
+      residue: await local.queryLocalDbnsfpVariant("ISO", 100, null, null, "P100L"),
+      otherIsoform: await local.queryLocalDbnsfpVariant("ISO", 100, null, null, "S100N"),
+      window: await local.queryLocalDbnsfpLandscapeRows("ISO"),
+      aggregated: await local.queryLocalDbnsfpLandscapeRows("ISO", 100, 100, { aggregate: { start: 100, end: 100, sequence } }),
+    });
+
+    await local.closeLocalDbnsfpStore();
+    process.env.DBNSFP_WORKER_MIN_BYTES = String(Number.MAX_SAFE_INTEGER);
+    const inline = await ask();
+
+    await local.closeLocalDbnsfpStore();
+    process.env.DBNSFP_WORKER_MIN_BYTES = "1";
+    process.env.DBNSFP_WORKER_WINDOW_RESIDUES = "0"; // every window through the worker, even the 1-residue one
+    const viaWorker = await ask();
+    expect(getDbnsfpReaderPool().completed).toBeGreaterThan(0);
+
+    expect(viaWorker).toEqual(inline);
+    expect(inline.coordinate).toMatchObject({ gene: "ISO", pos: 100, aa_change: "p.Pro100Leu" });
+    expect(inline.otherIsoform).toBeNull();
+    expect(inline.window).toMatchObject({ transcript: "ENST00000020", transcriptBasis: "mane" });
+    // The aggregation done beside the read is aggregateLandscape over the same candidates.
+    const window = inline.window!;
+    expect(inline.aggregated?.aggregated).toEqual(aggregateLandscape(window.candidates, {
+      start: 100, end: 100, sequence, choice: { transcript: window.transcript, basis: window.transcriptBasis },
+    }));
+    expect(inline.aggregated?.aggregated?.positions[0]).toMatchObject({ residx: 100, aaref: "P", refMismatch: false });
   });
 });
 

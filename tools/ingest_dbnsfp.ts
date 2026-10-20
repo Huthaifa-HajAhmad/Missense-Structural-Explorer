@@ -291,6 +291,11 @@ function openStore(dbPath: string, create: boolean): DatabaseSync {
         key TEXT PRIMARY KEY,
         value TEXT
       );
+      CREATE TABLE IF NOT EXISTS gene_numbering (
+        gene TEXT PRIMARY KEY,
+        transcript TEXT,
+        basis TEXT NOT NULL
+      );
     `);
   }
   // CREATE IF NOT EXISTS does not upgrade stores built before genomic/transcript identity was
@@ -546,6 +551,61 @@ export async function ingestStream(src: Source, db: DatabaseSync, run: { force: 
   return rows;
 }
 
+export function buildGeneNumbering(db: DatabaseSync): void {
+  const start = Date.now();
+  console.log(`[Ingest] Building gene_numbering lookup table...`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gene_numbering (
+      gene TEXT PRIMARY KEY,
+      transcript TEXT,
+      basis TEXT NOT NULL
+    );
+  `);
+  const rows = db.prepare(
+    "SELECT gene, transcript_basis AS basis, transcript FROM variant_scores GROUP BY 1, 2, 3"
+  ).all() as Array<{ gene: string; basis: string | null; transcript: string | null }>;
+  const byGene = new Map<string, Array<{ basis: string | null; transcript: string | null }>>();
+  for (const r of rows) {
+    if (!r.gene) continue;
+    const g = r.gene.trim().toUpperCase();
+    let list = byGene.get(g);
+    if (!list) {
+      list = [];
+      byGene.set(g, list);
+    }
+    list.push({ basis: r.basis, transcript: r.transcript });
+  }
+  const ins = db.prepare("INSERT OR REPLACE INTO gene_numbering (gene, transcript, basis) VALUES (?, ?, ?);");
+  db.exec("BEGIN TRANSACTION;");
+  try {
+    db.exec("DELETE FROM gene_numbering;");
+    for (const [g, groups] of byGene) {
+      // MUST equal `deriveGeneNumbering` in server/services/prediction/dbnsfp-reader-core.ts. It is
+      // repeated rather than imported because tools/rebuild_dbnsfp.sh runs this file alone inside the
+      // runner image, where server/ sources are not present; dbnsfp_local.test.ts fails if the two
+      // disagree on any fixture gene. Genes without per-row bases are left out: the reader treats a
+      // missing row as "scan", which keeps the line-level rule for them.
+      if (!groups.some(x => typeof x.basis === "string")) continue;
+      const at = (basis: string) => new Set(groups.filter(x => x.basis === basis && x.transcript).map(x => x.transcript as string));
+      const any = new Set(groups.filter(x => x.basis !== "first-listed" && x.transcript).map(x => x.transcript as string));
+      const pick = (set: Set<string>) => (set.size === 1 ? [...set][0] : null);
+      const mane = at("mane");
+      const canonical = at("ensembl-canonical");
+      const res = mane.size > 0
+        ? { transcript: pick(mane), basis: "mane" }
+        : canonical.size > 0
+          ? { transcript: pick(canonical), basis: "ensembl-canonical" }
+          : { transcript: pick(any), basis: "unknown" };
+      ins.run(g, res.transcript, res.basis);
+    }
+    db.exec("COMMIT;");
+  } catch (err) {
+    db.exec("ROLLBACK;");
+    throw err;
+  }
+  console.log(`[Ingest]   gene_numbering built (${fmt(byGene.size)} genes) in ${((Date.now() - start) / 1000).toFixed(1)} s`);
+}
+
 export function buildIndexes(db: DatabaseSync): void {
   for (const idx of INDEXES) {
     const start = Date.now();
@@ -553,6 +613,7 @@ export function buildIndexes(db: DatabaseSync): void {
     db.exec(`CREATE INDEX IF NOT EXISTS ${idx.name} ON variant_scores (${idx.columns});`);
     console.log(`[Ingest]   done in ${((Date.now() - start) / 1000).toFixed(1)} s`);
   }
+  buildGeneNumbering(db);
   const now = new Date().toISOString();
   db.prepare("INSERT OR REPLACE INTO build_meta (key, value) VALUES ('indexes_built_at', ?);").run(now);
 }
