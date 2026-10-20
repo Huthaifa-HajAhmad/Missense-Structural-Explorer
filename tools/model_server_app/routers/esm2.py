@@ -12,7 +12,7 @@ from tools.model_server_app.utils import (
 )
 from tools.model_server_app import models
 from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync, remote_failures
-from tools.model_server_app.engine_resilience import to_full_coordinates
+from tools.model_server_app.engine_resilience import account_level_refusal, to_full_coordinates
 
 router = APIRouter()
 
@@ -169,7 +169,10 @@ def predict_esm2_3b_sync(req: Esm2Request):
         raise HTTPException(status_code=400, detail="Wild-type AA mismatch.")
 
     remote_engine_note = None
-    hf_blocked = remote_failures.blocked_reason("esm2", "huggingface", req.hfToken) if req.hfToken else None
+    hf_blocked = (
+        remote_failures.blocked_reason("esm2", "huggingface", req.hfToken)
+        or account_level_refusal(remote_failures.blocked_reason("saprot", "huggingface", req.hfToken))
+    ) if req.hfToken else None
     if hf_blocked:
         remote_engine_note = f"remote skipped (recent refusal): {hf_blocked}"
         print(f"[Model Server] ESM-2 remote skipped: {hf_blocked}")

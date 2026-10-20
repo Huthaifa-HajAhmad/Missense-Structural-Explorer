@@ -51,9 +51,35 @@ const japanFoldCache = new LRUCache<string, any>({
   ttl: 1000 * 60 * 60 * 24 * 14 // 14 days
 });
 
+const PERMANENT_AUTH_STATUSES = new Set([401, 402, 403, 451]);
+const AUTH_REFUSAL_TTL_MS = 10 * 60 * 1000;
+const japanFoldAuthRefusedUntil = new Map<string, number>();
+
+function authCircuitKey(): string {
+  return `${CONFIG.services.japanfoldBaseUrl || ""}|${CONFIG.services.japanfoldApiKey || ""}`;
+}
+
+function isJapanFoldAuthBlocked(): boolean {
+  const key = authCircuitKey();
+  const until = japanFoldAuthRefusedUntil.get(key);
+  if (until === undefined) return false;
+  if (Date.now() >= until) {
+    japanFoldAuthRefusedUntil.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function recordJapanFoldStatus(status: number): void {
+  if (PERMANENT_AUTH_STATUSES.has(status)) {
+    japanFoldAuthRefusedUntil.set(authCircuitKey(), Date.now() + AUTH_REFUSAL_TTL_MS);
+  }
+}
+
 export function clearJapanFoldCache(): void {
   japanFoldCache.clear();
   japanFoldFlights.clear();
+  japanFoldAuthRefusedUntil.clear();
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -96,8 +122,10 @@ export async function queryEsmc(
   const cacheKey = `japanfold:esmc:${seqHash}:${pos}:${wt}:${mut}`;
   const cached = japanFoldCache.get(cacheKey);
   if (cached) return cached;
+  if (isJapanFoldAuthBlocked()) return null;
 
   return joinJapanFold(cacheKey, async () => {
+    if (isJapanFoldAuthBlocked()) return null;
     const timeoutMs = CONFIG.timeouts.japanfoldZeroShotMs || 3500;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     // Bounded by its own timeout, not by the caller's signal: the call is shared (see joinJapanFold).
@@ -119,6 +147,7 @@ export async function queryEsmc(
       });
 
       if (!response.ok) {
+        recordJapanFoldStatus(response.status);
         console.warn(`[JapanFold Client] ESMC query failed with HTTP ${response.status}`);
         return null;
       }
@@ -262,8 +291,10 @@ export async function querySaProt(
   const cacheKey = `japanfold:saprot:${seqHash}:${pdbHash}:${pos}:${wt}:${mut}`;
   const cached = japanFoldCache.get(cacheKey);
   if (cached) return cached;
+  if (isJapanFoldAuthBlocked()) return null;
 
   return joinJapanFold(cacheKey, async () => {
+    if (isJapanFoldAuthBlocked()) return null;
     const timeoutMs = CONFIG.timeouts.japanfoldZeroShotMs || 3500;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     // Bounded by its own timeout, not by the caller's signal: the call is shared (see joinJapanFold).
@@ -286,6 +317,7 @@ export async function querySaProt(
       });
 
       if (!response.ok) {
+        recordJapanFoldStatus(response.status);
         console.warn(`[JapanFold Client] SaProt query failed with HTTP ${response.status}`);
         return null;
       }

@@ -247,10 +247,12 @@ async function computeLandscape(
 
   // Local dbNSFP: the ingest already stores one transcript's numbering per row.
   if (isLocalDbnsfpAvailable()) {
-    const local = await queryLocalDbnsfpLandscapeRows(normGene, startPos, endPos);
+    // The aggregation is done beside the read (in the reader worker on a built store): a whole-gene
+    // window is gene-sized, and aggregating TTN's 265,658 rows here took ≈ 2.2 s of the event loop.
+    const local = await queryLocalDbnsfpLandscapeRows(normGene, startPos, endPos, { aggregate: { start, end: endPos, sequence } });
     if (local) {
       const end = endPos ?? local.maxPos;
-      const { positions, qualityFlags } = aggregateLandscape(local.candidates, {
+      const { positions, qualityFlags } = local.aggregated ?? aggregateLandscape(local.candidates, {
         start,
         end,
         sequence,

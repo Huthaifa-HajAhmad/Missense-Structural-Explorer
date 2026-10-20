@@ -51,6 +51,15 @@ FOLDX_BINARY=""
 # doc/VARIANT_QUERY_AND_PIPELINE_AUDIT_PLAN.md). Rows whose gene lists no MANE Select or canonical
 # transcript are never served. Status: /api/v1/diagnostics -> dbnsfp, /api/v1/capabilities -> dbnsfp_local.
 ENABLE_LOCAL_DBNSFP="true"
+# Gene-sized store reads (a gene's numbering scan, whole-gene landscape windows) run in a reader worker so
+# they never stop the HTTP event loop (measured before: TTN stalled every request for 5–8 s). Defaults shown.
+# DBNSFP_READER_WORKERS="2"             # worker threads
+# DBNSFP_WORKER_MIN_BYTES="67108864"    # stores smaller than this (tests, the dev stub) read inline
+# DBNSFP_WORKER_WINDOW_RESIDUES="1000"  # windows up to this many residues read inline (a few ms)
+# Start the locus-dependent sources (gnomAD constraint/frequency, local population, conservation) on the
+# store's MANE locus before Ensembl VEP answers; re-run them whenever VEP's locus differs. "shadow" (the
+# default) only records `locusSpeculation` in CORE_DATA_FETCH_COMPLETED; "on" applies it; "off" skips it.
+# PREDICTOR_SPECULATIVE_LOCUS="shadow"
 
 # Candidate coordinate-resolver rungs (local dbNSFP, ProtVar) evaluated beside the live ladder and only
 # counted, never served; counters appear under `resolverShadow` in /api/v1/diagnostics. Unset = on.

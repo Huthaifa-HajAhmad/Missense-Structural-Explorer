@@ -24,7 +24,15 @@ import os
 # paid for once, not on every analysis, and so concurrent engines that fall back to the same local
 # VESM-150M pass compute it once.
 remote_failures = RemoteFailureMemory(ttl_seconds=float(os.environ.get("REMOTE_FAILURE_TTL_S", "600")))
-_local_vesm_results = SingleFlightCache(max_entries=8)
+_local_vesm_results = SingleFlightCache(max_entries=16)
+_local_vesm_masked_cache = SingleFlightCache(max_entries=32)
+_local_vesm_wt_emb_cache = SingleFlightCache(max_entries=8)
+
+
+def clear_vesm_caches() -> None:
+    _local_vesm_results.clear()
+    _local_vesm_masked_cache.clear()
+    _local_vesm_wt_emb_cache.clear()
 
 BIOHUB_HOST = "https://biohub.ai"
 FORGE_HOST = os.environ.get("FORGE_API_URL", "https://forge.evolutionaryscale.ai").rstrip("/")
@@ -119,42 +127,68 @@ def predict_vesm_sync(req: VesmRequest):
 
     # 2. Local Fallback (VESM-150M). Concurrent engines that fall back to the same local pass (ESM-3,
     # ESM-2) share one computation instead of each running three forward passes on the CPU.
+    seq_hash = hashlib.sha256(sequence.encode()).hexdigest()
     cache_key = (
-        hashlib.sha256(sequence.encode()).hexdigest(), pos, wt, mut, bool(req.includeEmbeddings), start_offset
+        seq_hash, pos, wt, mut, bool(req.includeEmbeddings), start_offset
     )
     result = _local_vesm_results.get_or_compute(
-        cache_key, lambda: _predict_vesm_local(req, sequence, pos, wt, mut, start_offset)
+        cache_key, lambda: _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash=seq_hash)
     )
     if remote_engine_note:
         result["remoteEngineNote"] = remote_engine_note
     return result
 
 
-def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset):
+def _ensure_vesm_loaded():
     if models.vesm_model is None or models.vesm_tokenizer is None:
         try:
             models.load_vesm()
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"VESM model is not loaded: {e}")
 
+
+def _compute_masked_site_logits(sequence: str, pos: int):
+    _ensure_vesm_loaded()
+    seq_chars = list(sequence)
+    seq_chars[pos - 1] = models.vesm_tokenizer.mask_token
+    masked_seq = "".join(seq_chars)
+
+    inputs = models.vesm_tokenizer(masked_seq, return_tensors="pt")
+    with models.cpu_gate.acquire(priority=0), torch.no_grad():
+        outputs = models.vesm_model(**inputs)
+        logits = outputs.logits
+
+    mask_token_id = models.vesm_tokenizer.mask_token_id
+    mask_indices = (inputs["input_ids"][0] == mask_token_id).nonzero(as_tuple=True)[0]
+    token_idx = mask_indices[0].item()
+    return logits[0, token_idx : token_idx + 1].detach().clone()
+
+
+def _compute_wt_hidden_states(sequence: str):
+    _ensure_vesm_loaded()
+    wt_inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
+    with models.cpu_gate.acquire(priority=1), torch.no_grad():
+        wt_outputs = models.vesm_model(**wt_inputs, output_hidden_states=True)
+        return wt_outputs.hidden_states[-1][0].detach().clone()
+
+
+def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset, seq_hash: str | None = None):
+    _ensure_vesm_loaded()
+    if seq_hash is None:
+        seq_hash = hashlib.sha256(sequence.encode()).hexdigest()
+
     try:
-        seq_chars = list(sequence)
-        seq_chars[pos - 1] = models.vesm_tokenizer.mask_token
-        masked_seq = "".join(seq_chars)
-
-        inputs = models.vesm_tokenizer(masked_seq, return_tensors="pt")
-        with torch.no_grad():
-            outputs = models.vesm_model(**inputs)
-            logits = outputs.logits
-
-        mask_token_id = models.vesm_tokenizer.mask_token_id
-        mask_indices = (inputs["input_ids"][0] == mask_token_id).nonzero(as_tuple=True)[0]
-        token_idx = mask_indices[0].item()
+        # 1. Masked site logits (shared across includeEmbeddings=False and True, and across all
+        # alternate alleles at the same site). Runs at priority=0 so Evidence triage finishes first.
+        site_logits = _local_vesm_masked_cache.get_or_compute(
+            (seq_hash, pos, start_offset),
+            lambda: _compute_masked_site_logits(sequence, pos),
+        )
 
         vocab_map = {aa: models.vesm_tokenizer.convert_tokens_to_ids(aa) for aa in AA_LIST}
 
         wt_prob, mut_prob, llr, preferences, mut_rank, pos_entropy = compute_scientific_metrics(
-            logits[0], token_idx, wt, mut, vocab_map
+            site_logits, 0, wt, mut, vocab_map
         )
 
         embedding_shift = None
@@ -162,27 +196,27 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset):
 
         # Optimization: Only run the two expensive unmasked forward passes (WT and Mutant)
         # when the caller actually needs embeddings. Triage evaluation (LLR only) skips them,
-        # yielding a ~3x speedup on CPU.
+        # and WT embeddings are cached by (seq_hash, start_offset) across variants in the same window.
         if req.includeEmbeddings:
-            wt_inputs = models.vesm_tokenizer(sequence, return_tensors="pt")
+            wt_emb = _local_vesm_wt_emb_cache.get_or_compute(
+                (seq_hash, start_offset),
+                lambda: _compute_wt_hidden_states(sequence),
+            )
             mut_seq_chars = list(sequence)
             mut_seq_chars[pos - 1] = mut
             mut_seq = "".join(mut_seq_chars)
             mut_inputs = models.vesm_tokenizer(mut_seq, return_tensors="pt")
 
-            with torch.no_grad():
-                wt_outputs = models.vesm_model(**wt_inputs, output_hidden_states=True)
+            with models.cpu_gate.acquire(priority=1), torch.no_grad():
                 mut_outputs = models.vesm_model(**mut_inputs, output_hidden_states=True)
-                
-                wt_emb = wt_outputs.hidden_states[-1][0]
                 mut_emb = mut_outputs.hidden_states[-1][0]
-                
+
                 seq_len = min(wt_emb.size(0), mut_emb.size(0))
                 diff = wt_emb[:seq_len] - mut_emb[:seq_len]
                 distances = torch.norm(diff, p=2, dim=-1)
 
             embedding_shift = round(distances[pos].item(), 4)
-            
+
             for i in range(-10, 11):
                 target_pos = pos + i
                 if 1 <= target_pos < seq_len - 1:
@@ -207,6 +241,8 @@ def _predict_vesm_local(req, sequence, pos, wt, mut, start_offset):
             "provenance": "VESM-150M (Local)",
             "verdict": "raw score"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

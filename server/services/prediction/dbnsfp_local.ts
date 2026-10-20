@@ -3,13 +3,15 @@ import fs from 'fs';
 import path from 'path';
 import * as self from './dbnsfp_local.ts';
 import type { AssemblyTaggedCoordinate } from "../../../src/shared/assembly.ts";
+import { aggregateLandscape, type AggregateOutput, type SnvCandidate, type TranscriptBasis } from "./landscape-aggregate.ts";
 import {
-  normalizeAminoAcid,
-  parseAminoAcidChange,
-  toFiniteOrNull,
-  type SnvCandidate,
-  type TranscriptBasis
-} from "./landscape-aggregate.ts";
+  computeGeneNumbering,
+  isUsableRow,
+  readLandscapeRows,
+  rowFollowsNumbering,
+  type GeneNumbering,
+} from "./dbnsfp-reader-core.ts";
+import { closeDbnsfpReaderPool, getDbnsfpReaderPool } from "./dbnsfp-reader-pool.ts";
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'dbnsfp_v5.sqlite');
 
@@ -93,13 +95,18 @@ function explicitlyDisabled(): boolean {
   return (process.env.ENABLE_LOCAL_DBNSFP ?? '').trim().toLowerCase() === 'false';
 }
 
-function closeProbe(): void {
+function closeProbe(): Promise<void> {
+  // The reader worker holds its own read-only connection to the same file; a replaced store must not
+  // be read through it, and on Windows the file cannot be deleted until that connection is gone.
+  numberingInflight.clear();
+  const workerClosed = closeDbnsfpReaderPool();
   try {
     probe?.db?.close();
   } catch {
     // A connection that fails to close is already unusable; dropping the reference is enough.
   }
   probe = null;
+  return workerClosed;
 }
 
 function buildProbe(dbPath: string, stat: fs.Stats | null, signature: string): StoreProbe {
@@ -154,11 +161,12 @@ function currentProbe(): StoreProbe {
 }
 
 /**
- * Release the cached connection. Needed before the store file can be deleted or replaced on Windows,
- * and harmless otherwise: the next call re-probes.
+ * Release the cached connections (this thread's and the reader worker's). Needed before the store file
+ * can be deleted or replaced on Windows, and harmless otherwise: the next call re-probes. The returned
+ * promise settles when the worker's connection is closed too; await it before deleting the file.
  */
-export function closeLocalDbnsfpStore(): void {
-  closeProbe();
+export function closeLocalDbnsfpStore(): Promise<void> {
+  return closeProbe();
 }
 
 /**
@@ -178,85 +186,148 @@ export function getDbInstance(): DatabaseSync | null {
 const genomicColumnsByDb = new WeakMap<DatabaseSync, boolean>();
 
 /**
- * Whether a stored row's residue numbers may be used.
- *
- * The ingest records how it chose each row's transcript (`transcript_basis`). A `first-listed` row is one
- * whose gene lists neither a MANE Select nor a canonical transcript, so its residue number belongs to an
- * arbitrary isoform (about 4% of a dbNSFP 5.4a build). Reading it as canonical numbering would score a
- * different residue, so such rows are not served; the caller falls through to the remote sources.
- * Stores built before the column existed have no per-row basis and keep their previous behaviour.
- */
-function isUsableRow(row: { transcript_basis?: string | null } | null | undefined): boolean {
-  return !!row && row.transcript_basis !== "first-listed";
-}
-
-/**
- * The one transcript whose residue numbers a gene's rows may be read in.
+ * Whether a stored row's residue numbers may be used (`isUsableRow`, `rowFollowsNumbering` in
+ * dbnsfp-reader-core.ts): a `first-listed` row is never served, and on stores that record bases a row is
+ * read only when its TRANSCRIPT is the gene's numbering transcript (MANE Select, else Ensembl canonical,
+ * else the gene's only transcript).
  *
  * `transcript_basis` is a per-LINE label, and dbNSFP writes a separate line for each transcript that
  * translates an SNV differently. A line listing only an alternative isoform is therefore stored as
  * `single` although its numbering is not MANE's: measured on the 5.4a store, 60% of a random sample of
  * `single` rows (36 of 60) sit on a non-MANE transcript of a gene that has one, and 520 of BRAF's 567
  * such rows name a different wild-type residue than MANE at the same number (ENST00000469930
- * p.Ser170Arg where MANE residue 170 is Pro). So a row is read only when its TRANSCRIPT is the gene's
- * numbering transcript: the MANE Select one, else the Ensembl canonical one, else the gene's only
- * transcript. A gene with two candidates at one level has no single numbering and serves nothing.
+ * p.Ser170Arg where MANE residue 170 is Pro).
  *
- * `transcript: undefined` marks a store built before per-row bases existed: such stores keep the
- * line-level rule ({@link isUsableRow}) because they hold nothing to decide by.
+ * WHERE the numbering comes from, cheapest first:
+ *   1. this process's cache;
+ *   2. the store's precomputed `gene_numbering` table (written by tools/ingest_dbnsfp.ts; one indexed row);
+ *   3. the gene-wide GROUP BY — in the reader worker on a built store, inline on a small one. Measured
+ *      on the 5.4a store with a cold page cache: TTN 5.3 s, APOB/DMD 0.6 s, BRCA1 0.3 s. Inline, that is
+ *      the whole HTTP event loop stopped (it ran inside translate-variant and stalled every request).
+ * The synchronous readers below only ever consult 1–2; the async entry points resolve 3 first.
  */
-interface GeneNumbering {
-  transcript: string | null | undefined;
-  basis: TranscriptBasis;
+const numberingByDb = new WeakMap<DatabaseSync, Map<string, GeneNumbering>>();
+const numberingTableByDb = new WeakMap<DatabaseSync, boolean>();
+const numberingInflight = new Map<string, Promise<GeneNumbering>>();
+
+/** Stores at or above this size read gene-sized results in the worker. Tests lower it to exercise the worker path. */
+function workerMinBytes(): number {
+  const raw = Number(process.env.DBNSFP_WORKER_MIN_BYTES);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 64 * 1024 * 1024;
 }
 
-const numberingByDb = new WeakMap<DatabaseSync, Map<string, GeneNumbering>>();
+function readsInWorker(db: DatabaseSync): boolean {
+  return Boolean(probe?.usable && probe.db === db && probe.sizeBytes >= workerMinBytes());
+}
 
-function geneNumbering(db: DatabaseSync, gene: string): GeneNumbering {
+/**
+ * Windows up to this many residues are read inline: ±100 residues of TTN is ~1,300 rows (≈ 12 ms cold),
+ * less than the worker hop costs. Whole-gene windows and wider ones go to the worker.
+ */
+function smallWindow(startPos: number | undefined, endPos: number | undefined): boolean {
+  const raw = Number(process.env.DBNSFP_WORKER_WINDOW_RESIDUES);
+  const limit = Number.isFinite(raw) && raw >= 0 ? raw : 1000;
+  return startPos !== undefined && endPos !== undefined && endPos - startPos + 1 <= limit;
+}
+
+function numberingCache(db: DatabaseSync): Map<string, GeneNumbering> {
   let byGene = numberingByDb.get(db);
   if (!byGene) {
     byGene = new Map();
     numberingByDb.set(db, byGene);
   }
-  const key = gene.trim().toUpperCase();
-  const cached = byGene.get(key);
-  if (cached) return cached;
+  return byGene;
+}
 
-  let result: GeneNumbering;
-  try {
-    const groups = (db.prepare(
-      "SELECT transcript_basis AS basis, transcript FROM variant_scores WHERE gene = ? GROUP BY 1, 2"
-    ).all as any)(key) as Array<{ basis: string | null; transcript: string | null }>;
-    if (!groups.some(g => typeof g.basis === "string")) {
-      result = { transcript: undefined, basis: "unknown" };
-    } else {
-      const at = (basis: string) => new Set(groups.filter(g => g.basis === basis && g.transcript).map(g => g.transcript as string));
-      const any = new Set(groups.filter(g => g.basis !== "first-listed" && g.transcript).map(g => g.transcript as string));
-      const pick = (set: Set<string>) => (set.size === 1 ? [...set][0] : null);
-      const mane = at("mane");
-      const canonical = at("ensembl-canonical");
-      result = mane.size > 0
-        ? { transcript: pick(mane), basis: "mane" }
-        : canonical.size > 0
-          ? { transcript: pick(canonical), basis: "ensembl-canonical" }
-          // A lone transcript with no MANE or canonical flag: its numbering is unambiguous but unconfirmed.
-          : { transcript: pick(any), basis: "unknown" };
+/** The precomputed row, or null when the store has no `gene_numbering` table or no row for the gene. */
+function numberingFromTable(db: DatabaseSync, key: string): GeneNumbering | null {
+  let present = numberingTableByDb.get(db);
+  if (present === undefined) {
+    try {
+      present = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gene_numbering'").get());
+    } catch {
+      present = false;
     }
-  } catch {
-    // Pre-basis schema (no `transcript_basis` column): keep the line-level rule.
-    result = { transcript: undefined, basis: "unknown" };
+    numberingTableByDb.set(db, present);
   }
-  byGene.set(key, result);
+  if (!present) return null;
+  try {
+    const row = db.prepare("SELECT transcript, basis FROM gene_numbering WHERE gene = ?").get(key) as
+      | { transcript: string | null; basis: string }
+      | undefined;
+    // An absent gene is not "no numbering": the ingest skips genes whose rows carry no basis, which the
+    // scan reads as the line-level rule. Let the scan decide.
+    return row ? { transcript: row.transcript ?? null, basis: row.basis as TranscriptBasis } : null;
+  } catch {
+    return null;
+  }
+}
+
+function cachedNumbering(db: DatabaseSync, key: string): GeneNumbering | null {
+  const byGene = numberingCache(db);
+  const hit = byGene.get(key);
+  if (hit) return hit;
+  const fromTable = numberingFromTable(db, key);
+  if (fromTable) byGene.set(key, fromTable);
+  return fromTable;
+}
+
+/** Synchronous: used by row filters once {@link resolveGeneNumbering} has run (so normally a cache hit). */
+function geneNumbering(db: DatabaseSync, gene: string): GeneNumbering {
+  const key = gene.trim().toUpperCase();
+  const hit = cachedNumbering(db, key);
+  if (hit) return hit;
+  const result = computeGeneNumbering(db, key);
+  numberingCache(db).set(key, result);
   return result;
+}
+
+let warnedWorkerFailure = false;
+
+/**
+ * Resolves a gene's numbering WITHOUT blocking the event loop on a built store: the scan runs in the
+ * reader worker, and concurrent requests for one gene share one scan. If the worker cannot run, the
+ * scan runs inline — slower for the loop, identical in result.
+ */
+async function resolveGeneNumbering(db: DatabaseSync, gene: string): Promise<GeneNumbering> {
+  const key = gene.trim().toUpperCase();
+  const hit = cachedNumbering(db, key);
+  if (hit) return hit;
+  if (!readsInWorker(db) || !probe) return geneNumbering(db, key);
+  const flightKey = `${probe.signature}|${key}`;
+  const inflight = numberingInflight.get(flightKey);
+  if (inflight) return inflight;
+  const { path: dbPath, signature } = probe;
+  const job = (async () => {
+    try {
+      const result = (await getDbnsfpReaderPool().run({ dbPath, signature, gene: key }, { name: "workerGeneNumbering" })) as GeneNumbering;
+      numberingCache(db).set(key, result);
+      return result;
+    } catch (err: any) {
+      if (!warnedWorkerFailure) {
+        warnedWorkerFailure = true;
+        console.warn(`[Local dbNSFP] reader worker failed (${err?.message ?? err}); reading inline on the event loop.`);
+      }
+      return geneNumbering(db, key);
+    } finally {
+      numberingInflight.delete(flightKey);
+    }
+  })();
+  numberingInflight.set(flightKey, job);
+  return job;
+}
+
+/** Resolves the numbering of every gene named by `rows` before a synchronous filter reads them. */
+async function resolveRowGenes(db: DatabaseSync, rows: Array<{ gene?: string | null; transcript_basis?: string | null }>): Promise<void> {
+  const genes = new Set(rows.filter(r => typeof r?.transcript_basis === "string" && r.gene).map(r => String(r.gene).trim().toUpperCase()));
+  for (const g of genes) await resolveGeneNumbering(db, g);
 }
 
 /** Whether `row` may be read: line-level rule, then (on stores that record bases) the gene's numbering transcript. */
 function isNumberedRow(db: DatabaseSync, row: { gene?: string | null; transcript?: string | null; transcript_basis?: string | null } | null | undefined): boolean {
   if (!isUsableRow(row)) return false;
   if (typeof row!.transcript_basis !== "string" || !row!.gene) return true;
-  const numbering = geneNumbering(db, row!.gene);
-  if (numbering.transcript === undefined) return true;
-  return numbering.transcript !== null && row!.transcript === numbering.transcript;
+  return rowFollowsNumbering(row, geneNumbering(db, row!.gene));
 }
 
 export interface LocalDbnsfpRecord {
@@ -357,6 +428,7 @@ export async function queryLocalDbnsfpVariant(
       `);
       rows = (stmt.all as any)(gene.trim().toUpperCase(), pos);
     }
+    await resolveRowGenes(db, rows);
     rows = rows.filter(r => isNumberedRow(db, r));
     // A requested substitution that is absent must not inherit the first row's allele.
     if (aaChange) rows = rows.filter(r => matchAminoAcidChange(aaChange, r.aa_change));
@@ -456,28 +528,18 @@ export function inspectLocalDbnsfpFile(): LocalDbnsfpInspection {
   return { ...base, version: getLocalDbnsfpVersion(), rowCount };
 }
 
-/**
- * The numbering basis of the rows actually returned. Per row when the store records it (a lone
- * transcript is no choice, so `single` agrees with either); otherwise the store-level label, which only
- * says the build used MANE somewhere.
- */
-function windowBasis(rows: Array<{ transcript_basis?: string | null }>): TranscriptBasis {
-  const bases = new Set(rows.map(r => r.transcript_basis).filter((b): b is string => typeof b === "string"));
-  if (bases.size === 0) {
-    const policy = readBuildMeta("transcript_policy");
-    return policy === "mane" || policy === "ensembl-canonical" ? policy : "unknown";
-  }
-  bases.delete("single");
-  if (bases.size === 0 || (bases.size === 1 && bases.has("mane"))) return "mane";
-  if (bases.size === 1 && bases.has("ensembl-canonical")) return "ensembl-canonical";
-  return "unknown";
-}
-
 export interface LocalLandscapeRows {
   candidates: SnvCandidate[];
   maxPos: number;
   transcript: string | null;
   transcriptBasis: TranscriptBasis;
+  /** The gene's numbering the rows were filtered on. */
+  numbering: GeneNumbering;
+  /**
+   * Present when the caller passed `aggregate`: `aggregateLandscape` over the same candidates with the
+   * same options, computed beside the read (in the worker on a built store). `candidates` is then empty.
+   */
+  aggregated?: AggregateOutput;
 }
 
 /**
@@ -485,11 +547,17 @@ export interface LocalLandscapeRows {
  * transcript's residue number and scores (the ingest picks the MANE / canonical transcript), so
  * every candidate has a single reading. Rows are keyed by genomic SNV where the build stores the
  * coordinate, so a duplicated row is counted once.
+ *
+ * A whole-gene window is gene-sized: TTN's is 265,658 rows (≈ 4.4 s to read cold, then ≈ 2.2 s of
+ * filtering and aggregation in JavaScript, measured inside /analyze-variant/landscape-overview). On a
+ * built store the read AND, with `aggregate`, the aggregation therefore run in the reader worker, and
+ * only the per-residue result crosses back. The inline path runs the same functions.
  */
 export async function queryLocalDbnsfpLandscapeRows(
   gene: string,
   startPos?: number,
-  endPos?: number
+  endPos?: number,
+  options?: { aggregate?: { start: number; end?: number; sequence: string | null } }
 ): Promise<LocalLandscapeRows | null> {
   await new Promise<void>(resolve => setImmediate(resolve));
   const db = self.getDbInstance();
@@ -497,51 +565,34 @@ export async function queryLocalDbnsfpLandscapeRows(
 
   const g = gene.trim().toUpperCase();
   try {
-    let sPos = startPos;
-    let ePos = endPos;
-    if (sPos === undefined || ePos === undefined) {
-      const boundary = (db.prepare("SELECT MIN(pos) as min_pos, MAX(pos) as max_pos FROM variant_scores WHERE gene = ?").get as any)(g);
-      if (!boundary || boundary.min_pos === null) return null;
-      sPos = boundary.min_pos;
-      ePos = boundary.max_pos;
+    const wholeGene = startPos === undefined || endPos === undefined;
+    if (readsInWorker(db) && probe && !smallWindow(startPos, endPos)) {
+      // A whole-gene window derives the numbering from the rows it reads, so it does not wait for (or
+      // repeat) a separate gene scan; a partial window resolves it first.
+      const known = cachedNumbering(db, g) ?? (wholeGene ? null : await resolveGeneNumbering(db, g));
+      try {
+        const res = (await getDbnsfpReaderPool().run(
+          { dbPath: probe.path, signature: probe.signature, gene: g, startPos, endPos, numbering: known, aggregate: options?.aggregate },
+          { name: "workerLandscape" }
+        )) as LocalLandscapeRows | null;
+        if (res?.numbering && !known) numberingCache(db).set(g, res.numbering);
+        return res;
+      } catch (err: any) {
+        if (!warnedWorkerFailure) {
+          warnedWorkerFailure = true;
+          console.warn(`[Local dbNSFP] reader worker failed (${err?.message ?? err}); reading inline on the event loop.`);
+        }
+      }
     }
-    const rows = ((db.prepare("SELECT * FROM variant_scores WHERE gene = ? AND pos BETWEEN ? AND ?").all as any)(g, sPos, ePos) as any[])
-      .filter(r => isNumberedRow(db, r));
-    if (rows.length === 0) return null;
-    const numbering = geneNumbering(db, g);
-
-    const candidates: SnvCandidate[] = rows.map((row) => {
-      const parsed = parseAminoAcidChange(row.aa_change);
-      const nucleotideKey = row.chr && row.pos_genomic ? `chr${String(row.chr).replace(/^chr/i, "")}:${row.pos_genomic}` : null;
-      const aaref = normalizeAminoAcid(row.aaref) ?? parsed.ref;
-      const aaalt = normalizeAminoAcid(row.aaalt) ?? parsed.alt;
-      return {
-        variantKey: nucleotideKey
-          ? `${nucleotideKey}:${row.ref ?? "?"}>${row.alt ?? "?"}`
-          : `${row.pos}:${row.ref ?? "?"}>${row.alt ?? "?"}:${aaref ?? "?"}${aaalt ?? "?"}`,
-        nucleotideKey,
-        aaref,
-        aaalt,
-        gerp: toFiniteOrNull(row.gerp),
-        phylop: toFiniteOrNull(row.phylop),
-        readings: [{
-          transcript: row.transcript ?? null,
-          pos: row.pos,
-          revel: toFiniteOrNull(row.revel),
-          am: toFiniteOrNull(row.alphamissense),
-          isMane: false,
-          isCanonical: false
-        }]
-      };
+    const res = readLandscapeRows(db, g, startPos, endPos, await resolveGeneNumbering(db, g), () => readBuildMeta("transcript_policy"));
+    if (!res || !options?.aggregate) return res;
+    const aggregated = aggregateLandscape(res.candidates, {
+      start: options.aggregate.start,
+      end: options.aggregate.end ?? res.maxPos,
+      sequence: options.aggregate.sequence,
+      choice: { transcript: res.transcript, basis: res.transcriptBasis },
     });
-
-    const transcripts = new Set(rows.map((r) => r.transcript).filter(Boolean));
-    return {
-      candidates,
-      maxPos: ePos as number,
-      transcript: transcripts.size === 1 ? ([...transcripts][0] as string) : null,
-      transcriptBasis: numbering.transcript === undefined ? windowBasis(rows) : numbering.basis
-    };
+    return { ...res, candidates: [], aggregated };
   } catch (err: any) {
     console.warn(`[Local dbNSFP Error] landscape query failed:`, err.message);
   }
@@ -618,13 +669,15 @@ export async function queryLocalDbnsfpByGenomic(
       WHERE chr = ? AND pos_genomic = ? AND ref = ? AND alt = ?
     `);
     const wantGene = gene?.trim().toUpperCase() || null;
-    const rows = ((stmt.all as any)(
+    const locus = ((stmt.all as any)(
       normChr,
       posGenomic,
       ref.trim().toUpperCase(),
       alt.trim().toUpperCase()
     ) as Array<LocalDbnsfpRecord & { transcript?: string | null; transcript_basis?: string | null }>)
-      .filter(r => (!wantGene || String(r.gene ?? "").toUpperCase() === wantGene) && isNumberedRow(db, r));
+      .filter(r => !wantGene || String(r.gene ?? "").toUpperCase() === wantGene);
+    await resolveRowGenes(db, locus);
+    const rows = locus.filter(r => isNumberedRow(db, r));
 
     // Two genes (or two readings) still standing is an ambiguity the caller cannot see from one record.
     const readings = new Set(rows.map(r => `${String(r.gene).toUpperCase()}|${r.pos}|${r.aa_change}`));

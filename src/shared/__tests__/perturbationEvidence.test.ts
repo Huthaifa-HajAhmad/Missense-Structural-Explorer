@@ -103,6 +103,24 @@ describe("buildPerturbationEvidence — NAE1 p.Asp116Gly", () => {
     expect(ev.lms.find(l => l.id === "saprot")!.caveats).toContain("sequence-only");
   });
 
+  it("does not double-count VESM-150M when both ESM-2 and ESMC fall back to it", () => {
+    const result = {
+      ...NAE1_RESULT,
+      esm2Eval: { ...NAE1_RESULT.esm2Eval, llr: -9.55, provenance: "VESM-150M (CPU Fallback - remote failed)" },
+      esmcEval: { ...NAE1_RESULT.esmcEval, llr: -9.55, provenance: "VESM-150M (Local)" },
+    };
+    const ev = build({ result });
+    // Both cards remain in lms and scored so caveat callouts still render on both rows.
+    expect(ev.lms).toHaveLength(3);
+    expect(ev.scored).toHaveLength(3);
+    // Cross-model direction and rank consensus count distinct serving checkpoints (SaProt + VESM-150M = 2).
+    expect(ev.direction.nScored).toBe(2);
+    expect(ev.direction.nFavourNative).toBe(2);
+    expect(ev.consensus.nRanked).toBe(2);
+    const f = perturbationFinding(ev);
+    expect(f.headline).toBe("SaProt and ESMC favour native Asp over Gly");
+  });
+
   it("names ESM3's quantity for what it is and drops the heuristic impact line", () => {
     const esm3 = build().esm3!;
     expect(esm3.drift).toBeCloseTo(0.05);

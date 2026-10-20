@@ -2,7 +2,7 @@ import { z } from "zod";
 import { predictorCache, getCachedOrFetch } from "../../infra/cache.ts";
 import { normalizeGeneSymbol, normalizeVariantTo3Letter, fetchWithRetry } from "../../infra/http-client.ts";
 import { buildPredictorsKey } from "../../infra/cache-keys.ts";
-import { queryLocalDbnsfpByGenomic, queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
+import { queryLocalDbnsfpByGenomic, queryLocalDbnsfpCoordinateReading, queryLocalDbnsfpVariant, readLocalDbnsfpVersion } from "../dbnsfp_local.ts";
 import { safeParseFloat, toSingleAa } from "./normalizer.ts";
 import { getTranscriptsForProtein } from "./transcript-resolver.ts";
 import { parseGenomicCoordinateString, type PredictorData } from "../../../../src/shared/contracts.ts";
@@ -300,9 +300,11 @@ async function fetchPredictorsViaCoordinateLocal(
   type LocalRow = NonNullable<Awaited<ReturnType<typeof queryLocalDbnsfpByGenomic>>> & {
     aaref?: string | null;
     aaalt?: string | null;
+    transcript?: string | null;
   };
   // A local store problem is never a reason to lose the remote tiers below.
-  const row = (await queryLocalDbnsfpByGenomic(lifted.chrom, lifted.pos, lifted.ref, lifted.alt, expect.gene).catch(() => null)) as LocalRow | null;
+  const reading = await queryLocalDbnsfpCoordinateReading(lifted.chrom, lifted.pos, lifted.ref, lifted.alt, expect.gene).catch(() => null);
+  const row = (reading?.record ?? null) as LocalRow | null;
   if (!row) return null;
   if (row.gene?.trim().toUpperCase() !== expect.gene.trim().toUpperCase()) return null;
   if (expect.wt && expect.mut) {
@@ -319,6 +321,15 @@ async function fetchPredictorsViaCoordinateLocal(
   // `readLocalDbnsfpVersion` already reads "dbNSFP 5.3a (local)", so it is used as the label as is.
   const version = readLocalDbnsfpVersion() ?? "local dbNSFP (version not recorded)";
   const normChrom = lifted.chrom.replace(/^chr/i, "");
+  /**
+   * The transcript, as VEP's answer would name it. A row the store reads in the gene's MANE Select
+   * numbering IS on the MANE transcript (measured: the same ENST as VEP's chosen consequence for 21 of
+   * 21 panel variants). Reporting the UniProt-canonical ENST instead made the payload, and the gnomAD
+   * constraint looked up by it, change transcript (TTN ENST00000589042 vs ENST00000591111) depending
+   * on whether VEP happened to answer. The RefSeq match is not in the store, so `maneRefSeqId` stays
+   * absent rather than guessed.
+   */
+  const maneTranscript = reading?.basis === "mane" && row.transcript ? row.transcript : null;
   return {
     available: true,
     amPathogenicity,
@@ -328,9 +339,9 @@ async function fetchPredictorsViaCoordinateLocal(
     caddPhred,
     gnomadVariantId: `${normChrom}-${lifted.pos}-${lifted.ref}-${lifted.alt}`,
     gnomadVariantAssembly: "GRCh38",
-    transcriptId: canonicalEnsemblId ?? undefined,
+    transcriptId: maneTranscript ?? canonicalEnsemblId ?? undefined,
     canonicalEnsemblId,
-    isManeSelect: false,
+    isManeSelect: Boolean(maneTranscript),
     isManePlusClinical: false,
     isCanonical: Boolean(canonicalEnsemblId),
     source: `${version} (coordinate fallback)`,
