@@ -67,6 +67,19 @@ describe("JapanFold API Client", () => {
       const result = await queryEsmc("MSLSK", 3, "L", "P");
       expect(result).toBeNull();
     });
+
+    it("remembers HTTP 401/402 refusals across ESMC and SaProt instead of repeating doomed calls", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized"
+      } as any);
+
+      expect(await queryEsmc("MSLSK", 3, "L", "P")).toBeNull();
+      expect(await querySaProt("MSLSK", 3, "L", "P", "ATOM...")).toBeNull();
+      expect(await queryEsmc("MSLSK", 4, "S", "A")).toBeNull();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("queryEsmfold2", () => {
