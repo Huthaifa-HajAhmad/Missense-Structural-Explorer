@@ -96,6 +96,7 @@ def clear_model_cache():
     """Explicitly releases cached PyTorch model weights and flushes GPU RAM."""
     models.esm2_models.clear()
     models.saprot_models.clear()
+    vesm.clear_vesm_caches()
     models.clear_gpu_cache()
     return {"status": "success", "message": "GPU memory cache cleared"}
 

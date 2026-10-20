@@ -14,7 +14,8 @@ from tools.model_server_app.utils import (
     validate_saprot_tokenization
 )
 from tools.model_server_app import models
-from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync
+from tools.model_server_app.routers.vesm import VesmRequest, predict_vesm_sync, remote_failures
+from tools.model_server_app.engine_resilience import PERMANENT_STATUSES, account_level_refusal, extract_status
 
 router = APIRouter()
 
@@ -145,6 +146,8 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
             try:
                 preds = client.fill_mask(masked_seq, model=cand_model, targets=targets, top_k=50)
             except Exception as e_targets:
+                if extract_status(e_targets) in PERMANENT_STATUSES:
+                    raise e_targets
                 print(f"[Model Server] targets call on {cand_model} failed: {e_targets}. Retrying with top_k=50...")
                 preds = client.fill_mask(masked_seq, model=cand_model, top_k=50)
             
@@ -156,9 +159,11 @@ def run_saprot_remote(model_name: str, sequence: str, pos: int, wt: str, mut: st
             print(f"[Model Server] Remote candidate {cand_model} failed: {cand_err}")
             last_err = cand_err
             preds = None
+            if extract_status(cand_err) in PERMANENT_STATUSES:
+                break
 
     if preds is None or "probs" not in locals():
-        raise RuntimeError(f"All remote SaProt models failed: {last_err}")
+        raise RuntimeError(f"All remote SaProt models failed: {last_err}") from last_err
 
     wt_prob = probs.get(wt, 1e-9)
     mut_prob = probs.get(mut, 1e-9)
@@ -261,7 +266,15 @@ def predict_saprot_sync(req: SaprotRequest):
         # healthy from the outside.
         saprot_available = False
         should_prefer_remote = getattr(req, "preferRemote", False) or getattr(req, "engine", None) == "remote-hf"
-        if req.hfToken and should_prefer_remote:
+        hf_blocked = (
+            remote_failures.blocked_reason("saprot", "huggingface", req.hfToken)
+            or account_level_refusal(remote_failures.blocked_reason("esm2", "huggingface", req.hfToken))
+        ) if (req.hfToken and should_prefer_remote) else None
+        if hf_blocked:
+            hf_error_detail = f"remote skipped (recent refusal): {hf_blocked}"
+            remote_engine_note = hf_error_detail
+            print(f"[Model Server] SaProt remote skipped: {hf_blocked}")
+        elif req.hfToken and should_prefer_remote:
             models.model_status["saprot"] = "remote_inference"
             try:
                 print(f"[Model Server] Querying SaProt remotely via HF Serverless Inference API (model={req.modelName})...")
@@ -271,7 +284,7 @@ def predict_saprot_sync(req: SaprotRequest):
                 return result
             except Exception as e:
                 import traceback
-                hf_error_detail = f"{type(e).__name__}: {e}"
+                hf_error_detail = remote_failures.record("saprot", "huggingface", req.hfToken, e)
                 remote_engine_note = hf_error_detail
                 print(f"[Model Server] SaProt remote run FAILED: {hf_error_detail}")
                 print(traceback.format_exc())
@@ -317,7 +330,7 @@ def predict_saprot_sync(req: SaprotRequest):
                 # than surfacing as an IndexError from logits[pos] further down.
                 validate_saprot_tokenization(int(inputs["input_ids"].shape[-1]), len(sequence))
                 
-                with torch.inference_mode():
+                with models.cpu_gate.acquire(priority=1), torch.inference_mode():
                     outputs = model(**inputs, output_hidden_states=True)
                     
                 logits = outputs.logits[0]
@@ -345,7 +358,7 @@ def predict_saprot_sync(req: SaprotRequest):
                 mut_inputs = tokenizer(mut_seq_sa, return_tensors="pt")
                 mut_inputs = {k: v.to(device) for k, v in mut_inputs.items()}
                 validate_saprot_tokenization(int(mut_inputs["input_ids"].shape[-1]), len(mut_sequence))
-                with torch.inference_mode():
+                with models.cpu_gate.acquire(priority=1), torch.inference_mode():
                     mut_outputs = model(**mut_inputs, output_hidden_states=True)
                     
                 mut_hidden_states = mut_outputs.hidden_states[-1][0]

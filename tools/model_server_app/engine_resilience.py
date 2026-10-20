@@ -19,8 +19,10 @@ local VESM-150M pass once per engine (ESM3 fallback, ESM-2 fallback) concurrentl
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import copy
 import hashlib
+import heapq
 import re
 import threading
 import time
@@ -28,23 +30,35 @@ from collections import OrderedDict
 from typing import Any, Callable, Iterable
 
 # Statuses that will not change by retrying the same request with the same credential.
-PERMANENT_STATUSES = frozenset({401, 403, 451})
+PERMANENT_STATUSES = frozenset({401, 402, 403, 451})
 
-_STATUS_RE = re.compile(r"(?:HTTP|status[_ ]?code|error[_ ]?code|ESMProteinError instead:)\D{0,4}(\d{3})", re.IGNORECASE)
+_STATUS_RE = re.compile(
+    r"(?:(?:HTTP|status[_ ]?code|error[_ ]?code|ESMProteinError instead:)\D{0,4}(\d{3})|\b(\d{3})\s+(?:Client|Server)\s+Error\b)",
+    re.IGNORECASE,
+)
 
 
 def extract_status(exc: BaseException) -> int | None:
     """HTTP status carried by an SDK / requests / huggingface_hub error, if it has one."""
-    for attr in ("error_code", "status_code"):
-        value = getattr(exc, attr, None)
+    chain = [exc]
+    for linked in (getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if linked is not None and linked not in chain:
+            chain.append(linked)
+    for item in chain:
+        for attr in ("error_code", "status_code"):
+            value = getattr(item, attr, None)
+            if isinstance(value, int):
+                return value
+        response = getattr(item, "response", None)
+        value = getattr(response, "status_code", None)
         if isinstance(value, int):
             return value
-    response = getattr(exc, "response", None)
-    value = getattr(response, "status_code", None)
-    if isinstance(value, int):
-        return value
-    match = _STATUS_RE.search(str(exc))
-    return int(match.group(1)) if match else None
+    for item in chain:
+        match = _STATUS_RE.search(str(item))
+        if match:
+            code = match.group(1) or match.group(2)
+            return int(code) if code else None
+    return None
 
 
 def sanitize_error_message(text: str, token: str | None = None) -> str:
@@ -64,6 +78,8 @@ def describe_remote_error(exc: BaseException, token: str | None = None) -> str:
     base = f"{type(exc).__name__}: {raw}"
     if status == 451:
         return f"HTTP 451 - the endpoint is regionally restricted for this host ({base})"
+    if status == 402:
+        return f"HTTP 402 - inference credits exhausted for the configured token ({base})"
     if status in (401, 403):
         return f"HTTP {status} - the saved token was refused ({base})"
     if status == 429:
@@ -129,6 +145,17 @@ class RemoteFailureMemory:
             self._entries.clear()
 
 
+def account_level_refusal(reason: str | None) -> str | None:
+    """
+    The part of another engine's remembered refusal that applies to THIS engine on the same host.
+
+    A 401 (the token was refused) and a 402 (the account has no inference credits) are facts about the
+    credential, so ESM-2 and SaProt on Hugging Face share them. A 403 or 451 can be specific to one
+    model (a gated repository, a regional block on one endpoint) and is not carried across engines.
+    """
+    return reason if reason and reason.startswith(("HTTP 401", "HTTP 402")) else None
+
+
 class SingleFlightCache:
     """
     Computes each key once even when several engines ask for it at the same moment.
@@ -170,6 +197,45 @@ class SingleFlightCache:
                 with self._lock:
                     self._inflight.pop(key, None)
                 waiter.set()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._done.clear()
+
+
+class PriorityCpuGate:
+    """
+    Serializes CPU-bound forward passes so OpenMP threads do not oversubscribe cores,
+    waking priority=0 (fast masked LLR triage) callers ahead of priority=1 (embedding / structure) callers.
+    """
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._busy = False
+        self._waiters: list[tuple[int, int, threading.Event]] = []
+        self._seq = 0
+
+    @contextlib.contextmanager
+    def acquire(self, priority: int = 1):
+        with self._cond:
+            if not self._busy and not self._waiters:
+                self._busy = True
+                ev = None
+            else:
+                self._seq += 1
+                ev = threading.Event()
+                heapq.heappush(self._waiters, (priority, self._seq, ev))
+        if ev is not None:
+            ev.wait()
+        try:
+            yield
+        finally:
+            with self._cond:
+                if self._waiters:
+                    _, _, next_ev = heapq.heappop(self._waiters)
+                    next_ev.set()
+                else:
+                    self._busy = False
 
 
 class RemoteDeadlineExceeded(TimeoutError):

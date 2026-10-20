@@ -3,6 +3,8 @@ import time
 import unittest
 
 from tools.model_server_app.engine_resilience import (
+    PriorityCpuGate,
+    account_level_refusal,
     RemoteDeadlineExceeded,
     RemoteFailureMemory,
     SingleFlightCache,
@@ -37,6 +39,24 @@ class ExtractStatusTests(unittest.TestCase):
 
     def test_451_is_described_as_regional_restriction(self):
         self.assertIn("regionally restricted", describe_remote_error(_SdkError("blocked", 451)))
+
+    def test_402_is_described_as_credits_exhausted_and_remembered(self):
+        err = Exception("402 Client Error: Payment Required: You have no remaining credits.")
+        self.assertEqual(extract_status(err), 402)
+        self.assertIn("credits exhausted", describe_remote_error(err))
+        mem = RemoteFailureMemory(ttl_seconds=60)
+        mem.record("esm2", "huggingface", "hf_tok", err)
+        self.assertIn("HTTP 402", mem.blocked_reason("esm2", "huggingface", "hf_tok"))
+
+    def test_only_credential_refusals_are_shared_across_engines(self):
+        mem = RemoteFailureMemory(ttl_seconds=60)
+        mem.record("saprot", "huggingface", "hf_tok", Exception("402 Client Error: Payment Required"))
+        self.assertIn("HTTP 402", account_level_refusal(mem.blocked_reason("saprot", "huggingface", "hf_tok")))
+        mem.record("esm2", "huggingface", "hf_tok2", _SdkError("gated repository", 403))
+        # A 403 can be one gated model: it blocks that engine, never its neighbour.
+        self.assertIsNotNone(mem.blocked_reason("esm2", "huggingface", "hf_tok2"))
+        self.assertIsNone(account_level_refusal(mem.blocked_reason("esm2", "huggingface", "hf_tok2")))
+        self.assertIsNone(account_level_refusal(None))
 
 
 class SdkReturnedErrorTests(unittest.TestCase):
@@ -156,6 +176,50 @@ class CropOffsetTests(unittest.TestCase):
         self.assertEqual(to_full_coordinates(original, 0), original)
         to_full_coordinates(original, 10)
         self.assertEqual(original[0]["position"], 5)
+
+
+class PriorityCpuGateTests(unittest.TestCase):
+    def test_wakes_priority_zero_triage_before_queued_embedding_passes(self):
+        gate = PriorityCpuGate()
+        order: list[str] = []
+        hold = threading.Event()
+        queued_low = threading.Event()
+        queued_high = threading.Event()
+
+        def holder():
+            with gate.acquire(priority=1):
+                order.append("holder")
+                hold.wait(2)
+
+        def low():
+            queued_low.set()
+            with gate.acquire(priority=1):
+                order.append("low")
+
+        def high():
+            queued_high.set()
+            with gate.acquire(priority=0):
+                order.append("high")
+
+        t_hold = threading.Thread(target=holder)
+        t_hold.start()
+        time.sleep(0.02)
+
+        t_low = threading.Thread(target=low)
+        t_low.start()
+        queued_low.wait(1)
+        time.sleep(0.02)
+
+        t_high = threading.Thread(target=high)
+        t_high.start()
+        queued_high.wait(1)
+        time.sleep(0.02)
+
+        hold.set()
+        for t in (t_hold, t_low, t_high):
+            t.join()
+
+        self.assertEqual(order, ["holder", "high", "low"])
 
 
 if __name__ == "__main__":

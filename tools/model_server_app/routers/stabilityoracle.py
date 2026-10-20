@@ -66,30 +66,31 @@ class StabilityOracleArgs:
     use_seq_info = False
 
 def get_stability_oracle_model():
-    from tools.model_server_app.models import loaded_models, _evict_if_needed, MAX_LOADED_MODELS
+    from tools.model_server_app.models import loaded_models, _evict_if_needed, MAX_LOADED_MODELS, _model_lock
     model_key = "stability_oracle"
-    if model_key in loaded_models:
-        loaded_models.move_to_end(model_key)
-        return loaded_models[model_key][1]
+    with _model_lock:
+        if model_key in loaded_models:
+            loaded_models.move_to_end(model_key)
+            return loaded_models[model_key][1]
 
-    if not HAS_TORCH:
-        raise RuntimeError("PyTorch is not available for StabilityOracle.")
+        if not HAS_TORCH:
+            raise RuntimeError("PyTorch is not available for StabilityOracle.")
 
-    ckpt_path = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "stability_oracle_cdna117k.pt")
-    if not os.path.exists(ckpt_path):
-        raise FileNotFoundError(f"StabilityOracle checkpoint not found at: {ckpt_path}")
+        ckpt_path = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "stability_oracle_cdna117k.pt")
+        if not os.path.exists(ckpt_path):
+            raise FileNotFoundError(f"StabilityOracle checkpoint not found at: {ckpt_path}")
 
-    _evict_if_needed(MAX_LOADED_MODELS)
+        _evict_if_needed(MAX_LOADED_MODELS)
 
-    print(f"[Model Server] Loading StabilityOracle model from: {ckpt_path}...")
-    model = SiameseGraphormer(StabilityOracleArgs())
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    new_ckpt = {k.replace("module.", ""): v for k, v in ckpt.items()}
-    model.load_state_dict(new_ckpt, strict=True)
-    model.eval()
-    print("[Model Server] StabilityOracle SiameseGraphormer loaded successfully (strict=True).")
-    loaded_models[model_key] = (None, model)
-    return model
+        print(f"[Model Server] Loading StabilityOracle model from: {ckpt_path}...")
+        model = SiameseGraphormer(StabilityOracleArgs())
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        new_ckpt = {k.replace("module.", ""): v for k, v in ckpt.items()}
+        model.load_state_dict(new_ckpt, strict=True)
+        model.eval()
+        print("[Model Server] StabilityOracle SiameseGraphormer loaded successfully (strict=True).")
+        loaded_models[model_key] = (None, model)
+        return model
 
 def featurize_pdb_for_stability_oracle(pdb_content: str, position: int, wt: str, mut: str, max_atoms: int = 512):
     wt1 = wt.upper()

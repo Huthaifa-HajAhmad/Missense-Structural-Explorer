@@ -10,18 +10,21 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", DEFAULT_NUM_THREADS)
 os.environ.setdefault("NUMEXPR_NUM_THREADS", DEFAULT_NUM_THREADS)
 
 import gc
+import threading
 import torch
 from collections import OrderedDict
 from tools.esm2_eval import download_weights
+from tools.model_server_app.engine_resilience import PriorityCpuGate
 
 vesm_tokenizer = None
 vesm_model = None
 
-import threading
-
 _model_lock = threading.Lock()
+cpu_gate = PriorityCpuGate()
 
-MAX_LOADED_MODELS = int(os.environ.get("MAX_LOADED_MODELS", "1"))
+# Default to 2 so StabilityOracle (~15 MB) and SaProt-35M (~140 MB) coexist on CPU without
+# evicting each other and triggering a multi-second gc.collect() + disk reload on every variant.
+MAX_LOADED_MODELS = int(os.environ.get("MAX_LOADED_MODELS", "2"))
 loaded_models: "OrderedDict[str, tuple]" = OrderedDict()
 
 # Optimize CPU thread allocation for OCI Ampere A1 (2-4 cores) and local dev
