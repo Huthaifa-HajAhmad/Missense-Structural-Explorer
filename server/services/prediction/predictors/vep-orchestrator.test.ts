@@ -12,6 +12,11 @@ vi.mock("./transcript-resolver.ts", () => ({ getTranscriptsForProtein: mocks.tra
 vi.mock("../dbnsfp_local.ts", () => ({
   queryLocalDbnsfpVariant: mocks.local,
   queryLocalDbnsfpByGenomic: mocks.localGenomic,
+  // The real reading pairs the same row with its gene's numbering basis; a row may state it as `__basis`.
+  queryLocalDbnsfpCoordinateReading: async (...args: unknown[]) => {
+    const record = await mocks.localGenomic(...args);
+    return record ? { record, basis: record.__basis ?? "unknown" } : null;
+  },
   // The real format (`dbnsfp_local.readLocalDbnsfpVersion`), so a label that repeats it is caught.
   readLocalDbnsfpVersion: vi.fn(() => "dbNSFP 5.3a (local)"),
 }));
@@ -386,6 +391,19 @@ describe("predictor locus outcome reconciliation", () => {
           source: "dbNSFP 5.3a (local) (coordinate fallback)",
         });
         expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes("myvariant"))).toBe(false);
+      });
+
+      it("names the MANE transcript, as VEP would, when the store reads the gene in MANE numbering", async () => {
+        mocks.localGenomic.mockResolvedValue({ ...row, transcript: "ENST00000262406", __basis: "mane" });
+        const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+        expect(result).toMatchObject({ transcriptId: "ENST00000262406", isManeSelect: true, canonicalEnsemblId: "ENST00000262406.10" });
+        expect(result.maneRefSeqId).toBeUndefined(); // not in the store, so not guessed
+      });
+
+      it("keeps the canonical transcript when the store's numbering for the gene is not MANE", async () => {
+        mocks.localGenomic.mockResolvedValue({ ...row, transcript: "ENST00000262406", __basis: "ensembl-canonical" });
+        const result = await fetchPredictorData("RGS9", "p.Cys182Ser", "O75916", coordinate);
+        expect(result).toMatchObject({ transcriptId: "ENST00000262406.10", isManeSelect: false });
       });
 
       it.each([

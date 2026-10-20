@@ -46,6 +46,7 @@ import {
 } from "../orchestration/timeout-scope.ts";
 import { CONFIG } from "../../config.ts";
 import { verifiedPopulationCoordinate } from "../prediction/predictors/allele-identity.ts";
+import { makeLocusRunner, speculativeCoordinateLocus, speculativeLocusMode } from "../prediction/predictors/speculative-locus.ts";
 
 function hasPopulationObservation(value: any): boolean {
   return Boolean(value && [value.maxAF, value.groupMaxAF, value.genomeAF, value.exomeAF,
@@ -248,6 +249,16 @@ async function runCoreFetch(
   const inputCoordinate: AssemblyTaggedCoordinate | null = predictorCoordinateFromContext(context);
 
   const overallStart = performance.now();
+  const startedAt = new Date().toISOString();
+  let loopBlockedMs = 0;
+  let lastTick = performance.now();
+  const lagTimer = setInterval(() => {
+    const now = performance.now();
+    const lag = Math.max(0, now - lastTick - 20);
+    if (lag > loopBlockedMs) loopBlockedMs = Math.round(lag);
+    lastTick = now;
+  }, 20);
+  lagTimer.unref?.();
   const serviceTimings: Record<string, number> = {};
   /** When each source SETTLED on this run's clock. See {@link CoreAnalysisPartial}. */
   const serviceTimingOffsets: Record<string, number> = {};
@@ -331,8 +342,20 @@ async function runCoreFetch(
     return null;
   }));
 
+  /**
+   * The locus-dependent sources start on the local store's MANE locus instead of waiting for Ensembl
+   * VEP, and are re-run on VEP's answer whenever the locus inputs differ (speculative-locus.ts). Each
+   * one reports its status flags through its RESULT, so a discarded run can never leave a flag behind.
+   */
+  const localTableInstalled = isLocalDbnsfpAvailable() && pos !== null;
+  const locusRunner = makeLocusRunner(
+    localTableInstalled ? speculativeCoordinateLocus(gene, variant, uniprotId, inputCoordinate).catch(() => null) : Promise.resolve(null),
+    predictorPromise,
+    speculativeLocusMode() === "on"
+  );
+
   let gnomadConstraintHasError = false;
-  const gnomadConstraintPromise = timeTask("gnomadConstraint", predictorPromise.then(pred => fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) })).catch(err => {
+  const gnomadConstraintPromise = timeTask("gnomadConstraint", locusRunner.run(locus => locus.then(pred => fetchGnomadGeneConstraint(gene, pos, { transcriptId: pred?.transcriptId, coordinate: verifiedPopulationCoordinate(pred) }))).catch(err => {
     console.warn("[Gnomad Constraint Warning] Failed to fetch gnomad gene constraint:", err);
     gnomadConstraintHasError = true;
     return null;
@@ -350,16 +373,15 @@ async function runCoreFetch(
    * absence an empty row is (`aouLookup`). The lookup itself still resolves to null on every failure,
    * exactly as before — only the reason is new.
    */
-  const localTableInstalled = isLocalDbnsfpAvailable() && pos !== null;
   let localTableFailed = false;
   let localPopulationWithheld = false;
-  const localFreqsPromise = timeTask("localFreqs", predictorPromise.then(pred => {
+  const localFreqsPromise = timeTask("localFreqs", locusRunner.run(locus => locus.then(async pred => {
     const coordinate = verifiedPopulationCoordinate(pred);
-    if (!coordinate) {
-      localPopulationWithheld = true;
-      return null;
-    }
-    return localTableInstalled ? fetchLocalPopulationFrequencies(gene, pos!, variant, coordinate) : null;
+    if (!coordinate) return { withheld: true, value: null };
+    return { withheld: false, value: localTableInstalled ? await fetchLocalPopulationFrequencies(gene, pos!, variant, coordinate) : null };
+  })).then(r => {
+    if (r.withheld) localPopulationWithheld = true;
+    return r.value;
   }).catch((err: any) => {
     console.warn("[Local dbNSFP Freq Warning] Error querying local frequencies:", err);
     localTableFailed = true;
@@ -377,7 +399,7 @@ async function runCoreFetch(
   let gnomadFreqBuildRefused = false;
   const gnomadFrequencyPromise = timeTask("gnomadFrequency", localFreqsPromise.then((localFreqs: any) => {
     if (hasPopulationObservation(localFreqs?.gnomad)) return localFreqs.gnomad;
-    return predictorPromise.then(pred => {
+    return locusRunner.run(locus => locus.then(async pred => {
       /**
        * Build gate on the coordinate before querying gnomAD.
        *
@@ -391,11 +413,11 @@ async function runCoreFetch(
        * a cross-build entry can never be served.
        */
       const coordinate = verifiedPopulationCoordinate(pred);
-      if (!coordinate) {
-        gnomadFreqBuildRefused = true;
-        return null;
-      }
-      return fetchGnomadVariantFrequency(pred!.gnomadVariantId!, { assembly: coordinate.assembly });
+      if (!coordinate) return { refused: true, value: null };
+      return { refused: false, value: await fetchGnomadVariantFrequency(pred!.gnomadVariantId!, { assembly: coordinate.assembly }) };
+    })).then(r => {
+      if (r.refused) gnomadFreqBuildRefused = true;
+      return r.value;
     });
   }).catch(err => {
     console.warn("[Gnomad Frequency Warning] Error querying variant frequency:", err);
@@ -404,14 +426,14 @@ async function runCoreFetch(
   }));
 
   let conservationHasError = false;
-  const conservationPromise = timeTask("conservationData", fetchConservationDataProgressive({
+  const conservationPromise = timeTask("conservationData", locusRunner.run(locus => fetchConservationDataProgressive({
     gene,
     variant,
     pos,
     uniprotId,
     assembly,
     pdbMappingPromise,
-    predictorPromise,
+    predictorPromise: locus,
     genosPromise,
     biohubToken,
     hfToken,
@@ -420,7 +442,7 @@ async function runCoreFetch(
     alphagenomeApiUrl,
     spliceaiDistance,
     sequence
-  }).then(conservation => {
+  })).then(conservation => {
     // This producer queries conservation/Genos by protein notation and carries no exact-allele
     // provenance for AoU. A canonical predictor ID alone cannot bind those counts to its ALT.
     // Only the separately queried, exact-coordinate local frequency result is trusted below.
@@ -890,6 +912,7 @@ async function runCoreFetch(
     serviceStatus
   });
 
+  clearInterval(lagTimer);
   const totalMs = Math.round(performance.now() - overallStart);
 
   // Emit structured telemetry log
@@ -898,7 +921,15 @@ async function runCoreFetch(
     gene,
     variant,
     uniprotId,
+    startedAt,
     totalMs,
+    loopBlockedMs,
+    /**
+     * The local-MANE-locus speculation (speculative-locus.ts): "kept" / "discarded" when it was applied,
+     * "would-keep" / "would-discard" in shadow mode (the default: recorded, not used), "none" when there
+     * was no local locus to compare.
+     */
+    locusSpeculation: locusRunner.outcome(),
     timings: serviceTimings,
     /** When each source settled on this run's clock — the waterfall the durations cannot be rebuilt into. */
     timingOffsets: serviceTimingOffsets,
