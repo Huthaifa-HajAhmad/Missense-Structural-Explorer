@@ -195,6 +195,17 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
       return;
     }
 
+    /**
+     * Opening lands on the section that was asked for. A filter carried in from anywhere else —
+     * a password manager writing into the field the instant it mounts, or a query left over from
+     * the last visit — would otherwise hide that section behind the results view before the reader
+     * ever saw it. Clearing the DOM value directly and not only React state matters here: a filler
+     * that wrote without firing an event leaves the box looking filled while state says empty.
+     */
+    setSearchQuery("");
+    if (searchRef.current) searchRef.current.value = "";
+    const autofillSweep = window.setTimeout(syncFilterToState, 600);
+
     openerRef.current = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -254,6 +265,7 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
 
     return () => {
       cancelAnimationFrame(frame);
+      window.clearTimeout(autofillSweep);
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus?.();
@@ -293,6 +305,35 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
       window.clearTimeout(flashTimer);
     };
   }, [pendingAnchor, filteredSettings, settingsTab, reduceMotion]);
+
+  /**
+   * The filter is for the reader's fingers only.
+   *
+   * A sign-in form exists in this app, so browsers' password managers and autofill extensions
+   * happily write the saved account address into any text field they misidentify — including this
+   * one. That value arrived as a replacement insertion (`insertReplacementText`), turned the drawer
+   * into "0 settings found" over an empty panel, and made a "Configure" click from the services rail
+   * look like the settings screen was broken. Undo it: a filter never wants a credential, and a
+   * reader typing has no use for replacement insertion either (spellcheck is off below).
+   */
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputType = (e.nativeEvent as InputEvent | undefined)?.inputType;
+    if (inputType === "insertReplacementText") {
+      e.currentTarget.value = searchQueryRef.current;
+      return;
+    }
+    setSearchQuery(e.currentTarget.value);
+  };
+
+  /**
+   * A filler that writes without firing an event (Firefox autofill) leaves the box showing text the
+   * filter never accepted — the drawer keeps its section, but the field looks filled. The value is
+   * only ever the query, so sync it back, once after opening and again when the field takes focus.
+   */
+  const syncFilterToState = () => {
+    const el = searchRef.current;
+    if (el && el.value !== searchQueryRef.current) el.value = searchQueryRef.current;
+  };
 
   const goToSection = (id: SettingsTabId, anchor?: string) => {
     setSettingsTab(id);
@@ -387,9 +428,21 @@ export default function SettingsDrawer({ onNavigateAbout }: { onNavigateAbout?: 
                       ref={searchRef}
                       type="search"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={handleSearchChange}
+                      onFocus={syncFilterToState}
                       placeholder="Search settings…"
                       aria-label="Filter settings"
+                      // Marked as "not a credential field" for every autofill engine that reads a
+                      // hint: browsers, 1Password, Bitwarden, LastPass, Dashlane, Proton Pass.
+                      autoComplete="off"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      data-form-type="other"
+                      data-1p-ignore
+                      data-bh-no-autofill="true"
+                      data-lpignore="true"
+                      data-protonpass-ignore="true"
                       // focus-guard-allow: this ring lives in CSS — `.settings-search input:focus` in src/styles/settings.css draws a clay border plus a 3px box-shadow.
                       className="w-full h-9 text-[13px] rounded-lg pl-8.5 pr-9 text-cs-text-primary placeholder:text-cs-text-muted focus:outline-none [&::-webkit-search-cancel-button]:hidden"
                     />
