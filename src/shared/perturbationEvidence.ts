@@ -693,6 +693,38 @@ function buildEsm3(e: any, position: number | null): Esm3Reading | null {
 /** The predictor-concordance keys these models travel under in the PP3/BP4 rule. */
 const CONCORDANCE_KEY: Record<PerturbationModelId, string> = { saprot: "saprot", esm2: "esm2_3b", esmc: "vesm" };
 
+/**
+ * Deduplicates readings served by the exact same fallback checkpoint (e.g. VESM-150M serving both
+ * ESM-2 and ESMC when remote tiers fail) so one checkpoint is counted once in cross-model direction,
+ * rank agreement, and the headline finding.
+ *
+ * When `vesm150m` serves multiple cards, the ESMC / VESM card (`id === "esmc"`) is kept as the
+ * representative because VESM-150M is its native local tier; `ev.lms` and `ev.scored` still retain
+ * every card so per-card caveat callouts and rows render in full.
+ */
+function deduplicateServedModels(scored: LmReading[]): LmReading[] {
+  const order: Record<PerturbationModelId, number> = { saprot: 0, esmc: 1, esm2: 2 };
+  const sorted = [...scored].sort((a, b) => {
+    const aFallback = a.served.fallback ? 1 : 0;
+    const bFallback = b.served.fallback ? 1 : 0;
+    if (aFallback !== bFallback) return aFallback - bFallback;
+    return order[a.id] - order[b.id];
+  });
+  const seenKeys = new Set<string>();
+  const keptIds = new Set<PerturbationModelId>();
+  for (const item of sorted) {
+    const key = item.served.registryKey;
+    if (key && item.served.fallback) {
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+    } else if (key) {
+      seenKeys.add(key);
+    }
+    keptIds.add(item.id);
+  }
+  return scored.filter(item => keptIds.has(item.id));
+}
+
 export function buildPerturbationEvidence(input: PerturbationEvidenceInput): PerturbationEvidence {
   const r = input.result ?? {};
   const pos = finite(r?.metadata?.residueIndex);
@@ -711,12 +743,13 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
     buildLm(id, dataFor[id], input.saprotEngine, input.residues, voteByKey.get(CONCORDANCE_KEY[id]) ?? false)
   );
   const scored = lms.filter(l => l.availability.state === "computed");
+  const distinctScored = deduplicateServedModels(scored);
 
-  const families = Array.from(new Set(scored.map(l => l.calibration?.family).filter((f): f is NonNullable<typeof f> => Boolean(f))));
-  const llrs = scored.map(l => l.llr).filter((v): v is number => v !== null);
+  const families = Array.from(new Set(distinctScored.map(l => l.calibration?.family).filter((f): f is NonNullable<typeof f> => Boolean(f))));
+  const llrs = distinctScored.map(l => l.llr).filter((v): v is number => v !== null);
 
   // A flat model has no preference to rank, so it stays out of the band agreement too.
-  const ranked = scored.filter(l => l.band !== null && l.direction !== "flat");
+  const ranked = distinctScored.filter(l => l.band !== null && l.direction !== "flat");
   const nLeast = ranked.filter(l => l.band === "least").length;
   const nLower = ranked.filter(l => l.band === "lower").length;
   const bands = new Set(ranked.map(l => l.band));
@@ -726,11 +759,11 @@ export function buildPerturbationEvidence(input: PerturbationEvidenceInput): Per
     lms,
     scored,
     direction: {
-      nScored: scored.length,
-      nFavourNative: scored.filter(l => l.direction === "favours-native").length,
-      nFavourVariant: scored.filter(l => l.direction === "favours-variant").length,
-      nEven: scored.filter(l => l.direction === "even").length,
-      nFlat: scored.filter(l => l.direction === "flat").length
+      nScored: distinctScored.length,
+      nFavourNative: distinctScored.filter(l => l.direction === "favours-native").length,
+      nFavourVariant: distinctScored.filter(l => l.direction === "favours-variant").length,
+      nEven: distinctScored.filter(l => l.direction === "even").length,
+      nFlat: distinctScored.filter(l => l.direction === "flat").length
     },
     scale: {
       families,
@@ -791,20 +824,21 @@ function oddsClause(l: LmReading, wt: string, mut: string): string {
 export function perturbationFinding(ev: PerturbationEvidence): { headline: string; predicate: string } {
   const mut = ev.residues.mutLabel || "the variant residue";
   const wt = ev.residues.wtLabel || "the native residue";
-  const by = (dir: LmDirection) => ev.scored.filter(l => l.direction === dir);
+  const distinct = deduplicateServedModels(ev.scored);
+  const by = (dir: LmDirection) => distinct.filter(l => l.direction === dir);
   const native = by("favours-native");
   const variant = by("favours-variant");
   const even = by("even");
   const flat = by("flat");
-  const read = ev.scored.filter(l => l.direction !== null && l.direction !== "flat");
+  const read = distinct.filter(l => l.direction !== null && l.direction !== "flat");
 
   let headline: string;
-  if (ev.scored.length === 0) {
+  if (distinct.length === 0) {
     headline = ev.pending ? "The language models are still running" : "No language model scored this substitution";
   } else if (read.length === 0) {
     headline = flat.length > 0
       ? `No model shows a preference at this site: ${flat.length === 1 ? `${flat[0].family}'s distribution is` : "every distribution is"} near-flat`
-      : `${ev.scored.length} language model${ev.scored.length === 1 ? "" : "s"} answered without a ΔLLR`;
+      : `${distinct.length} language model${distinct.length === 1 ? "" : "s"} answered without a ΔLLR`;
   } else if (native.length === read.length) {
     headline = `${listModels(native.map(l => l.family))} ${native.length === 1 ? "favours" : "favour"} native ${wt} over ${mut}`;
   } else if (variant.length === read.length) {
