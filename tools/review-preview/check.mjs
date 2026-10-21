@@ -193,6 +193,8 @@ try {
  await page.getByLabel('Workspace', { exact: true }).selectOption('search');
  // The accession field has no reveal step: it is on first paint, and its STATE owns the label row's
  // right slot (where Set/Hide used to be), so the state and the control it describes share one line.
+ // The parsed fields are folded under "Edit parsed fields"; that one disclosure is the only reveal step.
+ await page.getByText('Edit parsed fields').click();
  const accession = page.locator('#input-uniprot-acc');
  check('Query accession field needs no disclosure', await accession.isVisible());
  await accession.focus();
