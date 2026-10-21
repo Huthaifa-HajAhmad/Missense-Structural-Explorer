@@ -39,6 +39,7 @@ import {
 } from "../shared/variantNotation.ts";
 import { ASSEMBLY_LABELS, statedAssemblyOf, withAssemblyAnnotation } from "../shared/assembly";
 import { parseVariantCoordinate } from "../shared/variantCoordinate";
+import { readQuickEntry, composeQuickEntry, quickEntryMatches } from "../shared/quickEntry";
 import { ONBOARDING_BENCHMARK_PRESETS, type OnboardingPreset } from "../shared/benchmarkPresets";
 import NumberingChoicePrompt from "./NumberingChoicePrompt";
 import BuildMismatchPrompt from "./BuildMismatchPrompt";
@@ -1219,6 +1220,37 @@ function VariantSearchPanel({
 
 
 
+  /**
+   * Quick entry: one line over the four fields. The fields stay the source of truth; this line is a
+   * draft that is parsed into them as it is typed, and re-derived from them when they change from
+   * elsewhere (a recent analysis, a benchmark, an example chip, the fields themselves). The draft is
+   * only rewritten when it no longer says what the fields say, so a trailing space survives typing.
+   */
+  const [quickDraft, setQuickDraft] = useState("");
+  useEffect(() => {
+    setQuickDraft(draft =>
+      quickEntryMatches(draft, { gene: customGene, variant: customVariant, genomic: customGenomic })
+        ? draft
+        : composeQuickEntry({ gene: customGene, variant: customVariant, genomic: customGenomic }),
+    );
+  }, [customGene, customVariant, customGenomic]);
+  const quickReading = readQuickEntry(quickDraft);
+  const onQuickEntryChange = (line: string) => {
+    setQuickDraft(line);
+    const read = readQuickEntry(line);
+    setCustomGene(read.gene);
+    setCustomVariant(read.variant);
+    setCustomGenomic(read.genomic);
+    if (read.uniprot) setCustomUniprot(read.uniprot);
+  };
+  const quickStatus = !quickDraft.trim()
+    ? "Gene and protein change, a coordinate, or an rsID. The fields below fill in as you type."
+    : quickReading.recognised
+      ? `Reads as ${[quickReading.gene, quickReading.variant || quickReading.genomic].filter(Boolean).join(" · ")}`
+      : quickReading.gene && !quickReading.variant
+        ? `Gene ${quickReading.gene}. Add a protein change such as p.Arg248Trp.`
+        : "Not recognised yet. Try GENE p.Arg248Trp or 20-23365054-G-A.";
+
   const isNonMissenseError = Boolean(
     analysisState?.error &&
     (analysisState.error.toLowerCase().includes("non-missense") ||
@@ -1236,7 +1268,6 @@ function VariantSearchPanel({
       <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
-          <ResearchGuideButton topic="variant_identity" label="Which variant will be analysed?" />
           {/* `cs-lede` balances the two lines so the sentence breaks where it ends, instead of
               stranding "synthesis is optional." under a full-measure first line. It is a class, not
               Tailwind's `text-balance`, because `p { text-wrap: pretty }` in typography-tables.css is
@@ -1245,6 +1276,11 @@ function VariantSearchPanel({
             Start with a gene and protein change, or use genomic coordinates.
             Evidence, structure and stability arrive independently; AI synthesis is optional.
           </p>
+        </div>
+
+        {/* Reading guide sits at the trailing edge of the header, opposite the title. */}
+        <div className="shrink-0 sm:self-start">
+          <ResearchGuideButton topic="variant_identity" label="Which variant will be analysed?" />
         </div>
 
         {/* The API-key notice lives in the app header only — this page used to repeat it here AND
@@ -1440,6 +1476,40 @@ function VariantSearchPanel({
                   </div>
                 )
               ) : null}
+
+              {/* Quick entry: one line that fills the fields below. The fields remain the source of
+                  truth (ids, labels and routing untouched) and Enter here submits like any query field. */}
+              <div className="flex flex-col gap-1.5" id="quick-entry">
+                <FieldLabel
+                  htmlFor="input-quick-entry"
+                  badge={
+                    quickReading.recognised ? (
+                      <FieldBadge tone="clay" title="Every part of the line was placed on a field below.">
+                        Recognised
+                      </FieldBadge>
+                    ) : null
+                  }
+                >
+                  Quick entry
+                </FieldLabel>
+                <div className="relative">
+                  <input
+                    id="input-quick-entry"
+                    type="text"
+                    placeholder="NAE1 p.Asp116Gly, 20-23365054-G-A or rs28934576"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={quickDraft}
+                    onChange={(e) => onQuickEntryChange(e.target.value)}
+                    aria-describedby="input-quick-entry-status"
+                    className={inputBase + " font-mono font-medium"}
+                  />
+                  <PasteBtn setter={onQuickEntryChange} />
+                </div>
+                <p id="input-quick-entry-status" role="status" aria-live="polite" className="text-[11px] text-cs-text-muted min-h-[16px]">
+                  {quickStatus}
+                </p>
+              </div>
 
               {/* `data-help-lines` (0/1/2) is on the CONTAINER because the reserved helper band is a
                   property of the row: both columns must reserve the same space or their row-2 labels
