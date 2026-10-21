@@ -31,6 +31,9 @@ concurrency:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      statuses: write
     # Pinned to match ci.yml: `ubuntu-latest` migrates to 26.04 over 2026-10-19..11-19, and a production
     # deploy should not be the first thing to meet a new image. Move both together (see ci.yml).
     runs-on: ubuntu-24.04
@@ -136,6 +139,19 @@ jobs:
       # What is still deliberately NOT claimed: when the window lapses, this run asserts neither
       # success nor failure — it asserts "dispatched and self-resolving". Production safety does
       # not depend on the runner asserting it.
+      # A GREEN RUN HERE MEANS "DISPATCHED", NOT "LIVE" — so the commit carries its own truthful status.
+      # `production/deploy` is pending from the moment this run starts and turns success only when the
+      # public /api/v1/version reports DEPLOY_SHA (this run's verdict poll, or the drift watch later).
+      # It turns failure when the dispatch fails or the drift watch's grace passes. No runner time is
+      # spent waiting: the status, not the run, says whether a merge is live.
+      - name: Mark production deploy pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${DEPLOY_SHA}" -f state=pending \
+            -f context=production/deploy -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -f description="Rolling out; NOT live yet" >/dev/null
+
       - name: Deploy to OCI VM via SSH
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -182,7 +198,20 @@ jobs:
             # deploy attempt for $1 (a full 40-hex SHA).
             set -eu
             DEPLOY_SHA="$1"
-            on_fail() { rc=$?; echo "[CD] DEPLOY_FAILED rc=$rc"; exit "$rc"; }
+            # Final verdict -> the commit's `production/deploy` status, posted by the only party that
+            # knows it: this worker. Needs a fine-grained token with "Commit statuses: write" in
+            # ~/.mse-status-token (chmod 600). Optional and best-effort: without it the status simply
+            # stays pending until the drift watch finalises it; a failed POST never alters the deploy.
+            post_status() {
+              [ -s "$HOME/.mse-status-token" ] || return 0
+              curl -fsS --max-time 15 -X POST \
+                -H "Authorization: Bearer $(cat "$HOME/.mse-status-token")" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/Huthaifa-HajAhmad/Missense-Structural-Explorer/statuses/$DEPLOY_SHA" \
+                -d "{\"state\":\"$1\",\"context\":\"production/deploy\",\"description\":\"$2\"}" \
+                >/dev/null 2>&1 || true
+            }
+            on_fail() { rc=$?; echo "[CD] DEPLOY_FAILED rc=$rc"; post_status failure "Deploy failed on the host; NOT live"; exit "$rc"; }
             trap on_fail ERR
 
             # Self-delete now: bash reads the script through one open descriptor, so removing
@@ -224,6 +253,7 @@ jobs:
               # journal the runbook points at. 2 h of a continuously held lock means a rollout
               # process is hung and needs human attention.
               echo "[CD] DEPLOY_DEFERRED: the host lock never freed within 2h; production unchanged."
+              post_status failure "Deploy never started (host lock held 2h); NOT live"
               exit 1
             fi
             export MSE_DEPLOY_LOCK_FD=9
@@ -303,6 +333,8 @@ jobs:
             # verifies the checkout (HEAD == --commit, clean tree), and prints the terminal
             # DEPLOY_OK / DEPLOY_FAILED marker itself.
             python3 deploy/rollout.py --commit "$DEPLOY_SHA"
+            # Reached only when rollout.py exited 0, i.e. after it verified the public version.
+            post_status success "Live in production"
             MSE_WORKER_EOF
 
             setsid nohup bash "$WORKER" "$DEPLOY_SHA" >> "$LOG" 2>&1 < /dev/null &
@@ -379,13 +411,15 @@ jobs:
               || true)"
             if [ "$live" = "$DEPLOY_SHA" ]; then
               echo "[CD] verdict: production serves $DEPLOY_SHA"
+              gh api "repos/${GITHUB_REPOSITORY}/statuses/${DEPLOY_SHA}" -f state=success \
+                -f context=production/deploy -f description="Live in production" >/dev/null || true
               exit 0
             fi
             tick=$(( tick + 1 ))
             sleep 15
           done
 
-          echo "::warning::No verdict after ${DEPLOY_VERDICT_SECONDS}s: production still serves ${live:-<unreachable>} for $DEPLOY_SHA. The rollout may still be in flight — the detached worker owns it and skips itself if main moved on."
+          echo "::warning::No verdict after ${DEPLOY_VERDICT_SECONDS}s (commit status production/deploy stays PENDING; the drift watch finalises it):production still serves ${live:-<unreachable>} for $DEPLOY_SHA. The rollout may still be in flight — the detached worker owns it and skips itself if main moved on."
           {
             echo "## Deployment verdict"
             echo ""
@@ -399,3 +433,13 @@ jobs:
             echo "the drift watch fails loudly once its grace window passes."
           } >> "$GITHUB_STEP_SUMMARY"
           exit 0
+
+      # A failed dispatch (SSH, invalid compose file, DEPLOY_FAILED inside the window) is a failed deploy.
+      - name: Mark production deploy failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${DEPLOY_SHA}" -f state=failure \
+            -f context=production/deploy -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -f description="Deploy failed; NOT live" >/dev/null || true
