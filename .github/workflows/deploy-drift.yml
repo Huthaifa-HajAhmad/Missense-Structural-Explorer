@@ -50,9 +50,9 @@ jobs:
     timeout-minutes: 10
     env:
       LIVE_URL: https://missense-resolve.duckdns.org/api/v1/version
-      # A detached rollout (build + handover + drain) can outlast CD by a wide margin. Below this age
-      # a mismatch is expected and never fails the watch.
-      GRACE_MINUTES: "45"
+      # CD now holds its run open until production serves the commit (or goes red), so SUCCESS means live;
+      # this is only propagation slack for the version endpoint.
+      GRACE_MINUTES: "5"
     steps:
       - name: Compare the deployed revision with main
         env:

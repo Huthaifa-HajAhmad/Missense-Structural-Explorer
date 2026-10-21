@@ -46,7 +46,9 @@ jobs:
     # DEPLOY_VERDICT_SECONDS of 300 / 600 — ~14 min worst case. 20 min is that sum plus slack for
     # a slow SSH handshake. The old 6-min ceiling could not have held a verdict wait at all — it
     # would have killed the run mid-poll and reported a red for a deploy that was landing fine.
-    timeout-minutes: 20
+    # 60 = dispatch (~2-4 min) + DEPLOY_VERDICT_SECONDS (45 min: build, 10-min readiness, drain) + slack.
+    # A run that ends inside this ceiling is a verdict; one that hits it is a failed run, never a green one.
+    timeout-minutes: 60
     if: >-
       github.repository == 'Huthaifa-HajAhmad/Missense-Structural-Explorer' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -85,7 +87,14 @@ jobs:
       # moment the commit is live, so the bill is time-to-verdict rather than the ceiling.
       # Longer than that belongs to the detached rollout and the drift watch, and failing here for
       # one would mean red runs for healthy deploys.
-      DEPLOY_VERDICT_SECONDS: ${{ github.event_name == 'workflow_dispatch' && '600' || '300' }}
+      #
+      # 2026-10-21: raised to 2700 s for BOTH triggers, and a lapse is now RED. The earlier 300 s
+      # window plus "lapse = green with a warning" made a green run mean only "dispatched": a
+      # rollout still building, queued behind the host lock, or failed after the window all looked
+      # identical to success, and a merged change was reported as deployed when it was not. Green
+      # must mean production serves DEPLOY_SHA (or a newer main superseded it). The runner minutes
+      # are the price of a truthful verdict; early exits keep the common case at time-to-serve.
+      DEPLOY_VERDICT_SECONDS: '2700'
       # The public revision endpoint: the one true "is it deployed" signal, reachable from
       # runners, machines, and the VM alike (rollout.py reads exactly this in public_version()).
       LIVE_URL: https://missense-resolve.duckdns.org/api/v1/version
@@ -346,16 +355,19 @@ jobs:
       # ceiling; holding an SSH session open for the same poll would have reintroduced the
       # run-36710716430 stall that `timeout-minutes` exists to bound.
       #
-      # On lapse the step still exits 0. A red here would cry failure over a legitimate slow
-      # rollout (cold builds hold the host lock for ~20 min by design) — the drift watch owns
-      # that verdict with its 45-minute grace. So the run stays green but carries a `::warning::`
-      # annotation naming the stale commit, which is loud where the old code was silent.
+      # Green means production serves DEPLOY_SHA (or main moved on and the newer run owns it). A
+      # host-side failure is red within about a minute; a lapse of the 45-minute window is red too.
+      # There is no "unconfirmed" green: that state is what let a merged change look deployed.
       - name: Wait for the rollout verdict
         env:
           GH_TOKEN: ${{ github.token }}
+          OCI_SSH_USER: ${{ secrets.OCI_SSH_USER || 'ubuntu' }}
         run: |
           set -euo pipefail
           deadline=$(( $(date -u +%s) + DEPLOY_VERDICT_SECONDS ))
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$OCI_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
 
           # SUPERSEDED REVISIONS DO NOT WAIT. The dispatch step above exits 0 when main has already
           # moved past DEPLOY_SHA, and nothing was dispatched for it — so production will never
@@ -381,11 +393,27 @@ jobs:
               echo "[CD] verdict: production serves $DEPLOY_SHA"
               exit 0
             fi
+            # A FAILED rollout leaves the old generation serving, which the poll above can only see
+            # as "not yet". Ask the host for its terminal marker about once a minute, so a failure
+            # is red within a minute of happening rather than at the end of the window.
+            if [ $(( tick % 4 )) -eq 1 ]; then
+              verdict="$(ssh -i "$HOME/.ssh/deploy_key" -o BatchMode=yes -o ConnectTimeout=10 \
+                -o StrictHostKeyChecking=accept-new "${OCI_SSH_USER}@${OCI_SSH_HOST}" \
+                "tail -qn 60 \$HOME/mse-deploy-${DEPLOY_SHA:0:12}-*.log 2>/dev/null | grep -E 'DEPLOY_(FAILED|SUPERSEDED)|needs_attention' | tail -n 1" 2>/dev/null || true)"
+              case "$verdict" in
+                *DEPLOY_FAILED*|*needs_attention*)
+                  echo "::error::Rollout of $DEPLOY_SHA failed on the host ($verdict). Production still serves ${live:-<unreachable>}."
+                  exit 1 ;;
+                *DEPLOY_SUPERSEDED*)
+                  echo "[CD] verdict: superseded on the host; the newer revision's run reports its deploy."
+                  exit 0 ;;
+              esac
+            fi
             tick=$(( tick + 1 ))
             sleep 15
           done
 
-          echo "::warning::No verdict after ${DEPLOY_VERDICT_SECONDS}s: production still serves ${live:-<unreachable>} for $DEPLOY_SHA. The rollout may still be in flight — the detached worker owns it and skips itself if main moved on."
+          echo "::error::No verdict after ${DEPLOY_VERDICT_SECONDS}s: production still serves ${live:-<unreachable>} for $DEPLOY_SHA. The deploy is NOT live."
           {
             echo "## Deployment verdict"
             echo ""
@@ -394,8 +422,7 @@ jobs:
             echo "| production serves | \`$live\` |"
             echo "| this run deployed | \`$DEPLOY_SHA\` |"
             echo ""
-            echo "The rollout is unconfirmed, not disproved: a cold build and its drain outlive this"
-            echo "window by design. \`deploy/runtime/rollout.json\` on the host is authoritative, and"
-            echo "the drift watch fails loudly once its grace window passes."
+            echo "Not live after the full window. Inspect deploy/runtime/rollout.json and"
+            echo "~/mse-deploy-${DEPLOY_SHA:0:12}-*.log on the host, then re-run this workflow."
           } >> "$GITHUB_STEP_SUMMARY"
-          exit 0
+          exit 1

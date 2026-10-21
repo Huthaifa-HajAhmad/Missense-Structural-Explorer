@@ -101,7 +101,7 @@ fails minutes later is **not** a red CI run. Two guards close the gap:
   into an immediate, named refusal and leaves the serving generation untouched.
 - **Drift watch.** `.github/workflows/deploy-drift.yml` (hourly + manual) compares the public
   `/api/v1/version` commit against the tip of `main` and fails when a revision CD reported as
-  deployed is not actually live. A run still in progress, or one inside the 45-minute grace window,
+  deployed is not actually live. A run still in progress, or one inside the 5-minute propagation slack,
   is a notice rather than a failure. A red run here is the signal that the on-host log
   (`~/mse-deploy-*.log`) and `deploy/runtime/rollout.json` are worth reading.
 
