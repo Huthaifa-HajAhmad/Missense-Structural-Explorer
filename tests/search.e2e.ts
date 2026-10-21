@@ -16,6 +16,7 @@ describe('variant search form', { tags: ['search'] }, () => {
   });
 
   test('typing enables Clear and Clear empties the fields', async ({ screen }) => {
+    await screen.getByText(/^Edit parsed fields/).tap();
     const gene = screen.getByRole('textbox', 'Gene symbol');
     await expect(screen.getByRole('button', 'Clear query fields')).toBeDisabled();
     await gene.fill('PAH');
@@ -25,10 +26,18 @@ describe('variant search form', { tags: ['search'] }, () => {
   });
 
   test('a notation example fills the protein field', async ({ screen }) => {
+    await screen.getByText(/^Edit parsed fields/).tap();
     await screen
       .getByRole('button', 'Use example p.Arg408Trp in the Variant notation field')
       .tap();
     await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Arg408Trp');
+  });
+
+  test('the quick entry line fills the parsed fields', async ({ screen }) => {
+    await screen.getByRole('textbox', /^Variant/).fill('NAE1 p.Asp116Gly');
+    await screen.getByText(/^Edit parsed fields/).tap();
+    await expect(screen.getByRole('textbox', 'Gene symbol')).toHaveValue('NAE1');
+    await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Asp116Gly');
   });
 
   test('the sidebar switches between Services and Pipeline', async ({ screen }) => {
