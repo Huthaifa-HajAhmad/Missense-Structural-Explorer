@@ -39,6 +39,7 @@ on:
 permissions:
   contents: read
   actions: read
+  statuses: write
 
 concurrency:
   group: production-drift-watch
@@ -50,9 +51,9 @@ jobs:
     timeout-minutes: 10
     env:
       LIVE_URL: https://missense-resolve.duckdns.org/api/v1/version
-      # CD now holds its run open until production serves the commit (or goes red), so SUCCESS means live;
-      # this is only propagation slack for the version endpoint.
-      GRACE_MINUTES: "5"
+      # A detached rollout (build + handover + drain) can outlast CD by a wide margin. Below this age
+      # a mismatch is expected and never fails the watch.
+      GRACE_MINUTES: "45"
     steps:
       - name: Compare the deployed revision with main
         env:
@@ -66,6 +67,14 @@ jobs:
           }
           echo "main       = $main"
 
+          # The commit's `production/deploy` status is the reader-facing truth (CD sets it pending).
+          # This watch finalises it with nobody waiting: success once production serves the commit,
+          # failure once it provably will not. Best-effort: a status write never changes the verdict.
+          set_status() {
+            gh api "repos/${GITHUB_REPOSITORY}/statuses/${main}" -f state="$1" \
+              -f context=production/deploy -f description="$2" >/dev/null || true
+          }
+
           live=$(curl -fsS --max-time 20 "$LIVE_URL" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || true)
           echo "production = ${live:-<unreachable>}"
@@ -77,6 +86,7 @@ jobs:
 
           if [ "$live" = "$main" ]; then
             echo "Production matches main."
+            set_status success "Live in production"
             {
               echo "## Production drift watch"
               echo ""
@@ -154,6 +164,7 @@ jobs:
             echo "CD run concluded '${CONCLUSION:-unknown}': nothing is in flight, so no grace window applies."
           fi
 
+          set_status failure "Not live in production (production serves ${live:0:7})"
           {
             echo "## Production drift watch"
             echo ""
