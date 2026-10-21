@@ -267,6 +267,7 @@ describe("UniProt state takes the label-row slot (UI-5)", () => {
   it("states the accession's state in the label row and keeps the field always editable", () => {
     act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
     renderPanel();
+    fireEvent.click(screen.getByText("Edit parsed fields"));
 
     const input = document.getElementById("input-uniprot-acc") as HTMLInputElement;
     // The accession belongs to the left fieldset, beside Gene and Protein or cDNA.

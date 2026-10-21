@@ -1235,6 +1235,13 @@ function VariantSearchPanel({
     );
   }, [customGene, customVariant, customGenomic]);
   const quickReading = readQuickEntry(quickDraft);
+  // The fields are folded away by default; anything that needs a decision in them opens them.
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const fieldsNeedAttention =
+    Boolean(routeConflict) ||
+    bareCdnaNeedsGene ||
+    coordinateRoute === "unrecognised" ||
+    (Boolean(customUniprot.trim()) && !uniprotLooksValid);
   const onQuickEntryChange = (line: string) => {
     setQuickDraft(line);
     const read = readQuickEntry(line);
@@ -1509,8 +1516,50 @@ function VariantSearchPanel({
                 <p id="input-quick-entry-status" role="status" aria-live="polite" className="text-[11px] text-cs-text-muted min-h-[16px]">
                   {quickStatus}
                 </p>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]" data-testid="quick-entry-preview">
+                  {[
+                    ["Gene", customGene.trim().toUpperCase()],
+                    ["Change", (customVariant.trim() || customGenomic.trim())],
+                    ["UniProt", customUniprot.trim().toUpperCase() || "auto-resolved"],
+                    [
+                      "Build",
+                      genomicBuildControllable ? genomicBuild : variantBuildControllable ? variantBuild : "auto",
+                    ],
+                  ].map(([label, value]) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center gap-1 rounded-md border border-cs-border-subtle bg-cs-surface-2/60 px-2 py-0.5"
+                    >
+                      <span className="text-cs-text-muted">{label}</span>
+                      <span className="font-mono text-cs-text-primary">{value || "–"}</span>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-cs-text-muted">
+                  <span>Try</span>
+                  {["NAE1 p.Asp116Gly", "20-23365054-G-A", "rs28934576"].map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => onQuickEntryChange(example)}
+                      className="rounded-md border border-cs-border-subtle px-2 py-0.5 font-mono text-cs-text-secondary hover:border-[var(--cs-accent-clay)] hover:text-cs-text-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
               </div>
 
+              <details
+                className="group rounded-lg border border-cs-border-subtle"
+                open={fieldsOpen || fieldsNeedAttention}
+                onToggle={(e) => setFieldsOpen((e.currentTarget as HTMLDetailsElement).open)}
+              >
+                <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary">
+                  Edit parsed fields
+                  <span className="ml-2 font-normal text-cs-text-muted">gene, notation, UniProt, genome build, coordinates</span>
+                </summary>
+                <div className="px-3 pb-3 pt-1 flex flex-col gap-4">
               {/* `data-help-lines` (0/1/2) is on the CONTAINER because the reserved helper band is a
                   property of the row: both columns must reserve the same space or their row-2 labels
                   stop sharing a baseline. See `reservedHelpLines`. */}
@@ -1797,6 +1846,8 @@ function VariantSearchPanel({
                   </div>
                 </fieldset>
               </div>
+                </div>
+              </details>
 
               {/* AI focus (optional) — an open field, not a disclosure.
                   The workspace form flexes to share one bottom line with the rail, so a collapsed

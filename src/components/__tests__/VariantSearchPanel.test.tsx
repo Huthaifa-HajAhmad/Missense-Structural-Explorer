@@ -583,6 +583,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
   describe("accepted-inputs catalogue", () => {
     it("reveals additional formats and applies an accessioned notation without losing its reference", () => {
       renderPanel();
+      fireEvent.click(screen.getByText("Edit parsed fields"));
       const exampleName = `Use example ${ACCEPTED_NOTATION_EXAMPLES.proteinAccessioned} in the Variant notation field`;
       expect(screen.getByRole("button", { name: exampleName })).not.toBeVisible();
       fireEvent.click(screen.getByText("More protein & cDNA formats"));
@@ -594,6 +595,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
 
     it("keeps the accession editable in place, with its state in the label row", () => {
       renderPanel();
+      fireEvent.click(screen.getByText("Edit parsed fields"));
       const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
       // No reveal step: there is no collapsed summary to open, so the input is there on first paint.
       expect(reference).toBeVisible();
@@ -610,6 +612,7 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     it("keeps a populated protein reference visible when returning to the form", () => {
       act(() => useVariantAnalysisStore.setState({ customUniprot: "Q9H8M5" }));
       renderPanel();
+      fireEvent.click(screen.getByText("Edit parsed fields"));
       expect(screen.getByPlaceholderText("e.g. Q9H8M5")).toBeVisible();
       expect(screen.getByPlaceholderText("e.g. Q9H8M5")).toHaveValue("Q9H8M5");
       const reference = screen.getByPlaceholderText("e.g. Q9H8M5");
