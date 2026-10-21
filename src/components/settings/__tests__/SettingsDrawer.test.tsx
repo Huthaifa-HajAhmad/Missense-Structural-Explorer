@@ -179,6 +179,51 @@ describe("SettingsDrawer (settings revamp)", () => {
     expect(screen.getByRole("tab", { name: /viewport/i })).toHaveAttribute("aria-selected", "true");
   });
 
+  it("refuses an autofilled sign-in address in the filter field", async () => {
+    function ConnectionsOpener() {
+      const { openSettingsTab } = useSettings();
+      return (
+        <>
+          <button onClick={() => openSettingsTab("connections")}>configure-connections</button>
+          <SettingsDrawer />
+        </>
+      );
+    }
+    render(
+      <SettingsProvider>
+        <ConnectionsOpener />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByText("configure-connections"));
+    await act(async () => {});
+
+    const searchInput = screen.getByPlaceholderText(/search settings/i);
+
+    // What Chrome's password manager (and most autofill extensions) does to any text field it
+    // misreads as a username: write a credential as a replacement insertion.
+    fireEvent.input(searchInput, {
+      inputType: "insertReplacementText",
+      target: { value: "huthaifa.haj.ahmad@gmail.com" }
+    });
+
+    expect(searchInput).toHaveValue("");
+    expect(screen.queryByText(/settings found/i)).not.toBeInTheDocument();
+    // The Configure click still lands where it said it would.
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "settings-tab-connections");
+
+    // A filler that writes the DOM without firing an event leaves the box looking filled; the
+    // field re-syncs to the query when it takes focus.
+    (searchInput as HTMLInputElement).value = "huthaifa.haj.ahmad@gmail.com";
+    fireEvent.focus(searchInput);
+    expect(searchInput).toHaveValue("");
+
+    // The guard refuses autofill, not the reader.
+    fireEvent.change(searchInput, { target: { value: "polar" } });
+    expect(searchInput).toHaveValue("polar");
+    expect(screen.getByText(/polar contacts & hydrogen bonds/i)).toBeInTheDocument();
+  });
+
   it("focuses search with '/' and clears it with the first Escape before closing", async () => {
     renderDrawer();
     fireEvent.click(screen.getByText("open-settings"));

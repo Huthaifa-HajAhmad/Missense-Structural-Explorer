@@ -65,6 +65,22 @@
   border-color: var(--cs-accent-clay);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-accent-clay) 16%, transparent);
 }
+/* If an autofill engine still fills the filter, its own highlight must not repaint the field as a
+   foreign credential chip. Keep the raised surface and the reader's text colour; restate the focus
+   ring, since the inset shadow that covers Chrome's autofill background would swallow it. */
+.settings-search input:-webkit-autofill,
+.settings-search input:-webkit-autofill:hover {
+  -webkit-text-fill-color: var(--cs-text-primary);
+  box-shadow: 0 0 0 1000px var(--st-card) inset;
+  caret-color: var(--cs-text-primary);
+}
+.settings-search input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--cs-text-primary);
+  border-color: var(--cs-accent-clay);
+  box-shadow:
+    0 0 0 1000px var(--st-card) inset,
+    0 0 0 3px color-mix(in srgb, var(--cs-accent-clay) 16%, transparent);
+}
 
 /* Nav: sliding selection pill + horizontal scroller on small screens */
 .settings-nav { scrollbar-width: none; }
