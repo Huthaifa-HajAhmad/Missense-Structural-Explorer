@@ -429,3 +429,31 @@ describe("stage counts agree across idle and running states (PIPE-1)", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "6");
   });
 });
+
+describe("Quick entry: one line over the four fields", () => {
+  const quick = () => document.getElementById("input-quick-entry") as HTMLInputElement;
+
+  it("fills gene and protein change from one line, and keeps a trailing space while typing", () => {
+    renderPanel();
+    fireEvent.change(quick(), { target: { value: "NAE1 " } });
+    expect(geneInput().value).toBe("NAE1");
+    expect(quick().value).toBe("NAE1 ");
+    fireEvent.change(quick(), { target: { value: "NAE1 p.Asp116Gly" } });
+    expect((screen.getByPlaceholderText("e.g. p.Gly380Arg") as HTMLInputElement).value).toBe("p.Asp116Gly");
+  });
+
+  it("sends a coordinate to the coordinate field", () => {
+    renderPanel();
+    fireEvent.change(quick(), { target: { value: "20-23365054-G-A" } });
+    expect(genomicInput().value).toBe("20-23365054-G-A");
+    expect(geneInput().value).toBe("");
+  });
+
+  it("follows the fields when they change from elsewhere", () => {
+    renderPanel();
+    act(() => {
+      useVariantAnalysisStore.setState({ customGene: "CNNM2", customVariant: "p.Ser489Cys" });
+    });
+    expect(quick().value).toBe("CNNM2 p.Ser489Cys");
+  });
+});
