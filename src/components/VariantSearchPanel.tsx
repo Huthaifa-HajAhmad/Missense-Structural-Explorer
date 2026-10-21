@@ -3,6 +3,9 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Trash2,
   ChevronDown,
+  ChevronRight,
+  Search,
+  Sparkles,
   Loader2,
   Clipboard,
   ShieldAlert,
@@ -1294,17 +1297,13 @@ function VariantSearchPanel({
             in the header, two warnings for one fact. The form footer still names the consequence. */}
       </header>
 
-      {/* ── Main grid: form (8) + rail (4) on row 1, recent analyses under the form on row 2 ──
-          The card placement is explicit (`row-start`), not implied by nesting, because the two
-          panels that share row 1 must also share their BOTTOM edge: the form is content-sized and
-          the rail is pinned to a 672px floor, and while the rail kept its own height (`self-start`)
-          the two bottoms sat ~11px apart — a near-miss the eye reads as a mistake. On one row they
-          stretch together, and the rail's floor wins only when it is the taller of the two. The
-          recent card is the column's second row for the same reason: it used to live inside the
-          form's column, which made the column taller than its own first card and left the rail's
-          bottom hovering next to it.
-          Column gap and row gap are separate on purpose: 20px between the form and the rail (they
-          are siblings), 24px between the form and the card under it (a block rhythm). */}
+      {/* ── Main grid: query card (8) + rail (4) on row 1, recent analyses (8) on row 2 ──
+          The form and the rail share one grid row, so they stretch together and close on one line.
+          The rail's floor (600px) wins only when the form is shorter; the slack then lands in the AI
+          field, never as a hole under the services list. DOM order stays form → recent → rail, which
+          is the reading order when the grid stacks.
+          Column gap and row gap are separate on purpose: 20px between the form and the rail (they are
+          siblings), 24px between the form and the card under it (a block rhythm). */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-4 lg:gap-x-5 gap-y-6 items-stretch">
         <section
           className="cs-panel flex flex-col min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1"
@@ -1317,7 +1316,7 @@ function VariantSearchPanel({
           <form onSubmit={onFormSubmit} className="flex flex-col flex-1">
             {/* flex-1: this is the slab that stretches to the panel floor; the AI field inside
                 it takes the leftover, so no dead gap pools above the pinned footer. */}
-            <div className="p-6 flex flex-col gap-6 flex-1 min-h-0">
+            <div className="p-6 flex flex-col gap-5 flex-1 min-h-0">
               {result?.numberingChoices &&
               /**
                * Two readings minimum: a single "choice" is not a decision, and the refusal message
@@ -1484,82 +1483,171 @@ function VariantSearchPanel({
                 )
               ) : null}
 
-              {/* Quick entry: one line that fills the fields below. The fields remain the source of
-                  truth (ids, labels and routing untouched) and Enter here submits like any query field. */}
-              <div className="flex flex-col gap-1.5" id="quick-entry">
-                <FieldLabel
-                  htmlFor="input-quick-entry"
-                  badge={
-                    quickReading.recognised ? (
-                      <FieldBadge tone="clay" title="Every part of the line was placed on a field below.">
-                        Recognised
-                      </FieldBadge>
-                    ) : null
-                  }
+              {/* ── Command bar ────────────────────────────────────────────────────────────────
+                  One line in, one action out. The line is a draft parsed into the four fields as it
+                  is typed (the fields stay the source of truth: ids, labels and routing untouched),
+                  and the primary action sits on the same row so the eye never leaves the input to
+                  find it. Enter here submits like any query field. */}
+              <div className="qe" id="quick-entry">
+                <div className="qe__head">
+                  <label htmlFor="input-quick-entry" className="qe__label">
+                    Variant
+                  </label>
+                  <span className="qe__accepts">Gene + protein change · cDNA · coordinate · rsID · ClinVar VCV</span>
+                </div>
+
+                <div className="qe__bar" data-recognised={quickReading.recognised || undefined}>
+                  <div className="qe__field">
+                    <Search className="qe__icon" aria-hidden="true" />
+                    <input
+                      id="input-quick-entry"
+                      type="text"
+                      placeholder="NAE1 p.Asp116Gly, 20-23365054-G-A or rs28934576"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={quickDraft}
+                      onChange={(e) => onQuickEntryChange(e.target.value)}
+                      aria-describedby="input-quick-entry-status"
+                      className="qe__input"
+                    />
+                    {quickDraft ? (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        title="Clear the line"
+                        aria-label="Clear quick entry"
+                        onClick={() => onQuickEntryChange("")}
+                        className="qe__tool"
+                      >
+                        <X className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        title="Paste from clipboard"
+                        aria-label="Paste from clipboard"
+                        onClick={() => pasteFromClipboard(onQuickEntryChange)}
+                        className="qe__tool"
+                      >
+                        <Clipboard className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isForegroundActive}
+                    aria-label="Analyse variant"
+                    className="qe__submit"
+                  >
+                    {isForegroundActive ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                        Analysing…
+                      </>
+                    ) : (
+                      <>
+                        Analyse
+                        <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <p
+                  id="input-quick-entry-status"
+                  role="status"
+                  aria-live="polite"
+                  className="qe__status"
+                  data-tone={!quickDraft.trim() ? "idle" : quickReading.recognised ? "ok" : "pending"}
                 >
-                  Quick entry
-                </FieldLabel>
-                <div className="relative">
-                  <input
-                    id="input-quick-entry"
-                    type="text"
-                    placeholder="NAE1 p.Asp116Gly, 20-23365054-G-A or rs28934576"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={quickDraft}
-                    onChange={(e) => onQuickEntryChange(e.target.value)}
-                    aria-describedby="input-quick-entry-status"
-                    className={inputBase + " font-mono font-medium"}
-                  />
-                  <PasteBtn setter={onQuickEntryChange} />
-                </div>
-                <p id="input-quick-entry-status" role="status" aria-live="polite" className="text-[11px] text-cs-text-muted min-h-[16px]">
-                  {quickStatus}
+                  {quickDraft.trim() ? (
+                    quickReading.recognised ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <span className="qe__status-dot" aria-hidden="true" />
+                    )
+                  ) : null}
+                  <span>{quickStatus}</span>
                 </p>
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px]" data-testid="quick-entry-preview">
-                  {[
-                    ["Gene", customGene.trim().toUpperCase()],
-                    ["Change", (customVariant.trim() || customGenomic.trim())],
-                    ["UniProt", customUniprot.trim().toUpperCase() || "auto-resolved"],
-                    [
-                      "Build",
-                      genomicBuildControllable ? genomicBuild : variantBuildControllable ? variantBuild : "auto",
-                    ],
-                  ].map(([label, value]) => (
-                    <span
-                      key={label}
-                      className="inline-flex items-center gap-1 rounded-md border border-cs-border-subtle bg-cs-surface-2/60 px-2 py-0.5"
-                    >
-                      <span className="text-cs-text-muted">{label}</span>
-                      <span className="font-mono text-cs-text-primary">{value || "–"}</span>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-cs-text-muted">
-                  <span>Try</span>
-                  {["NAE1 p.Asp116Gly", "20-23365054-G-A", "rs28934576"].map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      onClick={() => onQuickEntryChange(example)}
-                      className="rounded-md border border-cs-border-subtle px-2 py-0.5 font-mono text-cs-text-secondary hover:border-[var(--cs-accent-clay)] hover:text-cs-text-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
+
+                {/* The parse, as a ticket: what each field now holds. Values only — the verdict words
+                    ("Protein HGVS", "Derived", "Format OK") stay in the field labels, their one home. */}
+                {quickDraft.trim() ? (
+                  <dl className="qe__ticket" data-testid="quick-entry-preview">
+                    {(() => {
+                      const activeKind = genomicIsCoordinate ? genomicNotation?.kind : variantNotation?.kind;
+                      const cells: Array<{ label: string; value: string; auto?: boolean; tone?: FieldBadgeTone; hint?: string }> = [
+                        { label: "Gene", value: customGene.trim().toUpperCase(), auto: notationResolvesItself && !customGene.trim() },
+                        {
+                          label: "Change",
+                          value: customGenomic.trim() || customVariant.trim(),
+                          tone: activeKind ? NOTATION_BADGES[activeKind].tone : undefined,
+                          hint: activeKind ? NOTATION_BADGES[activeKind].title : undefined,
+                        },
+                        { label: "UniProt", value: customUniprot.trim().toUpperCase(), auto: !customUniprot.trim() },
+                        {
+                          label: "Build",
+                          value: genomicBuildControllable ? genomicBuild : variantBuildControllable ? variantBuild : "",
+                          auto: !genomicBuildControllable && !variantBuildControllable,
+                        },
+                      ];
+                      return cells.map(cell => (
+                        <div key={cell.label} className="qe__cell" title={cell.hint}>
+                          <dt>
+                            {cell.tone ? <span className="qe__kind" data-tone={cell.tone} aria-hidden="true" /> : null}
+                            {cell.label}
+                          </dt>
+                          <dd data-empty={!cell.value || undefined}>
+                            {cell.value || (cell.auto ? "auto" : "—")}
+                          </dd>
+                        </div>
+                      ));
+                    })()}
+                  </dl>
+                ) : (
+                  <div className="qe__try">
+                    <span>Try</span>
+                    {[
+                      { value: "NAE1 p.Asp116Gly", note: "protein" },
+                      { value: "20-23365054-G-A", note: "coordinate" },
+                      { value: "rs28934576", note: "dbSNP" },
+                    ].map(({ value, note }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => onQuickEntryChange(value)}
+                        className="qe__example"
+                        title={`Fill the line with a ${note} example`}
+                      >
+                        <span className="font-mono">{value}</span>
+                        <span className="qe__example-note">{note}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <details
-                className="group rounded-lg border border-cs-border-subtle"
+                className="qe-fields"
                 open={fieldsOpen || fieldsNeedAttention}
                 onToggle={(e) => setFieldsOpen((e.currentTarget as HTMLDetailsElement).open)}
               >
-                <summary className="cursor-pointer select-none px-3 py-2 text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary">
+                <summary className="qe-fields__summary">
+                  <ChevronRight className="qe-fields__chevron" aria-hidden="true" />
                   Edit parsed fields
-                  <span className="ml-2 font-normal text-cs-text-muted">gene, notation, UniProt, genome build, coordinates</span>
+                  <span className="qe-fields__meta">
+                    {fieldsNeedAttention ? (
+                      <span className="qe-fields__attention">
+                        <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+                        Needs a look
+                      </span>
+                    ) : (
+                      <span className="qe-fields__hint">Gene, notation, UniProt, build, coordinates</span>
+                    )}
+                  </span>
                 </summary>
-                <div className="px-3 pb-3 pt-1 flex flex-col gap-4">
+                <div className="qe-fields__body">
               {/* `data-help-lines` (0/1/2) is on the CONTAINER because the reserved helper band is a
                   property of the row: both columns must reserve the same space or their row-2 labels
                   stop sharing a baseline. See `reservedHelpLines`. */}
@@ -1849,14 +1937,10 @@ function VariantSearchPanel({
                 </div>
               </details>
 
-              {/* AI focus (optional) — an open field, not a disclosure.
-                  The workspace form flexes to share one bottom line with the rail, so a collapsed
-                  disclosure under the Variant field left nothing between itself and the footer,
-                  while the panel stretched — the dead space the open field now fills: the block
-                  takes the leftover height and the writing surface grows with it (capped, so a
-                  very tall window pools only modest slack below it). Label, badge and hint row
-                  follow the same anatomy as every other field. */}
-              <fieldset className="flex flex-col gap-1.5 flex-1 min-h-0">
+              {/* AI focus (optional) — an open field, not a disclosure, and visibly secondary to the
+                  query: a quieter surface, a smaller label, and a writing area that takes only the
+                  slack the panel has to give (capped) rather than dominating the card. */}
+              <fieldset className="qe-ai">
                 <FieldLabel
                   htmlFor="textarea-user-directions"
                   badge={
@@ -1871,7 +1955,10 @@ function VariantSearchPanel({
                     )
                   }
                 >
-                  AI focus &amp; custom instructions
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-cs-text-muted" aria-hidden="true" />
+                    AI focus &amp; custom instructions
+                  </span>
                 </FieldLabel>
                 <textarea
                   id="textarea-user-directions"
@@ -1884,7 +1971,7 @@ function VariantSearchPanel({
                     setUserDirections(text);
                   }}
                   maxLength={2000}
-                  className="w-full rounded-[var(--cs-radius-input)] border border-cs-border bg-cs-surface px-2.5 py-2 text-[13px] leading-relaxed text-cs-text-primary outline-none resize-none min-h-[88px] flex-1 max-h-[224px] select-text placeholder:text-cs-text-muted transition-[border-color,box-shadow] duration-150 ease-out focus:ring-2 focus:ring-[var(--cs-accent-clay)] focus:border-[var(--cs-accent-clay)]"
+                  className="qe-ai__textarea"
                 />
                 <div className="flex justify-between items-start gap-3 text-[11px] text-cs-text-muted">
                   <span id="user-directions-privacy" className="flex items-start gap-1.5">
@@ -1896,8 +1983,9 @@ function VariantSearchPanel({
               </fieldset>
             </div>
 
-            {/* ── Form footer: hint left, primary action right ── */}
-            <div className="mt-auto flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-t border-cs-border-subtle bg-cs-surface-2/60">
+            {/* ── Form footer: context left, the quiet secondary action right. The primary action lives
+                in the command bar beside the input it acts on. ── */}
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-3 border-t border-cs-border-subtle bg-cs-surface-2/60">
               {/* Keyless-first: every stage runs without a key, and the narrative stage returns its
                   designed "AI not configured" report (rule-based ACMG from database metrics). The key
                   only adds the written interpretation, so it is a note here, never a gate — a gate
@@ -1905,6 +1993,13 @@ function VariantSearchPanel({
               {/* The Enter hint is a fact about the form, not about the key, so it sits beside the note on every
                   path. It used to appear only with a Gemini key, and a keyless reader had no cue that Enter runs. */}
               <p className="text-[11px] text-cs-text-muted flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="inline-flex items-center gap-1.5">
+                  <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
+                    <CornerDownLeft className="w-3 h-3" aria-hidden="true" />
+                    Enter
+                  </kbd>
+                  runs from a query field
+                </span>
                 <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   {settings?.narrativeMode === "off" ? (
                     <span>AI synthesis is off. Evidence and classification remain available.</span>
@@ -1923,53 +2018,24 @@ function VariantSearchPanel({
                     </>
                   )}
                 </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <kbd className="inline-flex items-center gap-1 h-5 px-1.5 rounded border border-cs-border bg-cs-surface font-sans text-[11px] text-cs-text-secondary">
-                    <CornerDownLeft className="w-3 h-3" aria-hidden="true" />
-                    Enter
-                  </kbd>
-                  runs from a query field
-                </span>
               </p>
 
-              <div className="flex items-center gap-2 sm:ml-auto">
-                {/* Quiet secondary action beside the primary one. Disabled while the fields are
-                    already empty — an inert Clear in a footer reads as a dead control, and the
-                    form states its own fill state through the badges that fields already wear. */}
-                <button
-                  type="button"
-                  onClick={clearQueryFields}
-                  disabled={
-                    !customGene.trim() &&
-                    !customUniprot.trim() &&
-                    !customVariant.trim() &&
-                    !customGenomic.trim()
-                  }
-                  aria-label="Clear query fields"
-                  className="inline-flex items-center gap-1.5 h-10 px-3.5 rounded-[var(--cs-radius-input)] text-[12.5px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-                >
-                  <Eraser className="w-3.5 h-3.5" aria-hidden="true" />
-                  Clear
-                </button>
-                <button
-                  type="submit"
-                  disabled={isForegroundActive}
-                  aria-label="Analyse variant"
-                  className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-[var(--cs-radius-input)] text-[14px] font-medium text-white bg-cs-accent-clay hover:brightness-[1.06] active:brightness-95 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed transition-[filter,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cs-surface)] sm:min-w-[168px]"
-                >
-                  {isForegroundActive ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Analysing…
-                    </>
-                  ) : (
-                    <>
-                      Analyse variant
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
-              </div>
+              {/* Disabled while the fields are already empty — an inert Clear reads as a dead control. */}
+              <button
+                type="button"
+                onClick={clearQueryFields}
+                disabled={
+                  !customGene.trim() &&
+                  !customUniprot.trim() &&
+                  !customVariant.trim() &&
+                  !customGenomic.trim()
+                }
+                aria-label="Clear query fields"
+                className="inline-flex items-center gap-1.5 h-8 px-3 -mr-1.5 rounded-[var(--cs-radius-input)] text-[12px] font-medium text-cs-text-secondary hover:text-cs-text-primary hover:bg-cs-bg-subtle cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+              >
+                <Eraser className="w-3.5 h-3.5" aria-hidden="true" />
+                Clear fields
+              </button>
             </div>
           </form>
         </section>
@@ -1982,7 +2048,7 @@ function VariantSearchPanel({
             stacks) without being inside the form's column and inflating row 1. */}
         <section
           aria-labelledby="recent-title"
-          className="cs-panel p-4 flex flex-col gap-3 lg:col-span-8 lg:col-start-1 lg:row-start-2"
+          className="cs-panel p-4 flex flex-col gap-3 min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-2"
           data-tour="recent-benchmarks"
         >
           {history.length > 0 ? (
@@ -2102,7 +2168,7 @@ function VariantSearchPanel({
             hole under the list; the row no longer includes the recent card, so the leftover is at most
             the form's own slack — and that lands in the AI textarea, not under the services. */}
         <aside
-          className="cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:relative min-h-[480px] lg:min-h-[672px] flex flex-col"
+          className="cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:relative min-h-[480px] lg:min-h-[600px] flex flex-col"
           data-tour="workflow-rail"
           id="workspace-stage-rail"
           aria-label="Services and pipeline"
