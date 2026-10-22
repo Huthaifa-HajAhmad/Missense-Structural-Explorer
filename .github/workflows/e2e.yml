@@ -72,8 +72,14 @@ jobs:
         # `inputs.tags` is empty on a pull_request run, so the default list is repeated here.
         run: npx e2e run --tag "${{ inputs.tags || 'smoke,navigation,search,shell' }}" --reporter list,junit
         env:
-          # AUTH_MODE=legacy needs no sign-in; the runner starts the server itself (e2e.config.ts).
+          # The runner starts the server itself (e2e.config.ts). A checkout has no .env, and the server
+          # refuses to start without APP_API_TOKEN and APP_SESSION_SECRET, so give it throwaways for
+          # this job only.
+          # AUTH_MODE=legacy needs no sign-in.
           NODE_ENV: development
+          AUTH_MODE: legacy
+          APP_API_TOKEN: e2e-ci-throwaway-token
+          APP_SESSION_SECRET: e2e-ci-throwaway-session-secret-0123456789
 
       - name: Upload e2e evidence
         if: ${{ !cancelled() }}
