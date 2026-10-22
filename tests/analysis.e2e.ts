@@ -12,6 +12,8 @@ describe('benchmark analysis', { tags: ['live'], timeout: 180_000 }, () => {
 
   test('a benchmark fill-only control fills the query without running', async ({ screen }) => {
     await screen.getByRole('button', 'Fill the form with PAH p.Arg408Trp without running').tap();
+    // The parsed fields sit behind the quick-entry disclosure.
+    await screen.getByText(/^Edit parsed fields/).tap();
     await expect(screen.getByRole('textbox', 'Gene symbol')).toHaveValue('PAH');
     await expect(screen.getByRole('textbox', /^Protein or cDNA notation/)).toHaveValue('p.Arg408Trp');
   });

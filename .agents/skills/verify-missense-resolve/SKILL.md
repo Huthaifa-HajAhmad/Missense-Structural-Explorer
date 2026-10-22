@@ -42,7 +42,7 @@ looks off.
 Live, over the registered `e2e mcp` server: `open_session`, then `observe`, the verbs, and
 `locate` before writing any locator (topic `mcp`). The server is registered in `.mcp.json`;
 start a new agent session after it was added. Scripted: a test under `tests/`, `screen`
-for every control (all have accessible names), no `agent.*` (no model is configured).
+for every control (all have accessible names). `agent.*` steps work (a Gemini model is configured), but keep tests deterministic: an agent step costs tokens and time.
 
 Every test starts a fresh browser context, which shows the first-run onboarding tour, and
 its scrim intercepts every click. Call `skipTour(browser)` from `tests/support.ts` before
@@ -63,15 +63,14 @@ the tour flag is `localStorage['cs-onboarding-completed-v1']`; the server's own 
 
 ## Bug bash
 
-Not wired: `e2e.config.ts` has no `agents` model, so `e2e explore` has nothing to run on.
-To enable it, add a model (topic `setup`, "Subscriptions and API keys"), write
-`e2e.bugbash.config.ts` spreading `e2e.config.ts` with `tests/bugbash/**` added to the
-glob, keep `.e2e/bugbash/` in `.gitignore`, and paste the charters from
-[features/](features/README.md) in the `slug|target|agent|charter` fan-out format. A
-finding is a bug only once `tests/bugbash/<slug>.e2e.ts` fails with `ASSERTION_FAILED` on
-the assertion that encodes it. What is not a bug here: service tiles that read "offline"
-or "fallback" (they reflect live upstream health), and a missing Gemini key (AI synthesis
-is optional).
+Wired. `e2e.config.ts` holds `agents.default` (Gemini, `GEMINI_API_KEY` and `GEMINI_MODEL` from
+`.env`, loaded by the config itself), and `e2e.bugbash.config.ts` spreads it with `tests/bugbash/**`
+added and the `skeptic` and `fuzzer` personas. Run `npx e2e explore --config
+e2e.bugbash.config.ts [--agent skeptic] "<charter>"` (1 to 12 steps per run, a few cents each);
+keep `.e2e/bugbash/` as the `--output`. A finding is a bug only once `tests/bugbash/<slug>.e2e.ts`
+fails with `ASSERTION_FAILED` on the assertion that encodes it. What is not a bug here: service
+tiles that read "offline" or "fallback" (they reflect live upstream health), and a missing Gemini
+key (AI synthesis is optional). The deterministic tests under `tests/` never call the model.
 
 ## Cleanup
 

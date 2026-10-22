@@ -20,11 +20,13 @@ const box = async (locator: { boundingBox(): Promise<Box | null> }, what: string
 };
 
 describe('search form design rhythm', { tags: ['search'] }, () => {
-  beforeEach(async ({ app, browser }) => {
+  beforeEach(async ({ app, browser, screen }) => {
     await skipTour(browser);
     // The review's own width: two notation columns side by side, examples on one line.
     await browser.setViewport({ width: 1876, height: 1050 });
     await app.open('/');
+    // The parsed fields live behind the quick-entry disclosure; the rhythm below is the open form's.
+    await screen.getByText(/^Edit parsed fields/).tap();
   });
 
   test('the reserved helper band costs nothing when no column shows a hint', async ({ screen, app }) => {
@@ -99,6 +101,7 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
   test('the deck stacks in reading order below the breakpoint', async ({ screen, browser, app }) => {
     await browser.setViewport({ width: 720, height: 900 });
     await app.open('/');
+    await screen.getByText(/^Edit parsed fields/).tap();
 
     const form = await box(screen.getByRole('region', 'Variant query'), 'form card');
     const recent = await box(screen.getByRole('region', /recent analyses/i), 'recent analyses card');
@@ -111,7 +114,7 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
 
   test('the UniProt state sits in the label-row slot, above the field it describes', async ({ screen, app }) => {
     const input = screen.getByRole('textbox', /^UniProt accession/);
-    // No reveal step: the accession input is on first paint.
+    // No reveal step beyond the parsed-fields disclosure: the input is a plain field once it is open.
     await expect(input).toBeVisible();
     await input.fill('Q9H8M5');
 
