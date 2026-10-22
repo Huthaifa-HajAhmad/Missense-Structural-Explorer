@@ -7,12 +7,28 @@ name: E2E UI suite
 # 700 MB RaSP index, which a clean checkout does not carry, so a first run may need data or a
 # stub before it is green. Until a run proves it, it must not be able to block a deploy.
 #
-# To promote it: dispatch it a few times, then fold the job into `ci.yml` (and add the script to
+# IT RUNS ON EVERY PULL REQUEST THAT TOUCHES THE UI, STILL NON-GATING. A suite that only runs when
+# someone remembers to dispatch it goes red unseen: the search form was folded behind a disclosure
+# and four design-spacing tests broke with no run to say so. `pull_request` gives it a result on
+# every UI change, and because `cd.yml` waits on `ci.yml` alone, a red e2e run cannot block a
+# deploy. It is not a required check until it has been green on a runner over a run of PRs.
+#
+# To promote it: once it has a clean record, fold the job into `ci.yml` (and add the script to
 # `npm run verify` or allow-list it in `scripts/check-verify-parity.ts`).
 #
 # WHAT IT RUNS. Only the offline-safe tags. The `live` analysis test depends on Ensembl, ClinVar,
 # UniProt and others answering, so it is opt-in through the `tags` input.
 on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**/*.e2e.ts'
+      - 'tests/support.ts'
+      - 'e2e.config.ts'
+      - 'server.ts'
+      - 'server/**'
+      - 'package-lock.json'
+      - '.github/workflows/e2e.yml'
   workflow_dispatch:
     inputs:
       tags:
@@ -53,7 +69,8 @@ jobs:
       # `npm run test:e2e` would be a CI script that `scripts/check-verify-parity.ts` expects in
       # `verify`; calling the runner directly keeps this experiment out of that contract.
       - name: Run the UI suite
-        run: npx e2e run --tag "${{ inputs.tags }}" --reporter list,junit
+        # `inputs.tags` is empty on a pull_request run, so the default list is repeated here.
+        run: npx e2e run --tag "${{ inputs.tags || 'smoke,navigation,search,shell' }}" --reporter list,junit
         env:
           # AUTH_MODE=legacy needs no sign-in; the runner starts the server itself (e2e.config.ts).
           NODE_ENV: development

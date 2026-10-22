@@ -1,5 +1,6 @@
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
+import { agentModel, agentSystem } from './e2e.agent.ts';
 
 /**
  * Local dev server (`tsx server.ts`: Express + Vite middleware + ML sidecar). Cold start
@@ -16,6 +17,9 @@ export default {
   // API calls a minute per IP. Parallel pages trip it with 429s that read as flaky UI.
   workers: 1,
   retries: 1,
+  // Model behind every agent.* step and `e2e explore` (bug bash). The tests under tests/ stay
+  // deterministic and never spend a token; only an explicit agent step or an explore run does.
+  agents: { default: { model: agentModel, system: agentSystem } },
   targets: [{
     engine: web(),
     app: {
