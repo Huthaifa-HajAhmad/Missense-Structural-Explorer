@@ -24,6 +24,7 @@ import {
   type AlphaGenomeEvidence,
   type AviFeatureReading,
 } from "../../shared/alphagenomeEvidence";
+import { isConservationCompositePending, mergeAlphaGenomeReevaluation } from "../../shared/conservationProgress";
 
 /**
  * AlphaGenome.
@@ -285,12 +286,23 @@ function Contributions({ ev }: { ev: AlphaGenomeEvidence }) {
   );
 }
 
+/** The run's own identity, as the payload metadata carries it beyond its declared type. */
+interface RunIdentity {
+  uniprotId?: string | null;
+  assembly?: "GRCh37" | "GRCh38" | null;
+  genomicCoordinates?: string | null;
+  liftedGenomicCoordinates?: string | null;
+  resolvedAssembly?: "GRCh37" | "GRCh38" | null;
+  numberingBasis?: string | null;
+}
+
 // ── Screen ──────────────────────────────────────────────────────────────────────────────────────
 
 function AlphaGenomeTabBody({
   result,
   onOpenSettings,
   onTabChange,
+  isBiophysicalLoading = false,
 }: TabComponentProps & { result: NonNullable<TabComponentProps["analysisState"]["result"]> }) {
   const workspace = useEvidenceWorkspace('alphagenome');
   const { settings, openSettingsTab } = useSettings();
@@ -301,9 +313,14 @@ function AlphaGenomeTabBody({
 
   // Tri-state: the browser can only attest to a key it holds; the server may hold its own.
   const aviConfigured = settings.alphagenomeApiKey?.trim() ? true : undefined;
-  const ev = useMemo(() => buildAlphaGenomeEvidence({ result, configured: aviConfigured }), [result, aviConfigured]);
+  const ev = useMemo(
+    () => buildAlphaGenomeEvidence({ result, configured: aviConfigured, isLoading: isBiophysicalLoading }),
+    [result, aviConfigured, isBiophysicalLoading]
+  );
   const attributionModel = useMemo(() => buildAttributionComparison(ev, workspace.filter), [ev, workspace.filter]);
   const { availability } = ev;
+  // A re-run written while the composite still streams would be overwritten by its next snapshot.
+  const compositeStreaming = isConservationCompositePending(result, isBiophysicalLoading);
   const gene = result.metadata?.gene || "";
   const variant = result.metadata?.variant || "";
 
@@ -320,22 +337,51 @@ function AlphaGenomeTabBody({
     setIsReevaluating(true);
     setReevalError(null);
     try {
+      /**
+       * The SAME identity the run used: build, submitted and verified coordinates, and weighting.
+       * Without them the re-run resolved the locus from protein notation alone, which for a GRCh37
+       * or lift-verified input is not the allele this screen describes.
+       */
+      const md: RunIdentity = (result.metadata ?? {}) as RunIdentity;
       const res = await fetchWithAuth("/api/v1/analyze-variant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gene, variant, uniprotId: result.metadata?.uniprotId || undefined }),
+        body: JSON.stringify({
+          gene,
+          variant,
+          uniprotId: md.uniprotId || undefined,
+          ...(settings.acmgWeighting ? { acmgWeighting: settings.acmgWeighting } : {}),
+          ...(md.assembly ? { assembly: md.assembly } : {}),
+          ...(md.genomicCoordinates && md.assembly ? { genomicCoordinates: md.genomicCoordinates } : {}),
+          ...(md.liftedGenomicCoordinates ? { liftedGenomicCoordinates: md.liftedGenomicCoordinates } : {}),
+          ...(md.resolvedAssembly ? { resolvedAssembly: md.resolvedAssembly } : {}),
+          // The parser accepts a protein-only reading as canonical only when the reader confirmed it.
+          ...(md.numberingBasis === "canonical" ? { numberingBasis: "canonical" } : {}),
+        }),
       });
       if (!res.ok) throw new Error(`The analysis service answered HTTP ${res.status}.`);
       const data = await res.json();
-      const store = useVariantAnalysisStore.getState();
-      if (data?.conservationData) store.updateAnalysisResultSlice("conservationData", data.conservationData, variant);
-      if (data?.ruleBasedInsights) store.updateAnalysisResultSlice("ruleBasedInsights", data.ruleBasedInsights, variant);
+      const fresh = data?.conservationData;
+      if (fresh) {
+        /**
+         * Only the AlphaGenome reading is replaced. Swapping the whole composite (and the verdict)
+         * for a second run's let REVEL, SpliceAI and the ACMG classification change under a button
+         * labelled for AlphaGenome — and a core-only verdict replaced one the structural stage had
+         * already refined. The AVI counts toward no criterion, so the verdict is unaffected.
+         */
+        const store = useVariantAnalysisStore.getState();
+        store.updateAnalysisResultSlice(
+          "conservationData",
+          mergeAlphaGenomeReevaluation(store.analysisState.result?.conservationData ?? null, fresh),
+          variant
+        );
+      }
     } catch (err: any) {
       setReevalError(err?.message || "The re-run failed.");
     } finally {
       setIsReevaluating(false);
     }
-  }, [fetchWithAuth, gene, variant, result.metadata?.uniprotId]);
+  }, [fetchWithAuth, gene, variant, result.metadata, settings.acmgWeighting]);
 
   const finding = aviFinding(ev);
   const scored = ev.assessed && ev.phred !== null;
@@ -351,6 +397,10 @@ function AlphaGenomeTabBody({
       </header>
       <EvidenceViewTabs tab="alphagenome" comparisonLabel="Understand the score" />
       <EvidencePanel tab="alphagenome">
+      {/* Mounted before its text changes, so assistive technology announces the transition. */}
+      <p className="sr-only" role="status" aria-live="polite">
+        {availability.state === "pending" ? "AlphaGenome is still scoring this variant." : ""}
+      </p>
 
       {/* ── 1. The finding ─────────────────────────────────────────────────────────────────── */}
       <section className="ag-card" aria-labelledby="ag-finding-title" data-testid="avi-finding">
@@ -391,6 +441,13 @@ function AlphaGenomeTabBody({
             {!workspace.comparison && <RankRuler phred={ev.phred as number} topPercent={ev.topPercent} />}
             {!workspace.comparison && <OriginSplit ev={ev} />}
           </div>
+        ) : availability.state === "pending" ? (
+          <div className="ag-statement" data-testid="avi-pending">
+            <p className="ag-statement__title">Scoring this variant</p>
+            <p className="ag-statement__body">
+              The AlphaGenome request is still running. The score appears here as soon as it answers; other evidence does not wait for it.
+            </p>
+          </div>
         ) : (
           <div className="ag-statement" data-testid="avi-absence">
             <p className="ag-statement__title">No AVI score for this variant</p>
@@ -412,10 +469,19 @@ function AlphaGenomeTabBody({
                     Open connection settings
                   </button>
                 )}
-                <button type="button" className="ag-btn" onClick={handleReevaluate} disabled={isReevaluating}>
+                <button
+                  type="button"
+                  className="ag-btn"
+                  onClick={handleReevaluate}
+                  disabled={isReevaluating || compositeStreaming}
+                  aria-describedby={compositeStreaming ? "ag-reeval-wait" : undefined}
+                >
                   <RefreshCw className={`w-3.5 h-3.5 ${isReevaluating ? "animate-spin" : ""}`} aria-hidden="true" />
                   {isReevaluating ? "Re-evaluating…" : "Re-evaluate"}
                 </button>
+                {compositeStreaming && (
+                  <span className="ag-dim" id="ag-reeval-wait">Available once the running analysis has finished.</span>
+                )}
               </div>
             )}
           </div>

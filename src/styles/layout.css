@@ -147,14 +147,24 @@
   }
 }
 
-/* SCREEN TITLE (per-screen H1, 18px/500, sans) */
+/* Screen names share the search workbench's editorial voice at a compact analysis scale. */
 .screen-title {
-  font-family: var(--cs-font-sans);
-  font-size: var(--cs-text-screen);
-  font-weight: 500;
+  font-family: var(--cs-workbench-heading-font);
+  font-size: var(--cs-workbench-heading-size);
+  font-weight: var(--cs-workbench-heading-weight);
+  letter-spacing: var(--cs-workbench-heading-tracking);
   color: var(--cs-text-primary);
-  line-height: 1.3;
+  line-height: 1.2;
   margin: 0;
+  text-wrap: balance;
+}
+.screen-title::before {
+  content: "";
+  display: block;
+  inline-size: 1.5rem;
+  block-size: 2px;
+  margin-block-end: .75rem;
+  background: var(--cs-accent-clay);
 }
 
 /* SCREEN TAB DESCRIPTION */
@@ -163,8 +173,9 @@
   font-size: var(--cs-text-caption);
   font-weight: 400;
   color: var(--cs-text-muted);
-  line-height: 1.5;
-  margin: 4px 0 16px;
+  line-height: 1.6;
+  margin-block: .625rem 1rem;
+  max-inline-size: 75ch;
 }
 
 /* ============================================================

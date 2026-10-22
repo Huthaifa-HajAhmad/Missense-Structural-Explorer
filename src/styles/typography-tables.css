@@ -192,7 +192,7 @@
    THE RAMP, and why the steps are where they are:
 
      22  figure-headline   mono 600    the screen's one governing figure
-     18  screen-title      sans 500    (layout.css) the screen's name
+  28–34  screen-title      serif 450   (layout.css) the screen's name
      14  readout           mono 600    a per-source read-out
      13  detail-prose      sans 400    sentences
      12  card-title        sans 500 ↑  a card's header · rail-row   sans 400 labels

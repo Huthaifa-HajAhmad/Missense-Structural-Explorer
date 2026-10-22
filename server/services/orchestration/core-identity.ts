@@ -304,6 +304,13 @@ export function coreIdentityOf(context: ParsedVariantContext): CoreIdentity {
       scienceHash,
       capability,
       endpoints,
+      /**
+       * The SpliceAI reporting window is a scoring input of the core run (live SpliceAI is asked for
+       * it), but it is not part of `scienceHash`: the persisted identity handles a changed window by
+       * recomputing a stale row (`needsRefresh`). A SHARED in-flight run has no such check, so two
+       * clients on different windows must not be handed one run's score under the other's label.
+       */
+      spliceaiDistance: context.spliceaiDistance ?? null,
       /** Process-local only. Two distinct personal tokens never share an in-flight run. */
       credentials: providerFingerprints(context)
     }),

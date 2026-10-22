@@ -493,3 +493,16 @@ describe("splice map — terminal boundaries and display filters", () => {
     expect(detailed.map!.predictions.find(p => p.key === "ds_ag")!.ds).toBe(0.003);
   });
 });
+
+
+describe("independent splicing settlement", () => {
+  it("stops waiting after conservation settles even while other core sources run", () => {
+    const ev = build({ conservationData: null, serviceStatus: { conservationData: "timeout" } }, { isLoading: true });
+    expect(ev.pending).toBe(false);
+    expect(ev.rule.state).toBe("no-score");
+  });
+  it("keeps an unfinished source pending even without a global loading flag", () => {
+    const ev = build({ conservationData: null, serviceStatus: { conservationData: "pending" } });
+    expect(ev.pending).toBe(true);
+  });
+});

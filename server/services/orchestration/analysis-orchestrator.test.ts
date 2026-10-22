@@ -377,7 +377,7 @@ describe("Analysis Orchestrator Unit Tests", () => {
       expect(result).toBeDefined();
       // Chunk 1 is itself a preview (the fast triage frame), so the per-source previews are the
       // non-final frames after it.
-      const previews = chunks.filter(c => !c.isFinal && c.type !== "heartbeat" && c.chunkIndex !== 1);
+      const previews = chunks.filter(c => !c.isFinal && c.type !== "heartbeat");
       const finals = chunks.filter(c => c.isFinal);
 
       expect(previews.length, "one preview per settled source").toBe(2);
@@ -784,43 +784,35 @@ describe("Analysis Orchestrator Unit Tests", () => {
     expect(finals[0].data.metadata.cacheHit).toBe(false);
   });
 
-  it("writes chunk 1 BEFORE any core preview, even when a core source settles first", async () => {
+  it("delivers a fast source while triage is unresolved and finishes once the core run settles", async () => {
     mockDb.getVariantAnalysisAsync.mockResolvedValueOnce(null);
-
     const { fetchClinVarData } = await import("../external-api/clinvar.ts");
     const { fetchCoreVariantData } = await import("../external-api/core-data-fetcher.ts");
-
-    // The triage is slow; the core run's other sources answer immediately, i.e. before chunk 1 can
-    // exist. The preview must wait for chunk 1 rather than overtake it on the wire.
-    vi.mocked(fetchClinVarData).mockImplementationOnce(async () => {
-      await new Promise(resolve => setTimeout(resolve, 30));
-      return { classification: "Pathogenic" } as any;
-    });
+    vi.mocked(fetchClinVarData).mockImplementationOnce(() => new Promise(() => {}));
+    let releaseCore!: () => void;
+    const gate = new Promise<void>(resolve => { releaseCore = resolve; });
     (vi.mocked(fetchCoreVariantData) as any).mockImplementationOnce(async (_c: any, _t: any, _p: any, onPartial: any) => {
-      onPartial?.({
-        data: { stringInteractions: [{ preferredName: "QDPR" }] },
-        serviceStatus: { stringInteractions: "ok" },
-        serviceTimings: { stringInteractions: 1 },
-        serviceTimingOffsets: { stringInteractions: 1 }
+      onPartial({
+        data: { uniprotFeatures: { domains: [{ name: "Early domain" }] } },
+        serviceStatus: { uniprotFeatures: "ok", clinvar: "pending", predictorData: "pending" },
+        serviceTimings: { uniprotFeatures: 1 }, serviceTimingOffsets: { uniprotFeatures: 1 }
       });
+      await gate;
       return mockCoreData;
     });
-
     const chunks: any[] = [];
-    await streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
-
-    expect(chunks[0].chunkIndex, "the triage frame is still the first frame on the wire").toBe(1);
-    expect(chunks[0].isFinal).toBe(false);
-    expect(chunks[0].data.ruleBasedInsights).toBeDefined();
-
-    const deferredPreview = chunks[1];
-    expect(deferredPreview.isFinal).toBe(false);
-    expect(deferredPreview.chunkIndex).toBeGreaterThan(chunks[0].chunkIndex);
-    expect(deferredPreview.data.stringInteractions).toEqual([{ preferredName: "QDPR" }]);
-
-    const finals = chunks.filter(c => c.isFinal);
-    expect(finals.length).toBe(1);
-    expect(chunks[chunks.length - 1]).toBe(finals[0]);
+    const run = streamCoreAnalysis(baseContext, chunk => chunks.push(chunk));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ chunkIndex: 1, isFinal: false, data: {
+      metadata: { gene: "PAH", sequence: "MKVLIVGLGNCGVFSLLDKN", cacheHit: false },
+      uniprotFeatures: { domains: [{ name: "Early domain" }] },
+      serviceStatus: { clinvar: "pending", uniprotFeatures: "ok" }
+    } });
+    releaseCore();
+    await run;
+    expect(chunks).toHaveLength(2);
+    expect(chunks[1]).toMatchObject({ chunkIndex: 2, isFinal: true });
   });
 
   /**

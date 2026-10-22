@@ -524,12 +524,14 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       expect(screen.getByText(valid ? "Format OK" : "Check format")).toBeInTheDocument();
     });
 
-    it("shows the AI focus field open, with its privacy note and live counter", async () => {
+    it("reveals optional AI focus with its privacy note and live counter", async () => {
       renderPanel();
 
       const textarea = screen.getByLabelText("AI Focus Area & Custom Analysis Instructions") as HTMLTextAreaElement;
-      // Optional reference and example disclosures do not collapse the writing surface.
-      expect(textarea.closest("details")).toBeNull();
+      const disclosure = textarea.closest("details")!;
+      expect(disclosure.open).toBe(false);
+      expect(textarea).not.toBeVisible();
+      fireEvent.click(disclosure.querySelector("summary")!);
       expect(textarea).toBeVisible();
       expect(screen.getByText(/Do not include patient identifiers/)).toBeInTheDocument();
       expect(screen.getByText("0/2000")).toBeInTheDocument();
@@ -539,6 +541,9 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
       });
 
       expect(screen.getByText("26/2000")).toBeInTheDocument();
+      fireEvent.click(disclosure.querySelector("summary")!);
+      expect(textarea).not.toBeVisible();
+      expect(screen.getByText("26 chars set")).toBeVisible();
     });
 
     it("does not claim a genome build for text that is not a coordinate", async () => {

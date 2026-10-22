@@ -1,6 +1,5 @@
 /* Shared exploration pane geometry. */
-.workspace-heading h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.025em; color: var(--cs-text-primary); }
-.workspace-heading p { margin: 4px 0 0; font-size: 13px; color: var(--cs-text-secondary); }
+.workspace-heading p { margin-block: .625rem 0; font-size: 13px; line-height: 1.6; color: var(--cs-text-secondary); }
 .workspace-selection { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; font-size: 12px; color: var(--cs-text-secondary); }
 .workspace-selection strong { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; color: var(--cs-text-primary); }
 .workspace-selection__actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -12,26 +11,27 @@
 .workspace-selection svg { width: 14px; height: 14px; }
 .landscape-workspace__selection { padding: 20px 24px 0; }
 .exploration-workspace {
-  gap: 16px;
-  padding: 16px;
+  gap: clamp(1rem, 1.5vw, 1.75rem);
+  padding: clamp(.75rem, 1.2vw, 1.5rem);
   background: var(--cs-bg);
   container-type: inline-size;
 }
-.exploration-workspace > .data-screen-primary,
-.exploration-workspace > aside {
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: 20px;
+.exploration-workspace > .data-screen-primary {
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-workbench-radius);
   background: var(--cs-surface);
-  box-shadow: 0 2px 5px #00000003;
+  box-shadow: var(--cs-workbench-shadow);
 }
+.exploration-workspace > aside { border: 0; border-inline-start: 1px solid var(--cs-border-subtle); border-radius: 0; background: transparent; box-shadow: none; }
 .exploration-workspace > .data-screen-primary { overflow: hidden; }
 .exploration-workspace > aside[data-workspace-inspector] { max-width: 42%; min-width: 280px !important; }
-.exploration-workspace .inspector-heading { background: var(--cs-surface); padding: 20px; }
+.exploration-workspace .inspector-heading { background: transparent; padding: 20px; }
+.inspector-heading__icon { flex: none; color: var(--cs-text-muted); padding-inline-end: .25rem; }
 .exploration-workspace .inspector-body { padding: 20px; scrollbar-gutter: stable; }
 .exploration-workspace .landscape-main { background: var(--cs-surface); border-radius: inherit; scrollbar-gutter: stable; }
-.workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-block-end: 20px; border-block-end: 1px solid var(--cs-border-subtle); }
-.workspace-tabs button { padding: 8px 16px; min-block-size: 44px; border: 1px solid var(--cs-border); border-radius: 999px; font-size: var(--cs-font-size-prose); font-weight: 600; color: var(--cs-text-secondary); background: var(--cs-surface); cursor: pointer; }
-.workspace-tabs button[aria-selected="true"] { background: color-mix(in oklch, var(--cs-accent-clay) 13%, var(--cs-surface)); color: var(--cs-text-primary); border-color: var(--cs-accent-clay); box-shadow: inset 0 0 0 1px var(--cs-accent-clay); }
+.workspace-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-block-end: 12px; border-block-end: 1px solid var(--cs-border-subtle); }
+.workspace-tabs button { padding: 8px 14px; min-block-size: 44px; border: 1px solid transparent; border-radius: 6px; font-size: var(--cs-font-size-prose); font-weight: 500; color: var(--cs-text-secondary); background: transparent; cursor: pointer; }
+.workspace-tabs button[aria-selected="true"] { background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); border-color: var(--cs-border); box-shadow: inset 0 -2px 0 var(--cs-accent-clay); }
 @media (hover: hover) and (pointer: fine) {
   .workspace-tabs button:hover:not([aria-selected="true"]) { background: var(--cs-surface-2); }
 }
@@ -48,7 +48,7 @@
   .data-screen-layout.exploration-workspace { flex-direction: column; overflow-y: auto; padding: 12px; gap: 12px; }
   .exploration-workspace > .data-screen-primary { flex: none; overflow: visible; }
   .exploration-workspace .landscape-main { height: auto; overflow: visible; }
-  .exploration-workspace > aside[data-workspace-inspector] { width: 100% !important; min-width: 0 !important; max-width: none; height: auto; overflow: visible; }
+  .exploration-workspace > aside[data-workspace-inspector] { width: 100% !important; min-width: 0 !important; max-width: none; height: auto; overflow: visible; border-inline-start: 0; border-block-start: 1px solid var(--cs-border-subtle); }
   .exploration-workspace > aside [role="separator"] { display: none; }
   .exploration-workspace .inspector-body { overflow: visible; }
   .exploration-workspace > aside[aria-label="Collapsed Context Inspector"] { width: 100%; flex-direction: row-reverse; justify-content: space-between; padding: 6px 12px; }

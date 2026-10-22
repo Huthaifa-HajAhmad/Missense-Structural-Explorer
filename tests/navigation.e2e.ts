@@ -9,7 +9,7 @@ const VIEWS: Array<[button: RegExp, heading: string]> = [
   [/^Landscape/, 'Residue landscape'],
   [/^Insights/, 'Insights'],
   [/^Literature/, 'Literature'],
-  [/^Report/, 'No report yet'],
+  [/^Report/, 'Report'],
   [/^About/, 'About Missense & Fold'],
 ];
 

@@ -1,3 +1,4 @@
+import { EvidenceContextPrefetch } from "./components/evidence/EvidenceContextPrefetch";
 import { useSidebarShortcut } from "./hooks/useSidebarShortcut";
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { MotionConfig } from "motion/react";
@@ -235,6 +236,7 @@ export default function App() {
   return (
     <MotionConfig reducedMotion={settings.reducedMotion ? "always" : "user"}>
       <VariantAnalysisProvider>
+        {analysisState.result && !analysisState.result.isDemoData && <EvidenceContextPrefetch key={analysisState.result.metadata?.gene} result={analysisState.result} />}
         <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
 
         {/* ── Resizable and Collapsible Master Sidebar ── */}

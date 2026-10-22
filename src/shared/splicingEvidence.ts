@@ -42,6 +42,7 @@ import type { AnalysisResult } from "./contracts.ts";
 import { THRESHOLDS, evaluateSplicePredictor } from "./thresholds/index.ts";
 import { refusalReasonFor, resolveEvidenceAvailability, type EvidenceAvailability } from "./evidenceAvailability.ts";
 import { ENGINE_STATE_LABELS } from "./engineStatus.ts";
+import { conservationModelState } from "./conservationProgress.ts";
 import { buildPredictorEvidence } from "./predictorEvidence.ts";
 import { buildAlphaGenomeEvidence, fmtShare, fmtSigned } from "./alphagenomeEvidence.ts";
 
@@ -754,19 +755,31 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
   const orient = (dp: number | null): number | null => (dp === null ? null : geometry.strand === "-" ? (dp === 0 ? 0 : -dp) : dp);
   const maxShift = maxChannel ? orient(channels.find(c => c.key === maxChannel)!.dp) : null;
 
-  const saiPending = !sai && isLoading;
+  // Per model, not per composite: a streamed SpliceAI answer is final while dbNSFP is still running.
+  const saiState = conservationModelState(result, "spliceai", isLoading);
+  const saiPending = !sai && saiState === "pending";
+  const saiTimedOut = !sai && saiState === "timeout";
+  /**
+   * The rule is SpliceAI's max delta score alone (`evaluateSplicePredictor` ignores geometry and
+   * dbscSNV), so it is stated the moment SpliceAI has answered — not held for dbNSFP or geometry.
+   */
+  const rulePending = saiPending;
   const inGene = regionType === "exonic" || regionType === "intronic";
   const saiAvailability = resolveEvidenceAvailability({ value: maxDs, pending: saiPending });
   const failure = cd?.spliceaiFailure ?? null;
   if (!saiAvailability.hasValue && !saiPending) {
     saiAvailability.reason = sai
       ? "SpliceAI answered without a delta score for any of its four channels."
+      : saiTimedOut
+      ? "SpliceAI did not return a score in this run; the variant was not scored. Re-running the analysis usually succeeds."
       : failure
       ? describeSpliceAiFailure(failure)
       : inGene
       ? "Neither the live Broad lookup nor the precomputed tables returned a score, and the payload does not record why. SpliceAI scores every single-nucleotide change in an annotated gene, so this points to a failed or rejected request, not to nothing to score."
       : "Neither the live Broad lookup nor the precomputed tables returned a score for this coordinate.";
-    if (failure) {
+    if (saiTimedOut) {
+      saiAvailability.label = SPLICEAI_FAILURE_LABEL.timeout;
+    } else if (failure) {
       // A failed request is a provider fault, not "no result": say so in the state label too.
       saiAvailability.label = SPLICEAI_FAILURE_LABEL[failure.kind];
     }
@@ -784,7 +797,7 @@ export function buildSplicingEvidence({ result, isLoading = false, alphagenomeCo
     : null;
 
   const signal = evaluateSplicePredictor(sp, sai, dbsc);
-  const ruleState: SplicingRuleState = saiPending
+  const ruleState: SplicingRuleState = rulePending
     ? "pending"
     : signal === "pathogenic"
     ? "pp3"

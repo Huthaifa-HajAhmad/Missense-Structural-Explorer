@@ -48,6 +48,17 @@
  * declarations and fails if a step drops under 2.5 points or the order inverts.
  */
 :root {
+  /* Shared workbench framing; scientific figures keep their own type and colour scales. */
+  --cs-workbench-heading-font: var(--cs-font-serif);
+  --cs-workbench-heading-weight: 450;
+  --cs-workbench-heading-tracking: -.035em;
+  --cs-workbench-heading-size: clamp(1.75rem, 1.5rem + .6vw, 2.125rem);
+  --cs-workbench-radius: 16px;
+  /* Black-based, so dark mode gets a faint depth cue rather than a glow from the (light) text colour. */
+  --cs-workbench-shadow: 0 3px 16px oklch(0.2 0 none / .04);
+  /* Clay as a SOLID behind white text: the brand clay is 3.87:1 there; this is 4.7:1. */
+  --cs-accent-solid: #B35A3C;
+  --cs-workbench-header-surface: color-mix(in oklch, var(--cs-surface-2) 45%, var(--cs-surface));
   /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
   --cs-bg:            #F9F8F6;   /* warm paper-white page background */
   --cs-bg-subtle:     #EEEBE2;   /* subtle hover state background */
@@ -119,7 +130,6 @@
   --cs-font-weight-display:     500;
   
   --cs-font-size-screen-title:  18px;
-  --cs-font-weight-screen-title: 500;
   
   --cs-font-size-section-label: 13px;
   --cs-font-weight-section-label: 500;
@@ -228,7 +238,6 @@
   --cs-danger-soft:             var(--cs-bg-danger);
 
   --cs-text-display:            var(--cs-font-size-display);
-  --cs-text-screen:             var(--cs-font-size-screen-title);
   --cs-text-section:            var(--cs-font-size-section-label);
   --cs-text-body:               var(--cs-font-size-body);
   --cs-text-th:                 var(--cs-font-size-table-header);

@@ -3,10 +3,9 @@ import { useEvidenceContext } from '../../hooks/useEvidenceContext';
 import type { AnalysisResult } from '../../types';
 
 /**
- * Warms the small gene-level reference reads (disease and dosage) once a result exists, so the
- * shared disease frame is ready. Human and animal providers load when their own tab opens.
- * Renders nothing. It reuses the tabs' own loader and cache, so a tab opened mid-flight joins the same
- * request. Deferred briefly so the primary analysis requests keep the connection first.
+ * Warm context independently of navigation once the run has a resolved result identity.
+ * A short delay gives analysis requests priority; the shared loaders deduplicate tab opens
+ * and keep each source's success, absence and failure separate.
  */
 export function EvidenceContextPrefetch({ result }: { result: AnalysisResult }) {
   const [armed, setArmed] = useState(false);
@@ -14,6 +13,6 @@ export function EvidenceContextPrefetch({ result }: { result: AnalysisResult }) 
   return armed ? <Warm result={result} /> : null;
 }
 function Warm({ result }: { result: AnalysisResult }) {
-  useEvidenceContext(result, false, true, false);
+  useEvidenceContext(result, true, true, true);
   return null;
 }

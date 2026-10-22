@@ -1,6 +1,6 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
-import { Dna, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { useProteinSequence } from "../hooks/useProteinSequence";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
@@ -414,11 +414,8 @@ const SequenceVisualizer = memo(function SequenceVisualizer({
   return (
     <div id="sequence-alignment-visualizer" className="landscape-canvas text-cs-text-primary">
       <div className="landscape-canvas__heading">
-        <div className="p-1.5 rounded-lg border border-cs-border-subtle bg-cs-surface-2">
-          <Dna className="w-4 h-4 text-cs-accent-clay" />
-        </div>
         <div>
-          <h3 className="text-sm font-semibold text-cs-text-primary">Residue landscape</h3>
+          <h3 className="screen-title">Residue landscape</h3>
           <ResearchGuideButton topic="landscape" label="How to compare residue readings" />
           <p className="text-xs mt-0.5 text-cs-text-muted">
             {targetPos > 0

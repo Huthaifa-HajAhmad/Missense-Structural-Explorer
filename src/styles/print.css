@@ -20,6 +20,7 @@
    Print Media Overrides
    ============================================================ */
 @media print {
+  .screen-title::before { display: none; }
   @page {
     margin: 12mm 15mm;
     size: auto;

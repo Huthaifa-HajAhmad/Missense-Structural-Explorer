@@ -229,7 +229,24 @@ export function evaluateAcmgCriteria(input: ACMGEvidenceInput): CriteriaEvaluati
    * decided the strength of a criterion the whole panel had voted on — and no surface said so.
    * The strength now stays at Supporting, which is what an uncalibrated vote can carry.
    */
-  const vote = insilicoVoteOutcome(concordance);
+  const rawVote = insilicoVoteOutcome(concordance);
+
+  /**
+   * A salvaged composite (its budget expired) carries `modelStatus`. Three of its models VOTE — the
+   * dbNSFP ensemble, PopEVE and AlphaGenome — so a vote taken while any of them is unanswered is a
+   * vote over a known-incomplete ensemble: a missing benign PopEVE turns a 2–2 tie into PP3. The
+   * criterion is withheld, in the same way a timed-out gnomAD withdraws PM2, and the verdict stays
+   * revisable on a re-run. The status is read from the payload, so every producer (stream, healer,
+   * structural recompute) applies the same rule.
+   */
+  const votingModelStatus = conservationData?.modelStatus;
+  const ensembleIncomplete = Boolean(
+    votingModelStatus && (["base", "popeve", "alphagenome"] as const).some(model => {
+      const state = votingModelStatus[model];
+      return state !== undefined && state !== "settled";
+    })
+  );
+  const vote = ensembleIncomplete ? { ...rawVote, code: null } : rawVote;
 
   if (vote.code === "PP3" && !skipPathogenicComp) {
     const consensusWord =

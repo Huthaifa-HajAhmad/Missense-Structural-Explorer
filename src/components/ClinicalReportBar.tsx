@@ -1,6 +1,5 @@
 import { ResearchGuideButton } from "./knowledge/ResearchGuideButton";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { FileText } from "lucide-react";
 import { AnalysisState } from "../types";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import type { ReportView } from "../stores/slices/uiSlice";
@@ -53,10 +52,9 @@ const VIEW_NOTE: Record<ReportView, string> = {
 function ReportHeading({ title, subtitle, draft = true }: { title: string; subtitle: string; draft?: boolean }) {
   return (
     <header className="rpt-heading">
-      <div className="rpt-heading__icon" aria-hidden="true"><FileText className="w-4 h-4" /></div>
       <div className="rpt-heading__text">
         <p className="rpt-heading__kicker">Variant evidence report</p>
-        <h1 className="rpt-heading__title">{title}</h1>
+        <h1 className="rpt-heading__title screen-title">{title}</h1>
         <p className="rpt-heading__sub">{subtitle}</p>
         <ResearchGuideButton topic="report" label="Reading and reviewing this report" />
       </div>

@@ -1324,6 +1324,13 @@ export function generateAtlasUrls(
   };
 }
 
+/** Lifecycle of one model inside the conservation composite. */
+export const conservationModelStateSchema = z.enum(["pending", "settled", "timeout"]);
+export type ConservationModelState = z.infer<typeof conservationModelStateSchema>;
+/** The models of the conservation composite; `modelStatus` is keyed by exactly these. */
+export const CONSERVATION_MODEL_KEYS = ["base", "consurf", "spliceai", "spliceProximity", "alphagenome", "gpnStar", "popeve"] as const;
+export type ConservationModelKey = (typeof CONSERVATION_MODEL_KEYS)[number];
+
 export const conservationDataSchema = z.object({
   available: z.boolean().optional(),
   revel: z.number().nullable(),
@@ -1466,7 +1473,16 @@ export const conservationDataSchema = z.object({
     /** The remedy is an original nucleotide allele, not another provider request. */
     inputRequired: z.boolean().optional()
   })).nullable().optional(),
-  source: z.string().optional()
+  source: z.string().optional(),
+  /**
+   * Per-model lifecycle of a STREAMED conservation snapshot (see `conservationProgress.ts`).
+   *
+   * Present only while the composite is still assembling, or when its budget expired before every
+   * model answered. Absent means every model in this payload has settled. A `pending` model's null
+   * field means "not yet assessed"; a `timeout` model's null means "not assessed in time". Neither is
+   * a measured absence.
+   */
+  modelStatus: z.partialRecord(z.enum(CONSERVATION_MODEL_KEYS), conservationModelStateSchema).optional()
 });
 
 export type PredictorData = z.infer<typeof predictorDataSchema>;

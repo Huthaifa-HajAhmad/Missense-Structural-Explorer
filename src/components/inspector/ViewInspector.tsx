@@ -429,7 +429,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       {/* ── Inspector Header ── */}
       <div className="inspector-heading px-4 py-3.5 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface-2 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="p-1.5 rounded-lg bg-cs-accent-clay/10 text-cs-accent-clay shrink-0">
+          <div className="inspector-heading__icon">
             <Icon className="w-4 h-4" />
           </div>
           <div className="flex flex-col min-w-0">
