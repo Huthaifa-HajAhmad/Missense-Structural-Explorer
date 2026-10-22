@@ -29,7 +29,17 @@ export default {
         // which a Windows spawn cannot resolve (ENOENT).
         executable: process.execPath,
         args: ['node_modules/tsx/dist/cli.mjs', 'server.ts'],
-        env: { PORT: new URL(url).port || '3917' },
+        env: {
+          PORT: new URL(url).port || '3917',
+          // The runner hands the app only this block, not its own environment. Locally the app reads
+          // .env itself; on a runner (no .env) the server refuses to start without these, so forward
+          // whichever are set (e2e.yml supplies throwaways).
+          ...Object.fromEntries(
+            ['NODE_ENV', 'AUTH_MODE', 'APP_API_TOKEN', 'APP_SESSION_SECRET']
+              .filter((name) => process.env[name])
+              .map((name) => [name, process.env[name] as string]),
+          ),
+        },
         reuseExisting: true,
         log: '.e2e/logs/app.log',
       },
