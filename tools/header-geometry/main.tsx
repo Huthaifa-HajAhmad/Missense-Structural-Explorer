@@ -270,6 +270,71 @@ function checkStripOneLine(host: HTMLElement, id: string): GeometryCheck {
   return { name: `${id}: strip is one line`, pass: h <= 48, detail: `strip ${px(h)}px tall` };
 }
 
+/**
+ * The joined header + strip frame only exists in a real .app-shell with a .app-header
+ * sibling, which no other case mounts: this one composed host is the only place the
+ * seam ("one frame, quiet seam"), the shared left/right edges and the --cs-masthead
+ * budget are measured. A probe element resolves the custom property chain the way the
+ * browser does — reading getComputedStyle of the custom property itself returns the
+ * unresolved calc() text.
+ */
+function checkShellFrame(): GeometryCheck[] {
+  const shell = document.querySelector<HTMLElement>(".app-shell");
+  if (!shell) return [{ name: "shell: composed host renders", pass: false, detail: "no .app-shell in the page" }];
+  const header = shell.querySelector<HTMLElement>("#shell-joined-header");
+  const strip = shell.querySelector<HTMLElement>(".variant-header");
+  const standalone = document.querySelector<HTMLElement>("#shell-standalone-header");
+  if (!header || !strip || !standalone) {
+    return [{ name: "shell: header, strip and standalone header render", pass: false, detail: "missing chrome" }];
+  }
+
+  const checks: GeometryCheck[] = [];
+  const hb = header.getBoundingClientRect();
+  const sb = strip.getBoundingClientRect();
+  const hStyle = getComputedStyle(header);
+  const sStyle = getComputedStyle(strip);
+
+  // One frame: the header's bottom edge meets the strip's top edge, both cards share
+  // their left/right edges in the same shell column, and the strip's own top border
+  // is suppressed so the seam stays one 1px line.
+  checks.push({
+    name: "shell: joined header and strip share one frame",
+    pass: Math.abs(hb.bottom - sb.top) <= 1 &&
+      Math.abs(hb.left - sb.left) <= 1 && Math.abs(hb.right - sb.right) <= 1 &&
+      sStyle.borderBlockStartWidth === "0px" &&
+      hStyle.borderBlockEndColor !== hStyle.borderBlockStartColor,
+    detail: `dy=${(sb.top - hb.bottom).toFixed(2)} dxL=${(sb.left - hb.left).toFixed(2)} seam=${sStyle.borderBlockStartWidth}`,
+  });
+
+  // Without a following strip the :has() join must fail soft: full rounding again and
+  // the gutter back (so an absent variant never orphans a square-cornered bar).
+  const st = getComputedStyle(standalone);
+  const radii = [st.borderStartStartRadius, st.borderStartEndRadius, st.borderEndStartRadius, st.borderEndEndRadius];
+  const panel = getComputedStyle(document.documentElement).getPropertyValue("--cs-radius-panel").trim();
+  checks.push({
+    name: "shell: a header without a following strip stays fully rounded with its gutter",
+    pass: radii.every(v => v === (panel || "16px")) && parseFloat(st.marginBlockEnd) > 0,
+    detail: `radii=${radii.join("/")} margin=${st.marginBlockEnd}`,
+  });
+
+  // --cs-masthead must equal the real chrome above the workspace, or the fixed-height
+  // fill panes (Search empty state, About) drift as the card chrome evolves.
+  const shellRect = shell.getBoundingClientRect();
+  const actual = sb.bottom - shellRect.top + parseFloat(sStyle.marginBlockEnd);
+  const probe = document.createElement("div");
+  probe.style.height = "var(--cs-masthead)";
+  shell.appendChild(probe);
+  const expected = probe.getBoundingClientRect().height;
+  probe.remove();
+  checks.push({
+    name: "shell: --cs-masthead matches the real chrome stack",
+    pass: expected > 0 && Math.abs(actual - expected) <= 1,
+    detail: `${actual.toFixed(1)} measured vs ${expected.toFixed(0)} (margin=${sStyle.marginBlockEnd}, stripBottom=${sb.bottom.toFixed(1)}, shellTop=${shellRect.top.toFixed(1)})`,
+  });
+
+  return checks;
+}
+
 /** The identity drops identifiers in a fixed order as its zone narrows, and never wraps. */
 function checkIdentity(host: HTMLElement, id: string, expected: string[]): GeometryCheck[] {
   const vid = host.querySelector(".vid");
@@ -468,6 +533,8 @@ function App(): React.ReactElement {
       if (lightHost) checks.push(...checkContrast(lightHost, "light", "#F9F8F6"));
       if (darkHost) checks.push(...checkContrast(darkHost, "dark", "#191816"));
 
+      checks.push(...checkShellFrame());
+
       const result: GeometryReport = { ok: checks.every((c) => c.pass), checks, heights };
       setReport(result);
       const sink = document.getElementById("geometry-result");
@@ -489,6 +556,16 @@ function App(): React.ReactElement {
             {c.pass ? "PASS" : "FAIL"} {c.name} — {c.detail}
           </div>
         ))}
+      </div>
+      {/* Shell composition: the joined seam and the masthead budget only exist with a
+          real .app-header sibling inside a .app-shell, which no other case mounts. The
+          second header (last child, no following strip) pins the standalone state. */}
+      <div className="app-shell" data-variant-chrome="true">
+        <div className="app-main">
+          <header className="app-header" id="shell-joined-header" />
+          {strip("MACO1", "p.Glu433Lys", "Q9NSG2", maco1)}
+          <header className="app-header" id="shell-standalone-header" />
+        </div>
       </div>
       {/* Each host reserves room under the strip for its open Details panel. */}
       {CASES.map((c) => (
