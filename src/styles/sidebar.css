@@ -28,7 +28,12 @@
   overflow: hidden;
   user-select: none;
   background: var(--cs-surface);
-  border-right: 1px solid var(--cs-border);
+  border: 1px solid var(--cs-border-strong);
+  border-radius: var(--cs-radius-panel);
+  /* The floating panel needs one clear elevation cue; --cs-workbench-shadow is the
+     system's raised-panel recipe (black-based, so in dark mode it shades the panel
+     instead of glowing — mixing the light text colour was painting a halo). */
+  box-shadow: var(--cs-workbench-shadow);
   transition: width 240ms var(--ms-ease), min-width 240ms var(--ms-ease);
 }
 /* A drag must track the pointer 1:1 — no easing while resizing. */
@@ -42,8 +47,10 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  height: var(--cs-chrome-height);
-  min-height: var(--cs-chrome-height);
+  /* -1px buys in the panel's own 1px border, so the brand's bottom hairline sits on the
+     same line as the 56px header card in the gutter beside it. */
+  height: calc(var(--cs-chrome-height) - 1px);
+  min-height: calc(var(--cs-chrome-height) - 1px);
   padding: 0 10px 0 12px;
   border-bottom: 1px solid var(--cs-border);
   overflow: hidden;
@@ -510,46 +517,70 @@
 
 /* ── Narrow-viewport drawer (below 900px) ──
    The workspace keeps its full width and the rail slides over it. Exit is
-   faster than enter (asymmetric timing). */
+   faster than enter (asymmetric timing). The backdrop and rail are always
+   mounted in drawer mode and driven by state data-attributes, so entrance and
+   exit are both transitions — a React mount/unmount scrim would unlatch
+   instantly and the panel would slide out over bare content. */
 .ms-drawer-backdrop {
   position: fixed;
   inset: 0;
   z-index: 44;
   background: rgba(25, 24, 22, 0.35);
-  animation: ms-fade-in 200ms var(--ms-ease, ease) both;
+  opacity: 1;
+  transition: opacity 200ms ease both;
 }
 .dark .ms-drawer-backdrop {
   background: rgba(8, 7, 6, 0.55);
 }
-@keyframes ms-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Closed: gone from paint AND from hit-testing at the end of the fade.
+   visibility (unlike opacity) stops pointer events, and it flips only after the
+   opacity settles, so a fast click during dismissal is never caught mid-fade. */
+.ms-drawer-backdrop[data-open="false"] {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 200ms linear, visibility 0s linear 200ms;
 }
 @media (max-width: 899px) {
   .ms-sub-btn, .ms-group-toggle { min-block-size: 44px; }
   .ms-group-toggle { inline-size: 44px; }
   .ms-root {
     position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
+    top: var(--cs-shell-inset, 8px);
+    bottom: var(--cs-shell-inset, 8px);
+    left: var(--cs-shell-inset, 8px);
+    height: auto;
+    /* min() always leaves >=48px of dismissible scrim on the right; and because
+       the inline width's min-width is dropped in drawer mode, this cap actually
+       caps (min-width would beat max-inline-size in the cascade). */
+    max-inline-size: min(320px, calc(100vw - 56px));
     z-index: 45; /* above the header (z-20) and backdrop (z-44); below the palette (z-60) */
     box-shadow: 12px 0 40px rgba(25, 24, 22, 0.18);
-    transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
+    /* `visibility` is in the list so the exit keeps its 200ms slide: as a discrete
+       property it holds `visible` while the transform runs and flips only at the
+       end — with it out of the list the drawer vanishes on frame 0 and the
+       transform animates invisibly. */
+    transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1), visibility 280ms linear;
   }
   .ms-root[data-drawer="closed"] {
-    transform: translateX(-102%);
-    transition-duration: 200ms;
+    /* -24px clears the 8px shell inset with margin, so the resting rail — shadow
+       included — is fully off-screen, and the e2e off-screen assertion is exact. */
+    transform: translateX(calc(-100% - 24px));
+    visibility: hidden;
+    transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1), visibility 200ms linear;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ms-root,
+  .ms-root[data-drawer="closed"],
   .ms-brand-wordmark,
   .ms-brand-wordmark[data-collapsed="true"],
   .ms-sub-list,
   .ms-sub-list[data-open="true"] {
     transition-duration: 0s;
+  }
+  .ms-drawer-backdrop {
+    transition: none;
   }
   .ms-nav-desc {
     animation: none;

@@ -67,6 +67,7 @@
 
   --cs-border:        #D9D4C9;   /* hairline border color */
   --cs-border-subtle: #E6E2D8;   /* divider line color */
+  --cs-border-strong: #8F8B81;   /* panel edge against the page: ~3:1 non-text contrast */
 
   --cs-text-primary:  #191816;   /* near-black ink color */
   --cs-text-secondary:#666055;   /* elegant charcoal secondary text */
@@ -262,6 +263,7 @@
 
   --cs-border:        #3C3934;
   --cs-border-subtle: #322F2A;
+  --cs-border-strong: #6A645C;   /* panel edge against the page: ~3:1 non-text contrast */
 
   --cs-text-primary:  #F9F8F6;
   --cs-text-secondary:#B2ABA0;
@@ -310,6 +312,7 @@
   --color-cs-surface-2: var(--cs-surface-2);
   --color-cs-border: var(--cs-border);
   --color-cs-border-subtle: var(--cs-border-subtle);
+  --color-cs-border-strong: var(--cs-border-strong);
   --color-cs-text-primary: var(--cs-text-primary);
   --color-cs-text-secondary: var(--cs-text-secondary);
   --color-cs-text-muted: var(--cs-text-muted);

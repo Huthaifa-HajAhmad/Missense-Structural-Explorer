@@ -2,13 +2,32 @@
    LAYOUT SHELL, SIDEBARS & CONTAINER STRUCTURES
    ============================================================ */
 
-/* Root shell: sidebar + main area side-by-side */
+/* Root shell: sidebar + main area side-by-side, floated as cards on the page background.
+   The inset/gutter pair doubles as the chrome budget: fixed-height estimates elsewhere
+   (`.about-view`, the About rail, the Search empty state) derive `--cs-masthead` from
+   these tokens, so moving the inset or gutter moves every fill-height in lockstep. */
 .app-shell {
+  --cs-shell-inset: 12px;
+  --cs-shell-gutter: 12px;
+  /* Block the variant strip reserves when App routes it in (data-variant-chrome);
+     0px keeps --cs-masthead exact when the strip is absent. */
+  --cs-variant-strip-block: 0px;
+  --cs-masthead: calc(
+    var(--cs-shell-inset) + var(--cs-chrome-height) +
+    var(--cs-variant-strip-block) + var(--cs-shell-gutter)
+  );
   display: flex;
   height: 100dvh;
   width: 100dvw;
   overflow: hidden;
   background: var(--cs-bg);
+  padding: var(--cs-shell-inset);
+  gap: var(--cs-shell-gutter);
+}
+/* The joined seam REPLACES the header's gutter (margin-block-end: 0), so the strip
+   contributes only its own 44px block — not a gutter on top of it. */
+.app-shell[data-variant-chrome="true"] {
+  --cs-variant-strip-block: 44px;
 }
 
 /* Master sidebar → sidebar.css · Command palette → command-palette.css */
@@ -24,7 +43,9 @@
   position: relative;
 }
 
-/* Slim header bar — matches sidebar brand block for shared chrome-height seam */
+/* Slim header bar — a floating card whose bottom hairline (when joined to the strip)
+   and height still correspond to the sidebar brand row, 1px of which is the panel
+   border (see .ms-brand in sidebar.css). */
 .app-header {
   height: var(--cs-chrome-height);
   min-height: var(--cs-chrome-height);
@@ -32,10 +53,42 @@
   display: flex;
   align-items: center;
   padding: 0 16px;
-  border-bottom: 1px solid var(--cs-border);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-panel);
+  margin-block-end: var(--cs-shell-gutter);
   background: var(--cs-surface);
   gap: 12px;
   z-index: 20;
+}
+
+/* Identity and context share one frame, with a quiet seam between them. The [:has]
+   join fails soft: without the strip following it, the header keeps its full rounding
+   and its gutter, and there is nothing to join to. */
+.app-header:has(+ .variant-header) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  margin-block-end: 0;
+  border-block-end-color: var(--cs-border-subtle);
+}
+
+/* The strip is fully framed on its own (see .variant-header below): rounded bottom,
+   gutter, workbench surface. All the sibling rule adds is the joined top edge —
+   nothing about the strip's own card styling lives here, so wrapping it (Suspense,
+   a boundary) cannot drop it back to a naked full-bleed line. */
+.app-header + .variant-header {
+  border-block-start: 0;
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+@media (max-width: 899px) {
+  /* Only the tokens change on narrow viewports — the header's margin, the strip
+     budget in --cs-masthead and the shell gap all derive from them. (The flex gap
+     is moot here: the drawer is position:fixed, so .app-main is the only in-flow
+     child.) */
+  .app-shell { --cs-shell-inset: 8px; --cs-shell-gutter: 8px; }
+  .app-header,
+  .app-header + .variant-header { padding-inline: 10px; }
 }
 
 /* Scrollbar suppression utility */
@@ -183,11 +236,14 @@
    Two pieces since the header redesign (option B):
      · the IDENTITY, in the top bar (`.vid`, header/VariantIdentity.tsx): gene,
        HGVS, transcript, coordinate, UniProt — the page's title on analysis views;
-     · the CONTEXT strip, one 38px line under it (`.variant-header`,
+     · the CONTEXT strip, one 44px card line under it (`.variant-header`,
        VariantHeader.tsx): gene-constraint chips with micro-tracks, a Details
        disclosure holding the full tracks, notes, and the fixed run-state slot.
-   56 + 38 = 94px of chrome, down from 176px, so the compact-on-scroll mode the
-   tall header needed is gone. Nothing is boxed and nothing is a filled pill
+   56 + 44 = 100px of masthead cards. The full above-workspace budget is
+   `var(--cs-masthead)` on .app-shell - inset 12 + 56 + 44 + 12 = 124px when the
+   strip is routed in, 80px when it is not - and every fixed-height layout derives
+   it from that token instead of repeating the arithmetic here. Nothing else is boxed
+   and nothing is a filled pill
    except the transcript tier, the splice alert and the run state: filled pills
    are the page's grammar for ACMG codes. Every track reads tolerant on the left
    and constrained on the right (LOEUF and O/E axes are reversed).
@@ -224,8 +280,11 @@
   align-items: center;
   gap: 14px;
   padding: 0 20px;
-  background: var(--cs-surface);
-  border-bottom: 1px solid var(--cs-border);
+  background: var(--cs-workbench-header-surface);
+  border: 1px solid var(--cs-border);
+  border-end-start-radius: var(--cs-radius-panel);
+  border-end-end-radius: var(--cs-radius-panel);
+  margin-block-end: var(--cs-shell-gutter);
   white-space: nowrap;
   /* The strip reflows on its own width — the sidebar and the inspector are both resizable. */
   container-type: inline-size;
@@ -860,7 +919,10 @@
 
 .about-view {
   width: 100%;
-  min-height: calc(100vh - var(--cs-chrome-height));
+  /* The masthead budget (shell inset + header card + gutter, + the strip when routed in)
+     replaces the old hardcoded 100vh-chrome arithmetic, which stopped matching the real
+     layout when the shell became a floating card inset by 12px. */
+  min-height: calc(100dvh - var(--cs-masthead, 68px));
   overflow-y: auto;
   background: var(--cs-bg);
   padding: 32px 16px 64px;
@@ -1903,7 +1965,7 @@
     top: 0;
     /* A rail taller than the viewport must be scrollable, or the last group — the actions —
        is unreachable on a short window. */
-    max-height: calc(100vh - var(--cs-chrome-height) - 40px);
+    max-height: calc(100dvh - var(--cs-masthead, 68px) - 40px);
     overflow-y: auto;
     padding-right: 4px;
     scrollbar-width: thin;

@@ -411,7 +411,7 @@ export function AppViews({
             {masterView === "search" && (
               <div 
                 className="w-full flex flex-col items-center justify-start px-4 sm:px-6 py-6 lg:py-8 overflow-y-auto"
-                style={{ background: "var(--cs-bg)", minHeight: "calc(100vh - var(--cs-chrome-height))" }}
+                style={{ background: "var(--cs-bg)", minHeight: "calc(100dvh - var(--cs-masthead, 68px))" }}
               >
                 <div className="w-full" style={{ maxWidth: "var(--cs-search-max-width)" }}>
                   <VariantSearchPanel
