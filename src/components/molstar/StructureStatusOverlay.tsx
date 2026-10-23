@@ -10,6 +10,7 @@ import {
   parseReportedSequenceLength,
   resolveDeNovoFoldingCapacity,
 } from "../../shared/foldingLimits";
+import { ALPHAFOLD_DB_MAX_MODELLED_AA, alphafoldDbCoverage } from "../../shared/alphafoldAvailability";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import type { ModelFamily } from "../../shared/structure3dEvidence";
 
@@ -69,6 +70,9 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
       const residues = reported ?? p.proteinLength;
       const isLength = isFoldingLengthLimitError(p.deNovoError);
       const isTimeout = isFoldingTimeoutError(p.deNovoError);
+      // Only a proven length excess counts: it is what lets the card say the AlphaFold2 view will
+      // not hold predicted coordinates either, instead of implying it is the full-length way out.
+      const beyondAlphaFold = alphafoldDbCoverage(residues) === "beyond-limit";
       const beyondTier1 = residues !== null && !resolveDeNovoFoldingCapacity(residues).tier1Available;
       const title = isLength
         ? beyondTier1
@@ -87,6 +91,11 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
           <div className="s3d-overlay__card">
             <p className="s3d-overlay__title">{title}</p>
             <p className="s3d-overlay__body">{body}</p>
+            {beyondAlphaFold && (
+              <p className="s3d-overlay__body">
+                AlphaFold DB has no full-length model for a protein this long either (single-chain limit {formatResidueCount(ALPHAFOLD_DB_MAX_MODELLED_AA)} aa). The AlphaFold2 view shows a mapped experimental entry instead, when one exists.
+              </p>
+            )}
             {(residues !== null || p.scanWindowLength !== null) && (
               <div className="s3d-overlay__facts">
                 {residues !== null && <span className="ev-tier" data-tone="neutral">Protein {formatResidueCount(residues)} aa</span>}
@@ -101,7 +110,7 @@ export function StructureStatusOverlay(p: StructureStatusProps) {
               {p.onSwitchToAlphaFold && (
                 <button type="button" className="s3d-btn" onClick={p.onSwitchToAlphaFold}>
                   <ArrowLeftRight aria-hidden="true" />
-                  Open the AlphaFold2 view
+                  {beyondAlphaFold ? "Open the AlphaFold2 view (experimental entry)" : "Open the AlphaFold2 view"}
                 </button>
               )}
               {!isLength && p.onRetryStructural && (

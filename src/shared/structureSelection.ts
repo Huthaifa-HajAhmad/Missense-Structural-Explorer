@@ -1,5 +1,7 @@
 import { indexStructureResidues } from './coordinateText';
 import type { ResidueAt } from './coordinateText';
+import { formatResidueCount } from './foldingLimits';
+import { ALPHAFOLD_DB_MAX_MODELLED_AA } from './alphafoldAvailability';
 
 export { indexStructureResidues };
 import type { Structure3dEvidence } from './structure3dEvidence';
@@ -41,7 +43,12 @@ export function buildStructureSelection(model: Structure3dEvidence, residues: Re
   const base = { position, residue: null, measurement: null, source: model.canvas.primary?.name ?? null };
   if (!position) return { ...base, state: 'empty', summary: 'Select a residue in Landscape or on the structure.' };
   if (!numberingTrusted(model)) {
-    return { ...base, state: 'unmapped', summary: 'Selection retained, but this structure’s numbering is not verified against UniProt. Switch to a UniProt-numbered model (e.g. AlphaFold) to inspect it in 3D.' };
+    // A protein past AlphaFold DB's ceiling has no full-length predicted model to switch to, so
+    // suggesting one would send the reader after coordinates that cannot exist.
+    const summary = model.alphaFold?.coverage === 'beyond-limit'
+      ? `Selection retained, but this structure’s numbering is not verified against UniProt. AlphaFold DB has no full-length model for a protein this long (its single-chain limit is ${formatResidueCount(ALPHAFOLD_DB_MAX_MODELLED_AA)} aa), so a UniProt-numbered predicted model cannot be offered here; a mapped experimental entry is the only way to inspect this position in 3D.`
+      : 'Selection retained, but this structure’s numbering is not verified against UniProt. Switch to a UniProt-numbered model (e.g. AlphaFold) to inspect it in 3D.';
+    return { ...base, state: 'unmapped', summary };
   }
   const residue = residues.get(position);
   if (!residue) return { ...base, state: 'missing', summary: 'Selection retained. No uniquely mapped Cα atom is available at this position in the current model.' };

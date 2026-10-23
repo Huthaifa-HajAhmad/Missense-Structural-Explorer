@@ -88,6 +88,28 @@ describe("coordinate load recovery", () => {
   });
 });
 
+describe("de novo overlay for a protein past AlphaFold DB's ceiling", () => {
+  const base = {
+    family: "esmfold" as const, hasVariant: true, loading: false, loadError: null,
+    deNovoFolding: false, deNovoError: null, deNovoLoaded: false, scanWindowLength: null,
+    customEntryLoaded: false, onSwitchToAlphaFold: () => {},
+  };
+  it("says AlphaFold DB has no model either, and labels the fallback honestly", () => {
+    const { container, getByRole } = render(<StructureStatusOverlay {...base} proteinLength={4302} />);
+    expect(container.textContent).toContain("no full-length model for a protein this long either");
+    expect(container.textContent).toContain("2,700 aa");
+    expect(getByRole("button", { name: "Open the AlphaFold2 view (experimental entry)" })).toBeTruthy();
+  });
+  it("makes no AlphaFold claim for a protein inside the ceiling or of unknown length", () => {
+    for (const proteinLength of [900, null]) {
+      cleanup();
+      const { container, getByRole } = render(<StructureStatusOverlay {...base} proteinLength={proteinLength} />);
+      expect(container.textContent).not.toContain("either");
+      expect(getByRole("button", { name: "Open the AlphaFold2 view" })).toBeTruthy();
+    }
+  });
+});
+
 describe("3D rail — NAE1 p.Asp116Gly", () => {
   it.each([
     ['known AlphaFold', {}, 'Explain this structure confidence measure', 'pLDDT'],

@@ -4,6 +4,7 @@ import { BookOpen, Crosshair, Database, GitBranch, Layers, Ruler } from "lucide-
 import { useStructure3dEvidence } from "../../lib/useStructure3dEvidence";
 import { useVariantAnalysisStore } from "../../stores/useVariantAnalysisStore";
 import { describeDeNovoCapacityNotice, readProteinLength, resolveDeNovoFoldingCapacity } from "../../shared/foldingLimits";
+import { alphafoldDbCoverage } from "../../shared/alphafoldAvailability";
 import { ENGINE_STATE_LABELS } from "../../shared/engineStatus";
 import type { CoordinateIdentity, ModelFamily, ResidueSideChainSummary, Structure3dEvidence, TraceStep } from "../../shared/structure3dEvidence";
 import { ResidueGlyph } from "../evidence/residue/ResidueGlyph";
@@ -194,7 +195,11 @@ export const StructureInspector: React.FC<StructureInspectorProps> = ({ family, 
   const isWildType = model.viewMode === "wildtype";
   const capacityNotice =
     proteinLength !== null && !(family === "esmfold" && deNovoFailed)
-      ? describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(proteinLength))
+      ? describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(proteinLength), {
+          // Only a length past AlphaFold DB's ceiling proves the model cannot exist; a length
+          // inside it says nothing about whether an entry was published.
+          alphafoldModelAvailable: alphafoldDbCoverage(proteinLength) === "beyond-limit" ? false : null,
+        })
       : null;
   const capacity =
     capacityNotice && (family === "esmfold" ? !canvas.primary : capacityNotice.tone === "warning") ? capacityNotice : null;

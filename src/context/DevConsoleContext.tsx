@@ -14,6 +14,7 @@ import {
   SessionContext
 } from "../types/devConsole";
 import { isConnectionFailureText } from "../shared/fetch-retry";
+import { ALPHAFOLD_ABSENCE_HEADER, isAlphaFoldAbsenceReason } from "../shared/alphafoldAvailability";
 import { classifyLogSource } from "./logSource";
 import { redactRequestBody } from "../shared/redactSecrets";
 
@@ -700,25 +701,45 @@ export function DevConsoleProvider({ children }: { children: ReactNode }) {
             const message = `${method} ${url} → ${response.status} ${response.statusText}${errorSummary && errorSummary !== response.statusText ? ` (${errorSummary})` : ""}`;
             const isCritical = url.includes("/api/v1/variant/analyze") || (url.includes("/api/v1/structure/") && !url.includes("/homologs"));
             const impact: ErrorImpact = response.status >= 500 && isCritical ? "fatal" : response.status === 429 ? "recoverable" : "degraded";
+            const httpMeta = {
+              url,
+              method,
+              status: response.status,
+              statusText: response.statusText,
+              durationMs,
+              requestBody,
+              requestBodyFormat: typeof requestBody === 'string' ? 'form' as const : 'json' as const,
+              responseBody: parsedError || responseBody,
+            };
+            const meta = { url, status: response.status, statusText: response.statusText, method, durationMs };
+            const absence = response.headers.get(ALPHAFOLD_ABSENCE_HEADER);
 
-            pushErrorEntry({
-              level: response.status >= 500 ? "error" : "warn",
-              source: "network",
-              impact,
-              message,
-              detail: responseBody ? `HTTP Status: ${response.status}\n\nServer Response Payload:\n${responseBody}` : undefined,
-              httpMeta: {
-                url,
-                method,
-                status: response.status,
-                statusText: response.statusText,
-                durationMs,
-                requestBody,
-                requestBodyFormat: typeof requestBody === 'string' ? 'form' : 'json',
-                responseBody: parsedError || responseBody,
-              },
-              meta: { url, status: response.status, statusText: response.statusText, method, durationMs },
-            });
+            /**
+             * A 404 the server marked as a property of the protein — no full-length AlphaFold DB
+             * model exists at this length — is the answer to the request, not a fault. Recording it
+             * in the live log keeps the fact visible without claiming a degraded network call.
+             */
+            if (response.status === 404 && isAlphaFoldAbsenceReason(absence)) {
+              pushLiveEntry({
+                level: "info",
+                source: "network",
+                impact: "info",
+                message: `${message} — expected: AlphaFold DB has no full-length model for this protein`,
+                detail: responseBody ? `HTTP Status: ${response.status}\n\nServer Response Payload:\n${responseBody}` : undefined,
+                httpMeta,
+                meta,
+              });
+            } else {
+              pushErrorEntry({
+                level: response.status >= 500 ? "error" : "warn",
+                source: "network",
+                impact,
+                message,
+                detail: responseBody ? `HTTP Status: ${response.status}\n\nServer Response Payload:\n${responseBody}` : undefined,
+                httpMeta,
+                meta,
+              });
+            }
           } else if (url.includes("/api/v1/") || method === "POST") {
             pushLiveEntry({
               level: "info",

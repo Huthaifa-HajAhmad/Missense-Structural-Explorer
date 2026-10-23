@@ -136,6 +136,7 @@ To bypass cross-origin browser limitations (CORS) and securely invoke analytical
   * If the API returns a 404, it immediately skips the search to fail fast.
   * If the API check fails to resolve but does not return a 404, or as a recovery cascade, the server tries sequential candidate URLs generated from common isoform suffixes (`-F1` down to `-1-F1`) and file versions (`v6` down to `v1`).
   * Bypasses CORS headers, pipes the raw PDB string securely back to Mol*, and validates that the payload contains proper `ATOM` structural coordinate segments to prevent corrupt renders.
+  * **Length ceiling**: AlphaFold DB models single chains up to 2,700 aa, so a longer protein (PKD1, `P98161`, 4,302 aa) has no full-length model at any URL. When UniProt's cached FASTA proves the sequence exceeds the ceiling, the route returns `404 NOT_FOUND` with `X-Alphafold-Absence: beyond-length-limit` and a message naming both lengths. The pipeline reads that marker to fall back to the experimental-structure ladder without logging a degradation, the dev console records it at `info`, and the inspector rail stops promising AlphaFold coordinates for that protein (`src/shared/alphafoldAvailability.ts` holds the rule).
 
 ---
 

@@ -1,8 +1,22 @@
 import { PdbHomolog, NearestResidue } from "../../types";
 import { getDeduplicatedPromise } from "../../variantAnalysisUtils";
 import { TraceContext, PipelineStructureSink } from "./types";
-import type { StructureFetchResult } from "../../api/structureApi";
+import { isAlphaFoldModelUnavailable, type StructureFetchResult } from "../../api/structureApi";
 import { registerStructureRefForPdb, resolveStructureRefForPdb } from "../../api/structureRefRegistry";
+
+/**
+ * The AlphaFold-first probe failed. A proven absence (the protein is longer than AlphaFold DB's
+ * single-chain ceiling) is not a degraded fetch: the resolver below is the intended answer for it,
+ * so it is logged at `info` — a `warn` here is what put an expected 404 in the operator's console
+ * as a network degradation on every visit.
+ */
+function logAlphaFoldProbeFailure(error: any): void {
+  if (isAlphaFoldModelUnavailable(error)) {
+    console.info(`[StructureService] ${error.message} Using the 3-tier PDB resolver instead.`);
+    return;
+  }
+  console.warn("[StructureService] AlphaFold DB fetch failed, falling back to 3-tier PDB resolver:", error?.message || error);
+}
 
 export async function fetchPdbCoordinates(
   targetGene: string,
@@ -25,7 +39,7 @@ export async function fetchPdbCoordinates(
           return afRes;
         }
       } catch (afErr: any) {
-        console.warn("[StructureService] AlphaFold DB fetch failed, falling back to 3-tier PDB resolver:", afErr.message || afErr);
+        logAlphaFoldProbeFailure(afErr);
       }
     } else if (typeof apiClient.getAlphaFoldPdb === "function") {
       try {
@@ -34,7 +48,7 @@ export async function fetchPdbCoordinates(
           return afRes;
         }
       } catch (afErr: any) {
-        console.warn("[StructureService] AlphaFold DB fetch failed, falling back to 3-tier PDB resolver:", afErr.message || afErr);
+        logAlphaFoldProbeFailure(afErr);
       }
     }
     if (typeof apiClient.getPdbWithProvenance === "function") {

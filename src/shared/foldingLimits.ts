@@ -30,6 +30,8 @@
  * the tests all read the same values.
  */
 
+import { ALPHAFOLD_DB_MAX_MODELLED_AA } from "./alphafoldAvailability";
+
 /**
  * Longest sequence the keyless public ESM Atlas endpoint will fold.
  *
@@ -126,16 +128,29 @@ export interface FoldingLimitNotice {
  * Returns `null` when there is nothing true and useful to say. Interpolates the residue count in
  * EVERY branch: the previous >400 aa branch was the only one that omitted its number, which is
  * precisely why nobody noticed it disagreeing with the rest of the screen.
+ *
+ * `alphafoldModelAvailable` is three-valued on purpose. `false` is passed only when the length
+ * PROVES AlphaFold DB cannot hold a full-length model (see `alphafoldDbCoverage`); `null` means the
+ * question was not established, and the long-standing "AlphaFold2 coordinates are the full-length
+ * option" sentence stands. PKD1 (4,302 aa) is the case this distinction exists for: that sentence
+ * used to promise coordinates the database can never publish.
  */
-export function describeDeNovoCapacityNotice(capacity: DeNovoFoldingCapacity): FoldingLimitNotice | null {
+export function describeDeNovoCapacityNotice(
+  capacity: DeNovoFoldingCapacity,
+  options: { alphafoldModelAvailable?: boolean | null } = {}
+): FoldingLimitNotice | null {
   const residues = formatResidueCount(capacity.residues);
   const tier1 = formatResidueCount(JAPANFOLD_ESMFOLD2_MAX_AA);
 
   if (!capacity.tier1Available) {
+    const beyondAlphaFold = options.alphafoldModelAvailable === false;
     return {
       tone: "warning",
       title: "Too long for de novo folding",
-      body: `This ${residues} aa sequence exceeds the de novo folding ceilings of ${tier1} aa for Tier-1 JapanFold (ESMFold2-Fast) and ${ESM_ATLAS_PUBLIC_MAX_AA} aa for the public ESM Atlas endpoint, so no de novo model can be produced for it. AlphaFold2 coordinates are the full-length option.`,
+      body: `This ${residues} aa sequence exceeds the de novo folding ceilings of ${tier1} aa for Tier-1 JapanFold (ESMFold2-Fast) and ${ESM_ATLAS_PUBLIC_MAX_AA} aa for the public ESM Atlas endpoint, so no de novo model can be produced for it. ` +
+        (beyondAlphaFold
+          ? `AlphaFold DB publishes no full-length model for a sequence this long either (its single-chain limit is ${formatResidueCount(ALPHAFOLD_DB_MAX_MODELLED_AA)} aa), so no full-length predicted coordinates exist for it; only experimental entries can be shown.`
+          : "AlphaFold2 coordinates are the full-length option."),
     };
   }
 

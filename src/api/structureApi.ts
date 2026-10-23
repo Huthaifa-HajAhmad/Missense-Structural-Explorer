@@ -20,6 +20,7 @@ import type { PdbHomolog } from "../types";
 import { extractApiError, extractErrorMessage, FetchWithAuth } from "./authSession";
 import { CLIENT_DENOVO_FOLD_SUBMIT_BUDGET_MS } from "../shared/timeouts";
 import { STRUCTURE_REF_HEADER, isStructureRef } from "../shared/structureRefs";
+import { ALPHAFOLD_ABSENCE_HEADER, isAlphaFoldAbsenceReason, type AlphaFoldAbsenceReason } from "../shared/alphafoldAvailability";
 import { resolveStructureRefForPdb } from "./structureRefRegistry";
 
 export interface StructureFetchResult {
@@ -48,6 +49,25 @@ export interface StructureFetchResult {
 export function parseStructureRefFromHeaders(res: Response): string | undefined {
   const raw = res.headers.get(STRUCTURE_REF_HEADER);
   return isStructureRef(raw) ? raw : undefined;
+}
+
+/**
+ * AlphaFold DB has no model this request could have received.
+ *
+ * Distinct from a fetch failure on purpose: `beyond-length-limit` is true of the protein at every
+ * moment, so callers fall back to the experimental-structure ladder without recording a degradation
+ * (or retrying). An unmarked 404 stays a plain `Error` — the server only marks what it can prove.
+ */
+export class AlphaFoldModelUnavailableError extends Error {
+  readonly alphaFoldUnavailable = true as const;
+  constructor(readonly reason: AlphaFoldAbsenceReason, message: string) {
+    super(message);
+    this.name = "AlphaFoldModelUnavailableError";
+  }
+}
+
+export function isAlphaFoldModelUnavailable(error: unknown): error is AlphaFoldModelUnavailableError {
+  return typeof error === "object" && error !== null && (error as any).alphaFoldUnavailable === true;
 }
 
 /**
@@ -244,6 +264,10 @@ export function createStructureApi(fetchWithAuth: FetchWithAuth) {
       });
       if (!res.ok) {
         const errorMsg = await extractErrorMessage(res, "Failed to fetch AlphaFold model");
+        const absence = res.headers.get(ALPHAFOLD_ABSENCE_HEADER);
+        if (res.status === 404 && isAlphaFoldAbsenceReason(absence)) {
+          throw new AlphaFoldModelUnavailableError(absence, errorMsg);
+        }
         throw new Error(errorMsg);
       }
       const provenance = parseProvenanceFromHeaders(res);

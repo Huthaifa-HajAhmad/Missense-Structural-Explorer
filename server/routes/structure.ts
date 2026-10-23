@@ -29,6 +29,12 @@ import { foldSequenceWithProvenance } from "../services/esmfold.ts";
 import { runStructuralDiffInWorker, runAlignMutantToWtInWorker } from "../services/biophysics-pool.ts";
 import fs from "fs";
 import { AMINO_ACID_3_TO_1 } from "../../src/shared/aminoAcids.ts";
+import {
+  ALPHAFOLD_ABSENCE_HEADER,
+  ALPHAFOLD_DB_MAX_MODELLED_AA,
+  alphafoldDbCoverage,
+} from "../../src/shared/alphafoldAvailability.ts";
+import { formatResidueCount } from "../../src/shared/foldingLimits.ts";
 import { applyMutation } from "../utils/mutation.ts";
 import { CONFIG } from "../config.ts";
 import { analyzeMultimerStructure } from "../services/multimer.ts";
@@ -254,6 +260,30 @@ export function registerStructureRoutes(apiRouter: Router, jsonParserRegular: an
     try {
       const afData = await fetchAlphafoldPdb(validatedUniprot);
       if (!afData) {
+        /**
+         * A protein longer than AlphaFold DB's single-chain ceiling has no full-length model, so
+         * this route could never have answered it: the absence is a property of the protein, not a
+         * failed lookup. Name that cause (and mark it on the response) so the client falls back
+         * quietly instead of reporting an upstream degradation on every visit.
+         *
+         * The length is read from UniProt's cached FASTA; if it cannot be read, the generic 404 is
+         * sent unchanged and the absence stays unexplained rather than guessed.
+         */
+        let residues: number | null = null;
+        try {
+          const sequence = await fetchUniprotSequence(validatedUniprot);
+          residues = sequence ? sequence.length : null;
+        } catch (seqErr: any) {
+          console.warn(`[AlphaFold Route] Could not read the length of ${validatedUniprot}: ${seqErr?.message ?? seqErr}`);
+        }
+        if (alphafoldDbCoverage(residues) === "beyond-limit") {
+          res.setHeader(ALPHAFOLD_ABSENCE_HEADER, "beyond-length-limit");
+          sendError(res, 404, "NOT_FOUND",
+            `AlphaFold DB has no full-length model for ${validatedUniprot}: its ` +
+            `${formatResidueCount(residues!)} aa sequence exceeds the database's ` +
+            `${formatResidueCount(ALPHAFOLD_DB_MAX_MODELLED_AA)} aa single-chain limit.`);
+          return;
+        }
         sendError(res, 404, "NOT_FOUND", `Could not retrieve AlphaFold DB model for accession: ${validatedUniprot}.`);
         return;
       }

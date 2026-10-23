@@ -48,6 +48,7 @@ import { granthamDistance } from "./residueScales";
 import { backboneCaveat, granthamClass, type GranthamClass } from "./residueContextEvidence";
 import type { BFactorScan, ResidueAt } from "./coordinateText";
 import { describeDeNovoFoldTimeout, isFoldingTimeoutError } from "./foldingLimits";
+import { alphafoldDbCoverage, type AlphaFoldDbCoverage } from "./alphafoldAvailability";
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Types
@@ -171,6 +172,13 @@ export interface Structure3dInput {
   };
   /** A residue the reader clicked, when it is not the variant's position. */
   selectedResidue: number | null;
+  /**
+   * The analysed protein's full-length residue count, when known.
+   *
+   * AlphaFold DB's ceiling is a length rule, so this is what tells the rail whether it may still
+   * offer "switch to AlphaFold" and promise full-length predicted coordinates.
+   */
+  proteinLength?: number | null;
   wildType: {
     /** Provenance of the wild-type coordinates the AlphaFold view draws (the pipeline's structure). */
     provenance: CoordinateProvenance | null;
@@ -374,6 +382,13 @@ export interface Structure3dEvidence {
   notes: string[];
   sources: { citation: string; doi: string }[];
   experimental: { rows: ExperimentalRow[]; loading: boolean; best: ExperimentalRow | null; note: string };
+  /**
+   * What AlphaFold DB can hold for this protein, by length alone.
+   *
+   * `beyond-limit` is a fact about the sequence, not about a lookup: no full-length model exists.
+   * The rail and the folding notice read it so they stop offering coordinates that cannot exist.
+   */
+  alphaFold: { coverage: AlphaFoldDbCoverage; residues: number | null };
   engineRecord: string;
 }
 
@@ -659,6 +674,11 @@ function identifyDeNovo(role: "wild type" | "variant", engine: string | null, sc
 export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEvidence {
   const { family, viewMode, variant, foldx, deNovo, metrics } = input;
   const isAf = family === "alphafold";
+  const proteinLength =
+    typeof input.proteinLength === "number" && Number.isFinite(input.proteinLength) && input.proteinLength > 0
+      ? input.proteinLength
+      : null;
+  const alphaFold = { coverage: alphafoldDbCoverage(proteinLength), residues: proteinLength };
   const position = variant.position;
   const wt3 = toThree(variant.wildType);
   const mt3 = toThree(variant.mutant);
@@ -1481,6 +1501,7 @@ export function buildStructure3dEvidence(input: Structure3dInput): Structure3dEv
       best,
       note: "Identity and aligned range come from RCSB's sequence search. Show loads the chain mapped to this protein in UniProt numbering, or the whole entry in its own numbering when that mapping cannot be verified at the site.",
     },
+    alphaFold,
     engineRecord: STRUCTURE_ENGINE_RECORD,
   };
 }
