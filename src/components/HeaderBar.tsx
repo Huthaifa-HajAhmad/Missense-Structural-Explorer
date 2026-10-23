@@ -6,7 +6,7 @@ import { useSettings, SettingsTabId, LegacySettingsTabId } from "../context/Sett
 import { useVariantAnalysisStore } from "../context/VariantAnalysisContext";
 import { commandPaletteHint } from "../shared/platform";
 import { isShareable, withVariantParams } from "../shared/shareLink";
-import { CHROME_DIVIDER, CHROME_ICON_BUTTON } from "./ui/chrome";
+import { CHROME_DIVIDER, HEADER_ICON_BUTTON } from "./ui/chrome";
 import { VariantIdentity } from "./header/VariantIdentity";
 import { useVariantHeaderModel, type VariantHeaderInput } from "./header/variantHeaderModel";
 import { AccountMenu } from "./account/AccountMenu";
@@ -109,7 +109,7 @@ export function HeaderBar({
     <button
       type="button"
       onClick={onOpenPalette}
-      className={prominent ? "header-search" : CHROME_ICON_BUTTON}
+      className={prominent ? "header-search" : HEADER_ICON_BUTTON}
       data-palette-trigger
       title={`Search views or run a variant (${paletteHint})`}
       aria-label={`Search views or run a variant (${paletteHint})`}
@@ -132,7 +132,7 @@ export function HeaderBar({
           <button
             type="button"
             onClick={onToggleNavDrawer}
-            className={CHROME_ICON_BUTTON}
+            className={HEADER_ICON_BUTTON}
             title="Open navigation"
             aria-label="Open navigation"
             aria-expanded={navDrawerOpen ?? false}
@@ -146,7 +146,7 @@ export function HeaderBar({
 
       {/* ── Right: state, then actions ── */}
       {/* Actions keep their intrinsic width; identity uses the remaining space. */}
-      <div className="flex items-center justify-end gap-1 min-w-max">
+      <div className="header-actions">
         {/* Notices first, so they sit next to the thing they are about (settings). */}
         {error && (
           <div
@@ -222,7 +222,7 @@ export function HeaderBar({
           <button
             type="button"
             onClick={copyLink}
-            className={CHROME_ICON_BUTTON}
+            className={HEADER_ICON_BUTTON}
             title={copied ? "Link copied" : `Copy link to ${gene} ${variant}`}
             aria-label={copied ? "Link copied" : `Copy link to ${gene} ${variant}`}
           >
@@ -235,7 +235,7 @@ export function HeaderBar({
           <button
             type="button"
             onClick={onOpenOnboarding}
-            className={CHROME_ICON_BUTTON}
+            className={HEADER_ICON_BUTTON}
             title="Take the tour"
             aria-label="Take the tour"
           >
@@ -248,7 +248,7 @@ export function HeaderBar({
         <button
           type="button"
           onClick={toggleTheme}
-          className={CHROME_ICON_BUTTON}
+          className={HEADER_ICON_BUTTON}
           title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
         >
@@ -265,7 +265,7 @@ export function HeaderBar({
         <button
           type="button"
           onClick={() => onOpenSettings?.()}
-          className={CHROME_ICON_BUTTON}
+          className={HEADER_ICON_BUTTON}
           title="Settings"
           aria-label="Open settings"
           id="header-settings-btn"

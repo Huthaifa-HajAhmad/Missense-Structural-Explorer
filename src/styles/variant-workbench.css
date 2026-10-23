@@ -63,7 +63,7 @@
 .workbench-benchmark > div { padding: 0; }
 .workbench-benchmark > button > span:last-child { font-size: 11px; }
 .workbench-benchmark > div button { padding-inline: .5rem; margin-inline: 0; }
-.workbench-rail.cs-panel { background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); box-shadow: var(--cs-workbench-shadow); min-inline-size: 0; overflow: clip; }
+.workbench-rail.cs-panel { background: var(--cs-workspace-context); border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); box-shadow: var(--cs-workbench-shadow); min-inline-size: 0; overflow: clip; }
 .workbench-rail-body { display: flex; flex-direction: column; min-block-size: 0; }
 .workbench-rail-heading { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; flex: none; padding: .875rem 1.25rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-rail [role="tabpanel"] { padding: 1rem 1.25rem; }

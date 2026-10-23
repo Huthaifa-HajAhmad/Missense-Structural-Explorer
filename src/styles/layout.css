@@ -71,11 +71,40 @@
   min-block-size: 2.5rem;
   padding-inline: .875rem;
   border: 1px solid var(--cs-border-subtle);
-  border-radius: 999px;
+  border-radius: var(--cs-radius-card);
   background: var(--cs-surface);
   color: var(--cs-text-muted);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: none;
+  min-inline-size: 0;
+}
+.header-actions .header-action {
+  border-radius: var(--cs-radius-input);
+  background: var(--cs-surface);
+  box-shadow: 0 0 0 1px var(--cs-border-subtle);
+}
+.header-action:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: 3px;
+}
+.header-actions .header-action:active {
+  background: var(--cs-surface-2);
+}
+@media (hover: hover) and (pointer: fine) {
+  .header-actions .header-action:hover {
+    background: var(--cs-surface-2);
+  }
+}
+@media (max-width: 599px) {
+  .app-header { gap: 6px; }
+  .header-actions { gap: 0; }
 }
 .header-search > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .header-search > kbd { margin-inline-start: auto; flex: none; }
@@ -931,14 +960,14 @@
   min-height: calc(100dvh - var(--cs-masthead, 68px));
   overflow-y: auto;
   background: var(--cs-bg);
-  padding: 32px 16px 64px;
+  padding: 20px 16px 64px;
   display: flex;
   justify-content: center;
   align-items: flex-start;
   scroll-behavior: smooth;
 }
 @media (min-width: 640px) {
-  .about-view { padding: 40px 28px 96px; }
+  .about-view { padding: 24px 28px 64px; }
 }
 /* The shell is sized to its ENSEMBLE — reading measure + gap + contents rail — not to the
    viewport. The prose blocks cap at a humane 68-80 character measure; at the old 1180px shell the
@@ -957,20 +986,13 @@
   flex-direction: column;
   gap: 22px;
   padding: 24px 28px 28px;
-  margin-bottom: 40px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--cs-surface) 92%, var(--cs-bg)) 0%, var(--cs-surface) 100%);
-  border: 1px solid var(--cs-border);
+  margin-block-end: 28px;
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border-subtle);
   border-radius: var(--cs-radius-panel);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02), 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-shadow: none;
   position: relative;
   overflow: hidden;
-}
-.about-hero::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--cs-accent-clay), color-mix(in srgb, var(--cs-accent-clay) 30%, var(--cs-border)));
 }
 .about-hero-main {
   display: flex;
@@ -987,13 +1009,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow:
-    0 4px 14px rgba(196, 104, 73, 0.25),
-    inset 0 1px 1px rgba(255, 255, 255, 0.35);
-  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
-}
-@media (hover: hover) and (pointer: fine) {
-  .about-mark:hover { transform: scale(1.04) rotate(-2deg); }
+  box-shadow: none;
 }
 .about-title {
   margin: 0;

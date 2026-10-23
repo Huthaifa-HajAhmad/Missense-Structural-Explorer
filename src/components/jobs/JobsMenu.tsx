@@ -17,7 +17,7 @@ import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Cpu, Loader2, Monitor, RefreshCw, Server, Users, X } from "lucide-react";
 import { useOptionalAccount } from "../../context/AccountContext";
 import { useSettings } from "../../context/SettingsContext";
-import { CHROME_ICON_BUTTON } from "../ui/chrome";
+import { HEADER_ICON_BUTTON } from "../ui/chrome";
 import { activeJobs, jobsApi, JOBS_CHANGED_EVENT, type JobSummary } from "../../api/jobsApi";
 import { AccountError } from "../../api/accountApi";
 import { describeRunsOn } from "../../shared/jobPlacement";
@@ -174,7 +174,7 @@ function JobsMenuInner() {
       <button
         ref={buttonRef}
         type="button"
-        className={`${CHROME_ICON_BUTTON} jobs-btn`}
+        className={`${HEADER_ICON_BUTTON} jobs-btn`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}

@@ -6,7 +6,7 @@ import { skipTour } from './support.js';
 test('walk through populated workspaces in both themes', { tags: ['design', 'shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1440, height: 1000 });
-  /* Every exploration workspace pairs two framed white cards; a collapsed inspector is a bare toggle. */
+  /* Primary content and supporting context have distinct surfaces in both themes. */
   const checkSurfaces = async (name: string) => {
     expect(await browser.evaluate(() => {
       const workspace = document.querySelector('.exploration-workspace');
@@ -23,7 +23,7 @@ test('walk through populated workspaces in both themes', { tags: ['design', 'she
       const inspector = workspace.querySelector(':scope > aside[data-workspace-inspector]');
       const rail = workspace.querySelector(':scope > aside[data-workspace-inspector-rail]');
       if (inspector) {
-        if (getComputedStyle(inspector).backgroundColor !== surface) return 'inspector surface differs';
+        if (getComputedStyle(inspector).backgroundColor === surface) return 'inspector lacks a distinct context surface';
         if (!rounded(inspector)) return 'inspector corners are not all rounded';
       } else if (rail) {
         const r = getComputedStyle(rail);
@@ -32,13 +32,13 @@ test('walk through populated workspaces in both themes', { tags: ['design', 'she
       const literature = primary.querySelector('.lit-view');
       if (literature && getComputedStyle(literature).backgroundColor !== surface) return 'literature surface differs';
       return 'ok';
-    }), `${name}: main and inspector keep their shared panel surfaces`).toBe('ok');
+    }), `${name}: primary and context retain consistent surface roles`).toBe('ok');
   };
   const capture = async (name: string) => {
     await expect(screen.getByRole('heading').first()).toBeVisible();
     await expect(screen.getByText(/^(Loading (frequency comparison|predictor comparison|stability comparison|feature contributions|residue distribution)|Preparing tissue comparison)/).first()).not.toBeVisible();
     await browser.evaluate(() => document.fonts.ready.then(() => true));
-    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${name} fits the page`);
+    expect(await browser.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${name} fits the page`).toBe(true);
     await app.screenshot(name + '-light');
     await checkSurfaces(name);
     await screen.getByRole('button', 'Switch theme').tap();

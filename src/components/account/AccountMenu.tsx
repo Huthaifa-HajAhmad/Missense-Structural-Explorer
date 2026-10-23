@@ -108,7 +108,7 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
 
   if (!user) {
     return (
-      <button type="button" className="acct-signin-btn" onClick={() => account.openSignIn("requested")}>
+      <button type="button" className="header-action acct-signin-btn" onClick={() => account.openSignIn("requested")}>
         <LogIn className="w-3.5 h-3.5" aria-hidden />
         Sign in
       </button>
@@ -168,7 +168,7 @@ function AccountMenuInner({ account }: { account: ReturnType<typeof useAccount> 
       <button
         ref={buttonRef}
         type="button"
-        className="acct-avatar-btn"
+        className="header-action acct-avatar-btn"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
