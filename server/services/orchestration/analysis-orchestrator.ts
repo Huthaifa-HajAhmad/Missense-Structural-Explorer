@@ -344,41 +344,26 @@ async function runStream(
     return restored;
   }
 
-  /**
-   * Preview frames are numbered after chunk 1 and before the final frame, so a consumer can order
-   * them (and a test can assert that the final frame is last). Only `isFinal` is load-bearing for
-   * correctness; the index exists so a lagging reader cannot mistake an out-of-order preview for
-   * the payload.
-   */
-  let previewIndex = 1;
-  const writePreview = (preview: { data: Record<string, unknown> }) => {
-    if (signal?.aborted) return;
-    onChunk({ chunkIndex: ++previewIndex, isFinal: false, data: preview.data });
+  // Every source can open the stream. Identity accompanies the first real evidence;
+  // no empty result is published and no slow source holds back a faster one.
+  let previewIndex = 0;
+  const identity = {
+    gene, variant, uniprotId,
+    residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
+    wildType, mutant, sequence: sequence ?? null,
+    mutatedSequence: buildMutatedSequence(sequence, pos, wt1Letter, mut1Letter)
   };
-
-  /**
-   * CHUNK-1 FIRST, WHATEVER ELSE HAS HAPPENED.
-   *
-   * The rest of the core fetch is started BEFORE the triage barrier so its nine independent sources
-   * are already in flight while ClinVar and the predictors are still being awaited, instead of
-   * starting ~150 ms late — a stream that only begins its slowest query after its fastest two have
-   * answered pays that latency on every request, and the per-source previews it produces are what the
-   * reader watches.
-   *
-   * The ordering is preserved by a gate, not by luck: a partial that settles while chunk 1 has not
-   * been written is BUFFERED (in settlement order) and flushed immediately after chunk 1, so the
-   * first frame on the wire is still the triage frame, still not final, and the preview indices still
-   * increase. Nothing about the contract in the module note above changes; only WHEN the other
-   * sources begin.
-   */
-  let chunk1Written = false;
-  const deferredPreviews: CoreAnalysisPartial[] = [];
   const writeCorePartial = (partial: CoreAnalysisPartial) => {
-    if (!chunk1Written) {
-      deferredPreviews.push(partial);
-      return;
-    }
-    writePreview(partial);
+    if (signal?.aborted) return;
+    onChunk({
+      chunkIndex: ++previewIndex,
+      isFinal: false,
+      data: withCacheProvenance({
+        ...partial.data,
+        metadata: { ...identity, ...(partial.data.metadata as object), serviceStatus: partial.serviceStatus },
+        serviceStatus: partial.serviceStatus
+      }, false)
+    });
   };
 
   /**
@@ -472,90 +457,77 @@ async function runStream(
     onPartial: writeCorePartial
   });
 
-  // Chunk 1: Instant Header, ClinVar, Predictors, Initial ACMG Verdict (~100-150ms)
-  const [clinvarOutcome, predictorOutcome] = await Promise.all([fastClinvarPromise, fastPredictorPromise]);
+  // The shared core budget bounds the stream even if an upstream triage promise
+  // never settles. Handle core rejection immediately through this race as well.
+  const triage = await Promise.race([
+    Promise.all([fastClinvarPromise, fastPredictorPromise]),
+    fullCorePromise.then(() => null)
+  ]);
   if (signal?.aborted) return null;
 
-  const clinvarRes = clinvarOutcome.data;
-  const predictorRes = predictorOutcome.data;
+  if (triage && previewIndex === 0) {
+    const [clinvarOutcome, predictorOutcome] = triage;
+    const clinvarRes = clinvarOutcome.data;
+    const predictorRes = predictorOutcome.data;
 
-  const chunk1ServiceStatus: ServiceStatusMap = {
-    clinvar: clinvarOutcome.status,
-    predictorData: predictorOutcome.status,
-    conservationData: "pending" as any,
-    gnomadFrequency: "pending" as any,
-    gnomadConstraint: "pending" as any,
-    uniprotFeatures: "pending" as any,
-    stringInteractions: "pending" as any,
-    disruptionPredictor: "pending" as any,
-    esm2: "pending" as any,
-    pdbMapping: "pending" as any
-  };
+    const chunk1ServiceStatus: ServiceStatusMap = {
+      clinvar: clinvarOutcome.status,
+      predictorData: predictorOutcome.status,
+      conservationData: "pending" as any,
+      gnomadFrequency: "pending" as any,
+      gnomadConstraint: "pending" as any,
+      uniprotFeatures: "pending" as any,
+      stringInteractions: "pending" as any,
+      disruptionPredictor: "pending" as any,
+      esm2: "pending" as any,
+      pdbMapping: "pending" as any
+    };
 
-  const mutatedSequence = buildMutatedSequence(sequence, pos, wt1Letter, mut1Letter);
+    const mutatedSequence = buildMutatedSequence(sequence, pos, wt1Letter, mut1Letter);
 
-  const preliminaryVerdict = computeRuleBasedACMG({
-    gene,
-    variant,
-    residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
-    clinvar: clinvarRes,
-    predictorData: predictorRes,
-    acmgWeighting: context.acmgWeighting,
-    sequence,
-    serviceStatus: chunk1ServiceStatus
-  });
-
-  const chunk1Data = {
-    metadata: {
+    const preliminaryVerdict = computeRuleBasedACMG({
       gene,
       variant,
-      uniprotId,
       residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
-      wildType,
-      mutant,
-      // Same reason as the assembled payload: the report's re-synthesis asks the narrative
-      // route for this sequence, and a chunk that omits it leaves that request incomplete.
-      sequence: sequence ?? null,
-      mutatedSequence,
-      // The FULL running map, not just the two settled keys. Chunk 1 is the first frame a client
-      // paints, so a map that omits the other eight sources leaves a consumer unable to tell
-      // "still working" from "measured, and empty" for the entire run.
+      clinvar: clinvarRes,
+      predictorData: predictorRes,
+      acmgWeighting: context.acmgWeighting,
+      sequence,
       serviceStatus: chunk1ServiceStatus
-    },
-    clinvar: clinvarRes,
-    predictorData: predictorRes,
-    serviceStatus: chunk1ServiceStatus,
-    ruleBasedInsights: preliminaryVerdict
-  };
+    });
 
-  /**
-   * Chunk 1 is FRESH evidence (a cache restore emits a single final frame instead, above), and it
-   * says so on the first frame the client paints — so a surface never has to guess provenance from
-   * how fast the frame arrived.
-   */
-  onChunk({ chunkIndex: 1, isFinal: false, data: withCacheProvenance(chunk1Data, false) });
-  if (signal?.aborted) return null;
+    const chunk1Data = {
+      metadata: {
+        gene,
+        variant,
+        uniprotId,
+        residueIndex: residueIndex ? parseInt(residueIndex, 10) : null,
+        wildType,
+        mutant,
+        // Same reason as the assembled payload: the report's re-synthesis asks the narrative
+        // route for this sequence, and a chunk that omits it leaves that request incomplete.
+        sequence: sequence ?? null,
+        mutatedSequence,
+        // The FULL running map, not just the two settled keys. Chunk 1 is the first frame a client
+        // paints, so a map that omits the other eight sources leaves a consumer unable to tell
+        // "still working" from "measured, and empty" for the entire run.
+        serviceStatus: chunk1ServiceStatus
+      },
+      clinvar: clinvarRes,
+      predictorData: predictorRes,
+      serviceStatus: chunk1ServiceStatus,
+      ruleBasedInsights: preliminaryVerdict
+    };
 
-  /**
-   * The gate opens: chunk 1 is on the wire, so every partial buffered while it was being assembled
-   * is written now, in settlement order, and every later one is written on arrival.
-   */
-  chunk1Written = true;
-  for (const partial of deferredPreviews.splice(0)) {
-    writePreview(partial);
+    /**
+     * Chunk 1 is FRESH evidence (a cache restore emits a single final frame instead, above), and it
+     * says so on the first frame the client paints — so a surface never has to guess provenance from
+     * how fast the frame arrived.
+     */
+    onChunk({ chunkIndex: ++previewIndex, isFinal: false, data: withCacheProvenance(chunk1Data, false) });
   }
 
-  // Await the core fetch that was started BEFORE the triage barrier.
-  //
-  // Each source published the moment it settled (indices above), so the reader saw gnomAD the
-  // second gnomAD answered rather than waiting for the slowest of the eleven — that is also what
-  // removes the 30 s silence the client used to abort on.
-  //
-  // The triage's own STATUS travels with its data through the getters on `prefetched`: this function
-  // caught the provider error, so the core fetch cannot see it, and re-deriving the status from a
-  // null value reported an outage as a measured absence.
-  //
-  // A shared run is the same value this call would have produced alone — see `core-singleflight.ts`.
+  // Per-source snapshots have already been delivered in settlement order.
   const fullCoreData = await fullCorePromise;
   if (signal?.aborted) return null;
 

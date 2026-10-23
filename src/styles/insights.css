@@ -3,7 +3,7 @@
 .ins-shell__header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: .75rem 1.5rem; padding: 1rem clamp(.75rem, 2cqi, 1.5rem); border-block-end: 1px solid var(--cs-border-subtle); }
 .ins-shell__header > :first-child { flex: 1 1 28rem; }
 .ins-shell__exports { display: flex; flex-wrap: wrap; gap: .5rem; }
-.ins-shell__title { margin: 0; color: var(--cs-text-primary); font-size: 1.125rem; font-weight: 600; letter-spacing: -.02em; }
+.ins-shell__title { text-transform: none; }
 .ins-shell__notice { display: flex; align-items: start; gap: .375rem; margin-block-start: .375rem; max-inline-size: 75ch; font-size: var(--cs-font-size-caption); line-height: 1.5; color: var(--cs-text-muted); }
 .ins-shell__body { padding: clamp(.75rem, 2cqi, 1.5rem); }
 .ins-loading { max-inline-size: 70rem; padding-block: 1rem; color: var(--cs-text-muted); }

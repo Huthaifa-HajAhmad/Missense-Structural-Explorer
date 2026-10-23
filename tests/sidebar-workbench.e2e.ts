@@ -1,0 +1,58 @@
+import { test } from '@e2e-dev/web';
+import { expect } from 'e2e';
+import { skipTour } from './support.js';
+
+test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navigation'] }, async ({ app, browser, screen }) => {
+  await skipTour(browser);
+  await browser.setViewport({ width: 1440, height: 1000 });
+  await app.open('/');
+  // A closed drawer is inert and slid fully off-screen; read that from the DOM, since the locator still resolves its controls.
+  const drawerClosed = () => browser.evaluate(async () => {
+    const rail = document.querySelector('aside.ms-root')!;
+    const read = () => `${rail.getAttribute('data-drawer')}/${rail.getBoundingClientRect().right <= 0 ? 'offscreen' : 'onscreen'}/${rail.hasAttribute('inert')}`;
+    for (let i = 0; i < 40 && read() !== 'closed/offscreen/true'; i++) await new Promise(r => setTimeout(r, 100));
+    return read();
+  });
+  const settle = () => browser.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))).then(() => true));
+  await screen.getByRole('button', 'Expand Evidence navigation').tap();
+  await expect(screen.getByRole('button', 'Collapse Evidence navigation')).toBeExpanded();
+  await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).toBeVisible();
+  await screen.getByRole('button', 'Interfaces & PPI', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'Interfaces & PPI')).toBeVisible();
+  await settle();
+  expect(await browser.evaluate(() => {
+    const list = document.getElementById('ms-children-evidence')!.getBoundingClientRect();
+    return [...document.querySelectorAll('#ms-children-evidence button')].every(button => button.getBoundingClientRect().bottom <= list.bottom + 1);
+  }), 'all Evidence links fit inside the expanded group');
+  await app.screenshot('sidebar-expanded');
+  await screen.getByRole('button', 'Switch to dark mode').tap();
+  await app.screenshot('sidebar-dark');
+  await screen.getByRole('button', 'Collapse Evidence navigation').tap();
+  await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).not.toBeVisible();
+  await screen.getByRole('separator', 'Resize sidebar').press('End');
+  await settle();
+  await screen.getByRole('separator', 'Resize sidebar').press('Home');
+  await settle();
+  await screen.getByRole('button', 'Collapse sidebar').tap();
+  await settle();
+  await expect(screen.getByRole('button', /^Expand sidebar/)).toBeVisible();
+  await screen.getByRole('button', 'Energetics', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'Energetics', { exact: true })).toBeVisible();
+  await app.screenshot('sidebar-collapsed');
+  await screen.getByRole('button', /^Expand sidebar/).tap();
+  await browser.setViewport({ width: 390, height: 844 });
+  await expect(screen.getByRole('button', 'Open navigation')).toBeVisible();
+  await settle();
+  await screen.getByRole('button', 'Open navigation').tap();
+  await screen.getByRole('button', 'Expand Evidence navigation').tap();
+  await screen.getByRole('button', 'RNA splicing', { exact: true }).scrollIntoView();
+  await app.screenshot('sidebar-mobile');
+  await screen.getByRole('button', 'RNA splicing', { exact: true }).tap();
+  await expect(screen.getByRole('heading', 'RNA splicing')).toBeVisible();
+  await settle();
+  expect(await drawerClosed(), 'the drawer closes after a pick').toBe('closed/offscreen/true');
+  await screen.getByRole('button', 'Open navigation').tap();
+  await screen.getByRole('button', 'Close navigation').press('Escape');
+  await settle();
+  expect(await drawerClosed(), 'Escape closes the drawer').toBe('closed/offscreen/true');
+});

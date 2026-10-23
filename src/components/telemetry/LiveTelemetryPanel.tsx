@@ -9,6 +9,7 @@ import { useDiagnostics, type FallbackVerdictKind } from "../../hooks/useDiagnos
 import { useSettings } from "../../context/SettingsContext";
 import { useApiConnections } from "../../hooks/useApiConnections";
 import { getAuthLapse, subscribeAuthLapse } from "../../api/authSession";
+import "../../styles/telemetry.css";
 
 interface LiveTelemetryPanelProps {
   onConfigureClick?: (tab: "connections" | "api") => void;
@@ -870,9 +871,9 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
     );
 
   return (
-    <div className={`flex flex-col h-full gap-3 text-cs-text-primary ${className}`}>
+    <div className={`telemetry-panel ${className}`}>
       {/* ── Summary: one sentence, one tone, and the two actions ── */}
-      <div className="flex items-center justify-between gap-2 shrink-0">
+      <div className="telemetry-summary">
         <div className="flex items-center gap-2 min-w-0">
           <h2 className="sr-only">Service status</h2>
           <span
@@ -921,12 +922,12 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
           kept to what the full list needs — a taller phantom bottom padding used to push the content
           a few pixels past the rail floor, so a scrollbar appeared (and a row was clipped) even with
           visible space left in the panel. The fade stays paired with that padding as the scroll cue. */}
-      <div className="relative flex-1 min-h-0">
-      <div className="flex flex-col gap-3 lg:absolute lg:inset-0 lg:overflow-y-auto lg:pb-3 [scrollbar-width:thin] lg:[mask-image:linear-gradient(to_bottom,black_calc(100%-12px),transparent)]">
+      <div className="telemetry-scroll">
+      <div className="telemetry-groups">
         {groups.map(group => (
           <section key={group.id} aria-label={group.label} className="flex flex-col gap-1.5">
-            <h3 className="px-1 text-[11px] font-medium text-cs-text-muted">{group.label}</h3>
-            <div className="rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface divide-y divide-cs-border-subtle overflow-hidden">
+            <h3 className="telemetry-group-title">{group.label}<span>{group.items.length}</span></h3>
+            <div className="telemetry-service-list">
               {group.items.map(svc => {
                 const isExpandable = Boolean(svc.explain);
                 const isOpen = expandedId === svc.id;
@@ -959,7 +960,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                     data-service-id={svc.id}
                     data-expanded={isExpandable ? (isOpen ? "true" : "false") : undefined}
                     onClick={isExpandable ? () => toggleExpanded(svc.id) : undefined}
-                    className={`group relative flex items-center gap-2.5 px-3 py-1 min-h-[42px] select-none transition-colors duration-150 ${
+                    className={`telemetry-service group relative flex items-center gap-2.5 select-none transition-colors duration-150 ${
                       svc.isDown
                         ? "bg-[var(--cs-bg-danger)]"
                         : svc.isDegraded || svc.isWarming
@@ -979,9 +980,6 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-[12.5px] font-medium text-cs-text-primary truncate">{svc.name}</span>
-                        {svc.tag && (
-                          <span className="text-[10.5px] font-mono text-cs-text-muted shrink-0">{svc.tag}</span>
-                        )}
                       </div>
                       <span
                         className="text-[11px] text-cs-text-muted truncate leading-snug"
@@ -991,15 +989,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      {svc.latency && (
-                        <span
-                          className={`text-[11px] tabular-nums ${slow ? "text-[var(--cs-text-warning-on-soft)]" : "text-cs-text-muted"}`}
-                          title={slow ? "Responding slowly" : "Last round-trip"}
-                        >
-                          {svc.latency}
-                        </span>
-                      )}
+                    <div className="telemetry-service-state">
                       {/* Nominal states are quiet text; only a state that needs a reader's eye gets a
                           tinted chip. Ten identical green chips said one thing ten times. */}
                       <span
@@ -1054,8 +1044,12 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                   {isExpandable && isOpen && (
                     <div
                       data-service-detail={svc.id}
-                      className="px-3 pb-2.5 pt-0.5 flex flex-col gap-2 border-l-2 border-[var(--cs-accent-clay)] ml-[7px]"
+                      className="telemetry-detail"
                     >
+                      {(svc.tag || svc.latency) && <p className="telemetry-detail-meta">
+                        {svc.tag && <span>{svc.tag}</span>}
+                        {svc.latency && <span title={slow ? "Responding slowly" : "Last round-trip"}>Response {svc.latency}</span>}
+                      </p>}
                       <p className="text-[11.5px] font-medium text-cs-text-primary m-0">
                         {svc.explain!.heading}
                       </p>
@@ -1115,7 +1109,7 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
       {/* ── Sweep footer ── pinned to the panel's bottom edge, outside the scroll container, so it
           stays put on short viewports where the list scrolls above it. Quietest possible voice:
           11px muted, tabular figures, no chip — it is context, not a state. */}
-      <div className="shrink-0 flex items-center justify-between gap-3 pt-2.5 border-t border-cs-border-subtle">
+      <div className="telemetry-footer">
         <span
           className="text-[11px] text-cs-text-muted tabular-nums whitespace-nowrap"
           title="Time of the last service reachability sweep"

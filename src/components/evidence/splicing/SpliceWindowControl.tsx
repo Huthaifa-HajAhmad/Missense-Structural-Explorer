@@ -157,7 +157,7 @@ function SpliceWindowRequest({ result, ev, disabled }: { result: AnalysisResult;
         ))}
       </div>
       <span className="spl-window__status" role="status" aria-live="polite" data-error={error ? true : undefined}>
-        {busy ? `Re-scoring at ±${target}…` : error ?? (unavailable && !coordinates ? "No genomic coordinate to re-score" : scoredWindow === null ? 'Current reporting window not stated; choose a window to re-score.' : '')}
+        {busy ? `Re-scoring at ±${target}…` : error ?? (!coordinates ? "No genomic coordinate to re-score" : disabled ? "Available once the running analysis has finished." : scoredWindow === null ? 'Current reporting window not stated; choose a window to re-score.' : '')}
       </span>
     </div>
   );

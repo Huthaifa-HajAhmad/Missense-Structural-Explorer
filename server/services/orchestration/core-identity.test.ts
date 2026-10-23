@@ -52,7 +52,9 @@ describe("coreIdentityOf", () => {
       { assembly: "GRCh37" },
       { genomicCoordinates: "1-1256452-C-A" },
       { liftedGenomicCoordinates: "1-1321072-C-A", resolvedAssembly: "GRCh38" },
-      { numberingDisambiguated: true }
+      { numberingDisambiguated: true },
+      // A different SpliceAI reporting window is a different score; it must not share an in-flight run.
+      { spliceaiDistance: 500 }
     ];
 
     for (const variation of variations) {

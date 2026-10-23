@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState, useEffect } from "react";
+import React, { createContext, useCallback, useContext, useState, useEffect, useLayoutEffect } from "react";
 import { UserSettings } from "../types";
 import {
   DEFAULT_USER_SETTINGS,
@@ -128,8 +128,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setTheme(isDark ? "light" : "dark");
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
+    // Theme changes are one paint, not independent surface and text crossfades.
+    const freeze = document.createElement("style");
+    freeze.textContent = "*, *::before, *::after { transition: none !important; }";
+    document.head.appendChild(freeze);
     if (isDark) {
       root.classList.add("dark");
       root.style.colorScheme = "dark";
@@ -137,6 +141,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       root.classList.remove("dark");
       root.style.colorScheme = "light";
     }
+    void root.offsetHeight;
+    const frame = requestAnimationFrame(() => freeze.remove());
+    return () => {
+      cancelAnimationFrame(frame);
+      freeze.remove();
+    };
   }, [isDark]);
 
   const [showPolarContacts, setShowPolarContacts] = useState<boolean>(() => {

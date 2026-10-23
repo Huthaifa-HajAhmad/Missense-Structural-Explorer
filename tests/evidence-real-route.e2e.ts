@@ -41,6 +41,8 @@ describe('real-route analysis views', { tags: ['live', 'evidence'], timeout: 240
   });
 
   test('every Evidence tab mounts its own workspace from the sidebar', async ({ screen, app }) => {
+    // The Evidence group's tabs are listed once it is open; opening the row works whether or not it starts open.
+    await screen.getByRole('button', /^Evidence/).first().tap();
     for (const [button, heading, guide] of EVIDENCE_TABS) {
       await screen.getByRole('button', button).tap();
       await expect(screen.getByRole('heading', heading).first()).toBeVisible({ timeout: 30_000 });

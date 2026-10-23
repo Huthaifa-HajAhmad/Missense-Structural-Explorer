@@ -646,13 +646,12 @@ export async function executeFullAnalysisWorkflow({
           analysisSink.setIsNarrativeLoading(false);
           analysisSink.setIsClinicalLoading(false);
           analysisSink.setIsBiophysicalLoading(false);
-          structureSink.setIsPocketLoading(false);
           setAnalysisState((prev: any) => {
             if (!prev?.result) return prev;
             const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
             let modified = false;
             for (const [k, v] of Object.entries(stages)) {
-              if (v === "running") {
+              if (v === "running" && k !== "coordinates") {
                 stages[k] = "complete";
                 modified = true;
               }
@@ -890,7 +889,7 @@ export async function executeFullAnalysisWorkflow({
           await refreshNarrativeOnce();
           if (getActiveRequestId() === requestId && !activeSignal.aborted) {
             for (const stage of Object.keys(initialStages)) {
-              if (initialStages[stage] === "running") {
+              if (initialStages[stage] === "running" && stage !== "coordinates") {
                 initialStages[stage] = "complete";
               }
             }
@@ -899,13 +898,12 @@ export async function executeFullAnalysisWorkflow({
             analysisSink.setIsNarrativeLoading(false);
             analysisSink.setIsClinicalLoading(false);
             analysisSink.setIsBiophysicalLoading(false);
-            structureSink.setIsPocketLoading(false);
             setAnalysisState((prev: any) => {
               if (!prev?.result) return prev;
               const stages = { ...(prev.result.metadata?.pipelineStages ?? {}) };
               let modified = false;
               for (const [k, v] of Object.entries(stages)) {
-                if (v === "running") {
+                if (v === "running" && k !== "coordinates") {
                   stages[k] = "complete";
                   modified = true;
                 }

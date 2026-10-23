@@ -195,6 +195,30 @@ describe("workflowOrchestrator", () => {
     expect(sinks.analysis.setIsBiophysicalLoading).toHaveBeenCalledWith(false);
   });
 
+  it("does not mark outstanding coordinates complete when enrichment finishes", async () => {
+    const { fetchPdbCoordinates } = await import("../structureService");
+    let release!: (value: string) => void;
+    vi.mocked(fetchPdbCoordinates).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const sinks = createMockSinks();
+    let state: any = null;
+    sinks.analysis.setAnalysisState.mockImplementation((update: any) => {
+      state = typeof update === "function" ? update(state) : update;
+    });
+    await executeFullAnalysisWorkflow({
+      targetGeneArg: "PAH", targetVariantArg: "p.Arg408Trp", targetUniprotArg: "P00439",
+      options: { fetchWithAuth: vi.fn(), apiClient: {}, settings: { biophysicsConditions: {}, narrativeMode: "manual" }, userDirections: "", sinks: sinks as any },
+      activeSignal: new AbortController().signal, requestId: 1, getActiveRequestId: () => 1,
+      getTraceContext: () => ({ activeTraceId: "t1", traceStart: 0, addTraceSpan: vi.fn() }),
+      fetchHomologs: vi.fn(), fetchPocketData: vi.fn(), mutantFoldAbortRef: { current: null }
+    });
+    expect(state.result.metadata.pipelineStages.coordinates).toBe("running");
+    // Finishing the awaited enrichment must not clear the pocket request's loading flag: it owns that.
+    expect(sinks.structure.setIsPocketLoading).not.toHaveBeenCalledWith(false);
+    release("ATOM 1 N ...");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(state.result.metadata.pipelineStages.coordinates).toBe("complete");
+  });
+
   it("clears loadingStep, lowers loading flags, and settles pipeline stages when enrichment finishes", async () => {
     const sinks = createMockSinks();
     let currentState: any = null;

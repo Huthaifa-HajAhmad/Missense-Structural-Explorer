@@ -32,6 +32,7 @@
 import type { AlphaGenomeAviData } from "./contracts";
 import { generateAtlasUrls, parseGenomicCoordinateString, type AtlasUrls } from "./contracts";
 import { resolveSourceAvailability, type EvidenceAvailability } from "./evidenceAvailability";
+import { conservationModelState } from "./conservationProgress";
 
 // ── Features ────────────────────────────────────────────────────────────────────────────────────
 
@@ -237,19 +238,31 @@ function resolveAtlasTarget(result: any, alphagenome: AlphaGenomeAviData | null)
 export function buildAlphaGenomeEvidence({
   result,
   configured,
+  isLoading = false,
 }: {
   result: any;
   /** Whether the browser holds a key. `undefined` = cannot know (the server may hold one). */
   configured?: boolean;
+  /** The analysis is still running; used only when the payload carries no per-source status. */
+  isLoading?: boolean;
 }): AlphaGenomeEvidence {
   const alphagenome: AlphaGenomeAviData | null = result?.conservationData?.alphagenome ?? null;
+  /**
+   * Still running is not "no score". Without this the screen said "No AVI score for this variant"
+   * for the whole time the composite was assembling, and offered a re-evaluation of a request that
+   * was still in flight.
+   */
+  const modelState = alphagenome ? "settled" : conservationModelState(result, "alphagenome", isLoading);
   const availability = resolveSourceAvailability({
     source: "alphagenome",
     refusals: result?.conservationData?.assemblyRefusals ?? null,
     value: alphagenome?.aviPhred ?? null,
-    status: alphagenome?.status ?? null,
+    status: modelState === "timeout" ? "unavailable" : alphagenome?.status ?? null,
     configured,
-    message: alphagenome?.message ?? null,
+    message: modelState === "timeout"
+      ? "AlphaGenome did not return a score in this run; the variant was not scored. Re-running the analysis usually succeeds."
+      : alphagenome?.message ?? null,
+    pending: modelState === "pending",
   });
   const assessed = availability.state === "available";
 

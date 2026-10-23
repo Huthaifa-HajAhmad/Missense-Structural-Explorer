@@ -752,6 +752,178 @@ export interface ProgressiveConservationContext {
   /** SpliceAI reporting window (-D); defaults to `SPLICEAI_DEFAULT_DISTANCE`. */
   spliceaiDistance?: number | null;
   sequence?: string | null;
+  /**
+   * Called with a cumulative snapshot each time one model inside the composite settles, so a fast
+   * SpliceAI or AlphaGenome answer is not held back behind dbNSFP, ConSurf or GPN-Star. Each snapshot
+   * carries `modelStatus`; a model that has not settled contributes NO value (not even a fallback
+   * that its own answer might replace), so a snapshot never shows a number the final payload
+   * contradicts. Not called for the final value, which is the function's return.
+   */
+  onPartial?: (snapshot: ConservationData) => void;
+}
+
+
+type ConservationModelStatus = NonNullable<ConservationData["modelStatus"]>;
+
+/** What the predictor's locus decided: the coordinate, its build gate and the recorded refusals. */
+interface ConservationLocus {
+  pred: any;
+  parsedCoord: ReturnType<typeof parseGenomicCoordinateString>;
+  coordinateAssembly: GenomeAssembly | null;
+  usableBy: (source: Parameters<typeof sourceSupportsAssembly>[0]) => boolean;
+  assemblyRefusals: NonNullable<ConservationData["assemblyRefusals"]>;
+}
+
+/**
+ * The composite's models as they have settled so far. A key that is ABSENT has not settled; a key
+ * holding null settled with nothing. That distinction is the whole point of the snapshots.
+ */
+export interface ConservationParts {
+  base?: ConservationData;
+  consurf?: number | null;
+  locus?: ConservationLocus | null;
+  popeve?: number | null;
+  gpnTabix?: EvolutionaryScaleResult | null;
+  alphagenome?: AlphaGenomeAviData | null;
+  liveSpliceAi?: SpliceAiOutcome | null;
+  spliceProximity?: any;
+  gpn?: EvolutionaryScaleResult;
+}
+
+const settledPart = (parts: ConservationParts, key: keyof ConservationParts) =>
+  Object.prototype.hasOwnProperty.call(parts, key);
+
+/** Base fields while dbNSFP / Genos / MyVariant has not answered: not assessed, so all null. */
+const UNSETTLED_BASE: ConservationData = {
+  available: false,
+  revel: null,
+  gerp: null,
+  phylop: null,
+  consurf: null,
+  bayesdel: null,
+  metarnn: null,
+  metarnnPred: null,
+  clinpred: null,
+  clinpredPred: null,
+  eigenPhred: null,
+  eigenRaw: null,
+  dann: null,
+  esm1b: null,
+  esm1bPred: null,
+  popeve: null,
+  gpnStar: null,
+  aouFrequency: null,
+  spliceProximity: null,
+  spliceai: null,
+  dbscsnv: null,
+  alphagenome: null
+};
+
+/**
+ * Which models have settled ENOUGH that their displayed value is final.
+ *
+ * Each field is "primary ?? fallback". It is final once the primary answered with a value, or once
+ * both answered. Until then a snapshot shows nothing for it, even when the fallback is already in
+ * hand, because the primary's later answer would replace that number — a frozen dbNSFP SpliceAI
+ * score swapping to a different live one is a contradiction, not progress.
+ */
+function conservationModelStatus(parts: ConservationParts): ConservationModelStatus {
+  const has = (k: keyof ConservationParts) => settledPart(parts, k);
+  const base = has("base");
+  const state = (done: boolean): "pending" | "settled" => (done ? "settled" : "pending");
+  const tabixScored = parts.gpnTabix?.score !== null && parts.gpnTabix?.score !== undefined;
+  return {
+    base: state(base),
+    /**
+     * ConSurf, splice geometry and AlphaGenome have no base fallback on this path: the base fetch is
+     * called without a PDB chain or transcript, and with `coordinateEnrichmentByCaller`, so its
+     * values for these three are always null. Each is final the moment its own request settles.
+     */
+    consurf: state(has("consurf")),
+    spliceProximity: state(has("spliceProximity")),
+    alphagenome: state(has("alphagenome")),
+    // Base is preferred for PopEVE, so the coordinate lookup alone cannot finalise it.
+    popeve: state(base && (parts.base!.popeve != null || has("popeve"))),
+    gpnStar: state(
+      (has("gpnTabix") && tabixScored) ||
+      (has("gpnTabix") && has("gpn") && (parts.gpn!.score != null || base))
+    ),
+    spliceai: state(has("liveSpliceAi") && (Boolean(parts.liveSpliceAi?.record) || base))
+  };
+}
+
+/** The merged payload from whatever has settled. With every part settled this IS the final value. */
+function mergeConservationParts(parts: ConservationParts): ConservationData {
+  const baseConservation = parts.base ?? UNSETTLED_BASE;
+  const gpnStarResult = parts.gpnTabix ?? null;
+  const gpnRes: Partial<EvolutionaryScaleResult> = parts.gpn ?? {};
+  const assemblyRefusals = parts.locus?.assemblyRefusals ?? null;
+
+  const finalGpnScore = (gpnStarResult?.score !== null && gpnStarResult?.score !== undefined)
+    ? gpnStarResult.score
+    : (gpnRes.score ?? baseConservation.gpnStar);
+
+  const finalGpnStatus = (gpnStarResult?.score !== null && gpnStarResult?.score !== undefined)
+    ? "live"
+    : (gpnRes.status ?? baseConservation.gpnStarStatus ?? (finalGpnScore !== null ? "live" : "unavailable"));
+
+  const finalGpnMessage = gpnStarResult?.message ?? gpnRes.message ?? null;
+
+  return applyLiveSpliceAi({
+    ...baseConservation,
+    consurf: parts.consurf ?? baseConservation.consurf,
+    popeve: baseConservation.popeve ?? parts.popeve ?? null,
+    spliceProximity: parts.spliceProximity ?? baseConservation.spliceProximity,
+    assemblyRefusals: assemblyRefusals && assemblyRefusals.length > 0
+      ? assemblyRefusals
+      : baseConservation.assemblyRefusals ?? null,
+    gpnStar: finalGpnScore,
+    gpnStarStatus: finalGpnStatus as ConservationData["gpnStarStatus"],
+    gpnStarMessage: finalGpnMessage,
+    alphagenome: parts.alphagenome ?? baseConservation.alphagenome ?? null
+  }, parts.liveSpliceAi ?? null);
+}
+
+/**
+ * A snapshot of the composite as of now: settled models carry their final value, unsettled ones
+ * carry none, and `modelStatus` says which is which. A snapshot kept after a budget expiry is
+ * relabelled by `expireConservationSnapshot`.
+ */
+export function conservationSnapshot(parts: ConservationParts): ConservationData {
+  const merged: ConservationData = { ...mergeConservationParts(parts) };
+  const status = conservationModelStatus(parts);
+  if (status.consurf !== "settled") merged.consurf = null;
+  if (status.popeve !== "settled") merged.popeve = null;
+  if (status.spliceProximity !== "settled") merged.spliceProximity = null;
+  if (status.alphagenome !== "settled") merged.alphagenome = null;
+  if (status.gpnStar !== "settled") {
+    merged.gpnStar = null;
+    delete merged.gpnStarStatus;
+    merged.gpnStarMessage = null;
+  }
+  if (status.spliceai !== "settled") {
+    merged.spliceai = null;
+    merged.spliceaiFailure = null;
+  }
+  if (!settledPart(parts, "locus")) merged.assemblyRefusals = null;
+  return { ...merged, modelStatus: status };
+}
+
+/** True when a snapshot has no unsettled model, i.e. it would equal the final value. */
+export function conservationFullySettled(snapshot: ConservationData | null | undefined): boolean {
+  const status = snapshot?.modelStatus;
+  return !status || Object.values(status).every(v => v === "settled");
+}
+
+/** Re-labels a streamed snapshot's unsettled models as timed out, for a composite whose budget expired. */
+export function expireConservationSnapshot(snapshot: ConservationData): ConservationData {
+  const status = snapshot.modelStatus ?? {};
+  return {
+    ...snapshot,
+    modelStatus: Object.fromEntries(
+      Object.entries(status).map(([k, v]) => [k, v === "pending" ? "timeout" : v])
+    ) as ConservationModelStatus
+  };
 }
 
 export async function fetchConservationDataProgressive(
@@ -770,7 +942,8 @@ export async function fetchConservationDataProgressive(
     alphagenomeApiKey,
     alphagenomeApiUrl,
     spliceaiDistance,
-    sequence
+    sequence,
+    onPartial
   } = context;
 
   /**
@@ -783,8 +956,8 @@ export async function fetchConservationDataProgressive(
    * is retained for other consumers; do not reintroduce it as the gate's input.
    */
 
-  const resolvedPos = (pos !== undefined && pos !== null) 
-    ? pos 
+  const resolvedPos = (pos !== undefined && pos !== null)
+    ? pos
     : (() => {
         const match = variant.match(/\d+/);
         return match ? parseInt(match[0], 10) : null;
@@ -794,257 +967,240 @@ export async function fetchConservationDataProgressive(
   const wtAa = aaMatch ? toSingleAa(aaMatch[1]) : "";
   const mutAa = aaMatch ? toSingleAa(aaMatch[3]) : "";
 
-  // 1. Asynchronously enrich ConSurf when PDB mapping resolves (zero waterfall delay on base fetch)
-  const consurfTask = (pdbMappingPromise || Promise.resolve(null))
+  /**
+   * Every model below settles on its own and is recorded the moment it does. They used to be joined
+   * by one `Promise.all` (and the coordinate models by a second), so a SpliceAI answer in 2 s waited
+   * for the slowest of dbNSFP, ConSurf, GPN-Star and AlphaGenome before anyone saw it.
+   */
+  const parts: ConservationParts = {};
+  let finished = false;
+  const settle = <K extends keyof ConservationParts>(key: K, value: ConservationParts[K]) => {
+    parts[key] = value;
+    if (finished || !onPartial) return;
+    const snapshot = conservationSnapshot(parts);
+    // The fully settled value is the return, not a preview of it.
+    if (conservationFullySettled(snapshot)) return;
+    try { onPartial(snapshot); } catch { /* a progress listener must not fail the composite */ }
+  };
+  const track = <K extends keyof ConservationParts, V extends ConservationParts[K]>(key: K, task: Promise<V>): Promise<V> =>
+    task.then(value => { settle(key, value); return value; });
+
+  // 1. ConSurf, as soon as the PDB mapping resolves (zero waterfall delay on the base fetch).
+  const consurfTask = track("consurf", (pdbMappingPromise || Promise.resolve(null))
     .then(pdbMap => {
       if (pdbMap?.pdbId && resolvedPos !== null) {
         return fetchRealConsurfData(pdbMap.pdbId, pdbMap.chainId, resolvedPos);
       }
       return null;
     })
-    .catch(() => null);
+    .catch(() => null));
 
-  // 2. Asynchronously compute PopEVE, GPN-Star Tabix, splice proximity, and AlphaGenome AVI when predictor resolves
-  const predictorEnrichmentTask = (predictorPromise || Promise.resolve(null))
-    .then(async (pred) => {
-      let popEVEScore: number | null = null;
-      let spliceProximity: any = null;
-      let gpnStarResult: EvolutionaryScaleResult | null = null;
-      let alphagenomeResult: AlphaGenomeAviData | null = null;
-      let liveSpliceAi: SpliceAiOutcome | null = null;
-      const assemblyRefusals: NonNullable<ConservationData["assemblyRefusals"]> = [];
+  // 2. The coordinate, its build gate and the recorded refusals, once the predictor resolves.
+  const predictorTask: Promise<any> = (predictorPromise || Promise.resolve(null)).catch(() => null);
+  const locusTask: Promise<ConservationLocus | null> = track("locus", predictorTask.then((pred): ConservationLocus => {
+    const assemblyRefusals: NonNullable<ConservationData["assemblyRefusals"]> = [];
+    const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
+    /**
+     * Build gate — keyed on the COORDINATE's build, not the request's.
+     *
+     * An earlier version of this gate compared `assembly` (the build the user's *notation*
+     * declared) against each source's support. That answers the wrong question: the
+     * coordinate comes from the predictor metadata, whose producers disagree — the Ensembl
+     * VEP path queries the GRCh38 host, while the MyVariant.info fallback parses an hg19
+     * `_id`. A GRCh37-annotated request therefore routed a GRCh38 coordinate to the GRCh37
+     * service, and an unannotated request handed an hg19 coordinate to GRCh38-only sources.
+     *
+     * `coordinateAssembly` is the build the coordinate itself was derived under, carried by
+     * the producer. It is null when unknown, and null REFUSES: an inferred build is
+     * indistinguishable from a verified one, which is precisely how a wrong-locus score
+     * slipped through before. Skipping a source reads as "not assessed", which is true.
+     */
+    const coordinateAssembly: GenomeAssembly | null = pred?.gnomadVariantAssembly ?? null;
+    const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
+      coordinateAssembly !== null && sourceSupportsAssembly(source, coordinateAssembly);
 
-      const parsedCoord = parseGenomicCoordinateString(pred?.gnomadVariantId) || parseGenomicCoordinateString(variant);
-      // Record refusals even when ambiguity deliberately leaves the run with no coordinate.
-        /**
-         * Build gate — keyed on the COORDINATE's build, not the request's.
-         *
-         * An earlier version of this gate compared `assembly` (the build the user's *notation*
-         * declared) against each source's support. That answers the wrong question: the
-         * coordinate comes from the predictor metadata, whose producers disagree — the Ensembl
-         * VEP path queries the GRCh38 host, while the MyVariant.info fallback parses an hg19
-         * `_id`. A GRCh37-annotated request therefore routed a GRCh38 coordinate to the GRCh37
-         * service, and an unannotated request handed an hg19 coordinate to GRCh38-only sources.
-         *
-         * `coordinateAssembly` is the build the coordinate itself was derived under, carried by
-         * the producer. It is null when unknown, and null REFUSES: an inferred build is
-         * indistinguishable from a verified one, which is precisely how a wrong-locus score
-         * slipped through before. Skipping a source reads as "not assessed", which is true.
-         */
-        const coordinateAssembly = pred?.gnomadVariantAssembly ?? null;
-        const usableBy = (source: Parameters<typeof sourceSupportsAssembly>[0]) =>
-          coordinateAssembly !== null && sourceSupportsAssembly(source, coordinateAssembly);
+    /**
+     * Record WHY each skipped source was skipped (unmapping defect F-13).
+     *
+     * The refusal is correct; the silence was not. Without a reason on the payload, every
+     * surface that renders a blank invents one — "Awaiting API key", "Outside Consensus
+     * Zone", "Transcript coordinates mapped" — and the panel contradicts itself. The reasons
+     * travel as data; no fabricated status objects, so "never asked" stays distinguishable
+     * from "asked and unavailable".
+     *
+     * A refusal is recorded only for a source that was actually reachable-but-for-the-build
+     * (review L-9): claiming "not scored because GRCh37" for splice-proximity when no
+     * transcript exists, or for AlphaGenome when none is configured, states a sufficient
+     * cause that is not the operative one and misdirects whoever reads it.
+     *
+     * A FALLBACK locus (the GRCh38 lookup failed on this run) is not the user's build choice, and
+     * must not be worded or classified as one: the refusal says the lookup failed and carries
+     * `retryable`, so surfaces offer a re-run instead of "Not covered — nothing anyone can do".
+     */
+    const trail = pred?.locusResolution ?? null;
+    const fallbackLocus = trail?.route === "fallback" && trail.canonicalBy === null;
+    const failureKind = locusFailureKind({ predictorData: pred });
+    const recoveryAction = locusRecoveryAction({ predictorData: pred });
 
-        /**
-         * Record WHY each skipped source was skipped (unmapping defect F-13).
-         *
-         * The refusal is correct; the silence was not. Without a reason on the payload, every
-         * surface that renders a blank invents one — "Awaiting API key", "Outside Consensus
-         * Zone", "Transcript coordinates mapped" — and the panel contradicts itself. The reasons
-         * travel as data; no fabricated status objects, so "never asked" stays distinguishable
-         * from "asked and unavailable".
-         *
-         * A refusal is recorded only for a source that was actually reachable-but-for-the-build
-         * (review L-9): claiming "not scored because GRCh37" for splice-proximity when no
-         * transcript exists, or for AlphaGenome when none is configured, states a sufficient
-         * cause that is not the operative one and misdirects whoever reads it.
-         */
-        /**
-         * A FALLBACK locus (the GRCh38 lookup failed on this run) is not the user's build choice, and
-         * must not be worded or classified as one: the refusal says the lookup failed and carries
-         * `retryable`, so surfaces offer a re-run instead of "Not covered — nothing anyone can do".
-         */
-        const trail = pred?.locusResolution ?? null;
-        const fallbackLocus = trail?.route === "fallback" && trail.canonicalBy === null;
-        const failureKind = locusFailureKind({ predictorData: pred });
-        const recoveryAction = locusRecoveryAction({ predictorData: pred });
-
-        for (const src of parsedCoord || fallbackLocus ? ASSEMBLY_REFUSAL_SOURCES : []) {
-          const reachable = src === "splice-proximity"
-            ? Boolean(pred?.canonicalEnsemblId || pred?.transcriptId)
-            : src === "alphagenome"
-            ? Boolean(alphagenomeApiKey || alphagenomeApiUrl)
-            : true;
-          if (!reachable) continue;
-          if (fallbackLocus && (coordinateAssembly === null || !sourceSupportsAssembly(src, coordinateAssembly))) {
-            assemblyRefusals.push({
-              source: src,
-              reason: fallbackLocusSentence(src, coordinateAssembly, {
-                retryable: recoveryAction === "retry",
-                failureKind,
-              }),
-              retryable: recoveryAction === "retry",
-              failureKind: failureKind ?? undefined,
-              inputRequired: recoveryAction === "provide-allele",
-            });
-          } else if (coordinateAssembly === null) {
-            assemblyRefusals.push({
-              source: src,
-              reason: `${src} was not scored: the coordinate's genome build was not declared.`
-            });
-          } else if (!sourceSupportsAssembly(src, coordinateAssembly)) {
-            assemblyRefusals.push({ source: src, reason: describeAssemblyRefusal(src, coordinateAssembly) });
-          }
-        }
-
-      if (parsedCoord) {
-        const [popRes, gpnRes, alphaRes, liveSpliceAiRes] = await Promise.all([
-          // PopEVE matches chrom/pos/ref/alt against a GRCh38-only index (`popeve_grch38.vcf.gz`).
-          usableBy("popEVE")
-            ? fetchPopEVEScore(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null)
-            : Promise.resolve(null),
-          // GPN-Star is a GRCh38-only Tabix index.
-          usableBy("gpn-star")
-            ? fetchGpnStarByCoordinate(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt).catch(() => null)
-            : Promise.resolve(null),
-          // AlphaGenome is GRCh38-only: the Atlas holds GRCh38 SNVs and the model is GRCh38.
-          usableBy("alphagenome")
-            ? fetchAlphaGenome(parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, {
-                apiKey: alphagenomeApiKey,
-                apiUrl: alphagenomeApiUrl,
-                // The build reaches the cache key so a GRCh38 entry is never served for another
-                // build's coordinate at the same numeric position.
-                assembly: coordinateAssembly
-              }).catch(() => null)
-            : Promise.resolve(null),
-          // Live SpliceAI runs a service per build, so it routes on the COORDINATE's build
-          // rather than the request's.
-          fetchLiveSpliceAiIfPossible(
-            parsedCoord.chrom, parsedCoord.pos, parsedCoord.ref, parsedCoord.alt, coordinateAssembly,
-            spliceaiDistance ?? SPLICEAI_DEFAULT_DISTANCE
-          )
-            // A caller abort makes the client throw so the HTTP layer can answer 504 honestly.
-            // Catching it HERE keeps that abort from nulling PopEVE, GPN-Star and AlphaGenome, which
-            // share this Promise.all — previously a single SpliceAI abort discarded all four.
-            .catch(() => null)
-        ]);
-        popEVEScore = popRes;
-        gpnStarResult = gpnRes;
-        alphagenomeResult = alphaRes;
-        liveSpliceAi = liveSpliceAiRes;
-
-        /**
-         * Splice-junction geometry is resolved against GRCh38 Ensembl exon boundaries.
-         *
-         * The transcript ids in this pipeline come from Ensembl's GRCh38 host, so the exon model
-         * is GRCh38 and comparing a GRCh37 position against it yields a wrong distance, a wrong
-         * region type and a wrong canonical-junction verdict — all rendered as measured geometry
-         * ("N bp from junction", "Exon 3 of 12"). `splice-proximity` was declared GRCh38-only but
-         * nothing enforced it, so this was reachable with an hg19 coordinate.
-         *
-         * The geometry model is the CANONICAL transcript when the producer named one (F-16): the
-         * platform numbers the variant on the canonical isoform, so "Exon N of M" must describe
-         * the canonical exon structure, not the MANE model's. And the contig travels with the
-         * position (F-6): a coordinate on another chromosome is refused by the resolver, not
-         * measured against unrelated exons.
-         */
-        if ((pred?.canonicalEnsemblId || pred?.transcriptId) && usableBy("splice-proximity")) {
-          const geometryTranscript = (pred.canonicalEnsemblId || pred.transcriptId)!;
-          spliceProximity = await resolveSpliceProximity(geometryTranscript, parsedCoord.pos, parsedCoord.chrom).catch(() => null);
-          if (!spliceProximity && pred.canonicalEnsemblId && pred.transcriptId && pred.canonicalEnsemblId !== pred.transcriptId) {
-            spliceProximity = await resolveSpliceProximity(pred.transcriptId, parsedCoord.pos, parsedCoord.chrom).catch(() => null);
-          }
-        }
+    for (const src of parsedCoord || fallbackLocus ? ASSEMBLY_REFUSAL_SOURCES : []) {
+      const reachable = src === "splice-proximity"
+        ? Boolean(pred?.canonicalEnsemblId || pred?.transcriptId)
+        : src === "alphagenome"
+        ? Boolean(alphagenomeApiKey || alphagenomeApiUrl)
+        : true;
+      if (!reachable) continue;
+      if (fallbackLocus && (coordinateAssembly === null || !sourceSupportsAssembly(src, coordinateAssembly))) {
+        assemblyRefusals.push({
+          source: src,
+          reason: fallbackLocusSentence(src, coordinateAssembly, {
+            retryable: recoveryAction === "retry",
+            failureKind,
+          }),
+          retryable: recoveryAction === "retry",
+          failureKind: failureKind ?? undefined,
+          inputRequired: recoveryAction === "provide-allele",
+        });
+      } else if (coordinateAssembly === null) {
+        assemblyRefusals.push({
+          source: src,
+          reason: `${src} was not scored: the coordinate's genome build was not declared.`
+        });
+      } else if (!sourceSupportsAssembly(src, coordinateAssembly)) {
+        assemblyRefusals.push({ source: src, reason: describeAssemblyRefusal(src, coordinateAssembly) });
       }
-      return { popEVEScore, spliceProximity, gpnStarResult, alphagenomeResult, liveSpliceAi, assemblyRefusals };
-    })
-    .catch(() => ({ popEVEScore: null, spliceProximity: null, gpnStarResult: null, alphagenomeResult: null, liveSpliceAi: null, assemblyRefusals: null as NonNullable<ConservationData["assemblyRefusals"]> | null }));
+    }
+    return { pred, parsedCoord, coordinateAssembly, usableBy, assemblyRefusals };
+  }).catch(() => null));
 
-  // 3. Immediately kick off base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant)
-  const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
-  const fastGenos = await Promise.race([
-    genosRecTask,
-    new Promise(r => setTimeout(() => r(null), 500))
-  ]);
+  type CoordinateLocus = ConservationLocus & { parsedCoord: NonNullable<ConservationLocus["parsedCoord"]> };
+  /** One coordinate-keyed model: null without a coordinate, and never a rejection. */
+  const coordinateModel = <T,>(fn: (locus: CoordinateLocus) => Promise<T | null> | null): Promise<T | null> =>
+    locusTask
+      .then(locus => (locus?.parsedCoord ? fn(locus as CoordinateLocus) : null))
+      .then(value => value ?? null)
+      .catch(() => null);
 
+  // 3. The coordinate models, each published as it answers.
+  // PopEVE matches chrom/pos/ref/alt against a GRCh38-only index (`popeve_grch38.vcf.gz`).
+  const popeveTask = track("popeve", coordinateModel(({ parsedCoord: c, usableBy }) =>
+    usableBy("popEVE") ? fetchPopEVEScore(c.chrom, c.pos, c.ref, c.alt) : null));
+  // GPN-Star is a GRCh38-only Tabix index.
+  const gpnTabixTask = track("gpnTabix", coordinateModel(({ parsedCoord: c, usableBy }) =>
+    usableBy("gpn-star") ? fetchGpnStarByCoordinate(c.chrom, c.pos, c.ref, c.alt) : null));
+  // AlphaGenome is GRCh38-only: the Atlas holds GRCh38 SNVs and the model is GRCh38.
+  const alphagenomeTask = track("alphagenome", coordinateModel(({ parsedCoord: c, usableBy, coordinateAssembly }) =>
+    usableBy("alphagenome")
+      ? fetchAlphaGenome(c.chrom, c.pos, c.ref, c.alt, {
+          apiKey: alphagenomeApiKey,
+          apiUrl: alphagenomeApiUrl,
+          // The build reaches the cache key so a GRCh38 entry is never served for another
+          // build's coordinate at the same numeric position.
+          assembly: coordinateAssembly
+        })
+      : null));
+  // Live SpliceAI runs a service per build, so it routes on the COORDINATE's build rather than the
+  // request's. A caller abort makes the client throw; catching it per model keeps that abort from
+  // nulling PopEVE, GPN-Star and AlphaGenome.
+  const liveSpliceAiTask = track("liveSpliceAi", coordinateModel(({ parsedCoord: c, coordinateAssembly }) =>
+    fetchLiveSpliceAiIfPossible(
+      c.chrom, c.pos, c.ref, c.alt, coordinateAssembly,
+      spliceaiDistance ?? SPLICEAI_DEFAULT_DISTANCE
+    )));
   /**
-   * The base payload's cache key includes the coordinate's build.
+   * Splice-junction geometry is resolved against GRCh38 Ensembl exon boundaries.
    *
-   * This payload folds in single-build sources (local dbNSFP, Genos, dbnsfp.org), so a result
-   * assembled from one build's coordinates is not a valid answer for another's. The build lives
-   * on the predictor metadata, so it is awaited here — the promise has already been started by
-   * the caller, so this does not add a round trip, and the enrichment task above consumes the
-   * same promise rather than a second copy.
+   * The transcript ids in this pipeline come from Ensembl's GRCh38 host, so the exon model
+   * is GRCh38 and comparing a GRCh37 position against it yields a wrong distance, a wrong
+   * region type and a wrong canonical-junction verdict — all rendered as measured geometry
+   * ("N bp from junction", "Exon 3 of 12"). `splice-proximity` was declared GRCh38-only but
+   * nothing enforced it, so this was reachable with an hg19 coordinate.
    *
-   * A rejection is not fatal: a missing predictor means "no coordinate", and the base payload is
-   * still assembled without one.
+   * The geometry model is the CANONICAL transcript when the producer named one (F-16): the
+   * platform numbers the variant on the canonical isoform, so "Exon N of M" must describe
+   * the canonical exon structure, not the MANE model's. And the contig travels with the
+   * position (F-6): a coordinate on another chromosome is refused by the resolver, not
+   * measured against unrelated exons.
    */
-  const predictorLocus = await (predictorPromise || Promise.resolve(null))
-    .then(pred => ({
+  const spliceProximityTask = track("spliceProximity", coordinateModel(async ({ parsedCoord: c, usableBy, pred }) => {
+    if (!(pred?.canonicalEnsemblId || pred?.transcriptId) || !usableBy("splice-proximity")) return null;
+    const geometryTranscript = (pred.canonicalEnsemblId || pred.transcriptId)!;
+    let proximity = await resolveSpliceProximity(geometryTranscript, c.pos, c.chrom).catch(() => null);
+    if (!proximity && pred.canonicalEnsemblId && pred.transcriptId && pred.canonicalEnsemblId !== pred.transcriptId) {
+      proximity = await resolveSpliceProximity(pred.transcriptId, c.pos, c.chrom).catch(() => null);
+    }
+    return proximity;
+  }));
+
+  // 4. Base conservation (local dbNSFP / Genos / dbnsfp.org / MyVariant).
+  const baseTask = track("base", (async () => {
+    const genosRecTask = (genosPromise || Promise.resolve(null)).catch(() => null);
+    const fastGenos = await Promise.race([
+      genosRecTask,
+      new Promise(r => setTimeout(() => r(null), 500))
+    ]);
+
+    /**
+     * The base payload's cache key includes the coordinate's build.
+     *
+     * This payload folds in single-build sources (local dbNSFP, Genos, dbnsfp.org), so a result
+     * assembled from one build's coordinates is not a valid answer for another's. The build lives
+     * on the predictor metadata, so it is awaited here — the promise has already been started by
+     * the caller, so this does not add a round trip, and the coordinate models above consume the
+     * same promise rather than a second copy.
+     *
+     * A rejection is not fatal: a missing predictor means "no coordinate", and the base payload is
+     * still assembled without one.
+     */
+    const predictorLocus = await predictorTask.then(pred => ({
       assembly: (pred?.gnomadVariantAssembly ?? null) as string | null,
       id: (pred?.gnomadVariantId ?? null) as string | null,
-    }))
-    .catch(() => ({ assembly: null, id: null }));
-  const coordinateAssembly = predictorLocus.assembly;
+    }));
+    const coordinateAssembly = predictorLocus.assembly;
 
-  /**
-   * The ALLELE the scores must belong to, when there is one these sources can read.
-   *
-   * REVEL, BayesDel, MetaRNN, ClinPred, DANN, Eigen and CADD are per nucleotide change, and a
-   * protein change can be encoded by more than one (Q867H: CAA→CAC or CAT). Queried as
-   * `GENE:p.…`, Genos and query.dbnsfp.org answer with whichever matching row comes first, so the
-   * scores could describe a different allele from the one analysed. Both are GRCh38-only, so the
-   * coordinate is passed only when it IS GRCh38; any other build keeps the protein query.
-   *
-   * The early Genos record (`fastGenos`) was queried by protein and does not say which allele it
-   * read, so it is not reused when the allele is known — Genos is asked by coordinate instead.
-   */
-  const alleleId =
-    coordinateAssembly === "GRCh38" && parseGenomicCoordinateString(predictorLocus.id)
-      ? predictorLocus.id
-      : null;
+    /**
+     * The ALLELE the scores must belong to, when there is one these sources can read.
+     *
+     * REVEL, BayesDel, MetaRNN, ClinPred, DANN, Eigen and CADD are per nucleotide change, and a
+     * protein change can be encoded by more than one (Q867H: CAA→CAC or CAT). Queried as
+     * `GENE:p.…`, Genos and query.dbnsfp.org answer with whichever matching row comes first, so the
+     * scores could describe a different allele from the one analysed. Both are GRCh38-only, so the
+     * coordinate is passed only when it IS GRCh38; any other build keeps the protein query.
+     *
+     * The early Genos record (`fastGenos`) was queried by protein and does not say which allele it
+     * read, so it is not reused when the allele is known — Genos is asked by coordinate instead.
+     */
+    const alleleId =
+      coordinateAssembly === "GRCh38" && parseGenomicCoordinateString(predictorLocus.id)
+        ? predictorLocus.id
+        : null;
 
-  const baseConservationPromise = fetchConservationData(
-    gene,
-    variant,
-    null,
-    null,
-    pos,
-    alleleId,
-    alleleId ? null : fastGenos,
-    uniprotId,
-    null,
-    null,
-    coordinateAssembly,
-    { coordinateEnrichmentByCaller: true }
-  );
+    return fetchConservationData(
+      gene,
+      variant,
+      null,
+      null,
+      pos,
+      alleleId,
+      alleleId ? null : fastGenos,
+      uniprotId,
+      null,
+      null,
+      coordinateAssembly,
+      { coordinateEnrichmentByCaller: true }
+    );
+  })());
 
-  // 4. Concurrently query frontier genomic foundation model (Song Lab GPN-Star fallback)
+  // 5. Frontier genomic foundation model (Song Lab GPN-Star fallback).
   const gpnToken = hfToken || null;
-
-  const gpnTask: Promise<EvolutionaryScaleResult> = (sequence && resolvedPos !== null && wtAa && mutAa)
+  const gpnTask = track("gpn", (sequence && resolvedPos !== null && wtAa && mutAa)
     ? fetchGpnStarScore(sequence, resolvedPos, wtAa, mutAa, gpnToken, undefined, gpnApiUrl)
-    : Promise.resolve({ score: null, status: gpnToken ? "unavailable" : "token_required" });
+    : Promise.resolve({ score: null, status: gpnToken ? "unavailable" : "token_required" } as EvolutionaryScaleResult));
 
-  // 5. Merge enriched ConSurf, PopEVE, Splice, base conservation, and GPN-Star data as they resolve concurrently
-  const [baseConservation, consurfVal, enrichment, gpnRes] = await Promise.all([
-    baseConservationPromise,
-    consurfTask,
-    predictorEnrichmentTask,
-    gpnTask
-  ]);
-
-  const finalGpnScore = (enrichment.gpnStarResult?.score !== null && enrichment.gpnStarResult?.score !== undefined)
-    ? enrichment.gpnStarResult.score
-    : (gpnRes.score ?? baseConservation.gpnStar);
-
-  const finalGpnStatus = (enrichment.gpnStarResult?.score !== null && enrichment.gpnStarResult?.score !== undefined)
-    ? "live"
-    : (gpnRes.status ?? baseConservation.gpnStarStatus ?? (finalGpnScore !== null ? "live" : "unavailable"));
-
-  const finalGpnMessage = enrichment.gpnStarResult?.message ?? gpnRes.message ?? null;
-
-  return applyLiveSpliceAi({
-    ...baseConservation,
-    consurf: consurfVal ?? baseConservation.consurf,
-    popeve: baseConservation.popeve ?? enrichment.popEVEScore,
-    spliceProximity: enrichment.spliceProximity ?? baseConservation.spliceProximity,
-    assemblyRefusals: enrichment.assemblyRefusals && enrichment.assemblyRefusals.length > 0
-      ? enrichment.assemblyRefusals
-      : baseConservation.assemblyRefusals ?? null,
-    gpnStar: finalGpnScore,
-    gpnStarStatus: finalGpnStatus,
-    gpnStarMessage: finalGpnMessage,
-    alphagenome: enrichment.alphagenomeResult ?? baseConservation.alphagenome ?? null
-  }, enrichment.liveSpliceAi);
+  try {
+    // A base or GPN failure still fails the composite, as before; every coordinate model degrades to null.
+    await Promise.all([baseTask, consurfTask, locusTask, popeveTask, gpnTabixTask, alphagenomeTask, liveSpliceAiTask, spliceProximityTask, gpnTask]);
+  } finally {
+    finished = true;
+  }
+  return mergeConservationParts(parts);
 }

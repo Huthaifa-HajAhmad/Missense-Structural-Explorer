@@ -26,10 +26,11 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { AnalysisState, SearchHistoryItem } from "../types";
-import { MasterView } from "./MasterSidebar";
+import { EVIDENCE_SUB_ITEMS, MasterView } from "./MasterSidebar";
 import { useVariantAnalysisStore, useVariantAnalysisActions } from "../context/VariantAnalysisContext";
 import { useSettings } from "../context/SettingsContext";
 import { getWorkflowStageStatus, isOnDemandView, summarizeWorkflowStatuses } from "../shared/workflowStatus";
+import { evidenceTabsLoading } from "../shared/evidenceTabProgress";
 import { landscapeKey } from "../shared/landscapeEvidence";
 import {
   needsNotationResolution,
@@ -49,22 +50,8 @@ import BuildMismatchPrompt from "./BuildMismatchPrompt";
 import type { BuildHint, NumberingChoice } from "../shared/contracts";
 import LiveTelemetryPanel from "./telemetry/LiveTelemetryPanel";
 
-/* ──────────────────────────────────────────────────────────────────────────────────────────────
-   DESIGN NOTES — Search workspace
-
-   Colour. Clay is reserved for "act here": the primary button, focus rings, the running spinner
-   and hover on fill-in affordances. Headings and section icons are neutral. Status colour comes
-   from the semantic tokens (`--cs-text-success`, `--cs-bg-warning`, …) and appears only where a
-   state needs attention — a nominal state is quiet text.
-
-   Type. Five sizes on this screen: 20 (page title), 14 (card title, button), 13 (inputs, body),
-   12 (labels, rows), 11 (meta: badges, hints, latency). Weights 400/500/600 only.
-
-   Radius. 16 panel · 12 grouped container · 8 control · 6 chip.
-
-   Motion. Colour/background transitions at 150ms. No scale-on-press for anything wider than a
-   chip: 4% of a 640px button is a 25px jolt. Progress bar width eases over 300ms.
-   ────────────────────────────────────────────────────────────────────────────────────────────── */
+/* Search workbench: serif heading, a primary query composer, and a separate status rail.
+   Theme tokens carry colour; optional editors expand without stretching the empty form. */
 
 const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
   <button
@@ -379,9 +366,7 @@ export function formatVariantForDisplay(variant: string): string {
  * never drift apart in padding, radius or motion. Segments split the track equally, so the
  * control never overflows the rail at the narrowest two-column width.
  *
- * The active surface is NOT painted here: a shared thumb behind both segments carries it and
- * glides between them (see the tablist), so a switch is one motion. A segment only owns its
- * text colour and its focus ring.
+ * An underline marks the active view; focus remains distinct from selection.
  */
 const RailTab: React.FC<{
   id: RailTabId;
@@ -401,11 +386,7 @@ const RailTab: React.FC<{
     aria-controls={active ? `panel-${id}` : undefined}
     tabIndex={tabIndex}
     onClick={onSelect}
-    className={`relative flex-1 min-w-0 h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
-      active
-        ? "text-cs-text-primary"
-        : "text-cs-text-secondary hover:text-cs-text-primary"
-    }`}
+    className="workbench-monitor-tab"
   >
     <span className="truncate">{label}</span>
     {badge}
@@ -715,6 +696,8 @@ function VariantSearchPanel({
   });
 
   const result = analysisState.result;
+  // Same run-backed tabs as the sidebar's Evidence row, so the rail and the row cannot disagree.
+  const loadingEvidenceTabs = evidenceTabsLoading(EVIDENCE_SUB_ITEMS, isBiophysicalLoading, result);
 
   // Derive stage status & metrics for live workflow rail
   const getStageInfo = (stage: (typeof WORKFLOW_STAGES)[number]["key"]) => {
@@ -735,7 +718,8 @@ function VariantSearchPanel({
       ddmutStatus,
       isNarrativeLoading,
       hasStructureCoordinates: Boolean(loadedPdb),
-      landscapeOverviewStatus: overviewStatus
+      landscapeOverviewStatus: overviewStatus,
+      evidenceTabsLoading: loadingEvidenceTabs
     });
     /**
      * Display labels for the workflow states. "In Progress" was retired — it is in
@@ -1273,23 +1257,23 @@ function VariantSearchPanel({
   );
 
   return (
-    <div className="w-full flex flex-col gap-6 cs-fade-in" id="variant-search-workspace">
+    <div className="variant-workbench cs-fade-in" id="variant-search-workspace">
       {/* ── Page header ─────────────────────────────────────────────────────────────────────── */}
-      <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+      <header className="workbench-heading">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-medium tracking-tight text-cs-text-primary">Analyse a variant</h1>
+          <div className="workbench-eyebrow"><span aria-hidden="true" />Variant workbench</div>
+          <h1 className="workbench-title">Analyse a variant<span aria-hidden="true">.</span></h1>
           {/* `cs-lede` balances the two lines so the sentence breaks where it ends, instead of
               stranding "synthesis is optional." under a full-measure first line. It is a class, not
               Tailwind's `text-balance`, because `p { text-wrap: pretty }` in typography-tables.css is
               unlayered and outranks a layered utility — see that file. */}
-          <p className="cs-lede mt-1 text-[13px] leading-relaxed text-cs-text-secondary max-w-2xl">
-            Start with a gene and protein change, or use genomic coordinates.
-            Evidence, structure and stability arrive independently; AI synthesis is optional.
+          <p className="workbench-lede">
+            Follow a single amino-acid change through evidence, structure and stability.
           </p>
         </div>
 
         {/* Reading guide sits at the trailing edge of the header, opposite the title. */}
-        <div className="shrink-0 sm:self-start">
+        <div className="workbench-guide">
           <ResearchGuideButton topic="variant_identity" label="Which variant will be analysed?" />
         </div>
 
@@ -1297,26 +1281,23 @@ function VariantSearchPanel({
             in the header, two warnings for one fact. The form footer still names the consequence. */}
       </header>
 
-      {/* ── Main grid: query card (8) + rail (4) on row 1, recent analyses (8) on row 2 ──
-          The form and the rail share one grid row, so they stretch together and close on one line.
-          The rail's floor (600px) wins only when the form is shorter; the slack then lands in the AI
-          field, never as a hole under the services list. DOM order stays form → recent → rail, which
-          is the reading order when the grid stacks.
-          Column gap and row gap are separate on purpose: 20px between the form and the rail (they are
-          siblings), 24px between the form and the card under it (a block rhythm). */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-4 lg:gap-x-5 gap-y-6 items-stretch">
+      {/* The monitor spans both desktop rows; the form and recents keep their natural height.
+          On narrow containers, DOM order remains query, recents, monitor. */}
+      <div className="workbench-deck grid grid-cols-1 lg:grid-cols-12">
         <section
-          className="cs-panel flex flex-col min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1"
+          className="workbench-query cs-panel flex flex-col min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-1"
           data-tour="variant-input"
           id="variant-input-card"
           aria-labelledby="variant-form-title"
         >
-          <h2 id="variant-form-title" className="sr-only">Variant query</h2>
+          <div className="workbench-section-heading">
+            <span className="workbench-index" aria-hidden="true">01</span>
+            <h2 id="variant-form-title">Variant query</h2>
+            <span className="workbench-section-note">Start with what you know</span>
+          </div>
 
           <form onSubmit={onFormSubmit} className="flex flex-col flex-1">
-            {/* flex-1: this is the slab that stretches to the panel floor; the AI field inside
-                it takes the leftover, so no dead gap pools above the pinned footer. */}
-            <div className="p-6 flex flex-col gap-5 flex-1 min-h-0">
+            <div className="workbench-query-body">
               {result?.numberingChoices &&
               /**
                * Two readings minimum: a single "choice" is not a decision, and the refusal message
@@ -1493,7 +1474,7 @@ function VariantSearchPanel({
                   <label htmlFor="input-quick-entry" className="qe__label">
                     Variant
                   </label>
-                  <span className="qe__accepts">Gene + protein change · cDNA · coordinate · rsID · ClinVar VCV</span>
+                  <span className="qe__accepts">Protein / cDNA / coordinate / rsID / ClinVar VCV</span>
                 </div>
 
                 <div className="qe__bar" data-recognised={quickReading.recognised || undefined}>
@@ -1502,7 +1483,7 @@ function VariantSearchPanel({
                     <input
                       id="input-quick-entry"
                       type="text"
-                      placeholder="NAE1 p.Asp116Gly, 20-23365054-G-A or rs28934576"
+                      placeholder="e.g. NAE1 p.Asp116Gly"
                       autoComplete="off"
                       spellCheck={false}
                       value={quickDraft}
@@ -1513,7 +1494,6 @@ function VariantSearchPanel({
                     {quickDraft ? (
                       <button
                         type="button"
-                        tabIndex={-1}
                         title="Clear the line"
                         aria-label="Clear quick entry"
                         onClick={() => onQuickEntryChange("")}
@@ -1524,7 +1504,6 @@ function VariantSearchPanel({
                     ) : (
                       <button
                         type="button"
-                        tabIndex={-1}
                         title="Paste from clipboard"
                         aria-label="Paste from clipboard"
                         onClick={() => pasteFromClipboard(onQuickEntryChange)}
@@ -1607,7 +1586,7 @@ function VariantSearchPanel({
                   </dl>
                 ) : (
                   <div className="qe__try">
-                    <span>Try</span>
+                    <span className="qe__try-label">Or try an example</span>
                     {[
                       { value: "NAE1 p.Asp116Gly", note: "protein" },
                       { value: "20-23365054-G-A", note: "coordinate" },
@@ -1620,8 +1599,8 @@ function VariantSearchPanel({
                         className="qe__example"
                         title={`Fill the line with a ${note} example`}
                       >
-                        <span className="font-mono">{value}</span>
                         <span className="qe__example-note">{note}</span>
+                        <span className="qe__example-value">{value}<ArrowRight aria-hidden="true" /></span>
                       </button>
                     ))}
                   </div>
@@ -1937,29 +1916,17 @@ function VariantSearchPanel({
                 </div>
               </details>
 
-              {/* AI focus (optional) — an open field, not a disclosure, and visibly secondary to the
-                  query: a quieter surface, a smaller label, and a writing area that takes only the
-                  slack the panel has to give (capped) rather than dominating the card. */}
+              <details className="workbench-ai">
+                <summary className="workbench-ai-summary">
+                  <Sparkles aria-hidden="true" />
+                  <span>AI focus &amp; custom instructions</span>
+                  <span className="workbench-ai-meta">{hasDirections ? `${userDirections.trim().length} chars set` : "Optional"}</span>
+                  <ChevronDown className="workbench-ai-chevron" aria-hidden="true" />
+                </summary>
               <fieldset className="qe-ai">
-                <FieldLabel
-                  htmlFor="textarea-user-directions"
-                  badge={
-                    hasDirections ? (
-                      <FieldBadge tone="clay" title="Custom analysis instructions are set and will direct the AI narrative.">
-                        {userDirections.trim().length} chars
-                      </FieldBadge>
-                    ) : (
-                      <FieldBadge title="Steer the AI synthesis; biophysical stages run without it.">
-                        Optional
-                      </FieldBadge>
-                    )
-                  }
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-cs-text-muted" aria-hidden="true" />
-                    AI focus &amp; custom instructions
-                  </span>
-                </FieldLabel>
+                <label htmlFor="textarea-user-directions" className="qe-ai__label">
+                  What should the interpretation focus on?
+                </label>
                 <textarea
                   id="textarea-user-directions"
                   aria-label="AI Focus Area & Custom Analysis Instructions"
@@ -1981,11 +1948,12 @@ function VariantSearchPanel({
                   <span className="tabular-nums shrink-0">{userDirections.length}/2000</span>
                 </div>
               </fieldset>
+              </details>
             </div>
 
             {/* ── Form footer: context left, the quiet secondary action right. The primary action lives
                 in the command bar beside the input it acts on. ── */}
-            <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-3 border-t border-cs-border-subtle bg-cs-surface-2/60">
+            <div className="workbench-query-footer">
               {/* Keyless-first: every stage runs without a key, and the narrative stage returns its
                   designed "AI not configured" report (rule-based ACMG from database metrics). The key
                   only adds the written interpretation, so it is a note here, never a gate — a gate
@@ -2040,64 +2008,69 @@ function VariantSearchPanel({
           </form>
         </section>
 
-        {/* ── Recent analyses / first-run benchmarks ──
-            Boxed on the same panel surface as the form and the rail, so the lower row reads as a
-            third structural element instead of loose chips under the panel — the workspace then
-            closes with the same two-surface rhythm it opens with. Pinned to column 1, row 2: it
-            keeps its DOM order (form → recent → rail, which is the reading order when the grid
-            stacks) without being inside the form's column and inflating row 1. */}
+        {/* Recent runs and first-run benchmarks share the ruled workbench tray. */}
         <section
           aria-labelledby="recent-title"
-          className="cs-panel p-4 flex flex-col gap-3 min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-2"
+          className="workbench-recents flex flex-col gap-3 min-w-0 lg:col-span-8 lg:col-start-1 lg:row-start-2"
           data-tour="recent-benchmarks"
         >
           {history.length > 0 ? (
             <>
-              <div className="flex items-center justify-between gap-2">
+              <div className="workbench-recents-heading">
+                <span className="workbench-index" aria-hidden="true">03</span>
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">
-                  Recent analyses <span className="ml-1 font-normal text-cs-text-muted tabular-nums">{history.length}</span>
+                  Recent analyses <span className="workbench-recents-count">{history.length}</span>
                 </h2>
                 <button
                   type="button"
                   onClick={clearHistory}
-                  className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[var(--cs-radius-input)] text-[12px] text-cs-text-muted hover:text-[var(--cs-text-danger-on-soft)] hover:bg-[var(--cs-bg-danger)] cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
+                  className="workbench-history-clear"
                   title="Clear search history"
                   aria-label="Clear search history"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Clear
+                  Clear history
                 </button>
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <p className="workbench-recents-note">Your latest variants, ready to revisit.</p>
+              <ol className="workbench-recent-list">
                 {history.slice(0, 8).map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
                   return (
+                    <li key={`${item.gene}_${item.variant}_${idx}`}>
                     <button
-                      key={`${item.gene}_${item.variant}_${idx}`}
                       type="button"
                       onClick={() => runFromHistory(item)}
                       aria-pressed={isActive}
-                      className={`inline-flex items-center gap-2 h-8 px-3 rounded-[var(--cs-radius-input)] border text-[12px] cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)] ${
-                        isActive
-                          ? "border-cs-accent-clay bg-cs-accent-clay/10"
-                          : "border-cs-border-subtle bg-cs-surface hover:border-cs-border hover:bg-cs-surface-2"
-                      }`}
+                      className="workbench-recent"
                       title={`Reload ${item.gene} ${item.variant}`}
                       aria-label={`Select recent search ${item.gene} ${item.variant}`}
                     >
-                      <span className="font-semibold text-cs-text-primary">{item.gene}</span>
-                      <span className="font-mono text-[11.5px] text-cs-text-secondary">{formatVariantForDisplay(item.variant)}</span>
+                      <span className="workbench-recent-number" aria-hidden="true">{String(idx + 1).padStart(2, "0")}</span>
+                      <span className="workbench-recent-identity">
+                        <span className="workbench-recent-gene">{item.gene}</span>
+                        <span className="workbench-recent-variant">{formatVariantForDisplay(item.variant)}</span>
+                        {item.query && item.query !== item.variant && item.query !== `${item.gene} ${item.variant}` && <span className="workbench-recent-query">{item.query}</span>}
+                      </span>
+                      <span className="workbench-recent-action">
+                        {isActive && <span className="workbench-recent-current">Current</span>}
+                        <span>Run again <ArrowRight aria-hidden="true" /></span>
+                      </span>
                     </button>
+                    </li>
                   );
                 })}
-              </div>
+              </ol>
             </>
           ) : (
             <>
-              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+              <div className="workbench-recents-empty">
                 <div>
-                  <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
+                  <div className="workbench-recents-heading">
+                    <span className="workbench-index" aria-hidden="true">03</span>
+                    <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">No recent analyses</h2>
+                  </div>
                   <p className="text-[12px] text-cs-text-muted mt-0.5">
                     Variants you analyse in this session will appear here. To start, load a benchmark control:
                   </p>
@@ -2115,11 +2088,11 @@ function VariantSearchPanel({
               </div>
               {/* Each card runs the benchmark, the same as a Recent analyses chip. The card is a control of its own
                   so it can carry a second, form-only action without nesting interactive elements. */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="workbench-benchmarks">
                 {ONBOARDING_BENCHMARK_PRESETS.map(preset => (
                   <div
                     key={preset.gene + preset.variant}
-                    className="group flex flex-col rounded-[var(--cs-radius-card)] border border-cs-border-subtle bg-cs-surface hover:border-cs-border transition-colors duration-150"
+                    className="workbench-benchmark"
                   >
                     <button
                       type="button"
@@ -2155,45 +2128,26 @@ function VariantSearchPanel({
           )}
         </section>
 
-        {/* ── Rail: services / pipeline ──
-            From `lg` up the rail's content is taken out of flow (absolute fill) over a fixed floor, so
-            neither tab can resize the row and switching tabs never moves the page; the services list
-            scrolls inside it with a fade as the cue. Below `lg` the columns stack and the list flows
-            instead — a nested scroller inside a scrolling page is a trap on touch.
-
-            The floor is a MINIMUM, not the height: with the form on the same grid row the rail
-            stretches to that row, so the two panels close on one line at every window height instead
-            of the near-miss a fixed 672px bought against a content-sized form. It used to be pinned
-            with `lg:self-start` because stretching to the COLUMN (form + recent card) added ~150px of
-            hole under the list; the row no longer includes the recent card, so the leftover is at most
-            the form's own slack — and that lands in the AI textarea, not under the services. */}
+        {/* The monitor spans the query and recents; tab content scrolls within that shared height. */}
         <aside
-          className="cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:relative min-h-[480px] lg:min-h-[600px] flex flex-col"
+          className="workbench-rail cs-panel lg:col-span-4 lg:col-start-9 lg:row-start-1 flex flex-col"
           data-tour="workflow-rail"
           id="workspace-stage-rail"
           aria-label="Services and pipeline"
         >
-          <div className="flex flex-col gap-4 p-4 flex-1 min-h-0 lg:absolute lg:inset-0">
+          <div className="workbench-rail-body">
+            <div className="workbench-rail-heading">
+              <span className="workbench-index" aria-hidden="true">02</span>
+              <h2>Analysis monitor</h2>
+              <Activity aria-hidden="true" />
+            </div>
             <div
               ref={railTabListRef}
               role="tablist"
               aria-label="Analysis sidebar view switcher"
               onKeyDown={handleRailKeyDown}
-              className="relative flex items-center gap-1 p-1 rounded-[var(--cs-radius-input)] bg-cs-surface-2 shrink-0"
+              className="workbench-monitor-tabs"
             >
-              {/* Sliding active thumb — the one surface that says which segment is selected, so a
-                  switch (click, arrow key, or the auto-switch when a run starts) reads as a glide
-                  instead of one background vanishing and another appearing. Geometry of exactly
-                  two equal segments: half the track minus the gap share is one slot; sliding by
-                  its own width plus the 4px gap lands on the other. Transform is the only
-                  animated property, and reduced motion freezes it in place (the position itself
-                  remains the static cue). */}
-              <span
-                aria-hidden="true"
-                className={`absolute top-1 bottom-1 left-1 w-[calc(50%-6px)] rounded-md bg-cs-surface shadow-[0_0_0_1px_var(--cs-border)] transition-transform duration-200 ease-[cubic-bezier(0.2,0,0,1)] ${
-                  activeRightTab === "telemetry" ? "translate-x-0" : "translate-x-[calc(100%+4px)]"
-                }`}
-              />
               <RailTab
                 id="telemetry"
                 active={activeRightTab === "telemetry"}
@@ -2228,8 +2182,8 @@ function VariantSearchPanel({
             ) : (
               <div key="pipeline" id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" className="flex-1 min-h-0 flex flex-col gap-3 cs-tab-transition">
                 {/* Status line + progress. The count is derived from the list, never a literal. */}
-                <div className="flex flex-col gap-2 shrink-0">
-                  <div className="flex items-center justify-between gap-2">
+                <div className="workbench-pipeline-summary">
+                  <div className="workbench-pipeline-status">
                     <span className="text-[12px] font-medium text-cs-text-primary inline-flex items-center gap-2">
                       {isPipelineActive ? (
                         <span className="cs-spinner" aria-hidden="true" />
@@ -2250,6 +2204,7 @@ function VariantSearchPanel({
                         : `${WORKFLOW_STAGE_COUNTS.core} core · ${WORKFLOW_STAGE_COUNTS.onDemand} on-demand`}
                     </span>
                   </div>
+                  {!hasRun && <p className="workbench-pipeline-intro">Submit a variant to follow its analysis here. Results become available as each stage finishes.</p>}
                   {hasRun && (
                     <div
                       className="h-1 rounded-full bg-cs-surface-2 overflow-hidden"
@@ -2271,15 +2226,14 @@ function VariantSearchPanel({
                 </div>
 
                 {/* Stepper */}
-                <ol className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col">
-                  {stageInfos.map(({ stage: { key, title, Icon, targetView }, info }, i) => {
+                <ol className="workbench-pipeline-stages">
+                  {stageInfos.map(({ stage: { key, title, Icon, targetView }, info }) => {
                     const isClickable = !!result && !!onViewChange;
                     /* Branch on the state, not the rendered word: `info.status` is a display label. */
                     const isRunning = info.rawStatus === "progress";
                     const isDone = info.rawStatus === "complete";
                     const isDegraded = info.rawStatus === "degraded";
                     const isErr = info.rawStatus === "error";
-                    const isLast = i === WORKFLOW_STAGES.length - 1;
 
                     const node = isRunning
                       ? "border-cs-accent-clay text-cs-accent-clay bg-cs-surface"
@@ -2290,14 +2244,7 @@ function VariantSearchPanel({
                       : "border-cs-border-subtle bg-cs-surface text-cs-text-muted";
 
                     return (
-                      <li key={key} className="relative flex">
-                        {/* connector */}
-                        {!isLast && (
-                          <span
-                            className={`absolute left-[19px] top-[34px] bottom-[-2px] w-px ${isDone ? "bg-[var(--cs-text-success)]/40" : "bg-cs-border-subtle"}`}
-                            aria-hidden="true"
-                          />
-                        )}
+                      <li key={key} data-state={info.rawStatus}>
                         <div
                           onClick={() => isClickable && onViewChange?.(targetView)}
                           role={isClickable ? "button" : undefined}
@@ -2309,7 +2256,7 @@ function VariantSearchPanel({
                               onViewChange?.(targetView);
                             }
                           }}
-                          className={`group flex-1 min-w-0 flex items-start gap-3 px-1.5 py-1.5 rounded-[var(--cs-radius-input)] select-none transition-colors duration-150 ${
+                          className={`workbench-pipeline-stage group ${
                             isClickable
                               ? "cursor-pointer hover:bg-cs-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
                               : ""
@@ -2320,7 +2267,7 @@ function VariantSearchPanel({
                               border-arc (`cs-spinner`), not a scaled SVG: at 14px an SVG stroke
                               lands on fractional pixels and reads pixelated, while a 1.5px
                               border rasterises cleanly. Bare variant — no track inside the ring. */}
-                          <span className={`relative z-[1] w-[26px] h-[26px] shrink-0 rounded-full border flex items-center justify-center ${node}`}>
+                          <span className={`workbench-pipeline-node ${node}`}>
                             {isRunning ? (
                               <span className="cs-spinner cs-spinner-bare" aria-hidden="true" />
                             ) : isDone ? (
@@ -2335,14 +2282,7 @@ function VariantSearchPanel({
                           <div className="flex flex-col min-w-0 flex-1 pt-[3px] pb-2">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-[12.5px] font-medium text-cs-text-primary truncate">{title}</span>
-                              {/* The state word ends flush at the panel edge, and ONE trailing slot
-                                  serves both the word and the go-affordance: the word is the resting
-                                  state, and hovering or keyboard-focusing a clickable row cross-fades
-                                  it into the arrow at the same spot. The arrow used to trail OUTSIDE
-                                  this column — opacity-0 yet space-occupying — which shoved every
-                                  status word ~26px off the edge whenever a result made the rows
-                                  clickable, and let the words jump as clickability turned over.
-                                  Pending before any run says nothing; the word appears once it does. */}
+                              {/* Keep status readable alongside the navigation arrow. */}
                               {hasRun && (
                                 <span
                                   className={`relative shrink-0 flex items-center justify-end min-h-[18px] text-[11px] ${
@@ -2355,16 +2295,12 @@ function VariantSearchPanel({
                                       : "text-cs-text-muted"
                                   }`}
                                 >
-                                  <span
-                                    className={`transition-opacity duration-150 ${
-                                      isClickable ? "group-hover:opacity-0 group-focus-visible:opacity-0" : ""
-                                    }`}
-                                  >
+                                  <span>
                                     {info.status}
                                   </span>
                                   {isClickable && (
                                     <ArrowRight
-                                      className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cs-text-muted opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-150"
+                                      className="workbench-stage-arrow"
                                       aria-hidden="true"
                                     />
                                   )}

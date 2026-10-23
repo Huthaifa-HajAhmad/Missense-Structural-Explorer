@@ -20,6 +20,7 @@ import {
 import { SpliceRuler } from "./splicing/SpliceRuler";
 import { SpliceMap } from "./splicing/SpliceMap";
 import { SpliceWindowControl } from "./splicing/SpliceWindowControl";
+import { isConservationCompositePending } from "../../shared/conservationProgress";
 import { Prose } from "../ui/Prose";
 import { EvidencePanel, EvidenceViewTabs, InspectReadingButton, useEvidenceWorkspace } from './EvidenceWorkspace';
 import { SplicingRecords } from './splicing/SplicingRecords';
@@ -335,6 +336,8 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
   const showSmallSignals = workspace.enabled ? mapView.showSmallSignals : localSmallSignals;
   const setShowSmallSignals = (value: boolean) => workspace.enabled ? workspace.setOptions({ spliceMap: { ...mapView, showSmallSignals: value } }) : setLocalSmallSignals(value);
   const ev = showSmallSignals ? buildSplicingEvidence({ result, isLoading: base.pending, alphagenomeConfigured: settings.alphagenomeApiKey?.trim() ? true : undefined, showSmallSignals }) : base;
+  // The composite is still streaming: a re-score now would be overwritten by its next snapshot.
+  const rescoreLocked = ev.pending || isConservationCompositePending(result, Boolean(analysisState.isLoading || isBiophysicalLoading));
   const readings = splicingReadings(ev, result);
   const finding = splicingFinding(ev);
   const { geometry: g, rule } = ev;
@@ -431,7 +434,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
       {workspace.enabled && <div className="spl-workspace-tools">
         <p>Pin a channel to follow its score, location and source in the inspector.</p>
         {/* One control regardless of the visible view: the request instance must not unmount on tab switch. */}
-        <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />
+        <SpliceWindowControl result={result} ev={ev} disabled={rescoreLocked} />
       </div>}
       <EvidencePanel tab="splicing">
       {workspace.enabled && workspace.view === 'records' ? <SplicingRecords rows={readings.filter(r => r.channel !== null)} /> : (!workspace.enabled || workspace.comparison) && <>
@@ -521,7 +524,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
           </h2>
           {/* Legacy mode only: in the workspace the tools row above owns the control, so the
               request instance stays mounted across view switches. */}
-          {!workspace.enabled && <SpliceWindowControl result={result} ev={ev} disabled={ev.pending} />}
+          {!workspace.enabled && <SpliceWindowControl result={result} ev={ev} disabled={rescoreLocked} />}
         </div>
         <div className="spl-card spl-table-wrap">
           <table className="spl-table" data-testid="splicing-readings">

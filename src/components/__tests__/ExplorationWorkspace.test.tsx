@@ -11,6 +11,7 @@ import { SOD1_LANDSCAPE_CONTEXT } from '../../shared/__tests__/fixtures/sod1Land
 
 vi.mock('../../hooks/useProteinSequence', () => ({ useProteinSequence: () => ({ sequence: 'MAAAAVAAAA', isLoading: false, error: null }) }));
 vi.mock('../LiteratureView', () => ({ default: () => null }));
+vi.mock('../telemetry/LiveTelemetryPanel', () => ({ default: () => null }));
 vi.mock('../MolstarViewer', () => ({ default: (props: { onResidueClick: (position: number) => void; model: { family: string } }) => <div data-testid="canvas-instance">
   <button onClick={() => props.onResidueClick(8)}>Pick structure residue 8</button>
   <button onClick={() => props.onResidueClick(5)}>Pick structure residue 5</button>
@@ -35,6 +36,16 @@ const seed = () => store.setState({ gene: 'TEST', variant: 'p.Ala5Val', uniprotI
   pdbText: null, customPdbUrl: null, esmFoldWtPdb: null, esmFoldMutPdb: null, viewMode: 'wildtype',
 });
 beforeEach(seed);
+
+it('keeps the 3D canvas unmounted when visiting an empty workspace and returning to Search', async () => {
+  store.setState({ analysisState: { result: null, isLoading: false, error: null }, gene: '', variant: '', uniprotId: '' });
+  const ui = render(<Workspace initialView="structure_alphafold" />);
+  expect(ui.getByRole('heading', { name: 'No analysis loaded' })).toBeInTheDocument();
+  expect(ui.queryByTestId('canvas-instance')).toBeNull();
+  await act(async () => fireEvent.click(ui.getByRole('button', { name: 'Analyse a variant' })));
+  expect(ui.getByRole('heading', { name: 'Analyse a variant' })).toBeInTheDocument();
+  expect(ui.queryByTestId('canvas-instance')).toBeNull();
+});
 
 it('links Energetics records to the inspector, retains plot controls, and resets selection for a new query', async () => {
   store.setState({ foldingEnergetics: { foldx: 2, foldxMean: 2, dynamut2: 0.5 } as any, foldingStatus: 'success' });

@@ -111,7 +111,6 @@
 /* The comparison must be readable before hovering: compact context above a dominant figure.
    Scope this composition to Energetics; source records keep their detailed reading layout. */
 .nrg-header__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; }
-.nrg-header__row .screen-title { font-size: clamp(1.25rem, 1.1rem + .4cqi, 1.5rem); letter-spacing: -.025em; }
 .nrg-hero[data-compact="true"] { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(0, 2.5fr); gap: 10px 24px; border: 0; border-radius: 0; overflow: visible; }
 .nrg-hero[data-compact="true"] .nrg-hero__head { flex-direction: column; align-items: start; justify-content: start; gap: 6px; padding: 0; min-block-size: 28px; background: transparent; border: 0; }
 .nrg-finding-heading { margin: 0; color: var(--cs-text-primary); font-size: clamp(1.25rem, 1rem + .65cqi, 1.6rem); font-weight: 600; line-height: 1.2; letter-spacing: -.025em; text-wrap: balance; }

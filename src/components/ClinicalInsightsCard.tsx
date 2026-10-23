@@ -14,7 +14,6 @@ import { deriveNarrativeAuthorship } from "../shared/narrativeAuthorship";
 import { isFallbackNarrative } from "../services/pipeline/variantCache";
 import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import {
-  FileText,
   CheckCircle2,
   Copy,
   Lightbulb,
@@ -374,8 +373,7 @@ const ClinicalInsightsCard = memo(function ClinicalInsightsCard({
       <div className={`ins-shell__header ${classCardHeader}`}>
         <div className="flex flex-col">
           <div className="flex items-center gap-2 flex-wrap">
-            <FileText className="w-4 h-4" style={{ color: "var(--cs-text-accent)" }} />
-            <h3 className={`ins-shell__title ${classCardTitle}`}>
+            <h3 className={`ins-shell__title screen-title ${classCardTitle}`}>
               Insights
             </h3>
             <ResearchGuideButton topic="insights" label="How this interpretation is assembled" />

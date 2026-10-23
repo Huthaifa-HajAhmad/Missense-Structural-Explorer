@@ -2,7 +2,6 @@
    Scoped additions preserve concurrent house-style changes in interfaces.css / splicing.css. */
 .ifc-workspace, .spl-workspace { --mx-pad: clamp(1rem, 2.4cqi, 1.75rem); }
 :is(.ifc-workspace, .spl-workspace) .evw-panel { display: flex; flex-direction: column; gap: 1.5rem; }
-:is(.ifc-workspace, .spl-workspace) .screen-title { font-size: clamp(1.5rem, 1.25rem + 1cqi, 2rem); letter-spacing: -.025em; }
 :is(.ifc-workspace, .spl-workspace) .screen-tab-description { text-wrap: pretty; line-height: 1.6; }
 .ifc-workspace .ifc-hero__body { display: flex; flex-wrap: wrap; gap: var(--mx-pad); padding: var(--mx-pad); }
 .ifc-workspace .ifc-hero__text { flex: 999 1 24rem; min-inline-size: min(100%, 18rem); justify-content: center; }

@@ -592,3 +592,29 @@ describe("ACMG Pathogenicity Engine & Rule Classifier", () => {
     });
   });
 });
+
+describe("PP3/BP4 over a salvaged conservation composite", () => {
+  const run = (modelStatus?: Record<string, string>) => computeRuleBasedACMG({
+    gene: "PAH",
+    variant: "p.Arg408Trp",
+    clinvar: null,
+    predictorData: { available: true, amPathogenicity: 0.95, amClass: "pathogenic", caddPhred: 33 },
+    conservationData: { available: true, revel: 0.95, bayesdel: 0.3, ...(modelStatus ? { modelStatus } : {}) } as any,
+    gnomadConstraint: null,
+    gnomadFrequency: null,
+    acmgWeighting: "standard"
+  });
+
+  it("awards PP3 when every voting model settled", () => {
+    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+  });
+
+  it.each(["base", "popeve", "alphagenome"])("withholds PP3 when %s timed out, because the ensemble is incomplete", (model) => {
+    const res = run({ base: "settled", popeve: "settled", alphagenome: "settled", [model]: "timeout" });
+    expect(res.acmgCriteria.some(c => c.code === "PP3" || c.code === "BP4")).toBe(false);
+  });
+
+  it("is unaffected by a non-voting model (SpliceAI) that timed out", () => {
+    expect(run({ base: "settled", popeve: "settled", alphagenome: "settled", spliceai: "timeout" }).acmgCriteria.some(c => c.code === "PP3")).toBe(true);
+  });
+});

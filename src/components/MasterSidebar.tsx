@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useCallback, useState } from "react";
+import { evidenceTabsLoading, isEvidenceTabLoading } from "../shared/evidenceTabProgress";
+import { useGeneContextLoading } from "../hooks/useGeneContextLoading";
 import { createPortal } from "react-dom";
-import { motion } from "motion/react";
 import {
   BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
-  PanelLeftClose, PanelLeftOpen, BookOpen, Info, X,
+  PanelLeftClose, PanelLeftOpen, BookOpen, Info, X, ChevronDown,
 } from "lucide-react";
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
 import { BrandMark } from "./ui/BrandMark";
@@ -189,22 +190,6 @@ export function isViewActive(itemId: MasterView | string, activeView: MasterView
   return itemId === activeView;
 }
 
-/** Which evidence sub-tabs are still waiting on their backing data for the current run. */
-function isEvidenceSubStreaming(
-  subId: string,
-  isBiophysicalLoading: boolean,
-  result: AnalysisResult | null | undefined
-): boolean {
-  if (!isBiophysicalLoading) return false;
-  switch (subId) {
-    case "alphagenome": return !result?.conservationData?.alphagenome;
-    case "splicing":    return !result?.conservationData?.spliceai;
-    case "predictors":  return !result?.conservationData?.revel;
-    case "structure":   return !result?.insights?.biochemicalShift;
-    default:            return false;
-  }
-}
-
 const STATUS_TEXT: Record<WorkflowStatusType, string> = {
   complete: "Complete",
   progress: "In progress",
@@ -251,7 +236,6 @@ function SubNavItem({
       data-active={isActive}
       aria-current={isActive ? "page" : undefined}
     >
-      <span className="ms-sub-dot" aria-hidden="true" />
       <span className="ms-sub-label">{label}</span>
       {isStreaming && (
         <span className="ms-step ml-auto" data-status="progress" role="img" aria-label="Loading" title="Loading in background" />
@@ -402,6 +386,7 @@ function MasterSidebar({
     settings.defaultStructureModel === "esmfold" ? "structure_esmfold" : "structure_alphafold";
   const navRef = useRef<HTMLElement>(null);
   const activeRowRef = useRef<HTMLButtonElement>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [isResizing, setIsResizing] = useState(false);
   useScrollEdges(navRef);
 
@@ -510,13 +495,10 @@ function MasterSidebar({
 
   const toggleHint = sidebarToggleHint();
 
-  /* The active rail is one shared element: `layoutId` glides it between rows (and between the
-     nav and the pinned footer). MotionConfig's reducedMotion neutralises it app-wide. */
+  /* Navigation selection updates immediately, without travelling across unrelated rows. */
   const activeRail = (
-    <motion.span
-      layoutId="ms-active-rail"
+    <span
       className="ms-active-rail"
-      transition={{ type: "spring", duration: 0.4, bounce: 0.12 }}
       aria-hidden="true"
     />
   );
@@ -527,6 +509,10 @@ function MasterSidebar({
   const currentGene = useVariantAnalysisStore(s => s.gene);
   const currentVariant = useVariantAnalysisStore(s => s.variant);
   const currentUniprotId = useVariantAnalysisStore(s => s.uniprotId);
+  const geneContextLoading = useGeneContextLoading(analysisResult?.metadata?.gene || currentGene);
+  // The Evidence ROW names only tabs backed by this analysis. Optional gene-context tabs (disease,
+  // expression, models) keep their own indicator: a 2-minute context request must not hold "usable".
+  const loadingEvidenceTabs = evidenceTabsLoading(EVIDENCE_SUB_ITEMS, isBiophysicalLoading, analysisResult);
   const currentKey = landscapeKey(currentGene, currentVariant, currentUniprotId);
   const overviewStatus = landscapeOverview?.key === currentKey ? landscapeOverview?.status ?? null : null;
   const stageOf = (id: MasterView) =>
@@ -546,6 +532,7 @@ function MasterSidebar({
       isNarrativeLoading,
       hasStructureCoordinates: Boolean(loadedPdb),
       landscapeOverviewStatus: overviewStatus,
+      evidenceTabsLoading: loadingEvidenceTabs,
     });
 
   return (
@@ -649,26 +636,38 @@ function MasterSidebar({
                   /* While a stage is running, degraded or failed, its own live sentence discloses
                      under the label; otherwise the row stays one line. */
                   const isLive = status === "progress" || status === "degraded" || status === "error";
-                  const subOpen = !collapsed && (hasRun || isActive);
+                  const hasChildren = id === 'evidence' || id === 'structure';
+                  const subOpen = !collapsed && (expandedGroups[id] ?? isActive);
 
                   return (
                     <div key={id} className="ms-row">
+                      <div className="ms-parent-row">
                       <NavRow
                         item={item}
                         isActive={isActive}
                         collapsed={collapsed}
                         buttonRef={isActive ? activeRowRef : undefined}
-                        onClick={() => navigate(id === "structure" ? defaultStructureView : id)}
+                        onClick={() => {
+                          if (hasChildren) setExpandedGroups(groups => ({ ...groups, [id]: true }));
+                          navigate(id === "structure" ? defaultStructureView : id);
+                        }}
+                        showDescription={isActive}
                         liveText={isLive && desc ? desc : undefined}
                         status={status}
                         showStatus={hasRun && id !== "search"}
                         rail={activeRail}
                       />
+                      {hasChildren && !collapsed && <button type="button" className="ms-group-toggle"
+                        aria-label={`${subOpen ? 'Collapse' : 'Expand'} ${item.label} navigation`}
+                        aria-expanded={subOpen} aria-controls={`ms-children-${id}`}
+                        onClick={() => setExpandedGroups(groups => ({ ...groups, [id]: !subOpen }))}>
+                        <ChevronDown aria-hidden="true" />
+                      </button>}
+                      </div>
 
-                      {/* Sub-lists stay mounted; the grid disclosure morphs them with the width
-                          animation instead of popping. */}
+                      {/* Closed groups leave both the layout and keyboard navigation. */}
                       {id === "evidence" && (
-                        <div className="ms-sub-list" data-open={subOpen}>
+                        <div id="ms-children-evidence" className="ms-sub-list" data-open={subOpen}>
                           <div className="ms-sub-list-inner">
                             <div className="ms-sub-list-items">
                               {EVIDENCE_SUB_ITEMS.map((sub) => (
@@ -676,7 +675,7 @@ function MasterSidebar({
                                   key={sub.id}
                                   label={sub.label}
                                   isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
-                                  isStreaming={isEvidenceSubStreaming(sub.id, isBiophysicalLoading, analysisResult)}
+                                  isStreaming={isEvidenceTabLoading(sub.id, isBiophysicalLoading, analysisResult, geneContextLoading)}
                                   onClick={() => {
                                     navigate("evidence");
                                     onEvidenceTabChange(sub.id);
@@ -689,7 +688,7 @@ function MasterSidebar({
                       )}
 
                       {id === "structure" && (
-                        <div className="ms-sub-list" data-open={subOpen}>
+                        <div id="ms-children-structure" className="ms-sub-list" data-open={subOpen}>
                           <div className="ms-sub-list-inner">
                             <div className="ms-sub-list-items">
                               {STRUCTURE_SUB_ITEMS.map((sub) => (

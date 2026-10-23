@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/source-sans-3';
 import '@fontsource-variable/source-code-pro';
+import '@fontsource-variable/lora';
 import '../../src/index.css';
 import AppViews from '../../src/components/AppViews';
 import type { MasterView } from '../../src/components/MasterSidebar';

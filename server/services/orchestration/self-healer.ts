@@ -97,7 +97,21 @@ export function healCachedAnalysisIfPossible(
       // Keep existing exact-local AoU evidence only; never heal counts from this protein row.
       aouFrequency: payload.conservationData?.aouFrequency ?? null
     };
-    if (payload.serviceStatus) payload.serviceStatus.conservationData = "ok";
+    /**
+     * Heal the LIFECYCLE with the values. A salvaged composite carries `modelStatus`; the Genos row
+     * answers the dbNSFP ensemble, PopEVE and SpliceAI only, so those entries settle when the row
+     * supplied them and every other model keeps its `timeout`. The composite is "ok" only when no
+     * model is still unanswered — otherwise values would sit beside a lifecycle that contradicts them
+     * and the ACMG engine could not tell the ensemble is still incomplete.
+     */
+    const healedStatus = payload.conservationData?.modelStatus as Record<string, string> | undefined;
+    if (healedStatus) {
+      healedStatus.base = "settled";
+      if (g.popeve != null) healedStatus.popeve = "settled";
+      if (g.spliceai) healedStatus.spliceai = "settled";
+      if (Object.values(healedStatus).every(state => state === "settled")) delete payload.conservationData.modelStatus;
+    }
+    if (payload.serviceStatus && !payload.conservationData?.modelStatus) payload.serviceStatus.conservationData = "ok";
     didHeal = true;
   }
 

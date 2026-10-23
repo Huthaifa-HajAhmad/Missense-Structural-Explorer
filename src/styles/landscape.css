@@ -366,7 +366,6 @@
 
 .landscape-canvas { width: 100%; min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 22px; }
 .landscape-canvas__heading { display: flex; align-items: center; gap: 12px; }
-.landscape-canvas__heading h3 { font-size: 20px; letter-spacing: -.025em; }
 .landscape-canvas__heading p { font-size: 13px; line-height: 1.5; max-width: 70ch; }
 .landscape-canvas__content { min-width: 0; }
 .viz-panel button:focus-visible,

@@ -76,6 +76,23 @@ describe("core singleflight", () => {
     expect([...b.rateLimitedHosts]).toEqual(["eutils.ncbi.nlm.nih.gov"]);
   });
 
+  it("immediately replays the latest cumulative evidence to a late subscriber", async () => {
+    const gate = deferred<any>();
+    const mocked = await fetchCore();
+    const snapshot = { data: { uniprotFeatures: { domains: [] } }, serviceStatus: { uniprotFeatures: "ok", clinvar: "pending" }, serviceTimings: {}, serviceTimingOffsets: {} };
+    mocked.mockImplementationOnce((_ctx: any, _timeout: any, _pre: any, publish: any) => {
+      publish(snapshot);
+      return gate.promise;
+    });
+    const first = runSharedCoreFetch(baseContext);
+    const seen = vi.fn();
+    const second = runSharedCoreFetch(baseContext, { onPartial: seen });
+    expect(seen).toHaveBeenCalledExactlyOnceWith(snapshot);
+    expect(mocked).toHaveBeenCalledTimes(1);
+    gate.release({ serviceStatus: {} });
+    await Promise.all([first, second]);
+  });
+
   it("starts ONE fetch for two concurrent callers with the same identity", async () => {
     const gate = deferred<any>();
     const mocked = await fetchCore();

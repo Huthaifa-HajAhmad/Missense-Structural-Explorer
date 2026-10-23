@@ -92,7 +92,8 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     const row = ensemblRowWithin();
     expect(row.getByText("REST Live")).toBeInTheDocument();
     expect(row.getByText("VEP, coordinates & cDNA translation")).toBeInTheDocument();
-    expect(row.getByText("16ms")).toBeInTheDocument();
+    fireEvent.click(row.getByRole("button", { name: "Show details for Ensembl VEP" }));
+    expect(screen.getByText("Response 16ms")).toBeInTheDocument();
     // Healthy rows are not actionable, so no re-check affordance is offered. Read off the element
     // itself, because the row is what would carry the button role.
     expect(ensemblRow().getAttribute("role")).toBeNull();
@@ -107,8 +108,9 @@ describe("LiveTelemetryPanel — Ensembl fallback reporting", () => {
     expect(row.queryByText("Offline")).not.toBeInTheDocument();
     expect(row.getByText("VariantValidator taking over")).toBeInTheDocument();
     // The latency on show is the tier actually answering, not the dead primary's timeout.
-    expect(row.getByText("1240ms")).toBeInTheDocument();
-    expect(row.queryByText("3802ms")).not.toBeInTheDocument();
+    fireEvent.click(row.getByRole("button", { name: "Show details for Ensembl VEP" }));
+    expect(screen.getByText("Response 1240ms")).toBeInTheDocument();
+    expect(screen.queryByText("Response 3802ms")).not.toBeInTheDocument();
   });
 
   it("reports an uncovered outage only when the fallback said it cannot serve", () => {

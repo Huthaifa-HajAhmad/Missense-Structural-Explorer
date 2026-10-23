@@ -10,6 +10,7 @@ import {
   fetchConservationData,
   fetchConservationDataProgressive
 } from "../prediction/index.ts";
+import { expireConservationSnapshot } from "../prediction/predictors/conservation-orchestrator.ts";
 import { fetchStringInteractions, type StringInteraction } from "./string.ts";
 import {
   fetchGnomadGeneConstraint,
@@ -348,10 +349,11 @@ async function runCoreFetch(
    * one reports its status flags through its RESULT, so a discarded run can never leave a flag behind.
    */
   const localTableInstalled = isLocalDbnsfpAvailable() && pos !== null;
+  const speculationApplied = speculativeLocusMode() === "on";
   const locusRunner = makeLocusRunner(
     localTableInstalled ? speculativeCoordinateLocus(gene, variant, uniprotId, inputCoordinate).catch(() => null) : Promise.resolve(null),
     predictorPromise,
-    speculativeLocusMode() === "on"
+    speculationApplied
   );
 
   let gnomadConstraintHasError = false;
@@ -426,28 +428,61 @@ async function runCoreFetch(
   }));
 
   let conservationHasError = false;
-  const conservationPromise = timeTask("conservationData", locusRunner.run(locus => fetchConservationDataProgressive({
-    gene,
-    variant,
-    pos,
-    uniprotId,
-    assembly,
-    pdbMappingPromise,
-    predictorPromise: locus,
-    genosPromise,
-    biohubToken,
-    hfToken,
-    gpnApiUrl,
-    alphagenomeApiKey,
-    alphagenomeApiUrl,
-    spliceaiDistance,
-    sequence
-  })).then(conservation => {
-    // This producer queries conservation/Genos by protein notation and carries no exact-allele
-    // provenance for AoU. A canonical predictor ID alone cannot bind those counts to its ALT.
-    // Only the separately queried, exact-coordinate local frequency result is trusted below.
-    return conservation?.aouFrequency ? { ...conservation, aouFrequency: null } : conservation;
-  }).catch(err => {
+  /**
+   * This producer queries conservation/Genos by protein notation and carries no exact-allele
+   * provenance for AoU. A canonical predictor ID alone cannot bind those counts to its ALT.
+   * Only the separately queried, exact-coordinate local frequency result is trusted below.
+   */
+  const withoutUnboundAou = (conservation: ConservationData | null): ConservationData | null =>
+    conservation?.aouFrequency ? { ...conservation, aouFrequency: null } : conservation;
+
+  /**
+   * The composite's latest streamed snapshot, so a fast SpliceAI or AlphaGenome answer reaches the
+   * reader before dbNSFP, ConSurf or GPN-Star finish, and so a composite whose budget expires keeps
+   * the models that DID answer instead of discarding all of them.
+   */
+  let conservationLatestSnapshot: ConservationData | null = null;
+  let conservationSettled = false;
+  let conservationAttempts = 0;
+  const onConservationSnapshot = (attempt: number, snapshot: ConservationData) => {
+    const accept = () => {
+      // A re-run on the confirmed locus supersedes the speculative one entirely.
+      if (conservationSettled || attempt !== conservationAttempts) return;
+      conservationLatestSnapshot = withoutUnboundAou(snapshot);
+      publish({ conservationData: conservationLatestSnapshot }, {});
+    };
+    /**
+     * A speculative-locus run's snapshots wait for the speculation to be confirmed. A discarded
+     * locus's SpliceAI or AlphaGenome score describes a different allele: it must never be shown,
+     * not even briefly before the re-run replaces it.
+     */
+    if (speculationApplied && attempt === 1) {
+      locusRunner.decided().then(outcome => { if (outcome !== "discarded") accept(); }).catch(() => {});
+    } else {
+      accept();
+    }
+  };
+  const conservationPromise = timeTask("conservationData", locusRunner.run(locus => {
+    const attempt = ++conservationAttempts;
+    return fetchConservationDataProgressive({
+      gene,
+      variant,
+      pos,
+      uniprotId,
+      assembly,
+      pdbMappingPromise,
+      predictorPromise: locus,
+      genosPromise,
+      biohubToken,
+      hfToken,
+      gpnApiUrl,
+      alphagenomeApiKey,
+      alphagenomeApiUrl,
+      spliceaiDistance,
+      sequence,
+      onPartial: snapshot => onConservationSnapshot(attempt, snapshot)
+    });
+  }).then(withoutUnboundAou).catch(err => {
     console.warn("[Conservation Parallel Run Warning] Failed to fetch conservation:", err);
     conservationHasError = true;
     return null;
@@ -626,7 +661,14 @@ async function runCoreFetch(
         residueIndex: context.residueIndex ? parseInt(context.residueIndex, 10) : null,
         clinvar: (partialData.clinvar as ClinVarData | null) ?? null,
         predictorData: (partialData.predictorData as PredictorData | null) ?? null,
-        conservationData: (partialData.conservationData as ConservationData | null) ?? null,
+        /**
+         * Only a SETTLED composite. A streamed snapshot is missing the models still running, and the
+         * engine reads the in-silico ensemble without a status gate: a REVEL-only snapshot would
+         * be counted as the whole ensemble's vote.
+         */
+        conservationData: runningStatus.conservationData === "pending"
+          ? null
+          : (partialData.conservationData as ConservationData | null) ?? null,
         gnomadConstraint: (partialData.gnomadConstraint as GnomadGeneConstraint | null) ?? null,
         gnomadFrequency: (partialData.gnomadFrequency as GnomadVariantFrequency | null) ?? null,
         acmgWeighting,
@@ -738,8 +780,22 @@ async function runCoreFetch(
     .then(raw => publish({ esm2: settled(raw) }, { esm2: statusRules.esm2(raw) }))
     .catch(() => {});
 
+  /**
+   * A composite whose budget expired keeps every model that answered, each still labelled with its
+   * own state, and the models that did not answer are marked `timeout` rather than dropped silently.
+   * Previously one slow model (an AlphaGenome or GPN-Star call) discarded REVEL, BayesDel and a
+   * SpliceAI score already in hand.
+   */
+  const conservationValue = (raw: unknown): ConservationData | null =>
+    raw === TIMEOUT_FLAG
+      ? (conservationLatestSnapshot ? expireConservationSnapshot(conservationLatestSnapshot) : null)
+      : (raw as ConservationData | null);
+
   fastConservationPromise
-    .then(raw => publish({ conservationData: settled<ConservationData>(raw) }, { conservationData: statusRules.conservationData(raw) }))
+    .then(raw => {
+      conservationSettled = true;
+      publish({ conservationData: conservationValue(raw) }, { conservationData: statusRules.conservationData(raw) });
+    })
     .catch(() => {});
 
   fastDisruptionPromise
@@ -821,8 +877,7 @@ async function runCoreFetch(
   const predictorRes = (predictorTimedOut ? null : rawPredictor) as PredictorData | null;
   const predictorStatus: ServiceFetchStatus = statusRules.predictorData(rawPredictor);
 
-  const conservationTimedOut = rawConservation === TIMEOUT_FLAG;
-  const conservationRes = (conservationTimedOut ? null : rawConservation) as ConservationData | null;
+  const conservationRes = conservationValue(rawConservation);
   const conservationStatus: ServiceFetchStatus = statusRules.conservationData(rawConservation);
 
   const stringTimedOut = rawString === TIMEOUT_FLAG;

@@ -168,6 +168,11 @@ export interface WorkflowStageStatusParams {
   thermompnnStatus?: string | null;
   thermompnnError?: string | null;
   landscapeOverviewStatus?: "loading" | "ready" | "error" | "idle" | null;
+  /**
+   * Labels of the Evidence tabs still loading their own sources (`evidenceTabProgress.ts`). Core
+   * landing makes the workspace USABLE; the row is SETTLED only when no tab is still loading.
+   */
+  evidenceTabsLoading?: readonly string[];
 }
 
 export function getWorkflowStageStatus(params: WorkflowStageStatusParams): { status: WorkflowStatusType; desc: string };
@@ -280,7 +285,10 @@ export function getWorkflowStageStatus(
       if (isClinicalLoading || isBiophysicalLoading) {
         return {
           status: "progress",
-          desc: "Querying ClinVar, gnomAD, and predictors..."
+          // Evidence that ARRIVED: a source that failed or timed out has delivered nothing to be "available".
+          desc: Object.values(result.serviceStatus ?? result.metadata?.serviceStatus ?? {}).some(status => status === "ok")
+            ? "Partial evidence available · Remaining sources loading"
+            : "Querying ClinVar, gnomAD, and predictors..."
         };
       }
       /**
@@ -304,6 +312,18 @@ export function getWorkflowStageStatus(
           status: "degraded",
           desc: "gnomAD did not answer on this run · population evidence incomplete — re-run to retry"
         };
+      }
+      /**
+       * Usable is not settled. Core evidence and the ACMG rules are in, so every tab can be opened,
+       * but a tab still loading its own source (AlphaGenome, Expression, Interfaces…) is named here
+       * rather than hidden behind a "complete" the reader would take as final.
+       */
+      const loadingTabs = p.evidenceTabsLoading ?? [];
+      if (loadingTabs.length > 0) {
+        const named = loadingTabs.length <= 3
+          ? loadingTabs.join(", ")
+          : `${loadingTabs.slice(0, 2).join(", ")} and ${loadingTabs.length - 2} more`;
+        return { status: "progress", desc: `Usable now · Still loading: ${named}` };
       }
       const clinvarText = result.clinvar?.classification || "Annotated";
       return {

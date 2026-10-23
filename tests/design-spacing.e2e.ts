@@ -82,14 +82,17 @@ describe('search form design rhythm', { tags: ['search'] }, () => {
     );
   });
 
-  test('the form and the services rail close on one line, with Recent analyses on the next row', async ({ screen, app }) => {
+  test('the monitor aligns with the query heading and Recent analyses follows the form', async ({ screen, app }) => {
     const form = await box(screen.getByRole('region', 'Variant query'), 'form card');
     const rail = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail');
     const recent = await box(screen.getByRole('region', /recent analyses/i), 'recent analyses card');
 
-    // The near-miss corner: a fixed 672px rail floor against a content-sized form left ~11px hanging.
-    const drift = form.y + form.height - (rail.y + rail.height);
-    expect(Math.abs(drift) <= 1, `form and rail bottoms differ by ${drift.toFixed(1)}px`);
+    expect(Math.abs(form.y - rail.y) <= 1, 'query and monitor headings share a starting line');
+    expect(Math.abs(rail.y + rail.height - recent.y - recent.height) <= 1, 'the monitor ends at the bottom of recents');
+    await screen.getByText(/^Edit parsed fields/).tap();
+    const railClosed = await box(screen.getByRole('complementary', 'Services and pipeline'), 'services rail, fields closed');
+    const recentsClosed = await box(screen.getByRole('region', /recent analyses/i), 'recents, fields closed');
+    expect(Math.abs(railClosed.y + railClosed.height - recentsClosed.y - recentsClosed.height) <= 1, 'the monitor still meets recents after closing the editors');
 
     // The recent card is its own row, not the form column's tail.
     expect(recent.y > form.y + form.height, 'Recent analyses should start below the form card');

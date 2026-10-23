@@ -305,8 +305,10 @@
   border: 1px solid var(--cs-border-subtle); border-radius: 8px;
 }
 .rpt-heading__text { flex: 1; min-width: 0; }
-.rpt-heading__kicker { margin: 0 0 2px; font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }
-.rpt-heading__title { margin: 0; font-size: 20px; font-weight: var(--cs-font-weight-semibold); letter-spacing: -.025em; line-height: 1.25; color: var(--cs-text-primary); overflow-wrap: anywhere; }
+.rpt-heading__kicker { display: flex; align-items: center; gap: .625rem; margin: 0 0 .75rem; font-size: var(--cs-font-size-badge); font-weight: var(--cs-font-weight-semibold); letter-spacing: .12em; text-transform: uppercase; color: var(--cs-text-muted); }
+.rpt-heading__title { overflow-wrap: anywhere; }
+.screen-title.rpt-heading__title::before { display: none; }
+.rpt-heading__kicker::before { content: ""; inline-size: 1.5rem; block-size: 2px; background: var(--cs-accent-clay); }
 .rpt-heading__sub { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--cs-text-secondary); }
 .rpt-heading__chips { display: inline-flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
 .rpt-screen > .workspace-tabs { margin-top: -4px; }

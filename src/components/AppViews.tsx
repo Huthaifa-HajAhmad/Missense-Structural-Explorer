@@ -12,6 +12,7 @@ import { WorkspaceLayout } from "./ui/WorkspaceLayout";
 import { EvidenceWorkspaceProvider } from './evidence/EvidenceWorkspace';
 import { WorkspaceSelection } from "./ui/WorkspaceSelection";
 import { WorkspaceTabs } from "./ui/WorkspaceTabs";
+import { AnalysisEmptyState, emptyWorkspace } from "./ui/AnalysisEmptyState";
 import type { EnergyEngineId } from '../shared/engineStatus';
 import { buildStructureSelection, indexStructureResidues } from "../shared/structureSelection";
 import { landscapeKey } from "../shared/landscapeEvidence";
@@ -281,13 +282,14 @@ export function AppViews({
     setLiteratureSearchQuery(q);
     setLiteratureSearchVersion((v) => v + 1);
   }, []);
-  const [hasEverMountedStructure, setHasEverMountedStructure] = useState(isStructureActive);
+  const hasStructureContext = Boolean(analysisState.result || customPdbUrl || pdbText || esmFoldWtPdb);
+  const [hasEverMountedStructure, setHasEverMountedStructure] = useState(isStructureActive && hasStructureContext);
 
   useEffect(() => {
-    if (isStructureActive && !hasEverMountedStructure) {
+    if (isStructureActive && hasStructureContext && !hasEverMountedStructure) {
       setHasEverMountedStructure(true);
     }
-  }, [isStructureActive, hasEverMountedStructure]);
+  }, [isStructureActive, hasStructureContext, hasEverMountedStructure]);
 
   const handleSearchSubmitAndOpen = useCallback((e: React.FormEvent) => {
     handleSearchSubmit(e);
@@ -387,6 +389,10 @@ export function AppViews({
    */
   const { resynthesize: handleRetryNarrative } = useNarrativeResynthesis();
 
+  const idleWorkspace = !analysisState.result && !analysisState.isLoading && !analysisState.error
+    && !(isStructureActive && (customPdbUrl || pdbText))
+    ? emptyWorkspace(masterView, activeEvidenceTab) : null;
+
   return (
     <main className="app-view flex-1 relative overflow-hidden transition-all duration-300">
       <Suspense fallback={
@@ -395,7 +401,10 @@ export function AppViews({
           <span className="text-xs font-mono text-slate-400">Loading view...</span>
         </div>
       }>
-        <EvidenceWorkspaceProvider result={analysisState.result}>
+        {idleWorkspace ? <AnalysisEmptyState workspace={idleWorkspace} onSearch={() => {
+          setMasterView('search');
+          requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.qe__input')?.focus());
+        }} /> : <EvidenceWorkspaceProvider result={analysisState.result}>
         <WorkspaceLayout kind={masterView === "insights" || masterView === "literature" ? "review" : masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && ['clinical', 'predictors', 'alphagenome', 'gene-disease', 'expression-models', 'species-models', 'structure', 'perturbation', 'function', 'splicing', 'interfaces'].includes(activeEvidenceTab) ? 'evidence' : undefined}>
           <div className="data-screen-primary">
             {/* SEARCH VIEW — high-density structured workspace */}
@@ -508,7 +517,7 @@ export function AppViews({
               style={{ display: isStructureActive ? "flex" : "none" }}
             >
               <header className="structure-workspace__header">
-                <div className="workspace-heading"><h2 tabIndex={-1} data-workspace-focus="structure">3D structure</h2><p>Inspect the selected residue in its structural context.</p></div>
+                <div className="workspace-heading"><h2 className="screen-title" tabIndex={-1} data-workspace-focus="structure">3D structure</h2><p>Inspect the selected residue in its structural context.</p></div>
                 <WorkspaceSelection position={selectedResidueIndex} variantPosition={variantPosition} destination="Open Landscape"
                   onNavigate={() => navigateWorkspace("landscape")} onReset={handleReturnToVariant} />
                 <WorkspaceTabs id="structure-family" label="Structure model" value={isEsm ? "esmfold" : "alphafold"}
@@ -518,7 +527,7 @@ export function AppViews({
               <div className="structure-workspace__canvas flex-1 min-h-0 relative" role="tabpanel"
                 id={`structure-family-panel-${isEsm ? "esmfold" : "alphafold"}`}
                 aria-labelledby={`structure-family-tab-${isEsm ? "esmfold" : "alphafold"}`}>
-                {hasEverMountedStructure && (
+                {hasEverMountedStructure && hasStructureContext && (
                   <ErrorBoundary
                     name="3D Structure"
                     onError={handleStructureError}
@@ -747,7 +756,7 @@ export function AppViews({
             />
           )}
         </WorkspaceLayout>
-        </EvidenceWorkspaceProvider>
+        </EvidenceWorkspaceProvider>}
       </Suspense>
     </main>
   );

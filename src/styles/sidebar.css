@@ -13,11 +13,11 @@
    ============================================================ */
 
 .ms-root {
-  --ms-row-h: 34px;
+  --ms-row-h: 44px;
   --ms-pad-x: 8px;
   --ms-row-pad-x: 12px;
-  --ms-tint: color-mix(in srgb, var(--cs-accent-clay) 10%, transparent);
-  --ms-tint-strong: color-mix(in srgb, var(--cs-accent-clay) 15%, transparent);
+  --ms-tint: color-mix(in oklch, var(--cs-accent-clay) 9%, transparent);
+  --ms-tint-strong: color-mix(in oklch, var(--cs-accent-clay) 14%, transparent);
   --ms-ease: cubic-bezier(0.23, 1, 0.32, 1);
 
   position: relative;
@@ -89,6 +89,7 @@
   white-space: nowrap;
   max-width: 200px;
   font-size: 14px;
+  font-family: var(--cs-font-serif);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--cs-text-primary);
@@ -130,9 +131,9 @@
 .ms-zone-label {
   display: block;
   padding: 18px var(--ms-row-pad-x) 6px;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--cs-text-muted);
   white-space: nowrap;
@@ -151,12 +152,24 @@
   display: flex;
   flex-direction: column;
 }
+.ms-parent-row { display: flex; align-items: stretch; border-radius: 8px; }
+.ms-parent-row:has(.ms-nav-btn[data-active="true"]) { background: var(--ms-tint); }
+.ms-parent-row > .ms-nav-btn { flex: 1; min-inline-size: 0; }
+.ms-parent-row > .ms-nav-btn[data-active="true"] { background: transparent; }
+.ms-group-toggle { display: flex; align-items: center; justify-content: center; flex: none; inline-size: 32px; min-block-size: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }
+.ms-group-toggle svg { inline-size: 14px; block-size: 14px; stroke-width: 1.5; }
+.ms-group-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.ms-group-toggle:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
+.ms-group-toggle:active, .ms-nav-btn:active, .ms-sub-btn:active { background: var(--ms-tint-strong); }
+@media (hover: hover) and (pointer: fine) {
+  .ms-group-toggle:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
+}
 
 /* ── Row ── */
 .ms-nav-btn {
   position: relative;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   width: 100%;
   min-height: var(--ms-row-h);
@@ -353,21 +366,10 @@
    leave the tab order only once they are actually gone. The tree line sits on
    the parent icon's centre line (row padding 12px + half the 16px icon). */
 .ms-sub-list {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  visibility: hidden;
-  transition: grid-template-rows 240ms var(--ms-ease),
-              opacity 160ms var(--ms-ease),
-              visibility 0s linear 240ms;
+  display: none;
 }
 .ms-sub-list[data-open="true"] {
-  grid-template-rows: 1fr;
-  opacity: 1;
-  visibility: visible;
-  transition: grid-template-rows 240ms var(--ms-ease),
-              opacity 160ms var(--ms-ease) 60ms,
-              visibility 0s;
+  display: block;
 }
 .ms-sub-list-inner {
   min-height: 0;
@@ -388,12 +390,12 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 28px;
+  min-block-size: 32px;
   padding: 0 8px;
   border-radius: 6px;
   text-align: left;
   cursor: pointer;
-  color: var(--cs-text-muted);
+  color: var(--cs-text-secondary);
   transition: background-color 120ms ease, color 120ms ease;
 }
 @media (hover: hover) and (pointer: fine) {
@@ -438,11 +440,9 @@
   background: var(--cs-accent-clay);
 }
 .ms-sub-label {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .ms-sub-btn[data-active="true"] .ms-sub-label {
   font-weight: 500;
@@ -456,6 +456,7 @@
   gap: 1px;
   padding: 6px var(--ms-pad-x) 8px;
   border-top: 1px solid var(--cs-border);
+  background: var(--cs-workbench-header-surface);
 }
 
 /* Keyboard focus — inset, so the scroll container's horizontal clip can't
@@ -500,7 +501,8 @@
   transition: none;
 }
 .ms-resize-handle:focus-visible {
-  outline: none;
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: -2px;
 }
 .ms-resize-handle:focus-visible::before {
   background: color-mix(in srgb, var(--cs-accent-clay) 70%, transparent);
@@ -524,6 +526,8 @@
   to { opacity: 1; }
 }
 @media (max-width: 899px) {
+  .ms-sub-btn, .ms-group-toggle { min-block-size: 44px; }
+  .ms-group-toggle { inline-size: 44px; }
   .ms-root {
     position: fixed;
     top: 0;

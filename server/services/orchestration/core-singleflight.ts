@@ -33,9 +33,9 @@
  *   persistence decision is shared.
  * • Each caller keeps its own PROGRESS. Listeners are fanned out per run, so a stream that owns the
  *   run streams previews even while a structural request is riding along. A caller that joins a run
- *   which is already partway through receives only the previews published AFTER it joined — never a
- *   replay of ones it missed, because a preview describes "settled so far", and a replayed stale map
- *   could step a source backwards from `ok` to `pending`.
+ *   which is already partway through receives the LATEST cumulative preview at once, then every one
+ *   published after. Never the history: a preview describes "settled so far", and replaying older
+ *   ones could step a source backwards from `ok` to `pending`.
  * • Only RUNNING runs are shared. The entry is removed the instant the run settles, so this is
  *   concurrency de-duplication, not a cache: the persisted payload and the staleness predicate remain
  *   the only cross-request memo, and a second request a second later re-reads the row it just wrote.
@@ -67,6 +67,7 @@ interface SharedCoreRun {
   key: string;
   promise: Promise<CoreAnalysisData>;
   listeners: Set<CoreAnalysisPartialListener>;
+  latestPartial: CoreAnalysisPartial | null;
   /**
    * The run's own ClinVar + predictor outcomes, handed out synchronously as it starts.
    *
@@ -139,7 +140,13 @@ export function runSharedCoreFetch(
   if (existing) {
     stats.joined += 1;
     existing.joiners += 1;
-    if (options.onPartial) existing.listeners.add(options.onPartial);
+    if (options.onPartial) {
+      existing.listeners.add(options.onPartial);
+      if (existing.latestPartial) {
+        try { options.onPartial(existing.latestPartial); }
+        catch { existing.listeners.delete(options.onPartial); }
+      }
+    }
     return joinRun(existing);
   }
 
@@ -155,6 +162,7 @@ export function runSharedCoreFetch(
     // Assigned below; the dispatch closure needs `run`, so the promise is attached afterwards.
     promise: undefined as unknown as Promise<CoreAnalysisData>,
     listeners,
+    latestPartial: null,
     fastTriage: null,
     startedAt: Date.now(),
     joiners: 0,
@@ -162,6 +170,7 @@ export function runSharedCoreFetch(
   };
 
   const dispatch = (partial: CoreAnalysisPartial): void => {
+    run.latestPartial = partial;
     for (const listener of [...run.listeners]) {
       try {
         listener(partial);
