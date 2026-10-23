@@ -23,6 +23,9 @@ interface HeaderBarProps {
   activeEvidenceTab?: string;
   /** Narrow-viewport drawer trigger (App gates it via matchMedia). */
   showNavToggle?: boolean;
+  /** The drawer's state, so the trigger can expose it (aria-expanded). Undefined in
+      isolated renders; the attribute is only meaningful when the trigger is shown. */
+  navDrawerOpen?: boolean;
   onToggleNavDrawer?: () => void;
   /** Opens the command palette, which owns the query line and every jump. */
   onOpenPalette?: () => void;
@@ -75,6 +78,7 @@ export function HeaderBar({
   isOffline,
   activeEvidenceTab,
   showNavToggle = false,
+  navDrawerOpen,
   onToggleNavDrawer,
   onOpenPalette,
   error,
@@ -177,6 +181,8 @@ export function HeaderBar({
             className={CHROME_ICON_BUTTON}
             title="Open navigation"
             aria-label="Open navigation"
+            aria-expanded={navDrawerOpen ?? false}
+            aria-controls={navDrawerOpen === undefined ? undefined : "main-navigation"}
           >
             <PanelLeft className="w-4 h-4" />
           </button>

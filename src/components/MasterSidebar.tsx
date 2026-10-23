@@ -407,20 +407,29 @@ function MasterSidebar({
       ? SIDEBAR_WIDTH_COLLAPSED
       : sidebarWidth;
 
-  /* Drawer: Escape closes it (only while open), and opening moves focus into it — the current
-     row if there is one — so a keyboard user lands in the thing they just opened. */
+  /* Drawer: Escape closes it (only while open, and only when no upper layer - the
+     settings slide-over - owns the key). Opening moves focus into it, the current row
+     if there is one, so a keyboard user lands in the thing they just opened; closing
+     hands focus back to whatever opened it, usually the header trigger. Capture the
+     opener at open time: by cleanup time the overlooked control is already inert. */
   useEffect(() => {
     if (!isDrawerMode || !isDrawerOpen) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCloseDrawer?.();
+      if (e.defaultPrevented || e.key !== "Escape") return;
+      if (document.querySelector(".settings-dialog")) return;
+      onCloseDrawer?.();
     };
     document.addEventListener("keydown", onKey);
     const focusTimer = window.setTimeout(() => {
-      (activeRowRef.current ?? navRef.current?.querySelector<HTMLButtonElement>("button"))?.focus();
+      // preventScroll: the rail is still mid-slide when focus lands; the ring must not
+      // drag the rest of the page.
+      (activeRowRef.current ?? navRef.current?.querySelector<HTMLButtonElement>("button"))?.focus({ preventScroll: true });
     }, 0);
     return () => {
       document.removeEventListener("keydown", onKey);
       window.clearTimeout(focusTimer);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
     };
   }, [isDrawerMode, isDrawerOpen, onCloseDrawer]);
 
@@ -537,19 +546,36 @@ function MasterSidebar({
 
   return (
     <>
-      {isDrawerMode && isDrawerOpen &&
+      {isDrawerMode &&
         createPortal(
-          <div className="ms-drawer-backdrop" onClick={onCloseDrawer} aria-hidden="true" />,
+          /* Always mounted in drawer mode; data-open flips the CSS transition (see
+             sidebar.css) so the scrim fades out over the rail's slide-away instead
+             of unmounting on frame 0. When closed it is visibility:hidden, so it
+             never intercepts a click that should reach the workspace. */
+          <div
+            className="ms-drawer-backdrop"
+            data-open={isDrawerOpen ? "true" : "false"}
+            onClick={isDrawerOpen ? onCloseDrawer : undefined}
+            aria-hidden="true"
+          />,
           document.body
         )}
 
       <aside
+        id="main-navigation"
         className="ms-root"
         data-collapsed={collapsed}
         data-resizing={isResizing || undefined}
         data-drawer={isDrawerMode ? (isDrawerOpen ? "open" : "closed") : undefined}
         inert={isDrawerMode && !isDrawerOpen ? true : undefined}
-        style={{ width: currentWidth, minWidth: currentWidth }}
+        /* Drawer mode is a modal: the app-main background is inert while it is open
+           (App.tsx), so this can announce itself as a dialog. On desktop it stays
+           a complementary landmark next to the workspace. */
+        role={isDrawerMode ? "dialog" : undefined}
+        aria-modal={isDrawerMode ? "true" : undefined}
+        /* In drawer mode the cap dies if inline min-width wins the cascade, so it
+           is not set there (see .ms-root max-inline-size in sidebar.css). */
+        style={{ width: currentWidth, minWidth: isDrawerMode ? undefined : currentWidth }}
         aria-label="Main navigation"
       >
         {/* ── Brand + collapse / close ── */}
@@ -591,7 +617,7 @@ function MasterSidebar({
               <button
                 type="button"
                 onClick={onCloseDrawer}
-                className={`${CHROME_ICON_BUTTON} ml-auto`}
+                className={`${CHROME_ICON_BUTTON} ms-root-close ml-auto`}
                 title="Close navigation"
                 aria-label="Close navigation"
               >

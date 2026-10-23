@@ -139,10 +139,20 @@ export default function App() {
   );
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 899px)");
-    const onChange = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    const onChange = (e: MediaQueryListEvent) => {
+      setIsNarrowViewport(e.matches);
+      // Widening demotes the drawer: an open-at-narrow flag must not linger for the
+      // next narrowing to restore unexpectedly.
+      if (!e.matches) setIsNavDrawerOpen(false);
+    };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+  /* Stable identities: the drawer's focus/Escape effect re-arms on every App render
+     if these are fresh lambdas (App re-renders on every pipeline tick), and that
+     would steal focus back to the active nav row right when the reader tabbed away. */
+  const closeNavDrawer = useCallback(() => setIsNavDrawerOpen(false), []);
+  const toggleNavDrawer = useCallback(() => setIsNavDrawerOpen((open) => !open), []);
 
   /* Every sidebar-or-app navigation funnels here so the drawer dismisses itself
      after a selection — on desktop the state flip is a harmless no-op. */
@@ -237,7 +247,12 @@ export default function App() {
     <MotionConfig reducedMotion={settings.reducedMotion ? "always" : "user"}>
       <VariantAnalysisProvider>
         {analysisState.result && !analysisState.result.isDemoData && <EvidenceContextPrefetch key={analysisState.result.metadata?.gene} result={analysisState.result} />}
-        <div className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}>
+        <div
+          className={`app-shell font-sans select-none antialiased transition-colors duration-200 ${classRoot}`}
+          /* The variant strip's block reservation lives in CSS (.app-shell[data-variant-chrome]);
+             fixed-height views derive --cs-masthead from it. */
+          data-variant-chrome={showVariantChrome ? "true" : undefined}
+        >
 
         {/* ── Resizable and Collapsible Master Sidebar ── */}
         <MasterSidebar
@@ -249,7 +264,7 @@ export default function App() {
           onToggleCollapse={toggleSidebar}
           isDrawerMode={isNarrowViewport}
           isDrawerOpen={isNavDrawerOpen}
-          onCloseDrawer={() => setIsNavDrawerOpen(false)}
+          onCloseDrawer={closeNavDrawer}
           activeEvidenceTab={activeEvidenceTab}
           onEvidenceTabChange={setActiveEvidenceTab}
           analysisResult={analysisState.result}
@@ -267,7 +282,12 @@ export default function App() {
         />
 
         {/* ── App Main Viewport ── */}
-        <div className="app-main flex flex-col flex-1 relative overflow-hidden">
+        <div
+          className="app-main flex flex-col flex-1 relative overflow-hidden"
+          /* While the drawer is open it is the modal (see the aside in MasterSidebar):
+             everything behind the scrim is inert — no rogue Tab, no background clicks. */
+          inert={isNavDrawerOpen ? true : undefined}
+        >
 
           {/* ── Slim Header Bar with integrated alerts + global chrome actions ── */}
           <HeaderBar
@@ -276,7 +296,8 @@ export default function App() {
             isOffline={isOffline}
             activeEvidenceTab={activeEvidenceTab}
             showNavToggle={isNarrowViewport}
-            onToggleNavDrawer={() => setIsNavDrawerOpen((open) => !open)}
+            navDrawerOpen={isNavDrawerOpen}
+            onToggleNavDrawer={toggleNavDrawer}
             onOpenPalette={() => setIsPaletteOpen(true)}
             error={analysisState.error}
             onDismissError={() => actions.setAnalysisState((prev: any) => ({ ...prev, error: null }))}
