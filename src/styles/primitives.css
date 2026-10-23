@@ -22,7 +22,12 @@
 .acct-avatar-btn::after,
 .jobs-icon-btn::after,
 .jobs-cancel::after,
-.ms-brand-mark::after {
+.ms-brand-mark::after,
+/* The nav's two 32px chrome controls are the only ways in and out of the drawer —
+   the repo's own 44px tap rule applies to them, not to the 32px row controls beside
+   them (their overlays would overlap the dense header row). */
+header.app-header button[aria-controls="main-navigation"]::after,
+.ms-brand .ms-root-close::after {
   content: "";
   position: absolute;
   inset: min(0px, (100% - 44px) / 2);

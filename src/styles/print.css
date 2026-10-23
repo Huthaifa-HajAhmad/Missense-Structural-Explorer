@@ -31,6 +31,33 @@
     display: block !important;
   }
 
+  /* The floating shell is screen chrome: release its inset, flex gap and card frames
+     so the document starts at the page margin. The variant strip stays screen chrome -
+     its run state and recovery actions have no meaning on paper - so it is hidden
+     outright; the identity the page titles itself with already prints via .vid-zone. */
+  .app-shell {
+    display: block;
+    height: auto;
+    overflow: visible;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+  .app-header,
+  .app-header + .variant-header {
+    border: 0 !important;
+    border-radius: 0 !important;
+    margin-block-end: 0 !important;
+    background: transparent !important;
+  }
+  /* The nav trigger lives inside the identity zone, so the child-hiding rule above
+     cannot see it. */
+  header.app-header .vid-zone > button {
+    display: none !important;
+  }
+  .variant-header {
+    display: none !important;
+  }
+
   .report-screen-only,
   /* The top bar prints only the variant identity it titles itself with (`.vid-zone`): search,
      actions and notices are screen chrome, but the variant is what a printed page is about. */

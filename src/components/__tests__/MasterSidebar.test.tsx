@@ -105,6 +105,23 @@ describe("MasterSidebar — collapsed rail", () => {
 });
 
 describe("MasterSidebar — drawer mode", () => {
+  it("a closed drawer is out of the interaction tree; an open one is live", () => {
+    const { rerender } = render(
+      <MasterSidebar {...setup({ isDrawerMode: true, isDrawerOpen: false })} />
+    );
+    const rail = document.querySelector("aside.ms-root") as HTMLElement;
+    expect(rail).toHaveAttribute("data-drawer", "closed");
+    // inert is the actual gate for focus and the a11y tree; data-drawer is what the
+    // e2e suite reads, so both are pinned here at the unit level.
+    expect(rail).toHaveAttribute("inert");
+    expect(rail).toHaveAttribute("aria-modal", "true");
+
+    rerender(<MasterSidebar {...setup({ isDrawerMode: true, isDrawerOpen: true })} />);
+    expect(rail).toHaveAttribute("data-drawer", "open");
+    expect(rail).not.toHaveAttribute("inert");
+    expect(rail).not.toHaveAttribute("aria-modal", "false");
+  });
+
   it("closes the drawer from its own header instead of flipping the desktop preference", () => {
     const onCloseDrawer = vi.fn();
     const onToggleCollapse = vi.fn();
