@@ -7,7 +7,12 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await browser.setViewport({ width: 1440, height: 1000 });
   await app.open('/');
   // A closed drawer is `visibility: hidden` and inert; read that from the DOM, since the locator still resolves its controls.
-  const drawerClosed = () => browser.evaluate(() => { const rail = document.querySelector('aside.ms-root')!; return rail.getAttribute('data-drawer') === 'closed' && getComputedStyle(rail).visibility === 'hidden'; });
+  const drawerClosed = () => browser.evaluate(async () => {
+    const rail = document.querySelector('aside.ms-root')!;
+    const read = () => `${rail.getAttribute('data-drawer')}/${getComputedStyle(rail).visibility}/${rail.hasAttribute('inert')}`;
+    for (let i = 0; i < 40 && read() !== 'closed/hidden/true'; i++) await new Promise(r => setTimeout(r, 100));
+    return read();
+  });
   const settle = () => browser.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))).then(() => true));
   await screen.getByRole('button', 'Expand Evidence navigation').tap();
   await expect(screen.getByRole('button', 'Collapse Evidence navigation')).toBeExpanded();
@@ -45,9 +50,9 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await screen.getByRole('button', 'RNA splicing', { exact: true }).tap();
   await expect(screen.getByRole('heading', 'RNA splicing')).toBeVisible();
   await settle();
-  expect(await drawerClosed(), 'the drawer closes after a pick').toBe(true);
+  expect(await drawerClosed(), 'the drawer closes after a pick').toBe('closed/hidden/true');
   await screen.getByRole('button', 'Open navigation').tap();
   await screen.getByRole('button', 'Close navigation').press('Escape');
   await settle();
-  expect(await drawerClosed(), 'Escape closes the drawer').toBe(true);
+  expect(await drawerClosed(), 'Escape closes the drawer').toBe('closed/hidden/true');
 });
