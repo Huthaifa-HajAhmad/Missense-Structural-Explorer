@@ -3,10 +3,10 @@
 .ctx-screen { display: flex; flex-direction: column; gap: 20px; container-type: inline-size; }
 .ctx-screen h1, .ctx-screen h2, .ctx-rail h2, .ctx-rail h3, .ctx-screen p, .ctx-rail p { margin: 0; }
 .ctx-card { background: var(--cs-surface); border: 1px solid var(--cs-border); border-radius: var(--cs-radius-card); overflow: hidden; }
-.ctx-card__head { min-height: 42px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 16px; background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle); }
+.ctx-card__head { min-height: 42px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 16px; background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle); }
 .ctx-card__head h2, .ctx-eyebrow, .ctx-table thead th, .ctx-rail h2, .ctx-rail h3 { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }
 .ctx-card__body { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
-.ctx-card__foot { padding: 12px 16px; background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle); font-size: 12px; color: var(--cs-text-muted); }
+.ctx-card__foot { padding: 12px 16px; background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle); font-size: 12px; color: var(--cs-text-muted); }
 /* Prose fills the card; a 72ch cap left every paragraph stopping well short of the card's
    right edge on wide windows (same dead hole the report tab had). */
 .ctx-label { color: var(--cs-text-primary); font-size: 13px; font-weight: 500; }
@@ -36,7 +36,7 @@
 .ctx-table-wrap { overflow: auto; }
 .ctx-table { border-collapse: collapse; width: 100%; min-width: 480px; text-align: left; }
 .ctx-table th, .ctx-table td { padding: 11px 16px; vertical-align: top; }
-.ctx-table thead { background: var(--cs-surface-2); }
+.ctx-table thead { background: var(--cs-workbench-header-surface); }
 .ctx-table tbody th { font-weight: 500; color: var(--cs-text-primary); }
 .ctx-table tbody tr + tr > * { border-top: 1px solid var(--cs-border-subtle); }
 .ctx-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }

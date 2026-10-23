@@ -59,8 +59,19 @@ const ZONE_PURPOSE: Record<string, string> = {
 
 const FOOTER_VIEW_IDS: MasterView[] = ["console", "about"];
 
-const WORKSPACE_ZONES: { title: string; items: NavItem[] }[] = [
-  ...NAV_ZONES.map((zone) => ({ title: zone.zoneLabel ?? "Search", items: zone.items })),
+/**
+ * `index` is the number the sidebar prints beside the zone (its CSS counter counts labelled zones
+ * only), so the map and the rail never disagree: Search and the pinned tools carry no number there,
+ * and none here.
+ */
+const WORKSPACE_ZONES: { title: string; index?: string; items: NavItem[] }[] = [
+  ...NAV_ZONES.map((zone) => ({
+    title: zone.zoneLabel ?? "Search",
+    index: zone.zoneLabel
+      ? String(NAV_ZONES.filter((z) => z.zoneLabel).indexOf(zone) + 1).padStart(2, "0")
+      : undefined,
+    items: zone.items
+  })),
   { title: "Tools", items: MASTER_VIEW_ITEMS.filter((item) => FOOTER_VIEW_IDS.includes(item.id)) }
 ];
 
@@ -290,31 +301,51 @@ function CopyGlyph({ done }: { done: boolean }) {
   );
 }
 
-function SectionHeading({
-  children,
-  id,
-  count,
-  eyebrow,
-  blurb,
-  level = 2
-}: {
-  children: React.ReactNode;
-  id: string;
-  count?: number | string;
-  eyebrow?: string;
-  blurb?: React.ReactNode;
-  level?: 2 | 3;
-}) {
-  const Tag = level === 2 ? "h2" : "h3";
+/** A credit group's title: the one serif rank inside the attribution panel. */
+function GroupHeading({ children, id, count }: { children: React.ReactNode; id: string; count: number | string }) {
   return (
-    <div className="about-heading">
-      {eyebrow && <p className="about-eyebrow">{eyebrow}</p>}
-      <Tag id={id} className={level === 2 ? "about-section-title" : "about-group-title"}>
+    <h3 id={id} className="about-group-title">
+      {children}
+      <span className="about-section-count">{count}</span>
+    </h3>
+  );
+}
+
+/**
+ * One numbered About section, in the workspace's panel grammar (the Search composer is the
+ * reference): a header strip carrying the index and the title, then a bright body. The section id
+ * stays on the outer element, so the contents list and deep links land on the panel's top edge.
+ */
+function AboutPanel({
+  id,
+  index,
+  title,
+  count,
+  blurb,
+  children
+}: {
+  id: string;
+  index: number;
+  title: React.ReactNode;
+  count?: number | string;
+  blurb?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const titleId = `${id}-title`;
+  return (
+    <section id={id} className="about-section about-panel" aria-labelledby={titleId}>
+      <div className="about-panel-head">
+        <span className="workbench-index" aria-hidden="true">{String(index).padStart(2, "0")}</span>
+        <h2 id={titleId} className="about-section-title">
+          {title}
+          {count !== undefined && <span className="about-section-count">{count}</span>}
+        </h2>
+      </div>
+      <div className="about-panel-body">
+        {blurb && <p className="about-section-blurb">{blurb}</p>}
         {children}
-        {count !== undefined && <span className="about-section-count">{count}</span>}
-      </Tag>
-      {blurb && <p className="about-section-blurb">{blurb}</p>}
-    </div>
+      </div>
+    </section>
   );
 }
 
@@ -725,17 +756,19 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
   return (
     <div className="about-view">
       <div className="about-shell">
-        {/* ── Brand block ── */}
-        <header className="about-hero">
-          <div className="about-hero-main">
+        {/* ── Page heading: the same framing as "Analyse a variant." ── */}
+        <header className="about-masthead">
+          <div className="about-masthead-row">
             <div className="about-mark" aria-hidden="true">
-              <BrandMark size={48} />
+              <BrandMark size={40} />
             </div>
             <div className="min-w-0">
-              <p className="about-eyebrow">Scientific Provenance &amp; Disclosures</p>
-              <h1 className="about-title">About Missense &amp; Fold</h1>
+              <h1 className="about-title">
+                About Missense &amp; Fold<span aria-hidden="true">.</span>
+              </h1>
               <p className="about-tagline">
-                A structural exploration workspace for human missense variants.
+                A structural exploration workspace for human missense variants: what it is built on,
+                where a query is sent, and how to cite it.
               </p>
             </div>
           </div>
@@ -764,9 +797,10 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
 
         <div className="about-layout">
           {/* ── Left column: the reading column ── */}
-          <main className="about-prose">
-            <section id="about-overview" className="about-section" aria-labelledby="about-overview-title">
-              <SectionHeading id="about-overview-title">What this workspace is</SectionHeading>
+          {/* Not a <main>: the app shell already provides the page's one main landmark. */}
+          <div className="about-prose">
+            <AboutPanel id="about-overview" index={1} title="What this workspace is">
+              <div className="about-lede-pair">
               <p className="about-lede">
                 Give Missense &amp; Fold a gene and an HGVS protein notation, and it resolves the
                 variant's protein context — structure, energetics, splicing, conservation — then
@@ -778,22 +812,24 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                 revisions and service states behind that one run. This page covers the rest —
                 everything the workspace depends on, where a query is sent, and who to credit.
               </p>
-            </section>
+              </div>
+            </AboutPanel>
 
-            <section id="about-workflow" className="about-section" aria-labelledby="about-workflow-title">
-              <SectionHeading
-                id="about-workflow-title"
-                blurb="The sidebar, zone by zone. Views open from here as they do from the sidebar."
-              >
-                Workspace map
-              </SectionHeading>
+            <AboutPanel
+              id="about-workflow"
+              index={2}
+              title="Workspace map"
+              blurb="The sidebar, zone by zone. Views open from here as they do from the sidebar."
+            >
               <ol className="about-zones">
-                {WORKSPACE_ZONES.map((zone, index) => (
+                {WORKSPACE_ZONES.map((zone) => (
                   <li key={zone.title} className="about-zone">
                     <div className="about-zone-head">
-                      <span className="about-zone-index" aria-hidden="true">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
+                      {zone.index && (
+                        <span className="about-zone-index" aria-hidden="true">
+                          {zone.index}
+                        </span>
+                      )}
                       <h3 className="about-zone-name">{zone.title}</h3>
                     </div>
                     {ZONE_PURPOSE[zone.title] && <p className="about-zone-desc">{ZONE_PURPOSE[zone.title]}</p>}
@@ -836,14 +872,15 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                   </li>
                 ))}
               </ol>
-            </section>
+            </AboutPanel>
 
             {/* ── Attribution & acknowledgments ── */}
-            <section id="about-credits" className="about-section" aria-labelledby="about-credits-title">
-              <SectionHeading
-                id="about-credits-title"
-                count={ATTRIBUTION_ENTRY_COUNT}
-                blurb={
+            <AboutPanel
+              id="about-credits"
+              index={3}
+              title={<>Attribution &amp; acknowledgments</>}
+              count={ATTRIBUTION_ENTRY_COUNT}
+              blurb={
                   <>
                     Missense &amp; Fold is a composition: the models, databases and services below
                     were built by other groups and are used under their own terms. Each entry names
@@ -854,9 +891,6 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                   </>
                 }
               >
-                Attribution &amp; acknowledgments
-              </SectionHeading>
-
               <CreditToolbar
                 query={query}
                 onQuery={setQuery}
@@ -895,13 +929,12 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                     className={`about-group${hidden ? " about-group-empty" : ""}`}
                     aria-labelledby={`${group.id}-title`}
                   >
-                    <SectionHeading
+                    <GroupHeading
                       id={`${group.id}-title`}
-                      level={3}
                       count={filtering ? `${entries.length} / ${group.entries.length}` : group.entries.length}
                     >
                       {group.title}
-                    </SectionHeading>
+                    </GroupHeading>
                     {hidden ? (
                       <p className="about-group-blurb">No matches in this group.</p>
                     ) : (
@@ -917,17 +950,16 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                   </section>
                 );
               })}
-            </section>
+            </AboutPanel>
 
             {/* ── Where a query is sent ── */}
-            <section id="about-transmission" className="about-section" aria-labelledby="about-transmission-title">
-              <SectionHeading
-                id="about-transmission-title"
-                count={DISCLOSED_HOST_COUNT}
-                blurb={QUERY_TRANSMISSION.blurb}
-              >
-                Where a query is sent
-              </SectionHeading>
+            <AboutPanel
+              id="about-transmission"
+              index={4}
+              title="Where a query is sent"
+              count={DISCLOSED_HOST_COUNT}
+              blurb={QUERY_TRANSMISSION.blurb}
+            >
               <dl className="about-hosts">
                 {QUERY_TRANSMISSION.hosts.map((host) => (
                   <div key={host.host} className="about-host">
@@ -955,18 +987,17 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                   .
                 </span>
               </p>
-            </section>
+            </AboutPanel>
 
             {/* ── How to cite ── */}
-            <section id="about-citation" className="about-section" aria-labelledby="about-citation-title">
-              <SectionHeading
-                id="about-citation-title"
-                blurb="One entry for this workspace. A report produced here also rests on the sources credited above — cite the ones the run actually used; its exported provenance manifest names them."
-              >
-                How to cite this workspace
-              </SectionHeading>
+            <AboutPanel
+              id="about-citation"
+              index={5}
+              title="How to cite this workspace"
+              blurb="One entry for this workspace. A report produced here also rests on the sources credited above — cite the ones the run actually used; its exported provenance manifest names them."
+            >
               <CitationBlock />
-            </section>
+            </AboutPanel>
 
             {/* ── Research-use disclaimer ── */}
             <section id="about-disclaimer" className="about-section about-section-last" aria-labelledby="about-disclaimer-title">
@@ -977,6 +1008,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                     Research use only
                   </h2>
                 </div>
+                <div className="about-lede-pair">
                 <p className="about-disclaimer-body">
                   This workspace is research software. Its pathogenicity predictions, ACMG/AMP
                   classifications and ΔΔG estimates are decision support, not a diagnosis, and can be
@@ -990,14 +1022,15 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                   identifier should ever be typed into it — including the optional directions field,
                   whose screening for identifiers is best-effort rather than a guarantee.
                 </p>
+                </div>
               </div>
             </section>
-          </main>
+          </div>
 
           {/* ── Right column: contents and the provenance rail (sticky on wide screens) ── */}
           <aside className="about-rail" aria-label="On this page and run provenance">
-            <nav className="about-toc" aria-label="On this page">
-              <h2 className="about-rail-title">On this page</h2>
+            <nav className="about-rail-panel about-toc" aria-label="On this page">
+              <h2 className="about-rail-head">On this page</h2>
               <ol className="about-toc-list">
                 {CONTENTS.map((entry) => (
                   <li key={entry.id} data-level={entry.level}>
@@ -1016,8 +1049,10 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
               </ol>
             </nav>
 
+            <div className="about-rail-panel">
+            <h2 className="about-rail-head">Run provenance</h2>
             <section className="about-rail-section" aria-labelledby="about-rail-models">
-              <h2 id="about-rail-models" className="about-rail-title">Pinned model revisions</h2>
+              <h3 id="about-rail-models" className="about-rail-title">Pinned model revisions</h3>
               <p className="about-rail-hint">
                 Weights are pinned so a result can be re-derived later; one run's pins are copied
                 into its exported manifest.
@@ -1033,7 +1068,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
             </section>
 
             <section className="about-rail-section" aria-labelledby="about-rail-sources">
-              <h2 id="about-rail-sources" className="about-rail-title">Manifest data sources</h2>
+              <h3 id="about-rail-sources" className="about-rail-title">Manifest data sources</h3>
               <p className="about-rail-hint">
                 The release strings an export declares.{" "}
                 <AlertTriangle className="about-kv-flag about-kv-flag-inline" aria-hidden="true" /> marks
@@ -1071,6 +1106,7 @@ export default function AboutView({ onOpenOnboarding, onNavigateToView }: AboutV
                 <Settings2 className="w-3.5 h-3.5" aria-hidden="true" />
                 Manage data &amp; caches
               </button>
+            </div>
             </div>
           </aside>
         </div>

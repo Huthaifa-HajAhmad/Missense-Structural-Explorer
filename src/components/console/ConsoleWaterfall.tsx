@@ -178,7 +178,7 @@ export default function ConsoleWaterfall({ runs, activeRun, onSelectRun, onExpor
           {!activeRun || activeRun.spans.length === 0 || !timeline ? (
             <div className="dev-console-empty">
               <Layers aria-hidden />
-              <h3>No Active Trace Recorded</h3>
+              <h3>No trace recorded yet</h3>
               <p>
                 Search a variant (e.g. <code>TP53 R175H</code>) to capture per-operation latency across the four pipeline stages.
               </p>

@@ -94,12 +94,15 @@ test('Literature stacks its white panels with one page scroller on mobile', { ta
     const main = workspace.querySelector('.data-screen-primary')!;
     const literature = main.querySelector('.lit-view')!;
     const inspector = workspace.querySelector('[data-workspace-inspector]')!;
-    return getComputedStyle(literature).backgroundColor === getComputedStyle(main).backgroundColor &&
-      getComputedStyle(main).backgroundColor !== getComputedStyle(inspector).backgroundColor &&
+    const heading = inspector.querySelector('.inspector-heading');
+    return heading !== null &&
+      getComputedStyle(literature).backgroundColor === getComputedStyle(main).backgroundColor &&
+      getComputedStyle(main).backgroundColor === getComputedStyle(inspector).backgroundColor &&
+      getComputedStyle(heading).backgroundColor !== getComputedStyle(main).backgroundColor &&
       getComputedStyle(literature).overflowY === 'visible' &&
       main.getBoundingClientRect().bottom <= inspector.getBoundingClientRect().top &&
       document.documentElement.scrollWidth <= innerWidth;
-  }), 'stacked panels retain distinct primary/context surfaces and one workspace scroller').toBe(true);
+  }), 'stacked panels share one body surface, the inspector keeps its header wash, and one workspace scroller').toBe(true);
   await app.screenshot('literature-mobile');
 });
 
@@ -129,13 +132,13 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
         noNativeBar: getComputedStyle(nav).scrollbarWidth === 'none',
         noChevrons: nav.querySelectorAll('.lucide-chevron-down, .lucide-chevron-right').length === 0,
         oneCurrent: current.length === 1 && current[0] === active,
-        chip: getComputedStyle(active).boxShadow !== 'none',
+        cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow === 'none',
         branchOnTop: branch.zIndex === '1' && branch.borderLeftColor !== trunk.borderLeftColor,
         trunkLegible: contrast(trunk.borderLeftColor, canvas) >= 1.5,
       };
     });
     expect(result, `${theme} sidebar contract`).toEqual({
-      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, chip: true, branchOnTop: true, trunkLegible: true,
+      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, branchOnTop: true, trunkLegible: true,
     });
     await app.screenshot(`sidebar-tree-${theme}`);
     if (theme === 'light') await screen.getByRole('button', 'Switch to dark mode').tap();

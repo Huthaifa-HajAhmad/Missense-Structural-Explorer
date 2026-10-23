@@ -11,7 +11,7 @@
 .query-route__fields { display: flex; flex-direction: column; gap: 1rem; }
 .query-reference { display: flex; flex-direction: column; gap: .375rem; }
 /* The chip row and the disclosure share ONE line: they are one cluster ("try this, or see the rest"), and
-   stacking them put the disclosure further from the chip than the chip was from its input â€” which inverted
+   stacking them put the disclosure further from the chip than the chip was from its input — which inverted
    the hierarchy and added a row of chrome under every notation field. The OPEN panel takes the full row, so
    its chips lay out across the column rather than under the summary's own width. */
 .query-examples { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; color: var(--cs-text-muted); font-size: 11px; }
@@ -19,18 +19,18 @@
 .query-examples__more { padding-block: .375rem; }
 .query-examples details { max-inline-size: 100%; }
 .query-examples details[open] { flex-basis: 100%; }
-.query-example { max-inline-size: 100%; min-block-size: 1.75rem; padding: .125rem .375rem; border: 0; border-radius: var(--cs-radius-badge); background: var(--cs-surface-2); color: var(--cs-text-secondary); font-family: var(--cs-font-mono); font-size: 11px; overflow-wrap: anywhere; text-align: start; cursor: pointer; }
+.query-example { max-inline-size: 100%; min-block-size: 1.75rem; padding: .125rem .5rem; border: 1px solid var(--cs-border-subtle); border-radius: var(--cs-radius-badge); background: var(--cs-workbench-header-surface); color: var(--cs-text-secondary); font-family: var(--cs-font-mono); font-size: 11px; overflow-wrap: anywhere; text-align: start; cursor: pointer; }
 .query-examples summary { min-block-size: 1.75rem; align-content: center; cursor: pointer; }
 /* Helper line under a row's control. */
 .query-route__help { margin: 0; font-size: 11px; line-height: 1rem; color: var(--cs-text-muted); }
 /* Row 3 of each column: a hairline, then the optional (UniProt) or route (coordinate) content. The min-height
    keeps the two columns' row-3 hairlines on one line even when one column's content is a single line. */
 .query-route__aside { display: flex; flex-direction: column; gap: .375rem; padding-block-start: .75rem; border-top: 1px solid var(--cs-border-subtle); }
-/* Reserved heights only while the two columns sit SIDE BY SIDE â€” the grid's own threshold, 2 Ã— 16rem + the
+/* Reserved heights only while the two columns sit SIDE BY SIDE — the grid's own threshold, 2 × 16rem + the
    1.5rem gap. They exist to keep rows on one baseline across the columns; stacked, they are empty space.
    The reservation is driven by `data-help-lines` on `.query-routes` (0/1/2, from the panel): the gene hint is
    a full sentence at this width, so it needs two lines, and a build hint fits on one. Reserving two lines
-   unconditionally cost 32px of dead air under the first control in the ordinary no-hint state â€” three times
+   unconditionally cost 32px of dead air under the first control in the ordinary no-hint state — three times
    every other gap in the form. Row 3 keeps a flat floor instead: both hairlines land on one line whether the
    column's content is an input plus a badge or a single status sentence. */
 @container (min-width: 33.5rem) {

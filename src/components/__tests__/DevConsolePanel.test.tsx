@@ -39,7 +39,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     expect(screen.getByRole("tab", { name: /errors/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /live events/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /waterfall/i })).toBeInTheDocument();
-    expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
+    expect(screen.getByText("No errors captured")).toBeInTheDocument();
   });
 
   it("switches to Live Events stream and displays live empty state", () => {
@@ -52,7 +52,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     const liveBtn = screen.getByRole("tab", { name: /live events/i });
     fireEvent.click(liveBtn);
 
-    expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
+    expect(screen.getByText("No live events yet")).toBeInTheDocument();
   });
 
   it("switches to Pipeline Waterfall and displays trace run or empty state", () => {
@@ -65,7 +65,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     const waterfallBtn = screen.getByRole("tab", { name: /waterfall/i });
     fireEvent.click(waterfallBtn);
 
-    expect(screen.getByText(/No Active Trace Recorded/i)).toBeInTheDocument();
+    expect(screen.getByText(/No trace recorded yet/i)).toBeInTheDocument();
   });
 
   it("captures errors, displays impact badges, and opens diagnostic inspector", () => {
@@ -192,7 +192,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
     );
 
     // The error stream is empty, but the panel must not claim everything is fine.
-    expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
+    expect(screen.getByText("No errors captured")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /2 pipeline operations failed or unavailable/i }));
 
     expect(screen.getByRole("button", { name: /DDMUT Biophysical Job Execution.*unavailable/i })).toBeInTheDocument();
@@ -254,7 +254,7 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
       "aria-selected",
       "true"
     );
-    expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
+    expect(screen.getByText("No live events yet")).toBeInTheDocument();
 
     fireEvent.keyDown(tablist, { key: "ArrowLeft" });
     expect(screen.getByRole("tab", { name: /errors/i })).toHaveAttribute(
@@ -385,12 +385,43 @@ describe("DevConsolePanel & DevConsoleContext Tests", () => {
 
     // Second click purges everything.
     fireEvent.click(screen.getByRole("button", { name: /confirm clear all/i }));
-    expect(screen.getByText("Zero Active Errors")).toBeInTheDocument();
+    expect(screen.getByText("No errors captured")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /live events/i }));
-    expect(screen.getByText("Live Log Stream Idle")).toBeInTheDocument();
+    expect(screen.getByText("No live events yet")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: /waterfall/i }));
-    expect(screen.getByText("No Active Trace Recorded")).toBeInTheDocument();
+    expect(screen.getByText("No trace recorded yet")).toBeInTheDocument();
+  });
+});
+
+describe("Console page structure", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("titles the page, then the stream panel, without skipping a heading level", () => {
+    render(
+      <DevConsoleProvider>
+        <DevConsolePanel />
+      </DevConsoleProvider>
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Console" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Console streams" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Console streams" })).toBeInTheDocument();
+    // The metrics belong to the selected stream, so they live inside its tab panel.
+    expect(screen.getByRole("tabpanel")).toContainElement(screen.getByRole("region", { name: "Console metrics" }));
+  });
+
+  it("routes '/' to the filter field even from the page heading's actions", () => {
+    render(
+      <DevConsoleProvider>
+        <DevConsolePanel />
+      </DevConsoleProvider>
+    );
+    const clearAll = screen.getByRole("button", { name: /clear all console data/i });
+    clearAll.focus();
+    fireEvent.keyDown(clearAll, { key: "/" });
+    expect(screen.getByRole("textbox", { name: /search error entries/i })).toHaveFocus();
   });
 });

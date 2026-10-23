@@ -162,7 +162,7 @@
   justify-content: space-between;
   gap: 8px 16px;
   padding: 8px 16px;
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-bottom: 1px solid var(--cs-border-subtle);
 }
 .lit-scope { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -290,7 +290,7 @@
   padding: 0 16px;
   text-align: left;
   vertical-align: middle;
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-bottom: 1px solid var(--cs-border-subtle);
   white-space: nowrap;
 }

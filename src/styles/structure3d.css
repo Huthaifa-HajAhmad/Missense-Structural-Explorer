@@ -379,12 +379,12 @@ button.s3d-site { cursor: pointer; }
 }
 .s3d-pocket__head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 10px 12px; border-bottom: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2);
+  padding: 10px 12px; border-bottom: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface);
 }
 .s3d-pocket__body { padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .s3d-pocket__statement { margin: 0; font-size: var(--cs-font-size-caption); color: var(--cs-text-secondary); }
 .s3d-pocket__statement strong { display: block; color: var(--cs-text-primary); font-size: var(--cs-font-size-prose); font-weight: var(--cs-font-weight-semibold); margin-bottom: 2px; }
-.s3d-pocket__foot { padding: 8px 12px; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2); font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
+.s3d-pocket__foot { padding: 8px 12px; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 .s3d-residues { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
 .s3d-residue {

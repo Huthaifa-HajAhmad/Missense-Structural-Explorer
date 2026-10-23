@@ -64,7 +64,7 @@
 .prd-hero__head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   min-height: 40px; padding: 6px 16px;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .prd-hero__head > .eyebrow { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
 .prd-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
@@ -131,7 +131,7 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
   min-height: 40px; padding: 8px 16px; margin-top: -1px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .prd-hero__foot strong { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-semibold); }
 .prd-hero__pending { display: inline-flex; align-items: center; gap: 6px; color: var(--cs-text-warning-on-soft); }
@@ -150,7 +150,7 @@
 .prd-table { width: 100%; min-width: 680px; border-collapse: collapse; }
 .prd-table thead th {
   padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 /* Fixed widths for the narrow columns; the tool column takes what its 60ch descriptions need and
    the scale the rest. Left to auto layout, the tool column swallowed ~45% of the row and pushed the
@@ -266,7 +266,7 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
   min-height: 40px; padding: 8px 16px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .prd-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .prd-legend__swatch { display: inline-flex; width: 28px; height: 8px; border-radius: 4px; overflow: hidden; }
@@ -442,7 +442,7 @@
 .prd-ladder { --prd-ladder-name: 150px; padding: 4px 16px 12px; }
 .prd-ladder__row { display: grid; align-items: center; min-height: 32px; }
 .prd-ladder__row + .prd-ladder__row { border-top: 1px solid var(--cs-border-subtle); }
-.prd-ladder__head { min-height: 36px; background: var(--cs-surface-2); border-radius: 6px 6px 0 0; }
+.prd-ladder__head { min-height: 36px; background: var(--cs-workbench-header-surface); border-radius: 6px 6px 0 0; }
 .prd-ladder__col {
   display: flex; flex-direction: column; align-items: center; line-height: 1.2;
   font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); text-align: center;

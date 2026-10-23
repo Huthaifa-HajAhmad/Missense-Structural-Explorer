@@ -55,7 +55,7 @@
 .nrg-chart-controls select { padding: 6px 10px; background: var(--cs-surface-2); color: var(--cs-text-primary); border: 1px solid var(--cs-border); border-radius: 8px; min-height: 34px; }
 .nrg-chart-controls input { width: 16px; height: 16px; accent-color: var(--cs-accent-clay); }
 .nrg-axis-guide { display: flex; justify-content: space-between; gap: 16px; padding: 12px 24px 0 112px; color: var(--cs-text-secondary); font-size: 12px; }
-.nrg-chart-readout { min-height: 58px; margin: 0; padding: 14px 22px; background: var(--cs-surface-2); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; }
+.nrg-chart-readout { min-height: 58px; margin: 0; padding: 14px 22px; background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); font-size: 13px; line-height: 1.6; }
 .nrg-chart-key { display: inline-flex; align-items: center; gap: 8px; }
 .nrg-chart-key i { width: 10px; height: 10px; border-radius: 50%; background: var(--cs-accent-clay); }
 .nrg-chart-key i[data-hollow] { background: var(--cs-surface); border: 2px solid var(--cs-text-secondary); }
@@ -151,7 +151,7 @@
 .nrg-hero__head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   min-height: 40px; padding: 6px 16px;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .nrg-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; }
 
@@ -338,7 +338,7 @@
 .nrg-col-call { width: 164px; }
 .nrg-table thead th {
   padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .nrg-table td,
 .nrg-table tbody th {
@@ -425,7 +425,7 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
   min-height: 40px; padding: 8px 16px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .nrg-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .nrg-legend__tick { display: inline-block; width: 0; height: 12px; border-left: 1.5px dashed var(--cs-text-danger); }

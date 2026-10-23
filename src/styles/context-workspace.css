@@ -6,7 +6,7 @@
 .cx-coverage-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 13px; }
 .cx-coverage-table :is(th, td) { padding: 12px 20px; border-bottom: 1px solid var(--cs-border-subtle); text-align: center; }
 .cx-coverage-table th:first-child { text-align: start; }
-.cx-coverage-table thead { background: var(--cs-surface-2); font-size: 12px; color: var(--cs-text-secondary); }
+.cx-coverage-table thead { background: var(--cs-workbench-header-surface); font-size: 12px; color: var(--cs-text-secondary); }
 .cx-coverage-table tbody th { color: var(--cs-text-primary); font-weight: 600; }
 .cx-coverage-table small { display: block; font-size: 11px; font-weight: 400; color: var(--cs-text-secondary); }
 .cx-coverage-table button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 62px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-surface-2); color: var(--cs-text-primary); cursor: pointer; font: inherit; }
@@ -21,7 +21,6 @@
 .sm-workspace[data-comparison] .cx-controls { margin-block: 0 8px; }
 .sm-workspace[data-comparison] .cx-controls label { flex-direction: row; align-items: center; gap: 12px; }
 .sm-workspace[data-comparison] .cx-records { border: 0; margin-block: 8px; }
-.sm-workspace[data-comparison] .workspace-tabs { padding-block-end: 8px; }
 .cx-coverage-table button:active, .cx-assertion:active { background: var(--cs-border-subtle); }
 .cx-finding-details > summary { padding: 10px 16px; border-top: 1px solid var(--cs-border); cursor: pointer; font-size: 12px; }
 .cx-frame-focus { margin-top: 10px; }
@@ -39,7 +38,7 @@
 .cx-explorer { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .cx-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 16px 0; }
 .cx-controls label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; min-width: 0; }
-.cx-controls input[type="search"], .cx-controls select { border: 1px solid var(--cs-border); background: var(--cs-bg); border-radius: 8px; min-height: 38px; padding: 8px 10px; color: var(--cs-text-primary); max-width: 100%; font: inherit; }
+.cx-controls input[type="search"], .cx-controls select { border: 1px solid var(--cs-border); background: var(--cs-surface); border-radius: 8px; min-height: 38px; padding: 8px 10px; color: var(--cs-text-primary); max-width: 100%; font: inherit; }
 .cx-controls .cx-check { flex-direction: row; align-items: center; min-height: 38px; }
 .cx-caption { font-size: 12px; line-height: 1.6; margin: 10px 0; color: var(--cs-text-secondary); }
 .cx-records { border-block: 1px solid var(--cs-border); margin: 14px 0; }

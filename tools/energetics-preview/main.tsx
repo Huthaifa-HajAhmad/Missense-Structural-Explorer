@@ -42,7 +42,7 @@ function Preview() {
     </header>
     <AppViews masterView={view} setMasterView={setView} pushErrorEntry={console.error} setIsSettingsOpen={() => {}}
       activeEvidenceTab="population" setActiveEvidenceTab={() => {}} metricMode={metric} setMetricMode={setMetric}
-      windowSize={width} setWindowSize={setWidth} classCardTitle="" classCardHeader="" classInput="" classBorderSec="" classTextBody="" classTextMute="" />
+      windowSize={width} setWindowSize={setWidth} classCardTitle="" classCardHeader="" classBorderSec="" classTextBody="" classTextMute="" />
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<SettingsProvider><Preview /></SettingsProvider>);

@@ -138,7 +138,7 @@
 .spl-table { width: 100%; min-width: 680px; border-collapse: collapse; }
 .spl-table thead th {
   padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 /* The subject column took all the slack (scores stranded mid-card, a lone name in 550px);
    the scale column takes it now, where a wider axis is worth having. */
@@ -246,7 +246,7 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
   min-height: 40px; padding: 8px 16px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .spl-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .spl-legend__band { display: inline-block; width: 18px; height: 8px; border-radius: 2px; opacity: 0.34; }
@@ -414,7 +414,7 @@
    ============================================================ */
 .spl-rail { display: flex; flex-direction: column; }
 .spl-inspection { border: 1px solid var(--cs-border); border-radius: 12px; overflow: clip; margin-block-end: 24px; background: var(--cs-surface); }
-.spl-inspection__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 10px; padding-inline: 16px 10px; background: var(--cs-surface-2); border-block-end: 1px solid var(--cs-border-subtle); }
+.spl-inspection__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 10px; padding-inline: 16px 10px; background: var(--cs-workbench-header-surface); border-block-end: 1px solid var(--cs-border-subtle); }
 .spl-inspection__head .eyebrow { margin: 0; }
 .spl-inspection__clear { display: inline-grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; border-radius: 5px; color: var(--cs-text-muted); cursor: pointer; }
 .spl-inspection__clear:active { background: var(--cs-border-subtle); }
@@ -529,7 +529,7 @@
 .spl-map-scroll .spl-map { min-inline-size: 760px; }
 .spl-records-table { inline-size: 100%; min-inline-size: 540px; border-collapse: collapse; font-size: var(--cs-font-size-prose); }
 .spl-records-table th, .spl-records-table td { padding-block: 10px; padding-inline: 16px; text-align: start; vertical-align: top; border-block-end: 1px solid var(--cs-border-subtle); }
-.spl-records-table thead { background: var(--cs-surface-2); color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
+.spl-records-table thead { background: var(--cs-workbench-header-surface); color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }
 .spl-records-table th { font-weight: var(--cs-font-weight-medium); }
 .spl-records-table td:nth-child(2), .spl-records-table thead th:nth-child(2) { text-align: end; white-space: nowrap; }
 .spl-records-note { display: block; margin-block-start: 3px; color: var(--cs-text-muted); font-size: var(--cs-font-size-caption); }

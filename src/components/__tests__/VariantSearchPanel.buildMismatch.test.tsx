@@ -34,12 +34,6 @@ function renderPanel(handleSearchSubmit = vi.fn()) {
   render(
     <SettingsProvider>
       <VariantSearchPanel
-        isDark={false}
-        classCard=""
-        classCardHeader=""
-        classCardTitle=""
-        classInput=""
-        classBorderSec=""
         handleSearchSubmit={handleSearchSubmit}
       />
     </SettingsProvider>

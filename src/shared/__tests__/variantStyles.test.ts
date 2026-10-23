@@ -6,6 +6,6 @@ describe("variantStyles Helper Unit Tests (C-7)", () => {
     const styles = getVariantStyles(true);
     expect(styles.classRoot).toContain("bg-cs-bg");
     expect(styles.classCard).toContain("bg-cs-surface");
-    expect(styles.classInput).toContain("bg-cs-surface-2");
+    expect(styles).not.toHaveProperty("classInput");
   });
 });

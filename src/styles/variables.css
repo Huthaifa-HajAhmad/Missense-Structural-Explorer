@@ -59,10 +59,12 @@
   /* Clay as a SOLID behind white text: the brand clay is 3.87:1 there; this is 4.7:1. */
   --cs-accent-solid: #B35A3C;
   --cs-workbench-header-surface: color-mix(in oklch, var(--cs-surface-2) 45%, var(--cs-surface));
-  /* Role-based surfaces: primary work stays bright; supporting context recedes.
+  /* Two tones, one rule (the Search composer is the reference): every panel BODY is the bright
+     surface and every panel HEAD or FOOT strip wears --cs-workbench-header-surface. A whole panel
+     filled with --cs-surface-2 reads as a third, sand tone and is not part of the grammar; a context
+     panel is told apart by its position and its header, not by a darker body.
      References resolve against the active theme, including dark mode. */
-  --cs-workspace-primary: var(--cs-surface);
-  --cs-workspace-context: var(--cs-surface-2);
+  --cs-panel-body: var(--cs-surface);
   --cs-workspace-card: var(--cs-surface);
   /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
   --cs-bg:            #F9F8F6;   /* warm paper-white page background */
@@ -340,8 +342,10 @@
   --color-cs-text-danger-on-soft: var(--cs-text-danger-on-soft);
   --color-cs-text-good-on-soft: var(--cs-text-good-on-soft);
   --color-cs-surface-1: var(--cs-surface-1);
-  --color-cs-workspace-primary: var(--cs-workspace-primary);
-  --color-cs-workspace-context: var(--cs-workspace-context);
+  --color-cs-panel-body: var(--cs-panel-body);
+  /* The header wash as a utility (`bg-cs-workbench-header-surface`), so a panel head written in JSX
+     can follow the two-tone rule without a stylesheet. */
+  --color-cs-workbench-header-surface: var(--cs-workbench-header-surface);
   --color-cs-workspace-card: var(--cs-workspace-card);
   
   --font-size-cs-micro: var(--cs-text-micro);

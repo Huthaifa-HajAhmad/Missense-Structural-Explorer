@@ -19,12 +19,6 @@ function renderPanel() {
   return render(
     <SettingsProvider>
       <VariantSearchPanel
-        isDark={false}
-        classCard=""
-        classCardHeader=""
-        classCardTitle=""
-        classInput=""
-        classBorderSec=""
       />
     </SettingsProvider>
   );

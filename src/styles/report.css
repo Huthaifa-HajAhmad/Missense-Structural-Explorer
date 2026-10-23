@@ -48,7 +48,7 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
   min-height: 44px; padding: 12px var(--rpt-pad);
   font-size: 12px; line-height: 1.6; color: var(--cs-text-secondary);
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-top: 1px solid var(--cs-border-subtle);
 }
 .rpt-card__foot b { color: var(--cs-text-secondary); font-weight: var(--cs-font-weight-semibold); }

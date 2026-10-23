@@ -238,7 +238,6 @@ export default function App() {
   const classRoot = "bg-cs-bg text-cs-text-primary" + (isDark ? " dark" : "");
   const classCardHeader = "border-cs-border-subtle";
   const classCardTitle = "text-cs-text-primary";
-  const classInput = "bg-cs-surface-2 border-cs-border text-cs-text-primary focus:border-cs-accent-clay";
   const classBorderSec = "border-cs-border-subtle";
   const classTextBody = "text-cs-text-secondary";
   const classTextMute = "text-cs-text-muted";
@@ -336,7 +335,6 @@ export default function App() {
             setWindowSize={setWindowSize}
             classCardTitle={classCardTitle}
             classCardHeader={classCardHeader}
-            classInput={classInput}
             classBorderSec={classBorderSec}
             classTextBody={classTextBody}
             classTextMute={classTextMute}

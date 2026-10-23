@@ -49,7 +49,7 @@ html:has(.rgd-drawer:modal) { overflow: hidden; }
 .rgd-source-note { margin-block-end: 0.75rem !important; }
 .rgd-source > .rgd-link { display: flex; margin-block-start: 0.5rem; }
 .rgd-source [role=status] { display: block; min-block-size: 1.65em; color: var(--cs-text-secondary); }
-.rgd-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem 1rem; flex: none; padding: 1rem clamp(1.25rem, 3vw, 2rem); padding-block-end: max(1rem, env(safe-area-inset-bottom, 0px)); border-block-start: 1px solid var(--cs-border); background: var(--cs-surface-2); }
+.rgd-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem 1rem; flex: none; padding: 1rem clamp(1.25rem, 3vw, 2rem); padding-block-end: max(1rem, env(safe-area-inset-bottom, 0px)); border-block-start: 1px solid var(--cs-border); background: var(--cs-workbench-header-surface); }
 .rgd-footer > span { color: var(--cs-text-muted); font-size: 11px; }
 .rgd-close { min-block-size: 44px; padding: 0.5rem 0.8rem; border: 1px solid var(--cs-border); border-radius: 8px; color: var(--cs-text-primary); background: var(--cs-surface); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .rgd-related svg { flex: none; }

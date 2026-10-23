@@ -2,32 +2,34 @@
 
 The supplied references establish a quiet canvas, distinct working surfaces, readable navigation, restrained accent colour, and clear separation between page context and actions. Apply that grammar to the existing scientific workspace while preserving evidence semantics and its light/dark tokens.
 
-## This pass
+## Current grammar
 
-- Sidebar: readable sentence-case group labels, larger navigation labels, tighter row rhythm, and a sans-serif wordmark.
-- Header: consistent search-field geometry and visible utility-button surfaces.
-- Console: a page title and purpose before the controls, a contained workspace surface, and more space for metrics.
-- About: simplified hero surface and reduced excess spacing; removed the decorative accent stripe and animated logo.
-- Command palette: larger search and result rows, sentence-case group headings, and more usable list height.
-- Tour: clearer heading hierarchy, more comfortable content spacing, and a distinct action footer.
+The Search page ("Analyse a variant.") is the reference every view follows.
+
+- **Page heading**: a serif title with a clay full stop (`<span aria-hidden="true">.</span>`, so the accessible name has no trailing punctuation), a one-line lede, and page-wide actions beside it. Search, About and Console use it.
+- **Panels**: bordered, `--cs-workbench-radius`, a header strip carrying a mono index (`.workbench-index`, `01`, `02`) and a 13px/600 title, then the body.
+- **Tabs**: ruled underline tabs (`.workspace-tabs`, from `components/ui/WorkspaceTabs.tsx`). Plain labels sit on the section's hairline, and the selected one is inked with a 2px clay rule on that hairline. There's no fill, box or pill, and the weight doesn't change with selection. A row that hosts tabs aligns to its end and draws the hairline itself (`.evw-navigation`, `.review-navigation`); never pad between the tabs and that line. The Console stream tabs (`.cx-tab`) follow the same rule.
+- **Header actions**: bare glyphs. A fill appears only on hover or press, and keyboard focus draws one clay outline.
+- **Sidebar**: an index rail. Labelled zones are numbered by a CSS counter (`01 Evidence & modelling`), sub-pages hang off square tree connectors, and the current page is a cursor: a clay bar plus a faint tint, not a raised chip. A nested current page is marked by its clay connector. The About workspace map numbers zones the same way: Search and the pinned tools are unnumbered.
+- **Forms**: fields wear the composer's box (`.qe-input`, `.qe-select`). Field states are a toned 6px dot plus quiet text (`.qe__kind`). Only a warning gets a soft amber chip.
 
 ## Shared surface hierarchy
 
-Three semantic tokens express two surface roles without changing scientific colours:
+There are two tones, with the Search composer as the reference. Every panel body is the bright surface. Every panel head or foot strip (section headings, card heads, table heads, readouts) wears `--cs-workbench-header-surface`, which is also available as the `bg-cs-workbench-header-surface` utility.
 
-- `--cs-workspace-primary`: the primary analysis surface.
-- `--cs-workspace-context`: the recessed inspector, Search monitor, Console detail panel, and empty-state guidance.
-- `--cs-workspace-card`: raised selected readings inside the context surface.
+- `--cs-panel-body`: the body of every panel, primary or context (inspector, Search monitor, Console detail).
+- `--cs-workspace-card`: raised selected readings inside a panel.
 
-The tokens reference the existing accessible light/dark palette. Figure headers use the shared header wash. Sidebar edge, brand, group, and footer separators establish navigation boundaries without adding a heavy frame. Status, selection, and scientific chart colours retain their existing meanings.
+A context panel is told apart by its position and its header strip, not by a darker body. The former `--cs-workspace-context` token filled whole panels with `--cs-surface-2`, a third sand tone outside the grammar, and is retired. `--cs-surface-2` remains for small insets: chips, pressed states, code.
 
-## Review fixes
+Dividers between items that can wrap (the parse ticket cells, the empty-state topic column) are drawn as leading and top box-shadows clipped by their container. A wrapped item then gets a row rule, never an orphan vertical line.
 
-- Header actions use an explicit class shared by ordinary buttons, Jobs, and Account triggers. A real focus-visible outline remains independent of decorative shadows.
-- Compact Console layouts scroll the workspace and reserve usable log/inspector height instead of collapsing the log to zero.
-- Every tour card mode is constrained to the viewport. The content scrolls while the footer retains its height.
-- Browser regression checks cover both themes, signed-in header actions with stubbed account responses, all Console streams at 390 × 667 and 844 × 390, and every tour step at 667 × 400 and 390 × 667.
-- The populated fixture walkthrough checks primary/context separation across 16 workspaces in both themes. Fixtures are illustrative, not evidence of live provider correctness.
+## Regression checks
+
+- `tests/workbench-consistency.e2e.ts` walks 16 populated workspaces in both themes. It asserts that every inspector body equals the primary panel body and that its `.inspector-heading` exists and wears the wash. Fixtures are illustrative, not evidence of live provider correctness.
+- `tests/shell-surfaces.e2e.ts` pins the sidebar contract (one current page, a cursor tint rather than a chip, a legible tree) and the stacked Literature panels.
+- `tests/workspace-utilities.e2e.ts` covers Console streams at 390 × 667 and 844 × 390, header-action focus in both themes, and every tour step at short and narrow sizes.
+- Unit tests pin the parsed-field grammar (`VariantSearchPanel.queryForm.test.tsx`) and the Console's heading structure and `/` shortcut (`DevConsolePanel.test.tsx`).
 
 ## Further design opportunities
 

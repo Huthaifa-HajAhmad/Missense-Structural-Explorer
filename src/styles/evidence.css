@@ -313,7 +313,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 9px 14px;
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-bottom: 1px solid var(--cs-border-subtle);
 }
 
