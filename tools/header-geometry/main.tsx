@@ -270,14 +270,8 @@ function checkStripOneLine(host: HTMLElement, id: string): GeometryCheck {
   return { name: `${id}: strip is one line`, pass: h <= 48, detail: `strip ${px(h)}px tall` };
 }
 
-/**
- * The joined header + strip frame only exists in a real .app-shell with a .app-header
- * sibling, which no other case mounts: this one composed host is the only place the
- * seam ("one frame, quiet seam"), the shared left/right edges and the --cs-masthead
- * budget are measured. A probe element resolves the custom property chain the way the
- * browser does — reading getComputedStyle of the custom property itself returns the
- * unresolved calc() text.
- */
+/** Measure the composed toolbar and constraint strip, including their shared
+ * edges and the masthead height used by fill-height workspaces. */
 function checkShellFrame(): GeometryCheck[] {
   const shell = document.querySelector<HTMLElement>(".app-shell");
   if (!shell) return [{ name: "shell: composed host renders", pass: false, detail: "no .app-shell in the page" }];
@@ -294,26 +288,23 @@ function checkShellFrame(): GeometryCheck[] {
   const hStyle = getComputedStyle(header);
   const sStyle = getComputedStyle(strip);
 
-  // One frame: the header's bottom edge meets the strip's top edge, both cards share
-  // their left/right edges in the same shell column, and the strip's own top border
-  // is suppressed so the seam stays one 1px line.
+  // Identity and context align without an enclosing card or a doubled seam.
   checks.push({
-    name: "shell: joined header and strip share one frame",
+    name: "shell: header and context align on the shell canvas",
     pass: Math.abs(hb.bottom - sb.top) <= 1 &&
       Math.abs(hb.left - sb.left) <= 1 && Math.abs(hb.right - sb.right) <= 1 &&
       sStyle.borderBlockStartWidth === "0px" &&
-      hStyle.borderBlockEndColor !== hStyle.borderBlockStartColor,
+      hStyle.borderBlockEndWidth === "0px" &&
+      hStyle.backgroundColor === "rgba(0, 0, 0, 0)" && sStyle.backgroundColor === "rgba(0, 0, 0, 0)",
     detail: `dy=${(sb.top - hb.bottom).toFixed(2)} dxL=${(sb.left - hb.left).toFixed(2)} seam=${sStyle.borderBlockStartWidth}`,
   });
 
-  // Without a following strip the :has() join must fail soft: full rounding again and
-  // the gutter back (so an absent variant never orphans a square-cornered bar).
+  // Search keeps the same unframed toolbar and reserves its workspace gutter.
   const st = getComputedStyle(standalone);
   const radii = [st.borderStartStartRadius, st.borderStartEndRadius, st.borderEndStartRadius, st.borderEndEndRadius];
-  const panel = getComputedStyle(document.documentElement).getPropertyValue("--cs-radius-panel").trim();
   checks.push({
-    name: "shell: a header without a following strip stays fully rounded with its gutter",
-    pass: radii.every(v => v === (panel || "16px")) && parseFloat(st.marginBlockEnd) > 0,
+    name: "shell: standalone toolbar stays unframed and keeps its gutter",
+    pass: radii.every(v => v === "0px") && st.borderWidth === "0px" && parseFloat(st.marginBlockEnd) > 0,
     detail: `radii=${radii.join("/")} margin=${st.marginBlockEnd}`,
   });
 

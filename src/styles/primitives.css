@@ -32,6 +32,9 @@ header.app-header button[aria-controls="main-navigation"]::after,
   position: absolute;
   inset: min(0px, (100% - 44px) / 2);
 }
+/* A control flush with a scroller's edge grows its target inward only, so the overlay
+   never widens the scroller. */
+.cs-tap-44[data-tap-edge="end"]::after { inset-inline-start: min(0px, 100% - 44px); inset-inline-end: 0; }
 
 .acct-icon-btn,
 .cx-icon-btn,

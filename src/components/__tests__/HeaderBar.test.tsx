@@ -12,8 +12,6 @@ import { withVariantParams, isShareable } from "../../shared/shareLink";
  * the component never reaches for SettingsContext, which is what lets it render standalone.
  */
 const base = {
-  masterView: "evidence" as const,
-  isBiophysicalLoading: false,
   isOffline: false,
 };
 
@@ -21,8 +19,6 @@ describe("HeaderBar Component Tests (C-7)", () => {
   it("should render correctly with default state", () => {
     render(
       <HeaderBar
-        masterView="search"
-        isBiophysicalLoading={false}
         isOffline={false}
         isDark={false}
         onToggleTheme={() => {}}
@@ -32,20 +28,6 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.queryByText("Evidence")).not.toBeInTheDocument();
     expect(screen.queryByText("Computing…")).not.toBeInTheDocument();
     expect(screen.queryByText("Offline")).not.toBeInTheDocument();
-    expect(document.querySelector(".cs-spinner")).toBeNull();
-  });
-
-  it("should display breadcrumb title when not on search view", () => {
-    render(<HeaderBar {...base} />);
-    expect(screen.getByText("Evidence")).toBeInTheDocument();
-  });
-
-  it("renders no in-flight cue at all while the biophysics run: the rail owns progress", () => {
-    render(<HeaderBar {...base} isBiophysicalLoading={true} />);
-    // No labelled status and no stray spinner — a wordless arc alone in the header chrome said
-    // nothing, so even it is gone; the pipeline rail carries the stage list and the aria-live
-    // step line.
-    expect(screen.queryByText(/Computing/i)).not.toBeInTheDocument();
     expect(document.querySelector(".cs-spinner")).toBeNull();
   });
 
@@ -72,40 +54,21 @@ describe("HeaderBar Component Tests (C-7)", () => {
     expect(screen.getByRole("button", { name: /switch to light mode/i })).toBeInTheDocument();
   });
 
-  /* The search icon in the right actions cluster expands into the search bar, which opens the palette. */
-  it("should expose an expandable search trigger that calls onOpenPalette and can collapse", () => {
+  it("opens the palette in one click from every header", () => {
     const onOpenPalette = vi.fn();
     render(<HeaderBar {...base} onOpenPalette={onOpenPalette} />);
-    const searchIconBtn = screen.getByRole("button", { name: /search views or run a variant/i });
-    expect(searchIconBtn).toBeInTheDocument();
-
-    // Click the search icon to expand the search bar
-    fireEvent.click(searchIconBtn);
-
-    const paletteBar = screen.getByRole("button", { name: /open command palette/i });
-    expect(paletteBar).toHaveTextContent(/Search views or run a variant/);
-    expect(paletteBar.querySelector("kbd")).toHaveTextContent(/^(⌘K|Ctrl K)$/);
-
-    // Clicking the expanded search bar triggers the command palette
-    fireEvent.click(paletteBar);
+    const search = screen.getByRole("button", { name: /search views or run a variant/i });
+    expect(search).toHaveTextContent("Search views or run a variant");
+    expect(search.querySelector("kbd")).toBeInTheDocument();
+    fireEvent.click(search);
     expect(onOpenPalette).toHaveBeenCalledTimes(1);
-
-    // Closing the search bar collapses it back to the icon button
-    const closeBtn = screen.getByRole("button", { name: /close search/i });
-    fireEvent.click(closeBtn);
-    expect(screen.queryByRole("button", { name: /open command palette/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /search views or run a variant/i })).toBeInTheDocument();
   });
 
-  it("should collapse the search bar on Escape key press", () => {
+  /* The sidebar marks the page and its H1 titles it; a breadcrumb was a third copy. */
+  it("never repeats the page's name", () => {
     render(<HeaderBar {...base} />);
-    const searchIconBtn = screen.getByRole("button", { name: /search views or run a variant/i });
-    fireEvent.click(searchIconBtn);
-    expect(screen.getByRole("button", { name: /open command palette/i })).toBeInTheDocument();
-
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("button", { name: /open command palette/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /search views or run a variant/i })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
+    expect(screen.queryByText("Evidence")).not.toBeInTheDocument();
   });
 
   it("should render onboarding tour button and trigger onOpenOnboarding when clicked", () => {
@@ -122,29 +85,6 @@ describe("HeaderBar Component Tests (C-7)", () => {
   it("should not render a quick-search dropdown trigger", () => {
     render(<HeaderBar {...base} />);
     expect(screen.queryByRole("button", { name: /quick search/i })).not.toBeInTheDocument();
-  });
-
-  it("names the page, not just the section, as a breadcrumb", () => {
-    const { rerender } = render(<HeaderBar {...base} activeEvidenceTab="clinical" />);
-    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(crumb).toHaveTextContent("Evidence");
-    expect(screen.getByText("Population data")).toHaveAttribute("aria-current", "page");
-    expect(screen.getByText("Evidence")).not.toHaveAttribute("aria-current");
-
-    rerender(<HeaderBar {...base} masterView="structure_alphafold" />);
-    expect(screen.getByText("3D structure")).toBeInTheDocument();
-    expect(screen.getByText("AlphaFold2")).toHaveAttribute("aria-current", "page");
-
-    // A section with no sub-pages is a single, current crumb
-    rerender(<HeaderBar {...base} masterView="literature" />);
-    expect(screen.getByText("Literature")).toHaveAttribute("aria-current", "page");
-  });
-
-  it("names the current view from the sidebar's registry and stays quiet on Search", () => {
-    const { rerender } = render(<HeaderBar {...base} masterView="structure_esmfold" />);
-    expect(screen.getByText("3D structure")).toBeInTheDocument();
-    rerender(<HeaderBar {...base} masterView="search" />);
-    expect(screen.queryByText("Search")).not.toBeInTheDocument();
   });
 
   it("offers Copy link only once a variant is loaded, and copies a link that reproduces it", async () => {

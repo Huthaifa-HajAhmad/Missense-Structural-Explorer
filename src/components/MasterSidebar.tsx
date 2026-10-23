@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import {
   BarChart2, Layers, Activity, Map,
   FlaskConical, FileText, Search, Terminal,
-  PanelLeftClose, PanelLeftOpen, BookOpen, Info, X, ChevronDown,
+  PanelLeftClose, PanelLeftOpen, BookOpen, Info, X,
 } from "lucide-react";
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
 import { BrandMark } from "./ui/BrandMark";
@@ -249,21 +249,21 @@ interface NavRowProps {
   isActive: boolean;
   collapsed: boolean;
   onClick: () => void;
-  /** The live pipeline sentence; replaces the description line while a stage says something. */
+  /** The live pipeline sentence, shown under the label while a stage says something. */
   liveText?: string;
-  /** Show the one-line description under the label. Off for the compact pinned footer. */
-  showDescription?: boolean;
+  /** Overrides `aria-current`; a parent whose open child is the page is not itself current. */
+  current?: boolean;
   status?: WorkflowStatusType;
   showStatus?: boolean;
   badgeCount?: number;
-  rail: React.ReactNode;
+  expanded?: boolean;
+  controls?: string;
   buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 /**
- * The one nav-row anatomy: icon · label · marker, with a description line under the label that
- * the live pipeline sentence takes over while a stage is running, degraded or failed — one line
- * swapping text, so rows never change height as the pipeline advances. Primary rows and pinned footer rows are the same component — the footer
+ * The one nav-row anatomy: icon · label · marker, with the live pipeline sentence under the label
+ * while a stage is running, degraded or failed. Primary rows and pinned footer rows are the same component — the footer
  * used to be a 60-line hand copy of the row that had already drifted.
  */
 function NavRow({
@@ -272,11 +272,12 @@ function NavRow({
   collapsed,
   onClick,
   liveText,
-  showDescription = true,
+  current = isActive,
   status = "pending",
   showStatus = false,
   badgeCount = 0,
-  rail,
+  expanded,
+  controls,
   buttonRef,
 }: NavRowProps) {
   const { id, label, sublabel, Icon } = item;
@@ -295,15 +296,17 @@ function NavRow({
       onClick={onClick}
       className="ms-nav-btn"
       data-active={isActive}
+      data-current={current}
       data-view={id}
       data-collapsed={collapsed}
-      aria-current={isActive ? "page" : undefined}
+      aria-current={current ? "page" : undefined}
+      aria-expanded={expanded}
+      aria-controls={controls}
       /* Collapsed rows have no visible text, so they carry the name. Expanded rows are named by
          their content, which is what lets the live status line reach a screen reader. */
       aria-label={collapsed ? `${label}${statusSuffix}${hasBadge ? `, ${badgeText} unread` : ""}` : undefined}
       title={tooltip}
     >
-      {isActive && rail}
       <span className="ms-nav-icon">
         <Icon className="w-4 h-4" />
         {collapsed && showStatus && status !== "pending" && (
@@ -317,10 +320,8 @@ function NavRow({
       {!collapsed && (
         <span className="ms-nav-text">
           <span className="ms-nav-label">{label}</span>
-          {(isLive || (showDescription && sublabel)) && (
-            <span key={isLive ? "live" : "desc"} className="ms-nav-desc" data-live={isLive || undefined} data-status={status}>
-              {isLive ? liveText : sublabel}
-            </span>
+          {isLive && (
+            <span className="ms-nav-desc" data-live data-status={status}>{liveText}</span>
           )}
         </span>
       )}
@@ -504,14 +505,6 @@ function MasterSidebar({
 
   const toggleHint = sidebarToggleHint();
 
-  /* Navigation selection updates immediately, without travelling across unrelated rows. */
-  const activeRail = (
-    <span
-      className="ms-active-rail"
-      aria-hidden="true"
-    />
-  );
-
   const loadedPdb = useVariantAnalysisStore(s => s.pdbText);
   const engineState = useVariantAnalysisStore(s => s.primaryBiophysics);
   const landscapeOverview = useVariantAnalysisStore(s => s.landscapeOverview);
@@ -663,7 +656,10 @@ function MasterSidebar({
                      under the label; otherwise the row stays one line. */
                   const isLive = status === "progress" || status === "degraded" || status === "error";
                   const hasChildren = id === 'evidence' || id === 'structure';
-                  const subOpen = !collapsed && (expandedGroups[id] ?? isActive);
+                  const subOpen = !collapsed && isActive && (expandedGroups[id] ?? true);
+                  const childIsPage = id === "evidence"
+                    ? EVIDENCE_SUB_ITEMS.some(sub => sub.id === activeEvidenceTab)
+                    : STRUCTURE_SUB_ITEMS.some(sub => sub.id === activeView);
 
                   return (
                     <div key={id} className="ms-row">
@@ -674,21 +670,24 @@ function MasterSidebar({
                         collapsed={collapsed}
                         buttonRef={isActive ? activeRowRef : undefined}
                         onClick={() => {
-                          if (hasChildren) setExpandedGroups(groups => ({ ...groups, [id]: true }));
-                          navigate(id === "structure" ? defaultStructureView : id);
+                          // Collapsed, the rail has no pages to reveal: a parent is a plain link.
+                          if (hasChildren && !collapsed) {
+                            setExpandedGroups(groups => ({ ...groups, [id]: isActive ? !subOpen : true }));
+                            if (isActive) return;
+                            // Keep the drawer open so the newly revealed pages remain reachable.
+                            onViewChange(id === "structure" ? defaultStructureView : id);
+                            return;
+                          }
+                          if (!hasChildren) navigate(id);
+                          else if (!isActive) navigate(id === "structure" ? defaultStructureView : id);
                         }}
-                        showDescription={isActive}
+                        current={isActive && !(subOpen && childIsPage)}
                         liveText={isLive && desc ? desc : undefined}
                         status={status}
                         showStatus={hasRun && id !== "search"}
-                        rail={activeRail}
+                        expanded={hasChildren && !collapsed ? subOpen : undefined}
+                        controls={hasChildren && !collapsed ? `ms-children-${id}` : undefined}
                       />
-                      {hasChildren && !collapsed && <button type="button" className="ms-group-toggle"
-                        aria-label={`${subOpen ? 'Collapse' : 'Expand'} ${item.label} navigation`}
-                        aria-expanded={subOpen} aria-controls={`ms-children-${id}`}
-                        onClick={() => setExpandedGroups(groups => ({ ...groups, [id]: !subOpen }))}>
-                        <ChevronDown aria-hidden="true" />
-                      </button>}
                       </div>
 
                       {/* Closed groups leave both the layout and keyboard navigation. */}
@@ -750,8 +749,6 @@ function MasterSidebar({
                 buttonRef={isActive ? activeRowRef : undefined}
                 onClick={() => navigate(item.id)}
                 badgeCount={item.id === "console" ? unreadConsoleCount ?? 0 : 0}
-                showDescription={false}
-                rail={activeRail}
               />
             );
           })}

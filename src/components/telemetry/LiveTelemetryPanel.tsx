@@ -1030,7 +1030,8 @@ export const LiveTelemetryPanel: React.FC<LiveTelemetryPanelProps> = ({
                           }}
                           aria-label={`${isOpen ? "Hide" : "Show"} details for ${svc.name}`}
                           aria-expanded={isOpen}
-                          className="relative z-10 cs-tap-44 w-7 h-7 -mr-1 inline-flex items-center justify-center rounded-[var(--cs-radius-input)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle active:bg-cs-surface-2 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cs-accent-clay)]"
+                          data-tap-edge="end"
+                          className="relative z-10 cs-tap-44 w-7 h-7 inline-flex items-center justify-center rounded-[var(--cs-radius-input)] text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle active:bg-cs-surface-2 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cs-accent-clay)]"
                         >
                           <ChevronDown
                             className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}

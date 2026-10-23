@@ -16,8 +16,11 @@
   --ms-row-h: 44px;
   --ms-pad-x: 8px;
   --ms-row-pad-x: 12px;
-  --ms-tint: color-mix(in oklch, var(--cs-accent-clay) 9%, transparent);
   --ms-tint-strong: color-mix(in oklch, var(--cs-accent-clay) 14%, transparent);
+  /* The current page is a raised paper chip: a fill alone is ~1.05:1 against the canvas. */
+  --ms-chip-shadow: 0 0 0 1px var(--cs-border-subtle), 0 1px 2px rgb(0 0 0 / .06);
+  /* Tree lines sit between the hairline and muted text so they stay legible on the canvas. */
+  --ms-branch-color: color-mix(in oklch, var(--cs-border) 55%, var(--cs-text-muted));
   --ms-ease: cubic-bezier(0.23, 1, 0.32, 1);
 
   position: relative;
@@ -25,15 +28,12 @@
   flex-direction: column;
   height: 100%;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: clip;
   user-select: none;
-  background: var(--cs-surface);
-  border: 1px solid var(--cs-border-strong);
+  background: transparent;
+  border: 0;
   border-radius: var(--cs-radius-panel);
-  /* The floating panel needs one clear elevation cue; --cs-workbench-shadow is the
-     system's raised-panel recipe (black-based, so in dark mode it shades the panel
-     instead of glowing — mixing the light text colour was painting a halo). */
-  box-shadow: var(--cs-workbench-shadow);
+  box-shadow: none;
   transition: width 240ms var(--ms-ease), min-width 240ms var(--ms-ease);
 }
 /* A drag must track the pointer 1:1 — no easing while resizing. */
@@ -47,12 +47,9 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  /* -1px buys in the panel's own 1px border, so the brand's bottom hairline sits on the
-     same line as the 56px header card in the gutter beside it. */
-  height: calc(var(--cs-chrome-height) - 1px);
-  min-height: calc(var(--cs-chrome-height) - 1px);
+  height: var(--cs-chrome-height);
+  min-height: var(--cs-chrome-height);
   padding: 0 10px 0 12px;
-  border-bottom: 1px solid var(--cs-border);
   overflow: hidden;
 }
 .ms-brand[data-collapsed="true"] {
@@ -116,8 +113,9 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--cs-border) transparent;
+  /* No native bar: on the unframed rail it read as a stroke down the edge. The edge fades
+     below say there is more to scroll. */
+  scrollbar-width: none;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ms-fade-top, 0px), #000 calc(100% - var(--ms-fade-bottom, 0px)), transparent 100%);
           mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ms-fade-top, 0px), #000 calc(100% - var(--ms-fade-bottom, 0px)), transparent 100%);
 }
@@ -159,18 +157,9 @@
   display: flex;
   flex-direction: column;
 }
-.ms-parent-row { display: flex; align-items: stretch; border-radius: 8px; }
-.ms-parent-row:has(.ms-nav-btn[data-active="true"]) { background: var(--ms-tint); }
+.ms-parent-row { display: flex; align-items: stretch; }
 .ms-parent-row > .ms-nav-btn { flex: 1; min-inline-size: 0; }
-.ms-parent-row > .ms-nav-btn[data-active="true"] { background: transparent; }
-.ms-group-toggle { display: flex; align-items: center; justify-content: center; flex: none; inline-size: 32px; min-block-size: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }
-.ms-group-toggle svg { inline-size: 14px; block-size: 14px; stroke-width: 1.5; }
-.ms-group-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
-.ms-group-toggle:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: -2px; }
-.ms-group-toggle:active, .ms-nav-btn:active, .ms-sub-btn:active { background: var(--ms-tint-strong); }
-@media (hover: hover) and (pointer: fine) {
-  .ms-group-toggle:hover { background: var(--cs-bg-subtle); color: var(--cs-text-primary); }
-}
+.ms-nav-btn:active, .ms-sub-btn:active { background: var(--ms-tint-strong); }
 
 /* ── Row ── */
 .ms-nav-btn {
@@ -194,14 +183,11 @@
   color: var(--cs-text-primary);
 }
 }
-.ms-nav-btn[data-active="true"] {
-  background: var(--ms-tint);
-  color: var(--cs-text-primary);
-}
-@media (hover: hover) and (pointer: fine) {
-  .ms-nav-btn[data-active="true"]:hover {
-  background: var(--ms-tint-strong);
-}
+.ms-nav-btn[data-active="true"] { color: var(--cs-text-primary); }
+.ms-nav-btn[data-current="true"],
+.ms-nav-btn[data-current="true"]:hover {
+  background: var(--cs-surface);
+  box-shadow: var(--ms-chip-shadow);
 }
 
 .ms-nav-icon {
@@ -273,9 +259,6 @@
   text-overflow: ellipsis;
   animation: ms-desc-in 180ms ease-out both;
 }
-.ms-nav-btn[data-active="true"] .ms-nav-desc:not([data-live]) {
-  color: var(--cs-text-secondary);
-}
 .ms-nav-desc[data-live] { color: var(--cs-text-accent); }
 .ms-nav-desc[data-status="degraded"] { color: var(--cs-text-warning-on-soft, var(--cs-text-warning)); }
 .ms-nav-desc[data-status="error"] { color: var(--cs-text-danger-on-soft, var(--cs-text-danger)); }
@@ -303,18 +286,7 @@
   align-self: center;
 }
 
-/* Active rail — 3px, inset from the row's rounded corners. */
-.ms-active-rail {
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--cs-accent-clay);
-}
-
-/* ── Stage markers ── */
+/* Analysis stage markers. */
 .ms-step {
   display: inline-block;
   flex-shrink: 0;
@@ -367,11 +339,8 @@
   color: var(--cs-text-danger-on-soft, var(--cs-text-danger));
 }
 
-/* ── Sub-navigation (Evidence tabs, structure models) ──
-   A grid disclosure, not a conditional mount, so the rows morph with the
-   width animation. Visibility swaps at the END of the collapse so hidden rows
-   leave the tab order only once they are actually gone. The tree line sits on
-   the parent icon's centre line (row padding 12px + half the 16px icon). */
+/* Nested pages follow the parent icon's centre line. Closed groups leave both
+   the layout and keyboard navigation; branches are drawn within the gutter. */
 .ms-sub-list {
   display: none;
 }
@@ -379,11 +348,11 @@
   display: block;
 }
 .ms-sub-list-inner {
+  --ms-branch-width: 12px;
   min-height: 0;
-  overflow: hidden;
-  margin-left: 19.5px;
-  padding-left: 8px;
-  border-left: 1px solid var(--cs-border-subtle);
+  overflow: clip;
+  margin-inline-start: 20px;
+  padding-inline-start: var(--ms-branch-width);
 }
 .ms-sub-list-items {
   display: flex;
@@ -411,40 +380,40 @@
   color: var(--cs-text-primary);
 }
 }
-.ms-sub-btn[data-active="true"] {
-  color: var(--cs-text-accent);
-  background: var(--ms-tint);
+.ms-sub-btn[data-active="true"],
+.ms-sub-btn[data-active="true"]:hover {
+  color: var(--cs-text-primary);
+  background: var(--cs-surface);
+  box-shadow: var(--ms-chip-shadow);
 }
-@media (hover: hover) and (pointer: fine) {
-  .ms-sub-btn[data-active="true"]:hover {
-  background: var(--ms-tint-strong);
-}
-}
-/* The active child lights its segment of the tree line. */
-.ms-sub-btn[data-active="true"]::before {
+/* Each row owns a stem and a curved branch. The final stem ends at its label. */
+.ms-sub-btn::before,
+.ms-sub-btn::after {
   content: "";
   position: absolute;
-  left: -9px;
-  top: 6px;
-  bottom: 6px;
-  width: 1px;
-  background: var(--cs-accent-clay);
+  pointer-events: none;
+  inset-inline-start: calc(-1 * var(--ms-branch-width));
+  inset-block-start: -1px;
+  border-inline-start: 1px solid var(--ms-branch-color);
 }
-.ms-sub-dot {
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--cs-border);
-  transition: background-color 120ms ease;
+/* The branch paints above the next row's stem, so the active branch is never covered. */
+.ms-sub-btn::before {
+  z-index: 1;
+  inline-size: var(--ms-branch-width);
+  block-size: calc(50% + 1px);
+  border-block-end: 1px solid var(--ms-branch-color);
+  border-end-start-radius: 7px;
 }
-@media (hover: hover) and (pointer: fine) {
-  .ms-sub-btn:hover .ms-sub-dot {
-  background: var(--cs-text-muted);
+/* The first stem reaches up through the list padding to meet the parent row. */
+.ms-sub-btn:first-child::before,
+.ms-sub-btn:first-child::after { inset-block-start: -3px; }
+.ms-sub-btn:first-child::before { block-size: calc(50% + 3px); }
+.ms-sub-btn:not(:last-child)::after {
+  block-size: calc(100% + 1px);
 }
-}
-.ms-sub-btn[data-active="true"] .ms-sub-dot {
-  background: var(--cs-accent-clay);
+.ms-sub-btn:first-child:not(:last-child)::after { block-size: calc(100% + 3px); }
+.ms-sub-btn[data-active="true"]::before {
+  border-color: var(--cs-text-secondary);
 }
 .ms-sub-label {
   font-size: 12px;
@@ -462,8 +431,7 @@
   flex-direction: column;
   gap: 1px;
   padding: 6px var(--ms-pad-x) 8px;
-  border-top: 1px solid var(--cs-border);
-  background: var(--cs-workbench-header-surface);
+  background: transparent;
 }
 
 /* Keyboard focus — inset, so the scroll container's horizontal clip can't
@@ -541,9 +509,9 @@
   transition: opacity 200ms linear, visibility 0s linear 200ms;
 }
 @media (max-width: 899px) {
-  .ms-sub-btn, .ms-group-toggle { min-block-size: 44px; }
-  .ms-group-toggle { inline-size: 44px; }
+  .ms-sub-btn { min-block-size: 44px; }
   .ms-root {
+    background: var(--cs-bg);
     position: fixed;
     top: var(--cs-shell-inset, 8px);
     bottom: var(--cs-shell-inset, 8px);

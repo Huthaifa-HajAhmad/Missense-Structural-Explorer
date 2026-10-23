@@ -154,8 +154,8 @@ export default function App() {
   const closeNavDrawer = useCallback(() => setIsNavDrawerOpen(false), []);
   const toggleNavDrawer = useCallback(() => setIsNavDrawerOpen((open) => !open), []);
 
-  /* Every sidebar-or-app navigation funnels here so the drawer dismisses itself
-     after a selection — on desktop the state flip is a harmless no-op. */
+  /* App-level navigation dismisses the drawer. The sidebar closes it after a leaf
+     selection itself, keeping it open while a section reveals its pages. */
   const navigate = useCallback(
     (view: MasterView) => {
       setMasterView(view);
@@ -257,7 +257,7 @@ export default function App() {
         {/* ── Resizable and Collapsible Master Sidebar ── */}
         <MasterSidebar
           activeView={masterView}
-          onViewChange={navigate}
+          onViewChange={setMasterView}
           sidebarWidth={sidebarWidth}
           setSidebarWidth={setSidebarWidth}
           isCollapsed={isSidebarCollapsed}
@@ -291,10 +291,7 @@ export default function App() {
 
           {/* ── Slim Header Bar with integrated alerts + global chrome actions ── */}
           <HeaderBar
-            masterView={masterView}
-            isBiophysicalLoading={isBiophysicalLoading}
             isOffline={isOffline}
-            activeEvidenceTab={activeEvidenceTab}
             showNavToggle={isNarrowViewport}
             navDrawerOpen={isNavDrawerOpen}
             onToggleNavDrawer={toggleNavDrawer}

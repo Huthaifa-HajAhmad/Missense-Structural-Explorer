@@ -246,14 +246,21 @@ export default function CommandPalette({
   }, [open]);
 
   /* Every visit starts from a clean line, the input takes focus, and the trigger's focus is
-     restored on close. */
+     restored on close. A jump can re-render the header and replace that trigger, so a detached
+     node falls back to the header's current palette trigger. */
   useEffect(() => {
     if (!open) return;
     setQuery("");
     lastActiveRef.current = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
     return () => {
-      lastActiveRef.current?.focus?.();
+      const last = lastActiveRef.current;
+      const target = last?.isConnected
+        ? last
+        : last?.hasAttribute("data-palette-trigger")
+          ? document.querySelector<HTMLElement>("[data-palette-trigger]")
+          : null;
+      target?.focus?.();
     };
   }, [open]);
 
