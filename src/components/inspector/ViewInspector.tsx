@@ -371,6 +371,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     return (
       <aside 
         className="w-10 flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col items-center py-4 justify-between transition-all duration-200"
+        data-workspace-inspector-rail
         aria-label="Collapsed Context Inspector"
       >
         <button
@@ -386,8 +387,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
         <div className="flex flex-col items-center gap-2 py-4">
           <Icon className="w-4 h-4 text-cs-text-muted" />
           <span 
-            className="text-[10px] font-mono uppercase tracking-widest text-cs-text-muted select-none"
-            style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+            className="inspector-rail-label text-[10px] font-mono uppercase tracking-widest text-cs-text-muted select-none"
           >
             {headerTitle}
           </span>
@@ -402,10 +402,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
     <aside 
       ref={asideRef}
       className="relative flex-shrink-0 border-l border-cs-border bg-cs-surface flex flex-col h-full overflow-hidden transition-[width] duration-75"
-      style={{
-        width: inspectorWidth,
-        minWidth: inspectorWidth,
-      }}
+      style={{ "--inspector-width": `${inspectorWidth}px` } as React.CSSProperties}
       data-workspace-inspector
       data-landscape={activeView === "landscape" || undefined}
       aria-label="Context & Provenance Inspector"
@@ -427,7 +424,7 @@ export const ViewInspector: React.FC<ViewInspectorProps> = ({
       />
 
       {/* ── Inspector Header ── */}
-      <div className="inspector-heading px-4 py-3.5 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface-2 flex-shrink-0">
+      <div className="inspector-heading px-4 py-3.5 border-b border-cs-border-subtle flex items-center justify-between bg-cs-surface flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <div className="inspector-heading__icon">
             <Icon className="w-4 h-4" />

@@ -410,8 +410,7 @@ export function AppViews({
             {/* SEARCH VIEW — high-density structured workspace */}
             {masterView === "search" && (
               <div 
-                className="w-full flex flex-col items-center justify-start px-4 sm:px-6 py-6 lg:py-8 overflow-y-auto"
-                style={{ background: "var(--cs-bg)", minHeight: "calc(100dvh - var(--cs-masthead, 68px))" }}
+                className="search-workspace"
               >
                 <div className="w-full" style={{ maxWidth: "var(--cs-search-max-width)" }}>
                   <VariantSearchPanel

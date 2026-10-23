@@ -123,10 +123,10 @@ describe("run-state slot", () => {
 });
 
 describe("top bar", () => {
-  const base = { masterView: "evidence" as const, isBiophysicalLoading: false, isOffline: false, isDark: false, onToggleTheme: () => {}, onOpenSettings: () => {} };
+  const base = { isOffline: false, isDark: false, onToggleTheme: () => {}, onOpenSettings: () => {} };
 
   it("titles itself with the variant on analysis views, instead of a breadcrumb", () => {
-    render(<HeaderBar {...base} activeEvidenceTab="clinical" variant={props(clean)} />);
+    render(<HeaderBar {...base} variant={props(clean)} />);
     const identity = screen.getByRole("group", { name: "Active variant" });
     expect(identity).toHaveTextContent("NAE1");
     expect(identity).toHaveTextContent("p.Asp116Gly");
@@ -135,9 +135,10 @@ describe("top bar", () => {
     expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   });
 
-  it("keeps the breadcrumb when no variant is on screen", () => {
-    render(<HeaderBar {...base} activeEvidenceTab="clinical" variant={null} />);
-    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Population data");
+  it("offers the labelled search, not a breadcrumb, when no variant is on screen", () => {
+    render(<HeaderBar {...base} variant={null} />);
+    expect(screen.getByRole("button", { name: /search views or run a variant/i })).toHaveTextContent("Search views or run a variant");
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
     expect(screen.queryByRole("group", { name: "Active variant" })).toBeNull();
   });
 });

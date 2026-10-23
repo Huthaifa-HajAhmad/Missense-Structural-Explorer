@@ -612,6 +612,9 @@ const ExampleRow: React.FC<{
   </div>;
 };
 
+const RECENTS_VISIBLE = 3;
+const RECENTS_MAX = 8;
+
 function VariantSearchPanel({
   isDark,
   classInput = "",
@@ -1224,6 +1227,11 @@ function VariantSearchPanel({
   const quickReading = readQuickEntry(quickDraft);
   // The fields are folded away by default; anything that needs a decision in them opens them.
   const [fieldsOpen, setFieldsOpen] = useState(false);
+  /* Three recents keep the query and monitor above the fold; the rest open on request instead of
+     an inner scroller competing with the page's. */
+  const [showAllRecents, setShowAllRecents] = useState(false);
+  const recentCount = Math.min(history.length, RECENTS_MAX);
+  const hiddenRecents = recentCount - RECENTS_VISIBLE;
   const fieldsNeedAttention =
     Boolean(routeConflict) ||
     bareCdnaNeedsGene ||
@@ -1261,12 +1269,7 @@ function VariantSearchPanel({
       {/* ── Page header ─────────────────────────────────────────────────────────────────────── */}
       <header className="workbench-heading">
         <div className="min-w-0">
-          <div className="workbench-eyebrow"><span aria-hidden="true" />Variant workbench</div>
           <h1 className="workbench-title">Analyse a variant<span aria-hidden="true">.</span></h1>
-          {/* `cs-lede` balances the two lines so the sentence breaks where it ends, instead of
-              stranding "synthesis is optional." under a full-measure first line. It is a class, not
-              Tailwind's `text-balance`, because `p { text-wrap: pretty }` in typography-tables.css is
-              unlayered and outranks a layered utility — see that file. */}
           <p className="workbench-lede">
             Follow a single amino-acid change through evidence, structure and stability.
           </p>
@@ -2021,6 +2024,17 @@ function VariantSearchPanel({
                 <h2 id="recent-title" className="text-[13px] font-semibold text-cs-text-primary">
                   Recent analyses <span className="workbench-recents-count">{history.length}</span>
                 </h2>
+                {hiddenRecents > 0 && (
+                  <button
+                    type="button"
+                    className="workbench-history-clear"
+                    aria-expanded={showAllRecents}
+                    aria-controls="workbench-recent-list"
+                    onClick={() => setShowAllRecents(open => !open)}
+                  >
+                    {showAllRecents ? "Show fewer" : `Show ${hiddenRecents} more`}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={clearHistory}
@@ -2034,8 +2048,8 @@ function VariantSearchPanel({
               </div>
 
               <p className="workbench-recents-note">Your latest variants, ready to revisit.</p>
-              <ol className="workbench-recent-list">
-                {history.slice(0, 8).map((item, idx) => {
+              <ol className="workbench-recent-list" id="workbench-recent-list">
+                {history.slice(0, showAllRecents ? RECENTS_MAX : RECENTS_VISIBLE).map((item, idx) => {
                   const isActive = gene === item.gene && variant === item.variant;
                   return (
                     <li key={`${item.gene}_${item.variant}_${idx}`}>

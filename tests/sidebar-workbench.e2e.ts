@@ -28,9 +28,13 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
     const el = document.activeElement as HTMLElement | null;
     return el?.getAttribute?.('aria-controls') === 'main-navigation' && el.getAttribute('aria-expanded') !== null;
   });
-  await screen.getByRole('button', 'Expand Evidence navigation').tap();
-  await expect(screen.getByRole('button', 'Collapse Evidence navigation')).toBeExpanded();
+  await screen.getByRole('button', 'Evidence').tap();
+  await expect(screen.getByRole('button', 'Evidence')).toBeExpanded();
   await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).toBeVisible();
+  await screen.getByRole('button', 'Evidence', { exact: true }).tap();
+  await expect(screen.getByRole('button', 'Evidence', { exact: true })).not.toBeExpanded();
+  await screen.getByRole('button', 'Evidence', { exact: true }).press('Enter');
+  await expect(screen.getByRole('button', 'Evidence', { exact: true })).toBeExpanded();
   await screen.getByRole('button', 'Interfaces & PPI', { exact: true }).tap();
   await expect(screen.getByRole('heading', 'Interfaces & PPI')).toBeVisible();
   await settle();
@@ -41,7 +45,7 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await app.screenshot('sidebar-expanded');
   await screen.getByRole('button', 'Switch to dark mode').tap();
   await app.screenshot('sidebar-dark');
-  await screen.getByRole('button', 'Collapse Evidence navigation').tap();
+  await screen.getByRole('button', 'Evidence').tap();
   await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).not.toBeVisible();
   await screen.getByRole('separator', 'Resize sidebar').press('End');
   await settle();
@@ -62,7 +66,7 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await expect(screen.getByRole('button', 'Open navigation')).toBeVisible();
   await settle();
   await screen.getByRole('button', 'Open navigation').tap();
-  await screen.getByRole('button', 'Expand Evidence navigation').tap();
+  await screen.getByRole('button', 'Evidence').tap();
   await screen.getByRole('button', 'RNA splicing', { exact: true }).scrollIntoView();
   await app.screenshot('sidebar-mobile');
   await screen.getByRole('button', 'RNA splicing', { exact: true }).tap();
