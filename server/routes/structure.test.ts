@@ -9,6 +9,7 @@ import {
   resolveStructureReference,
 } from "../services/structure/structure-reference-store.ts";
 import { isStructureRef, STRUCTURE_REF_HEADER, STRUCTURE_REF_MAX_PDB_CHARS } from "../../src/shared/structureRefs.ts";
+import { ALPHAFOLD_ABSENCE_HEADER } from "../../src/shared/alphafoldAvailability.ts";
 
 describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
   beforeEach(() => {
@@ -42,11 +43,15 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
 
     it("should return 404 NOT_FOUND if AlphaFold DB does not have the model", async () => {
       vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue(null);
+      // Length within the database's ceiling: the absence is unexplained, not a property of the protein.
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M".repeat(534));
 
+      const headers: Record<string, string> = {};
       let statusCode = 200;
       let jsonVal: any = null;
       const req: any = { params: { uniprotId: "Q9H8M5" } };
       const res: any = {
+        setHeader(name: string, value: string) { headers[name] = value; return this; },
         status(code: number) {
           statusCode = code;
           return this;
@@ -60,6 +65,58 @@ describe("Structure Routes (/alphafold-pdb and /pdb/entry)", () => {
       await handler(req, res, () => {});
       expect(statusCode).toBe(404);
       expect(jsonVal?.error?.code).toBe("NOT_FOUND");
+      expect(headers[ALPHAFOLD_ABSENCE_HEADER]).toBeUndefined();
+      expect(jsonVal?.error?.message).toBe("Could not retrieve AlphaFold DB model for accession: Q9H8M5.");
+    });
+
+    it("explains and marks the 404 when the protein is past AlphaFold DB's single-chain ceiling", async () => {
+      // PKD1 (P98161) is 4,302 aa; AlphaFold DB models single chains up to 2,700 aa, so this route
+      // could never have answered. The marker is what lets the client record the expected absence
+      // instead of a degraded network call.
+      vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue(null);
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockResolvedValue("M".repeat(4302));
+
+      const headers: Record<string, string> = {};
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const req: any = { params: { uniprotId: "P98161" } };
+      const res: any = {
+        setHeader(name: string, value: string) { headers[name] = value; return this; },
+        status(code: number) { statusCode = code; return this; },
+        json(data: any) { jsonVal = data; return this; },
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(404);
+      expect(headers[ALPHAFOLD_ABSENCE_HEADER]).toBe("beyond-length-limit");
+      expect(jsonVal?.error?.code).toBe("NOT_FOUND");
+      expect(jsonVal?.error?.message).toContain("no full-length model for P98161");
+      expect(jsonVal?.error?.message).toContain("4,302 aa");
+      expect(jsonVal?.error?.message).toContain("2,700 aa");
+    });
+
+    it("leaves the 404 unmarked when the length cannot be read", async () => {
+      // An unreadable length is not evidence of an absence; the generic 404 must stand rather than
+      // silence a real upstream failure.
+      vi.spyOn(externalServices, "fetchAlphafoldPdb").mockResolvedValue(null);
+      vi.spyOn(externalServices, "fetchUniprotSequence").mockRejectedValue(new Error("UniProt unavailable"));
+
+      const headers: Record<string, string> = {};
+      let statusCode = 200;
+      let jsonVal: any = null;
+      const req: any = { params: { uniprotId: "P98161" } };
+      const res: any = {
+        setHeader(name: string, value: string) { headers[name] = value; return this; },
+        status(code: number) { statusCode = code; return this; },
+        json(data: any) { jsonVal = data; return this; },
+      };
+
+      await handler(req, res, () => {});
+
+      expect(statusCode).toBe(404);
+      expect(headers[ALPHAFOLD_ABSENCE_HEADER]).toBeUndefined();
+      expect(jsonVal?.error?.message).toContain("Could not retrieve AlphaFold DB model");
     });
 
     it("should serve AlphaFold PDB text with correct headers when available", async () => {

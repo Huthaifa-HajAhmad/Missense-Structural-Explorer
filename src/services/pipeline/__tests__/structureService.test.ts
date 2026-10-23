@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fetchPdbCoordinates, fetchHomologStructures, fetchBindingPocket, fetchNearestResidues } from "../structureService";
 import { clearStructureRefRegistry, registerStructureRefForPdb, resolveStructureRefForPdb } from "../../../api/structureRefRegistry";
+import { AlphaFoldModelUnavailableError } from "../../../api/structureApi";
 
 const STRUCTURE_REF = "sref1_0123456789abcdef0123456789abcdef";
 const PDB_TEXT = "ATOM      1  CA  ASP A   1      1.000   1.000   1.000  1.00  0.00           C";
@@ -56,6 +57,82 @@ describe("structureService", () => {
 
       expect(result).toBeNull();
       expect(addTraceSpan).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
+    });
+
+    /**
+     * AlphaFold DB's length ceiling is a fact about the protein. The pipeline asks for the model
+     * first on every visit, so for PKD1 (4,302 aa) it asked for coordinates that cannot exist and
+     * then logged the honest 404 as an upstream degradation — on every run. The marker the server
+     * now sends lets this probe fall back quietly.
+     */
+    it("treats a proven AlphaFold absence as expected and resolves coordinates instead", async () => {
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const signal = new AbortController().signal;
+      const mockApiClient = {
+        getAlphaFoldPdbWithProvenance: vi.fn().mockRejectedValue(
+          new AlphaFoldModelUnavailableError(
+            "beyond-length-limit",
+            "AlphaFold DB has no full-length model for P98161: its 4,302 aa sequence exceeds the database's 2,700 aa single-chain limit."
+          )
+        ),
+        getPdbWithProvenance: vi.fn().mockResolvedValue({
+          pdbText: "ATOM      1  CA  ALA A   1      1.000   1.000   1.000  1.00 90.00           C",
+          provenance: { source: "experimental", pdbId: "8ZKH", chainId: "A" },
+        }),
+      };
+
+      try {
+        const result = await fetchPdbCoordinates(
+          "PKD1", "p.Val3297Met", "P98161", 3297, mockApiClient, signal
+        );
+
+        expect((result as any).pdbText).toContain("ATOM");
+        expect(mockApiClient.getPdbWithProvenance).toHaveBeenCalledWith("P98161", 3297, signal);
+        expect(info).toHaveBeenCalledWith(expect.stringContaining("no full-length model for P98161"));
+        expect(info).toHaveBeenCalledWith(expect.stringContaining("3-tier PDB resolver"));
+        expect(warn).not.toHaveBeenCalled();
+        expect(error).not.toHaveBeenCalled();
+      } finally {
+        info.mockRestore();
+        warn.mockRestore();
+        error.mockRestore();
+      }
+    });
+
+    it("still reports an unmarked AlphaFold failure as a warning", async () => {
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const signal = new AbortController().signal;
+      const mockApiClient = {
+        // No absence marker: an upstream fault, which must keep its visibility.
+        getAlphaFoldPdbWithProvenance: vi.fn().mockRejectedValue(new Error("upstream 503")),
+        getPdbWithProvenance: vi.fn().mockResolvedValue({
+          pdbText: "ATOM      1  CA  ALA A   1      1.000   1.000   1.000  1.00 90.00           C",
+          provenance: { source: "experimental", pdbId: "8ZKH", chainId: "A" },
+        }),
+      };
+
+      try {
+        const result = await fetchPdbCoordinates(
+          "PKD1", "p.Val3297Met", "P98161", 3297, mockApiClient, signal
+        );
+
+        expect((result as any).pdbText).toContain("ATOM");
+        expect(warn).toHaveBeenCalledWith(
+          "[StructureService] AlphaFold DB fetch failed, falling back to 3-tier PDB resolver:",
+          "upstream 503"
+        );
+        expect(info).not.toHaveBeenCalled();
+      } finally {
+        info.mockRestore();
+        warn.mockRestore();
+        error.mockRestore();
+      }
     });
   });
 

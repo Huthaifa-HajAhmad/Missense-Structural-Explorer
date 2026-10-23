@@ -3,6 +3,7 @@ import { useVariantAnalysisStore } from "../stores/useVariantAnalysisStore";
 import { PDB_SOURCE_RCSB } from "../shared/contracts";
 import { describeFoldxPhase } from "../shared/foldxPhase";
 import { identifyAlphaFoldHeader, readResidueAt, scanBFactors } from "../shared/coordinateText";
+import { readProteinLength } from "../shared/foldingLimits";
 import {
   buildStructure3dEvidence,
   type ModelFamily,
@@ -80,6 +81,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
   const esmFoldSingleStructure = useVariantAnalysisStore(s => s.esmFoldSingleStructure);
 
   const position = metadata?.residueIndex ?? null;
+  const proteinLength = readProteinLength(metadata).residues;
   const templateChain = foldingEnergetics?.structureProvenance?.chainId ?? null;
 
   const wildTypeText = customPdbUrl ? customPdbText : pdbText;
@@ -119,6 +121,7 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
         gene: gene || null,
       },
       selectedResidue: selectedResidueIndex ?? null,
+      proteinLength,
       wildType: {
         provenance: pdbTextProvenance,
         headerSaysAlphaFold,
@@ -185,6 +188,6 @@ export function useStructure3dEvidence(familyOverride?: ModelFamily): Structure3
     isFolding, foldingProgress, foldingStatus, foldingError, foldingDdG, foldingEnergetics, foldxReference,
     foldxAlignedPdb, foldxReferencePdb, referenceSite, isEsmFolding, esmFoldingError, esmFoldWtPdb, esmFoldMutPdb,
     esmFoldSingleStructure, esmFoldEngines, deNovoScan, esmFoldAlignedPdb, deNovoSite, foldxMetrics, esmFoldMetrics,
-    region, homologs, homologsLoading, position,
+    region, homologs, homologsLoading, position, proteinLength,
   ]);
 }

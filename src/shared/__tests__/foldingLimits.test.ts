@@ -112,6 +112,35 @@ describe("the notice a reader sees", () => {
     expect(notice!.body).toContain("1,500 aa");
   });
 
+  it("stops promising AlphaFold coordinates when the length proves there are none", () => {
+    // PKD1 is 4,302 aa: past AlphaFold DB's 2,700 aa ceiling as well as both folding ceilings. The
+    // shipped copy told the reader "AlphaFold2 coordinates are the full-length option" — a model the
+    // database can never publish for this protein.
+    const notice = describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(4302), {
+      alphafoldModelAvailable: false,
+    });
+    expect(notice).not.toBeNull();
+    expect(notice!.tone).toBe("warning");
+    expect(notice!.body).toContain("4,302 aa");
+    expect(notice!.body).toContain("2,700");
+    expect(notice!.body).toContain("no full-length predicted coordinates");
+    expect(notice!.body).not.toMatch(/AlphaFold2 coordinates are the full-length option/);
+  });
+
+  it("keeps the longstanding sentence when AlphaFold availability was not established", () => {
+    // `null` is not `false`: only a length that proves exclusion may change the copy.
+    for (const options of [{}, { alphafoldModelAvailable: null }]) {
+      const notice = describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(1500), options);
+      expect(notice!.body).toContain("AlphaFold2 coordinates are the full-length option.");
+      expect(notice!.body).not.toContain("no full-length predicted coordinates");
+    }
+    // A protein within the ceiling keeps it too, because AlphaFold DB may still hold its model.
+    const within = describeDeNovoCapacityNotice(resolveDeNovoFoldingCapacity(1500), {
+      alphafoldModelAvailable: true,
+    });
+    expect(within!.body).toContain("AlphaFold2 coordinates are the full-length option.");
+  });
+
   it("never claims a configuration the repository does not have", () => {
     // THE REGRESSION. The shipped copy read "Sovereign JapanFold inference engine configured in
     // Settings is used for de novo folding" — no such engine, no such setting, and the fold had

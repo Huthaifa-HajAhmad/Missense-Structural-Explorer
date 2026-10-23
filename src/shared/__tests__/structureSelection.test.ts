@@ -4,9 +4,10 @@ import type { Structure3dEvidence } from '../structure3dEvidence';
 
 const atom = (position: number, chain = 'A', code = ' ', b = ' 92.00') =>
   `ATOM      1  CA  ALA ${chain}${String(position).padStart(4)}${code}      1.000   2.000   3.000  1.00${b}           C`;
-const model = (kind = 'plddt', scale = 100, numbering = 'uniprot', verified = true, inherited = false, check = verified ? 'match' : 'mismatch') => ({
+const model = (kind = 'plddt', scale = 100, numbering = 'uniprot', verified = true, inherited = false, check = verified ? 'match' : 'mismatch', alphaFold?: { coverage: string; residues: number | null }) => ({
   canvas: { primary: { name: 'Fixture coordinates', numbering, channel: { kind, scale, inherited, note: 'Fixture provenance' } } },
   site: { canAddressVariantSite: verified, check: { state: check } },
+  ...(alphaFold ? { alphaFold } : {}),
 } as unknown as Structure3dEvidence);
 
 describe('linked structure selection', () => {
@@ -62,6 +63,27 @@ describe('linked structure selection', () => {
     const residues = indexStructureResidues(atom(5));
     expect(buildStructureSelection(model(), residues, 20)).toMatchObject({ state: 'missing', position: 20, measurement: null });
     expect(buildStructureSelection(model('plddt', 100, 'entry'), residues, 5)).toMatchObject({ state: 'unmapped', position: 5, measurement: null });
+  });
+
+  it('does not send the reader after AlphaFold coordinates a long protein cannot have', () => {
+    const residues = indexStructureResidues(atom(5));
+    // Below the ceiling — or with the question unestablished — the standing suggestion is still true.
+    for (const alphaFold of [undefined, { coverage: 'within-limit', residues: 900 }, { coverage: 'unknown', residues: null }]) {
+      const summary = buildStructureSelection(model('plddt', 100, 'entry', true, false, 'match', alphaFold), residues, 5).summary;
+      expect(summary).toContain('Switch to a UniProt-numbered model (e.g. AlphaFold)');
+    }
+
+    // PKD1: no full-length AlphaFold DB model exists, so offering one would be an instruction that
+    // cannot be followed.
+    const summary = buildStructureSelection(
+      model('plddt', 100, 'entry', true, false, 'match', { coverage: 'beyond-limit', residues: 4302 }),
+      residues,
+      5
+    ).summary;
+    expect(summary).toContain('2,700 aa');
+    expect(summary).toContain('mapped experimental entry');
+    expect(summary).not.toContain('Switch to a UniProt-numbered model');
+    expect(summary).not.toContain('e.g. AlphaFold');
   });
 
   it('reads the selected residue on its own channel without inventing missing values', () => {

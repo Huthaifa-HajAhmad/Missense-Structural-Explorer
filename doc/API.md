@@ -400,6 +400,7 @@ For Gemini analysis, a stateless session key is exchanged via `/session/keys`. T
 * **Route**: `GET /api/v1/alphafold-pdb/:uniprotId`
 * **Auth**: 🔒 (Bearer Token)
 * **Description**: Proxies coordinate fetching for AlphaFold models from the EMBL-EBI CDN to bypass browser cross-origin constraints.
+* **Absence contract**: AlphaFold DB models single chains only up to **2,700 aa**. For a longer UniProt entry the route can never serve a full-length model, so it answers `404 NOT_FOUND` with the response header `X-Alphafold-Absence: beyond-length-limit` and a message naming the sequence length and the ceiling (e.g. PKD1 / `P98161`, 4,302 aa). The marker is sent only when the length is known to exceed the limit — an unreadable length, an entry missing within the limit, and upstream failures all keep the generic, unmarked `404` (or `500`) so a real fault is never silenced.
 
 ### 12. Submit Biophysical Stability Job
 * **Routes**: 

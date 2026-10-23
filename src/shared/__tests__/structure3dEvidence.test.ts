@@ -190,6 +190,19 @@ describe("structure3dEvidence — NAE1 p.Asp116Gly, AlphaFold view", () => {
     expect(m.canvas.chip.tone).toBe("predicted");
   });
 
+  it("reports AlphaFold DB coverage from the protein length, and leaves it unknown otherwise", () => {
+    expect(buildStructure3dEvidence(baseInput()).alphaFold).toEqual({ coverage: "unknown", residues: null });
+    expect(buildStructure3dEvidence(baseInput({ proteinLength: 534 })).alphaFold).toEqual({
+      coverage: "within-limit",
+      residues: 534,
+    });
+    // PKD1: no full-length AlphaFold DB model can exist, whatever the lookup returns.
+    expect(buildStructure3dEvidence(baseInput({ proteinLength: 4302 })).alphaFold).toEqual({
+      coverage: "beyond-limit",
+      residues: 4302,
+    });
+  });
+
   it("colours the AlphaFold model with AlphaFold DB's published pLDDT bands and allows the pLDDT filter", () => {
     const m = buildStructure3dEvidence(baseInput());
     expect(m.representation).toBe("confidence");
