@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import VariantHeader from "../../VariantHeader";
 import HeaderBar from "../../HeaderBar";
 import { buildVariantHeaderModel } from "../variantHeaderModel";
@@ -89,10 +89,36 @@ describe("context strip", () => {
     render(<VariantHeader {...props(clean)} />);
     expect(screen.queryByTestId("run-state")).toBeNull();
   });
+
+  it("auto-closes the panel when switching variants", () => {
+    const { rerender } = render(<VariantHeader {...props(clean)} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Details/ }));
+    expect(screen.getByRole("region", { name: "Gene constraint reference ranges" })).toBeInTheDocument();
+
+    rerender(<VariantHeader {...props(clean)} variant="p.Arg175His" />);
+    expect(screen.queryByRole("region", { name: "Gene constraint reference ranges" })).toBeNull();
+  });
 });
 
 describe("run-state slot", () => {
   beforeEach(() => useVariantAnalysisStore.getState().resetVariantAnalysisState());
+
+  it("renders provide-allele recovery action and triggers callback", () => {
+    const onProvideAllele = vi.fn();
+    const ambiguousResult = {
+      ...fallback,
+      predictorData: {
+        ...fallback.predictorData!,
+        locusResolution: { route: "fallback", canonicalBy: null, retryable: false, failureKind: "ambiguous-allele", steps: [] },
+      },
+    } as unknown as AnalysisResult;
+
+    render(<VariantHeader {...props(ambiguousResult)} onProvideAllele={onProvideAllele} />);
+    const actionBtn = screen.getByRole("button", { name: /provide nucleotide allele/i });
+    expect(actionBtn).toBeInTheDocument();
+    fireEvent.click(actionBtn);
+    expect(onProvideAllele).toHaveBeenCalledTimes(1);
+  });
 
   it("announces a fallback locus and offers the re-run", () => {
     render(<VariantHeader {...props(fallback)} />);

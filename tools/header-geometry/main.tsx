@@ -441,7 +441,11 @@ function App(): React.ReactElement {
   React.useEffect(() => {
     // Open every Details panel: the full tracks are what the row/marker/numeral checks measure.
     document.querySelectorAll<HTMLButtonElement>(".vcs-details").forEach((b) => b.click());
-    const timer = window.setTimeout(() => {
+    let active = true;
+    const runMeasurements = () => {
+      if (!active) return;
+      window.requestAnimationFrame(() => {
+        if (!active) return;
       const checks: GeometryCheck[] = [];
       const heights: Record<string, number> = {};
 
@@ -531,8 +535,15 @@ function App(): React.ReactElement {
       const sink = document.getElementById("geometry-result");
       // base64 so --dump-dom cannot mangle the JSON through HTML escaping
       if (sink) sink.textContent = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
-    }, 150);
-    return () => window.clearTimeout(timer);
+      });
+    };
+
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(runMeasurements);
+    } else {
+      runMeasurements();
+    }
+    return () => { active = false; };
   }, []);
 
   const strip = (gene: string, variant: string, uniprot: string, result: AnalysisResult) => (

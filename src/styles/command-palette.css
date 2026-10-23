@@ -41,6 +41,11 @@
 .dark .cs-palette-overlay {
   background: rgba(8, 7, 6, 0.55);
 }
+@media (max-height: 500px) {
+  .cs-palette-overlay {
+    padding-top: 12px;
+  }
+}
 
 .cs-palette {
   width: min(640px, 100%);

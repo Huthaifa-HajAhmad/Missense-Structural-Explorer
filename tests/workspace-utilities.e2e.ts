@@ -63,6 +63,7 @@ test('compact Console keeps every stream reachable', { tags: ['shell'] }, async 
 
 test('header actions share surfaces and retain keyboard focus when signed in', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
+  await browser.setViewport({ width: 1440, height: 900 });
   await browser.route('**/api/v1/auth/session', route => route.fulfill({ json: {
     mode: 'hybrid', provider: 'password', setupAvailable: false, accountsExist: true,
     user: { id: 'design-test', email: 'review@example.test', displayName: 'Design reviewer', role: 'member',
@@ -96,7 +97,7 @@ test('header actions share surfaces and retain keyboard focus when signed in', {
 test('every tour step keeps its footer inside short and narrow viewports', { tags: ['shell'], timeout: 90_000 }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await app.open('/');
-  for (const size of [{ width: 667, height: 400 }, { width: 390, height: 667 }]) {
+  for (const size of [{ width: 667, height: 400 }, { width: 390, height: 667 }, { width: 844, height: 390 }]) {
     await browser.setViewport(size);
     await screen.getByRole('button', 'Take the tour', { exact: true }).first().tap();
     for (let index = 0; index < TOUR_STEPS.length; index++) {

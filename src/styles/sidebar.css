@@ -516,7 +516,7 @@
   transition: opacity 200ms linear, visibility 0s linear 200ms;
 }
 @media (max-width: 899px) {
-  .ms-sub-btn { min-block-size: 44px; }
+  .ms-nav-btn, .ms-sub-btn { min-block-size: 44px; }
   .ms-root {
     background: var(--cs-bg);
     position: fixed;

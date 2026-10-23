@@ -340,6 +340,9 @@
   --color-cs-text-danger-on-soft: var(--cs-text-danger-on-soft);
   --color-cs-text-good-on-soft: var(--cs-text-good-on-soft);
   --color-cs-surface-1: var(--cs-surface-1);
+  --color-cs-workspace-primary: var(--cs-workspace-primary);
+  --color-cs-workspace-context: var(--cs-workspace-context);
+  --color-cs-workspace-card: var(--cs-workspace-card);
   
   --font-size-cs-micro: var(--cs-text-micro);
   --font-weight-cs-micro: var(--cs-font-weight-micro);

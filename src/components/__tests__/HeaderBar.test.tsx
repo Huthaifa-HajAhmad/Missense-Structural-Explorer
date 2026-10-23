@@ -114,6 +114,31 @@ describe("HeaderBar Component Tests (C-7)", () => {
     const classes = names.map(n => screen.getByRole("button", { name: n }).className.split(" ").filter(c => /^(w-|h-|rounded)/.test(c)).sort().join(" "));
     expect(new Set(classes).size).toBe(1);
   });
+
+  it("renders navigation drawer toggle and reflects drawer state", () => {
+    const onToggleNavDrawer = vi.fn();
+    const { rerender } = render(
+      <HeaderBar {...base} showNavToggle={true} navDrawerOpen={false} onToggleNavDrawer={onToggleNavDrawer} />
+    );
+    const toggleBtn = screen.getByRole("button", { name: /open navigation/i });
+    expect(toggleBtn).toHaveAttribute("aria-expanded", "false");
+    expect(toggleBtn).toHaveAttribute("aria-controls", "main-navigation");
+
+    fireEvent.click(toggleBtn);
+    expect(onToggleNavDrawer).toHaveBeenCalledTimes(1);
+
+    rerender(<HeaderBar {...base} showNavToggle={true} navDrawerOpen={true} onToggleNavDrawer={onToggleNavDrawer} />);
+    expect(screen.getByRole("button", { name: /open navigation/i })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("calls onDismissError when error dismiss button is clicked", () => {
+    const onDismissError = vi.fn();
+    render(<HeaderBar {...base} error="Network timeout" onDismissError={onDismissError} />);
+    const dismissBtn = screen.getByRole("button", { name: /dismiss notice/i });
+    expect(dismissBtn).toBeInTheDocument();
+    fireEvent.click(dismissBtn);
+    expect(onDismissError).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("shareLink", () => {
