@@ -6,11 +6,11 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await skipTour(browser);
   await browser.setViewport({ width: 1440, height: 1000 });
   await app.open('/');
-  // A closed drawer is `visibility: hidden` and inert; read that from the DOM, since the locator still resolves its controls.
+  // A closed drawer is inert and slid fully off-screen; read that from the DOM, since the locator still resolves its controls.
   const drawerClosed = () => browser.evaluate(async () => {
     const rail = document.querySelector('aside.ms-root')!;
-    const read = () => `${rail.getAttribute('data-drawer')}/${getComputedStyle(rail).visibility}/${rail.hasAttribute('inert')}`;
-    for (let i = 0; i < 40 && read() !== 'closed/hidden/true'; i++) await new Promise(r => setTimeout(r, 100));
+    const read = () => `${rail.getAttribute('data-drawer')}/${rail.getBoundingClientRect().right <= 0 ? 'offscreen' : 'onscreen'}/${rail.hasAttribute('inert')}`;
+    for (let i = 0; i < 40 && read() !== 'closed/offscreen/true'; i++) await new Promise(r => setTimeout(r, 100));
     return read();
   });
   const settle = () => browser.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))).then(() => true));
@@ -50,9 +50,9 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await screen.getByRole('button', 'RNA splicing', { exact: true }).tap();
   await expect(screen.getByRole('heading', 'RNA splicing')).toBeVisible();
   await settle();
-  expect(await drawerClosed(), 'the drawer closes after a pick').toBe('closed/hidden/true');
+  expect(await drawerClosed(), 'the drawer closes after a pick').toBe('closed/offscreen/true');
   await screen.getByRole('button', 'Open navigation').tap();
   await screen.getByRole('button', 'Close navigation').press('Escape');
   await settle();
-  expect(await drawerClosed(), 'Escape closes the drawer').toBe('closed/hidden/true');
+  expect(await drawerClosed(), 'Escape closes the drawer').toBe('closed/offscreen/true');
 });
