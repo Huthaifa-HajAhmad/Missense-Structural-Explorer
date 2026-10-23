@@ -13,7 +13,7 @@
    ============================================================ */
 
 .ms-root {
-  --ms-row-h: 44px;
+  --ms-row-h: 40px;
   --ms-pad-x: 8px;
   --ms-row-pad-x: 12px;
   --ms-tint-strong: color-mix(in oklch, var(--cs-accent-clay) 14%, transparent);
@@ -32,7 +32,8 @@
   user-select: none;
   background: transparent;
   border: 0;
-  border-radius: var(--cs-radius-panel);
+  border-inline-end: 1px solid var(--cs-border-subtle);
+  border-radius: 0;
   box-shadow: none;
   transition: width 240ms var(--ms-ease), min-width 240ms var(--ms-ease);
 }
@@ -43,6 +44,7 @@
 
 /* ── Brand row ── */
 .ms-brand {
+  border-block-end: 1px solid var(--cs-border-subtle);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -93,7 +95,7 @@
   white-space: nowrap;
   max-width: 200px;
   font-size: 14px;
-  font-family: var(--cs-font-serif);
+  font-family: var(--cs-font-sans);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--cs-text-primary);
@@ -133,13 +135,17 @@
   flex-direction: column;
   gap: 1px;
 }
+.ms-zone + .ms-zone:not(:has(> .ms-zone-divider)) {
+  border-block-start: 1px solid var(--cs-border-subtle);
+  margin-block-start: 10px;
+}
 .ms-zone-label {
   display: block;
   padding: 18px var(--ms-row-pad-x) 6px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--cs-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -233,7 +239,7 @@
   min-width: 0;
 }
 .ms-nav-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 20px;
   white-space: nowrap;
@@ -426,6 +432,7 @@
 
 /* ── Pinned footer ── */
 .ms-footer {
+  border-block-start: 1px solid var(--cs-border-subtle);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -509,7 +516,7 @@
   transition: opacity 200ms linear, visibility 0s linear 200ms;
 }
 @media (max-width: 899px) {
-  .ms-sub-btn { min-block-size: 44px; }
+  .ms-nav-btn, .ms-sub-btn { min-block-size: 44px; }
   .ms-root {
     background: var(--cs-bg);
     position: fixed;

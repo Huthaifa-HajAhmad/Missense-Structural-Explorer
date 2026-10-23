@@ -41,10 +41,15 @@
 .dark .cs-palette-overlay {
   background: rgba(8, 7, 6, 0.55);
 }
+@media (max-height: 500px) {
+  .cs-palette-overlay {
+    padding-top: 12px;
+  }
+}
 
 .cs-palette {
   width: min(640px, 100%);
-  max-height: min(480px, 76dvh);
+  max-height: min(560px, 76dvh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -68,7 +73,7 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  height: 54px;
+  height: 64px;
   padding: 0 14px 0 18px;
   border-bottom: 1px solid var(--cs-border-subtle);
 }
@@ -131,8 +136,8 @@
   padding: 10px 10px 6px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  text-transform: none;
   color: var(--cs-text-muted);
   user-select: none;
 }
@@ -142,7 +147,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 6px 10px 6px 8px;
   border-radius: var(--cs-radius-input);
   font-size: 13.5px;

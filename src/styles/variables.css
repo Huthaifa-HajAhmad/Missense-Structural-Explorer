@@ -59,6 +59,11 @@
   /* Clay as a SOLID behind white text: the brand clay is 3.87:1 there; this is 4.7:1. */
   --cs-accent-solid: #B35A3C;
   --cs-workbench-header-surface: color-mix(in oklch, var(--cs-surface-2) 45%, var(--cs-surface));
+  /* Role-based surfaces: primary work stays bright; supporting context recedes.
+     References resolve against the active theme, including dark mode. */
+  --cs-workspace-primary: var(--cs-surface);
+  --cs-workspace-context: var(--cs-surface-2);
+  --cs-workspace-card: var(--cs-surface);
   /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
   --cs-bg:            #F9F8F6;   /* warm paper-white page background */
   --cs-bg-subtle:     #EEEBE2;   /* subtle hover state background */
@@ -335,6 +340,9 @@
   --color-cs-text-danger-on-soft: var(--cs-text-danger-on-soft);
   --color-cs-text-good-on-soft: var(--cs-text-good-on-soft);
   --color-cs-surface-1: var(--cs-surface-1);
+  --color-cs-workspace-primary: var(--cs-workspace-primary);
+  --color-cs-workspace-context: var(--cs-workspace-context);
+  --color-cs-workspace-card: var(--cs-workspace-card);
   
   --font-size-cs-micro: var(--cs-text-micro);
   --font-weight-cs-micro: var(--cs-font-weight-micro);

@@ -19,26 +19,32 @@
 .exploration-workspace > .data-screen-primary {
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-workbench-radius);
-  background: var(--cs-surface);
+  background: var(--cs-workspace-primary);
   box-shadow: var(--cs-workbench-shadow);
 }
-/* The open inspector is the primary's twin card; its collapsed rail is only a toggle on the canvas. */
+/* Supporting context recedes behind raised readings; the primary owns the analysis. */
 aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(--inspector-width); }
 .exploration-workspace > aside[data-workspace-inspector] {
   min-width: 280px;
   max-width: 42%;
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-workbench-radius);
-  background: var(--cs-surface);
+  background: var(--cs-workspace-context);
   box-shadow: var(--cs-workbench-shadow);
   overflow: clip;
 }
 .exploration-workspace > aside[data-workspace-inspector-rail] { border: 0; background: transparent; }
 .inspector-rail-label { writing-mode: vertical-rl; transform: rotate(180deg); }
 .exploration-workspace > .data-screen-primary { overflow: hidden; }
-.exploration-workspace .inspector-heading { padding: 20px; }
+.exploration-workspace .inspector-heading { padding: 20px; background: var(--cs-workbench-header-surface); }
 .inspector-heading__icon { flex: none; color: var(--cs-text-muted); padding-inline-end: .25rem; }
 .exploration-workspace .inspector-body { padding: 20px; scrollbar-gutter: stable; }
+.exploration-workspace .inspector-body :is(.evw-inspection:not([data-empty]), .review-selection, .spl-inspection) {
+  background: var(--cs-workspace-card);
+  padding: 16px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius-card);
+}
 .exploration-workspace .landscape-main { background: var(--cs-surface); border-radius: inherit; scrollbar-gutter: stable; }
 .workspace-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-block-end: 12px; border-block-end: 1px solid var(--cs-border-subtle); }
 .workspace-tabs button { padding: 8px 14px; min-block-size: 44px; border: 1px solid transparent; border-radius: 6px; font-size: var(--cs-font-size-prose); font-weight: 500; color: var(--cs-text-secondary); background: transparent; cursor: pointer; }

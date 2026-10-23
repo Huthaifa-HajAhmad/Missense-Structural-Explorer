@@ -95,15 +95,15 @@ test('Literature stacks its white panels with one page scroller on mobile', { ta
     const literature = main.querySelector('.lit-view')!;
     const inspector = workspace.querySelector('[data-workspace-inspector]')!;
     return getComputedStyle(literature).backgroundColor === getComputedStyle(main).backgroundColor &&
-      getComputedStyle(main).backgroundColor === getComputedStyle(inspector).backgroundColor &&
+      getComputedStyle(main).backgroundColor !== getComputedStyle(inspector).backgroundColor &&
       getComputedStyle(literature).overflowY === 'visible' &&
       main.getBoundingClientRect().bottom <= inspector.getBoundingClientRect().top &&
       document.documentElement.scrollWidth <= innerWidth;
-  }), 'stacked panels share their surface and leave scrolling to the workspace').toBe(true);
+  }), 'stacked panels retain distinct primary/context surfaces and one workspace scroller').toBe(true);
   await app.screenshot('literature-mobile');
 });
 
-test('the sidebar is unframed, chevron-free, and marks one legible current page', { tags: ['shell'] }, async ({ app, browser, screen }) => {
+test('the sidebar has a quiet divider and marks one legible current page', { tags: ['shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1440, height: 640 });
   await app.open('/');
@@ -125,7 +125,7 @@ test('the sidebar is unframed, chevron-free, and marks one legible current page'
       const branch = getComputedStyle(active, '::before');
       const trunk = getComputedStyle(nav.querySelector('.ms-sub-btn')!, '::after');
       return {
-        unframed: rootStyle.borderRightWidth === '0px' && rootStyle.boxShadow === 'none',
+        quietDivider: rootStyle.borderInlineEndWidth === '1px' && rootStyle.boxShadow === 'none',
         noNativeBar: getComputedStyle(nav).scrollbarWidth === 'none',
         noChevrons: nav.querySelectorAll('.lucide-chevron-down, .lucide-chevron-right').length === 0,
         oneCurrent: current.length === 1 && current[0] === active,
@@ -135,7 +135,7 @@ test('the sidebar is unframed, chevron-free, and marks one legible current page'
       };
     });
     expect(result, `${theme} sidebar contract`).toEqual({
-      unframed: true, noNativeBar: true, noChevrons: true, oneCurrent: true, chip: true, branchOnTop: true, trunkLegible: true,
+      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, chip: true, branchOnTop: true, trunkLegible: true,
     });
     await app.screenshot(`sidebar-tree-${theme}`);
     if (theme === 'light') await screen.getByRole('button', 'Switch to dark mode').tap();

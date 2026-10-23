@@ -230,6 +230,10 @@ export default function DevConsolePanel() {
 
   return (
     <div className="cx-root" tabIndex={-1} onKeyDown={handleRootKeyDown}>
+      <div className="cx-page-heading">
+        <h1>Console</h1>
+        <p>Inspect errors, follow requests, and trace each analysis.</p>
+      </div>
       {/* ── Command bar ── */}
       <header className="cx-head">
         <div role="tablist" aria-label="Console streams" onKeyDown={handleStreamNav} className="cx-tabs">
@@ -400,7 +404,7 @@ export default function DevConsolePanel() {
         )}
       </section>
 
-      <div id="console-stream-panel" role="tabpanel" aria-labelledby={`console-tab-${activeTab}`} tabIndex={-1} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", outline: "none" }}>
+      <div id="console-stream-panel" className="cx-stream-panel" role="tabpanel" aria-labelledby={`console-tab-${activeTab}`} tabIndex={-1}>
         {isLogTab ? (
           <>
             {/* ── Filter toolbar ── */}

@@ -421,6 +421,19 @@ export function OnboardingModal({ isOpen, onClose, onSelectPreset, onOpenSetting
     else openSettingsTab("connections");
   }, [onClose, onOpenSettings, openSettingsTab]);
 
+  useEffect(() => {
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    if (!shell) return;
+    if (isOpen) {
+      shell.setAttribute("inert", "");
+    } else {
+      shell.removeAttribute("inert");
+    }
+    return () => {
+      shell.removeAttribute("inert");
+    };
+  }, [isOpen]);
+
   // Keyboard: Esc ends, ←/→ move, Tab stays inside the card.
   useEffect(() => {
     if (!isOpen) return;

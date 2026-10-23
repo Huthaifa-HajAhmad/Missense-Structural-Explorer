@@ -18,6 +18,8 @@
   width: 100%;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid var(--cs-border-subtle);
+  border-radius: var(--cs-radius-panel);
   background: var(--cs-bg);
   color: var(--cs-text-primary);
   font-family: var(--cs-font-sans);
@@ -30,6 +32,35 @@
 }
 
 .cx-root button { font-family: inherit; }
+.cx-stream-panel {
+  flex: 1;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cx-stream-panel:focus-visible {
+  outline: 2px solid var(--cs-accent-clay);
+  outline-offset: -2px;
+}
+.cx-page-heading {
+  flex: none;
+  padding: 20px 20px 16px;
+  background: var(--cs-surface);
+}
+.cx-page-heading h1 {
+  margin: 0;
+  font-family: var(--cs-workbench-heading-font);
+  font-size: var(--cs-font-size-display);
+  font-weight: var(--cs-font-weight-display);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+.cx-page-heading p {
+  margin-block: 5px 0;
+  color: var(--cs-text-secondary);
+  font-size: 14px;
+  text-wrap: pretty;
+}
 .cx-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
 
 /* Shared focus ring */
@@ -58,10 +89,10 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 16px;
+  padding: 0 20px 16px;
   background: var(--cs-surface);
   border-bottom: 1px solid var(--cs-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  box-shadow: none;
 }
 .cx-tabs {
   display: inline-flex;
@@ -84,7 +115,7 @@
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.2, 0, 0, 1);
+  transition: background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
 }
 @media (hover: hover) and (pointer: fine) {
   .cx-tab:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
@@ -216,7 +247,7 @@
   flex-direction: column;
   gap: 3px;
   min-width: 0;
-  padding: 11px 16px;
+  padding: 16px 20px;
   background: var(--cs-surface);
   border: 0;
   text-align: left;
@@ -430,7 +461,7 @@ button.cx-tile[aria-pressed="true"] {
   min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
-  background: var(--cs-surface);
+  background: var(--cs-workspace-context);
   border-left: 1px solid var(--cs-border);
 }
 @media (max-width: 1100px) {
@@ -439,6 +470,15 @@ button.cx-tile[aria-pressed="true"] {
 }
 @media (max-width: 900px) {
   .cx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* When controls consume the viewport, scroll the workspace instead of shrinking
+   the log area to zero. A bounded log keeps long sessions practical to inspect. */
+@media (max-width: 900px), (max-height: 600px) {
+  .cx-root { overflow-y: auto; }
+  .cx-root > *, .cx-stream-panel > * { flex-shrink: 0; }
+  .cx-stream-panel { flex: none; }
+  .cx-body { flex: none; min-block-size: 16rem; block-size: 60dvh; }
 }
 
 .cx-aside-head {
