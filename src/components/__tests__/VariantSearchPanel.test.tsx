@@ -12,12 +12,6 @@ function renderPanel() {
   return render(
     <SettingsProvider>
       <VariantSearchPanel
-        isDark={false}
-        classCard=""
-        classCardHeader=""
-        classCardTitle=""
-        classInput=""
-        classBorderSec=""
       />
     </SettingsProvider>
   );
@@ -326,7 +320,6 @@ describe("VariantSearchPanel Input & Paste Tests", () => {
     render(
       <SettingsProvider>
         <VariantSearchPanel
-          isDark={false}
           onViewChange={mockOnViewChange}
           analysisState={{ isLoading: false, error: null, result: { gene: "BRAF", variant: "p.V600E" } as any }}
         />

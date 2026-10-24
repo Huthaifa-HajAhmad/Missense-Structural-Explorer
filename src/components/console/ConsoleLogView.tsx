@@ -80,7 +80,7 @@ export default function ConsoleLogView({
       stream === "error" ? (
         <div className="dev-console-empty">
           <ShieldCheck className="cx-empty-icon-good" aria-hidden />
-          <h3>Zero Active Errors</h3>
+          <h3>No errors captured</h3>
           <p>
             Intercepted exceptions, failed network calls and fallback events stream here automatically.
           </p>
@@ -94,7 +94,7 @@ export default function ConsoleLogView({
       ) : (
         <div className="dev-console-empty">
           <Activity aria-hidden />
-          <h3>Live Log Stream Idle</h3>
+          <h3>No live events yet</h3>
           <p>API calls, cache events and background worker transitions appear here as they happen.</p>
         </div>
       );

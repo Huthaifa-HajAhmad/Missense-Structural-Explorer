@@ -1,9 +1,51 @@
 /* ============================================================
    CONSOLE — diagnostics workbench
-   One command bar, one metrics strip, one master/detail body.
+   The Search page's framing: a serif page heading with the session and
+   Clear all beside it, then ONE panel — stream tabs in its header strip,
+   one metrics strip, one master/detail body.
    Everything reads from --cs-* tokens; only the four pipeline-stage
    hues are local (they are data colours, not chrome).
    ============================================================ */
+
+.cx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  inline-size: 100%;
+  max-inline-size: 86rem;
+  block-size: 100%;
+  min-block-size: 0;
+  margin-inline: auto;
+  padding: .75rem clamp(1rem, 1.5vw, 1.5rem) 1.25rem;
+  /* Focusable only as a keyboard-shortcut target (tabIndex -1); never reached by Tab. */
+  outline: none;
+}
+.cx-masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: .75rem 1.5rem;
+  flex: none;
+}
+.cx-title {
+  margin: 0;
+  font-family: var(--cs-workbench-heading-font);
+  font-size: clamp(2rem, 1.6rem + 1vw, 2.5rem);
+  font-weight: var(--cs-workbench-heading-weight);
+  letter-spacing: var(--cs-workbench-heading-tracking);
+  line-height: 1.15;
+  color: var(--cs-text-primary);
+}
+.cx-title > span { color: var(--cs-accent-clay); }
+.cx-lede {
+  margin: .5rem 0 0;
+  max-inline-size: 75ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
+}
+.cx-masthead-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; min-inline-size: 0; }
 
 .cx-root {
   --cx-genomics: #4a78b5;
@@ -14,17 +56,17 @@
 
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   width: 100%;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: var(--cs-radius-panel);
-  background: var(--cs-bg);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-workbench-radius);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-workbench-shadow);
   color: var(--cs-text-primary);
   font-family: var(--cs-font-sans);
   font-size: var(--cs-text-caption);
-  outline: none;
 }
 .dark .cx-root {
   --cx-genomics: #7fa6dc;
@@ -42,29 +84,9 @@
   outline: 2px solid var(--cs-accent-clay);
   outline-offset: -2px;
 }
-.cx-page-heading {
-  flex: none;
-  padding: 20px 20px 16px;
-  background: var(--cs-surface);
-}
-.cx-page-heading h1 {
-  margin: 0;
-  font-family: var(--cs-workbench-heading-font);
-  font-size: var(--cs-font-size-display);
-  font-weight: var(--cs-font-weight-display);
-  letter-spacing: -0.02em;
-  line-height: 1.3;
-}
-.cx-page-heading p {
-  margin-block: 5px 0;
-  color: var(--cs-text-secondary);
-  font-size: 14px;
-  text-wrap: pretty;
-}
 .cx-mono { font-family: var(--cs-font-mono); font-variant-numeric: tabular-nums; }
 
 /* Shared focus ring */
-.cx-tab:focus-visible,
 .cx-pill:focus-visible,
 .cx-icon-btn:focus-visible,
 .cx-btn:focus-visible,
@@ -86,64 +108,59 @@
 /* ── Command bar ─────────────────────────────────────────── */
 .cx-head {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 0 20px 16px;
-  background: var(--cs-surface);
-  border-bottom: 1px solid var(--cs-border);
-  box-shadow: none;
+  min-block-size: 3rem;
+  padding: 0 1.25rem;
+  background: var(--cs-workbench-header-surface);
+  border-bottom: 1px solid var(--cs-border-subtle);
 }
 .cx-tabs {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border-radius: var(--cs-radius-input);
-  background: var(--cs-surface-2);
-  border: 1px solid var(--cs-border-subtle);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.75rem;
 }
 .cx-tab {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 12px;
-  border: 1px solid transparent;
-  border-radius: calc(var(--cs-radius-input) - 2px);
+  min-block-size: 44px;
+  margin-block-end: -1px;
+  padding: 0 .125rem;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  border-radius: 0;
   background: transparent;
   color: var(--cs-text-muted);
-  font-size: 12.5px;
+  font-size: var(--cs-font-size-prose);
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
 }
 @media (hover: hover) and (pointer: fine) {
-  .cx-tab:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+  .cx-tab:hover:not([aria-selected="true"]) { color: var(--cs-text-primary); border-block-end-color: var(--cs-border); }
 }
-.cx-tab[aria-selected="true"],
-.cx-tab[aria-pressed="true"] {
-  background: var(--cs-surface);
-  border-color: var(--cs-border);
+.cx-tab:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px; box-shadow: none; }
+.cx-tab[aria-selected="true"] {
+  border-block-end-color: var(--cs-accent-clay);
   color: var(--cs-text-primary);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.02);
 }
 .cx-tab svg { width: 14px; height: 14px; flex-shrink: 0; }
 .cx-count {
   font-family: var(--cs-font-mono);
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
   padding: 3px 6px;
   border-radius: 999px;
-  background: var(--cs-bg-subtle);
+  background: var(--cs-surface);
   color: var(--cs-text-secondary);
   border: 1px solid var(--cs-border-subtle);
 }
 .cx-count[data-tone="danger"] { background: var(--cs-danger); color: var(--cs-text-inverse, #fff); border-color: transparent; }
 .cx-count[data-tone="warn"] { background: var(--cs-warn-soft); color: var(--cs-text-warning-on-soft); border-color: color-mix(in srgb, var(--cs-warn) 20%, transparent); }
 
-.cx-spacer { flex: 1; }
 
 .cx-session {
   display: inline-flex;
@@ -151,14 +168,16 @@
   gap: 8px;
   min-width: 0;
   max-width: 100%;
-  padding: 5px 12px;
+  min-block-size: 2.25rem;
+  padding: 0 12px;
   border-radius: var(--cs-radius-input);
   border: 1px solid var(--cs-border-subtle);
-  background: var(--cs-surface-2);
+  background: var(--cs-surface);
   color: var(--cs-text-secondary);
-  font-size: 11.5px;
-  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.02);
+  font-size: 12px;
 }
+.cx-session-meta { color: var(--cs-text-muted); }
+.cx-spacer { flex: 1; }
 .cx-session b { color: var(--cs-text-primary); font-weight: 600; }
 .cx-session-variant {
   overflow: hidden;
@@ -181,7 +200,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 11px;
+  min-block-size: 2.25rem;
+  padding: 0 12px;
   border-radius: var(--cs-radius-input);
   border: 1px solid var(--cs-border);
   background: var(--cs-surface);
@@ -189,21 +209,18 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.14s cubic-bezier(0.2, 0, 0, 1);
+  transition: background-color 140ms cubic-bezier(0.2, 0, 0, 1), color 140ms cubic-bezier(0.2, 0, 0, 1), border-color 140ms cubic-bezier(0.2, 0, 0, 1);
   white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 @media (hover: hover) and (pointer: fine) {
   .cx-btn:hover:not(:disabled) {
     background: var(--cs-bg-subtle);
     color: var(--cs-text-primary);
     border-color: var(--cs-border);
-    transform: translateY(-0.5px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
   }
 }
 .cx-btn:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  background: var(--cs-bg-subtle);
 }
 .cx-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .cx-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
@@ -334,7 +351,7 @@ button.cx-tile[aria-pressed="true"] {
   padding: 4px 8px;
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-radius-input);
-  background: var(--cs-surface-2);
+  background: var(--cs-surface);
   color: var(--cs-text-primary);
   font-size: 12px;
   max-width: 190px;
@@ -356,7 +373,7 @@ button.cx-tile[aria-pressed="true"] {
   padding: 5px 34px 5px 28px;
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-radius-input);
-  background: var(--cs-surface-2);
+  background: var(--cs-surface);
   color: var(--cs-text-primary);
   font-family: var(--cs-font-mono);
   font-size: 12px;
@@ -383,19 +400,16 @@ button.cx-tile[aria-pressed="true"] {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  padding: 6px 16px;
-  background: var(--cs-surface-2);
+  padding: 6px 16px 8px;
+  background: transparent;
   border-bottom: 1px solid var(--cs-border-subtle);
   font-size: 11.5px;
 }
 .cx-presets-label {
-  font-family: var(--cs-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--cs-text-muted);
-  margin-right: 2px;
+  margin-right: 4px;
 }
 .cx-preset-chip {
   display: inline-flex;
@@ -416,7 +430,6 @@ button.cx-tile[aria-pressed="true"] {
     background: var(--cs-bg-subtle);
     color: var(--cs-text-primary);
     border-color: color-mix(in srgb, var(--cs-accent-clay) 40%, var(--cs-border));
-    transform: translateY(-0.5px);
   }
 }
 .cx-preset-chip[data-active="true"] {
@@ -446,7 +459,7 @@ button.cx-tile[aria-pressed="true"] {
   color: var(--cs-text-warning-on-soft);
   font-size: 12px;
 }
-.cx-banner .cx-btn { margin-left: auto; padding: 3px 9px; }
+.cx-banner .cx-btn { margin-left: auto; min-block-size: 1.75rem; padding: 0 9px; }
 
 /* ── Master / detail body ────────────────────────────────── */
 .cx-body {
@@ -461,7 +474,7 @@ button.cx-tile[aria-pressed="true"] {
   min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
   overflow: hidden;
-  background: var(--cs-workspace-context);
+  background: var(--cs-panel-body);
   border-left: 1px solid var(--cs-border);
 }
 @media (max-width: 1100px) {
@@ -474,6 +487,10 @@ button.cx-tile[aria-pressed="true"] {
 
 /* When controls consume the viewport, scroll the workspace instead of shrinking
    the log area to zero. A bounded log keeps long sessions practical to inspect. */
+@media (max-height: 600px) {
+  .cx-page { gap: .75rem; }
+  .cx-lede { display: none; }
+}
 @media (max-width: 900px), (max-height: 600px) {
   .cx-root { overflow-y: auto; }
   .cx-root > *, .cx-stream-panel > * { flex-shrink: 0; }
@@ -484,7 +501,7 @@ button.cx-tile[aria-pressed="true"] {
 .cx-aside-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 10px 14px;
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-bottom: 1px solid var(--cs-border);
 }
 .cx-aside-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 16px; }
@@ -733,13 +750,13 @@ button.cx-tile[aria-pressed="true"] {
   font-size: 11px;
   font-weight: 600;
   color: var(--cs-text-muted);
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-bottom: 1px solid var(--cs-border);
 }
 .gantt-sticky { position: sticky; top: 0; z-index: 3; }
 
 .gantt-axis-row {
-  background: var(--cs-surface-2);
+  background: var(--cs-workbench-header-surface);
   border-bottom: 1px solid var(--cs-border-subtle);
 }
 .gantt-axis-ticks { position: relative; height: 18px; margin: 0 0 0 0; }

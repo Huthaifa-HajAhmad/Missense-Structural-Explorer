@@ -25,7 +25,7 @@ function Workspace({ initialView = 'landscape' }: { initialView?: MasterView }) 
   const [width, setWidth] = useState(31);
   return <SettingsProvider><AppViews masterView={view} setMasterView={setView} pushErrorEntry={vi.fn()} setIsSettingsOpen={vi.fn()}
     activeEvidenceTab="population" setActiveEvidenceTab={vi.fn()} metricMode={mode} setMetricMode={setMode} windowSize={width} setWindowSize={setWidth}
-    classCardTitle="" classCardHeader="" classInput="" classBorderSec="" classTextBody="" classTextMute="" /></SettingsProvider>;
+    classCardTitle="" classCardHeader="" classBorderSec="" classTextBody="" classTextMute="" /></SettingsProvider>;
 }
 
 const key = landscapeKey('TEST', 'p.Ala5Val', 'FIXTURE');

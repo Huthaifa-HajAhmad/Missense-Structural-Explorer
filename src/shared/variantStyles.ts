@@ -14,8 +14,6 @@ export function getVariantStyles(isDark: boolean) {
   const classBorderSec = "border-cs-border-subtle/60";
   const classBorderCardSep = "border-cs-border";
 
-  const classInput = "bg-cs-surface-2 border-cs-border text-cs-text-primary placeholder-cs-text-muted focus:border-cs-accent-clay";
-  const classInputLabel = "text-cs-text-primary";
   const classBadgeAccent = "bg-cs-accent-clay/10 text-cs-accent-clay border border-cs-accent-clay/20";
   const classSubCard = "bg-cs-surface-2/60 border-cs-border-subtle/60 text-cs-text-secondary";
 
@@ -33,8 +31,6 @@ export function getVariantStyles(isDark: boolean) {
     classTextBright,
     classBorderSec,
     classBorderCardSep,
-    classInput,
-    classInputLabel,
     classBadgeAccent,
     classSubCard
   };

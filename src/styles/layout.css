@@ -85,21 +85,24 @@
   flex: none;
   min-inline-size: 0;
 }
+/* Bare glyphs on the canvas: the header is chrome, not a row of cards. A fill appears only
+   under the pointer or on press, so the icons never compete with the workspace panels. */
 .header-actions .header-action {
   border-radius: var(--cs-radius-input);
-  background: var(--cs-surface);
-  box-shadow: 0 0 0 1px var(--cs-border-subtle);
+  background: transparent;
+  box-shadow: none;
 }
-.header-action:focus-visible {
+.header-actions .header-action:focus-visible {
   outline: 2px solid var(--cs-accent-clay);
   outline-offset: 3px;
+  box-shadow: none;
 }
 .header-actions .header-action:active {
-  background: var(--cs-surface-2);
+  background: var(--cs-bg-subtle);
 }
 @media (hover: hover) and (pointer: fine) {
   .header-actions .header-action:hover {
-    background: var(--cs-surface-2);
+    background: var(--cs-bg-subtle);
   }
 }
 @media (max-width: 599px) {
@@ -955,88 +958,73 @@
 .about-view {
   width: 100%;
   /* The masthead budget (shell inset + header card + gutter, + the strip when routed in)
-     replaces the old hardcoded 100vh-chrome arithmetic, which stopped matching the real
-     layout when the shell became a floating card inset by 12px. */
+     replaces the old hardcoded 100vh-chrome arithmetic. */
   min-height: calc(100dvh - var(--cs-masthead, 68px));
   overflow-y: auto;
   background: var(--cs-bg);
-  padding: 20px 16px 64px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  padding: .75rem clamp(1rem, 1.5vw, 1.5rem) 3rem;
   scroll-behavior: smooth;
 }
-@media (min-width: 640px) {
-  .about-view { padding: 24px 28px 64px; }
-}
-/* The shell is sized to its ENSEMBLE — reading measure + gap + contents rail — not to the
-   viewport. The prose blocks cap at a humane 68-80 character measure; at the old 1180px shell the
-   rail hung off the far edge and every paragraph stopped ~400px short of it, a one-sided dead
-   hole. A snug shell keeps prose and rail adjacent and hands the leftover to symmetric page
-   margins, where it reads as an article page instead of a layout bug. */
+/* The same 86rem desk as Analyse a variant: panels take the width, and long prose is kept readable
+   inside them (a two-column lede, a two-column credit roll) rather than by narrowing the page. */
 .about-shell {
   width: 100%;
-  max-width: 940px;
+  max-width: 86rem;
   min-width: 0;
+  margin-inline: auto;
 }
 
 /* ── Brand block ── */
-.about-hero {
+.about-masthead {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  padding: 24px 28px 28px;
-  margin-block-end: 28px;
-  background: var(--cs-surface);
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: var(--cs-radius-panel);
-  box-shadow: none;
-  position: relative;
-  overflow: hidden;
+  gap: 1.25rem;
+  margin-block-end: 1.25rem;
 }
-.about-hero-main {
+.about-masthead-row {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 1rem;
   min-width: 0;
 }
 .about-mark {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
   border-radius: calc(var(--cs-radius-card) + 2px);
   background: var(--cs-accent-clay);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: none;
 }
 .about-title {
   margin: 0;
-  font-family: var(--cs-font-serif);
-  font-size: 28px;
-  font-weight: var(--cs-font-weight-display);
-  letter-spacing: -0.02em;
-  line-height: 1.18;
+  font-family: var(--cs-workbench-heading-font);
+  font-size: clamp(2rem, 1.6rem + 1vw, 2.5rem);
+  font-weight: var(--cs-workbench-heading-weight);
+  letter-spacing: var(--cs-workbench-heading-tracking);
+  line-height: 1.15;
   color: var(--cs-text-primary);
   text-wrap: balance;
 }
+.about-title > span { color: var(--cs-accent-clay); }
 .about-tagline {
-  margin: 5px 0 0;
-  font-size: var(--cs-font-size-body);
-  line-height: 1.5;
-  color: var(--cs-text-muted);
+  margin: .5rem 0 0;
+  max-width: 75ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--cs-text-secondary);
 }
-/* Four facts on one hairline-divided strip, not four cards: they are captions for the page,
+/* Four facts on one hairline-divided panel strip, not four cards: they are captions for the page,
    and three of them are links to the section that substantiates them. */
 .about-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border: 1px solid var(--cs-border);
-  border-radius: var(--cs-radius-card);
-  background: var(--cs-surface-2);
+  border-radius: var(--cs-workbench-radius);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-workbench-shadow);
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 @media (min-width: 720px) {
   .about-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -1044,22 +1032,18 @@
 .about-stat {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
-  padding: 12px 16px;
+  padding: 14px 20px;
   border-left: 1px solid var(--cs-border-subtle);
   border-top: 1px solid var(--cs-border-subtle);
   margin: -1px 0 0 -1px;
   color: inherit;
   text-decoration: none;
-  transition: all 0.15s cubic-bezier(0.2, 0, 0, 1);
 }
 .about-stat-label {
-  font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--cs-text-muted);
 }
 .about-stat-value {
@@ -1076,16 +1060,15 @@
 }
 .about-stat-value.font-mono { font-size: 13px; font-weight: 500; }
 .about-stat-link {
-  transition: all 150ms cubic-bezier(0.2, 0, 0, 1);
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 @media (hover: hover) and (pointer: fine) {
   .about-stat-link:hover {
-    background-color: var(--cs-surface);
-    transform: translateY(-0.5px);
+    background-color: var(--cs-workbench-header-surface);
   }
 }
 .about-stat-link:active {
-  transform: scale(0.98);
+  background-color: var(--cs-bg-subtle);
 }
 .about-stat-link:focus-visible {
   outline: 2px solid rgba(196, 104, 73, 0.5);
@@ -1096,20 +1079,30 @@
 
 /* ── Section heads ── */
 .about-section {
-  margin-bottom: 56px;
+  min-width: 0;
   /* An anchor target must clear the top of the scroll container, or clicking a contents link
      hides the heading it just navigated to. */
-  scroll-margin-top: 24px;
+  scroll-margin-top: 16px;
 }
-.about-section-last { margin-bottom: 0; }
-.about-eyebrow {
-  margin: 0 0 6px;
-  font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--cs-text-accent);
+.about-panel {
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-workbench-radius);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-workbench-shadow);
+  overflow: clip;
+}
+.about-panel-head {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  min-block-size: 3rem;
+  padding: .75rem 1.5rem;
+  border-block-end: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface);
+}
+.about-panel-body {
+  container-type: inline-size;
+  padding: 1.25rem 1.5rem 1.5rem;
 }
 .about-section-title,
 .about-group-title {
@@ -1118,30 +1111,24 @@
   flex-wrap: wrap;
   gap: 10px;
   margin: 0;
-  font-family: var(--cs-font-serif);
-  font-weight: 600;
-  letter-spacing: -0.01em;
   line-height: 1.3;
   color: var(--cs-text-primary);
   text-wrap: balance;
 }
-.about-section-title { font-size: 18px; }
-.about-group-title { font-size: 15px; }
+/* Section titles take the panel-head rank every workspace uses (13px, 600). Group titles are the
+   one serif rank left on the page, so the credit roll still reads as chapters within its panel. */
+.about-section-title { font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+.about-group-title { font-family: var(--cs-font-serif); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .about-section-count {
   font-family: var(--cs-font-mono);
-  font-size: var(--cs-font-size-badge);
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  line-height: 1.4;
   letter-spacing: 0;
   color: var(--cs-text-muted);
-  background: var(--cs-surface-2);
-  border: 1px solid var(--cs-border-subtle);
-  border-radius: var(--cs-radius-pill);
-  padding: 0 8px;
 }
 .about-section-blurb {
-  margin: 8px 0 0;
+  margin: 0 0 1.25rem;
   max-width: 78ch;
   font-size: 13px;
   line-height: 1.65;
@@ -1149,28 +1136,29 @@
   text-wrap: pretty;
 }
 .about-lede {
-  margin: 12px 0 0;
+  margin: 0;
   max-width: 76ch;
   font-size: var(--cs-font-size-body);
   line-height: 1.7;
   color: var(--cs-text-secondary);
   text-wrap: pretty;
 }
+/* Two paragraphs side by side once the panel is wide enough for two readable measures. */
+.about-lede-pair { display: grid; gap: 12px 2.5rem; }
+@container (min-width: 52rem) {
+  .about-lede-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ── Workspace map ──
-   One card, one row per sidebar zone: what the zone is for on the left, its views on the
+   One ruled row per sidebar zone, flush with the panel edges: what the zone is for on the left, its views on the
    right. Each view mirrors the sidebar row anatomy (icon · label · descriptor), so the map
    reads as the navigation it describes. Rows rather than a 2×2 grid, because the zones hold
    one to four views and a grid would leave the short ones stretched and mostly empty. */
 .about-zones {
   list-style: none;
-  margin: 16px 0 0;
+  margin: 0 -1.5rem -1.5rem;
   padding: 0;
-  background: var(--cs-surface);
-  border: 1px solid var(--cs-border);
-  border-radius: var(--cs-radius-panel);
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  border-top: 1px solid var(--cs-border-subtle);
 }
 .about-zone {
   display: grid;
@@ -1178,12 +1166,12 @@
   grid-template-areas: "head" "desc" "views";
   column-gap: 24px;
   min-width: 0;
-  padding: 18px 20px 14px;
+  padding: 18px 1.5rem 16px;
   border-top: 1px solid var(--cs-border-subtle);
   transition: background-color 150ms ease;
 }
 .about-zone:first-child { border-top: none; }
-@media (min-width: 760px) {
+@container (min-width: 44rem) {
   .about-zone {
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr);
     grid-template-areas: "head views" "desc views";
@@ -1191,7 +1179,7 @@
   }
 }
 @media (hover: hover) and (pointer: fine) {
-  .about-zone:hover { background-color: color-mix(in srgb, var(--cs-surface-2) 40%, var(--cs-surface)); }
+  .about-zone:hover { background-color: var(--cs-workbench-header-surface); }
 }
 .about-zone-head {
   grid-area: head;
@@ -1201,14 +1189,9 @@
 }
 .about-zone-index {
   font-family: var(--cs-font-mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
-  color: var(--cs-accent-clay);
-  background: color-mix(in srgb, var(--cs-accent-clay) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--cs-accent-clay) 25%, transparent);
-  padding: 1px 7px;
-  border-radius: var(--cs-radius-pill);
+  color: var(--cs-text-accent);
   flex-shrink: 0;
 }
 .about-zone-name {
@@ -1235,7 +1218,7 @@
   gap: 4px 8px;
   align-content: start;
 }
-@media (min-width: 760px) {
+@container (min-width: 44rem) {
   .about-zone-views { margin-top: -2px; }
 }
 /* A view that opens onto sub-tabs takes the full row, so its tab list has room to read. */
@@ -1258,9 +1241,8 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .about-view-row-link:hover {
-    background-color: var(--cs-surface-2);
+    background-color: var(--cs-surface);
     border-color: var(--cs-border-subtle);
-    transform: translateY(-0.5px);
   }
 }
 .about-view-row-link:active {
@@ -1329,9 +1311,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 20px 0 0;
-  padding: 12px 0;
-  background: color-mix(in srgb, var(--cs-bg) 88%, transparent);
+  margin: 0 -1.5rem;
+  padding: 12px 1.5rem;
+  background: color-mix(in srgb, var(--cs-surface) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--cs-border-subtle);
 }
@@ -1535,18 +1517,16 @@
 
 /* ── Credit groups and rows ── */
 .about-group {
-  margin-top: 24px;
-  background: var(--cs-surface);
-  border: 1px solid var(--cs-border);
-  border-radius: var(--cs-radius-panel);
-  padding: 20px 22px 6px;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--cs-border-subtle);
   scroll-margin-top: 120px;
 }
 .about-group-empty {
-  padding-bottom: 16px;
-  background: transparent;
-  border-style: dashed;
+  opacity: .7;
 }
+/* The filter bar already rules off the top of the roll. */
+.about-panel-body > .about-group:first-of-type { border-top: 0; }
 .about-group-blurb {
   margin: 6px 0 0;
   max-width: 72ch;
@@ -1557,21 +1537,27 @@
 }
 .about-credits {
   list-style: none;
-  margin: 14px -22px 0;
+  margin: .75rem 0 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
+  column-gap: 2rem;
 }
 .about-credit {
-  padding: 16px 22px;
+  min-width: 0;
+  margin-inline: -12px;
+  padding: 16px 12px;
   border-top: 1px solid var(--cs-border-subtle);
+  border-radius: 8px;
   scroll-margin-top: 120px;
   transition: background-color 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 @media (hover: hover) and (pointer: fine) {
-  .about-credit:hover { background-color: var(--cs-bg); }
+  .about-credit:hover { background-color: var(--cs-workbench-header-surface); }
 }
 /* A deep link (#credit-…) lands on a row that says it was the target. */
 .about-credit:target {
-  background-color: var(--cs-bg);
+  background-color: var(--cs-workbench-header-surface);
   box-shadow: inset 2px 0 0 var(--cs-accent-clay);
 }
 .about-credit-top {
@@ -1874,7 +1860,7 @@
 .about-note-inline { margin-top: 14px; }
 
 /* ── Citation block ── */
-.about-cite-block { max-width: 72ch; margin-top: 16px; }
+.about-cite-block { max-width: 80ch; }
 .about-cite-plain {
   margin: 0;
   padding: 2px 0 2px 14px;
@@ -1886,8 +1872,8 @@
 .about-cite-bibtex {
   margin: 14px 0 0;
   padding: 14px 16px;
-  background: var(--cs-surface);
-  border: 1px solid var(--cs-border);
+  background: var(--cs-workbench-header-surface);
+  border: 1px solid var(--cs-border-subtle);
   border-radius: var(--cs-radius-card);
   font-family: var(--cs-font-mono);
   font-size: var(--cs-font-size-badge);
@@ -1931,12 +1917,12 @@
 
 /* ── Research-use disclaimer ── */
 .about-disclaimer {
+  container-type: inline-size;
   background: var(--cs-bg-warning);
-  border: 1px solid rgba(217, 119, 6, 0.25);
-  border-radius: var(--cs-radius-panel);
-  padding: 18px 20px;
-  max-width: 72ch;
-  scroll-margin-top: 24px;
+  border: 1px solid color-mix(in srgb, var(--cs-text-warning) 30%, transparent);
+  border-radius: var(--cs-workbench-radius);
+  padding: 1.25rem 1.5rem;
+  scroll-margin-top: 16px;
 }
 .about-disclaimer-head {
   display: flex;
@@ -1953,58 +1939,78 @@
   color: var(--cs-text-warning-on-soft);
 }
 .about-disclaimer-body {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 13px;
   line-height: 1.7;
   color: var(--cs-text-warning-on-soft);
 }
-.about-disclaimer-body:last-child { margin-bottom: 0; }
 .dark .about-disclaimer-body { color: var(--cs-text-secondary); }
 
 /* ── Layout and rail ──
-   The rail is sticky on wide screens only: below 1024px it stacks under the reading column,
-   where a sticky contents list would cover the prose it points at. */
+   The rail is two panels (contents, provenance), sticky on wide screens only: below 1024px it
+   stacks under the reading column, where a sticky contents list would cover the prose. */
 .about-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 40px;
+  gap: 1.25rem 1.5rem;
   align-items: start;
 }
-.about-prose { min-width: 0; }
+.about-prose {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
 .about-rail {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 1.25rem;
   min-width: 0;
+}
+.about-rail-panel {
+  min-width: 0;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-workbench-radius);
+  background: var(--cs-surface);
+  box-shadow: var(--cs-workbench-shadow);
+  overflow: clip;
+}
+.about-rail-head {
+  display: flex;
+  align-items: center;
+  min-block-size: 3rem;
+  margin: 0;
+  padding: .75rem 1.25rem;
+  border-block-end: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  color: var(--cs-text-primary);
 }
 @media (min-width: 1024px) {
   .about-layout {
-    grid-template-columns: minmax(0, 1fr) 264px;
-    gap: 56px;
+    grid-template-columns: minmax(0, 1fr) 20rem;
   }
   .about-rail {
     position: sticky;
     top: 0;
     /* A rail taller than the viewport must be scrollable, or the last group — the actions —
        is unreachable on a short window. */
-    max-height: calc(100dvh - var(--cs-masthead, 68px) - 40px);
+    max-height: calc(100dvh - var(--cs-masthead, 68px) - 24px);
     overflow-y: auto;
-    padding-right: 4px;
     scrollbar-width: thin;
   }
 }
 .about-rail-title {
-  margin: 0 0 8px;
-  font-family: var(--cs-font-mono);
-  font-size: var(--cs-text-micro);
+  margin: 0 0 6px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--cs-text-muted);
+  color: var(--cs-text-secondary);
 }
 .about-toc-list {
   list-style: none;
-  margin: 0;
+  margin: 1rem 1.25rem;
   padding: 0;
   border-left: 1px solid var(--cs-border-subtle);
 }
@@ -2050,7 +2056,11 @@
   font-variant-numeric: tabular-nums;
   color: var(--cs-text-muted);
 }
-.about-rail-section { min-width: 0; }
+.about-rail-section {
+  min-width: 0;
+  padding: 1rem 1.25rem;
+}
+.about-rail-section + .about-rail-section { border-top: 1px solid var(--cs-border-subtle); }
 .about-rail-hint {
   margin: 0 0 6px;
   font-size: var(--cs-font-size-badge);
@@ -2124,8 +2134,9 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 16px;
+  padding: .875rem 1.25rem;
   border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface);
 }
 
 /* Motion is a confirmation here, never the only cue: every animated state on this page

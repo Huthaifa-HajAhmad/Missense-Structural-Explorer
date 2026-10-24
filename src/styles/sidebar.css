@@ -10,6 +10,13 @@
    light/dark values of the token carry through (the old raw rgba(196,104,73)
    stayed light-mode clay in dark mode). Clay AS TEXT uses --cs-text-accent,
    which is the AA-safe variant; raw clay is for fills, icons and rails only.
+
+   The index rail. The rail borrows a terminal's STRUCTURE, not its type: zones
+   are numbered the way the workspace numbers its panels (01, 02 in the mono
+   index face the panels already use), nested pages hang off square tree
+   connectors (├─ └─), and the current page is a cursor — a clay bar on the
+   row's edge over a faint tint — instead of a raised white chip, which read as
+   a button sitting on the rail rather than a position in it.
    ============================================================ */
 
 .ms-root {
@@ -17,8 +24,10 @@
   --ms-pad-x: 8px;
   --ms-row-pad-x: 12px;
   --ms-tint-strong: color-mix(in oklch, var(--cs-accent-clay) 14%, transparent);
-  /* The current page is a raised paper chip: a fill alone is ~1.05:1 against the canvas. */
-  --ms-chip-shadow: 0 0 0 1px var(--cs-border-subtle), 0 1px 2px rgb(0 0 0 / .06);
+  /* The current page: a cursor bar on the leading edge over a faint clay tint. The bar carries the
+     state on its own (a fill alone is ~1.05:1 against the canvas); the tint only groups the row. */
+  --ms-cursor-fill: color-mix(in oklch, var(--cs-accent-clay) 8%, transparent);
+  --ms-cursor-bar: inset 2px 0 0 var(--cs-accent-clay);
   /* Tree lines sit between the hairline and muted text so they stay legible on the canvas. */
   --ms-branch-color: color-mix(in oklch, var(--cs-border) 55%, var(--cs-text-muted));
   --ms-ease: cubic-bezier(0.23, 1, 0.32, 1);
@@ -129,6 +138,7 @@
   display: flex;
   flex-direction: column;
   padding: 8px var(--ms-pad-x) 12px;
+  counter-reset: ms-zone;
 }
 .ms-zone {
   display: flex;
@@ -141,6 +151,7 @@
 }
 .ms-zone-label {
   display: block;
+  counter-increment: ms-zone;
   padding: 18px var(--ms-row-pad-x) 6px;
   font-size: 11px;
   font-weight: 600;
@@ -150,6 +161,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The zone's number, in the panels' index face (`.workbench-index`): 01 Evidence & modelling. */
+.ms-zone-label::before {
+  content: counter(ms-zone, decimal-leading-zero);
+  margin-inline-end: 8px;
+  font-family: var(--cs-font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--cs-text-accent);
 }
 /* Collapsed rail: zones keep their grouping as hairlines instead of vanishing. */
 .ms-zone-divider {
@@ -192,8 +213,8 @@
 .ms-nav-btn[data-active="true"] { color: var(--cs-text-primary); }
 .ms-nav-btn[data-current="true"],
 .ms-nav-btn[data-current="true"]:hover {
-  background: var(--cs-surface);
-  box-shadow: var(--ms-chip-shadow);
+  background: var(--ms-cursor-fill);
+  box-shadow: var(--ms-cursor-bar);
 }
 
 .ms-nav-icon {
@@ -389,10 +410,10 @@
 .ms-sub-btn[data-active="true"],
 .ms-sub-btn[data-active="true"]:hover {
   color: var(--cs-text-primary);
-  background: var(--cs-surface);
-  box-shadow: var(--ms-chip-shadow);
+  background: var(--ms-cursor-fill);
 }
-/* Each row owns a stem and a curved branch. The final stem ends at its label. */
+/* Each row owns a stem and a square branch (├─, and └─ on the last row, whose stem ends at its
+   label). Square, not rounded: the tree reads as a listing, like `tree` output. */
 .ms-sub-btn::before,
 .ms-sub-btn::after {
   content: "";
@@ -408,7 +429,6 @@
   inline-size: var(--ms-branch-width);
   block-size: calc(50% + 1px);
   border-block-end: 1px solid var(--ms-branch-color);
-  border-end-start-radius: 7px;
 }
 /* The first stem reaches up through the list padding to meet the parent row. */
 .ms-sub-btn:first-child::before,
@@ -418,8 +438,10 @@
   block-size: calc(100% + 1px);
 }
 .ms-sub-btn:first-child:not(:last-child)::after { block-size: calc(100% + 3px); }
+/* A nested current page is marked by its branch in the cursor's clay (plus ink and the faint tint),
+   not by a second bar: a bar beside a clay connector would draw the same mark twice. */
 .ms-sub-btn[data-active="true"]::before {
-  border-color: var(--cs-text-secondary);
+  border-color: var(--cs-accent-clay);
 }
 .ms-sub-label {
   font-size: 12px;

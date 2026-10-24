@@ -6,7 +6,8 @@ import { skipTour } from './support.js';
 test('walk through populated workspaces in both themes', { tags: ['design', 'shell'] }, async ({ app, browser, screen }) => {
   await skipTour(browser);
   await browser.setViewport({ width: 1440, height: 1000 });
-  /* Primary content and supporting context have distinct surfaces in both themes. */
+  /* Two tones in both themes: every panel body is the primary surface, and a context panel is told
+     apart by its header strip (the shared header wash), never by a darker body. */
   const checkSurfaces = async (name: string) => {
     expect(await browser.evaluate(() => {
       const workspace = document.querySelector('.exploration-workspace');
@@ -23,7 +24,10 @@ test('walk through populated workspaces in both themes', { tags: ['design', 'she
       const inspector = workspace.querySelector(':scope > aside[data-workspace-inspector]');
       const rail = workspace.querySelector(':scope > aside[data-workspace-inspector-rail]');
       if (inspector) {
-        if (getComputedStyle(inspector).backgroundColor === surface) return 'inspector lacks a distinct context surface';
+        if (getComputedStyle(inspector).backgroundColor !== surface) return 'inspector body is not the primary surface';
+        const heading = inspector.querySelector('.inspector-heading');
+        if (!heading) return 'inspector has no .inspector-heading strip';
+        if (getComputedStyle(heading).backgroundColor === surface) return 'inspector heading lacks the header wash';
         if (!rounded(inspector)) return 'inspector corners are not all rounded';
       } else if (rail) {
         const r = getComputedStyle(rail);

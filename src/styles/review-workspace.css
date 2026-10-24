@@ -1,10 +1,10 @@
 /* Shared review navigation and persistent reading trace; biological figures own their styles. */
 /* Insights uses the primary pane as its scroll owner; the card has no inner scroller. */
 .review-workspace > .data-screen-primary:has(.ins-shell) { overflow-y: auto; scrollbar-gutter: stable; }
-.review-navigation { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; border-block-end: 1px solid var(--cs-border-subtle); }
-.review-navigation .workspace-tabs { padding-block: 0 .5rem; border: 0; }
+/* The tabs' underline sits on this row's hairline, so the row aligns to its end and the tabs drop their own rule. */
+.review-navigation { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .75rem; border-block-end: 1px solid var(--cs-border-subtle); }
+.review-navigation .workspace-tabs { border: 0; }
 .review-navigation .workspace-tabs button { min-block-size: max(44px, 2.75rem); }
-.review-navigation .workspace-tabs button:active { border-color: var(--cs-accent-clay); }
 .review-action { padding: .5rem .25rem; min-block-size: max(44px, 2.75rem); min-inline-size: max(44px, 2.75rem); background: transparent; border: 0; color: var(--cs-text-accent); font: inherit; font-size: var(--cs-font-size-caption); cursor: pointer; }
 .review-action:focus-visible, .review-selection:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .review-action:active { color: var(--cs-text-primary); }

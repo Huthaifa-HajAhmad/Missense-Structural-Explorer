@@ -1,7 +1,5 @@
 /* Expression & models: the review frame, the finding, and the coverage strip. Tokens only. */
 .xp-workspace.cx-screen { gap: 12px; }
-.xp-workspace .evw-navigation { padding-block-end: 8px; }
-.xp-workspace .workspace-tabs { padding-block-end: 8px; }
 .xp-workspace .cx-empty { padding-block: 12px; }
 .xp-summary { padding-block: 4px 8px; display: grid; gap: 6px; }
 .xp-summary h2 { font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
@@ -59,7 +57,6 @@
 .xp-workspace[data-comparison] .cx-finding-details { margin-top: 0; }
 .xp-workspace[data-comparison] .cx-finding-details > summary { padding-block: 6px; }
 .xp-workspace[data-comparison] .cx-explorer { gap: 8px; }
-.xp-workspace[data-comparison] .cx-explorer .workspace-tabs { padding-bottom: 12px; }
 .xp-workspace[data-comparison] .cx-controls { margin-block: 8px; }
 .xp-workspace[data-comparison] .cx-records { margin-block: 10px; border: 0; }
 @container (max-width: 650px) {
@@ -77,7 +74,7 @@
 .xp-coverage__sub { font-size: 12px; color: var(--cs-text-muted); overflow-wrap: anywhere; }
 .xp-callout { margin: 4px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--cs-bg-warning); color: var(--cs-text-warning-on-soft); }
 
-.xp-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2); }
+.xp-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .xp-fact { padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .xp-fact + .xp-fact { border-left: 1px solid var(--cs-border-subtle); }
 .xp-fact dt { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--cs-text-muted); }

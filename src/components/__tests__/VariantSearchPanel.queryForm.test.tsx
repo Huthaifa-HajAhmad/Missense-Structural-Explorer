@@ -20,12 +20,6 @@ function renderPanel(props: PanelProps = {}) {
   return render(
     <SettingsProvider>
       <VariantSearchPanel
-        isDark={false}
-        classCard=""
-        classCardHeader=""
-        classCardTitle=""
-        classInput=""
-        classBorderSec=""
         {...props}
       />
     </SettingsProvider>
@@ -456,5 +450,34 @@ describe("Quick entry: one line over the four fields", () => {
       useVariantAnalysisStore.setState({ customGene: "CNNM2", customVariant: "p.Ser489Cys" });
     });
     expect(quick().value).toBe("CNNM2 p.Ser489Cys");
+  });
+});
+
+describe("Parsed fields speak the composer's grammar", () => {
+  it("draws fields as composer boxes and field states as toned dots, not tinted pills", () => {
+    act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A" }));
+    renderPanel();
+
+    // Every editable field wears the one field box; no caller-supplied fill is mixed in.
+    for (const input of [geneInput(), genomicInput()]) {
+      expect(input.classList.contains("qe-input")).toBe(true);
+      expect(input.className).not.toContain("surface-2");
+    }
+
+    // The coordinate states the gene, so the label says "Derived" with the ticket's clay dot.
+    const derived = screen.getByText("Derived");
+    expect(derived.querySelector('.qe__kind[data-tone="clay"]')).not.toBeNull();
+    expect(derived.className).not.toContain("bg-");
+  });
+
+  it("labels the genome-build select from its visible caption", () => {
+    act(() => useVariantAnalysisStore.setState({ customGenomic: "20-23365054-G-A" }));
+    renderPanel();
+
+    const label = document.querySelector('label[for="input-genomic-build"]');
+    expect(label).toHaveTextContent("Genome build");
+    const select = document.getElementById("input-genomic-build") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    expect(select.closest(".qe-select")).not.toBeNull();
   });
 });

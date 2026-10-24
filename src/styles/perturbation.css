@@ -161,7 +161,7 @@
 .ptb-table { width: 100%; min-width: 680px; border-collapse: collapse; }
 .ptb-table thead th {
   padding: 0 16px; height: 40px; text-align: left; white-space: nowrap;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .ptb-table thead th:nth-child(3) { width: 32%; }
 .ptb-table td,
@@ -232,7 +232,7 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
   min-height: 40px; padding: 8px 16px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .ptb-legend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .ptb-legend__tick { display: inline-block; width: 0; height: 12px; border-left: 1.5px dashed var(--cs-text-secondary); }

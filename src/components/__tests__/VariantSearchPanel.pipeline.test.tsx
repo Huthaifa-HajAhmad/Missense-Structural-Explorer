@@ -8,7 +8,7 @@ import { SettingsProvider } from "../../context/SettingsContext";
 
 beforeEach(() => { useVariantAnalysisStore.getState().resetVariantAnalysisState(); });
 function renderPipeline() {
-  render(<SettingsProvider><VariantSearchPanel isDark={false} classCard="" classCardHeader="" classCardTitle="" classInput="" classBorderSec="" /></SettingsProvider>);
+  render(<SettingsProvider><VariantSearchPanel /></SettingsProvider>);
 }
 function seed() {
   const store = useVariantAnalysisStore.getState();

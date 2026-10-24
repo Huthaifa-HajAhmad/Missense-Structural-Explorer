@@ -51,14 +51,14 @@
 .rsx-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   min-height: 40px; padding: 6px 16px;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .rsx-head--mid { border-top: 1px solid var(--cs-border-subtle); }
 .rsx-foot {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px;
   min-height: 40px; padding: 8px 16px;
   font-size: var(--cs-font-size-caption); color: var(--cs-text-muted);
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 
 /* ── Finding ─────────────────────────────────────────────── */
@@ -112,7 +112,7 @@
 .rsx-table--environment { min-width: 720px; table-layout: fixed; }
 .rsx-table thead th {
   height: 40px; padding: 0 16px; text-align: left; white-space: nowrap;
-  background: var(--cs-surface-2); border-bottom: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-bottom: 1px solid var(--cs-border-subtle);
 }
 .rsx-table td { padding: 11px 16px; vertical-align: middle; }
 .rsx-table tbody tr + tr > td { border-top: 1px solid var(--cs-border-subtle); }
@@ -145,7 +145,7 @@
 .rsx-disclosure > summary > h3 { margin: 0; flex: 1; }
 .rsx-disclosure > .rsx-refs { margin-top: 10px; }
 .rsx-reason { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
-.rsx-group > td { background: var(--cs-surface-2); padding: 8px 16px; }
+.rsx-group > td { background: var(--cs-workbench-header-surface); padding: 8px 16px; }
 .rsx-group .rsx-label { margin-right: 10px; }
 .rsx-table tbody tr.rsx-group + tr > td { border-top: 1px solid var(--cs-border-subtle); }
 .rsx-table tbody tr + tr.rsx-group > td { border-top: 1px solid var(--cs-border-subtle); }
@@ -394,7 +394,7 @@
 /* ── Pocket Distance Strip ───────────────────────────────── */
 .rsx-pocket-strip {
   display: flex; flex-direction: column; gap: 8px; padding: 12px 16px;
-  background: var(--cs-surface-2); border-top: 1px solid var(--cs-border-subtle);
+  background: var(--cs-workbench-header-surface); border-top: 1px solid var(--cs-border-subtle);
 }
 .rsx-pocket-strip__header {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;

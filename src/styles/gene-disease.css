@@ -33,7 +33,7 @@
 .gd-verdict { font-size: var(--cs-font-size-caption); padding: 3px 10px; white-space: normal; }
 .gd-hero[data-verdict="adverse"] { border-color: color-mix(in oklch, var(--cs-text-warning) 45%, var(--cs-border)); }
 .gd-hero[data-verdict="adverse"] .gd-hero__finding { color: var(--cs-text-primary); }
-.gd-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cs-border-subtle); background: var(--cs-surface-2); }
+.gd-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .gd-facts > div { padding: 11px 16px; min-width: 0; }
 .gd-facts > div + div { border-left: 1px solid var(--cs-border-subtle); }
 .gd-facts dt { font-size: var(--cs-font-size-caption); color: var(--cs-text-muted); }
@@ -46,12 +46,12 @@
 /* 2. Readings: one table, grouped, flat rows */
 .gd-table-wrap { overflow: auto; }
 .gd-table { width: 100%; min-width: 680px; border-collapse: collapse; text-align: left; }
-.gd-table thead { background: var(--cs-surface-2); }
+.gd-table thead { background: var(--cs-workbench-header-surface); }
 .gd-table thead th { height: var(--gd-bar-h); padding: 0 16px; border-bottom: 1px solid var(--cs-border-subtle); }
 .gd-table td, .gd-table tbody th { padding: 11px 16px; vertical-align: top; }
 .gd-table tbody th { font-weight: var(--cs-font-weight-medium); color: var(--cs-text-primary); }
 .gd-table tbody tr + tr > * { border-top: 1px solid var(--cs-border-subtle); }
-.gd-table tbody tr.gd-group > th { padding: 8px 16px; background: var(--cs-surface-2); font-size: var(--cs-font-size-badge); letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-semibold); }
+.gd-table tbody tr.gd-group > th { padding: 8px 16px; background: var(--cs-workbench-header-surface); font-size: var(--cs-font-size-badge); letter-spacing: 0.07em; text-transform: uppercase; color: var(--cs-text-muted); font-weight: var(--cs-font-weight-semibold); }
 .gd-table tbody + tbody tr.gd-group > th { border-top: 1px solid var(--cs-border-subtle); }
 .gd-table tr[data-adverse] > * { background: color-mix(in oklch, var(--cs-text-warning) 6%, transparent); }
 .gd-table td .ev-tier { white-space: normal; }
@@ -94,7 +94,7 @@
 .gd-screen[data-comparison] .cx-controls label { flex-direction: row; align-items: center; gap: 12px; }
 .gd-screen[data-comparison] .cx-records { border: 0; margin-block: 8px; }
 .gd-screen[data-comparison] .cx-matrix { min-width: 600px; }
-.gd-screen[data-comparison] .cx-matrix thead { background: var(--cs-surface-2); text-transform: none; font-size: 12px; }
+.gd-screen[data-comparison] .cx-matrix thead { background: var(--cs-workbench-header-surface); text-transform: none; font-size: 12px; }
 .gd-screen[data-comparison] .cx-matrix :is(th, td) { padding: 14px 20px; vertical-align: middle; }
 .gd-screen[data-comparison] .cx-matrix td:not(:last-child) { border-inline-start: 1px solid var(--cs-border-subtle); }
 .gd-screen[data-comparison] .cx-matrix th { color: var(--cs-text-primary); }
@@ -128,7 +128,6 @@
   .gd-screen summary:hover, .gd-rail summary:hover { color: var(--cs-text-primary); }
 }
 
-.gd-screen.cx-screen .evw-navigation { padding-block-end: 8px; }
 .gd-screen.cx-screen .cx-record-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
 .gd-screen.cx-screen .cx-controls { margin: 0; }
 .gd-screen.cx-screen .cx-controls label { display: flex; flex-direction: row; align-items: center; gap: 8px; }
@@ -142,40 +141,23 @@
 .gd-screen.cx-screen .cx-controls input { min-inline-size: 0; flex: 1 1 160px; }
 
 /* Evidence type is navigation; representation is a local, labelled control. */
-.gd-navigation .workspace-tabs {
-  gap: 4px;
-  padding-block: 0;
-  border-block-end: 1px solid var(--cs-border);
-  flex-wrap: wrap;
-}
-.gd-navigation .workspace-tabs [role="tab"] {
-  border: 0;
-  border-block-end: 3px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  min-block-size: 44px;
-  padding-inline: 14px;
-  color: var(--cs-text-secondary);
-}
-.gd-navigation .workspace-tabs [role="tab"][aria-selected="true"] {
-  border-block-end-color: var(--cs-accent-clay);
-  background: transparent;
-  color: var(--cs-text-primary);
-}
 .gd-section-panel, .gd-reference, .gd-review-overview, .gd-validity-representation { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
-.gd-view-control { display: flex; align-items: center; gap: 4px; font-size: var(--cs-font-size-prose); }
+.gd-view-control { display: flex; align-items: center; gap: 12px; font-size: var(--cs-font-size-prose); }
 .gd-view-control > span { margin-inline-end: 8px; color: var(--cs-text-muted); }
 .gd-view-control button {
   min-block-size: 36px;
-  padding-inline: 12px;
-  border: 1px solid var(--cs-border);
-  border-radius: 6px;
-  background: var(--cs-surface);
-  color: var(--cs-text-secondary);
+  padding-inline: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--cs-text-muted);
   cursor: pointer;
+  text-decoration: underline 2px transparent;
+  text-underline-offset: 7px;
 }
-.gd-view-control button[aria-pressed="true"] { background: var(--cs-surface-2); color: var(--cs-text-primary); border-color: var(--cs-text-muted); font-weight: 600; }
+/* A representation switch, quieter than the tabs above it: words, with the chosen one inked and
+   underlined in clay. No box or fill, so it never reads as a second row of tabs. */
+.gd-screen .gd-view-control button:active { background: transparent; color: var(--cs-text-accent); }
+.gd-view-control button[aria-pressed="true"] { color: var(--cs-text-primary); text-decoration-color: var(--cs-accent-clay); }
 .gd-pin-notice { font-size: var(--cs-font-size-caption); padding-block: 8px; }
 .gd-disease-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px; border: 1px solid var(--cs-border); border-radius: 12px; }
 .gd-disease-choice > div { flex: 1 1 30ch; min-inline-size: 0; }
@@ -201,5 +183,5 @@
 .gd-rail > .ctx-details > summary { min-block-size: 44px; align-content: center; }
 .gd-screen :is(button, summary):active, .gd-rail :is(button, summary):active { background-color: var(--cs-surface-2); }
 @media (hover: hover) and (pointer: fine) {
-  .gd-navigation .workspace-tabs button:hover, .gd-view-control button:hover { background: var(--cs-surface-2); color: var(--cs-text-primary); }
+  .gd-view-control button:hover { color: var(--cs-text-primary); }
 }

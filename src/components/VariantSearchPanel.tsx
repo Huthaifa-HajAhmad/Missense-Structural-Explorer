@@ -60,19 +60,13 @@ const PasteBtn: React.FC<{ setter: (v: string) => void }> = ({ setter }) => (
     title="Paste from clipboard"
     aria-label="Paste from clipboard"
     onClick={() => pasteFromClipboard(setter)}
-    className="absolute cs-tap-44 right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 inline-flex items-center justify-center rounded-md cursor-pointer text-cs-text-muted hover:text-cs-text-primary hover:bg-cs-bg-subtle transition-colors duration-150 z-10"
+    className="qe-input__tool cs-tap-44"
   >
     <Clipboard className="w-3.5 h-3.5" />
   </button>
 );
 
 interface VariantSearchPanelProps {
-  isDark: boolean;
-  classCard?: string;
-  classCardHeader?: string;
-  classCardTitle?: string;
-  classInput?: string;
-  classBorderSec?: string;
   customGene?: string;
   setCustomGene?: (val: string) => void;
   customVariant?: string;
@@ -135,31 +129,20 @@ const EXPLORE_HINT_DELAY_MS = 10_000;
 type FieldBadgeTone = "neutral" | "ok" | "warn" | "clay";
 
 /**
- * The pill a chip wears, WITHOUT its padding, split out because two different controls now wear it.
+ * Field-state marks, in the composer's own grammar: the parse ticket above marks a cell's kind with a
+ * 6px dot (`.qe__kind`), so a field label says the same thing the same way — a toned dot and quiet
+ * text. Tinted pills used to carry it (green, clay), which made the folded form the only part of the
+ * panel that spoke in chips, and its colours a second vocabulary for one meaning.
  *
- * The state badges and the genome-build control share one right-hand slot, so they must agree on what
- * a chip looks like. They did not: the build control was the only element in that row with no
- * background and with its own trailing padding, so its label sat inset from every sibling chip and read
- * as misaligned. Deriving both from these constants is what makes that impossible to reintroduce —
- * there is one definition of the pill, and the padding is the only thing a caller may vary.
- */
-const FIELD_CHIP_BOX = "rounded-[var(--cs-radius-badge)] font-medium";
-const FIELD_CHIP_SURFACE: Record<FieldBadgeTone, string> = {
-  neutral: "",
-  ok: "bg-[var(--cs-bg-success)] text-[var(--cs-text-good-on-soft)]",
-  warn: "bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]",
-  clay: "bg-cs-accent-clay/10 text-cs-text-accent",
-};
-
-/**
- * Field-state chips, on the semantic tokens. `neutral` is deliberately NOT a chip: "Optional" is
- * a fact about the field, not a state, and boxing it gave it the same visual weight as a warning.
+ * `warn` is the exception and stays a soft amber chip: it is the one state that asks for action, and
+ * it matches the "Needs a look" chip on the disclosure that opens this form. `neutral` ("Optional",
+ * "Auto-resolved") is a fact about the field, not a state, so it is plain muted text with no dot.
  */
 const FIELD_BADGE_TONES: Record<FieldBadgeTone, string> = {
   neutral: "text-cs-text-muted",
-  ok: `px-1.5 py-0.5 ${FIELD_CHIP_BOX} ${FIELD_CHIP_SURFACE.ok}`,
-  warn: `px-1.5 py-0.5 ${FIELD_CHIP_BOX} ${FIELD_CHIP_SURFACE.warn}`,
-  clay: `px-1.5 py-0.5 ${FIELD_CHIP_BOX} ${FIELD_CHIP_SURFACE.clay}`,
+  ok: "text-cs-text-secondary",
+  clay: "text-cs-text-secondary",
+  warn: "px-1.5 rounded-[var(--cs-radius-badge)] bg-[var(--cs-bg-warning)] text-[var(--cs-text-warning-on-soft)]",
 };
 
 /**
@@ -178,8 +161,9 @@ const FieldBadge: React.FC<{ tone?: FieldBadgeTone; title?: string; id?: string;
   <span
     id={id}
     title={title}
-    className={`text-[11px] leading-4 shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
+    className={`inline-flex h-5 items-center gap-1.5 text-[11px] font-medium leading-4 shrink-0 whitespace-nowrap ${FIELD_BADGE_TONES[tone]}`}
   >
+    {tone === "ok" || tone === "clay" ? <span className="qe__kind" data-tone={tone} aria-hidden="true" /> : null}
     {children}
   </span>
 );
@@ -436,7 +420,7 @@ const FieldLabel: React.FC<{
       )}
     </span>
   );
-  const rowClass = "h-5 flex items-center justify-between gap-2 text-[12px] font-medium text-cs-text-secondary";
+  const rowClass = "qe-field-label";
 
   if (action) {
     return (
@@ -504,63 +488,47 @@ const BuildSelect: React.FC<{
    * instead of floating as a badge. The state (default vs stated) reads the same in both.
    */
   size?: "chip" | "field";
+  /** For a visible `<label htmlFor>`; the `field` size sits under one. */
+  id?: string;
   onChange: (build: GenomeAssembly) => void;
-}> = ({ value, source, subject, size = "chip", onChange }) => {
-  const surface =
-    source === "default"
-      ? "bg-cs-surface-2 text-cs-text-muted hover:text-cs-text-secondary"
-      : FIELD_CHIP_SURFACE.clay;
-  const title =
-    source === "default"
-      ? `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`
-      : `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${
-          source === "accession" ? "by the RefSeq accession" : "in the notation"
-        })`;
+}> = ({ value, source, subject, size = "chip", id, onChange }) => {
+  const stated = source !== "default";
+  const title = stated
+    ? `Genome build: ${ASSEMBLY_LABELS[value]} (stated ${source === "accession" ? "by the RefSeq accession" : "in the notation"})`
+    : `Genome build: ${ASSEMBLY_LABELS[value]} (default — choose a build to state it in the notation)`;
+  const select = (className: string) => (
+    <select
+      id={id}
+      aria-label={`Genome build this ${subject} is expressed in`}
+      title={title}
+      value={value}
+      onChange={(event) => onChange(event.target.value as GenomeAssembly)}
+      className={className}
+    >
+      <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
+      <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
+    </select>
+  );
 
   if (size === "field") {
+    // An input-shaped select: the same box as the fields beside it. A clay dot (the ticket's mark for
+    // a value the notation itself states) answers "did the caller say this, or is it the fallback?".
     return (
-      <span
-        className={`relative flex h-10 w-full items-center rounded-[var(--cs-radius-input)] border transition-colors duration-150 ${
-          source === "default"
-            ? "border-cs-border bg-cs-surface text-cs-text-secondary hover:border-cs-border hover:bg-cs-surface-2"
-            : "border-cs-accent-clay/40 bg-cs-accent-clay/10 text-cs-text-accent"
-        }`}
-      >
-        <select
-          aria-label={`Genome build this ${subject} is expressed in`}
-          title={title}
-          value={value}
-          onChange={(event) => onChange(event.target.value as GenomeAssembly)}
-          className="h-full w-full cursor-pointer appearance-none rounded-[var(--cs-radius-input)] bg-transparent pl-3 pr-9 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-        >
-          <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
-          <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
-        </select>
-        <ChevronDown className="pointer-events-none absolute right-3 w-3.5 h-3.5" aria-hidden="true" />
+      <span className="qe-select" data-stated={stated || undefined}>
+        <span className="qe__kind" data-tone={stated ? "clay" : undefined} aria-hidden="true" />
+        {select("qe-select__control")}
+        <ChevronDown className="qe-select__caret" aria-hidden="true" />
       </span>
     );
   }
 
   return (
-    // The wrapper is the chip: it carries the pill and positions the caret, while the `<select>` fills
-    // it edge to edge (no padding of its own to double up), so the ring and the pill have one box.
-    <span className={`relative inline-flex h-5 shrink-0 items-center ${FIELD_CHIP_BOX} ${surface}`}>
-      <select
-        aria-label={`Genome build this ${subject} is expressed in`}
-        title={title}
-        value={value}
-        onChange={(event) => onChange(event.target.value as GenomeAssembly)}
-        // `pr-4` is the caret's room, reserved INSIDE the chip so the chip's right edge still lands
-        // flush with the badges beside it — the padding that made this look misaligned was padding
-        // with nothing in it.
-        className="h-5 cursor-pointer appearance-none rounded-[var(--cs-radius-badge)] bg-transparent pl-1.5 pr-4 text-[11px] font-medium leading-4 text-inherit outline-none focus-visible:ring-2 focus-visible:ring-[var(--cs-accent-clay)]"
-      >
-        <option value="GRCh38">{ASSEMBLY_LABELS.GRCh38}</option>
-        <option value="GRCh37">{ASSEMBLY_LABELS.GRCh37}</option>
-      </select>
-      {/* Drawn, because `appearance-none` removes the native arrow — and in the text's own colour, so
-          the control and its caret cannot disagree about which state the build is in. */}
-      <ChevronDown className="pointer-events-none absolute right-1 w-3 h-3" aria-hidden="true" />
+    // The label-slot form: badge metrics (20px row, 11px text), a dot for the state, and a caret drawn
+    // in the text colour because `appearance-none` removes the native arrow.
+    <span className="qe-select qe-select--chip" data-stated={stated || undefined}>
+      <span className="qe__kind" data-tone={stated ? "clay" : undefined} aria-hidden="true" />
+      {select("qe-select__control")}
+      <ChevronDown className="qe-select__caret" aria-hidden="true" />
     </span>
   );
 };
@@ -616,9 +584,6 @@ const RECENTS_VISIBLE = 3;
 const RECENTS_MAX = 8;
 
 function VariantSearchPanel({
-  isDark,
-  classInput = "",
-  classBorderSec = "",
   customGene: propsCustomGene,
   setCustomGene: propsSetCustomGene,
   customVariant: propsCustomVariant,
@@ -1206,7 +1171,8 @@ function VariantSearchPanel({
   // Placeholders are reset to normal case: the gene/genomic/UniProt inputs upper-case their VALUE,
   // and `uppercase` also applied to the placeholder, so "E.G. Q9H8M5 (AUTO-RESOLVED IF OMITTED)"
   // shouted beside a lower-case "e.g. p.Gly380Arg".
-  const inputBase = `w-full h-10 rounded-[var(--cs-radius-input)] pl-3 pr-10 text-[13px] outline-none border transition-[border-color,box-shadow,background-color] duration-150 ease-out select-text focus:ring-2 focus:ring-[var(--cs-accent-clay)] placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-cs-text-muted ${classInput}`;
+  // The folded fields wear the composer's field box (`.qe-input`), so the form reads as one surface.
+  const inputBase = "qe-input";
 
 
 
@@ -1804,9 +1770,14 @@ function VariantSearchPanel({
                         from the text (see BuildSelect), so this row holds no state; the quiet box keeps the height
                         when no coordinate can carry a build. */}
                     <div className="flex flex-col gap-1.5 min-w-0">
-                      <span className="h-5 flex items-center text-[12px] font-medium text-cs-text-secondary">Genome build</span>
+                      {genomicBuildControllable ? (
+                        <label htmlFor="input-genomic-build" className="qe-field-label">Genome build</label>
+                      ) : (
+                        <span className="qe-field-label">Genome build</span>
+                      )}
                       {genomicBuildControllable ? (
                         <BuildSelect
+                          id="input-genomic-build"
                           value={genomicBuild}
                           source={genomicBuildSource}
                           subject="coordinate"
@@ -1814,7 +1785,7 @@ function VariantSearchPanel({
                           onChange={applyGenomicBuild}
                         />
                       ) : (
-                        <div className="h-10 flex items-center px-3 rounded-[var(--cs-radius-input)] border border-dashed border-cs-border-subtle text-[12.5px] text-cs-text-muted">
+                        <div className="qe-input qe-input--placeholder">
                           {genomicIdentifier ? "GRCh38, set by the identifier" : "Follows the coordinate you enter"}
                         </div>
                       )}

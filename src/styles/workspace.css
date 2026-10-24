@@ -19,7 +19,7 @@
 .exploration-workspace > .data-screen-primary {
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-workbench-radius);
-  background: var(--cs-workspace-primary);
+  background: var(--cs-panel-body);
   box-shadow: var(--cs-workbench-shadow);
 }
 /* Supporting context recedes behind raised readings; the primary owns the analysis. */
@@ -29,14 +29,14 @@ aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(
   max-width: 42%;
   border: 1px solid var(--cs-border);
   border-radius: var(--cs-workbench-radius);
-  background: var(--cs-workspace-context);
+  background: var(--cs-panel-body);
   box-shadow: var(--cs-workbench-shadow);
   overflow: clip;
 }
 .exploration-workspace > aside[data-workspace-inspector-rail] { border: 0; background: transparent; }
 .inspector-rail-label { writing-mode: vertical-rl; transform: rotate(180deg); }
 .exploration-workspace > .data-screen-primary { overflow: hidden; }
-.exploration-workspace .inspector-heading { padding: 20px; background: var(--cs-workbench-header-surface); }
+.exploration-workspace .inspector-heading { padding: 20px; }
 .inspector-heading__icon { flex: none; color: var(--cs-text-muted); padding-inline-end: .25rem; }
 .exploration-workspace .inspector-body { padding: 20px; scrollbar-gutter: stable; }
 .exploration-workspace .inspector-body :is(.evw-inspection:not([data-empty]), .review-selection, .spl-inspection) {
@@ -46,16 +46,20 @@ aside[data-workspace-inspector] { width: var(--inspector-width); min-width: var(
   border-radius: var(--cs-radius-card);
 }
 .exploration-workspace .landscape-main { background: var(--cs-surface); border-radius: inherit; scrollbar-gutter: stable; }
-.workspace-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-block-end: 12px; border-block-end: 1px solid var(--cs-border-subtle); }
-.workspace-tabs button { padding: 8px 14px; min-block-size: 44px; border: 1px solid transparent; border-radius: 6px; font-size: var(--cs-font-size-prose); font-weight: 500; color: var(--cs-text-secondary); background: transparent; cursor: pointer; }
-.workspace-tabs button[aria-selected="true"] { background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); border-color: var(--cs-border); box-shadow: inset 0 -2px 0 var(--cs-accent-clay); }
+/* Workspace tabs are a ruled index, not buttons: plain labels on the section's hairline, and the
+   selected one is marked by ink plus a 2px clay rule that sits ON that hairline. No fill, no box, no
+   pill — the same grammar as the Analysis monitor's Services/Pipeline switch. Weight never changes
+   with selection, so the labels do not shift when the selection moves. */
+.workspace-tabs { display: flex; flex-wrap: wrap; column-gap: 1.75rem; border-block-end: 1px solid var(--cs-border-subtle); }
+.workspace-tabs button { position: relative; display: inline-flex; align-items: center; min-block-size: 44px; margin-block-end: -1px; padding: 0 .125rem; border: 0; border-block-end: 2px solid transparent; border-radius: 0; font-size: var(--cs-font-size-prose); font-weight: 500; color: var(--cs-text-muted); background: transparent; cursor: pointer; }
+.workspace-tabs button[aria-selected="true"] { color: var(--cs-text-primary); border-block-end-color: var(--cs-accent-clay); }
 @media (hover: hover) and (pointer: fine) {
-  .workspace-tabs button:hover:not([aria-selected="true"]) { background: var(--cs-surface-2); }
+  .workspace-tabs button:hover:not([aria-selected="true"]) { color: var(--cs-text-primary); border-block-end-color: var(--cs-border); }
 }
-.workspace-tabs button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
-.workspace-tabs button:active { background: color-mix(in oklch, var(--cs-accent-clay) 22%, var(--cs-surface)); }
+.workspace-tabs button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 2px; border-radius: 4px; }
+.workspace-tabs button:active { color: var(--cs-text-accent); }
 @media (prefers-reduced-motion: no-preference) {
-  .workspace-tabs button { transition: background-color 120ms, color 120ms, border-color 120ms; }
+  .workspace-tabs button { transition: color 120ms, border-color 120ms; }
 }
 
 @container (max-width: 850px) {

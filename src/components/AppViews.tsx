@@ -45,7 +45,6 @@ interface AppViewsProps {
   setWindowSize: React.Dispatch<React.SetStateAction<number>>;
   classCardTitle: string;
   classCardHeader: string;
-  classInput: string;
   classBorderSec: string;
   classTextBody: string;
   classTextMute: string;
@@ -72,7 +71,6 @@ export function AppViews({
   setWindowSize,
   classCardTitle,
   classCardHeader,
-  classInput,
   classBorderSec,
   classTextBody,
   classTextMute,
@@ -414,12 +412,6 @@ export function AppViews({
               >
                 <div className="w-full" style={{ maxWidth: "var(--cs-search-max-width)" }}>
                   <VariantSearchPanel
-                    isDark={isDark}
-                    classCard="border-0 shadow-none p-0 bg-transparent"
-                    classCardHeader="hidden"
-                    classCardTitle={classCardTitle}
-                    classInput={classInput}
-                    classBorderSec={classBorderSec}
                     analysisState={analysisState}
                     handleSearchSubmit={handleSearchSubmitAndOpen}
                     gene={gene}

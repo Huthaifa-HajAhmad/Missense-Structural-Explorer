@@ -63,7 +63,7 @@
 .workbench-benchmark > div { padding: 0; }
 .workbench-benchmark > button > span:last-child { font-size: 11px; }
 .workbench-benchmark > div button { padding-inline: .5rem; margin-inline: 0; }
-.workbench-rail.cs-panel { background: var(--cs-workspace-context); border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); box-shadow: var(--cs-workbench-shadow); min-inline-size: 0; overflow: clip; }
+.workbench-rail.cs-panel { background: var(--cs-panel-body); border: 1px solid var(--cs-border); border-radius: var(--cs-workbench-radius); box-shadow: var(--cs-workbench-shadow); min-inline-size: 0; overflow: clip; }
 .workbench-rail-body { display: flex; flex-direction: column; min-block-size: 0; }
 .workbench-rail-heading { display: flex; align-items: center; gap: .75rem; min-block-size: 3rem; flex: none; padding: .875rem 1.25rem; border-block-end: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); }
 .workbench-rail [role="tabpanel"] { padding: 1rem 1.25rem; }
@@ -107,12 +107,16 @@
 .qe__status-dot { inline-size: .375rem; block-size: .375rem; margin-block-start: .375rem; border-radius: 50%; background: var(--cs-text-warning); flex: none; }
 .qe__try { display: flex; flex-wrap: wrap; gap: .5rem; }
 .qe__try-label { flex-basis: 100%; padding-block: .375rem .125rem; font-size: 11px; color: var(--cs-text-muted); }
-.qe__example { flex: 1 1 10rem; display: flex; flex-direction: column; align-items: start; gap: .25rem; min-inline-size: 0; min-block-size: 4rem; padding: .75rem; border: 0; border-radius: 6px; background: color-mix(in oklch, var(--cs-surface-2) 70%, var(--cs-surface)); color: var(--cs-text-primary); text-align: start; cursor: pointer; }
+.qe__example { flex: 1 1 10rem; display: flex; flex-direction: column; align-items: start; gap: .25rem; min-inline-size: 0; min-block-size: 4rem; padding: .75rem; border: 1px solid var(--cs-border-subtle); border-radius: 8px; background: var(--cs-workbench-header-surface); color: var(--cs-text-primary); text-align: start; cursor: pointer; }
 .qe__example-note { font-size: 10px; color: var(--cs-text-muted); }
 .qe__example-value { display: flex; align-items: center; justify-content: space-between; gap: .375rem; inline-size: 100%; font-family: var(--cs-font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .qe__example-value svg { inline-size: 12px; block-size: 12px; flex: none; color: var(--cs-text-accent); }
-.qe__ticket { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr)); margin: .25rem 0; border-block: 1px solid var(--cs-border-subtle); background: color-mix(in oklch, var(--cs-surface-2) 40%, var(--cs-surface)); }
-.qe__cell { display: flex; flex-direction: column; gap: .375rem; min-inline-size: 0; padding: .75rem; }
+/* Justified, not gridded: each cell starts at its own content width and the row's leftover space is
+   shared out, so "auto" takes a word's width and a long coordinate takes the room it needs instead of
+   wrapping inside a quarter of the row. A value too long for the whole row wraps the row, then breaks. */
+.qe__ticket { display: flex; flex-wrap: wrap; margin: .25rem 0; border-block: 1px solid var(--cs-border-subtle); background: var(--cs-workbench-header-surface); overflow: hidden; }
+.qe__cell { display: flex; flex-direction: column; gap: .375rem; flex: 1 1 auto; min-inline-size: 0; padding: .75rem; }
+.qe__cell { box-shadow: -1px 0 0 var(--cs-border-subtle), 0 -1px 0 var(--cs-border-subtle); }
 .qe__cell dt { display: flex; align-items: center; gap: .375rem; font-size: 10px; color: var(--cs-text-muted); }
 .qe__cell dd { margin: 0; font-family: var(--cs-font-mono); font-size: 12px; font-weight: 500; color: var(--cs-text-primary); overflow-wrap: anywhere; }
 .qe__cell dd[data-empty] { color: var(--cs-text-muted); font-weight: 400; }
@@ -120,6 +124,32 @@
 .qe__kind[data-tone="ok"] { background: var(--cs-text-success); }
 .qe__kind[data-tone="clay"] { background: var(--cs-accent-clay); }
 .qe__kind[data-tone="warn"] { background: var(--cs-text-warning); }
+
+/* The folded fields: the composer's field box at form size. White on white with the composer's
+   hairline, mono value text, and the composer's focus treatment (outline, not a ring). */
+.qe-field-label { display: flex; align-items: center; justify-content: space-between; gap: .5rem; block-size: 1.25rem; font-size: 12px; font-weight: 500; color: var(--cs-text-secondary); }
+.qe-input { inline-size: 100%; block-size: 2.5rem; padding-inline: .75rem 2.5rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input); background: var(--cs-surface); color: var(--cs-text-primary); font-size: 13px; user-select: text; outline: 2px solid transparent; outline-offset: 2px; }
+.qe-input::placeholder { color: var(--cs-text-muted); font-weight: 400; text-transform: none; letter-spacing: normal; }
+.qe-input:focus-visible { outline-color: var(--cs-accent-clay); border-color: var(--cs-border); }
+.qe-input[aria-invalid="true"] { border-color: color-mix(in oklch, var(--cs-text-warning) 55%, var(--cs-border)); }
+.qe-input--placeholder { display: flex; align-items: center; border-style: dashed; border-color: var(--cs-border-subtle); background: transparent; color: var(--cs-text-muted); font-size: 12px; }
+.qe-input__tool { position: absolute; inset-block: 0; inset-inline-end: .375rem; z-index: 1; margin-block: auto; display: inline-flex; align-items: center; justify-content: center; inline-size: 1.75rem; block-size: 1.75rem; border: 0; border-radius: 6px; background: transparent; color: var(--cs-text-muted); cursor: pointer; }
+.qe-input__tool:active { background: var(--cs-bg-subtle); }
+/* The build select, in two sizes: an input-shaped row and a label-slot chip. Neither is tinted; a clay
+   dot marks a build the notation states, an empty ring a defaulted one. */
+.qe-select { position: relative; display: flex; align-items: center; inline-size: 100%; block-size: 2.5rem; border: 1px solid var(--cs-border); border-radius: var(--cs-radius-input); background: var(--cs-surface); color: var(--cs-text-primary); }
+.qe-select > .qe__kind { position: absolute; inset-inline-start: .75rem; pointer-events: none; }
+.qe-select > .qe__kind:not([data-tone]) { background: transparent; box-shadow: inset 0 0 0 1px var(--cs-text-muted); }
+.qe-select__control { inline-size: 100%; block-size: 100%; padding-inline: 1.5rem 2.25rem; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; font-family: var(--cs-font-mono); font-size: 13px; font-weight: 500; appearance: none; cursor: pointer; outline: 2px solid transparent; outline-offset: 2px; }
+.qe-select__control:focus-visible { outline-color: var(--cs-accent-clay); }
+.qe-select__caret { position: absolute; inset-inline-end: .75rem; inline-size: .875rem; block-size: .875rem; color: var(--cs-text-muted); pointer-events: none; }
+.qe-select:not([data-stated]) .qe-select__control { color: var(--cs-text-secondary); }
+.qe-select--chip { inline-size: auto; block-size: 1.25rem; flex: none; border: 0; background: transparent; }
+.qe-select--chip > .qe__kind { inset-inline-start: 0; }
+/* The select's own box is 32px tall (a WCAG 2.5.8 target) inside the 20px label row: the negative
+   margins keep the row's height, and 6px of overhang each way stops short of the input below. */
+.qe-select--chip .qe-select__control { block-size: 2rem; margin-block: -.375rem; padding-inline: .75rem 1rem; font-family: inherit; font-size: 11px; color: var(--cs-text-secondary); }
+.qe-select--chip .qe-select__caret { inset-inline-end: 0; inline-size: .75rem; block-size: .75rem; }
 
 /* Optional controls sit on ruled rows. Opening either reveals its own editing surface. */
 .qe-fields { border-block-start: 1px solid var(--cs-border-subtle); }
@@ -171,6 +201,9 @@
   .workbench-monitor-tab:hover { color: var(--cs-text-primary); background: var(--cs-workbench-header-surface); }
   .qe__bar:hover { border-color: color-mix(in oklch, var(--cs-text-muted) 55%, var(--cs-border)); }
   .qe__tool:hover { color: var(--cs-text-primary); background: var(--cs-surface-2); }
+  .qe-input:hover:not(:focus-visible, .qe-input--placeholder), .qe-select:not(.qe-select--chip):hover { border-color: color-mix(in oklch, var(--cs-text-muted) 55%, var(--cs-border)); }
+  .qe-input__tool:hover { color: var(--cs-text-primary); background: var(--cs-bg-subtle); }
+  .qe-select--chip:hover .qe-select__control { color: var(--cs-text-primary); }
   .qe__submit:hover:not(:disabled) { filter: brightness(1.07); }
   .qe__example:hover { background: color-mix(in oklch, var(--cs-accent-clay) 9%, var(--cs-surface)); color: var(--cs-text-accent); }
   .qe-fields__summary:hover, .workbench-ai-summary:hover { color: var(--cs-text-primary); }

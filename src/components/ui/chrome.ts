@@ -16,5 +16,5 @@ export const CHROME_ICON_BUTTON =
 /** Hairline vertical divider used between chrome groups. */
 export const CHROME_DIVIDER = "w-px h-5 bg-cs-border-subtle shrink-0";
 
-/** Header actions share a surface and an outline regardless of menu wrappers. */
+/** Header actions are bare glyphs with one hover fill and one focus outline, regardless of menu wrappers. */
 export const HEADER_ICON_BUTTON = `header-action ${CHROME_ICON_BUTTON}`;

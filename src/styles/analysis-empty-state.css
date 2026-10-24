@@ -10,7 +10,7 @@
 .analysis-empty-start button svg { inline-size: 1rem; block-size: 1rem; }
 .analysis-empty-start button:focus-visible { outline: 2px solid var(--cs-accent-clay); outline-offset: 3px; }
 .analysis-empty-start button:active { filter: brightness(.92); }
-.analysis-empty-topics { flex: 1 1 18rem; display: flex; flex-direction: column; justify-content: center; gap: 1.25rem; padding: clamp(1.5rem, 3vw, 3rem); background: var(--cs-workspace-context); }
+.analysis-empty-topics { flex: 1 1 18rem; display: flex; flex-direction: column; justify-content: center; gap: 1.25rem; padding: clamp(1.5rem, 3vw, 3rem); background: var(--cs-panel-body); box-shadow: -1px 0 0 var(--cs-border-subtle), 0 -1px 0 var(--cs-border-subtle); }
 .analysis-empty-topics h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--cs-text-secondary); }
 .analysis-empty-topics ul { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
 .analysis-empty-topics li { display: flex; align-items: baseline; gap: .75rem; padding-block: .875rem; border-block-end: 1px solid var(--cs-border-subtle); color: var(--cs-text-primary); font-size: 13px; }
