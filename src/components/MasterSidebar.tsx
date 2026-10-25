@@ -2,17 +2,13 @@ import React, { useEffect, useRef, useCallback, useState } from "react";
 import { evidenceTabsLoading, isEvidenceTabLoading } from "../shared/evidenceTabProgress";
 import { useGeneContextLoading } from "../hooks/useGeneContextLoading";
 import { createPortal } from "react-dom";
-import {
-  BarChart2, Layers, Activity, Map,
-  FlaskConical, FileText, Search, Terminal,
-  BookOpen, Info, X,
-  Users, Dna, AudioWaveform, PawPrint, Blocks, Cpu, Sparkles, Scissors,
-  Crosshair, Waves, Link2, Box, Boxes,
-} from "lucide-react";
+import { X } from "lucide-react";
 import { CHROME_ICON_BUTTON } from "./ui/chrome";
+import { NAV_ICONS, SUB_NAV_ICONS, type NavIcon, type StructureModelId } from "./ui/navIcons";
 import { BrandMark } from "./ui/BrandMark";
 import { SidebarToggleIcon } from "./ui/SidebarToggleIcon";
 import { AnalysisResult } from "../types";
+import type { EvidenceTabId } from "../shared/insightsEvidence";
 import { getWorkflowStageStatus, WorkflowStatusType } from "../shared/workflowStatus";
 import type { FoldxPhase } from "../shared/foldxPhase";
 import { useSettings } from "../context/SettingsContext";
@@ -103,11 +99,17 @@ export interface NavItem {
   label: string;
   /** One-line description: the row's tooltip, and the command palette's meta column. */
   sublabel?: string;
-  Icon: React.ComponentType<{ className?: string }>;
+  Icon: NavIcon;
 }
 
 export interface NavZone {
-  /** `null` renders no heading — Search is the front door and needs no label above it. */
+  /**
+   * Stable id, safe to key lookups by. The page's *name* is `zoneLabel` and can be rewritten for the
+   * reader (it has been: "Search" → "Variant query"); anything that hangs copy or tests off a zone
+   * must key off this instead, or a rename silently drops it.
+   */
+  id: "query" | "evidence" | "synthesis";
+  /** `null` renders no heading — the query page is the front door and needs no label above it. */
   zoneLabel: string | null;
   items: NavItem[];
 }
@@ -118,26 +120,32 @@ export interface NavZone {
  */
 export const NAV_ZONES: NavZone[] = [
   {
+    id: "query",
     zoneLabel: null,
     items: [
-      { id: "search", label: "Search", sublabel: "Variant query & history", Icon: Search },
+      /* Named for the panel it opens ("Variant query"), not "Search": the header has a search bar
+         that finds views and runs variants, and two controls called Search were indistinguishable.
+         The view id stays `search`: it is persisted in the URL and in saved state. */
+      { id: "search", label: "Variant query", sublabel: "Enter a variant & review history", Icon: NAV_ICONS.query },
     ],
   },
   {
+    id: "evidence",
     zoneLabel: "Evidence & modelling",
     items: [
-      { id: "evidence",   label: "Evidence",     sublabel: "Population, predictors & splicing", Icon: BarChart2 },
-      { id: "structure",  label: "3D structure", sublabel: "AlphaFold2 & ESMFold models",       Icon: Layers    },
-      { id: "energetics", label: "Energetics",   sublabel: "ΔΔG stability estimates",           Icon: Activity  },
-      { id: "landscape",  label: "Landscape",    sublabel: "Residue-level mutation map",        Icon: Map       },
+      { id: "evidence",   label: "Evidence",     sublabel: "Population, predictors & splicing", Icon: NAV_ICONS.evidence   },
+      { id: "structure",  label: "3D structure", sublabel: "AlphaFold2 & ESMFold models",       Icon: NAV_ICONS.structure  },
+      { id: "energetics", label: "Energetics",   sublabel: "ΔΔG stability estimates",           Icon: NAV_ICONS.energetics },
+      { id: "landscape",  label: "Landscape",    sublabel: "Residue-level mutation map",        Icon: NAV_ICONS.landscape  },
     ],
   },
   {
+    id: "synthesis",
     zoneLabel: "Synthesis",
     items: [
-      { id: "insights",   label: "Insights",   sublabel: "Interpretation & ACMG criteria", Icon: FlaskConical },
-      { id: "literature", label: "Literature", sublabel: "PubMed & Europe PMC",            Icon: BookOpen     },
-      { id: "report",     label: "Report",     sublabel: "Clinical summary & export",      Icon: FileText     },
+      { id: "insights",   label: "Insights",   sublabel: "Interpretation & ACMG criteria", Icon: NAV_ICONS.insights   },
+      { id: "literature", label: "Literature", sublabel: "PubMed & Europe PMC",            Icon: NAV_ICONS.literature },
+      { id: "report",     label: "Report",     sublabel: "Clinical summary & export",      Icon: NAV_ICONS.report     },
     ],
   },
 ];
@@ -147,8 +155,8 @@ export const NAV_ZONES: NavZone[] = [
  * middle of the analysis flow; it is a tool, not a step, so it lives with About.
  */
 const FOOTER_ITEMS: NavItem[] = [
-  { id: "console", label: "Console", sublabel: "Errors, logs & network", Icon: Terminal },
-  { id: "about",   label: "About",   sublabel: "Guide & data sources",   Icon: Info     },
+  { id: "console", label: "Console", sublabel: "Errors, logs & network", Icon: NAV_ICONS.console },
+  { id: "about",   label: "About",   sublabel: "Guide & data sources",   Icon: NAV_ICONS.about   },
 ];
 
 /** Flat registry of every primary view — shared with the header and the command palette. */
@@ -163,7 +171,7 @@ export const MASTER_VIEW_ITEMS: NavItem[] = [
  * residue outward (residue → fold → interfaces and partners). Interfaces & PPI merged the former
  * Multimer assembly and Protein interactions tabs, which answered one question twice.
  */
-export const EVIDENCE_SUB_ITEMS = [
+export const EVIDENCE_SUB_ITEMS: { id: EvidenceTabId; label: string }[] = [
   { id: "clinical",     label: "Population data"          },
   { id: "gene-disease", label: "Gene–disease"             },
   { id: "expression-models", label: "Expression"          },
@@ -177,29 +185,10 @@ export const EVIDENCE_SUB_ITEMS = [
   { id: "interfaces",   label: "Interfaces & PPI"         },
 ];
 
-export const STRUCTURE_SUB_ITEMS: { id: MasterView; label: string }[] = [
+export const STRUCTURE_SUB_ITEMS: { id: StructureModelId; label: string }[] = [
   { id: "structure_alphafold", label: "AlphaFold2" },
   { id: "structure_esmfold",   label: "ESMFold"    },
 ];
-
-type RowIcon = React.ComponentType<{ className?: string }>;
-
-/** Leading icon for every nested page, keyed by Evidence tab id or structure view id. */
-const SUB_ICONS: Record<string, RowIcon> = {
-  clinical: Users,
-  "gene-disease": Dna,
-  "expression-models": AudioWaveform,
-  "species-models": PawPrint,
-  function: Blocks,
-  predictors: Cpu,
-  alphagenome: Sparkles,
-  splicing: Scissors,
-  structure: Crosshair,
-  perturbation: Waves,
-  interfaces: Link2,
-  structure_alphafold: Box,
-  structure_esmfold: Boxes,
-};
 
 /**
  * Whether a registry row stands for the view on screen. The 3D structure row covers both model
@@ -247,7 +236,7 @@ function SubNavItem({
   onClick,
 }: {
   label: string;
-  Icon?: RowIcon;
+  Icon?: NavIcon;
   isActive: boolean;
   isStreaming?: boolean;
   onClick: () => void;
@@ -610,8 +599,8 @@ function MasterSidebar({
               type="button"
               onClick={() => navigate("search")}
               className="ms-brand-mark"
-              title="Go to Search"
-              aria-label="Missense & Fold — go to Search"
+              title="Go to Variant query"
+              aria-label="Missense & Fold — go to Variant query"
             >
               <BrandMark size={32} />
             </button>
@@ -658,15 +647,15 @@ function MasterSidebar({
           data-tour="navigation-zones"
         >
           <div className="ms-nav-inner">
-            {NAV_ZONES.map((zone, zoneIdx) => (
-              <div key={zone.zoneLabel ?? `zone-${zoneIdx}`} className="ms-zone" role="group" aria-label={zone.zoneLabel ?? undefined}>
+            {NAV_ZONES.map((zone) => (
+              <div key={zone.id} className="ms-zone" role="group" aria-label={zone.zoneLabel ?? undefined}>
                 {zone.zoneLabel && (
                   collapsed
                     ? <span className="ms-zone-divider" aria-hidden="true" />
                     : <span className="ms-zone-label" aria-hidden="true">{zone.zoneLabel}</span>
                 )}
 
-                {/* A labelled group hangs its rows off one guide line; the unlabelled Search zone has none. */}
+                {/* A labelled group hangs its rows off one guide line; the unlabelled query zone has none. */}
                 <div className="ms-zone-items" data-tree={zone.zoneLabel ? "true" : undefined}>
                 {zone.items.map((item) => {
                   const { id } = item;
@@ -705,7 +694,7 @@ function MasterSidebar({
                             <SubNavItem
                               key={sub.id}
                               label={sub.label}
-                              Icon={SUB_ICONS[sub.id]}
+                              Icon={SUB_NAV_ICONS[sub.id]}
                               isActive={activeView === "evidence" && activeEvidenceTab === sub.id}
                               isStreaming={isEvidenceTabLoading(sub.id, isBiophysicalLoading, analysisResult, geneContextLoading)}
                               onClick={() => {
@@ -723,7 +712,7 @@ function MasterSidebar({
                             <SubNavItem
                               key={sub.id}
                               label={sub.label}
-                              Icon={SUB_ICONS[sub.id]}
+                              Icon={SUB_NAV_ICONS[sub.id]}
                               isActive={activeView === sub.id}
                               onClick={() => navigate(sub.id)}
                             />

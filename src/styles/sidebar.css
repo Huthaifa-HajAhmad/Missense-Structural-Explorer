@@ -1,20 +1,24 @@
 /* ============================================================
    MASTER SIDEBAR
    One row anatomy (icon · label · marker) shared by the scrolling nav and
-   the pinned footer. Geometry is chosen so the icon column lines up with the
-   brand mark in both states: nav padding 8px + row padding 12px puts the 16px
-   icon's centre at 28px, the same as the 32px brand mark at 12px padding —
-   and in the 56px collapsed rail that is exactly the centre line.
+   the pinned footer. The query row and the pinned footer rows sit at the
+   rail's padding (8px) + the row's (12px), which puts the 16px icon's centre
+   at 28px — the centre of the 32px brand mark, and the centre line of the
+   56px collapsed rail. Rows inside a labelled zone hang 18px further in
+   (12px zone indent + 6px guide padding) so the zone's guide line, not the
+   rail edge, is what they hang from.
 
    Colour: every tint is derived from --cs-accent-clay with color-mix, so the
    light/dark values of the token carry through (the old raw rgba(196,104,73)
    stayed light-mode clay in dark mode). Clay AS TEXT uses --cs-text-accent,
    which is the AA-safe variant; raw clay is for fills, icons and rails only.
 
-   The grouped tree. Each zone is a plain muted label with its rows hanging off one thin
-   guide line; nested pages hang off a second line under their parent's icon (always listed,
-   never a toggle). The current page is a soft grey pill with ink text and an ink icon — every
-   other row is quiet muted text. The Search row at the top keeps its own clay cursor.
+   The grouped tree. Each zone is a plain muted label with its rows hanging off
+   one thin guide line — the ONLY line in the tree: nested pages are indented
+   under their parent (never a second line, never a toggle). The current page is
+   a soft grey pill with ink text and an ink icon — every other row is quiet
+   muted text. The query row is an ordinary tree row: the header's search bar is
+   the only control called Search, so the rail no longer needs a special cursor.
    ============================================================ */
 
 .ms-root {
@@ -25,9 +29,6 @@
   --ms-pill-fill: var(--cs-bg-subtle);
   --ms-pill-hover: color-mix(in oklch, var(--cs-bg-subtle) 55%, transparent);
   --ms-pill-press: color-mix(in oklch, var(--cs-text-primary) 9%, transparent);
-  /* The Search row's cursor: a bar on the leading edge over a faint clay tint. */
-  --ms-cursor-fill: color-mix(in oklch, var(--cs-accent-clay) 8%, transparent);
-  --ms-cursor-bar: inset 2px 0 0 var(--cs-accent-clay);
   /* Tree lines sit between the hairline and muted text so they stay legible on the canvas. */
   --ms-branch-color: color-mix(in oklch, var(--cs-border) 55%, var(--cs-text-muted));
   --ms-ease: cubic-bezier(0.23, 1, 0.32, 1);
@@ -230,23 +231,6 @@
   color: var(--cs-text-primary);
 }
 
-/* Search is the front door and sits with the brand above the tree: it keeps its clay cursor. */
-.ms-nav-btn[data-view="search"] {
-  min-height: 36px;
-  padding-block: 7px;
-  border-radius: var(--cs-radius-input);
-  color: var(--cs-text-secondary);
-}
-.ms-nav-btn[data-view="search"][data-current="true"],
-.ms-nav-btn[data-view="search"][data-current="true"]:hover {
-  background: var(--ms-cursor-fill);
-  box-shadow: var(--ms-cursor-bar);
-}
-.ms-nav-btn[data-view="search"][data-active="true"] .ms-nav-icon {
-  color: var(--cs-accent-clay);
-}
-.ms-nav-btn[data-view="search"] .ms-nav-label { font-weight: 500; }
-.ms-nav-btn[data-view="search"][data-active="true"] .ms-nav-label { font-weight: 600; }
 /* Collapsed: stage status and unread count ride on the icon's corner. */
 .ms-nav-icon-status {
   position: absolute;
@@ -381,24 +365,21 @@
   color: var(--cs-text-danger-on-soft, var(--cs-text-danger));
 }
 
-/* Nested pages hang off ONE guide line that runs under the parent's icon (the icon's centre is
-   --ms-guide-x from the row's edge). The line is the list's own border, so it is continuous and
-   cannot drift off the rows. The groups are always listed, so the line never changes with the
-   view. */
+/* Nested pages sit indented under their parent, in smaller type. The zone's guide line is the
+   only line in the tree — a second one per group made the hierarchy read as boxes in boxes. The
+   groups are always listed, so the indent never changes with the view. */
 .ms-sub-list {
-  --ms-guide-x: 20px;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin-inline-start: var(--ms-guide-x);
-  padding: 2px 0 8px 8px;
-  border-inline-start: 1px solid var(--ms-branch-color);
+  margin-inline-start: 10px;
+  padding: 2px 0 8px;
 }
 .ms-sub-btn {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   min-block-size: 28px;
   padding: 0 8px;
@@ -423,8 +404,8 @@
 /* Same icon-then-label anatomy as a top-level row, one size down. */
 .ms-sub-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   color: var(--cs-text-muted);
   transition: color 120ms ease;
 }
@@ -569,8 +550,7 @@
   .ms-root,
   .ms-root[data-drawer="closed"],
   .ms-brand-wordmark,
-  .ms-brand-wordmark[data-collapsed="true"],
-  .ms-sub-list {
+  .ms-brand-wordmark[data-collapsed="true"] {
     transition-duration: 0s;
   }
   .ms-drawer-backdrop {

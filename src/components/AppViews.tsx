@@ -405,7 +405,7 @@ export function AppViews({
         }} /> : <EvidenceWorkspaceProvider result={analysisState.result}>
         <WorkspaceLayout kind={masterView === "insights" || masterView === "literature" ? "review" : masterView === "landscape" ? "landscape" : isStructureActive ? "structure" : masterView === "energetics" ? "energetics" : masterView === "report" ? "report" : masterView === 'evidence' && ['clinical', 'predictors', 'alphagenome', 'gene-disease', 'expression-models', 'species-models', 'structure', 'perturbation', 'function', 'splicing', 'interfaces'].includes(activeEvidenceTab) ? 'evidence' : undefined}>
           <div className="data-screen-primary">
-            {/* SEARCH VIEW — high-density structured workspace */}
+            {/* VARIANT QUERY VIEW - high-density structured workspace */}
             {masterView === "search" && (
               <div 
                 className="search-workspace"
@@ -685,7 +685,7 @@ export function AppViews({
               </ErrorBoundary>
             )}
 
-            {/* ABOUT VIEW — static guide page; no inspector rail (like Search & Console) */}
+            {/* ABOUT VIEW - static guide page; no inspector rail (like Variant query & Console) */}
             {masterView === "about" && (
               <ErrorBoundary
                 name="About View"

@@ -131,23 +131,39 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
       const active = nav.querySelector<HTMLElement>('.ms-sub-btn[data-active="true"]')!;
       const marker = getComputedStyle(active, '::before');
       const label = nav.querySelector('.ms-zone-label')!;
-      const guide = getComputedStyle(nav.querySelector('.ms-sub-list')!);
+      const guide = getComputedStyle(nav.querySelector('.ms-zone-items[data-tree]')!);
+      const queryRow = nav.querySelector<HTMLElement>('.ms-nav-btn[data-view="search"]')!;
+      const accessibleName = (el: Element) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim();
       return {
         quietDivider: rootStyle.borderInlineEndWidth === '1px' && rootStyle.boxShadow === 'none',
         noNativeBar: getComputedStyle(nav).scrollbarWidth === 'none',
-        noChevrons: nav.querySelectorAll('.lucide-chevron-down, .lucide-chevron-right').length === 0,
+        // Library-agnostic: a row carries exactly one glyph, so a disclosure chevron (lucide or
+        // Phosphor — the tree is Phosphor now) shows up as a second svg instead of a class name
+        // this selector would have had to guess.
+        noChevrons: [...nav.querySelectorAll('.ms-nav-btn, .ms-sub-btn')].every(b => b.querySelectorAll('svg').length === 1),
         oneCurrent: current.length === 1 && current[0] === active,
         cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow === 'none',
         pillNotMarker: marker.content === 'none' && getComputedStyle(active).borderRadius === '8px',
         subRowsHaveIconsOnOneLine: [...nav.querySelectorAll('.ms-sub-btn')].every(b => b.querySelector('svg.ms-sub-icon') !== null && b.getBoundingClientRect().height < 32),
         plainZoneLabel: getComputedStyle(label, '::before').content === 'none' && getComputedStyle(label).fontWeight === '400',
-        groupGuide: getComputedStyle(nav.querySelector('.ms-zone-items[data-tree]')!).borderLeftWidth === '1px',
+        groupGuide: guide.borderLeftWidth === '1px',
+        oneGuideLinePerGroup: [...nav.querySelectorAll('.ms-sub-list')].every(list => getComputedStyle(list).borderLeftWidth === '0px'),
         guideLegible: contrast(guide.borderLeftColor, canvas) >= 1.5,
+        // The query page is a plain tree row, and the app chrome (rail + header) has exactly one
+        // control called "Search": the header's palette trigger. Scoped to the chrome on purpose —
+        // in-panel buttons such as "Search Europe PMC" are a different thing and must not count.
+        queryRowIsPlain: accessibleName(queryRow).startsWith('Variant query') && getComputedStyle(queryRow).boxShadow === 'none',
+        onlyTheHeaderBarIsSearch: (() => {
+          const chrome = [...document.querySelectorAll('#main-header button, #main-header a, #main-header input, .ms-root button, .ms-root a')];
+          const named = chrome.filter(el => /^Search/.test(accessibleName(el) || el.getAttribute('placeholder') || ''));
+          return named.length === 1 && named[0].closest('#main-header') !== null;
+        })(),
       };
     });
     expect(result, `${theme} sidebar contract`).toEqual({
       quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, pillNotMarker: true,
-      subRowsHaveIconsOnOneLine: true, plainZoneLabel: true, groupGuide: true, guideLegible: true,
+      subRowsHaveIconsOnOneLine: true, plainZoneLabel: true, groupGuide: true, oneGuideLinePerGroup: true, guideLegible: true,
+      queryRowIsPlain: true, onlyTheHeaderBarIsSearch: true,
     });
     await app.screenshot(`sidebar-tree-${theme}`);
     if (theme === 'light') await screen.getByRole('button', 'Switch to dark mode').tap();
