@@ -346,7 +346,7 @@ function SplicingContent({ analysisState, isBiophysicalLoading, onTabChange }: P
   const positionText = g.position !== null ? `${g.position > 0 ? "+" : "−"}${Math.abs(g.position)}` : null;
 
   return (
-    <div className="spl-screen @container">
+    <div data-evidence-screen className="spl-screen @container">
       {knowledgeKey && <ModelKnowledgeModal isOpen modelKey={knowledgeKey} onClose={() => setKnowledgeKey(null)} />}
 
       <header>

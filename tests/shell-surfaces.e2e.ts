@@ -125,20 +125,20 @@ test('the sidebar has a quiet divider and marks one legible current page', { tag
       const canvas = getComputedStyle(document.body).backgroundColor;
       const current = [...nav.querySelectorAll('[aria-current="page"]')];
       const active = nav.querySelector<HTMLElement>('.ms-sub-btn[data-active="true"]')!;
-      const branch = getComputedStyle(active, '::before');
-      const trunk = getComputedStyle(nav.querySelector('.ms-sub-btn')!, '::after');
+      const marker = getComputedStyle(active, '::before');
+      const guide = getComputedStyle(nav.querySelector('.ms-sub-list')!);
       return {
         quietDivider: rootStyle.borderInlineEndWidth === '1px' && rootStyle.boxShadow === 'none',
         noNativeBar: getComputedStyle(nav).scrollbarWidth === 'none',
         noChevrons: nav.querySelectorAll('.lucide-chevron-down, .lucide-chevron-right').length === 0,
         oneCurrent: current.length === 1 && current[0] === active,
         cursor: getComputedStyle(active).backgroundColor !== 'rgba(0, 0, 0, 0)' && getComputedStyle(active).boxShadow === 'none',
-        branchOnTop: branch.zIndex === '1' && branch.borderLeftColor !== trunk.borderLeftColor,
-        trunkLegible: contrast(trunk.borderLeftColor, canvas) >= 1.5,
+        markerOnGuide: marker.width === '2px' && marker.backgroundColor !== guide.borderLeftColor,
+        guideLegible: contrast(guide.borderLeftColor, canvas) >= 1.5,
       };
     });
     expect(result, `${theme} sidebar contract`).toEqual({
-      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, branchOnTop: true, trunkLegible: true,
+      quietDivider: true, noNativeBar: true, noChevrons: true, oneCurrent: true, cursor: true, markerOnGuide: true, guideLegible: true,
     });
     await app.screenshot(`sidebar-tree-${theme}`);
     if (theme === 'light') await screen.getByRole('button', 'Switch to dark mode').tap();

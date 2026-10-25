@@ -11,6 +11,9 @@ logs/
 .kilo/
 temp_jobs/
 
+# e2e runner output: reports, traces, screenshots and proof runs. Evidence on disk, never source.
+.e2e/
+
 # Third-party / licensed tools. KEEP LOCAL — never committed.
 #
 # FoldX ships under the CRG Academic License: free for academic use, but the grant is

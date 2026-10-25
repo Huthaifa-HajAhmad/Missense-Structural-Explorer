@@ -47,7 +47,7 @@ function ExpressionModelsContent({ result }: { result: NonNullable<TabComponentP
     pext: { load: context.pextLoad?.status ?? null, status: context.pextLoad?.data?.status ?? null, locationNote: pextLocation.state === 'no-locus' ? 'No verified GRCh38 position' : pextLocation.state === 'no-region' ? 'Outside the coding regions' : pextLocation.state === 'other-chromosome' ? 'Different chromosome from the gene record' : null,
       region: pextLocation.region ? { mean: pextLocation.region.mean, tissues: pextLocation.region.tissues.length } : null } });
   const reviewFrame = <ReviewFrame compact={workspace.enabled} gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={context.setSelection} onRetry={context.retryDisease} />;
-  return <div className="ctx-screen cx-screen xp-workspace" data-testid="expression-models-screen" data-comparison={workspace.comparison || undefined}>
+  return <div data-evidence-screen className="ctx-screen cx-screen xp-workspace" data-testid="expression-models-screen" data-comparison={workspace.comparison || undefined}>
     <header className="ctx-heading"><div><h1 className="screen-title">Expression</h1><p className="screen-tab-description">Where the gene is measured, and which biological context remains uncovered.</p></div>
       </header>
     {context.identityChanged && <p className="ctx-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}

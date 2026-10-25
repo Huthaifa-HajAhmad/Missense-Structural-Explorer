@@ -58,12 +58,16 @@
   --cs-workbench-shadow: 0 3px 16px oklch(0.2 0 none / .04);
   /* Clay as a SOLID behind white text: the brand clay is 3.87:1 there; this is 4.7:1. */
   --cs-accent-solid: #B35A3C;
-  --cs-workbench-header-surface: color-mix(in oklch, var(--cs-surface-2) 45%, var(--cs-surface));
+  /* Every head and foot strip, and the accent half of a two-tone card, wear the one accent wash. */
+  --cs-workbench-header-surface: var(--cs-accent-wash);
   /* Two tones, one rule (the Search composer is the reference): every panel BODY is the bright
      surface and every panel HEAD or FOOT strip wears --cs-workbench-header-surface. A whole panel
      filled with --cs-surface-2 reads as a third, sand tone and is not part of the grammar; a context
      panel is told apart by its position and its header, not by a darker body.
      References resolve against the active theme, including dark mode. */
+  /* THE accent of the two-tone grammar: the design-review-chosen #F8EEF0, one step off the white panel body
+     (dark mode derives its own from clay, since one hex cannot serve both themes). Print pins it in print.css. */
+  --cs-accent-wash: #F8EEF0;
   --cs-panel-body: var(--cs-surface);
   --cs-workspace-card: var(--cs-surface);
   /* === CLAUDE LIGHT PALETTE (WARM CREAM NEUTRALS) === */
@@ -267,6 +271,7 @@
   --cs-bg-subtle:     #23211E;
   --cs-surface:       #2A2724;   /* dark card surfaces */
   --cs-surface-2:     #201E1B;
+  --cs-accent-wash:   color-mix(in oklch, var(--cs-accent-clay) 10%, var(--cs-surface));
 
   --cs-border:        #3C3934;
   --cs-border-subtle: #322F2A;

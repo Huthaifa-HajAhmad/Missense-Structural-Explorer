@@ -28,13 +28,15 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
     const el = document.activeElement as HTMLElement | null;
     return el?.getAttribute?.('aria-controls') === 'main-navigation' && el.getAttribute('aria-expanded') !== null;
   });
-  await screen.getByRole('button', 'Evidence').tap();
-  await expect(screen.getByRole('button', 'Evidence')).toBeExpanded();
+  // The groups are always listed: nothing has opened Evidence yet, and its pages are already there.
   await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).toBeVisible();
+  await expect(screen.getByRole('button', 'AlphaFold2', { exact: true })).toBeVisible();
   await screen.getByRole('button', 'Evidence', { exact: true }).tap();
-  await expect(screen.getByRole('button', 'Evidence', { exact: true })).not.toBeExpanded();
-  await screen.getByRole('button', 'Evidence', { exact: true }).press('Enter');
-  await expect(screen.getByRole('button', 'Evidence', { exact: true })).toBeExpanded();
+  await expect(screen.getByRole('heading', /^Population data/i)).toBeVisible();
+  // A parent is a link, not a toggle: pressing it again neither collapses the group nor announces a state.
+  await screen.getByRole('button', 'Evidence', { exact: true }).tap();
+  await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).toBeVisible();
+  expect(await browser.evaluate(() => document.querySelector('.ms-nav-btn[data-view="evidence"]')!.hasAttribute('aria-expanded')), 'a parent row is not a disclosure').toBe(false);
   await screen.getByRole('button', 'Interfaces & PPI', { exact: true }).tap();
   await expect(screen.getByRole('heading', 'Interfaces & PPI')).toBeVisible();
   await settle();
@@ -45,8 +47,6 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await app.screenshot('sidebar-expanded');
   await screen.getByRole('button', 'Switch to dark mode').tap();
   await app.screenshot('sidebar-dark');
-  await screen.getByRole('button', 'Evidence').tap();
-  await expect(screen.getByRole('button', 'Interfaces & PPI', { exact: true })).not.toBeVisible();
   await screen.getByRole('separator', 'Resize sidebar').press('End');
   await settle();
   await screen.getByRole('separator', 'Resize sidebar').press('Home');
@@ -66,7 +66,6 @@ test('sidebar groups, resizing, collapse and mobile navigation', { tags: ['navig
   await expect(screen.getByRole('button', 'Open navigation')).toBeVisible();
   await settle();
   await screen.getByRole('button', 'Open navigation').tap();
-  await screen.getByRole('button', 'Evidence').tap();
   await screen.getByRole('button', 'RNA splicing', { exact: true }).scrollIntoView();
   await app.screenshot('sidebar-mobile');
   await screen.getByRole('button', 'RNA splicing', { exact: true }).tap();

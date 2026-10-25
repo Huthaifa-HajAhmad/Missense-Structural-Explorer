@@ -479,7 +479,7 @@ export function StructureTab({
     : undefined;
 
   return (
-    <div className="rsx-screen" data-comparison={workspace.comparison || undefined} data-testid="residue-shifts-tab">
+    <div data-evidence-screen className="rsx-screen" data-comparison={workspace.comparison || undefined} data-testid="residue-shifts-tab">
       <header>
         <h1 className="screen-title">Residue shifts and pockets</h1>
         <p className="screen-tab-description">

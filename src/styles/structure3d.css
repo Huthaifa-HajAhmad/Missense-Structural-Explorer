@@ -69,7 +69,7 @@
 }
 .structure-workspace .s3d-seg__btn[aria-checked="true"] { background: var(--cs-text-primary); color: var(--cs-surface); border-color: var(--cs-text-primary); }
 .s3d-site:disabled { cursor: default; opacity: .55; }
-.s3d-selection { padding: 16px; margin-bottom: 20px; background: var(--cs-surface-2); border-radius: 12px; }
+.s3d-selection { padding: 16px; margin-bottom: 20px; background: var(--cs-accent-wash); border-radius: 12px; }
 .s3d-selection h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--cs-text-primary); }
 .s3d-selection__summary { margin: 0 0 10px; font-size: 13px; color: var(--cs-text-primary); }
 .s3d-selection__source { margin: 8px 0 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: var(--cs-text-secondary); }
@@ -138,7 +138,7 @@ button.s3d-site { cursor: pointer; }
   border-color: var(--cs-border);
   background: var(--cs-surface-2);
 }
-.s3d-site[data-kind="unmapped"] { color: var(--cs-text-muted); border-color: var(--cs-border); background: var(--cs-surface-2); }
+.s3d-site[data-kind="unmapped"] { color: var(--cs-text-muted); border-color: var(--cs-border); background: var(--cs-accent-wash); }
 .s3d-site[data-kind="closeup"] {
   font-family: var(--cs-font-sans);
   color: var(--cs-text-secondary);
@@ -503,7 +503,7 @@ button.s3d-site { cursor: pointer; }
 .s3d-notice { margin: 0; padding: 6px 10px; border-left: 2px solid var(--cs-border); font-size: var(--cs-font-size-caption); line-height: 1.45; }
 .s3d-notice strong { display: block; margin-bottom: 2px; font-weight: var(--cs-font-weight-semibold); }
 .s3d-notice[data-tone="warning"] { color: var(--cs-text-warning-on-soft); background: var(--cs-bg-warning); border-left-color: var(--cs-text-warning); }
-.s3d-notice[data-tone="info"] { color: var(--cs-text-secondary); background: var(--cs-surface-2); border-left-color: var(--cs-accent-clay); }
+.s3d-notice[data-tone="info"] { color: var(--cs-text-secondary); background: var(--cs-accent-wash); border-left-color: var(--cs-accent-clay); }
 .s3d-notice[data-tone="info"] strong { color: var(--cs-text-primary); }
 
 /* Side-chain topology card (Wild-type vs. Variant residue) */

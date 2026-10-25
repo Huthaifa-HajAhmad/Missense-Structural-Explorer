@@ -2,15 +2,19 @@
 .evidence-workspace #evidence-dashboard-card { height: 100%; border: 0; border-radius: inherit; background: var(--cs-surface); }
 .evidence-workspace #evidence-dashboard-card > .overflow-y-auto { padding: 24px; scrollbar-gutter: stable; }
 .evw-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
-/* Share the title row with its existing guide control, without absolute positioning. */
-.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; }
-.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen)) > .rgd-context-action { grid-area: 1 / 2; z-index: 1; align-self: start; margin: 0; }
-.evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen) { grid-area: 1 / 1 / auto / -1; min-width: 0; }
-.evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen) > header { padding-inline-end: 260px; }
+/* Share the title row with its existing guide control, without absolute positioning. Every Evidence screen root
+   carries `data-evidence-screen`, so a new tab joins this layout by declaring itself, not by being added to a list. */
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> [data-evidence-screen]) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> [data-evidence-screen]) > .rgd-context-action { grid-area: 1 / 2; z-index: 1; align-self: start; margin: 0; }
+.evidence-workspace #evidence-dashboard-card > .overflow-y-auto > [data-evidence-screen] { grid-area: 1 / 1 / auto / -1; min-width: 0; }
+.evidence-workspace [data-evidence-screen] > header { padding-inline-end: 260px; }
+/* The screens space their header, tabs and panels with one flex gap, so the description's own bottom margin was a
+   second gap stacked on it (about 50px of void before the tabs). */
+.evidence-workspace [data-evidence-screen] > header > .screen-tab-description { margin-block-end: 0; }
 @media (max-width: 650px) {
-  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen)) > .rgd-context-action { grid-area: 1 / 1 / auto / -1; margin-bottom: 12px; }
-  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen) { grid-row: 2; }
-  .evidence-workspace :is(.pop-screen, .prd-screen, .ag-screen, .xp-workspace, .gd-screen, .sm-workspace, .rsx-screen, .ptb-screen, .fnd-screen, .spl-screen) > header { padding-inline-end: 0; }
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto:has(> [data-evidence-screen]) > .rgd-context-action { grid-area: 1 / 1 / auto / -1; margin-bottom: 12px; }
+  .evidence-workspace #evidence-dashboard-card > .overflow-y-auto > [data-evidence-screen] { grid-row: 2; }
+  .evidence-workspace [data-evidence-screen] > header { padding-inline-end: 0; }
 }
 /* The tabs' underline sits on this row's hairline, so the row has no bottom padding of its own. */
 .evw-navigation { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--cs-border-subtle); }
@@ -90,8 +94,11 @@
 .evw-inspection { border: 1px solid var(--cs-border); border-radius: 12px; padding: 16px; margin-bottom: 24px; font-family: var(--cs-font-sans); font-size: 13px; color: var(--cs-text-secondary); }
 .evw-inspection h3 { margin: 7px 0 10px; font-size: 18px; font-weight: 600; color: var(--cs-text-primary); }
 .evw-inspection p { margin: 8px 0 12px; line-height: 1.65; }
-.evw-inspection[data-empty] { border: 0; border-block-end: 1px solid var(--cs-border-subtle); border-radius: 0; padding: 0; padding-block-end: 12px; margin-block-end: 16px; }
+.evw-inspection[data-empty] { border: 0; border-block-end: 1px solid var(--cs-border-subtle); border-radius: 0; padding: 0; padding-block-end: 16px; margin-block-end: 16px; }
 .evw-inspection[data-empty] p { margin: 0; }
+/* The empty state keeps its bottom rule and the next rail section gives up its top one, so the seam is a single
+   hairline whatever the section is called (every rail names its sections differently). */
+.evw-inspection[data-empty] + * { border-block-start: 0; padding-block-start: 0; }
 .evw-inspection dl { margin: 18px 0; }
 .evw-inspection dl > div { display: grid; grid-template-columns: minmax(80px, .8fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--cs-border-subtle); }
 .evw-inspection dt { font-size: 12px; color: var(--cs-text-muted); }

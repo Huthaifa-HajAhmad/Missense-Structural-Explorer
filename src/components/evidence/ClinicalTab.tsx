@@ -105,7 +105,7 @@ function VerdictChip({ criterion, applied }: { criterion: FrequencyCriterion; ap
       className={`ev-tier pop-verdict shrink-0${isCode ? " chip-code" : ""}`}
       data-testid="verdict-chip"
       data-tone={tone}
-      style={unconfirmed ? { borderStyle: "dashed" } : undefined}
+      data-unconfirmed={unconfirmed || undefined}
       title={
         applied.known
           ? "The ACMG frequency criterion this run recorded"
@@ -316,7 +316,7 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
 
   const populationModel = useMemo(() => buildPopulationComparison(evidence), [evidence]);
   return (
-    <div className="pop-screen @container" data-comparison={workspace.comparison || undefined}>
+    <div data-evidence-screen className="pop-screen @container" data-comparison={workspace.comparison || undefined}>
       <header>
         <h1 className="screen-title">Population Data</h1>
         <p className="screen-tab-description">
@@ -376,6 +376,26 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
           )}
         </div>
 
+        {/* BS2 is the other population criterion and the homozygote count is its input: it belongs to the
+            finding, not to a loose line under the chart. It shows in every workspace view (the finding card does);
+            the standalone readings table carries it in its own foot. */}
+        {workspace.enabled && evidence.gnomadHomozygotes !== null && (
+          <p className="pop-hero__strip pop-hero__hom">
+            <span>gnomAD homozygotes</span>
+            <span className="pop-mono pop-strong">{formatCount(evidence.gnomadHomozygotes)}</span>
+            {bs2 !== null && (
+              <span
+                className="ev-tier chip-code"
+                data-tone={bs2 ? "good" : "muted"}
+                title={bs2 ? "The engine recorded BS2 for this run" : "The engine did not record BS2 for this run"}
+              >
+                {bs2 ? "BS2" : "No BS2"}
+                <span className="sr-only">{bs2 ? " — the engine recorded BS2 for this run" : " — the engine did not record BS2 for this run"}</span>
+              </span>
+            )}
+          </p>
+        )}
+
         {criterion.af !== null && (!workspace.enabled || workspace.comparison) && (
           <details className="pop-hero__scale pop-thresholds">
             <summary>Rule thresholds · app-defined frequency policy</summary>
@@ -386,7 +406,6 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
             />
           </details>
         )}
-
 
         {criterion.fallback && (
           <p className="pop-hero__footnote">
@@ -434,10 +453,6 @@ export function ClinicalTab({ analysisState, onNavigateToView }: TabComponentPro
               {row.group !== 'rule' && row.contextText && <p className="pop-mono">{row.contextText}</p>}
             </li>)}</ul>
           </section>)}
-      {workspace.comparison && evidence.gnomadHomozygotes !== null && <p className="pop-card__foot">
-        gnomAD homozygotes <span className="pop-mono pop-strong">{formatCount(evidence.gnomadHomozygotes)}</span>
-        {bs2 !== null && <span className="ev-tier chip-code" data-tone={bs2 ? 'good' : 'muted'}>{bs2 ? 'BS2' : 'No BS2'}</span>}
-      </p>}
       {!workspace.comparison && <div className={workspace.enabled ? undefined : "pop-lower"}>
         {/* ── 2. Source readings ──────────────────────────────────────────────────────────── */}
         {!workspace.enabled && <section className="pop-section" aria-labelledby="pop-readings-title">

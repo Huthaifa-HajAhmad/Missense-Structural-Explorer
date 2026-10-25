@@ -117,7 +117,7 @@ export const NarrativeProvenanceRow: React.FC<NarrativeProvenanceRowProps> = ({
     : [{ label: "Prose source", value: narrative ? "Rule-based" : "No narrative" }];
 
   return (
-    <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-surface-2 space-y-2">
+    <div className="p-3 rounded-lg border border-cs-border-subtle bg-cs-workbench-header-surface space-y-2">
       {rows.map(row => (
         <div key={row.label} className="flex justify-between items-baseline gap-3 text-[11px]">
           <span className="text-cs-text-secondary shrink-0">{row.label}</span>

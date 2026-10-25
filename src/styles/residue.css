@@ -345,7 +345,7 @@
 .rsx-glyph-panel {
   display: flex; flex-direction: column; gap: 8px;
   padding: 12px 16px; border: 1px solid var(--cs-border-subtle);
-  border-radius: var(--cs-radius-sm, 8px); background: var(--cs-surface-2);
+  border-radius: var(--cs-radius-sm, 8px); background: var(--cs-accent-wash);
 }
 .rsx-glyph-pair {
   display: flex; align-items: center; justify-content: center; gap: 16px;

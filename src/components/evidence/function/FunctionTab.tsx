@@ -374,7 +374,7 @@ export function FunctionTab({ analysisState, active3dModelTab, onSelectResidue, 
       : null;
 
   return (
-    <div className="fnd-screen @container" data-comparison={workspace.comparison || undefined}>
+    <div data-evidence-screen className="fnd-screen @container" data-comparison={workspace.comparison || undefined}>
       <header className="fnd-header">
         <h1 className="screen-title">Functional domains</h1>
         <p className="screen-tab-description">

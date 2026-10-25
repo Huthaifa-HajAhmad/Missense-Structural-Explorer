@@ -1506,7 +1506,7 @@ function VariantSearchPanel({
                   id="input-quick-entry-status"
                   role="status"
                   aria-live="polite"
-                  className="qe__status"
+                  className={quickDraft.trim() && quickReading.recognised ? "qe__status qe__status--assistive" : "qe__status"}
                   data-tone={!quickDraft.trim() ? "idle" : quickReading.recognised ? "ok" : "pending"}
                 >
                   {quickDraft.trim() ? (

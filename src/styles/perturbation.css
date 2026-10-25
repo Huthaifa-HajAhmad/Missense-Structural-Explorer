@@ -207,7 +207,6 @@
 .ptb-scale__source { display: block; margin-top: 4px; font-size: var(--cs-font-size-badge); color: var(--cs-text-muted); }
 
 .ptb-caveats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.ptb-caveats .ev-tier { cursor: help; }
 
 .ptb-link,
 .ptb-select {

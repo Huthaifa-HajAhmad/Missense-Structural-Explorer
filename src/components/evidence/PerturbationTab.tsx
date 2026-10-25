@@ -299,7 +299,7 @@ function LmRow({
         </span>
         <span className="ptb-subject__note">{lm.description}</span>
         {lm.caveats.length > 0 && (
-          <span className="ptb-caveats">
+          <span className="ptb-caveats ev-caveats">
             {lm.caveats.map(c => (
               <span key={c} className="ev-tier" data-tone="warning" title={LM_CAVEAT_TEXT[c].detail}>{LM_CAVEAT_TEXT[c].label}</span>
             ))}
@@ -446,7 +446,7 @@ function Esm3Rows({ evidence }: { evidence: PerturbationEvidence }) {
             </span>
           )}
           {(e.fallback || peakAway) && (
-            <span className="ptb-caveats">
+            <span className="ptb-caveats ev-caveats">
               {e.fallback && <span className="ev-tier" data-tone="warning" title="ESM3 was unavailable, so VESM-150M produced these numbers.">Fallback model</span>}
               {peakAway && (
                 <span className="ev-tier" data-tone="warning" title="A distant peak does not establish a remote biological effect. Compare its magnitude with the variant-site reading and inspect coverage.">
@@ -650,7 +650,7 @@ export function PerturbationTab({
   ) : "Energetics";
 
   return (
-    <div className="ptb-screen" data-comparison={workspace.comparison || undefined}>
+    <div data-evidence-screen className="ptb-screen" data-comparison={workspace.comparison || undefined}>
       <header className="ptb-header">
         <h1 className="screen-title">Structural perturbation</h1>
         <p className="screen-tab-description">

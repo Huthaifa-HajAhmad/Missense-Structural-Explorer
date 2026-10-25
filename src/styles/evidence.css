@@ -448,79 +448,71 @@
 /* ── State / tier chips ───────────────────────────────────────────────────── */
 
 .ev-tier {
+  --ev-tier-ink: var(--cs-text-secondary);
+  --ev-tier-wash: 9%;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2.5px 7px;
-  border-radius: var(--cs-radius-badge);
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: var(--cs-radius-pill);
   border: 1px solid transparent;
+  /* The wash is mixed over the opaque panel surface, not over whatever is behind the chip: a chip on the accent
+     strip would otherwise inherit that strip's tint and lose the contrast its ink was tuned for. */
+  background: color-mix(in srgb, var(--ev-tier-ink) var(--ev-tier-wash), var(--cs-surface));
+  color: var(--ev-tier-ink);
   font-family: var(--cs-font-sans);
   font-size: var(--cs-font-size-badge);
   font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: 0.02em;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
-/* Every tone is token-driven, so both themes come from one rule and a print
-   pass that flattens tokens lights them correctly. The former literal
-   `.dark .ev-tier` overrides could not be flattened: printing the dark theme
-   put #5EEAD4 on white paper (1.48:1). */
+/* The chip is a quiet pill, not a button: a faint wash of its own ink and a status dot, no outline. The
+   dot is the state; an ACMG code (`.chip-code`) is its own mark and a chip carrying an icon already has
+   one, so neither gets a dot. */
+.ev-tier:not(.chip-code):not(:has(> svg))::before {
+  content: "";
+  flex: none;
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .75;
+}
+.ev-tier.chip-code { padding-inline: 9px; }
+/* Dashed is a meaning (a reading the payload could not confirm, a rule the engine does not apply, a value the
+   author edited): the outline appears only there, drawn in the chip's own ink. One hook for all three. */
+.ev-tier:is([data-unconfirmed], .spl-verdict--unapplied, .rpt-chip--dashed) {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ev-tier-ink) 55%, transparent);
+}
+
+/* Every tone is token-driven, so both themes come from one rule and a print pass that flattens tokens
+   lights them correctly (the former literal `.dark .ev-tier` overrides printed #5EEAD4 on white paper,
+   1.48:1). A tone only names its ink; `tests/chip-contrast.e2e.ts` holds every one at 4.5:1 on a panel and
+   on the accent strip, in both themes. */
 .ev-tier[data-tone="highest"],
-.ev-tier[data-tone="good"] {
-  color: var(--cs-text-good-on-soft);
-  background: var(--cs-bg-success);
-  border-color: color-mix(in srgb, var(--cs-text-success) 25%, transparent);
-}
+.ev-tier[data-tone="good"]    { --ev-tier-ink: var(--cs-text-good-on-soft); }
 /* Something about this run is incomplete and a re-run may change it (e.g. a fallback locus). */
-.ev-tier[data-tone="warn"] {
-  color: var(--cs-text-warning-on-soft);
-  background: var(--cs-bg-warning);
-  border-color: color-mix(in srgb, var(--cs-text-warning-on-soft) 25%, transparent);
-}
-.ev-tier[data-tone="high"] {
-  color: var(--cs-text-teal-on-soft);
-  background: var(--cs-bg-teal);
-  border-color: color-mix(in srgb, var(--cs-text-teal-on-soft) 30%, transparent);
-}
-.ev-tier[data-tone="medium"] {
-  color: var(--cs-text-indigo-on-soft);
-  background: var(--cs-bg-indigo);
-  border-color: color-mix(in srgb, var(--cs-text-indigo-on-soft) 25%, transparent);
-}
-/* Neutral chip. The fill is a translucent mix rather than a surface token:
-   `--cs-bg-subtle` collapsed to the legend card's own `--cs-surface-2` in dark
-   mode (1.00:1, the chip stopped reading as a chip) and to the row-hover
-   background in light mode. A mix over whatever is behind it always differs. */
+.ev-tier[data-tone="warn"],
+.ev-tier[data-tone="warning"] { --ev-tier-ink: var(--cs-text-warning-on-soft); }
+.ev-tier[data-tone="high"]    { --ev-tier-ink: var(--cs-text-teal-on-soft); }
+.ev-tier[data-tone="medium"]  { --ev-tier-ink: var(--cs-text-indigo-on-soft); }
 .ev-tier[data-tone="low"],
-.ev-tier[data-tone="neutral"] {
-  color: var(--cs-text-secondary);
-  background: color-mix(in srgb, var(--cs-text-secondary) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cs-text-secondary) 28%, transparent);
-}
-.ev-tier[data-tone="warning"] {
-  color: var(--cs-text-warning-on-soft);
-  background: var(--cs-bg-warning);
-  border-color: color-mix(in srgb, var(--cs-text-warning) 30%, transparent);
-}
-.ev-tier[data-tone="danger"] {
-  color: var(--cs-text-danger-on-soft);
-  background: var(--cs-bg-danger);
-  border-color: color-mix(in srgb, var(--cs-text-danger) 25%, transparent);
-}
+.ev-tier[data-tone="neutral"] { --ev-tier-ink: var(--cs-text-secondary); }
+.ev-tier[data-tone="danger"]  { --ev-tier-ink: var(--cs-text-danger-on-soft); }
 /* Brand-clay tier: the transcript tier the variant header paints clay, reused
    here so ONE fact about ONE variant is not two colours in one viewport. */
-.ev-tier[data-tone="accent"] {
-  color: var(--cs-text-accent);
-  background: color-mix(in srgb, var(--cs-accent-clay) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cs-accent-clay) 30%, transparent);
-}
-/* Coverage/absence: lighter than `neutral`, which carries a reading. */
-.ev-tier[data-tone="muted"] {
-  color: var(--cs-text-muted);
-  background: color-mix(in srgb, var(--cs-text-muted) 10%, transparent);
-  border-color: color-mix(in srgb, var(--cs-text-muted) 24%, transparent);
-}
+.ev-tier[data-tone="accent"]  { --ev-tier-ink: var(--cs-text-accent); }
+/* Coverage/absence: lighter than `neutral`, which carries a reading. The raw muted text token is 4.4:1 on a
+   white panel in dark mode, so a chip leans toward the secondary ink to clear AA. */
+.ev-tier[data-tone="muted"]   { --ev-tier-ink: color-mix(in srgb, var(--cs-text-muted) 65%, var(--cs-text-secondary)); --ev-tier-wash: 7%; }
+
+/* Caveats repeat on every row they apply to: a verdict-strength warning chip on seven rows read as seven
+   alarms, so every caveat list (Predictors, Energetics, Perturbation) takes the same lighter wash. */
+.ev-caveats .ev-tier:not([data-tone="muted"]) { cursor: help; --ev-tier-ink: var(--cs-text-warning-on-soft); --ev-tier-wash: 6%; }
+.ev-caveats .ev-tier[data-tone="muted"] { cursor: help; }
 
 /* A verdict rather than a status: the ClinVar classification is the card's
    answer, so it takes the prose size and is allowed to wrap —
@@ -531,6 +523,12 @@
   white-space: normal;
   line-height: 1.35;
 }
+/* A chip that may wrap is a rounded tag, not a pill (a pill's end caps swallow a second line), and its dot
+   keeps to the first line. */
+.ev-tier--lg,
+.gd-table td .ev-tier,
+.ctx-table td .ev-tier { border-radius: 10px; }
+.ev-tier--lg::before { align-self: flex-start; margin-block-start: .5em; }
 
 /* ── Data table ───────────────────────────────────────────────────────────── */
 

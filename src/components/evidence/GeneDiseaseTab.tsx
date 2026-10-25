@@ -51,7 +51,7 @@ function GeneDiseaseContent({ result }: { result: NonNullable<TabComponentProps[
   const mechanism = selected && <MechanismContextCard frame={selected} context={context.diseaseLoad?.data?.mechanismContext} onRetry={context.retryDisease} crossCheck={model.crossCheck} />;
   const variant = selected && <VariantLocusCard clinvar={result.clinvar} frame={selected} />;
 
-  return <div ref={root} className="gd-screen cx-screen" data-testid="gene-disease-screen" data-comparison={workspace.comparison || undefined}>
+  return <div ref={root} data-evidence-screen className="gd-screen cx-screen" data-testid="gene-disease-screen" data-comparison={workspace.comparison || undefined}>
     <header><h1 className="screen-title">Gene–disease</h1><p className="screen-tab-description">Review the gene–disease relationship, then its relevance to this variant.</p></header>
     {context.identityChanged && <p className="gd-notice" role="status">The annotation reference changed. Review choices stay with their original transcript, isoform and assembly; select the context for this reference explicitly.</p>}
     <DiseaseContextPicker compact gene={context.gene} load={context.diseaseLoad} selection={context.selection} onChange={selection => {

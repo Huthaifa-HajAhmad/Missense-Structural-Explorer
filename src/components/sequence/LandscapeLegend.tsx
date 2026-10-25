@@ -41,7 +41,7 @@ export function LandscapeLegend({ colorBy, overview = false }: Props) {
   const phylopBp4 = PP3_BP4_CALIBRATION.phylop.bp4.Supporting;
 
   return (
-    <div className="rounded-xl border border-cs-border-subtle bg-cs-surface-2 px-4 py-3 flex flex-col gap-2.5 text-[11px] text-cs-text-secondary" aria-label="Colour key">
+    <div className="rounded-xl border border-cs-border-subtle bg-cs-surface px-4 py-3 flex flex-col gap-2.5 text-[11px] text-cs-text-secondary" aria-label="Colour key">
       <div className="flex flex-wrap items-end gap-x-1 gap-y-2">
         <span className="font-semibold text-cs-text-primary mr-3 self-center">
           {active.name} bands <span className="font-normal text-cs-text-muted">· ClinGen, {calibrationSourceShort(active.key)}</span>
